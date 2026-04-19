@@ -9,8 +9,6 @@ describe("fieldRegistry", () => {
 		const meta = fieldRegistry[kind];
 		expect(meta).toBeDefined();
 		// IconifyIcon is an object literal { body: string; width?: number; ... }.
-		// Phase 1 stored icons as iconify ID strings; Phase 5 stores the imported
-		// data so consumers don't need a parallel fieldKindIcons map.
 		expect(typeof meta.icon).toBe("object");
 		expect(meta.icon).not.toBeNull();
 		expect(typeof (meta.icon as IconifyIcon).body).toBe("string");
