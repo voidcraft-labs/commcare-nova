@@ -1,5 +1,6 @@
 "use client";
 import { useCallback } from "react";
+import { CasePropertyDropdown } from "@/components/builder/editor/fields/CasePropertyEditor";
 import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
@@ -7,19 +8,26 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { asUuid } from "@/lib/doc/types";
+import type { FieldKind } from "@/lib/domain";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
-import { CasePropertyDropdown } from "./CasePropertyDropdown";
 import { OptionsEditor } from "./OptionsEditor";
 import {
 	type FieldEditorProps,
 	type FocusableFieldKey,
 	getModuleCaseTypes,
-	MEDIA_TYPES,
 	useFocusHint,
 } from "./shared";
 
 /** Field keys owned by the Data section — only these trigger focusHint clearing. */
 const DATA_FIELDS = new Set<FocusableFieldKey>(["case_property_on", "options"]);
+
+/** Binary/media kinds whose value can't be a case property. */
+const MEDIA_TYPES = new Set<FieldKind>([
+	"image",
+	"audio",
+	"video",
+	"signature",
+]);
 
 export function ContextualEditorData({ field }: FieldEditorProps) {
 	const ctx = useSelectedFormContext();

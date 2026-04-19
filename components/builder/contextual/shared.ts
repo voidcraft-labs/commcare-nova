@@ -43,8 +43,6 @@ export type FocusableFieldKey =
 	| "case_property_on"
 	| "options";
 
-export const MEDIA_TYPES = new Set(["image", "audio", "video", "signature"]);
-
 // ── Per-type field support ──────────────────────────────────────────────
 // CommCare/Formplayer constraints on which logic properties are meaningful
 // per question type. Verified against CommCare HQ xform.py bind handling,

@@ -1,9 +1,31 @@
+/**
+ * CasePropertyEditor — declarative editor for the `case_property` key.
+ *
+ * Reads the selected form's module to discover writable case types
+ * (the module's own type plus any direct child types) and renders a
+ * Base UI menu to pick one. Renders nothing when:
+ *   - no form is selected (no context to write against),
+ *   - the field can't write to any case type AND isn't a case_name
+ *     question.
+ *
+ * The dropdown widget used to live at
+ * `components/builder/contextual/CasePropertyDropdown.tsx`. That file
+ * is folded in here as a private internal because this editor is the
+ * only remaining consumer. The `MEDIA_TYPES` set also migrates here
+ * for the same reason — it's only used to disable the dropdown for
+ * binary kinds.
+ */
+
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import { useCallback, useId, useMemo, useRef } from "react";
+import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import type { CaseType, Field, FieldKind } from "@/lib/domain";
+import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
+import { useSelectedFormContext } from "@/lib/routing/hooks";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -11,20 +33,47 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
+/** Binary/media kinds whose value can't be a case property — disable the dropdown. */
+const MEDIA_TYPES = new Set<FieldKind>([
+	"image",
+	"audio",
+	"video",
+	"signature",
+]);
+
+/**
+ * Writable case types for a module: the module's own type plus every
+ * child case type that declares the module's type as its parent.
+ */
+function getModuleCaseTypes(
+	caseType: string | undefined,
+	caseTypes: CaseType[],
+): string[] {
+	if (!caseType) return [];
+	const result = [caseType];
+	for (const ct of caseTypes) {
+		if (ct.parent_type === caseType) result.push(ct.name);
+	}
+	return result;
+}
+
 interface CasePropertyDropdownProps {
 	value: string | undefined;
 	isCaseName: boolean;
 	disabled: boolean;
 	caseTypes: string[];
 	onChange: (caseType: string | null) => void;
-	/** When true, the trigger button receives focus on mount (undo/redo restore). */
+	/** When true, the trigger button takes focus on mount (undo/redo restore). */
 	autoFocus?: boolean;
 }
 
 /**
- * Dropdown for selecting which case type a question's value is saved to.
- * Options: "None" (no persistence) + one entry per writable case type.
- * Uses Base UI Menu for proper keyboard navigation and ARIA semantics.
+ * Base UI menu-backed dropdown for the case-property selection.
+ *
+ * Exported so the legacy ContextualEditorData can reuse the widget
+ * during the transition. It's the only external consumer — once
+ * that file is deleted in a later task, this export can be inlined
+ * as a private helper.
  */
 export function CasePropertyDropdown({
 	value,
@@ -38,8 +87,9 @@ export function CasePropertyDropdown({
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 
-	/** Compose autoFocus — focuses the button on mount when restoring focus
-	 *  after undo/redo. Uses a ref callback to fire once on mount. */
+	// Compose autoFocus — a ref callback fires once on mount, which is
+	// what we need for undo/redo focus restoration. An effect would run
+	// after the focus hint was already consumed.
 	const composedTriggerRef = useCallback(
 		(el: HTMLButtonElement | null) => {
 			(triggerRef as React.MutableRefObject<HTMLButtonElement | null>).current =
@@ -75,7 +125,9 @@ export function CasePropertyDropdown({
 		return result;
 	}, [caseTypes]);
 
-	/* Hide entirely when no case types exist and this isn't a case_name question */
+	// Hide entirely when no case types exist and this isn't a case_name
+	// question. CasePropertyEditor applies the same gate higher up, but
+	// keeping it here defends the widget as a standalone primitive.
 	if (caseTypes.length === 0 && !isCaseName) return null;
 
 	const activeKey = value ?? "__none__";
@@ -191,7 +243,9 @@ export function CasePropertyDropdown({
 					</Menu.Portal>
 				</Menu.Root>
 			) : (
-				/* Static trigger when non-interactive (disabled or case_name) */
+				// Static trigger when non-interactive (disabled or case_name).
+				// Rendering an inert button (rather than skipping entirely)
+				// keeps the row present so the label doesn't reflow away.
 				<button
 					type="button"
 					ref={composedTriggerRef}
@@ -211,6 +265,50 @@ export function CasePropertyDropdown({
 					</span>
 				</button>
 			)}
+		</div>
+	);
+}
+
+/**
+ * Declarative adapter around CasePropertyDropdown. Resolves writable
+ * case types from the URL-selected form and marshals the generic
+ * `onChange` into the dropdown's `string | null` shape (null clears).
+ *
+ * The `as F["case_property" & keyof F]` cast is the registry-narrowing
+ * invariant: only kinds that carry `case_property` wire this component
+ * in their editor schema, and on those kinds the key's type is exactly
+ * `string | undefined`.
+ */
+export function CasePropertyEditor<F extends Field>(
+	props: FieldEditorComponentProps<F, "case_property" & keyof F>,
+) {
+	const { field, value, onChange, autoFocus } = props;
+	const ctx = useSelectedFormContext();
+	const caseTypes = useCaseTypes();
+
+	if (!ctx) return null;
+
+	const writableCaseTypes = getModuleCaseTypes(ctx.module.caseType, caseTypes);
+	const isCaseName = field.id === "case_name";
+
+	// Hide entirely when the field has no case-writing affordance at
+	// all. Case-name questions always render because the module guarantees
+	// a primary type, but for every other field the section should
+	// collapse when no writable types exist.
+	if (!isCaseName && writableCaseTypes.length === 0) return null;
+
+	return (
+		<div data-field-id="case_property_on">
+			<CasePropertyDropdown
+				value={typeof value === "string" ? value : undefined}
+				isCaseName={isCaseName}
+				disabled={MEDIA_TYPES.has(field.kind)}
+				caseTypes={writableCaseTypes}
+				onChange={(caseType) =>
+					onChange((caseType ?? undefined) as F["case_property" & keyof F])
+				}
+				autoFocus={autoFocus}
+			/>
 		</div>
 	);
 }
