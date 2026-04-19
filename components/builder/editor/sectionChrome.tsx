@@ -2,13 +2,9 @@
  * Shared chrome for editor sections — the card wrapper class and the
  * uppercase micro-label with a violet accent bar.
  *
- * Extracted so `FieldEditorPanel` (Data / Logic / Appearance cards)
- * and any other surface that renders a labelled settings card share
- * one definition. Style-drift between the two would be a silent UI
- * bug; single ownership here prevents it.
- *
- * Consumers: `FieldEditorPanel` today; InlineSettingsPanel after T8
- * folds its Logic-section card back into the registry-driven editor.
+ * Extracted so every panel that composes labelled settings cards
+ * shares one visual definition. Style-drift between panels would
+ * be a silent UI bug; single ownership here prevents it.
  */
 "use client";
 
