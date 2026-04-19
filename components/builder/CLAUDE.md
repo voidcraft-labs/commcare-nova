@@ -87,17 +87,78 @@ The undo/redo action runs: temporal store restore → `flushSync` (forces a Reac
 
 **Focus restoration** uses a focus-hint string storing the active field's data-id. A delegated onFocus handler writes the active field to session state, so blur-triggered saves capture the correct field. The hint is consumed once by the matching editor section and cleared. Do not query `document.activeElement` — blur moves focus before the snapshot fires.
 
-## Properties panel — per-type field support
+## Editor
 
-Not every question property applies to every question type. A central field-type-support map drives visibility. CommCare/Formplayer constraints force the sets: `calculate` overwrites user input so only hidden fields should have it; `required` is ignored on groups by Formplayer; media types have no XPath-expressible value.
+Field editing is registry-driven. The hierarchy:
 
-When adding a new property, add it to the map. Fields absent from the map are allowed on all types (safe default). Type-conversion families are designed so every member shares identical field support, so conversions can't produce stale properties.
+- `InlineSettingsPanel` — the violet glass drawer mounted under a selected
+  row. Renders chrome only (the focus-handler delegate that tracks active
+  fields for undo/redo). Composes `<FieldHeader>` + `<FieldEditorPanel>`.
+- `FieldHeader` (in `editor/`) — id input, type-icon adornment, kebab menu
+  (move/duplicate/convert/delete), trash button. Reads
+  `fieldRegistry[kind]` for icon/label/convertTargets.
+- `FieldEditorPanel` (in `editor/`) — composes three `FieldEditorSection`s
+  (Data / Logic / Appearance). Hides empty sections via `sectionHasContent`.
+- `FieldEditorSection` (in `editor/`) — partitions schema entries into
+  visible (rendered via their component) vs addable-but-hidden (rendered
+  as Add Property pills). Activation state lives in `useEntryActivation`;
+  an effect clears activation when a pending entry becomes independently
+  visible.
+- Per-key editor components in `editor/fields/` — each one knows how to
+  edit a single field key (XPathEditor, RequiredEditor, TextEditor,
+  CasePropertyEditor, OptionsEditor).
 
-Editor sub-panels own their own visibility and return `null` when the type has no applicable fields.
+The Zod schemas + kind metadata live in `lib/domain/fields/<kind>.ts`;
+the editor schemas keyed by `FieldKind` live in
+`components/builder/editor/fieldEditorSchemas.ts`. Adding a new property
+= adding one entry to a kind's schema. Adding a new kind = a new file
+in `lib/domain/fields/` + a new entry in `fieldEditorSchemas`.
 
 ## Field header — compute move targets inline
 
 Move targets and `isFirst` / `isLast` flags are computed in the render body, NOT in `useMemo`. After a reorder, Immer produces new entity-map references that trigger a re-render, and inline computation picks up the fresh state. Memoizing on `[selected]` alone would miss the reorder because selection doesn't change on reorder.
+
+## App tree
+
+`components/builder/appTree/` holds the structure sidebar:
+
+- `AppTree.tsx` — shell (search input, scroll container, module dispatch).
+- `ModuleCard.tsx` / `FormCard.tsx` / `FieldRow.tsx` — three memoized row
+  components, one per entity level. Each subscribes to its own entity in
+  the doc store; Immer structural sharing means an edit to one field
+  re-renders only its `FieldRow`.
+- `useSearchFilter.ts` — entity-map-based search filter. SEARCH_IDLE
+  sentinel keeps the subscription stable when the user isn't searching.
+- `useFieldIconMap.ts` — per-form `{ path → icon }` for chip rendering.
+- `useAppTreeSelection.ts` — produces the `handleSelect` callback. Question
+  selection primes a pending scroll BEFORE navigating so the target row's
+  `useFulfillPendingScroll` has a request waiting when `isSelected` flips.
+- `shared.tsx` — `TreeItemRow`, `CollapseChevron`, `HighlightedText`,
+  `FormIconContext`.
+
+## Form settings
+
+`components/builder/detail/formSettings/`:
+
+- `FormSettingsButton.tsx` — popover trigger (the public mount point).
+- `FormSettingsPanel.tsx` — drawer chrome + section list.
+- `CloseConditionSection.tsx` / `AfterSubmitSection.tsx` /
+  `ConnectSection.tsx` — three top-level features.
+- `LearnConfig.tsx` / `DeliverConfig.tsx` — two connect-mode sub-configs.
+- `SelectMenu.tsx` — shared dropdown primitive (chevron + corner-rounding
+  + anchor wiring). Used by close-mode, operator, value, and
+  after-submit-destination menus.
+- `InlineField.tsx` / `LabeledXPathField.tsx` — compact widgets.
+- `useConnectLintContext.ts` — XPath lint context for the form.
+- `findFieldById.ts` — depth-first lookup by semantic id.
+- `types.ts` — shared `FormSettingsSectionProps`.
+
+## Virtual form list
+
+`VirtualFormList.tsx` (in `components/preview/form/virtual/`) is the
+edit-mode form renderer. The drag-lifecycle state + `monitorForElements`
+registration + cursor-velocity tracking live in `useDragIntent.ts`. The
+shell handles virtualization, row dispatch, and the question-picker menu.
 
 ## BuilderProvider
 

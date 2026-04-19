@@ -115,6 +115,8 @@ Navigation is URL-owned and uses the browser History API (not Next's router) to 
 
 **BuilderProvider** lives at `components/builder/BuilderProvider.tsx` — mounts the full provider stack (doc store → session store → scroll registry → edit guard → form engine) and the lifecycle hydrators (SyncBridge, ReplayHydrator, LoadAppHydrator).
 
+**Field editor surface.** Each `lib/domain/fields/<kind>.ts` exports the Zod schema + `FieldKindMetadata` for its kind. The declarative editor schemas live in `components/builder/editor/fieldEditorSchemas.ts`, keyed by `FieldKind`. `FieldEditorPanel` (in `components/builder/editor/`) reads those schemas — no per-kind switching in the panel. Add a field property by adding an entry to a kind's schema. Add a field kind by creating a new file in `lib/domain/fields/`, adding it to the `fieldKinds` tuple + `fieldSchema` union + `fieldRegistry`, and wiring a schema entry in `fieldEditorSchemas.ts`.
+
 ### DOM listeners
 
 Use React 19 ref-callback cleanup (not `useEffect`) for click-outside, Escape, and observer wire-up.
