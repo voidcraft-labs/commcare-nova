@@ -161,6 +161,18 @@ async function loadPayloads(): Promise<[RunPayload, RunPayload]> {
 
 // ── Comparison printing ─────────────────────────────────────────────
 
+/* Column widths used by both the row renderer and the header separator.
+ * Extracted so the `─` separator stays in sync with the rendered row width
+ * automatically — previously the separator was a hardcoded 68/54 that
+ * silently drifted if any column width changed. */
+const LABEL_W = 22;
+const COL_W = 16;
+const DELTA_W = 12;
+/* Rows are `label + valueA + valueB [+ gap + delta]`. The 2-char gap before
+ * the delta column matches the `"  "` literal in `deltaPad` below. */
+const ROW_WIDTH_WITH_DELTA = LABEL_W + COL_W * 2 + 2 + DELTA_W;
+const ROW_WIDTH_WITHOUT_DELTA = LABEL_W + COL_W * 2;
+
 /**
  * Print a side-by-side row: label + two values + optional delta. Widths
  * are fixed so rows align vertically across sections without recomputing.
@@ -171,21 +183,22 @@ function printCompRow(
 	valueB: string,
 	delta?: string,
 ): void {
-	const labelPad = label.padEnd(22);
-	const aPad = valueA.padStart(16);
-	const bPad = valueB.padStart(16);
-	const deltaPad = delta !== undefined ? `  ${delta.padStart(12)}` : "";
+	const labelPad = label.padEnd(LABEL_W);
+	const aPad = valueA.padStart(COL_W);
+	const bPad = valueB.padStart(COL_W);
+	const deltaPad = delta !== undefined ? `  ${delta.padStart(DELTA_W)}` : "";
 	console.log(`  ${labelPad}${aPad}${bPad}${deltaPad}`);
 }
 
 /** Column header row + separator for a comparison block. */
 function printCompHeader(labelA: string, labelB: string, showDelta = true) {
-	const labelPad = "".padEnd(22);
-	const aLabel = labelA.padStart(16);
-	const bLabel = labelB.padStart(16);
-	const deltaLabel = showDelta ? `  ${"Delta".padStart(12)}` : "";
+	const labelPad = "".padEnd(LABEL_W);
+	const aLabel = labelA.padStart(COL_W);
+	const bLabel = labelB.padStart(COL_W);
+	const deltaLabel = showDelta ? `  ${"Delta".padStart(DELTA_W)}` : "";
 	console.log(`  ${labelPad}${aLabel}${bLabel}${deltaLabel}`);
-	console.log(`  ${"─".repeat(showDelta ? 68 : 54)}`);
+	const width = showDelta ? ROW_WIDTH_WITH_DELTA : ROW_WIDTH_WITHOUT_DELTA;
+	console.log(`  ${"─".repeat(width)}`);
 }
 
 /**
@@ -324,13 +337,16 @@ async function main() {
 		const durB = sumB
 			? Date.parse(sumB.finishedAt) - Date.parse(sumB.startedAt)
 			: Number.NaN;
+		/* `formatDelta` already passes `Math.abs(diff)` to the formatter and
+		 * prepends the sign itself — the `duration` formatter receives a
+		 * non-negative ms value and the sign rides on the output prefix
+		 * (e.g. "+30s" vs "−30s"). Do NOT re-absolutize inside the lambda:
+		 * that was load-bearing-looking noise that suggested a sign bug. */
 		printCompRow(
 			"Duration",
 			sumA ? duration(durA) : "—",
 			sumB ? duration(durB) : "—",
-			sumA && sumB
-				? formatDelta(durA, durB, (ms) => duration(Math.abs(ms)))
-				: undefined,
+			sumA && sumB ? formatDelta(durA, durB, duration) : undefined,
 		);
 	}
 

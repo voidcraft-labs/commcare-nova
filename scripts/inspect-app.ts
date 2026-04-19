@@ -281,26 +281,27 @@ async function main() {
 		.get();
 
 	if (!threads.empty) {
-		/* Pre-fetch per-run summary docs for each thread so we can surface the
-		 * prompt mode and cache-expiry context that Phase-3 read off config log
-		 * events. The summary doc at apps/{appId}/runs/{runId} is the Phase-4
-		 * successor — one doc per run, written once on finalize. Threads whose
-		 * runs predate summary writes (or failed before flush) show "—". */
+		/* Pre-fetch per-run summary docs for every thread, unconditionally. The
+		 * Phase-4 summary doc at apps/{appId}/runs/{runId} is the replacement
+		 * for the Phase-3 config-event rendering — prompt mode, app-ready
+		 * state, cache-expiry flag, and module count. The previous revision
+		 * gated the fetch on `--threads`, which silently hid the "Run: ..."
+		 * line from the default structure view even though the code below
+		 * renders it unconditionally from `summaryByRun`. Fetch always so
+		 * the per-thread row shows the same context in both views. */
 		const runIds = threads.docs
 			.map((d) => d.data().run_id as string | undefined)
 			.filter((id): id is string => Boolean(id));
-		const summaryByRun = new Map<string, RunSummaryDoc>();
 
-		if (showThreads && runIds.length > 0) {
-			const summaries = await Promise.all(
-				runIds.map(async (runId) => ({
-					runId,
-					summary: await readRunSummary(appId, runId),
-				})),
-			);
-			for (const { runId, summary } of summaries) {
-				if (summary) summaryByRun.set(runId, summary);
-			}
+		const summaries = await Promise.all(
+			runIds.map(async (runId) => ({
+				runId,
+				summary: await readRunSummary(appId, runId),
+			})),
+		);
+		const summaryByRun = new Map<string, RunSummaryDoc>();
+		for (const { runId, summary } of summaries) {
+			if (summary) summaryByRun.set(runId, summary);
 		}
 
 		printSection("Chat Threads");
@@ -316,13 +317,15 @@ async function main() {
 			console.log(`    Run ID:   ${t.run_id}`);
 
 			/* Run summary fields mirror the old config-event output: prompt mode,
-			 * app-ready state, cache-expired flag, module count at start of run. */
+			 * app-ready state, cache-expired flag, module count at start of run.
+			 * Always rendered — shown as a "no summary doc" placeholder when the
+			 * run never finalised (e.g. builds that failed before flush). */
 			const summary = summaryByRun.get(t.run_id);
 			if (summary) {
 				console.log(
 					`    Run:      prompt=${summary.promptMode} appReady=${summary.appReady} cacheExpired=${summary.cacheExpired} modules=${summary.moduleCount}`,
 				);
-			} else if (showThreads) {
+			} else {
 				console.log("    Run:      (no run summary doc for this run)");
 			}
 

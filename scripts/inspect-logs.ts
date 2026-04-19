@@ -64,13 +64,44 @@ const showRunsTable = process.argv.includes("--runs");
 const showTimeline = process.argv.includes("--timeline");
 const showTools = process.argv.includes("--tools");
 const showStages = process.argv.includes("--stages");
-const runFilter = process.argv
-	.find((a) => a.startsWith("--run="))
-	?.split("=")[1];
-const lastN = Number.parseInt(
-	process.argv.find((a) => a.startsWith("--last="))?.split("=")[1] ?? "0",
-	10,
-);
+
+/**
+ * Extract the value of a `--flag=value` argument, or `null` when the flag
+ * is absent. A *present-but-empty* flag (`--run=`) is returned as `""` so
+ * the caller can reject it explicitly — silently coercing an empty value
+ * to "no filter" would mask typos.
+ */
+function extractFlagValue(flag: string): string | null {
+	const match = process.argv.find((a) => a.startsWith(`${flag}=`));
+	if (match === undefined) return null;
+	return match.slice(flag.length + 1);
+}
+
+/* `--run=<runId>` — filter to a single run. An empty value is user error,
+ * not intent to drop the filter, so we reject it instead of silently
+ * ignoring (which would hide typos like `--run= abc123`). */
+const rawRunFilter = extractFlagValue("--run");
+if (rawRunFilter !== null && rawRunFilter === "") {
+	console.error("--run requires a runId (e.g. --run=abc123).");
+	process.exit(1);
+}
+const runFilter: string | undefined = rawRunFilter ?? undefined;
+
+/* `--last=N` — trim to the last N events after loading. Must be a positive
+ * integer; anything else is a typo or non-numeric junk that we reject
+ * up-front rather than silently falling through to "no limit". The
+ * `String(parsed) !== rawLastN` check rejects trailing garbage like "5abc"
+ * that `Number.parseInt` would otherwise accept. */
+const rawLastN = extractFlagValue("--last");
+let lastN = 0;
+if (rawLastN !== null) {
+	const parsed = Number.parseInt(rawLastN, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== rawLastN) {
+		console.error(`--last requires a positive integer (got "${rawLastN}").`);
+		process.exit(1);
+	}
+	lastN = parsed;
+}
 
 /**
  * Any analytical view flag replaces the default per-run event dump. The
@@ -78,6 +109,16 @@ const lastN = Number.parseInt(
  */
 const hasAnalyticalView =
 	showRunsTable || showTimeline || showTools || showStages;
+
+/**
+ * `--runs` is the only view that can render without touching the events
+ * collection at all — it reads the `runs` subcollection directly. Every
+ * other view (including the default event dump) needs `Event[]`. When the
+ * user passes *only* `--runs` (no events-consuming companion view, no
+ * `--run=` filter), we skip the full-events scan entirely.
+ */
+const runsTableOnly =
+	showRunsTable && !showTimeline && !showTools && !showStages && !runFilter;
 
 // ── Data loading ────────────────────────────────────────────────────
 
@@ -99,15 +140,36 @@ async function loadEvents(): Promise<Event[]> {
 	return snap.docs.map((d) => d.data());
 }
 
+/**
+ * Load every run-summary doc for the app, newest-first by `finishedAt`.
+ * Sole data source for the `--runs` fast path — no events are scanned.
+ * Runs that exist in the events collection but haven't been finalized
+ * (no summary doc written yet) do not appear here; the view reports
+ * what `runs/` contains.
+ */
+async function loadRunSummariesNewestFirst(): Promise<
+	Array<{ runId: string; summary: RunSummaryDoc }>
+> {
+	const snap = await collections
+		.runs(appId)
+		.orderBy("finishedAt", "desc")
+		.get();
+	return snap.docs.map((d) => ({ runId: d.id, summary: d.data() }));
+}
+
 // ── Event display ───────────────────────────────────────────────────
 
 /**
  * Truncated timestamp (HH:MM:SS.mmm) for single-line event output. The
  * leading date portion is redundant inside a single run — all events share
  * the same day in practice, and the run header already shows full ISO.
+ *
+ * `Date.prototype.toISOString()` is speced to always return the fixed-width
+ * shape `YYYY-MM-DDTHH:MM:SS.sssZ`, so a direct character-index slice
+ * (position 11 through 22) extracts `HH:MM:SS.mmm` without a fallback.
  */
 function formatTime(ts: number): string {
-	return new Date(ts).toISOString().split("T")[1]?.slice(0, 12) ?? String(ts);
+	return new Date(ts).toISOString().slice(11, 23);
 }
 
 /** One-line summary of a conversation payload. */
@@ -231,20 +293,22 @@ function formatEventCounts(events: Event[]): string {
 // ── Analytical views ────────────────────────────────────────────────
 
 /**
- * Render the --runs per-run summary table. One row per run, sourced from
- * the `runs` subcollection (not the events collection). Runs without a
- * summary doc (e.g. migrated historical runs before summaries existed)
- * show "—" in cost/token columns.
+ * Render the `--runs` per-run summary table. Accepts pre-fetched
+ * `{ runId, summary }` rows so callers can pick the data source that
+ * matches their invocation path:
+ *
+ *   - `--runs` alone → the `runs` subcollection (newest-first, no events).
+ *   - `--runs --timeline` / `--runs --tools` → merged with the event-derived
+ *     runIds so event-only runs render as "—" rows alongside finalised ones.
+ *
+ * Rows with a `null` summary (no summary doc) render as a single runId
+ * column plus dashes — they represent runs that logged events but never
+ * called `UsageAccumulator.flush`.
  */
-async function printRunsTableView(runIds: string[]): Promise<void> {
+function printRunsTableView(
+	rows: Array<{ runId: string; summary: RunSummaryDoc | null }>,
+): void {
 	printSection("Per-Run Summaries");
-
-	const summaries = await Promise.all(
-		runIds.map(async (runId) => {
-			const summary = await readRunSummary(appId, runId);
-			return { runId, summary };
-		}),
-	);
 
 	printTable(
 		[
@@ -258,7 +322,7 @@ async function printRunsTableView(runIds: string[]): Promise<void> {
 			{ header: "Cache%", align: "right" },
 			{ header: "Cost", align: "right" },
 		],
-		summaries.map(({ runId, summary }) => {
+		rows.map(({ runId, summary }) => {
 			if (!summary) {
 				return [
 					`${runId.slice(0, 8)}…`,
@@ -339,6 +403,25 @@ function printStagesView(events: Event[]): void {
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main() {
+	/* ── Fast path: only --runs was passed ─────────────────────────────
+	 * Read the `runs` subcollection directly (newest-first by finishedAt)
+	 * and render the summary table. Skips the full events scan that every
+	 * other view path requires. */
+	if (runsTableOnly) {
+		const runRows = await loadRunSummariesNewestFirst();
+		printHeader("LOG INSPECTION (read-only)");
+		printKV([
+			["App", appId],
+			["Runs with summary", String(runRows.length)],
+		]);
+		if (runRows.length === 0) {
+			console.log("\n  (no run summary docs — no runs have finalized yet)");
+			return;
+		}
+		printRunsTableView(runRows);
+		return;
+	}
+
 	const allEvents = await loadEvents();
 	const trimmed = lastN > 0 ? allEvents.slice(-lastN) : allEvents;
 
@@ -354,26 +437,46 @@ async function main() {
 	const runIds = [...runs.keys()];
 
 	printHeader("LOG INSPECTION (read-only)");
-	/* Build the KV block incrementally so optional filter rows stay plain mutable
-	 * tuples — `as const` would make them readonly and fail `printKV`'s signature. */
+	/* Build the KV block incrementally so optional filter rows stay plain
+	 * mutable tuples — `as const` would make them readonly and fail
+	 * `printKV`'s signature. Labels are distinct per filter type so a
+	 * combined `--run=x --last=N` invocation doesn't emit two "Filter" rows. */
 	const headerRows: Array<[string, string]> = [
 		["App", appId],
 		["Events", String(trimmed.length)],
 		["Runs", String(runs.size)],
 	];
-	if (runFilter) headerRows.push(["Filter", `run=${runFilter}`]);
-	if (lastN > 0) headerRows.push(["Filter", `last ${lastN} events`]);
+	if (runFilter) headerRows.push(["Run filter", runFilter]);
+	if (lastN > 0) headerRows.push(["Last N", String(lastN)]);
 	printKV(headerRows);
 
-	/* --runs prints one table for all runs up front — no per-run event dump
-	 * below, since the analytical-view flag is set. */
+	/* Pre-fetch every per-run summary in parallel before entering the render
+	 * loop. Serial `await`s inside the loop (one round-trip per run) turned
+	 * 20 runs into 20 × network-latency seconds; `Promise.all` collapses
+	 * that to one parallel burst. Lookups inside the render loop are then
+	 * synchronous `Map.get` calls. */
+	const summaryEntries = await Promise.all(
+		runIds.map(async (runId) => {
+			const summary = await readRunSummary(appId, runId);
+			return [runId, summary] as const;
+		}),
+	);
+	const summaryByRun = new Map(summaryEntries);
+
+	/* --runs merges event-derived runIds with their summary docs (or `null`
+	 * when a run never finalised). Analytical-only view — no per-run event
+	 * dump below because the table up top already summarises every run. */
 	if (showRunsTable) {
-		await printRunsTableView(runIds);
+		const rows = runIds.map((runId) => ({
+			runId,
+			summary: summaryByRun.get(runId) ?? null,
+		}));
+		printRunsTableView(rows);
 	}
 
 	/* Per-run section: summary doc + (optional) analytical views or event list. */
 	for (const [runId, runEvents] of runs) {
-		const summary = await readRunSummary(appId, runId);
+		const summary = summaryByRun.get(runId) ?? null;
 
 		console.log(
 			`\n── Run ${runId.slice(0, 8)}… ─────────────────────────────────────`,
