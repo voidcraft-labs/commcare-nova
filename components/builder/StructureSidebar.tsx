@@ -7,7 +7,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
-import { AppTree } from "@/components/builder/AppTree";
+import { AppTree } from "@/components/builder/appTree/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
 

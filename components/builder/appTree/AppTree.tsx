@@ -1,15 +1,18 @@
 /**
  * AppTree — structure sidebar with per-entity subscriptions.
  *
- * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to its
- * own entity in the builder store by ID/UUID. Immer structural sharing means
- * editing field A's label only re-renders FieldRow(A) in the sidebar —
- * not the other 166 FieldRows, not the FormCards, not the ModuleCards.
+ * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to
+ * its own entity in the builder store by ID/UUID. Immer structural
+ * sharing means editing field A's label only re-renders FieldRow(A) in
+ * the sidebar — not the other 166 FieldRows, not the FormCards, not the
+ * ModuleCards.
  *
- * Selection uses boolean selectors — only the old and new selected components
- * re-render on selection change (2 total), not every tree item.
+ * Selection uses boolean selectors — only the old and new selected
+ * components re-render on selection change (2 total), not every tree
+ * item.
  *
- * Search filtering operates directly on entity maps — no assembled TreeData.
+ * Search filtering operates directly on entity maps — no assembled
+ * TreeData is constructed.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
