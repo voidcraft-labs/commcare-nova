@@ -1,39 +1,33 @@
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { AnimatePresence, motion } from "motion/react";
-import { useId, useMemo, useRef } from "react";
+import { useId, useMemo } from "react";
 import { FieldPicker } from "@/components/ui/FieldPicker";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Uuid } from "@/lib/doc/types";
-import {
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_SUBMENU_POSITIONER_CLS,
-} from "@/lib/styles";
+import { asUuid } from "@/lib/doc/types";
 import { findFieldById } from "./findFieldById";
 import { InlineField } from "./InlineField";
-
-/**
- * Form-settings panel prop shape. The close-condition, after-submit, and
- * connect sections all accept the same `{ moduleUuid, formUuid }` pair
- * from the parent shell — declared locally because the shell doesn't need
- * an exported type and each section owns its own props contract.
- */
-interface FormSettingsPanelProps {
-	moduleUuid: Uuid;
-	formUuid: Uuid;
-}
+import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
+import type { FormSettingsSectionProps } from "./types";
 
 /** Two-valued mode switch: auto-close ("always") vs. predicate ("conditional"). */
 type CloseMode = "always" | "conditional";
 
 /** Options for the top-level close-behavior dropdown. */
-const CLOSE_MODE_OPTIONS: Array<{ value: CloseMode; label: string }> = [
+const CLOSE_MODE_OPTIONS: ReadonlyArray<SelectMenuOption<CloseMode>> = [
 	{ value: "always", label: "Always" },
 	{ value: "conditional", label: "When condition is met" },
+];
+
+/** Operator options for the conditional close predicate. `=` is string
+ *  equality; `selected` invokes HQ's `selected()` XPath function on a
+ *  multi-select source field. */
+type CloseOperator = "=" | "selected";
+
+const OPERATOR_OPTIONS: ReadonlyArray<SelectMenuOption<CloseOperator>> = [
+	{ value: "=", label: "is" },
+	{ value: "selected", label: "has selected" },
 ];
 
 /**
@@ -47,13 +41,10 @@ const CLOSE_MODE_OPTIONS: Array<{ value: CloseMode; label: string }> = [
  * string values in quotes automatically, so users type literal values
  * rather than XPath expressions.
  */
-export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
+export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const triggerId = useId();
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const operatorTriggerRef = useRef<HTMLButtonElement>(null);
-	const valueTriggerRef = useRef<HTMLButtonElement>(null);
 
 	/* Subscribe to the doc's normalized field + order maps. Shallow
 	 * equality short-circuits re-renders when an entity map's identity
@@ -80,9 +71,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 	if (form?.type !== "close") return null;
 
 	const currentMode: CloseMode = form.closeCondition ? "conditional" : "always";
-	const currentLabel =
-		CLOSE_MODE_OPTIONS.find((o) => o.value === currentMode)?.label ?? "Always";
-	const operator = form.closeCondition?.operator ?? "=";
+	const operator: CloseOperator = form.closeCondition?.operator ?? "=";
 
 	const handleSelect = (mode: CloseMode) => {
 		if (mode === "always") {
@@ -98,7 +87,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 		patch: Partial<{
 			field: string;
 			answer: string;
-			operator: "=" | "selected";
+			operator: CloseOperator;
 		}>,
 	) => {
 		const current = form.closeCondition ?? { field: "", answer: "" };
@@ -106,6 +95,8 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 			closeCondition: { ...current, ...patch },
 		});
 	};
+
+	const answer = form.closeCondition?.answer ?? "";
 
 	return (
 		<div>
@@ -115,71 +106,12 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 			>
 				Close Behavior
 			</label>
-			<Menu.Root>
-				<Menu.Trigger
-					ref={triggerRef}
-					id={triggerId}
-					className="group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-				>
-					<span>{currentLabel}</span>
-					<svg
-						aria-hidden="true"
-						width="10"
-						height="10"
-						viewBox="0 0 10 10"
-						className="text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-					>
-						<path
-							d="M2 3.5L5 6.5L8 3.5"
-							stroke="currentColor"
-							strokeWidth="1.2"
-							fill="none"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						/>
-					</svg>
-				</Menu.Trigger>
-
-				<Menu.Portal>
-					<Menu.Positioner
-						side="bottom"
-						align="start"
-						sideOffset={4}
-						anchor={triggerRef}
-						className={MENU_SUBMENU_POSITIONER_CLS}
-						style={{ minWidth: "var(--anchor-width)" }}
-					>
-						<Menu.Popup className={MENU_POPUP_CLS}>
-							{CLOSE_MODE_OPTIONS.map((opt, i) => {
-								const isActive = opt.value === currentMode;
-								const last = CLOSE_MODE_OPTIONS.length - 1;
-								const corners =
-									i === 0 && i === last
-										? "rounded-xl"
-										: i === 0
-											? "rounded-t-xl"
-											: i === last
-												? "rounded-b-xl"
-												: "";
-
-								return (
-									<Menu.Item
-										key={opt.value}
-										onClick={() => handleSelect(opt.value)}
-										className={`${corners} ${
-											isActive
-												? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-												: MENU_ITEM_CLS
-										}`}
-									>
-										<span>{opt.label}</span>
-									</Menu.Item>
-								);
-							})}
-						</Menu.Popup>
-					</Menu.Positioner>
-				</Menu.Portal>
-			</Menu.Root>
+			<SelectMenu
+				triggerId={triggerId}
+				value={currentMode}
+				options={CLOSE_MODE_OPTIONS}
+				onChange={handleSelect}
+			/>
 
 			{/* Conditional close fields — field ID, operator, value */}
 			<AnimatePresence>
@@ -193,8 +125,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 					>
 						<div className="space-y-2 mt-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 							{/* Field picker — autocomplete of form fields. Reads the
-							 *  doc's normalized fields + order maps directly; no
-							 *  intermediate assembled-questions shape. */}
+							 *  doc's normalized fields + order maps directly. */}
 							<FieldPicker
 								source={{ fields, fieldOrder }}
 								parentUuid={formUuid}
@@ -210,71 +141,11 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 								<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 block">
 									Operator
 								</span>
-								<Menu.Root>
-									<Menu.Trigger
-										ref={operatorTriggerRef}
-										className="group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-									>
-										<span>
-											{operator === "selected" ? "has selected" : "is"}
-										</span>
-										<svg
-											aria-hidden="true"
-											width="10"
-											height="10"
-											viewBox="0 0 10 10"
-											className="text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-										>
-											<path
-												d="M2 3.5L5 6.5L8 3.5"
-												stroke="currentColor"
-												strokeWidth="1.2"
-												fill="none"
-												strokeLinecap="round"
-												strokeLinejoin="round"
-											/>
-										</svg>
-									</Menu.Trigger>
-									<Menu.Portal>
-										<Menu.Positioner
-											side="bottom"
-											align="start"
-											sideOffset={4}
-											anchor={operatorTriggerRef}
-											className={MENU_SUBMENU_POSITIONER_CLS}
-											style={{ minWidth: "var(--anchor-width)" }}
-										>
-											<Menu.Popup className={MENU_POPUP_CLS}>
-												{(
-													[
-														{ value: "=", label: "is" },
-														{
-															value: "selected",
-															label: "has selected",
-														},
-													] as const
-												).map((opt, i) => {
-													const isActive = opt.value === operator;
-													return (
-														<Menu.Item
-															key={opt.value}
-															onClick={() =>
-																updateCondition({ operator: opt.value })
-															}
-															className={`${i === 0 ? "rounded-t-xl" : "rounded-b-xl"} ${
-																isActive
-																	? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-																	: MENU_ITEM_CLS
-															}`}
-														>
-															<span>{opt.label}</span>
-														</Menu.Item>
-													);
-												})}
-											</Menu.Popup>
-										</Menu.Positioner>
-									</Menu.Portal>
-								</Menu.Root>
+								<SelectMenu
+									value={operator}
+									options={OPERATOR_OPTIONS}
+									onChange={(v) => updateCondition({ operator: v })}
+								/>
 							</div>
 
 							{/* Value — dropdown of field options when available, free text otherwise.
@@ -285,90 +156,44 @@ export function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 block">
 										Value <span className="text-nova-rose ml-0.5">*</span>
 									</span>
-									<Menu.Root>
-										<Menu.Trigger
-											ref={valueTriggerRef}
-											className="group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-										>
-											<span
-												className={
-													form.closeCondition.answer
-														? "font-mono text-nova-violet-bright"
-														: "text-nova-text-muted"
-												}
-											>
-												{form.closeCondition.answer
-													? (selectedFieldOptions.find(
-															(o) => o.value === form.closeCondition?.answer,
-														)?.label ?? form.closeCondition.answer)
-													: "Select a value..."}
-											</span>
-											<svg
-												aria-hidden="true"
-												width="10"
-												height="10"
-												viewBox="0 0 10 10"
-												className="text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-											>
-												<path
-													d="M2 3.5L5 6.5L8 3.5"
-													stroke="currentColor"
-													strokeWidth="1.2"
-													fill="none"
-													strokeLinecap="round"
-													strokeLinejoin="round"
-												/>
-											</svg>
-										</Menu.Trigger>
-										<Menu.Portal>
-											<Menu.Positioner
-												side="bottom"
-												align="start"
-												sideOffset={4}
-												anchor={valueTriggerRef}
-												className={MENU_SUBMENU_POSITIONER_CLS}
-												style={{ minWidth: "var(--anchor-width)" }}
-											>
-												<Menu.Popup className={MENU_POPUP_CLS}>
-													{selectedFieldOptions.map((opt, i) => {
-														const isActive =
-															opt.value === form.closeCondition?.answer;
-														const last = selectedFieldOptions.length - 1;
-														const corners =
-															i === 0 && i === last
-																? "rounded-xl"
-																: i === 0
-																	? "rounded-t-xl"
-																	: i === last
-																		? "rounded-b-xl"
-																		: "";
-														return (
-															<Menu.Item
-																key={opt.value}
-																onClick={() =>
-																	updateCondition({ answer: opt.value })
-																}
-																className={`${corners} ${
-																	isActive
-																		? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-																		: MENU_ITEM_CLS
-																}`}
-															>
-																<span className="font-mono text-xs">
-																	{opt.value}
-																</span>
-																{opt.label !== opt.value && (
-																	<span className="text-xs text-nova-text-muted ml-auto">
-																		{opt.label}
-																	</span>
-																)}
-															</Menu.Item>
-														);
-													})}
-												</Menu.Popup>
-											</Menu.Positioner>
-										</Menu.Portal>
-									</Menu.Root>
+									<SelectMenu
+										value={answer}
+										options={selectedFieldOptions}
+										onChange={(v) => updateCondition({ answer: v })}
+										renderTrigger={(v) => {
+											const opt = selectedFieldOptions.find(
+												(o) => o.value === v,
+											);
+											return (
+												<span
+													className={
+														v
+															? "font-mono text-nova-violet-bright"
+															: "text-nova-text-muted"
+													}
+												>
+													{v ? (opt?.label ?? v) : "Select a value..."}
+												</span>
+											);
+										}}
+										renderItem={(opt) => {
+											const source = selectedFieldOptions.find(
+												(o) => o.value === opt.value,
+											);
+											const showSuffix =
+												source && source.label !== source.value;
+											return (
+												<>
+													<span className="font-mono text-xs">{opt.value}</span>
+													{showSuffix && (
+														<span className="text-xs text-nova-text-muted ml-auto">
+															{source.label}
+														</span>
+													)}
+												</>
+											);
+										}}
+									/>
 								</div>
 							) : (
 								<InlineField

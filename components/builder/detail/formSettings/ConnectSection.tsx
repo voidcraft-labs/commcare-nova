@@ -5,18 +5,13 @@ import { Toggle } from "@/components/ui/Toggle";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
 import { toSnakeId } from "@/lib/services/commcare/validate";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
 import { LearnConfig } from "./LearnConfig";
-
-/** Panel prop shape — shared by all three form-settings sections. */
-interface FormSettingsPanelProps {
-	moduleUuid: Uuid;
-	formUuid: Uuid;
-}
+import type { FormSettingsSectionProps } from "./types";
 
 /**
  * Connect-mode configuration section — only rendered when the app has a
@@ -38,7 +33,7 @@ interface FormSettingsPanelProps {
 export function ConnectSection({
 	moduleUuid,
 	formUuid,
-}: FormSettingsPanelProps) {
+}: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
@@ -46,8 +41,8 @@ export function ConnectSection({
 	const connect = form?.connect;
 	const enabled = !!connect;
 
-	/* Session hooks for connect stash — keyed by form uuid (stable across
-	 * reorder + rename), replacing the legacy engine's index-based stash. */
+	/* Session hooks for connect stash — keyed by form uuid so the stash
+	 * remains stable across reorders and renames. */
 	const stashFormConnect = useStashFormConnect();
 	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
 

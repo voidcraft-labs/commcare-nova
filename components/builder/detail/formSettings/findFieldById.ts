@@ -5,8 +5,8 @@ import type { Field } from "@/lib/domain";
  * parent uuid in the normalized doc. Recurses into `group` / `repeat`
  * containers so nested fields are reachable through a single call.
  *
- * The close-condition UI uses this to locate a referenced field's option
- * list without round-tripping through any legacy assembled-questions shape.
+ * Used by the close-condition UI to resolve a referenced field's option
+ * list directly from the normalized `fields` + `fieldOrder` maps.
  */
 export function findFieldById(
 	fields: Readonly<Record<string, Field>>,
