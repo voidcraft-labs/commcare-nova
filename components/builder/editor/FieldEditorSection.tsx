@@ -48,7 +48,7 @@ import {
 interface FieldEditorSectionProps<F extends Field> {
 	field: F;
 	section: EditorSectionName;
-	entries: FieldEditorEntry<F>[];
+	entries: readonly FieldEditorEntry<F>[];
 }
 
 export function FieldEditorSection<F extends Field>({
