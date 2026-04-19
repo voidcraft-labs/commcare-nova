@@ -845,3 +845,109 @@ describe("reset", () => {
 		expect(s.newQuestionUuid).toBeUndefined();
 	});
 });
+
+// ── Events buffer + run lifecycle ────────────────────────────────────────
+
+/** Minimal MutationEvent factory — shape matches the Phase-4 event log
+ *  envelope. `stage` is optional so tests can cover the no-stage branch. */
+function makeMutationEvent(stage: string | undefined, seq: number): Event {
+	return {
+		kind: "mutation",
+		runId: "test-run",
+		ts: 0,
+		seq,
+		actor: "agent",
+		...(stage && { stage }),
+		mutation: { kind: "setAppName", name: "x" },
+	};
+}
+
+describe("events buffer + run lifecycle", () => {
+	it("initial state: empty events, no runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().events).toEqual([]);
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("beginRun clears the events buffer and sets agentActive", () => {
+		const store = createBuilderSessionStore();
+		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
+		expect(store.getState().events).toHaveLength(1);
+
+		store.getState().beginRun();
+		expect(store.getState().events).toEqual([]);
+		expect(store.getState().agentActive).toBe(true);
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("pushEvents appends in order", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		const e1 = makeMutationEvent("schema", 0);
+		const e2 = makeMutationEvent("scaffold", 1);
+		store.getState().pushEvents([e1, e2]);
+		expect(store.getState().events).toEqual([e1, e2]);
+	});
+
+	it("pushEvent appends a single event", () => {
+		const store = createBuilderSessionStore();
+		const e = makeMutationEvent("schema", 0);
+		store.getState().pushEvent(e);
+		expect(store.getState().events).toEqual([e]);
+	});
+
+	it("pushEvents on empty array is a no-op", () => {
+		const store = createBuilderSessionStore();
+		const prev = store.getState();
+		store.getState().pushEvents([]);
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("replaceEvents swaps the buffer wholesale (scrub reconstruction)", () => {
+		const store = createBuilderSessionStore();
+		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
+		const replacement = [
+			makeMutationEvent("scaffold", 0),
+			makeMutationEvent("module:0", 1),
+		];
+		store.getState().replaceEvents(replacement);
+		expect(store.getState().events).toEqual(replacement);
+	});
+
+	it("endRun(true) stamps runCompletedAt and leaves agentActive alone", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().endRun(true);
+		const s = store.getState();
+		/* agentActive is NOT cleared here — the chat status effect owns
+		 * that lifecycle. Only runCompletedAt transitions. */
+		expect(s.runCompletedAt).toEqual(expect.any(Number));
+	});
+
+	it("endRun(false) does not stamp runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().endRun(false);
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("acknowledgeCompletion clears runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().endRun(true);
+		store.getState().acknowledgeCompletion();
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("reset clears the events buffer and runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
+		store.getState().endRun(true);
+
+		store.getState().reset();
+		const s = store.getState();
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
+	});
+});

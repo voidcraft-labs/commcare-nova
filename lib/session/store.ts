@@ -26,6 +26,7 @@ import { createStore } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { Event } from "@/lib/log/types";
 import {
 	type CursorMode,
 	type GenerationError,
@@ -80,6 +81,21 @@ export interface BuilderSessionState {
 	 *  animation; cleared by `acknowledgeCompletion()` (auto-decay to
 	 *  ready state). */
 	justCompleted: boolean;
+
+	/** Timestamp of the most recent successful run end — `undefined`
+	 *  while a run is active, after `acknowledgeCompletion()` fires, or
+	 *  on fresh mounts. Replaces `justCompleted` as the canonical
+	 *  completion signal for derived lifecycle phase. Stored as a
+	 *  timestamp (not a boolean) so future decay logic can age-out from
+	 *  the number without coordinating a separate clear timer. */
+	runCompletedAt: number | undefined;
+
+	/** In-memory event-log buffer — both live and replay feed lifecycle
+	 *  derivations from this single array. Live: appended by the stream
+	 *  dispatcher as `data-mutations` + `data-conversation-event`
+	 *  envelopes arrive. Replay: seeded + trimmed by the hydrator and
+	 *  ReplayController scrub. Cleared on `beginRun()` and `reset()`. */
+	events: Event[];
 
 	/** Generic loading flag for async operations outside of agent writes
 	 *  (e.g. initial app load, import). */
@@ -182,7 +198,9 @@ export interface BuilderSessionState {
 	setFixAttempt: (attempt: number, errorCount: number) => void;
 
 	/** Clear the justCompleted flag after the celebration animation
-	 *  has played. No-ops when already false. */
+	 *  has played. Also clears `runCompletedAt` so the derived phase
+	 *  moves from `Completed` back to `Ready`. No-ops when both are
+	 *  already cleared. */
 	acknowledgeCompletion: () => void;
 
 	/** Toggle agent active state with post-build-edit detection. When
@@ -195,6 +213,36 @@ export interface BuilderSessionState {
 
 	/** Set the generic loading flag. No-ops when unchanged. */
 	setLoading: (loading: boolean) => void;
+
+	/** Begin a new agent run. Clears the events buffer + runCompletedAt
+	 *  stamp, cascades to `beginAgentWrite()` to pause doc undo tracking
+	 *  and initialize shadow lifecycle fields. Called by ChatContainer's
+	 *  chat-transport status effect when the stream opens. */
+	beginRun: () => void;
+
+	/** End the current agent run. `success=true` stamps `runCompletedAt`
+	 *  (triggers the `Completed` celebration phase); `success=false`
+	 *  leaves it cleared (fatal errors keep phase in Generating with the
+	 *  error surface). Cascades to `endAgentWrite()` to resume doc undo
+	 *  tracking. Called when the chat-transport status transitions back
+	 *  to `ready`. */
+	endRun: (success: boolean) => void;
+
+	/** Append events to the buffer. Used by the stream dispatcher's
+	 *  `data-mutations` and `data-conversation-event` handlers (live),
+	 *  and by replay paths that need to grow the buffer incrementally.
+	 *  No-ops on empty arrays — identity preserved so memoized
+	 *  subscribers don't needlessly fire. */
+	pushEvents: (events: Event[]) => void;
+
+	/** Append a single event. Convenience wrapper over `pushEvents`. */
+	pushEvent: (event: Event) => void;
+
+	/** Replace the events buffer wholesale. Used by `ReplayController`
+	 *  when scrubbing — every scrub is a full reconstruction from
+	 *  `events[0..cursor]`, not a delta, so appending would corrupt the
+	 *  buffer. Not exposed as an SSE handler path. */
+	replaceEvents: (events: Event[]) => void;
 
 	// ── Replay actions ──────────────────────────────────────────────────
 
@@ -356,6 +404,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				statusMessage: "",
 				postBuildEdit: false,
 				justCompleted: false,
+				runCompletedAt: undefined as number | undefined,
+				events: [] as Event[],
 				loading: init?.loading ?? false,
 
 				/* App identity */
@@ -460,8 +510,44 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				acknowledgeCompletion() {
-					if (!get().justCompleted) return;
-					set({ justCompleted: false });
+					const { justCompleted, runCompletedAt } = get();
+					if (!justCompleted && runCompletedAt === undefined) return;
+					set({ justCompleted: false, runCompletedAt: undefined });
+				},
+
+				beginRun() {
+					/* Cascade to `beginAgentWrite` for doc-undo pause and shadow
+					 * lifecycle init (Task 3 keeps shadow fields alive until the
+					 * derivation cutover in Task 4). Then clear the events buffer
+					 * + completion stamp so the fresh run starts with a clean
+					 * view for derivations. */
+					get().beginAgentWrite();
+					set({ events: [], runCompletedAt: undefined });
+				},
+
+				endRun(success: boolean) {
+					/* Cascade to `endAgentWrite` for undo-tracking + shadow-field
+					 * bookkeeping (sets `justCompleted=true`). On successful
+					 * completion, stamp `runCompletedAt` — this is the
+					 * event-log-era replacement for the `justCompleted` boolean
+					 * that downstream derivations will read in Task 4. */
+					get().endAgentWrite();
+					if (success) {
+						set({ runCompletedAt: Date.now() });
+					}
+				},
+
+				pushEvents(events: Event[]) {
+					if (events.length === 0) return;
+					set((s) => ({ events: [...s.events, ...events] }));
+				},
+
+				pushEvent(event: Event) {
+					set((s) => ({ events: [...s.events, event] }));
+				},
+
+				replaceEvents(events: Event[]) {
+					set({ events });
 				},
 
 				setAgentActive(active: boolean) {
@@ -718,6 +804,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						statusMessage: "",
 						postBuildEdit: false,
 						justCompleted: false,
+						runCompletedAt: undefined,
+						events: [],
 						loading: false,
 
 						/* App identity */
