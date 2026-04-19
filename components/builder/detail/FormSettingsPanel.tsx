@@ -1,99 +1,32 @@
 "use client";
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
-import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerX from "@iconify-icons/tabler/x";
-import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useState } from "react";
-import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { Toggle } from "@/components/ui/Toggle";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Uuid } from "@/lib/doc/types";
-import type { ConnectConfig } from "@/lib/domain";
-import { toSnakeId } from "@/lib/services/commcare/validate";
-import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import type { Uuid } from "@/lib/doc/types";
 import { AfterSubmitSection } from "./formSettings/AfterSubmitSection";
 import { CloseConditionSection } from "./formSettings/CloseConditionSection";
-import { DeliverConfig } from "./formSettings/DeliverConfig";
-import { LearnConfig } from "./formSettings/LearnConfig";
+import { ConnectSection } from "./formSettings/ConnectSection";
 
-// ── Types ─────────────────────────────────────────────────────────────
-
+/** Panel prop shape. The shell forwards the same `{ moduleUuid, formUuid }`
+ *  pair down to every section; `onClose` is owned by the popover trigger. */
 interface FormSettingsPanelProps {
 	moduleUuid: Uuid;
 	formUuid: Uuid;
+	onClose: () => void;
 }
 
-// ── Toggle Button (for FormScreen header) ─────────────────────────────
-
-export function FormSettingsButton({
-	moduleUuid,
-	formUuid,
-}: FormSettingsPanelProps) {
-	const form = useForm(formUuid);
-	const connectType = useBlueprintDoc((s) => s.connectType);
-	const hasConnect = !!form?.connect && !!connectType;
-	const [open, setOpen] = useState(false);
-
-	/** Guard dismiss when a CodeMirror autocomplete tooltip (portal-mounted
-	 *  to body, outside the panel DOM) received the click. */
-	const handleOpenChange = useCallback(
-		(nextOpen: boolean, details: Popover.Root.ChangeEventDetails) => {
-			if (
-				!nextOpen &&
-				(details.reason === "outside-press" ||
-					details.reason === "escape-key") &&
-				document.querySelector(".cm-tooltip-autocomplete")
-			) {
-				return;
-			}
-			setOpen(nextOpen);
-		},
-		[],
-	);
-
-	return (
-		<Popover.Root open={open} onOpenChange={handleOpenChange}>
-			<Popover.Trigger
-				className="ml-auto flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
-				aria-label="Form settings"
-			>
-				<Icon icon={tablerSettings} width="18" height="18" />
-				{hasConnect && (
-					<ConnectLogomark size={12} className="text-nova-violet-bright" />
-				)}
-			</Popover.Trigger>
-
-			<Popover.Portal>
-				<Popover.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={8}
-					className={POPOVER_POSITIONER_GLASS_CLS}
-				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
-						<FormSettingsPanel
-							moduleUuid={moduleUuid}
-							formUuid={formUuid}
-							onClose={() => setOpen(false)}
-						/>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
-	);
-}
-
-// ── Panel ──────────────────────────────────────────────────────────────
-
-function FormSettingsPanel({
+/**
+ * Form-settings drawer body rendered inside the Popover popup. Pure
+ * chrome — a labeled header with a dismiss button and a scrollable
+ * content region that composes the three feature sections in a fixed
+ * vertical order. Each section decides whether it renders (close forms
+ * only for `CloseConditionSection`, non-null `connectType` for
+ * `ConnectSection`, always for `AfterSubmitSection`).
+ */
+export function FormSettingsPanel({
 	moduleUuid,
 	formUuid,
 	onClose,
-}: FormSettingsPanelProps & { onClose: () => void }) {
+}: FormSettingsPanelProps) {
 	return (
 		<div className="w-80">
 			{/* Header */}
@@ -118,140 +51,6 @@ function FormSettingsPanel({
 
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 			</div>
-		</div>
-	);
-}
-
-// ── Connect Configuration Section ──────────────────────────────────────
-
-function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
-	const form = useForm(formUuid);
-	const mod = useModule(moduleUuid);
-	const { updateForm: updateFormAction } = useBlueprintMutations();
-	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
-	const connect = form?.connect;
-	const enabled = !!connect;
-
-	/* Session hooks for connect stash — keyed by form uuid (stable across
-	 * reorder + rename), replacing the legacy engine's index-based stash. */
-	const stashFormConnect = useStashFormConnect();
-	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
-
-	const save = useCallback(
-		(config: ConnectConfig | null) => {
-			updateFormAction(asUuid(formUuid), {
-				connect: config ?? undefined,
-			});
-		},
-		[updateFormAction, formUuid],
-	);
-
-	const toggle = useCallback(() => {
-		if (enabled) {
-			/* Stash the current config before clearing, so re-enabling
-			 * restores it instead of generating a new default. */
-			if (connect && connectType) {
-				stashFormConnect(connectType, formUuid, connect);
-			}
-			save(null);
-		} else if (connectType) {
-			if (stashedConfig) {
-				save(stashedConfig);
-			} else {
-				const modSlug = toSnakeId(mod?.name ?? "");
-				const formSlug = toSnakeId(form?.name ?? "");
-				if (connectType === "learn") {
-					save({
-						learn_module: {
-							id: modSlug,
-							name: form?.name ?? "",
-							description: form?.name ?? "",
-							time_estimate: 5,
-						},
-						assessment: {
-							id: `${modSlug}_${formSlug}`,
-							user_score: "100",
-						},
-					});
-				} else {
-					save({
-						deliver_unit: {
-							id: modSlug,
-							name: form?.name ?? "",
-							entity_id: "concat(#user/username, '-', today())",
-							entity_name: "#user/username",
-						},
-						task: {
-							id: `${modSlug}_${formSlug}`,
-							name: form?.name ?? "",
-							description: form?.name ?? "",
-						},
-					});
-				}
-			}
-		}
-	}, [
-		enabled,
-		connect,
-		connectType,
-		stashFormConnect,
-		stashedConfig,
-		mod,
-		form,
-		formUuid,
-		save,
-	]);
-
-	if (!connectType) return null;
-
-	return (
-		<div className="border-t border-white/[0.06] pt-3">
-			{/* Header row with toggle */}
-			<div className="flex items-center justify-between">
-				<div className="flex items-center gap-2">
-					<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
-						Connect
-					</span>
-					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
-						{connectType}
-					</span>
-				</div>
-				<Toggle enabled={enabled} onToggle={toggle} />
-			</div>
-
-			<AnimatePresence>
-				{connect && (
-					<motion.div
-						initial={{ opacity: 0, height: 0 }}
-						animate={{ opacity: 1, height: "auto" }}
-						exit={{ opacity: 0, height: 0 }}
-						transition={{ duration: 0.15, ease: "easeOut" }}
-						className="overflow-hidden"
-					>
-						<div className="pt-2.5 space-y-3">
-							{/* Learn config — sub-toggles for learn_module and assessment */}
-							{connectType === "learn" && (
-								<LearnConfig
-									connect={connect}
-									save={save}
-									moduleUuid={moduleUuid}
-									formUuid={formUuid}
-								/>
-							)}
-
-							{/* Deliver config — sub-toggles for deliver_unit and task */}
-							{connectType === "deliver" && (
-								<DeliverConfig
-									connect={connect}
-									save={save}
-									moduleUuid={moduleUuid}
-									formUuid={formUuid}
-								/>
-							)}
-						</div>
-					</motion.div>
-				)}
-			</AnimatePresence>
 		</div>
 	);
 }

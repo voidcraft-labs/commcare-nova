@@ -3,7 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
-import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
+import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { useFormEngine } from "@/hooks/useFormEngine";
