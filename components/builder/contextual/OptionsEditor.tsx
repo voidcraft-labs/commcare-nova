@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
-import { AddPropertyButton } from "./AddPropertyButton";
+import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 
 interface Option {
 	value: string;

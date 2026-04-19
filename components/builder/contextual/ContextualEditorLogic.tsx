@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useContext, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
+import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useSaveField } from "@/hooks/useSaveField";
@@ -10,7 +11,6 @@ import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedField } from "@/lib/routing/hooks";
-import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
 	addableTextFields,

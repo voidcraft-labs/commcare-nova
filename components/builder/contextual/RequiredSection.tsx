@@ -18,13 +18,13 @@ import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
+import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Toggle } from "@/components/ui/Toggle";
 import { useSaveField } from "@/hooks/useSaveField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type { Uuid } from "@/lib/doc/types";
-import { AddPropertyButton } from "./AddPropertyButton";
 
 /** Sentinel value CommCare uses for "always required" (no condition). */
 const ALWAYS_REQUIRED = "true()";

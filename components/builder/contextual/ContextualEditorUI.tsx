@@ -1,12 +1,12 @@
 "use client";
 import { EditableText } from "@/components/builder/EditableText";
+import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
 import { useSaveField } from "@/hooks/useSaveField";
 import { useSelectedField } from "@/lib/routing/hooks";
-import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
 	type FieldEditorProps,
