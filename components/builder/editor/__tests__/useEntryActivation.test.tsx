@@ -32,4 +32,20 @@ describe("useEntryActivation", () => {
 		rerender({ uuid: "u2" });
 		expect(result.current.pending("validate")).toBe(false);
 	});
+
+	it("rerender with same scope preserves pending state", () => {
+		const { result, rerender } = renderHook(
+			({ uuid }) => useEntryActivation(uuid, "logic"),
+			{ initialProps: { uuid: "u1" } },
+		);
+		act(() => result.current.activate("validate"));
+		rerender({ uuid: "u1" }); // same scope — must not clear
+		expect(result.current.pending("validate")).toBe(true);
+	});
+
+	it("clear when nothing is pending is a no-op", () => {
+		const { result } = renderHook(() => useEntryActivation("u1", "logic"));
+		expect(() => act(() => result.current.clear())).not.toThrow();
+		expect(result.current.pending("anything")).toBe(false);
+	});
 });
