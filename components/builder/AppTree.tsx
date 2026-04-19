@@ -13,14 +13,12 @@
  */
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerTable from "@iconify-icons/tabler/table";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import {
-	createContext,
 	memo,
 	use,
 	useCallback,
@@ -28,6 +26,13 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import {
+	CollapseChevron,
+	FormIconContext,
+	findMatchIndices,
+	HighlightedText,
+	TreeItemRow,
+} from "@/components/builder/appTree/shared";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import {
@@ -44,7 +49,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
-import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
+import type { MatchIndices } from "@/lib/filterTree";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
 	useIsFieldSelected,
@@ -55,13 +60,6 @@ import {
 import { BuilderPhase } from "@/lib/services/builder";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { useBuilderPhase } from "@/lib/session/hooks";
-
-/**
- * Per-form context carrying a question ID → type icon map. Lets FieldRow
- * render chips with correct question-type icons without prop drilling through
- * the recursive tree or depending on the ReferenceProvider.
- */
-const FormIconContext = createContext<Map<string, IconifyIcon>>(new Map());
 
 /**
  * Handler for tree item selection — passed down through the recursive tree.
@@ -370,106 +368,6 @@ function useSearchFilter(query: string): SearchResult | null {
 			visibleQuestionUuids,
 		};
 	}, [query, moduleOrder, formOrder, fieldOrder, modules, forms, fields]);
-}
-
-/** Find match indices for a fuzzy substring search. */
-function findMatchIndices(
-	text: string,
-	query: string,
-): MatchIndices | undefined {
-	const lower = text.toLowerCase();
-	const idx = lower.indexOf(query);
-	if (idx === -1) return undefined;
-	return [[idx, idx + query.length]];
-}
-
-// ── Shared components ────────────────────────────────────────────────
-
-function CollapseChevron({
-	isCollapsed,
-	onClick,
-	hidden,
-}: {
-	isCollapsed: boolean;
-	onClick: (e: React.MouseEvent) => void;
-	hidden?: boolean;
-}) {
-	return (
-		<button
-			type="button"
-			className={`w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text transition-colors ${hidden ? "invisible" : ""}`}
-			onClick={onClick}
-		>
-			<Icon
-				icon={tablerChevronRight}
-				width="10"
-				height="10"
-				className="transition-transform duration-150"
-				style={{
-					transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
-				}}
-			/>
-		</button>
-	);
-}
-
-function TreeItemRow({
-	onClick,
-	className,
-	style,
-	children,
-	...rest
-}: {
-	onClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
-	className?: string;
-	style?: React.CSSProperties;
-	children: React.ReactNode;
-	"data-tree-question"?: string;
-}) {
-	return (
-		<div
-			role="treeitem"
-			tabIndex={0}
-			className={className}
-			style={style}
-			onClick={onClick}
-			onKeyDown={(e) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault();
-					onClick(e);
-				}
-			}}
-			{...rest}
-		>
-			{children}
-		</div>
-	);
-}
-
-function HighlightedText({
-	text,
-	indices,
-}: {
-	text: string;
-	indices: MatchIndices;
-}) {
-	const segments = highlightSegments(text, indices);
-	let offset = 0;
-	return (
-		<>
-			{segments.map((seg) => {
-				const key = offset;
-				offset += seg.text.length;
-				return seg.highlight ? (
-					<mark key={key} className="bg-nova-violet/20 text-inherit rounded-sm">
-						{seg.text}
-					</mark>
-				) : (
-					<span key={key}>{seg.text}</span>
-				);
-			})}
-		</>
-	);
 }
 
 // ── ModuleCard ───────────────────────────────────────────────────────
