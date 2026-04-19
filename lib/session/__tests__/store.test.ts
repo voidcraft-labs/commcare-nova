@@ -406,7 +406,7 @@ function createGenerationTestStores(withData = false) {
 }
 
 describe("generation lifecycle", () => {
-	it("beginRun pauses doc undo, sets agentActive, clears events + runCompletedAt", () => {
+	it("beginRun pauses doc undo + clears events buffer + clears runCompletedAt", () => {
 		const { session, doc } = createGenerationTestStores();
 
 		/* Seed some events + a completion stamp so we can verify they clear. */
@@ -420,83 +420,126 @@ describe("generation lifecycle", () => {
 				mutation: { kind: "setAppName", name: "old" },
 			},
 		]);
-		session.getState().endRun(true); // stamps runCompletedAt
+		session.getState().markRunCompleted();
 
 		session.getState().beginRun();
 		const s = session.getState();
 
-		expect(s.agentActive).toBe(true);
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
-		/* Doc undo should be paused — zundo isTracking=false when paused. */
+		/* Doc undo paused — zundo isTracking=false. */
 		expect(doc.temporal.getState().isTracking).toBe(false);
 	});
 
-	it("endRun(true) resumes doc undo, stamps runCompletedAt, keeps agentActive", () => {
+	it("endRun clears events buffer + resumes doc undo; does NOT stamp runCompletedAt", () => {
+		/* Stream-close is not the completion signal. A run that closes
+		 * without `data-done` (askQuestions, clarifying text, edit-tool
+		 * response) ends silently — buffer cleared, no celebration stamp. */
 		const { session, doc } = createGenerationTestStores();
 
 		session.getState().beginRun();
-		session.getState().endRun(true);
+		session.getState().pushEvents([
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				payload: { type: "user-message", text: "hi" },
+			},
+		]);
+		expect(session.getState().events.length).toBe(1);
+
+		session.getState().endRun();
 		const s = session.getState();
 
-		/* agentActive is NOT cleared — the chat status effect owns that
-		 * lifecycle so it can read wasActive=true and stamp
-		 * lastResponseAtRef. */
-		expect(s.agentActive).toBe(true);
-		expect(s.runCompletedAt).toEqual(expect.any(Number));
-		/* Doc undo should be resumed. */
-		expect(doc.temporal.getState().isTracking).toBe(true);
-	});
-
-	it("endRun(false) resumes doc undo but does NOT stamp runCompletedAt", () => {
-		const { session, doc } = createGenerationTestStores();
-
-		session.getState().beginRun();
-		session.getState().endRun(false);
-		const s = session.getState();
-
+		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
 		expect(doc.temporal.getState().isTracking).toBe(true);
 	});
 
-	it("acknowledgeCompletion() clears runCompletedAt, no-ops when already cleared", () => {
+	it("markRunCompleted stamps runCompletedAt without clearing events", () => {
+		/* `data-done` fires mid-stream (from `validateApp`). The stream
+		 * is still open and the events buffer still has the run's
+		 * mutations. Only `runCompletedAt` flips. */
+		const { session } = createGenerationTestStores();
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "mutation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				actor: "agent",
+				stage: "schema",
+				mutation: { kind: "setAppName", name: "x" },
+			},
+		]);
+
+		session.getState().markRunCompleted();
+		const s = session.getState();
+		expect(s.runCompletedAt).toEqual(expect.any(Number));
+		/* Buffer untouched — endRun is the only thing that clears it. */
+		expect(s.events.length).toBe(1);
+	});
+
+	it("full build flow: beginRun → markRunCompleted → endRun → acknowledgeCompletion", () => {
+		/* End-to-end: models the real chat-transport + dispatcher sequence
+		 * for a successful build. Each transition is independent. */
 		const { session } = createGenerationTestStores();
 
 		session.getState().beginRun();
-		session.getState().endRun(true);
+
+		/* Mid-stream: `data-done` arrives from validateApp. */
+		session.getState().markRunCompleted();
 		expect(session.getState().runCompletedAt).toEqual(expect.any(Number));
 
+		/* Stream closes. Buffer clears, but completion stamp survives. */
+		session.getState().endRun();
+		expect(session.getState().events).toEqual([]);
+		expect(session.getState().runCompletedAt).toEqual(expect.any(Number));
+
+		/* 3.5s later: signal grid celebration animation settled. */
+		session.getState().acknowledgeCompletion();
+		expect(session.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("askQuestions-only run: no markRunCompleted, endRun closes silently (regression)", () => {
+		/* Regression for the "celebration fired for a text-only response"
+		 * bug. An askQuestions run never sees `data-done`, so the only
+		 * transition on stream close is clearing the events buffer. */
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				payload: {
+					type: "tool-call",
+					toolCallId: "tc-1",
+					toolName: "askQuestions",
+					input: {},
+				},
+			},
+		]);
+
+		session.getState().endRun();
+		const s = session.getState();
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
+	});
+
+	it("acknowledgeCompletion clears runCompletedAt; no-ops when already cleared", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().markRunCompleted();
 		session.getState().acknowledgeCompletion();
 		expect(session.getState().runCompletedAt).toBeUndefined();
 
-		/* Second call is a no-op — verify state object identity. */
 		const prev = session.getState();
 		session.getState().acknowledgeCompletion();
-		expect(session.getState()).toBe(prev);
-	});
-
-	it("setAgentActive(true) sets agentActive without any other bookkeeping", () => {
-		const { session } = createGenerationTestStores(true);
-
-		session.getState().setAgentActive(true);
-		expect(session.getState().agentActive).toBe(true);
-	});
-
-	it("setAgentActive(false) clears agentActive", () => {
-		const { session } = createGenerationTestStores(true);
-
-		session.getState().beginRun();
-		expect(session.getState().agentActive).toBe(true);
-
-		session.getState().setAgentActive(false);
-		expect(session.getState().agentActive).toBe(false);
-	});
-
-	it("setAgentActive no-ops when value is unchanged", () => {
-		const { session } = createGenerationTestStores();
-
-		const prev = session.getState();
-		session.getState().setAgentActive(false); /* already false */
 		expect(session.getState()).toBe(prev);
 	});
 
@@ -731,7 +774,8 @@ describe("reset", () => {
 				mutation: { kind: "setAppName", name: "x" },
 			},
 		]);
-		session.getState().endRun(true);
+		session.getState().markRunCompleted();
+		session.getState().endRun();
 		session.getState().setAppId("app-123");
 		session.getState().loadReplay({
 			events: [],
@@ -750,7 +794,6 @@ describe("reset", () => {
 		const s = session.getState();
 
 		/* Generation lifecycle */
-		expect(s.agentActive).toBe(false);
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
 		expect(s.loading).toBe(false);
@@ -802,14 +845,13 @@ describe("events buffer + run lifecycle", () => {
 		expect(store.getState().runCompletedAt).toBeUndefined();
 	});
 
-	it("beginRun clears the events buffer and sets agentActive", () => {
+	it("beginRun clears the events buffer + runCompletedAt", () => {
 		const store = createBuilderSessionStore();
 		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
-		expect(store.getState().events).toHaveLength(1);
+		store.getState().markRunCompleted();
 
 		store.getState().beginRun();
 		expect(store.getState().events).toEqual([]);
-		expect(store.getState().agentActive).toBe(true);
 		expect(store.getState().runCompletedAt).toBeUndefined();
 	});
 
@@ -847,27 +889,23 @@ describe("events buffer + run lifecycle", () => {
 		expect(store.getState().events).toEqual(replacement);
 	});
 
-	it("endRun(true) stamps runCompletedAt and leaves agentActive alone", () => {
+	it("markRunCompleted stamps runCompletedAt", () => {
 		const store = createBuilderSessionStore();
 		store.getState().beginRun();
-		store.getState().endRun(true);
-		const s = store.getState();
-		/* agentActive is NOT cleared here — the chat status effect owns
-		 * that lifecycle. Only runCompletedAt transitions. */
-		expect(s.runCompletedAt).toEqual(expect.any(Number));
+		store.getState().markRunCompleted();
+		expect(store.getState().runCompletedAt).toEqual(expect.any(Number));
 	});
 
-	it("endRun(false) does not stamp runCompletedAt", () => {
+	it("endRun does NOT stamp runCompletedAt (stream-close is not completion)", () => {
 		const store = createBuilderSessionStore();
 		store.getState().beginRun();
-		store.getState().endRun(false);
+		store.getState().endRun();
 		expect(store.getState().runCompletedAt).toBeUndefined();
 	});
 
 	it("acknowledgeCompletion clears runCompletedAt", () => {
 		const store = createBuilderSessionStore();
-		store.getState().beginRun();
-		store.getState().endRun(true);
+		store.getState().markRunCompleted();
 		store.getState().acknowledgeCompletion();
 		expect(store.getState().runCompletedAt).toBeUndefined();
 	});
@@ -876,7 +914,8 @@ describe("events buffer + run lifecycle", () => {
 		const store = createBuilderSessionStore();
 		store.getState().beginRun();
 		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
-		store.getState().endRun(true);
+		store.getState().markRunCompleted();
+		store.getState().endRun();
 
 		store.getState().reset();
 		const s = store.getState();

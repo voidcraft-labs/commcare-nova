@@ -12,15 +12,23 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 - **Write from outside React.** Stream handlers and route handlers toggle run lifecycle via the store without threading through context.
 - **Disjoint responsibilities.** Mutations to the blueprint and mutations to UI state are visibly different call sites, so reviewers can reason about each independently.
 
-## Lifecycle = events buffer + two booleans, no shadow state
+## Lifecycle = events buffer + runCompletedAt, nothing else
 
-The session store holds four fields that describe "what phase of generation are we in":
+Three session fields describe "what phase is the builder in":
 
-- `events: Event[]` — the live mirror of the persisted event log. Live path: stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive. Replay path: hydrator seeds + `ReplayController` replaces on scrub. Cleared by `beginRun()` and `reset()`.
-- `agentActive: boolean` — SSE stream open (live: chat-transport status effect drives begin/end; replay: always false).
-- `runCompletedAt: number | undefined` — timestamp stamped by `endRun(true)`; cleared by `acknowledgeCompletion()` when the celebration animation settles.
+- `events: Event[]` — the current active run's events. **Cleared at both `beginRun()` and `endRun()`**, so `events.length > 0` is itself the "a run is in progress" signal — no `agentActive` shadow flag, no mirror to drift. Live: stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive. Replay: hydrator seeds + `ReplayController` replaces on scrub.
+- `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (whole-build success from `validateApp`). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
 
-**Every other lifecycle signal is derived from the buffer** via pure functions in `lifecycle.ts`: current stage, classified error, validation attempt, status message, postBuildEdit latch. No `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` fields exist — those were shadow state populated only by the live SSE path, which caused replay to render the wrong layout mid-chapter. Live and replay now share one code path.
+Run-boundary actions are orthogonal and atomic:
+
+- `beginRun()` — pause doc undo, clear events buffer, clear runCompletedAt.
+- `endRun()` — resume doc undo, clear events buffer. Does NOT touch runCompletedAt.
+- `markRunCompleted()` — stamp runCompletedAt. Does NOT touch events or doc undo.
+- `acknowledgeCompletion()` — clear runCompletedAt.
+
+**Every other lifecycle signal is derived from these fields** via pure functions in `lifecycle.ts`: phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path, causing replay to render the wrong layout mid-chapter. Live and replay now share one code path.
+
+**Disambiguation: initial build vs post-build edit.** Both can emit `form:M-F` tagged mutations (addQuestions vs updateForm). `derivePhase` distinguishes them via `bufferHasBuildFoundation(events)` — true iff the current run contains a `schema` or `scaffold` mutation. Initial builds always start with schema/scaffold; edits never emit them. This is why the events buffer must clear on endRun — otherwise a prior build's foundation would leak into the next run's derivation.
 
 When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store.

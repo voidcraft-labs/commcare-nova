@@ -120,24 +120,32 @@ export function applyStreamEvent(
 	switch (type) {
 		case "data-done": {
 			/*
-			 * Generation complete. Reconcile the doc against the final
-			 * authoritative snapshot from the SA — streaming may leave the
-			 * doc slightly diverged from the server's canonical result
-			 * (e.g. silent fix-loop mutations that never surfaced as
-			 * incremental events). `load()` replaces the entire doc and
-			 * clears + pauses undo history.
+			 * Whole-build completion — `validateApp` succeeded on the
+			 * server. Two side-effects:
 			 *
-			 * Run termination is NOT signaled here. ChatContainer's
-			 * chat-status effect owns the `beginRun` / `endRun` transition
-			 * — driven by the AI SDK's `status` state machine which
-			 * already transitions `streaming` → `ready` when the stream
-			 * closes. Double-stamping `runCompletedAt` from both sides
-			 * would race.
+			 * 1. Reconcile the doc against the final authoritative
+			 *    snapshot from the SA. Streaming may leave the doc
+			 *    slightly diverged from the server's canonical result
+			 *    (e.g. silent fix-loop mutations that never surfaced as
+			 *    incremental events). `load()` replaces the entire doc
+			 *    and clears + pauses undo history.
+			 *
+			 * 2. Stamp `runCompletedAt` — this, not stream-close, is the
+			 *    "a full build just finished" signal that drives the
+			 *    Completed celebration phase. askQuestions runs,
+			 *    clarifying-text runs, and post-build edits never emit
+			 *    `data-done`, so they close silently back to Idle / Ready
+			 *    without celebration.
+			 *
+			 * Stream-close is owned by ChatContainer's chat-status effect
+			 * via `endRun()` (which clears the events buffer). These two
+			 * concerns are orthogonal.
 			 */
 			const doc = data.doc as PersistableDoc | undefined;
 			if (doc) {
 				docStore.getState().load(doc);
 			}
+			sessionStore.getState().markRunCompleted();
 			return;
 		}
 		case "data-blueprint-updated": {

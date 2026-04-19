@@ -1,69 +1,59 @@
 /**
- * scaffoldProgress — derive a 0..1 progress value from the session store's
- * generation lifecycle fields + the doc store's entity counts. Consumed by
- * `ChatSidebar.tsx` to drive the progress indicator during generation.
+ * scaffoldProgress — derive a 0..1 progress value for the signal grid
+ * during an initial build. Pure function consumed by `ChatSidebar`'s
+ * controller callback.
  *
- * Pure function: callers pass in the session state slice and doc snapshot,
- * keeping this module free of store subscriptions. Colocated with the
- * sidebar because the derivation is sidebar-specific — it reads state that
- * only exists on the client and renders exclusively inside the one
- * `"use client"` component that calls it.
+ * Input is the already-derived phase plus the current stage + a couple
+ * of content signals (case types + modules) so we can refine the
+ * progress within the early generation phases. The phase carries the
+ * "are we currently in a build?" bit — derived from the session events
+ * buffer, not a shadow `agentActive` flag.
  */
 
 import type { BlueprintDoc } from "@/lib/doc/types";
-import type { GenerationStage } from "@/lib/session/types";
-import { GenerationStage as Stage } from "@/lib/session/types";
-
-/** Session fields needed for scaffold progress computation. */
-export interface ScaffoldProgressInput {
-	agentStage: GenerationStage | null;
-	agentActive: boolean;
-	postBuildEdit: boolean;
-	/** Timestamp of successful run end — replaces the legacy
-	 *  `justCompleted` boolean. Truthy (defined) = Completed phase. */
-	runCompletedAt: number | undefined;
-	loading: boolean;
-}
+import { BuilderPhase } from "@/lib/services/builder";
+import {
+	type GenerationStage,
+	GenerationStage as Stage,
+} from "@/lib/session/types";
 
 /**
- * Compute the current scaffold progress as a value in [0, 1].
- *
- * Branching:
- *   - Not generating → 0 (not started / loading) or 1 (already ready).
- *   - DataModel stage → 0.05 (ramp-in) until case types arrive, then 0.3.
- *   - Structure stage → 0.35 (initial) → 0.85 (full scaffold = doc has entities).
- *   - Later stages (Modules / Forms / Validate / Fix) → 1.0, since the
- *     signal grid's "building" mode takes over from here.
+ * Compute scaffold progress as a value in [0, 1]:
+ *   - Loading / Idle → 0
+ *   - Ready / Completed → 1 (app is usable)
+ *   - Generating, DataModel stage → 0.05 (ramp-in) → 0.3 once case types land
+ *   - Generating, Structure stage → 0.35 → 0.85 once the doc has modules
+ *   - Generating, later stages (Modules / Forms / Validate / Fix) → 1 —
+ *     the signal grid's "building" mode takes over the visual from here
  */
 export function computeScaffoldProgress(
-	session: ScaffoldProgressInput,
-	doc: BlueprintDoc | null | undefined,
+	phase: BuilderPhase,
+	agentStage: GenerationStage | null,
+	hasCaseTypes: boolean,
+	docHasData: boolean,
 ): number {
-	const docHasData = (doc?.moduleOrder.length ?? 0) > 0;
-	const isGenerating = session.agentActive && !session.postBuildEdit;
-	const isReady = !session.loading && !session.agentActive && docHasData;
-
-	/* Not in a generation run — either idle/loading (0) or app is ready (1). */
-	if (!isGenerating) {
-		return isReady || session.runCompletedAt !== undefined ? 1.0 : 0;
+	if (phase === BuilderPhase.Ready || phase === BuilderPhase.Completed) {
+		return 1.0;
+	}
+	if (phase !== BuilderPhase.Generating) {
+		/* Loading / Idle → no progress to show. */
+		return 0;
 	}
 
-	/* Early generation: `agentStage` is null in the window between
-	 * beginRun (SSE stream opens) and the first stage-tagged mutation
+	/* Generating branch. `agentStage` is null in the window between
+	 * `beginRun` (stream opens) and the first stage-tagged mutation
 	 * landing. Treat identically to DataModel — without this guard, the
 	 * null stage falls through to the 1.0 return at the bottom and the
 	 * progress bar briefly shows "done". */
-	if (session.agentStage === null || session.agentStage === Stage.DataModel) {
-		const hasCaseTypes = (doc?.caseTypes?.length ?? 0) > 0;
+	if (agentStage === null || agentStage === Stage.DataModel) {
 		return hasCaseTypes ? 0.3 : 0.05;
 	}
-
-	/* Structure stage: doc entity creation. */
-	if (session.agentStage === Stage.Structure) {
-		if (docHasData) return 0.85;
-		return 0.35;
+	if (agentStage === Stage.Structure) {
+		return docHasData ? 0.85 : 0.35;
 	}
-
 	/* Modules / Forms / Validate / Fix — signal grid takes over. */
 	return 1.0;
 }
+
+/** Re-export for tests that want to pass a doc snapshot directly. */
+export type ScaffoldProgressDoc = BlueprintDoc | null | undefined;

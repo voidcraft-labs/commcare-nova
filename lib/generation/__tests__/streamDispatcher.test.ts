@@ -145,10 +145,10 @@ describe("applyStreamEvent", () => {
 	// ── Doc lifecycle (full-doc replacements) ───────────────────────────
 
 	describe("data-done", () => {
-		it("loads final doc; does NOT end the run (chat-status effect owns that)", () => {
-			/* Simulate a generation session active at data-done. Start a run
-			 * so we can verify no sneaky endRun happens in the dispatcher. */
+		it("loads final doc AND stamps runCompletedAt (whole-build completion)", () => {
+			/* Begin a run to simulate a live session. */
 			sessionStore.getState().beginRun();
+			expect(sessionStore.getState().runCompletedAt).toBeUndefined();
 
 			applyStreamEvent(
 				"data-done",
@@ -157,17 +157,16 @@ describe("applyStreamEvent", () => {
 				sessionStore,
 			);
 
-			/* Doc should have the payload's content. */
+			/* Doc replaced with the authoritative snapshot. */
 			const doc = docStore.getState();
 			expect(doc.appName).toBe("Test App");
 			expect(doc.moduleOrder).toHaveLength(1);
 
-			/* Run lifecycle is still active — the chat transport status effect
-			 * is what transitions agentActive + runCompletedAt. The dispatcher
-			 * must NOT double-stamp. */
+			/* `data-done` IS the completion signal — the dispatcher stamps
+			 * runCompletedAt. Stream-close is orthogonal (owned by the
+			 * ChatContainer status effect via `endRun`). */
 			const session = sessionStore.getState();
-			expect(session.agentActive).toBe(true);
-			expect(session.runCompletedAt).toBeUndefined();
+			expect(session.runCompletedAt).toEqual(expect.any(Number));
 		});
 	});
 

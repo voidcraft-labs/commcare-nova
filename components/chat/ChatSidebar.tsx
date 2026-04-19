@@ -21,7 +21,7 @@ import {
 } from "@/lib/doc/provider";
 import { BuilderPhase } from "@/lib/services/builder";
 import {
-	useAgentActive,
+	derivePhase,
 	useAgentError,
 	useAgentStage,
 	useBuilderPhase,
@@ -29,7 +29,7 @@ import {
 	useSetSidebarOpen,
 	useStatusMessage,
 } from "@/lib/session/hooks";
-import { deriveAgentStage, derivePostBuildEdit } from "@/lib/session/lifecycle";
+import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { GenerationStage } from "@/lib/session/types";
@@ -60,15 +60,19 @@ function createGridController(
 			const s = sessionRef.current.getState();
 			const doc = docStoreRef.current?.getState();
 			const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-			return computeScaffoldProgress(
+			const phase = derivePhase(
 				{
-					agentStage: deriveAgentStage(s.events),
-					agentActive: s.agentActive,
-					postBuildEdit: derivePostBuildEdit(s.events, s.agentActive, hasData),
-					runCompletedAt: s.runCompletedAt,
 					loading: s.loading,
+					runCompletedAt: s.runCompletedAt,
+					events: s.events,
 				},
-				doc,
+				hasData,
+			);
+			return computeScaffoldProgress(
+				phase,
+				deriveAgentStage(s.events),
+				(doc?.caseTypes?.length ?? 0) > 0,
+				hasData,
 			);
 		},
 	});
@@ -111,11 +115,17 @@ export function ChatSidebar({
 	const setSidebarOpen = useSetSidebarOpen();
 	const agentError = useAgentError();
 	const agentStage = useAgentStage();
-	const agentActive = useAgentActive();
 	const postBuildEdit = usePostBuildEdit();
 	const statusMessage = useStatusMessage();
 	const isGenerating = phase === BuilderPhase.Generating;
-	const isLoading = status === "submitted" || status === "streaming";
+	/* `isLoading` and `streamOpen` are the same derived value from the
+	 * transport status — the "the SSE stream is open right now" signal.
+	 * Both names exist for readability: `isLoading` reads naturally in
+	 * UI gating (inputs disabled, empty state hidden), while
+	 * `streamOpen` is what the signal grid's desiredMode logic reasons
+	 * about. Kept as one constant to avoid drift. */
+	const streamOpen = status === "submitted" || status === "streaming";
+	const isLoading = streamOpen;
 
 	// ── Welcome intro timer ──────────────────────────────────────────────
 	// The welcome screen plays a 3.5s "reasoning" animation on mount, then
@@ -206,11 +216,11 @@ export function ChatSidebar({
 		// Later generation stages get the building visual (pink sweep + bursts)
 		if (isGenerating) return "building";
 		// Completed = celebration after generation finishes. Takes priority over
-		// agentActive because data-done fires mid-stream (the LLM's wrap-up text
-		// keeps the stream open). Without this, the grid shows "Thinking" for 5–15s
-		// after generation is already complete.
+		// the streaming branches below because data-done fires mid-stream (the
+		// LLM's wrap-up text keeps the stream open). Without this, the grid
+		// shows "Thinking" for 5–15s after generation is already complete.
 		if (phase === BuilderPhase.Completed) return "done";
-		if (agentActive) {
+		if (streamOpen) {
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
 			// look dead — the whole point of the signal grid is to show activity.

@@ -152,10 +152,10 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 
 		const s = sessionApiRef.current.getState();
 		const doc = docStoreRef.current?.getState();
-		const postBuildEdit = doc
-			? derivePostBuildEdit(s.events, s.agentActive, docHasData(doc))
-			: false;
-		if (postBuildEdit && s.agentActive && doc) {
+		/* `derivePostBuildEdit` returns true only while a run is in
+		 * progress (events buffer non-empty), so a separate "agent
+		 * active" check would be redundant. */
+		if (doc && derivePostBuildEdit(s.events, docHasData(doc))) {
 			/* computeEditFocus needs the blueprint's ordering maps to
 			 * convert scope indices into a 0–1 focus range. */
 			controller.setEditFocus(

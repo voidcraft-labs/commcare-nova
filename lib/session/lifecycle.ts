@@ -103,23 +103,35 @@ export function deriveValidationAttempt(
 }
 
 /**
- * Whether the active run is a post-build edit. True iff the run is
- * active, no `schema` or `scaffold` mutation has landed yet, AND the
- * doc already has data. The doc-has-data check catches the
- * askQuestions window (doc empty → still Idle, not edit), matching
- * the semantics of the pre-refactor latch.
+ * Whether the buffer contains a `schema` or `scaffold` mutation —
+ * the foundational stages of an initial build. Used to distinguish
+ * "initial build in progress" from "post-build edit in progress",
+ * which share stage tags like `form:M-F` (addQuestions during build
+ * vs updateForm during edit).
+ */
+export function bufferHasBuildFoundation(events: readonly Event[]): boolean {
+	for (const e of events) {
+		if (e.kind !== "mutation" || !e.stage) continue;
+		if (e.stage === "schema" || e.stage === "scaffold") return true;
+	}
+	return false;
+}
+
+/**
+ * Whether the active run is a post-build edit. True iff a run is in
+ * progress (buffer non-empty — see `BuilderSessionState.events`), no
+ * `schema` / `scaffold` mutation has landed yet, AND the doc already
+ * has data. The empty-buffer check catches the between-runs window,
+ * matching the semantics of the pre-refactor `agentActive` latch
+ * without maintaining a separate flag.
  */
 export function derivePostBuildEdit(
 	events: readonly Event[],
-	agentActive: boolean,
 	docHasData: boolean,
 ): boolean {
-	if (!agentActive) return false;
-	for (const e of events) {
-		if (e.kind !== "mutation" || !e.stage) continue;
-		if (e.stage === "schema" || e.stage === "scaffold") return false;
-	}
-	return docHasData;
+	if (!docHasData) return false;
+	if (events.length === 0) return false;
+	return !bufferHasBuildFoundation(events);
 }
 
 /**

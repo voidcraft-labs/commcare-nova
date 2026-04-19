@@ -17,6 +17,7 @@ import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
 import {
+	bufferHasBuildFoundation,
 	deriveAgentError,
 	deriveAgentStage,
 	derivePostBuildEdit,
@@ -148,16 +149,11 @@ export function useClearNewField(): () => void {
 
 // ── Generation lifecycle ──────────────────────────────────────────────────
 //
-// Every public signal here derives from `session.events` (the event
-// buffer) plus the small set of fields that describe run boundaries
-// (`agentActive`, `runCompletedAt`, `loading`). No shadow state is
-// involved — live and replay feed the same buffer, so the derived
-// values are identical under identical events.
-
-/** Whether the agent is currently streaming a build or edit. */
-export function useAgentActive(): boolean {
-	return useBuilderSession((s) => s.agentActive);
-}
+// Every public signal here derives from `session.events` + `runCompletedAt`
+// + `loading`. No `agentActive` mirror exists — the events buffer IS the
+// "a run is in progress" signal (cleared at both `beginRun` and `endRun`,
+// so a non-empty buffer implies an active run). Live and replay feed the
+// same buffer, so the derived values are identical under identical events.
 
 /** Latest generation stage derived from the events buffer — `null` when
  *  the run hasn't emitted any generation-stage mutations yet (the
@@ -194,16 +190,12 @@ export function useValidationAttempt(): {
 	return useMemo(() => deriveValidationAttempt(events), [events]);
 }
 
-/** Whether the current run is a post-build edit (active, no
- *  `schema` / `scaffold` mutations yet in this run, doc has data). */
+/** Whether the current run is a post-build edit (run in progress, no
+ *  `schema` / `scaffold` mutations in this run, doc has data). */
 export function usePostBuildEdit(): boolean {
 	const events = useBuilderSession((s) => s.events);
-	const agentActive = useBuilderSession((s) => s.agentActive);
 	const hasData = useBlueprintDoc(docHasData);
-	return useMemo(
-		() => derivePostBuildEdit(events, agentActive, hasData),
-		[events, agentActive, hasData],
-	);
+	return useMemo(() => derivePostBuildEdit(events, hasData), [events, hasData]);
 }
 
 /** Firestore app document ID for the current builder session.
@@ -469,7 +461,6 @@ export function useEditMode(): "edit" | "test" {
  *  tests can pass a minimal shape without a full `BuilderSessionState`. */
 export interface DerivePhaseSession {
 	loading: boolean;
-	agentActive: boolean;
 	runCompletedAt: number | undefined;
 	events: readonly Event[];
 }
@@ -481,16 +472,22 @@ export interface DerivePhaseSession {
  *   Loading > Completed > Generating > Ready > Idle.
  *
  * - **Loading** — initial hydration (app load or replay).
- * - **Completed** — `runCompletedAt` stamped (celebration window);
- *   cleared by `acknowledgeCompletion()` after the signal grid's
- *   done-animation settles.
- * - **Generating** — run active, first generation-stage mutation
- *   (schema/scaffold/module:N/form:M-F/fix) landed, and this is NOT a
- *   post-build edit. The stage check keeps the askQuestions window in
- *   Idle (centered chat) — the builder only morphs to the sidebar
- *   layout once structural output actually starts.
+ * - **Completed** — `runCompletedAt` stamped by `data-done`; cleared
+ *   by `acknowledgeCompletion()` after the done-animation settles.
+ * - **Generating** — a generation-stage mutation is in the buffer AND
+ *   the buffer contains the foundation (schema/scaffold) of an initial
+ *   build. The foundation check distinguishes a build from a
+ *   post-build edit — both can emit `form:M-F` tagged mutations, so
+ *   stage alone is ambiguous. An active run with no build foundation
+ *   yet (askQuestions window, or a pure edit) stays in Idle / Ready.
  * - **Ready** — doc has data (a usable blueprint exists).
- * - **Idle** — otherwise (fresh builder or SA mid-askQuestions).
+ * - **Idle** — otherwise (fresh builder, or SA mid-askQuestions with
+ *   no doc data yet).
+ *
+ * Note the lack of an `agentActive` parameter: the buffer is cleared
+ * at both `beginRun()` and `endRun()`, so "a non-empty buffer with a
+ * generation stage and build foundation" is itself the "generation in
+ * progress" signal — no shadow flag needed.
  *
  * Exported for unit testing — components use `useBuilderPhase()`.
  */
@@ -502,12 +499,7 @@ export function derivePhase(
 	if (session.runCompletedAt !== undefined) return BuilderPhase.Completed;
 
 	const stage = deriveAgentStage(session.events);
-	const postBuildEdit = derivePostBuildEdit(
-		session.events,
-		session.agentActive,
-		docHasData,
-	);
-	if (session.agentActive && !postBuildEdit && stage !== null) {
+	if (stage !== null && bufferHasBuildFoundation(session.events)) {
 		return BuilderPhase.Generating;
 	}
 	if (docHasData) return BuilderPhase.Ready;
@@ -516,14 +508,12 @@ export function derivePhase(
 
 /**
  * Reactive builder phase — derives from session run-lifecycle fields
- * (`loading`, `agentActive`, `runCompletedAt`, `events`) plus the doc
- * store's `docHasData` predicate. Single source of truth for live and
- * replay.
+ * (`loading`, `runCompletedAt`, `events`) plus the doc store's
+ * `docHasData` predicate. Single source of truth for live and replay.
  */
 export function useBuilderPhase(): BuilderPhase {
 	const session = useBuilderSessionShallow((s) => ({
 		loading: s.loading,
-		agentActive: s.agentActive,
 		runCompletedAt: s.runCompletedAt,
 		events: s.events,
 	}));

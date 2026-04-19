@@ -39,11 +39,14 @@ export type SidebarKind = "chat" | "structure";
  * Full state + actions for the BuilderSession store.
  *
  * Fields grouped by concern:
- *   - Generation lifecycle (`agentActive`, `events`, `runCompletedAt`,
- *     `loading`) — run boundaries + the canonical event stream. Stage,
- *     status message, error, validation-attempt context, and the
- *     postBuildEdit latch are all *derived* from `events` via
- *     `lib/session/lifecycle.ts` — no shadow state.
+ *   - Generation lifecycle (`events`, `runCompletedAt`, `loading`) —
+ *     run boundaries + the canonical event stream. The buffer holds
+ *     events for the *currently active run only* (cleared at both run
+ *     ends), so `events.length > 0` is the canonical "a run is in
+ *     progress" signal — no mirror flag can drift. Stage, status
+ *     message, error, validation-attempt, postBuildEdit, even the
+ *     derived phase are computed from `events` via
+ *     `lib/session/lifecycle.ts`.
  *   - App identity (`appId`) — current app being built/edited.
  *   - Replay (`replay`) — build replay playback data.
  *   - Interaction (`cursorMode`, `activeFieldId`) — how the user is editing.
@@ -53,26 +56,29 @@ export type SidebarKind = "chat" | "structure";
 export interface BuilderSessionState {
 	// ── Generation lifecycle ─────────────────────────────────────────────
 
-	/** Whether an SSE stream is currently open. Live: set by the chat
-	 *  transport status effect (`submitted` / `streaming` → true, `ready`
-	 *  → false). Replay: always false (persisted runs are done). While
-	 *  true, doc undo tracking is paused. */
-	agentActive: boolean;
-
-	/** In-memory event-log buffer — both live and replay feed lifecycle
-	 *  derivations from this single array. Live: appended by the stream
-	 *  dispatcher as `data-mutations` + `data-conversation-event`
-	 *  envelopes arrive. Replay: seeded by the hydrator + replaced on
-	 *  scrub. Cleared on `beginRun()` and `reset()`. Everything else
-	 *  about the run (stage, status, error, validation attempts, post-
-	 *  build edit latch) is derived from this buffer — see
-	 *  `lib/session/lifecycle.ts`. */
+	/** In-memory event-log buffer. Holds events for the *currently active
+	 *  run only* — cleared at both `beginRun()` (opening a new run) and
+	 *  `endRun()` (closing it). An empty buffer means no run is in
+	 *  progress; a non-empty buffer means the SSE stream is open (live)
+	 *  or the replay cursor is past the chapter start (replay). Live:
+	 *  appended by the stream dispatcher as `data-mutations` +
+	 *  `data-conversation-event` envelopes arrive. Replay: seeded by the
+	 *  hydrator + replaced on scrub.
+	 *
+	 *  Every lifecycle derivation (phase, stage, error, status message,
+	 *  validation attempt, postBuildEdit) reads from this buffer — see
+	 *  `lib/session/lifecycle.ts`. There's no shadow `agentActive` flag;
+	 *  `events.length > 0` is the canonical "a run is happening" signal,
+	 *  and it can't drift because both run-boundary writes are atomic
+	 *  state updates in `beginRun`/`endRun`. */
 	events: Event[];
 
-	/** Timestamp of the most recent successful run end. `undefined`
-	 *  while a run is active, after `acknowledgeCompletion()` fires, or
-	 *  on fresh mounts. Drives the `Completed` phase and the signal
-	 *  grid's celebration animation. */
+	/** Timestamp of the most recent whole-build completion — stamped by
+	 *  the dispatcher's `data-done` handler (the server-side marker from
+	 *  `validateApp`). Cleared on `acknowledgeCompletion()` (after the
+	 *  celebration animation) and on `beginRun()` (new run starts clean).
+	 *  askQuestions / clarifying-text / edit-tool runs never stamp — they
+	 *  close silently. Drives the Completed phase. */
 	runCompletedAt: number | undefined;
 
 	/** Generic loading flag for async operations outside of agent writes
@@ -150,30 +156,34 @@ export interface BuilderSessionState {
 
 	// ── Generation lifecycle actions ─────────────────────────────────────
 
-	/** Begin a new agent run. Clears the events buffer + `runCompletedAt`
-	 *  stamp, sets `agentActive=true`, and pauses doc undo tracking (so
-	 *  the entire run collapses into a single undoable unit when
-	 *  tracking resumes). Called by ChatContainer's chat-transport status
-	 *  effect when the SSE stream opens. */
+	/** Open a new run. Clears the events buffer + `runCompletedAt` stamp
+	 *  and pauses doc undo tracking (the whole run collapses into a
+	 *  single undoable unit on resume). The non-empty buffer that
+	 *  accumulates from this point until `endRun()` is the "a run is in
+	 *  progress" signal for all lifecycle derivations. Called by
+	 *  ChatContainer's chat-transport status effect on the
+	 *  ready→submitted/streaming transition. */
 	beginRun: () => void;
 
-	/** End the current agent run. `success=true` stamps `runCompletedAt`
-	 *  (triggers the `Completed` celebration phase); `success=false`
-	 *  leaves it cleared (fatal errors keep phase in Generating with the
-	 *  error surface). Resumes doc undo tracking. Called when the
-	 *  chat-transport status transitions back to `ready`. */
-	endRun: (success: boolean) => void;
+	/** Close a run. Clears the events buffer and resumes doc undo
+	 *  tracking. Does NOT touch `runCompletedAt` — stream-close is not
+	 *  the completion signal. A run that was just a chat turn
+	 *  (askQuestions, clarifying text, edit-tool response) closes
+	 *  silently because `runCompletedAt` was never stamped. Called on
+	 *  the active→ready transition. */
+	endRun: () => void;
+
+	/** Stamp `runCompletedAt` = now. Called by the stream dispatcher
+	 *  when `data-done` arrives — the server-side "whole build
+	 *  succeeded" marker from `validateApp`. Drives the Completed phase
+	 *  + celebration animation until `acknowledgeCompletion()` clears
+	 *  it. */
+	markRunCompleted: () => void;
 
 	/** Clear `runCompletedAt` after the celebration animation has played,
-	 *  so the derived phase moves from `Completed` back to `Ready`.
-	 *  No-ops when already cleared. */
+	 *  moving the derived phase from Completed → Ready. No-ops when
+	 *  already cleared. */
 	acknowledgeCompletion: () => void;
-
-	/** Toggle `agentActive` directly. Used by the chat-transport status
-	 *  effect for transitions that DON'T open/close a full run (e.g.
-	 *  legacy paths that only want to clear the flag). No-ops when
-	 *  value unchanged. */
-	setAgentActive: (active: boolean) => void;
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
@@ -330,8 +340,7 @@ export interface SessionStoreInit {
 export function createBuilderSessionStore(init?: SessionStoreInit) {
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
 	 * to devtools and doesn't fire subscribers on install/clear. Read
-	 * imperatively by `switchConnectMode`, `beginAgentWrite`, `endAgentWrite`,
-	 * and `setAgentActive`. */
+	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
 	return createStore<BuilderSessionState>()(
@@ -340,7 +349,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				// ── Initial state ────────────────────────────────────────
 
 				/* Generation lifecycle */
-				agentActive: false,
 				events: [] as Event[],
 				runCompletedAt: undefined as number | undefined,
 				loading: init?.loading ?? false,
@@ -381,29 +389,36 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				// ── Generation lifecycle actions ─────────────────────────
 
 				beginRun() {
-					/* Pause doc undo tracking so the entire agent run collapses
-					 * to a single undoable unit when tracking resumes. Then
-					 * clear the events buffer + completion stamp so derivations
-					 * start with a clean view of the new run. */
+					/* Open a run atomically: pause doc undo (whole run
+					 * collapses into one undoable unit on resume), clear the
+					 * events buffer, clear any stale completion stamp. The
+					 * non-empty buffer that accumulates from here is the
+					 * "a run is in progress" signal — no agentActive mirror
+					 * to maintain. */
 					docStoreRef?.getState().beginAgentWrite();
-					set({
-						agentActive: true,
-						events: [],
-						runCompletedAt: undefined,
-					});
+					set({ events: [], runCompletedAt: undefined });
 				},
 
-				endRun(success: boolean) {
-					/* Resume doc undo tracking — next user mutation opens a
-					 * fresh undo entry. Don't clear `agentActive` here: the
-					 * chat-transport status effect owns that transition and
-					 * needs to read `wasActive=true` to stamp the Anthropic
-					 * cache timestamp. On success, stamp `runCompletedAt` so
-					 * `derivePhase` moves to `Completed`. */
+				endRun() {
+					/* Close a run atomically: resume doc undo and clear the
+					 * events buffer. The empty buffer after this point means
+					 * no run is in progress — same signal, no drift possible.
+					 * `runCompletedAt` is intentionally NOT touched — the
+					 * dispatcher's `data-done` handler already stamped it
+					 * (for full builds), and askQuestions / clarifying-text /
+					 * edit-tool runs close silently because the stamp was
+					 * never set. */
 					docStoreRef?.getState().endAgentWrite();
-					if (success) {
-						set({ runCompletedAt: Date.now() });
-					}
+					set({ events: [] });
+				},
+
+				markRunCompleted() {
+					/* `data-done` arrived — `validateApp` succeeded, the
+					 * whole build is complete. Stamp the celebration. Phase
+					 * transitions to Completed and stays there until
+					 * `acknowledgeCompletion()` fires (3.5s after the
+					 * animation begins). */
+					set({ runCompletedAt: Date.now() });
 				},
 
 				acknowledgeCompletion() {
@@ -422,11 +437,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				replaceEvents(events: Event[]) {
 					set({ events });
-				},
-
-				setAgentActive(active: boolean) {
-					if (active === get().agentActive) return;
-					set({ agentActive: active });
 				},
 
 				setAppId(id: string) {
@@ -664,7 +674,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				reset() {
 					set({
 						/* Generation lifecycle */
-						agentActive: false,
 						events: [],
 						runCompletedAt: undefined,
 						loading: false,

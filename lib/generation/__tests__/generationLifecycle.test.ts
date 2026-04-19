@@ -6,18 +6,15 @@
  * events — and verifies that:
  *   - The doc state advances as mutations land.
  *   - The session events buffer mirrors the wire envelopes.
- *   - Run lifecycle (agentActive / runCompletedAt) transitions correctly.
- *   - Derived lifecycle (phase / stage / status message) matches the
- *     emissions shape.
+ *   - Run boundaries (`beginRun` / `endRun` / `markRunCompleted`)
+ *     transition the buffer + `runCompletedAt` correctly.
+ *   - Derived lifecycle (phase / stage / status) matches the emissions.
  *
  * Uses real stores wired together and drives them through the
  * `data-mutations` + `data-conversation-event` dispatcher paths — the
- * same paths the live server exercises.
- *
- * Lifecycle derivation is stubbed locally against `session.events` +
- * `agentActive` + `runCompletedAt` to decouple from the Task 4
- * `derivePhase` rewrite. The derivation rules mirror the final
- * implementation: Loading > Completed > Generating > Ready > Idle.
+ * same paths the live server exercises. Phase derivation is the real
+ * `derivePhase` from `lib/session/hooks`. Priority chain:
+ *   Loading > Completed > Generating > Ready > Idle.
  */
 
 import { assert, describe, expect, it } from "vitest";
@@ -31,6 +28,8 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
+import { derivePhase } from "@/lib/session/hooks";
+import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { GenerationStage } from "@/lib/session/types";
 import { applyStreamEvent } from "../streamDispatcher";
@@ -44,62 +43,24 @@ function snapshotDoc(docStore: BlueprintDocStoreApi): PersistableDoc {
 }
 
 /**
- * Local `derivePhase` shim — matches the Task 4 contract so these tests
- * stay useful through the transition. Reads session.events for stage
- * derivation (latest mutation event with a generation-stage tag) and
- * session state for the active/completed flags.
+ * Wrapper around the real `derivePhase` — reads the wired stores and
+ * returns the phase. Kept as a helper (rather than inlining at each
+ * call site) because the test file already had the name and it's a
+ * simple pass-through.
  */
 function derivePhaseLocal(
 	sessionStore: BuilderSessionStoreApi,
 	docStore: BlueprintDocStoreApi,
 ): BuilderPhase {
 	const s = sessionStore.getState();
-	const hasData = docHasData(docStore.getState());
-
-	if (s.loading) return BuilderPhase.Loading;
-	if (s.runCompletedAt !== undefined) return BuilderPhase.Completed;
-
-	const stage = latestGenerationStage(s.events);
-	const postBuild = derivePostBuildEditLocal(s.events, s.agentActive, hasData);
-	if (s.agentActive && !postBuild && stage !== null) {
-		return BuilderPhase.Generating;
-	}
-	if (hasData) return BuilderPhase.Ready;
-	return BuilderPhase.Idle;
-}
-
-function latestGenerationStage(
-	events:
-		| readonly MutationEvent[]
-		| readonly ConversationEvent[]
-		| readonly unknown[],
-): GenerationStage | null {
-	for (let i = events.length - 1; i >= 0; i--) {
-		const e = events[i] as { kind: string; stage?: string };
-		if (e.kind !== "mutation" || !e.stage) continue;
-		if (e.stage === "schema") return GenerationStage.DataModel;
-		if (e.stage === "scaffold") return GenerationStage.Structure;
-		if (e.stage === "module:create") continue;
-		if (e.stage.startsWith("module:remove:")) continue;
-		if (e.stage.startsWith("module:")) return GenerationStage.Modules;
-		if (e.stage.startsWith("form:")) return GenerationStage.Forms;
-		if (e.stage.startsWith("fix")) return GenerationStage.Fix;
-	}
-	return null;
-}
-
-function derivePostBuildEditLocal(
-	events: readonly unknown[],
-	agentActive: boolean,
-	hasData: boolean,
-): boolean {
-	if (!agentActive) return false;
-	for (const e of events) {
-		const ev = e as { kind: string; stage?: string };
-		if (ev.kind !== "mutation" || !ev.stage) continue;
-		if (ev.stage === "schema" || ev.stage === "scaffold") return false;
-	}
-	return hasData;
+	return derivePhase(
+		{
+			loading: s.loading,
+			runCompletedAt: s.runCompletedAt,
+			events: s.events,
+		},
+		docHasData(docStore.getState()),
+	);
 }
 
 /** Build MutationEvent envelopes. Mirrors the shape the server emits. */
@@ -227,7 +188,9 @@ describe("generation lifecycle (end-to-end)", () => {
 
 		// ── Begin run (chat status effect's responsibility live) ──
 		s().beginRun();
-		expect(s().agentActive).toBe(true);
+		/* beginRun pauses doc undo. The events buffer — which drives
+		 * lifecycle derivations — is empty at this instant but will fill
+		 * as the stream dispatcher pushes events. */
 		expect(docStore.temporal.getState().isTracking).toBe(false);
 
 		// ── Schema mutation lands → stage = DataModel ──
@@ -238,7 +201,7 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		expect(doc().caseTypes).toEqual(CASE_TYPES);
-		expect(latestGenerationStage(s().events)).toBe(GenerationStage.DataModel);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.DataModel);
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
 			BuilderPhase.Generating,
 		);
@@ -246,7 +209,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		// ── Scaffold mutations → stage = Structure ──
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		expect(doc().moduleOrder).toEqual([MOD_UUID]);
-		expect(latestGenerationStage(s().events)).toBe(GenerationStage.Structure);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Structure);
 
 		// ── Module-detail mutation → stage = Modules ──
 		const columns = [{ field: "name", header: "Name" }];
@@ -263,27 +226,25 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		expect(doc().modules[MOD_UUID].caseListColumns).toEqual(columns);
-		expect(latestGenerationStage(s().events)).toBe(GenerationStage.Modules);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Modules);
 
 		// ── Form-content mutations → stage = Forms ──
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
 		expect(doc().fieldOrder[FORM_UUID]).toEqual([Q_NAME_UUID, Q_AGE_UUID]);
-		expect(latestGenerationStage(s().events)).toBe(GenerationStage.Forms);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Forms);
 
-		// ── End run (chat status effect's responsibility live) ──
-		s().endRun(true);
+		// ── data-done arrives (models the dispatcher's markRunCompleted) ──
+		s().markRunCompleted();
 		expect(s().runCompletedAt).toEqual(expect.any(Number));
+		// ── Stream closes (models the chat status effect's endRun) ──
+		s().endRun();
+		/* endRun clears the events buffer + resumes doc undo. The
+		 * celebration stamp survives — it's orthogonal to stream close. */
+		expect(s().events).toEqual([]);
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
 			BuilderPhase.Completed,
 		);
-		/* Doc undo resumed. */
 		expect(docStore.temporal.getState().isTracking).toBe(true);
-
-		// ── Chat status effect clears agentActive ──
-		s().setAgentActive(false);
-		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
-			BuilderPhase.Completed,
-		);
 
 		// ── acknowledgeCompletion (celebration animation settled) ──
 		s().acknowledgeCompletion();
@@ -343,10 +304,11 @@ describe("generation lifecycle (end-to-end)", () => {
 		const nameField = docStore.getState().fields[Q_NAME_UUID];
 		assert(nameField && nameField.kind === "text");
 		expect(nameField.label).toBe("Patient Full Name");
-		expect(latestGenerationStage(s().events)).toBe(GenerationStage.Fix);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Fix);
 
 		// ── Done ──
-		s().endRun(true);
+		s().markRunCompleted();
+		s().endRun();
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
 			BuilderPhase.Completed,
 		);
@@ -385,9 +347,8 @@ describe("generation lifecycle (end-to-end)", () => {
 		const errEv = s().events.at(-1);
 		assert(errEv?.kind === "conversation" && errEv.payload.type === "error");
 		expect(errEv.payload.error.fatal).toBe(true);
-		/* agentActive remains true — the chat status effect is what
-		 * transitions the run lifecycle based on SSE stream closure. */
-		expect(s().agentActive).toBe(true);
+		/* Buffer still holds the run's events (endRun hasn't fired). */
+		expect(s().events.length).toBeGreaterThan(0);
 		/* Doc entities preserved. */
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
 	});
@@ -405,8 +366,8 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
-		s().endRun(true);
-		s().setAgentActive(false);
+		s().markRunCompleted();
+		s().endRun();
 		s().acknowledgeCompletion();
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 
@@ -446,7 +407,8 @@ describe("generation lifecycle (end-to-end)", () => {
 		);
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
-		s().endRun(true);
+		s().markRunCompleted();
+		s().endRun();
 
 		expect(docStore.getState().appName).toBe("Health App");
 		/* Undo was paused by beginRun → resumed by endRun. User edits now

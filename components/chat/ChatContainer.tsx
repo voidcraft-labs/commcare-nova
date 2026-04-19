@@ -25,9 +25,9 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
+import { BuilderPhase } from "@/lib/services/builder";
 import { showToast } from "@/lib/services/toastStore";
-import { useReplayMessages } from "@/lib/session/hooks";
-import { derivePostBuildEdit } from "@/lib/session/lifecycle";
+import { derivePhase, useReplayMessages } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
 	BuilderSessionContext,
@@ -88,26 +88,31 @@ function createChatInstance(
 								return persistable;
 							})()
 						: undefined;
-				/* appReady must be false during initial generation even after
-				 * scaffold creates modules — generation tools must not be
-				 * stripped mid-build. `derivePostBuildEdit` is true iff the
-				 * current run is an edit (no schema/scaffold mutations in
-				 * the buffer, doc has data), which is exactly when
-				 * generation tools can safely be excluded. */
-				const postBuildEdit = derivePostBuildEdit(
-					sessionState.events,
-					sessionState.agentActive,
+				/* `appReady` gates whether the server strips generation tools
+				 * (editing mode) vs exposes them (build mode). We use the
+				 * derived phase as the single source of truth — Ready or
+				 * Completed both imply "app is usable, this is an edit-mode
+				 * request." Generating / Idle / Loading all mean "don't strip
+				 * tools." This handles the askQuestions-auto-resend during an
+				 * initial build correctly: the buffer still contains the
+				 * build's schema/scaffold events, so phase stays Generating
+				 * → appReady=false → gen tools remain available. */
+				const phase = derivePhase(
+					{
+						loading: sessionState.loading,
+						runCompletedAt: sessionState.runCompletedAt,
+						events: sessionState.events,
+					},
 					hasData,
 				);
+				const appReady =
+					phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 				return {
 					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
-					appReady:
-						hasData &&
-						!sessionState.loading &&
-						!(sessionState.agentActive && !postBuildEdit),
+					appReady,
 				};
 			},
 		}),
@@ -173,6 +178,13 @@ export function ChatContainer({
 	const sessionStoreRef = useRef(sessionApi);
 	sessionStoreRef.current = sessionApi;
 	const runIdRef = useRef<string | undefined>(undefined);
+	/** Whether the SSE transport was open on the previous render — used
+	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
+	 *  for the `beginRun` / `endRun` handoff. Local to this component so
+	 *  the session store never has to mirror the transport status as a
+	 *  shadow field. Initial false matches the SDK's initial `status:
+	 *  "ready"` so the very first render is a no-op. */
+	const prevStreamOpenRef = useRef(false);
 	/** ISO timestamp of the SA's last response — used to determine if the
 	 *  Anthropic prompt cache is still warm on subsequent requests. */
 	const lastResponseAtRef = useRef<string | undefined>(undefined);
@@ -221,31 +233,32 @@ export function ChatContainer({
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
-	/* Drive run lifecycle from chat-transport status. `submitted` +
-	 * `streaming` both mean the SSE stream is open; on the first transition
-	 * into either, begin a new run (clears events buffer + runCompletedAt,
-	 * sets agentActive=true). On the transition back to `ready`, end the
-	 * run — `success=true` iff no fatal conversation error landed during
-	 * the run, so we drop into the Completed celebration rather than
-	 * freezing on failure UI. Stamps `lastResponseAtRef` on the ready
-	 * transition so the next request can decide if the Anthropic prompt
-	 * cache is still warm. */
+	/* Drive run boundaries from chat-transport status. `submitted` +
+	 * `streaming` mean the SSE stream is open. On the first transition
+	 * into either, `beginRun` clears the events buffer + runCompletedAt
+	 * and pauses doc undo. On the transition back to `ready`, `endRun`
+	 * clears the events buffer and resumes doc undo.
+	 *
+	 * Transition detection uses a local ref — the session store has no
+	 * `agentActive` field to read from. The buffer is the "a run is in
+	 * progress" signal (non-empty between beginRun and endRun); we just
+	 * need to know WHEN to flip it, which is the status edge.
+	 *
+	 * `endRun` is a pure stream-close — whether the run was "completed"
+	 * in the celebration sense is decided by the dispatcher's
+	 * `data-done` handler via `markRunCompleted()`. So askQuestions
+	 * runs, clarifying text, and edit-tool responses close silently
+	 * without any animation. Stamps `lastResponseAtRef` on the ready
+	 * transition for the next request's Anthropic-cache warmth check. */
 	useEffect(() => {
 		if (!sessionApi) return;
-		const active = status === "submitted" || status === "streaming";
-		const session = sessionApi.getState();
-		const wasActive = session.agentActive;
-		if (active && !wasActive) {
-			session.beginRun();
-		} else if (!active && wasActive) {
-			const events = session.events;
-			const fatal = events.some(
-				(e) =>
-					e.kind === "conversation" &&
-					e.payload.type === "error" &&
-					e.payload.error.fatal,
-			);
-			session.endRun(!fatal);
+		const streamOpen = status === "submitted" || status === "streaming";
+		const wasOpen = prevStreamOpenRef.current;
+		prevStreamOpenRef.current = streamOpen;
+		if (streamOpen && !wasOpen) {
+			sessionApi.getState().beginRun();
+		} else if (!streamOpen && wasOpen) {
+			sessionApi.getState().endRun();
 			if (status === "ready") {
 				lastResponseAtRef.current = new Date().toISOString();
 			}

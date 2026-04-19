@@ -2,11 +2,14 @@
  * derivePhase — pure function unit tests.
  *
  * `BuilderPhase` is computed from session run-lifecycle fields
- * (`loading`, `agentActive`, `runCompletedAt`, `events`) + the doc
- * store's `docHasData` predicate. These tests verify the priority
- * chain: Loading > Completed > Generating > Ready > Idle, and the
- * requirement that Generating needs a generation-stage mutation in the
- * events buffer.
+ * (`loading`, `runCompletedAt`, `events`) + the doc store's
+ * `docHasData` predicate. There's no `agentActive` parameter — the
+ * events buffer is cleared at both `beginRun` and `endRun`, so
+ * "non-empty buffer with build foundation" is itself the "generation
+ * in progress" signal. These tests verify the priority chain:
+ * Loading > Completed > Generating > Ready > Idle, plus the
+ * foundation check that distinguishes initial build from post-build
+ * edit (both can emit `form:M-F` tags).
  *
  * No React, no providers — just the pure function.
  */
@@ -31,7 +34,6 @@ function mut(stage: string | undefined, seq = 0): Event {
 /** Baseline idle-session fixture — overridable. */
 const idle = {
 	loading: false,
-	agentActive: false,
 	runCompletedAt: undefined,
 	events: [] as Event[],
 };
@@ -43,12 +45,11 @@ describe("derivePhase", () => {
 		);
 	});
 
-	it("Loading beats Completed, Generating, Ready", () => {
+	it("Loading beats everything else", () => {
 		expect(
 			derivePhase(
 				{
 					loading: true,
-					agentActive: true,
 					runCompletedAt: Date.now(),
 					events: [mut("schema", 0)],
 				},
@@ -63,66 +64,115 @@ describe("derivePhase", () => {
 		);
 	});
 
-	it("Completed beats Generating", () => {
-		/* After endRun(true): runCompletedAt is set, agentActive may still
-		 * be true (chat status effect hasn't fired ready yet). Phase must
-		 * be Completed, not Generating. */
+	it("Completed beats Generating (celebration window stays sticky)", () => {
+		/* `data-done` arrived → runCompletedAt stamped, stream still
+		 * streaming (final summary text). Events buffer has generation
+		 * mutations, but phase must stay Completed. */
 		expect(
 			derivePhase(
 				{
 					loading: false,
-					agentActive: true,
 					runCompletedAt: Date.now(),
-					events: [mut("fix:attempt-1", 0)],
+					events: [mut("schema", 0), mut("fix:attempt-1", 1)],
 				},
 				true,
 			),
 		).toBe(BuilderPhase.Completed);
 	});
 
-	it("returns Generating when agentActive && generation-stage mutation in buffer", () => {
+	it("returns Generating when buffer has a generation stage + build foundation", () => {
+		expect(derivePhase({ ...idle, events: [mut("schema", 0)] }, false)).toBe(
+			BuilderPhase.Generating,
+		);
+	});
+
+	it("stays Generating through later stages (schema is still in buffer)", () => {
 		expect(
 			derivePhase(
-				{ ...idle, agentActive: true, events: [mut("schema", 0)] },
-				false,
+				{
+					...idle,
+					events: [mut("schema", 0), mut("scaffold", 1), mut("form:0-0", 2)],
+				},
+				true,
 			),
 		).toBe(BuilderPhase.Generating);
 	});
 
-	it("returns Idle (not Generating) when agentActive but no generation-stage mutations yet", () => {
-		/* The window between `beginRun` (SSE stream opens) and the first
-		 * stage-tagged mutation — SA may be doing askQuestions. Builder
-		 * stays in centered-chat Idle, not flash the generation UI. */
-		expect(derivePhase({ ...idle, agentActive: true, events: [] }, false)).toBe(
-			BuilderPhase.Idle,
-		);
+	it("returns Idle when buffer is empty (no run, no data)", () => {
+		/* Fresh mount, or post-endRun with no data. */
+		expect(derivePhase(idle, false)).toBe(BuilderPhase.Idle);
 	});
 
-	it("returns Idle (not Generating) when only edit-family mutations have landed", () => {
+	it("returns Idle during askQuestions (no mutations in buffer yet, no data)", () => {
+		/* Agent is mid-askQuestions — buffer has conversation events but
+		 * no mutations. Stage=null, phase stays Idle. */
 		expect(
 			derivePhase(
-				{ ...idle, agentActive: true, events: [mut("edit:0-1", 0)] },
+				{
+					...idle,
+					events: [
+						{
+							kind: "conversation",
+							runId: "r",
+							ts: 0,
+							seq: 0,
+							payload: { type: "user-message", text: "hi" },
+						},
+					],
+				},
 				false,
 			),
 		).toBe(BuilderPhase.Idle);
 	});
 
-	it("returns Ready when agentActive && postBuildEdit (no schema/scaffold, doc has data)", () => {
-		/* Post-build edit: active run, doc has data, no schema/scaffold
-		 * stage tags in the buffer. Phase stays Ready. */
+	it("returns Ready when docHasData && buffer is empty (between runs)", () => {
+		expect(derivePhase(idle, true)).toBe(BuilderPhase.Ready);
+	});
+
+	it("returns Ready during a post-build edit (no schema/scaffold, doc has data)", () => {
+		/* Edit in progress: buffer has `form:M-F` or `edit:*` but no
+		 * schema/scaffold → no build foundation → falls through to Ready
+		 * even though a generation-stage tag is present. */
+		expect(derivePhase({ ...idle, events: [mut("form:0-0", 0)] }, true)).toBe(
+			BuilderPhase.Ready,
+		);
+		expect(derivePhase({ ...idle, events: [mut("edit:0-1", 0)] }, true)).toBe(
+			BuilderPhase.Ready,
+		);
+	});
+
+	it("post-completion window: endRun clears buffer → Ready (regression)", () => {
+		/* End-to-end: build completed, data-done stamped runCompletedAt,
+		 * stream closed (endRun cleared the events buffer), ack cleared
+		 * the stamp. Now the derivation runs with buffer=[] and
+		 * hasData=true → Ready. If the buffer weren't cleared on
+		 * endRun, stage would still be non-null and we'd incorrectly
+		 * flip back to Generating after the celebration ended. */
 		expect(
 			derivePhase(
-				{ ...idle, agentActive: true, events: [mut("edit:0-1", 0)] },
+				{
+					loading: false,
+					runCompletedAt: undefined,
+					events: [],
+				},
 				true,
 			),
 		).toBe(BuilderPhase.Ready);
 	});
 
-	it("returns Ready when docHasData && no agent", () => {
-		expect(derivePhase(idle, true)).toBe(BuilderPhase.Ready);
-	});
-
-	it("returns Idle when no data && no agent", () => {
-		expect(derivePhase(idle, false)).toBe(BuilderPhase.Idle);
+	it("askQuestions-only run: buffer cleared on endRun → Idle (regression)", () => {
+		/* End-to-end: user sent a prompt, agent responded with
+		 * askQuestions (no mutations), stream closed. endRun cleared
+		 * the buffer. hasData=false → Idle, no stray Completed flash. */
+		expect(
+			derivePhase(
+				{
+					loading: false,
+					runCompletedAt: undefined,
+					events: [],
+				},
+				false,
+			),
+		).toBe(BuilderPhase.Idle);
 	});
 });

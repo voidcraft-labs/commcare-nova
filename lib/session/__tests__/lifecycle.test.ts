@@ -178,21 +178,39 @@ describe("deriveValidationAttempt", () => {
 // ── derivePostBuildEdit ───────────────────────────────────────────────────
 
 describe("derivePostBuildEdit", () => {
-	it("false when not active", () => {
-		expect(derivePostBuildEdit([], false, true)).toBe(false);
+	it("false when buffer is empty (no run in progress)", () => {
+		/* Empty buffer = no active run (beginRun/endRun both clear it).
+		 * Can't be a post-build edit because no edit is happening. */
+		expect(derivePostBuildEdit([], true)).toBe(false);
 	});
 
-	it("false during initial build (schema/scaffold present)", () => {
-		expect(derivePostBuildEdit([mut("schema", 0)], true, false)).toBe(false);
-		expect(derivePostBuildEdit([mut("scaffold", 0)], true, true)).toBe(false);
+	it("false when doc has no data (no app to edit)", () => {
+		expect(derivePostBuildEdit([mut("edit:0-1", 0)], false)).toBe(false);
 	});
 
-	it("true when active, no generation stages, doc has data", () => {
-		expect(derivePostBuildEdit([mut("edit:0-1", 0)], true, true)).toBe(true);
+	it("false during initial build (schema/scaffold in buffer)", () => {
+		expect(derivePostBuildEdit([mut("schema", 0)], true)).toBe(false);
+		expect(derivePostBuildEdit([mut("scaffold", 0)], true)).toBe(false);
 	});
 
-	it("false when active, no generation stages, doc empty (askQuestions window)", () => {
-		expect(derivePostBuildEdit([], true, false)).toBe(false);
+	it("true when buffer has edit-family events, no foundation, doc has data", () => {
+		expect(derivePostBuildEdit([mut("edit:0-1", 0)], true)).toBe(true);
+	});
+
+	it("true even if buffer only has conversation events (askQuestions mid-edit)", () => {
+		/* User mid-edit asking a clarifying question — buffer has
+		 * tool-call but no mutations. Doc already has data. Still a
+		 * post-build edit in progress. */
+		const events: Event[] = [
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				payload: { type: "user-message", text: "rename form 1" },
+			},
+		];
+		expect(derivePostBuildEdit(events, true)).toBe(true);
 	});
 });
 
