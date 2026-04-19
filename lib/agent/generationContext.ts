@@ -48,6 +48,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
 	ClassifiedErrorPayload,
+	ConversationEvent,
 	ConversationPayload,
 	MutationEvent,
 } from "@/lib/log/types";
@@ -211,60 +212,57 @@ export class GenerationContext {
 	}
 
 	/**
-	 * Build and queue one `MutationEvent` on the log writer.
+	 * Write a `ConversationEvent` to both the event log and the SSE stream.
 	 *
-	 * Called by `emitMutations` for every member of its batch — the live
-	 * SSE event carries the full batch for the client, but the event log
-	 * stores one document per mutation so admin inspection and future
-	 * replay can reason about each change independently.
-	 */
-	private queueMutation(mutation: Mutation, stage?: string): void {
-		const event: MutationEvent = {
-			kind: "mutation",
-			runId: this.usage.runId,
-			ts: Date.now(),
-			seq: this.seq++,
-			actor: "agent",
-			...(stage && { stage }),
-			mutation,
-		};
-		this.logWriter.logEvent(event);
-	}
-
-	/**
-	 * Write a `ConversationEvent` to the log. No SSE side-effect — the
-	 * live client consumes conversation data through the `UIMessage` stream
-	 * surfaced by `toUIMessageStream()`, which is a separate channel.
+	 * The log write is the durable debug artifact (and replay source). The
+	 * SSE emission carries the same envelope to the live client so the
+	 * session store's event buffer mirrors the persisted log in real time —
+	 * every lifecycle derivation (stage, error, status message, validation
+	 * attempt) reads from that buffer, so live + replay end up driving the
+	 * UI from the same data.
 	 */
 	emitConversation(payload: ConversationPayload): void {
-		this.logWriter.logEvent({
+		const event: ConversationEvent = {
 			kind: "conversation",
 			runId: this.usage.runId,
 			ts: Date.now(),
 			seq: this.seq++,
 			payload,
+		};
+		this.logWriter.logEvent(event);
+		this.writer.write({
+			type: "data-conversation-event",
+			data: event,
+			transient: true,
 		});
 	}
 
 	/**
 	 * Emit a transient data part to the live SSE stream. Pure pass-through.
 	 *
-	 * This is the lifecycle/error path — `data-phase`, `data-fix-attempt`,
-	 * `data-error`, `data-done`, and friends. Doc-mutating events go
-	 * through `emitMutations`, which owns both the SSE payload and the
-	 * matching event-log write; nothing in this method touches the log
-	 * writer or the intermediate Firestore save.
+	 * Remaining consumers after Phase-5 lifecycle derivation: `data-done`
+	 * (full-doc reconciliation from validateApp), `data-blueprint-updated`
+	 * (edit-mode coarse-tool replacements), `data-app-saved`
+	 * (Firestore-save notification), `data-run-id` (client echo). All
+	 * other former SSE signposts (`data-start-build`, `data-phase`,
+	 * `data-fix-attempt`, `data-error`) are derived from the mutation +
+	 * conversation event streams.
 	 */
 	emit(type: `data-${string}`, data: unknown): void {
 		this.writer.write({ type, data, transient: true });
 	}
 
 	/**
-	 * Emit a classified error — one conversation error event on the log,
-	 * one `data-error` on SSE. The SSE path is wrapped in try/catch because
-	 * the writer can be broken by the same failure that triggered the
-	 * classification; the event log carries the error either way, so a
-	 * broken writer is not fatal for admin observability.
+	 * Emit a classified error as a conversation event. The single
+	 * `emitConversation` call handles both the event log write AND the
+	 * SSE emission (via `data-conversation-event`), so the client sees
+	 * the error in its buffer and derivations pick it up without a
+	 * separate `data-error` side channel.
+	 *
+	 * Wrapped in try/catch because the writer can be broken by the same
+	 * failure that triggered the classification; the event log carries
+	 * the error either way, so a broken SSE writer is not fatal for
+	 * admin observability.
 	 */
 	emitError(error: ClassifiedError, context?: string): void {
 		const payload: ClassifiedErrorPayload = {
@@ -272,16 +270,11 @@ export class GenerationContext {
 			message: error.message,
 			fatal: !error.recoverable,
 		};
-		this.emitConversation({ type: "error", error: payload });
 		try {
-			this.emit("data-error", {
-				message: error.message,
-				type: error.type,
-				fatal: !error.recoverable,
-			});
+			this.emitConversation({ type: "error", error: payload });
 		} catch {
 			log.error(
-				"[emitError] failed to emit — error is in event log",
+				"[emitError] conversation event emission failed — error may not reach the log",
 				undefined,
 				{ errorMessage: error.message, context: context ?? "" },
 			);
@@ -299,30 +292,46 @@ export class GenerationContext {
 	 * identical array via `docStore.applyMany(mutations)`.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
-	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix"`). The SSE payload
-	 * carries it for clients that care; the event log stores it per-event
-	 * so replay chaptering can group by stage.
+	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix:attempt-N"`). It's
+	 * stamped on every MutationEvent envelope — both log and SSE see the
+	 * same tag, so lifecycle derivations over the client buffer match
+	 * replay derivations over the persisted log.
 	 *
 	 * Writes, in order:
-	 * 1. SSE — one `data-mutations` event carrying the full batch (live
-	 *    client applies the whole array in a single zundo-grouped unit).
-	 * 2. Firestore intermediate save — advances `updated_at` on the app
+	 * 1. Build MutationEvent envelopes — same values on the wire + log.
+	 * 2. SSE — one `data-mutations` event carrying both the raw
+	 *    `mutations` (for `docStore.applyMany`, preserving zundo grouping)
+	 *    AND the `events` envelope array (for the session events buffer).
+	 * 3. Firestore intermediate save — advances `updated_at` on the app
 	 *    doc so listApps can distinguish in-progress from orphaned runs.
-	 * 3. Event log — one `MutationEvent` per mutation, so admin tools
-	 *    and replay can reason about each change independently.
+	 * 4. Event log — one `MutationEvent` per mutation, reusing the same
+	 *    envelopes that went out on SSE.
 	 *
 	 * No-op on empty batches — consumer is expected to short-circuit when
 	 * appropriate.
 	 */
 	emitMutations(mutations: Mutation[], stage?: string): void {
 		if (mutations.length === 0) return;
-		/* SSE — unchanged wire format for the live client. Inlined here
-		 * (not routed through `emit`) so the save + log-fanout side-effects
-		 * live in one place and `emit` stays a pure pass-through. */
+
+		/* Build MutationEvent envelopes once; the same values ship on SSE
+		 * (client pushes to the events buffer) and on the log writer.
+		 * `seq` is allocated monotonically per envelope — contiguous with
+		 * conversation events emitted in the same run. */
+		const events: MutationEvent[] = mutations.map((mutation) => ({
+			kind: "mutation",
+			runId: this.usage.runId,
+			ts: Date.now(),
+			seq: this.seq++,
+			actor: "agent",
+			...(stage && { stage }),
+			mutation,
+		}));
+
 		this.writer.write({
 			type: "data-mutations",
 			data: {
 				mutations,
+				events,
 				...(stage !== undefined && { stage }),
 			},
 			transient: true,
@@ -331,8 +340,8 @@ export class GenerationContext {
 		 * staleness detector distinguishes "still generating" from "process
 		 * died". */
 		this.saveBlueprint();
-		/* Event log — one MutationEvent per mutation. */
-		for (const m of mutations) this.queueMutation(m, stage);
+		/* Event log — write the same envelopes we just sent on SSE. */
+		for (const e of events) this.logWriter.logEvent(e);
 	}
 
 	/**

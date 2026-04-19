@@ -126,6 +126,13 @@ export function ReplayController() {
 						 * `useReplayMessages`; no side channel needed. */
 					},
 				);
+				/* Swap the session events buffer to the new slice so
+				 * lifecycle derivations (stage, status message, etc.) see
+				 * the chapter's terminal frame — the frame live rendered
+				 * at the same cursor position. `replaceEvents` (not
+				 * `pushEvents`) because scrub is a full reconstruction,
+				 * not a delta. */
+				sessionStore.getState().replaceEvents(slice);
 				/* Record the new scrub position — `useReplayMessages`
 				 * subscribes to this and re-derives the chat view. */
 				sessionStore.getState().setReplayCursor(chapter.endIndex);

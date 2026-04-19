@@ -53,7 +53,11 @@ export type ClassifiedErrorPayload = z.infer<
 >;
 
 /**
- * Conversation payload discriminated union. One per chat-visible moment.
+ * Conversation payload discriminated union. One per chat-visible moment,
+ * plus run annotations that don't surface in chat but matter for
+ * debugging — `validation-attempt` records each CommCare validation
+ * round's attempt number + human-readable error list, so a log reader
+ * can reconstruct which errors drove which fix batch.
  *
  * `tool-call` + `tool-result` are paired by `toolCallId`; the result event
  * follows the call event in `ts` order when the tool finishes. `toolName`
@@ -91,6 +95,15 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("error"),
 		error: classifiedErrorPayloadSchema,
+	}),
+	/* Validation-attempt annotation — emitted at the start of each CommCare
+	 * validation round by `validateAndFix`. `attempt` is 1-indexed; `errors`
+	 * carries the human-readable errorToString results so a log reader can
+	 * pair the errors with the fix:attempt-N mutations that follow. */
+	z.object({
+		type: z.literal("validation-attempt"),
+		attempt: z.number().int().positive(),
+		errors: z.array(z.string()),
 	}),
 ]);
 export type ConversationPayload = z.infer<typeof conversationPayloadSchema>;

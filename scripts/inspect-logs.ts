@@ -187,6 +187,8 @@ function summarizeConversation(payload: ConversationPayload): string {
 			return `tool-result ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
 		case "error":
 			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${truncate(payload.error.message, 80)}`;
+		case "validation-attempt":
+			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
 	}
 }
 

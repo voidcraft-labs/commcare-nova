@@ -341,10 +341,6 @@ export function createSolutionsArchitect(
 				caseTypes: caseTypesOutputSchema.shape.case_types,
 			}),
 			strict: true,
-			onInputStart: () => {
-				ctx.emit("data-start-build", {});
-				ctx.emit("data-phase", { phase: "data-model" });
-			},
 			execute: async ({ appName, caseTypes }) => {
 				// Emit before dispatch so the client applies mutations in the same
 				// order the SA's internal doc advances. `dispatch` still runs
@@ -373,9 +369,6 @@ export function createSolutionsArchitect(
 				"Set the module and form structure for the app. Call after generateScaffold. Provide the complete scaffold directly.",
 			inputSchema: scaffoldModulesSchema,
 			strict: true,
-			onInputStart: () => {
-				ctx.emit("data-phase", { phase: "structure" });
-			},
 			execute: async (scaffold) => {
 				const muts = setScaffoldMutations(doc, scaffold);
 				ctx.emitMutations(muts, "scaffold");
@@ -406,9 +399,6 @@ export function createSolutionsArchitect(
 				case_list_columns: moduleContentSchema.shape.case_list_columns,
 				case_detail_columns: moduleContentSchema.shape.case_detail_columns,
 			}),
-			onInputStart: () => {
-				ctx.emit("data-phase", { phase: "modules" });
-			},
 			execute: async ({
 				moduleIndex,
 				case_list_columns,
@@ -527,8 +517,8 @@ export function createSolutionsArchitect(
 					// Emit the mutation batch before dispatch so client application
 					// order matches the SA's internal doc advancement. The client
 					// applies the mutations via `applyMany` — no wire-form snapshot
-					// needed; the mutations ARE the update.
-					ctx.emit("data-phase", { phase: "forms" });
+					// needed; the mutations ARE the update. The `form:M-F` stage
+					// tag on the envelopes drives lifecycle derivation (forms phase).
 					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
 					dispatch(muts);
 
@@ -1236,9 +1226,6 @@ export function createSolutionsArchitect(
 			description:
 				"Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing. If validation fails with remaining errors, use your mutation tools (removeQuestion, editQuestion, etc.) to fix them, then call validateApp again.",
 			inputSchema: z.object({}),
-			onInputStart: () => {
-				ctx.emit("data-phase", { phase: "validate" });
-			},
 			execute: async () => {
 				// `validateAndFix` owns the XForm-compiler boundary: it takes
 				// our doc, runs CommCare-flavored validation + auto-fixes on a

@@ -175,6 +175,15 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 			exitPath: replay.exitPath,
 		});
 
+		/* Mirror the replayed slice into the session events buffer so
+		 * lifecycle derivations (stage, error, status message, postBuildEdit)
+		 * reflect exactly the frame the doc store now holds. This is what
+		 * makes replay + live share a single lifecycle code path — without
+		 * this seed, derivations over an empty buffer would render the
+		 * Idle / centered layout mid-replay. */
+		const eventsToReplay = replay.events.slice(0, replay.initialCursor + 1);
+		sessionStore.getState().pushEvents(eventsToReplay);
+
 		/* Replay events up to the initial cursor synchronously — the user
 		 * sees the final state immediately. The transport bar then lets
 		 * them scrub backward through chapters.
@@ -183,7 +192,6 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 		 * guaranteed fully populated by the time we call `setLoading(false)`
 		 * below. A future async variant of the paced helper could drift
 		 * here; the sync contract is load-bearing. */
-		const eventsToReplay = replay.events.slice(0, replay.initialCursor + 1);
 		replayEventsSync(
 			eventsToReplay,
 			(m) => docStore.getState().applyMany([m]),

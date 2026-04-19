@@ -162,10 +162,16 @@ export async function validateAndFix(
 			}
 		}
 
-		ctx.emit("data-phase", { phase: "fix" });
-		ctx.emit("data-fix-attempt", {
+		/* Log one validation-attempt conversation event per fix round. The
+		 * attempt number + human-readable error list land in both the
+		 * event log (debug artifact answering "which errors drove which
+		 * fix batch?") and the SSE stream (so the live UI's status pill
+		 * reads from the same derivation replay uses). Emitted BEFORE the
+		 * fix mutations so a buffer walker sees the validation context
+		 * ahead of the `fix:attempt-N` tagged mutations. */
+		ctx.emitConversation({
+			type: "validation-attempt",
 			attempt,
-			errorCount: errors.length,
 			errors: errors.map(errorToString),
 		});
 

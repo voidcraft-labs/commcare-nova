@@ -59,22 +59,43 @@ describe("GenerationContext.emitMutations", () => {
 		logWriter = handles.logWriter;
 	});
 
-	it("writes a data-mutations event to the SSE stream with the supplied mutations", () => {
+	it("writes a data-mutations event to the SSE stream carrying raw mutations + MutationEvent envelopes", () => {
 		ctx.emitMutations([TEXT_FIELD_MUTATION]);
-		expect(writer.write).toHaveBeenCalledWith({
-			type: "data-mutations",
-			data: { mutations: [TEXT_FIELD_MUTATION] },
-			transient: true,
-		});
+		const call = writer.write.mock.calls[0]?.[0] as {
+			type: string;
+			data: {
+				mutations: Mutation[];
+				events: Array<Record<string, unknown>>;
+			};
+			transient: boolean;
+		};
+		expect(call.type).toBe("data-mutations");
+		expect(call.transient).toBe(true);
+		expect(call.data.mutations).toEqual([TEXT_FIELD_MUTATION]);
+		expect(call.data.events).toHaveLength(1);
+		expect(call.data.events[0]).toEqual(
+			expect.objectContaining({
+				kind: "mutation",
+				runId: "run-1",
+				actor: "agent",
+				mutation: TEXT_FIELD_MUTATION,
+			}),
+		);
 	});
 
-	it("includes the optional stage tag on the SSE payload when provided", () => {
+	it("includes the optional stage tag on the SSE payload AND on every envelope", () => {
 		ctx.emitMutations([TEXT_FIELD_MUTATION], "form:0-0");
-		expect(writer.write).toHaveBeenCalledWith({
-			type: "data-mutations",
-			data: { mutations: [TEXT_FIELD_MUTATION], stage: "form:0-0" },
-			transient: true,
-		});
+		const call = writer.write.mock.calls[0]?.[0] as {
+			data: {
+				mutations: Mutation[];
+				events: Array<{ stage?: string }>;
+				stage?: string;
+			};
+		};
+		expect(call.data.mutations).toEqual([TEXT_FIELD_MUTATION]);
+		expect(call.data.stage).toBe("form:0-0");
+		expect(call.data.events).toHaveLength(1);
+		expect(call.data.events[0]?.stage).toBe("form:0-0");
 	});
 
 	it("omits the stage key entirely from SSE when no stage is provided (not 'stage: undefined')", () => {
@@ -149,18 +170,32 @@ describe("GenerationContext.emitMutations", () => {
 });
 
 describe("GenerationContext.emitConversation", () => {
-	it("writes a ConversationEvent to the log writer", () => {
+	it("writes a ConversationEvent to the log AND emits data-conversation-event on SSE", () => {
 		const { ctx, writer, logWriter } = makeTestContext();
 		ctx.emitConversation({ type: "assistant-text", text: "hi" });
+
+		/* Log side — durable debug artifact. */
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
-		expect(logWriter.logEvent).toHaveBeenCalledWith(
+		const logCall = logWriter.logEvent.mock.calls[0]?.[0];
+		expect(logCall).toEqual(
 			expect.objectContaining({
 				kind: "conversation",
 				runId: "run-1",
 				payload: { type: "assistant-text", text: "hi" },
 			}),
 		);
-		expect(writer.write).not.toHaveBeenCalled();
+
+		/* SSE side — same envelope, so the client's session events buffer
+		 * mirrors the log. */
+		expect(writer.write).toHaveBeenCalledTimes(1);
+		const writerCall = writer.write.mock.calls[0]?.[0] as {
+			type: string;
+			data: unknown;
+			transient: boolean;
+		};
+		expect(writerCall.type).toBe("data-conversation-event");
+		expect(writerCall.transient).toBe(true);
+		expect(writerCall.data).toBe(logCall);
 	});
 
 	it("carries the constructor-seeded runId on every event", () => {
@@ -177,10 +212,10 @@ describe("GenerationContext.emitConversation", () => {
 describe("GenerationContext.emit", () => {
 	it("writes SSE only — no log write — for non-mutation events", () => {
 		const { ctx, writer, logWriter } = makeTestContext();
-		ctx.emit("data-phase", { phase: "schema" });
+		ctx.emit("data-done", { doc: {} });
 		expect(writer.write).toHaveBeenCalledWith({
-			type: "data-phase",
-			data: { phase: "schema" },
+			type: "data-done",
+			data: { doc: {} },
 			transient: true,
 		});
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
@@ -188,7 +223,7 @@ describe("GenerationContext.emit", () => {
 });
 
 describe("GenerationContext.emitError", () => {
-	it("writes a conversation error event AND emits data-error on SSE", () => {
+	it("writes a conversation error event that flows to both log and SSE", () => {
 		const { ctx, writer, logWriter } = makeTestContext();
 		const classified: ClassifiedError = {
 			type: "internal",
@@ -196,7 +231,8 @@ describe("GenerationContext.emitError", () => {
 			recoverable: false,
 		};
 		ctx.emitError(classified, "test:context");
-		// Log side: single conversation error event.
+
+		/* Single conversation error event — visible in both surfaces. */
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
 		expect(logWriter.logEvent).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -208,12 +244,13 @@ describe("GenerationContext.emitError", () => {
 				},
 			}),
 		);
-		// SSE side: data-error payload for the live client.
-		expect(writer.write).toHaveBeenCalledWith({
-			type: "data-error",
-			data: { message: "boom", type: "internal", fatal: true },
-			transient: true,
-		});
+		/* SSE emission is the same envelope via `data-conversation-event`
+		 * — no separate `data-error` side channel. */
+		expect(writer.write).toHaveBeenCalledTimes(1);
+		const writerCall = writer.write.mock.calls[0]?.[0] as {
+			type: string;
+		};
+		expect(writerCall.type).toBe("data-conversation-event");
 	});
 });
 

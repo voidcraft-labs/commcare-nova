@@ -1,18 +1,19 @@
 /**
- * Tests for `applyStreamEvent` — the stream event dispatcher that replaces
- * the legacy `applyDataPart` function.
+ * Tests for `applyStreamEvent` — the stream event dispatcher.
  *
  * Uses real stores (BlueprintDocStore + BuilderSessionStore) wired together
  * via `_setDocStore`, mirroring the runtime SyncBridge setup. Each test
- * exercises one event category: doc lifecycle or session-only.
+ * exercises one event category: mutation batch, conversation event, or
+ * doc lifecycle.
  *
- * The live `data-mutations` path (the canonical doc-mutation emission)
- * is covered in `streamDispatcher-mutations.test.ts`.
+ * The live `data-mutations` doc-apply path is covered in more detail in
+ * `streamDispatcher-mutations.test.ts`.
  */
 
-import { assert, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
+import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
@@ -120,6 +121,14 @@ const EDITED_DOC: PersistableDoc = {
 
 // Test helpers live in ./testHelpers — shared with other generation tests.
 
+// Small factory for conversation-event payloads used below.
+function convEvent(
+	payload: ConversationEvent["payload"],
+	seq = 0,
+): ConversationEvent {
+	return { kind: "conversation", runId: "test-run", ts: 0, seq, payload };
+}
+
 // ── Test suite ──────────────────────────────────────────────────────────
 
 describe("applyStreamEvent", () => {
@@ -133,29 +142,13 @@ describe("applyStreamEvent", () => {
 		signalGrid.reset();
 	});
 
-	// ── Category 3: Session-only events ─────────────────────────────────
-
-	describe("data-start-build", () => {
-		it("sets session.agentActive=true and pauses doc undo", () => {
-			/* Resume tracking first so we can verify the pause. */
-			docStore.temporal.getState().resume();
-			expect(docStore.temporal.getState().isTracking).toBe(true);
-
-			applyStreamEvent("data-start-build", {}, docStore, sessionStore);
-
-			expect(sessionStore.getState().agentActive).toBe(true);
-			/* Doc undo should be paused — `beginAgentWrite` on the session store
-			 * cascades to `docStore.beginAgentWrite()` which pauses temporal. */
-			expect(docStore.temporal.getState().isTracking).toBe(false);
-		});
-	});
-
-	// ── Category 2: Doc lifecycle events ────────────────────────────────
+	// ── Doc lifecycle (full-doc replacements) ───────────────────────────
 
 	describe("data-done", () => {
-		it("loads final doc, sets justCompleted=true, clears agentActive", () => {
-			/* Simulate a generation session: start build, then done. */
-			applyStreamEvent("data-start-build", {}, docStore, sessionStore);
+		it("loads final doc; does NOT end the run (chat-status effect owns that)", () => {
+			/* Simulate a generation session active at data-done. Start a run
+			 * so we can verify no sneaky endRun happens in the dispatcher. */
+			sessionStore.getState().beginRun();
 
 			applyStreamEvent(
 				"data-done",
@@ -169,22 +162,17 @@ describe("applyStreamEvent", () => {
 			expect(doc.appName).toBe("Test App");
 			expect(doc.moduleOrder).toHaveLength(1);
 
-			/* Session should be in post-generation state. agentActive stays true —
-			 * the chat status effect clears it when status transitions to "ready",
-			 * which also stamps lastResponseAtRef for Anthropic cache warmth. */
+			/* Run lifecycle is still active — the chat transport status effect
+			 * is what transitions agentActive + runCompletedAt. The dispatcher
+			 * must NOT double-stamp. */
 			const session = sessionStore.getState();
-			expect(session.justCompleted).toBe(true);
 			expect(session.agentActive).toBe(true);
-
-			/* Doc undo tracking should be resumed — endAgentWrite on the session
-			 * store cascades to docStore.endAgentWrite() which resumes temporal. */
-			expect(docStore.temporal.getState().isTracking).toBe(true);
+			expect(session.runCompletedAt).toBeUndefined();
 		});
 	});
 
 	describe("data-blueprint-updated", () => {
-		it("loads updated doc, does NOT set justCompleted", () => {
-			/* Pre-load an initial doc (simulates an existing app). */
+		it("loads updated doc and resumes doc undo tracking", () => {
 			hydrateDoc(docStore, MINIMAL_DOC);
 			sessionStore.getState().setAppId("test-app-id");
 
@@ -195,109 +183,79 @@ describe("applyStreamEvent", () => {
 				sessionStore,
 			);
 
-			/* Doc should reflect the edit. */
 			expect(docStore.getState().appName).toBe("Test App v2");
-
-			/* justCompleted must NOT be set — edit-tool responses skip celebration. */
-			expect(sessionStore.getState().justCompleted).toBe(false);
-
 			/* Doc undo tracking should be resumed (endAgentWrite on doc). */
 			expect(docStore.temporal.getState().isTracking).toBe(true);
 		});
 	});
 
-	// ── Category 3: Session-only events (continued) ─────────────────────
+	// ── Conversation events ──────────────────────────────────────────────
 
-	describe("data-error", () => {
-		it("sets agentError with correct severity on session store", () => {
+	describe("data-conversation-event", () => {
+		it("pushes the event onto the session buffer", () => {
+			const event = convEvent({ type: "assistant-text", text: "hello" }, 0);
+
 			applyStreamEvent(
-				"data-error",
-				{ message: "Validation failed", fatal: false },
+				"data-conversation-event",
+				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
 
-			const err = sessionStore.getState().agentError;
-			assert(err);
-			expect(err.message).toBe("Validation failed");
-			expect(err.severity).toBe("recovering");
+			expect(sessionStore.getState().events).toEqual([event]);
 		});
 
-		it("uses 'failed' severity when fatal is true", () => {
+		it("pushes an error event onto the buffer (and toast is UI-only)", () => {
+			const event = convEvent(
+				{
+					type: "error",
+					error: { type: "internal", message: "boom", fatal: true },
+				},
+				0,
+			);
+
 			applyStreamEvent(
-				"data-error",
-				{ message: "Stream crashed", fatal: true },
+				"data-conversation-event",
+				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
 
-			const err = sessionStore.getState().agentError;
-			assert(err);
-			expect(err.severity).toBe("failed");
-		});
-	});
-
-	describe("data-app-saved", () => {
-		it("sets session.appId", () => {
-			applyStreamEvent(
-				"data-app-saved",
-				{ appId: "app-123" },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().appId).toBe("app-123");
-		});
-	});
-
-	describe("data-phase", () => {
-		it("updates session.agentStage", () => {
-			applyStreamEvent(
-				"data-phase",
-				{ phase: "structure" },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().agentStage).toBe("structure");
-		});
-	});
-
-	describe("data-fix-attempt", () => {
-		it("sets statusMessage with error info", () => {
-			applyStreamEvent(
-				"data-fix-attempt",
-				{ attempt: 2, errorCount: 3 },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().statusMessage).toBe(
-				"Fixing 3 errors, attempt 2",
-			);
+			expect(sessionStore.getState().events).toHaveLength(1);
+			expect(sessionStore.getState().events[0]).toEqual(event);
 		});
 
-		it("uses singular 'error' for count of 1", () => {
+		it("pushes a validation-attempt event onto the buffer", () => {
+			const event = convEvent(
+				{
+					type: "validation-attempt",
+					attempt: 2,
+					errors: ["missing xpath", "invalid ref"],
+				},
+				0,
+			);
+
 			applyStreamEvent(
-				"data-fix-attempt",
-				{ attempt: 1, errorCount: 1 },
+				"data-conversation-event",
+				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
 
-			expect(sessionStore.getState().statusMessage).toBe(
-				"Fixing 1 error, attempt 1",
-			);
+			expect(sessionStore.getState().events).toEqual([event]);
 		});
 	});
 
 	// ── Signal grid energy injection ────────────────────────────────────
 
 	describe("signal grid energy injection", () => {
-		it("injects 50 energy for data-phase", () => {
+		it("injects 50 energy for data-conversation-event", () => {
 			applyStreamEvent(
-				"data-phase",
-				{ phase: "forms" },
+				"data-conversation-event",
+				convEvent(
+					{ type: "assistant-text", text: "..." },
+					0,
+				) as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);

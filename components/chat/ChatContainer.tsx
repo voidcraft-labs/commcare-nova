@@ -118,23 +118,17 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* After first save, update the URL from /build/new → /build/{id} without
-			 * triggering a navigation or remount. The stream dispatcher stores the
-			 * ID on the session store. */
+			/* After first save, update the URL from /build/new → /build/{id}
+			 * without triggering a navigation or remount. The appId lives on
+			 * the session store; no dispatcher pass-through needed for this
+			 * purely-UI signal. */
 			if (type === "data-app-saved") {
-				applyStreamEvent(type, data, docApi, sessionApi);
+				sessionApi.getState().setAppId(data.appId as string);
 				window.history.replaceState({}, "", `/build/${data.appId as string}`);
 				return;
 			}
 
 			applyStreamEvent(type, data, docApi, sessionApi);
-			if (type === "data-error") {
-				showToast(
-					data.fatal ? "error" : "warning",
-					"Generation error",
-					data.message as string,
-				);
-			}
 		},
 	});
 }
@@ -219,33 +213,60 @@ export function ChatContainer({
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
-	/* Sync chat transport status → agent state on the session store (drives
-	 * the signal grid's "thinking" badge). Also stamps `lastResponseAtRef`
-	 * when the SA finishes so the next request can decide whether the
-	 * Anthropic prompt cache is still warm. */
+	/* Drive run lifecycle from chat-transport status. `submitted` +
+	 * `streaming` both mean the SSE stream is open; on the first transition
+	 * into either, begin a new run (clears events buffer + runCompletedAt,
+	 * sets agentActive=true). On the transition back to `ready`, end the
+	 * run — `success=true` iff no fatal conversation error landed during
+	 * the run, so we drop into the Completed celebration rather than
+	 * freezing on failure UI. Stamps `lastResponseAtRef` on the ready
+	 * transition so the next request can decide if the Anthropic prompt
+	 * cache is still warm. */
 	useEffect(() => {
 		if (!sessionApi) return;
 		const active = status === "submitted" || status === "streaming";
 		const session = sessionApi.getState();
 		const wasActive = session.agentActive;
-		session.setAgentActive(active);
-		if (status === "ready" && wasActive) {
-			lastResponseAtRef.current = new Date().toISOString();
+		if (active && !wasActive) {
+			session.beginRun();
+		} else if (!active && wasActive) {
+			const events = session.events;
+			const fatal = events.some(
+				(e) =>
+					e.kind === "conversation" &&
+					e.payload.type === "error" &&
+					e.payload.error.fatal,
+			);
+			session.endRun(!fatal);
+			if (status === "ready") {
+				lastResponseAtRef.current = new Date().toISOString();
+			}
 		}
 	}, [status, sessionApi]);
 
-	/* Surface stream-level errors from useChat (network, API key, server crash, spend cap).
-	 * Only record the error when the agent is actively generating (not during post-build
-	 * edits) — idle errors get a toast only. Reads session state imperatively — they're
-	 * not deps, just point-in-time checks when chatError fires. */
+	/* Surface stream-level failures (network drops, spend cap, auth,
+	 * server crashes) that never got a chance to produce a
+	 * server-side conversation error event. Synthesize one client-side
+	 * and push it onto the buffer — the lifecycle derivation then picks
+	 * it up identically to a server-emitted error. Toast is fired here
+	 * because the synthetic event doesn't flow through the dispatcher's
+	 * conversation-event handler. */
 	useEffect(() => {
 		if (!chatError || !sessionApi) return;
 		const message = parseApiErrorMessage(chatError.message);
 		const session = sessionApi.getState();
-		const isGenerating = session.agentActive && !session.postBuildEdit;
-		if (isGenerating && !session.agentError) {
-			session.failAgentWrite(message, "failed");
-		}
+		const runId = runIdRef.current ?? "client-error";
+		const existingSeq = session.events.length;
+		session.pushEvent({
+			kind: "conversation",
+			runId,
+			ts: Date.now(),
+			seq: existingSeq,
+			payload: {
+				type: "error",
+				error: { type: "network", message, fatal: true },
+			},
+		});
 		showToast("error", "Generation failed", message);
 	}, [chatError, sessionApi]);
 
