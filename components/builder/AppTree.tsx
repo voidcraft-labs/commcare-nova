@@ -29,10 +29,13 @@ import {
 import {
 	CollapseChevron,
 	FormIconContext,
-	findMatchIndices,
 	HighlightedText,
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
+import {
+	type SearchResult,
+	useSearchFilter,
+} from "@/components/builder/appTree/useSearchFilter";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import {
@@ -49,7 +52,6 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
-import type { MatchIndices } from "@/lib/filterTree";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
 	useIsFieldSelected,
@@ -224,150 +226,6 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 			</div>
 		</div>
 	);
-}
-
-// ── Search filter (entity-map-based) ─────────────────────────────────
-
-interface SearchResult {
-	matchMap: Map<string, MatchIndices>;
-	forceExpand: Set<string>;
-	visibleModuleIndices: Set<number>;
-	visibleFormIds: Set<string>;
-	visibleQuestionUuids: Set<string>;
-}
-
-/** Shape returned by the search entity selector. Extracted to a named type
- *  so the SEARCH_IDLE sentinel and the selector share the same contract. */
-interface SearchEntityData {
-	moduleOrder: Uuid[];
-	formOrder: Record<Uuid, Uuid[]>;
-	fieldOrder: Record<Uuid, Uuid[]>;
-	modules: Record<Uuid, Module>;
-	forms: Record<Uuid, Form>;
-	fields: Record<Uuid, Field>;
-}
-
-/** Stable empty data for when search is inactive — same reference every time.
- *  Prevents `useBlueprintDocShallow` from firing on entity map changes when
- *  the user isn't searching. Without this, every entity edit triggers the
- *  search subscription (6 entity maps changed) → AppTree re-renders. */
-const SEARCH_IDLE: SearchEntityData = {
-	moduleOrder: [],
-	formOrder: {} as Record<Uuid, Uuid[]>,
-	fieldOrder: {} as Record<Uuid, Uuid[]>,
-	modules: {} as Record<Uuid, Module>,
-	forms: {} as Record<Uuid, Form>,
-	fields: {} as Record<Uuid, Field>,
-};
-
-/**
- * Compute search filter results directly from entity maps.
- * No assembled TreeData needed — iterates normalized entities.
- *
- * When query is empty, returns SEARCH_IDLE from the selector — a stable
- * reference that shallow comparison sees as unchanged. This means entity
- * edits during normal (non-search) use cause zero work in this hook.
- */
-function useSearchFilter(query: string): SearchResult | null {
-	const isSearching = query.trim().length > 0;
-
-	const { moduleOrder, formOrder, fieldOrder, modules, forms, fields } =
-		useBlueprintDocShallow((s) =>
-			isSearching
-				? {
-						moduleOrder: s.moduleOrder,
-						formOrder: s.formOrder,
-						fieldOrder: s.fieldOrder,
-						modules: s.modules,
-						forms: s.forms,
-						fields: s.fields,
-					}
-				: SEARCH_IDLE,
-		);
-
-	return useMemo(() => {
-		const q = query.trim().toLowerCase();
-		if (!q) return null;
-
-		const matchMap = new Map<string, MatchIndices>();
-		const forceExpand = new Set<string>();
-		const visibleModuleIndices = new Set<number>();
-		const visibleFormIds = new Set<string>();
-		const visibleQuestionUuids = new Set<string>();
-
-		for (let mIdx = 0; mIdx < moduleOrder.length; mIdx++) {
-			const moduleId = moduleOrder[mIdx];
-			const mod = modules[moduleId];
-			if (!mod) continue;
-
-			/* Check module name */
-			const moduleKey = `m${mIdx}`;
-			const modIndices = findMatchIndices(mod.name, q);
-			if (modIndices) matchMap.set(moduleKey, modIndices);
-
-			const formIds = formOrder[moduleId] ?? [];
-			let moduleHasMatch = !!modIndices;
-
-			for (let fIdx = 0; fIdx < formIds.length; fIdx++) {
-				const formId = formIds[fIdx];
-				const form = forms[formId];
-				if (!form) continue;
-
-				const formKey = `f${mIdx}_${fIdx}`;
-				const formIndices = findMatchIndices(form.name, q);
-				if (formIndices) matchMap.set(formKey, formIndices);
-
-				/* Check questions recursively */
-				let formHasMatch = !!formIndices;
-				const checkFields = (parentId: Uuid, parentPath?: QuestionPath) => {
-					const uuids = fieldOrder[parentId] ?? [];
-					for (const uuid of uuids) {
-						const field = fields[uuid];
-						if (!field) continue;
-						const fieldPath = qpath(field.id, parentPath);
-
-						// `label` is absent on the `hidden` kind — guard before reading.
-						const fieldLabel = "label" in field ? field.label : "";
-						const labelIndices = findMatchIndices(fieldLabel, q);
-						const idIndices = findMatchIndices(field.id, q);
-
-						if (labelIndices) matchMap.set(fieldPath, labelIndices);
-						if (idIndices) matchMap.set(`${fieldPath}__id`, idIndices);
-
-						if (labelIndices || idIndices) {
-							visibleQuestionUuids.add(uuid);
-							formHasMatch = true;
-							/* Force-expand parent groups */
-							if (parentPath) forceExpand.add(parentPath);
-						}
-
-						/* Recurse into children */
-						checkFields(uuid, fieldPath);
-					}
-				};
-				checkFields(formId);
-
-				if (formHasMatch) {
-					visibleFormIds.add(formId);
-					forceExpand.add(formKey);
-					moduleHasMatch = true;
-				}
-			}
-
-			if (moduleHasMatch) {
-				visibleModuleIndices.add(mIdx);
-				forceExpand.add(moduleKey);
-			}
-		}
-
-		return {
-			matchMap,
-			forceExpand,
-			visibleModuleIndices,
-			visibleFormIds,
-			visibleQuestionUuids,
-		};
-	}, [query, moduleOrder, formOrder, fieldOrder, modules, forms, fields]);
 }
 
 // ── ModuleCard ───────────────────────────────────────────────────────
