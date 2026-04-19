@@ -1,12 +1,19 @@
 /**
- * Tree-filter utilities for the sidebar search UI.
+ * Shared types + rendering helper for sidebar search highlighting.
  *
- * Only `highlightSegments` + `MatchIndices` remain — the sidebar computes
- * its own match set directly from the normalized doc store
- * (`components/builder/AppTree.tsx#useSearchFilter`). The old
- * `filterTree()` returned a deep copy of a legacy `TreeData` structure
- * that no consumer still reads, so it was removed along with the
- * `TreeData` type and the `useDocTreeData` hook that produced it.
+ * `MatchIndices` carries inclusive `[start, end]` ranges pointing at
+ * substrings inside a piece of display text. `highlightSegments` slices
+ * the text along those ranges, merging adjacent/overlapping spans so
+ * the renderer never emits an empty non-highlight gap between two hits
+ * that touch.
+ *
+ * The sidebar search hook
+ * (`components/builder/appTree/useSearchFilter.ts`) produces the
+ * indices by walking the normalized doc store; the shared
+ * `HighlightedText` renderer in `components/builder/appTree/shared.tsx`
+ * consumes them to render `<mark>` segments. Keeping the types + slicer
+ * here lets both sides agree on one range format without either
+ * importing from the other.
  */
 
 /** Match indices as [start, end] pairs for highlighting. */

@@ -1,15 +1,10 @@
 /**
  * Shared primitives used across the AppTree row components.
  *
- * Keeps the small stateless atoms (chevron button, tree-item wrapper,
- * highlighted-text renderer) and the per-form icon context in one place so
- * FieldRow / FormCard / ModuleCard can import from a single module without
- * pulling in the full tree.
- *
- * `findMatchIndices` lives here because both the search-filter hook and the
- * row components call it to build + render highlight ranges — keeping it
- * adjacent to `HighlightedText` avoids a circular dependency between
- * `useSearchFilter` and the row files.
+ * Small stateless atoms (chevron button, tree-item wrapper,
+ * highlighted-text renderer) and the per-form icon context live here so
+ * FieldRow / FormCard / ModuleCard can import from a single module
+ * without pulling in the full tree.
  */
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -25,21 +20,6 @@ import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 export const FormIconContext = createContext<Map<string, IconifyIcon>>(
 	new Map(),
 );
-
-/**
- * Find the substring-match range for a fuzzy filter. Returns a single
- * `[start, end]` pair — the search is a plain case-insensitive `indexOf`
- * so there is at most one match per text. `undefined` means no match.
- */
-export function findMatchIndices(
-	text: string,
-	query: string,
-): MatchIndices | undefined {
-	const lower = text.toLowerCase();
-	const idx = lower.indexOf(query);
-	if (idx === -1) return undefined;
-	return [[idx, idx + query.length]];
-}
 
 /** Collapsible-section chevron button used by module / form / group rows. */
 export function CollapseChevron({

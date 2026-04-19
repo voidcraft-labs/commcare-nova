@@ -15,11 +15,28 @@
  */
 "use client";
 import { useMemo } from "react";
-import { findMatchIndices } from "@/components/builder/appTree/shared";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
 import type { MatchIndices } from "@/lib/filterTree";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+
+/**
+ * Locate the substring-match range for a fuzzy filter. Returns a
+ * single `[start, end]` pair — the search is a plain case-insensitive
+ * `indexOf`, so there is at most one hit per text. `undefined` means
+ * no match. Private to this module: only the search walk below ever
+ * produces `MatchIndices`; the row renderers consume them pre-computed
+ * via the `matchMap` on `SearchResult`.
+ */
+function findMatchIndices(
+	text: string,
+	query: string,
+): MatchIndices | undefined {
+	const lower = text.toLowerCase();
+	const idx = lower.indexOf(query);
+	if (idx === -1) return undefined;
+	return [[idx, idx + query.length]];
+}
 
 /**
  * Output of `useSearchFilter`. Every field is pre-computed once per

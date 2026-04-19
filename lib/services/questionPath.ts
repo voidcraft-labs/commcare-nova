@@ -8,8 +8,12 @@
  *   - `components/preview/form/**` — the preview renderer threads paths
  *     through `GroupField` / `RepeatField` / `FormRenderer` as render-tree
  *     identity for label/value wiring.
- *   - `components/builder/AppTree.tsx` — tree-sidebar walk builds a
- *     local path→uuid index.
+ *   - `components/builder/appTree/useSearchFilter.ts` — the sidebar
+ *     search walk keys its match map by question path so the renderer
+ *     can look up highlight ranges without re-deriving paths.
+ *   - `components/builder/appTree/useFieldIconMap.ts` — the per-form
+ *     icon map walk keys icons by question path so inline reference
+ *     chips can resolve the correct type icon.
  *   - `lib/doc/mutations/fields.ts` — mutation result types carry a
  *     `newPath: QuestionPath` for toast telemetry.
  *
