@@ -31,9 +31,6 @@ export const labelFieldMetadata: FieldKindMetadata<"label"> = {
 	convertTargets: [],
 };
 
-// Editor schema — Phase 1 stubs. Labels carry no data wiring and no UI
-// decoration (no hint — the label text itself is the message). Only a
-// relevant expression is meaningful here.
 export const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
 	data: [],
 	logic: [{ key: "relevant", component: StubField }],

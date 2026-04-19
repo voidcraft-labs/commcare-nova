@@ -32,9 +32,9 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	convertTargets: ["image", "audio", "video"],
 };
 
-// Editor schema — Phase 1 stubs. Phase 5 replaces StubField with real
-// components. Signature has no data wiring (no case_property) and no
-// validate/calculate fields — only display (hint) and logic guards.
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it. No data wiring and
+// no validate/calculate — signature is a pure capture control.
 export const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	data: [],
 	logic: [

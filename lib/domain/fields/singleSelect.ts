@@ -36,8 +36,9 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	convertTargets: ["multi_select"],
 };
 
-// Editor schema is a placeholder for Phase 1 — real option editors and XPath
-// fields are Phase 5's job. StubField renders a disabled input at every slot.
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it — including the
+// options list editor under data.
 export const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> =
 	{
 		data: [

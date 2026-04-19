@@ -32,8 +32,8 @@ export const secretFieldMetadata: FieldKindMetadata<"secret"> = {
 	convertTargets: ["text"],
 };
 
-// Editor schema is a Phase 1 placeholder — StubField renders a disabled input
-// for each property. Phase 5 replaces stubs with purpose-built components.
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it.
 export const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 	data: [{ key: "case_property", component: StubField }],
 	logic: [

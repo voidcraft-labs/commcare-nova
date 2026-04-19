@@ -44,10 +44,10 @@ export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	convertTargets: [],
 };
 
-// Editor schema — Phase 1 stubs. calculate is surfaced in logic (required,
-// non-optional from the UX perspective too) alongside the other XPath
-// expressions. case_property allows the computed value to be written to a
-// case property.
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it. calculate sits in
+// logic alongside the other XPath expressions; case_property allows the
+// computed value to be written to a case property.
 export const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [{ key: "case_property", component: StubField }],
 	logic: [

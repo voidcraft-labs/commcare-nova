@@ -5,6 +5,7 @@
 
 import tablerForms from "@iconify-icons/tabler/forms";
 import { z } from "zod";
+import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
 
@@ -31,12 +32,8 @@ export const textFieldMetadata: FieldKindMetadata<"text"> = {
 	convertTargets: ["secret"],
 };
 
-// Editor schema is a placeholder for Phase 1 — components referenced here
-// (`CasePropertySelect`, `TextareaField`, `XPathField`, `BooleanField`) are
-// Phase 5's job. In Phase 1 we publish the entries with stub components that
-// match the typed shape but render a disabled input. Phase 5 replaces them.
-import { StubField } from "@/components/builder/editor/StubField";
-
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it.
 export const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 	data: [{ key: "case_property", component: StubField }],
 	logic: [

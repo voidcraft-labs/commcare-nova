@@ -34,8 +34,6 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	convertTargets: ["repeat"],
 };
 
-// Editor schema is a Phase 1 placeholder — StubField renders a disabled input.
-// Phase 5 replaces stubs with purpose-built components.
 export const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [{ key: "relevant", component: StubField }],

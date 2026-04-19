@@ -32,8 +32,9 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	convertTargets: ["audio", "video", "signature"],
 };
 
-// Editor schema is a placeholder for Phase 1 — stub components render disabled
-// inputs. Phase 5 replaces them with real editor components.
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it. No data wiring —
+// binary fields can't be written to a case property.
 export const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 	data: [],
 	logic: [

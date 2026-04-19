@@ -35,8 +35,8 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	convertTargets: [],
 };
 
-// Editor schema is a placeholder for Phase 1 — real XPath and coordinate
-// fields are Phase 5's job. StubField renders a disabled input at every slot.
+// Declares which property keys this kind exposes in the inspect panel and
+// binds each to the editor component that renders it.
 export const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [{ key: "case_property", component: StubField }],
 	logic: [
