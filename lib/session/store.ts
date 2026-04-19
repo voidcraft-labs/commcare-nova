@@ -15,10 +15,11 @@
  * the canonical example — it stashes/restores sidebar visibility in a single
  * `set()` call so intermediate states never leak to subscribers.
  *
- * Generation lifecycle actions (`beginAgentWrite`, `endAgentWrite`,
- * `failAgentWrite`, `advanceStage`, `setFixAttempt`) bracket agent stream
- * writes and coordinate with the doc store's temporal middleware to
- * pause/resume undo tracking.
+ * Generation lifecycle actions (`beginRun`, `endRun`, plus the
+ * `pushEvents` / `pushEvent` / `replaceEvents` buffer mutators) bracket
+ * agent runs and coordinate with the doc store's temporal middleware to
+ * pause/resume undo tracking. Stage/error/status-message/postBuildEdit
+ * are derived from the events buffer — see `lifecycle.ts`.
  */
 
 import { devtools, subscribeWithSelector } from "zustand/middleware";
