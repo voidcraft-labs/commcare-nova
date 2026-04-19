@@ -116,7 +116,15 @@ function BuilderProviderInner({
 					<EditGuardProvider>
 						<BuilderFormEngineProvider>
 							<SyncBridge />
-							<LocationRecoveryEffect />
+							{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
+							 *  URL shape (it slices the first two segments as the
+							 *  base path). Replay mounts at `/build/replay/{id}`
+							 *  where segment[1] is the literal "replay", not the
+							 *  app id — running the effect there would treat
+							 *  "replay" as the id and strip the real id on
+							 *  recovery. Replay is read-only + scoped to its own
+							 *  route, so stale-ref stripping doesn't apply. */}
+							{replay ? null : <LocationRecoveryEffect />}
 							{replay ? <ReplayHydrator replay={replay} /> : null}
 							{!replay && initialDoc ? <LoadAppHydrator /> : null}
 							{children}
