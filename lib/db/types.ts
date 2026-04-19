@@ -6,10 +6,14 @@
  *
  * Document hierarchy:
  *
- *   usage/{userId}/months/{yyyy-mm}    → UsageDoc     (monthly spend tracking)
- *   apps/{appId}                       → AppDoc       (root-level, owner field links to user)
- *   apps/{appId}/logs/{logId}          → StoredEvent  (generation event stream)
- *   apps/{appId}/threads/{threadId}    → ThreadDoc    (chat conversation history)
+ *   usage/{userId}/months/{yyyy-mm}    → UsageDoc         (monthly spend tracking)
+ *   apps/{appId}                       → AppDoc           (root-level, owner field links to user)
+ *   apps/{appId}/events/{eventId}      → Event            (unified mutation+conversation log)
+ *   apps/{appId}/runs/{runId}          → RunSummaryDoc    (per-run cost/behavior summary)
+ *   apps/{appId}/threads/{threadId}    → ThreadDoc        (chat conversation history)
+ *
+ * The Event union lives in `lib/log/types.ts` — its shape is shared with
+ * runtime writer/reader code. This file owns every other Firestore schema.
  *
  * User identity lives on `auth_users` (see lib/auth.ts).
  */
@@ -50,224 +54,53 @@ export const usageDocSchema = z.object({
 });
 export type UsageDoc = z.infer<typeof usageDocSchema>;
 
-// ── Log Events ─────────────────────────────────────────────────────
+// ── Per-run summary ───────────────────────────────────────────────
 
 /**
- * Log events — stored at `apps/{appId}/logs/{logId}`.
+ * Per-run cost + behavior summary written once on request finalization.
  *
- * A log is a flat, ordered stream of events. Each event is self-describing —
- * a shared envelope (who, when, ordering) wrapping one of four event variants
- * (message, step, emission, error). Each variant has exactly its own fields,
- * nothing more. No defaults for unused fields. No sparse stripping.
- *
- * StoredEvent is the unit of persistence — one Firestore document per event.
- * Replay, cost tracking, and UI displays all consume StoredEvent[] directly —
- * no intermediate format or conversion layer.
+ * Stored at `apps/{appId}/runs/{runId}`. Admin tools (inspect-logs,
+ * inspect-compare) source cost breakdowns here — the event log itself
+ * intentionally does NOT carry token usage (spec §5: log is supplemental,
+ * mutation + conversation only).
  */
-
-/** JSON-safe value type — guarantees round-trip serialization fidelity. */
-export type JsonValue =
-	| string
-	| number
-	| boolean
-	| null
-	| JsonValue[]
-	| { [key: string]: JsonValue };
-
-/** Token usage and cost for an LLM call. */
-export interface TokenUsage {
-	model: string;
-	input_tokens: number;
-	output_tokens: number;
-	cache_read_tokens: number;
-	cache_write_tokens: number;
-	cost: number;
-}
-
-/** A tool call made during an agent step. */
-export interface LogToolCall {
-	name: string;
-	args: JsonValue;
-	output: JsonValue;
-	/** Inner LLM call usage. Null when the tool didn't invoke an LLM. */
-	generation: TokenUsage | null;
-	reasoning: string;
-}
-
-// ── Event variants ────────────────────────────────────────────────
-
-/** User sent a chat message at the start of an HTTP request. */
-export interface MessageEvent {
-	type: "message";
-	id: string;
-	text: string;
-}
-
-/** Agent completed one LLM call (may include tool calls and their results). */
-export interface StepEvent {
-	type: "step";
-	/** Step index within the run (0-based). Emissions reference this to associate with their parent step. */
-	step_index: number;
-	text: string;
-	reasoning: string;
-	tool_calls: LogToolCall[];
-	usage: TokenUsage;
-}
-
-/** A data-* part sent to the client stream. Written immediately, not batched into steps. */
-export interface EmissionEvent {
-	type: "emission";
-	/** Which step this emission belongs to (for replay grouping). */
-	step_index: number;
-	emission_type: string;
-	emission_data: JsonValue;
-}
-
-/** Session configuration snapshot — written once at the start of each run. */
-export interface ConfigEvent {
-	type: "config";
-	/** Which prompt the SA received: 'build' for new apps, 'edit' for fresh-edit mode. */
-	prompt_mode: "build" | "edit";
-	/** Whether fresh-edit mode was activated. */
-	fresh_edit: boolean;
-	/** Client signal: builder phase was Ready/Completed when the request was sent. */
-	app_ready: boolean;
-	/** Whether the prompt cache TTL had expired (>5 min since last response). */
-	cache_expired: boolean;
-	/** Number of modules in the blueprint at request time (0 for new builds). */
-	module_count: number;
-}
-
-/** A classified error (api_auth, rate_limit, internal, etc.). */
-export interface ErrorEvent {
-	type: "error";
-	error_type: string;
-	error_message: string;
-	error_raw: string;
-	error_fatal: boolean;
-	error_context: string;
-}
-
-/** Discriminated union of all event payloads. */
-export type LogEvent =
-	| ConfigEvent
-	| MessageEvent
-	| StepEvent
-	| EmissionEvent
-	| ErrorEvent;
-
-// ── Stored event (envelope + event) ──────────────────────────────
-
-/**
- * A log event with its storage envelope. This is the unit of persistence —
- * one StoredEvent = one Firestore document at `apps/{appId}/logs/{docId}`.
- */
-export interface StoredEvent {
-	/** Generation run ID — groups events from the same build/edit session. */
-	run_id: string;
-	/** Monotonic counter for deterministic ordering within a run. */
-	sequence: number;
-	/** HTTP request boundary (0-indexed, increments per chat request in a multi-turn). */
-	request: number;
-	/** ISO 8601 timestamp of this event. */
-	timestamp: string;
-	/** The event payload — discriminated by `event.type`. */
-	event: LogEvent;
-}
-
-// ── Zod schema for Firestore reads ───────────────────────────────
-
-/**
- * Zod schema for StoredEvent. Used by the Firestore converter to validate
- * documents on read. Writes pass through unchanged (the converter is a
- * passthrough for toFirestore).
- *
- * The discriminated union ensures each variant is validated with only its
- * own fields — no defaults for fields that don't belong to the variant.
- */
-const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
-	z.union([
-		z.string(),
-		z.number(),
-		z.boolean(),
-		z.null(),
-		z.array(jsonValue),
-		z.record(z.string(), jsonValue),
-	]),
-);
-
-const tokenUsageSchema = z.object({
+export const runSummaryDocSchema = z.object({
+	runId: z.string(),
+	/** ISO timestamp of first event written. */
+	startedAt: z.string(),
+	/** ISO timestamp of finalize. */
+	finishedAt: z.string(),
+	/** Which prompt the SA received. */
+	promptMode: z.enum(["build", "edit"]),
+	/** Fresh-edit mode (cache expired + editing). */
+	freshEdit: z.boolean(),
+	/** Client signal: app existed when request was sent. */
+	appReady: z.boolean(),
+	/** Client signal: Anthropic prompt cache TTL had lapsed. */
+	cacheExpired: z.boolean(),
+	/** Number of modules on the blueprint at request time (0 for new builds). */
+	moduleCount: z.number().int().nonnegative(),
+	/** Number of agent LLM steps in the run. */
+	stepCount: z.number().int().nonnegative(),
+	/** SA model id (e.g. "claude-opus-4-7"). */
 	model: z.string(),
-	input_tokens: z.number(),
-	output_tokens: z.number(),
-	cache_read_tokens: z.number(),
-	cache_write_tokens: z.number(),
-	cost: z.number(),
+	/**
+	 * Total input tokens for the run, INCLUDING cache_read_tokens and
+	 * cache_write_tokens. This mirrors the existing estimateCost() convention
+	 * (uncachedInput = inputTokens - cacheReadTokens - cacheWriteTokens).
+	 * If Anthropic's SDK reports `input_tokens` under a different convention,
+	 * adapters must convert to this contract before writing the summary.
+	 *
+	 * `cacheHitRate` (derived downstream) = cacheReadTokens / inputTokens.
+	 */
+	inputTokens: z.number().int().nonnegative(),
+	outputTokens: z.number().int().nonnegative(),
+	cacheReadTokens: z.number().int().nonnegative(),
+	cacheWriteTokens: z.number().int().nonnegative(),
+	costEstimate: z.number().nonnegative(),
+	toolCallCount: z.number().int().nonnegative(),
 });
-
-const logToolCallSchema = z.object({
-	name: z.string(),
-	args: jsonValue,
-	output: jsonValue,
-	generation: tokenUsageSchema.nullable(),
-	reasoning: z.string(),
-});
-
-const messageEventSchema = z.object({
-	type: z.literal("message"),
-	id: z.string(),
-	text: z.string(),
-});
-
-const stepEventSchema = z.object({
-	type: z.literal("step"),
-	step_index: z.number(),
-	text: z.string(),
-	reasoning: z.string(),
-	tool_calls: z.array(logToolCallSchema),
-	usage: tokenUsageSchema,
-});
-
-const emissionEventSchema = z.object({
-	type: z.literal("emission"),
-	step_index: z.number(),
-	emission_type: z.string(),
-	emission_data: jsonValue,
-});
-
-const configEventSchema = z.object({
-	type: z.literal("config"),
-	prompt_mode: z.enum(["build", "edit"]),
-	fresh_edit: z.boolean(),
-	app_ready: z.boolean(),
-	cache_expired: z.boolean(),
-	module_count: z.number(),
-});
-
-const errorEventSchema = z.object({
-	type: z.literal("error"),
-	error_type: z.string(),
-	error_message: z.string(),
-	error_raw: z.string(),
-	error_fatal: z.boolean(),
-	error_context: z.string(),
-});
-
-const logEventSchema = z.discriminatedUnion("type", [
-	configEventSchema,
-	messageEventSchema,
-	stepEventSchema,
-	emissionEventSchema,
-	errorEventSchema,
-]);
-
-export const storedEventSchema = z.object({
-	run_id: z.string(),
-	sequence: z.number(),
-	request: z.number(),
-	timestamp: z.string(),
-	event: logEventSchema,
-});
+export type RunSummaryDoc = z.infer<typeof runSummaryDocSchema>;
 
 // ── User Settings ──────────────────────────────────────────────
 
@@ -395,7 +228,7 @@ export const threadDocSchema = z.object({
 	thread_type: z.enum(["build", "edit"]),
 	/** First user message text, truncated to ~200 chars — for collapsed display. */
 	summary: z.string(),
-	/** Generation run ID — links to the event log at `apps/{appId}/logs/`. */
+	/** Generation run ID — links to the event log at `apps/{appId}/events/`. */
 	run_id: z.string(),
 	/** Ordered array of display messages. Embedded, not a subcollection. */
 	messages: z.array(storedThreadMessageSchema),

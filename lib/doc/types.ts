@@ -11,47 +11,139 @@
 export type { BlueprintDoc, Uuid } from "@/lib/domain";
 export { asUuid } from "@/lib/domain";
 
-import type {
-	CaseType,
-	ConnectType,
-	Field,
-	FieldKind,
-	FieldPatch,
-	Form,
-	Module,
-	Uuid,
+import { z } from "zod";
+import {
+	CONNECT_TYPES,
+	caseTypeSchema,
+	fieldKinds,
+	fieldSchema,
+	formSchema,
+	moduleSchema,
+	uuidSchema,
 } from "@/lib/domain";
 
 // ─── Mutation union ────────────────────────────────────────────────────
 //
 // Every way the doc store can change. Each reducer in `./mutations/*` is
-// an exhaustive switch over a subset of these kinds.
+// an exhaustive switch over a subset of these kinds. Zod-validated via
+// `mutationSchema` — the TypeScript `Mutation` type is derived from it
+// (single source of truth), which lets the event log validate persisted
+// mutations at read time without a parallel TS/Zod pair drifting.
+//
+// The update-*/patch variants for modules and forms use
+// `.omit({ uuid: true }).partial()` on the underlying entity schema to
+// express "any subset of mutable properties."
 
-export type Mutation =
+const moduleUpdatePatchSchema = moduleSchema.omit({ uuid: true }).partial();
+const formUpdatePatchSchema = formSchema.omit({ uuid: true }).partial();
+// Field patch: an arbitrary subset of mutable field properties. The
+// `updateField` reducer narrowly validates the merged result against
+// `fieldSchema` (the per-kind discriminated union), which is where
+// shape enforcement actually lives — so this schema only guarantees
+// "it's a plain JSON object with string keys" at the event-log layer.
+// Building a Zod union of per-kind partials here would couple the log
+// schema to the kind set and push a wider-than-intended object type
+// to `Mutation["patch"]` callers; a record of unknown is both simpler
+// and honest about the fact that kind-specific validation happens
+// later in the pipeline.
+const fieldPatchSchema = z.record(z.string(), z.unknown());
+
+export const mutationSchema = z.discriminatedUnion("kind", [
 	// Module
-	| { kind: "addModule"; module: Module; index?: number }
-	| { kind: "removeModule"; uuid: Uuid }
-	| { kind: "moveModule"; uuid: Uuid; toIndex: number }
-	| { kind: "renameModule"; uuid: Uuid; newId: string }
-	| { kind: "updateModule"; uuid: Uuid; patch: Partial<Omit<Module, "uuid">> }
+	z.object({
+		kind: z.literal("addModule"),
+		module: moduleSchema,
+		index: z.number().int().nonnegative().optional(),
+	}),
+	z.object({ kind: z.literal("removeModule"), uuid: uuidSchema }),
+	z.object({
+		kind: z.literal("moveModule"),
+		uuid: uuidSchema,
+		toIndex: z.number().int().nonnegative(),
+	}),
+	z.object({
+		kind: z.literal("renameModule"),
+		uuid: uuidSchema,
+		// `.min(1)` guards against empty-string renames: the reducer would
+		// happily install an empty id (producing a nameless entity) and the
+		// event log would round-trip the corruption forever. Rejecting at the
+		// schema boundary is the only layer that catches this before write.
+		newId: z.string().min(1),
+	}),
+	z.object({
+		kind: z.literal("updateModule"),
+		uuid: uuidSchema,
+		patch: moduleUpdatePatchSchema,
+	}),
 	// Form
-	| { kind: "addForm"; moduleUuid: Uuid; form: Form; index?: number }
-	| { kind: "removeForm"; uuid: Uuid }
-	| { kind: "moveForm"; uuid: Uuid; toModuleUuid: Uuid; toIndex: number }
-	| { kind: "renameForm"; uuid: Uuid; newId: string }
-	| { kind: "updateForm"; uuid: Uuid; patch: Partial<Omit<Form, "uuid">> }
+	z.object({
+		kind: z.literal("addForm"),
+		moduleUuid: uuidSchema,
+		form: formSchema,
+		index: z.number().int().nonnegative().optional(),
+	}),
+	z.object({ kind: z.literal("removeForm"), uuid: uuidSchema }),
+	z.object({
+		kind: z.literal("moveForm"),
+		uuid: uuidSchema,
+		toModuleUuid: uuidSchema,
+		toIndex: z.number().int().nonnegative(),
+	}),
+	z.object({
+		kind: z.literal("renameForm"),
+		uuid: uuidSchema,
+		// See renameModule — reject empty ids at the schema boundary.
+		newId: z.string().min(1),
+	}),
+	z.object({
+		kind: z.literal("updateForm"),
+		uuid: uuidSchema,
+		patch: formUpdatePatchSchema,
+	}),
 	// Field
-	| { kind: "addField"; parentUuid: Uuid; field: Field; index?: number }
-	| { kind: "removeField"; uuid: Uuid }
-	| { kind: "moveField"; uuid: Uuid; toParentUuid: Uuid; toIndex: number }
-	| { kind: "renameField"; uuid: Uuid; newId: string }
-	| { kind: "duplicateField"; uuid: Uuid }
-	| { kind: "updateField"; uuid: Uuid; patch: FieldPatch }
-	| { kind: "convertField"; uuid: Uuid; toKind: FieldKind }
+	z.object({
+		kind: z.literal("addField"),
+		parentUuid: uuidSchema,
+		field: fieldSchema,
+		index: z.number().int().nonnegative().optional(),
+	}),
+	z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
+	z.object({
+		kind: z.literal("moveField"),
+		uuid: uuidSchema,
+		toParentUuid: uuidSchema,
+		toIndex: z.number().int().nonnegative(),
+	}),
+	z.object({
+		kind: z.literal("renameField"),
+		uuid: uuidSchema,
+		// See renameModule — reject empty ids at the schema boundary.
+		newId: z.string().min(1),
+	}),
+	z.object({ kind: z.literal("duplicateField"), uuid: uuidSchema }),
+	z.object({
+		kind: z.literal("updateField"),
+		uuid: uuidSchema,
+		patch: fieldPatchSchema,
+	}),
+	z.object({
+		kind: z.literal("convertField"),
+		uuid: uuidSchema,
+		toKind: z.enum(fieldKinds),
+	}),
 	// App-level
-	| { kind: "setAppName"; name: string }
-	| { kind: "setConnectType"; connectType: ConnectType | null }
-	| { kind: "setCaseTypes"; caseTypes: CaseType[] | null };
+	z.object({ kind: z.literal("setAppName"), name: z.string() }),
+	z.object({
+		kind: z.literal("setConnectType"),
+		connectType: z.enum(CONNECT_TYPES).nullable(),
+	}),
+	z.object({
+		kind: z.literal("setCaseTypes"),
+		caseTypes: z.array(caseTypeSchema).nullable(),
+	}),
+]);
+
+export type Mutation = z.infer<typeof mutationSchema>;
 
 // ─── MutationResult ────────────────────────────────────────────────────
 //

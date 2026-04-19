@@ -13,17 +13,12 @@
  * with a fixture blueprint to verify the cross-store dispatch contract.
  */
 
-import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import type { Event } from "@/lib/log/types";
 import { createBuilderSessionStore } from "../store";
-import {
-	GenerationStage,
-	type PartialScaffoldData,
-	type ReplayStage,
-	STAGE_LABELS,
-} from "../types";
+import type { ReplayChapter } from "../types";
 
 describe("BuilderSession store", () => {
 	it("1. initial state: edit mode, both sidebars open, no stash", () => {
@@ -411,174 +406,141 @@ function createGenerationTestStores(withData = false) {
 }
 
 describe("generation lifecycle", () => {
-	it("beginAgentWrite(stage) pauses doc undo, sets agentActive + stage + statusMessage, clears error", () => {
+	it("beginRun pauses doc undo + clears events buffer + clears runCompletedAt", () => {
 		const { session, doc } = createGenerationTestStores();
 
-		session.getState().beginAgentWrite(GenerationStage.Structure);
+		/* Seed some events + a completion stamp so we can verify they clear. */
+		session.getState().pushEvents([
+			{
+				kind: "mutation",
+				runId: "prev",
+				ts: 0,
+				seq: 0,
+				actor: "agent",
+				mutation: { kind: "setAppName", name: "old" },
+			},
+		]);
+		session.getState().markRunCompleted();
+
+		session.getState().beginRun();
 		const s = session.getState();
 
-		expect(s.agentActive).toBe(true);
-		expect(s.agentStage).toBe(GenerationStage.Structure);
-		expect(s.statusMessage).toBe(STAGE_LABELS[GenerationStage.Structure]);
-		expect(s.agentError).toBeNull();
-		/* Doc undo should be paused — changes should not enter history.
-		 * zundo's `isTracking` is false when paused. */
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
+		/* Doc undo paused — zundo isTracking=false. */
 		expect(doc.temporal.getState().isTracking).toBe(false);
 	});
 
-	it("beginAgentWrite() without stage starts with null stage and empty status", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().beginAgentWrite();
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.agentStage).toBeNull();
-		expect(s.statusMessage).toBe("");
-	});
-
-	it("endAgentWrite() resumes doc undo, sets justCompleted, keeps agentActive", () => {
+	it("endRun clears events buffer + resumes doc undo; does NOT stamp runCompletedAt", () => {
+		/* Stream-close is not the completion signal. A run that closes
+		 * without `data-done` (askQuestions, clarifying text, edit-tool
+		 * response) ends silently — buffer cleared, no celebration stamp. */
 		const { session, doc } = createGenerationTestStores();
 
-		/* Begin a write, then end it. */
-		session.getState().beginAgentWrite(GenerationStage.Forms);
-		session.getState().endAgentWrite();
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				payload: { type: "user-message", text: "hi" },
+			},
+		]);
+		expect(session.getState().events.length).toBe(1);
+
+		session.getState().endRun();
 		const s = session.getState();
 
-		/* agentActive is NOT cleared — the chat status effect owns that
-		 * lifecycle so it can read wasActive=true and stamp lastResponseAt. */
-		expect(s.agentActive).toBe(true);
-		expect(s.justCompleted).toBe(true);
-		expect(s.agentStage).toBeNull();
-		expect(s.agentError).toBeNull();
-		expect(s.statusMessage).toBe("");
-		expect(s.partialScaffold).toBeUndefined();
-		/* Doc undo should be resumed — zundo's `isTracking` is true when active. */
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
 		expect(doc.temporal.getState().isTracking).toBe(true);
 	});
 
-	it("failAgentWrite(msg, severity) sets error + statusMessage, keeps agentActive", () => {
+	it("markRunCompleted stamps runCompletedAt without clearing events", () => {
+		/* `data-done` fires mid-stream (from `validateApp`). The stream
+		 * is still open and the events buffer still has the run's
+		 * mutations. Only `runCompletedAt` flips. */
 		const { session } = createGenerationTestStores();
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "mutation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				actor: "agent",
+				stage: "schema",
+				mutation: { kind: "setAppName", name: "x" },
+			},
+		]);
 
-		session.getState().beginAgentWrite(GenerationStage.Validate);
-		session.getState().failAgentWrite("timeout", "recovering");
+		session.getState().markRunCompleted();
 		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.agentError).toEqual({
-			message: "timeout",
-			severity: "recovering",
-		});
-		expect(s.statusMessage).toBe("timeout");
+		expect(s.runCompletedAt).toEqual(expect.any(Number));
+		/* Buffer untouched — endRun is the only thing that clears it. */
+		expect(s.events.length).toBe(1);
 	});
 
-	it("failAgentWrite defaults severity to 'failed'", () => {
+	it("full build flow: beginRun → markRunCompleted → endRun → acknowledgeCompletion", () => {
+		/* End-to-end: models the real chat-transport + dispatcher sequence
+		 * for a successful build. Each transition is independent. */
 		const { session } = createGenerationTestStores();
 
-		session.getState().beginAgentWrite();
-		session.getState().failAgentWrite("fatal error");
-		const s = session.getState();
+		session.getState().beginRun();
 
-		expect(s.agentError).toEqual({
-			message: "fatal error",
-			severity: "failed",
-		});
-	});
+		/* Mid-stream: `data-done` arrives from validateApp. */
+		session.getState().markRunCompleted();
+		expect(session.getState().runCompletedAt).toEqual(expect.any(Number));
 
-	it("acknowledgeCompletion() clears justCompleted, no-ops when already false", () => {
-		const { session } = createGenerationTestStores();
+		/* Stream closes. Buffer clears, but completion stamp survives. */
+		session.getState().endRun();
+		expect(session.getState().events).toEqual([]);
+		expect(session.getState().runCompletedAt).toEqual(expect.any(Number));
 
-		/* End an agent write to get justCompleted=true. */
-		session.getState().beginAgentWrite();
-		session.getState().endAgentWrite();
-		expect(session.getState().justCompleted).toBe(true);
-
+		/* 3.5s later: signal grid celebration animation settled. */
 		session.getState().acknowledgeCompletion();
-		expect(session.getState().justCompleted).toBe(false);
+		expect(session.getState().runCompletedAt).toBeUndefined();
+	});
 
-		/* Second call is a no-op — verify state object identity. */
+	it("askQuestions-only run: no markRunCompleted, endRun closes silently (regression)", () => {
+		/* Regression for the "celebration fired for a text-only response"
+		 * bug. An askQuestions run never sees `data-done`, so the only
+		 * transition on stream close is clearing the events buffer. */
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				payload: {
+					type: "tool-call",
+					toolCallId: "tc-1",
+					toolName: "askQuestions",
+					input: {},
+				},
+			},
+		]);
+
+		session.getState().endRun();
+		const s = session.getState();
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
+	});
+
+	it("acknowledgeCompletion clears runCompletedAt; no-ops when already cleared", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().markRunCompleted();
+		session.getState().acknowledgeCompletion();
+		expect(session.getState().runCompletedAt).toBeUndefined();
+
 		const prev = session.getState();
 		session.getState().acknowledgeCompletion();
 		expect(session.getState()).toBe(prev);
-	});
-
-	it("setAgentActive(true) with doc data sets postBuildEdit=true", () => {
-		const { session } = createGenerationTestStores(true);
-
-		session.getState().setAgentActive(true);
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.postBuildEdit).toBe(true);
-	});
-
-	it("setAgentActive(true) with empty doc sets postBuildEdit=false", () => {
-		const { session } = createGenerationTestStores(false);
-
-		session.getState().setAgentActive(true);
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.postBuildEdit).toBe(false);
-	});
-
-	it("setAgentActive(false) clears agentActive, leaves postBuildEdit unchanged", () => {
-		const { session } = createGenerationTestStores(true);
-
-		/* Activate first to set postBuildEdit=true. */
-		session.getState().setAgentActive(true);
-		expect(session.getState().postBuildEdit).toBe(true);
-
-		session.getState().setAgentActive(false);
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(false);
-		/* postBuildEdit should NOT be cleared by deactivation. */
-		expect(s.postBuildEdit).toBe(true);
-	});
-
-	it("setAgentActive no-ops when value is unchanged", () => {
-		const { session } = createGenerationTestStores();
-
-		const prev = session.getState();
-		session.getState().setAgentActive(false); /* already false */
-		expect(session.getState()).toBe(prev);
-	});
-
-	it("advanceStage('structure') updates agentStage + statusMessage, clears error", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().beginAgentWrite(GenerationStage.DataModel);
-		session.getState().failAgentWrite("oops", "recovering");
-		session.getState().advanceStage("structure");
-		const s = session.getState();
-
-		expect(s.agentStage).toBe(GenerationStage.Structure);
-		expect(s.statusMessage).toBe(STAGE_LABELS[GenerationStage.Structure]);
-		expect(s.agentError).toBeNull();
-	});
-
-	it("advanceStage with unknown string is a no-op", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().beginAgentWrite(GenerationStage.DataModel);
-		const prev = session.getState();
-		session.getState().advanceStage("unknown-stage");
-		expect(session.getState()).toBe(prev);
-	});
-
-	it("setFixAttempt updates statusMessage with error count and attempt", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().setFixAttempt(2, 3);
-		expect(session.getState().statusMessage).toBe("Fixing 3 errors, attempt 2");
-	});
-
-	it("setFixAttempt uses singular 'error' for count of 1", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().setFixAttempt(1, 1);
-		expect(session.getState().statusMessage).toBe("Fixing 1 error, attempt 1");
 	});
 
 	it("setAppId sets appId", () => {
@@ -612,99 +574,184 @@ describe("generation lifecycle", () => {
 		store.getState().setLoading(false);
 		expect(store.getState()).toBe(prev);
 	});
-
-	it("setPartialScaffold stores and clears scaffold data", () => {
-		const store = createBuilderSessionStore();
-		const scaffold: PartialScaffoldData = {
-			appName: "Test",
-			modules: [
-				{ name: "Mod", forms: [{ name: "Form", type: "registration" }] },
-			],
-		};
-
-		store.getState().setPartialScaffold(scaffold);
-		expect(store.getState().partialScaffold).toEqual(scaffold);
-
-		store.getState().setPartialScaffold(undefined);
-		expect(store.getState().partialScaffold).toBeUndefined();
-	});
 });
 
 // ── Replay ──────────────────────────────────────────────────────────────
 
 describe("replay state", () => {
-	const mockMessages: UIMessage[] = [
+	/**
+	 * Fixture event log — a minimal but realistic mix of conversation and
+	 * mutation events representing the shape the extractor emits. All events
+	 * share a runId and use monotonic seq numbers so they'd sort chronologically
+	 * on disk exactly as they appear here.
+	 */
+	const mockEvents: Event[] = [
 		{
-			id: "msg-1",
-			role: "assistant",
-			parts: [{ type: "text", text: "Building..." }],
+			kind: "conversation",
+			runId: "run-1",
+			ts: 1000,
+			seq: 0,
+			payload: { type: "user-message", text: "Build me an app" },
+		},
+		{
+			kind: "conversation",
+			runId: "run-1",
+			ts: 1100,
+			seq: 1,
+			payload: { type: "assistant-text", text: "Sure, building..." },
+		},
+		{
+			kind: "mutation",
+			runId: "run-1",
+			ts: 1200,
+			seq: 2,
+			actor: "agent",
+			stage: "scaffold",
+			mutation: { kind: "setAppName", name: "Test App" },
+		},
+		{
+			kind: "conversation",
+			runId: "run-1",
+			ts: 1300,
+			seq: 3,
+			payload: { type: "assistant-text", text: "Done." },
 		},
 	];
 
-	const mockStages: ReplayStage[] = [
-		{
-			header: "Stage 1",
-			subtitle: "Data model",
-			messages: [],
-			emissions: [],
-		},
-		{
-			header: "Stage 2",
-			messages: mockMessages,
-			emissions: [{ type: "scaffold", data: { app_name: "Test" } }],
-		},
-		{
-			header: "Stage 3",
-			messages: [],
-			emissions: [],
-		},
+	/**
+	 * Two chapters covering the four events above. The second chapter starts
+	 * where the first ends — chapters are contiguous scrub targets over the
+	 * same underlying stream, not separate event buckets.
+	 */
+	const mockChapters: ReplayChapter[] = [
+		{ header: "Setup", subtitle: "App meta", startIndex: 0, endIndex: 2 },
+		{ header: "Wrap-up", startIndex: 3, endIndex: 3 },
 	];
 
-	it("loadReplay sets replay data with messages from doneIndex stage", () => {
+	it("loadReplay stores events, chapters, cursor, and exitPath", () => {
 		const store = createBuilderSessionStore();
 
-		store.getState().loadReplay(mockStages, 1, "/build/abc");
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 2,
+			exitPath: "/build/abc",
+		});
 		const replay = store.getState().replay;
 
 		expect(replay).toBeDefined();
-		expect(replay?.stages).toEqual(mockStages);
-		expect(replay?.doneIndex).toBe(1);
+		expect(replay?.events).toEqual(mockEvents);
+		expect(replay?.chapters).toEqual(mockChapters);
+		expect(replay?.cursor).toBe(2);
 		expect(replay?.exitPath).toBe("/build/abc");
-		/* Messages should come from stage at doneIndex (stage 2). */
-		expect(replay?.messages).toEqual(mockMessages);
 	});
 
-	it("loadReplay with doneIndex=0 uses first stage messages", () => {
+	it("loadReplay with initialCursor=0 lands on the first event", () => {
 		const store = createBuilderSessionStore();
 
-		store.getState().loadReplay(mockStages, 0, "/exit");
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		expect(store.getState().replay?.cursor).toBe(0);
+	});
+
+	it("setReplayCursor updates the cursor in place", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		store.getState().setReplayCursor(3);
+
 		const replay = store.getState().replay;
-
-		expect(replay?.messages).toEqual([]);
+		expect(replay?.cursor).toBe(3);
+		/* Events and chapters are untouched — only the cursor moves. */
+		expect(replay?.events).toEqual(mockEvents);
+		expect(replay?.chapters).toEqual(mockChapters);
 	});
 
-	it("setReplayMessages updates replay.messages", () => {
-		const store = createBuilderSessionStore();
-		store.getState().loadReplay(mockStages, 0, "/exit");
-
-		const newMessages: UIMessage[] = [
-			{
-				id: "msg-2",
-				role: "user",
-				parts: [{ type: "text", text: "Hello" }],
-			},
-		];
-		store.getState().setReplayMessages(newMessages);
-
-		expect(store.getState().replay?.messages).toEqual(newMessages);
-	});
-
-	it("setReplayMessages is a no-op when no replay is loaded", () => {
+	it("setReplayCursor is a no-op when no replay is loaded", () => {
 		const store = createBuilderSessionStore();
 		const prev = store.getState();
 
-		store.getState().setReplayMessages([]);
+		store.getState().setReplayCursor(0);
 		expect(store.getState()).toBe(prev);
+	});
+
+	it("setReplayCursor clamps negative input to 0", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 2,
+			exitPath: "/exit",
+		});
+
+		store.getState().setReplayCursor(-1);
+
+		/* Negative cursors never make sense for an array index — clamp to 0
+		 * so UI callers can pass deltas like `cursor - 1` without guarding. */
+		expect(store.getState().replay?.cursor).toBe(0);
+	});
+
+	it("setReplayCursor clamps overflow to events.length - 1", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		/* events.length === 4, so the last valid index is 3. Passing
+		 * events.length must clamp down, not index past the array. */
+		store.getState().setReplayCursor(mockEvents.length);
+
+		expect(store.getState().replay?.cursor).toBe(mockEvents.length - 1);
+	});
+
+	it("setReplayCursor is a state-identity no-op when cursor is unchanged", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 2,
+			exitPath: "/exit",
+		});
+
+		const prev = store.getState();
+		/* Setting the same cursor must not allocate a new state object —
+		 * matches the setLoading / setAppId / setSidebarOpen no-op idiom
+		 * so subscribers don't re-render on redundant writes. */
+		store.getState().setReplayCursor(2);
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("loadReplay with empty events/chapters pins cursor at 0", () => {
+		const store = createBuilderSessionStore();
+
+		/* Edge case: an admin replay for a run that produced no events.
+		 * `replay` should still be defined (replay mode is active), but the
+		 * cursor degenerates to 0 since there's nothing to index into. */
+		store.getState().loadReplay({
+			events: [],
+			chapters: [],
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		const replay = store.getState().replay;
+		expect(replay).toBeDefined();
+		expect(replay?.events).toEqual([]);
+		expect(replay?.chapters).toEqual([]);
+		expect(replay?.cursor).toBe(0);
 	});
 });
 
@@ -715,16 +762,27 @@ describe("reset", () => {
 		const { session } = createGenerationTestStores(true);
 
 		/* Populate every new field so we can verify reset clears them all. */
-		session.getState().beginAgentWrite(GenerationStage.Forms);
-		session.getState().failAgentWrite("err", "recovering");
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "mutation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				actor: "agent",
+				stage: "schema",
+				mutation: { kind: "setAppName", name: "x" },
+			},
+		]);
+		session.getState().markRunCompleted();
+		session.getState().endRun();
 		session.getState().setAppId("app-123");
-		session.getState().setPartialScaffold({
-			appName: "X",
-			modules: [],
+		session.getState().loadReplay({
+			events: [],
+			chapters: [{ header: "S1", startIndex: 0, endIndex: 0 }],
+			initialCursor: 0,
+			exitPath: "/exit",
 		});
-		session
-			.getState()
-			.loadReplay([{ header: "S1", messages: [], emissions: [] }], 0, "/exit");
 		session.getState().setLoading(true);
 		session.getState().markNewField("q-1");
 		session.getState().setFocusHint("label");
@@ -736,19 +794,12 @@ describe("reset", () => {
 		const s = session.getState();
 
 		/* Generation lifecycle */
-		expect(s.agentActive).toBe(false);
-		expect(s.agentStage).toBeNull();
-		expect(s.agentError).toBeNull();
-		expect(s.statusMessage).toBe("");
-		expect(s.postBuildEdit).toBe(false);
-		expect(s.justCompleted).toBe(false);
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
 		expect(s.loading).toBe(false);
 
 		/* App identity */
 		expect(s.appId).toBeUndefined();
-
-		/* Generation UI */
-		expect(s.partialScaffold).toBeUndefined();
 
 		/* Replay */
 		expect(s.replay).toBeUndefined();
@@ -768,5 +819,107 @@ describe("reset", () => {
 		/* UI hints */
 		expect(s.focusHint).toBeUndefined();
 		expect(s.newQuestionUuid).toBeUndefined();
+	});
+});
+
+// ── Events buffer + run lifecycle ────────────────────────────────────────
+
+/** Minimal MutationEvent factory — shape matches the Phase-4 event log
+ *  envelope. `stage` is optional so tests can cover the no-stage branch. */
+function makeMutationEvent(stage: string | undefined, seq: number): Event {
+	return {
+		kind: "mutation",
+		runId: "test-run",
+		ts: 0,
+		seq,
+		actor: "agent",
+		...(stage && { stage }),
+		mutation: { kind: "setAppName", name: "x" },
+	};
+}
+
+describe("events buffer + run lifecycle", () => {
+	it("initial state: empty events, no runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().events).toEqual([]);
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("beginRun clears the events buffer + runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
+		store.getState().markRunCompleted();
+
+		store.getState().beginRun();
+		expect(store.getState().events).toEqual([]);
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("pushEvents appends in order", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		const e1 = makeMutationEvent("schema", 0);
+		const e2 = makeMutationEvent("scaffold", 1);
+		store.getState().pushEvents([e1, e2]);
+		expect(store.getState().events).toEqual([e1, e2]);
+	});
+
+	it("pushEvent appends a single event", () => {
+		const store = createBuilderSessionStore();
+		const e = makeMutationEvent("schema", 0);
+		store.getState().pushEvent(e);
+		expect(store.getState().events).toEqual([e]);
+	});
+
+	it("pushEvents on empty array is a no-op", () => {
+		const store = createBuilderSessionStore();
+		const prev = store.getState();
+		store.getState().pushEvents([]);
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("replaceEvents swaps the buffer wholesale (scrub reconstruction)", () => {
+		const store = createBuilderSessionStore();
+		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
+		const replacement = [
+			makeMutationEvent("scaffold", 0),
+			makeMutationEvent("module:0", 1),
+		];
+		store.getState().replaceEvents(replacement);
+		expect(store.getState().events).toEqual(replacement);
+	});
+
+	it("markRunCompleted stamps runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().markRunCompleted();
+		expect(store.getState().runCompletedAt).toEqual(expect.any(Number));
+	});
+
+	it("endRun does NOT stamp runCompletedAt (stream-close is not completion)", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().endRun();
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("acknowledgeCompletion clears runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().markRunCompleted();
+		store.getState().acknowledgeCompletion();
+		expect(store.getState().runCompletedAt).toBeUndefined();
+	});
+
+	it("reset clears the events buffer and runCompletedAt", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun();
+		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
+		store.getState().markRunCompleted();
+		store.getState().endRun();
+
+		store.getState().reset();
+		const s = store.getState();
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
 	});
 });

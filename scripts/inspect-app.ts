@@ -14,6 +14,7 @@
  *   npx tsx scripts/inspect-app.ts <appId> --threads              # structure + thread content
  *   npx tsx scripts/inspect-app.ts <appId> --stats --case-lists   # combinable
  */
+import { readRunSummary } from "@/lib/log/reader";
 import {
 	analyzeBlueprint,
 	countQuestions,
@@ -31,8 +32,8 @@ import {
 import type {
 	AppBlueprint,
 	BlueprintModule,
-	ConfigEvent,
 	Question,
+	RunSummaryDoc,
 } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -280,29 +281,27 @@ async function main() {
 		.get();
 
 	if (!threads.empty) {
-		/* Pre-fetch config events for all thread runs so we can show prompt mode.
-		 * Config events have event.type = "config" — we filter client-side since
-		 * Firestore can't query nested map fields efficiently. */
-		const runIds = threads.docs.map((d) => d.data().run_id).filter(Boolean);
-		const configByRun = new Map<string, ConfigEvent[]>();
+		/* Pre-fetch per-run summary docs for every thread, unconditionally. The
+		 * Phase-4 summary doc at apps/{appId}/runs/{runId} is the replacement
+		 * for the Phase-3 config-event rendering — prompt mode, app-ready
+		 * state, cache-expiry flag, and module count. The previous revision
+		 * gated the fetch on `--threads`, which silently hid the "Run: ..."
+		 * line from the default structure view even though the code below
+		 * renders it unconditionally from `summaryByRun`. Fetch always so
+		 * the per-thread row shows the same context in both views. */
+		const runIds = threads.docs
+			.map((d) => d.data().run_id as string | undefined)
+			.filter((id): id is string => Boolean(id));
 
-		if (showThreads && runIds.length > 0) {
-			const logSnap = await db
-				.collection("apps")
-				.doc(appId)
-				.collection("logs")
-				.where("run_id", "in", runIds.slice(0, 30))
-				.orderBy("sequence", "asc")
-				.get();
-
-			for (const logDoc of logSnap.docs) {
-				const stored = logDoc.data();
-				if (stored.event?.type === "config") {
-					const arr = configByRun.get(stored.run_id) ?? [];
-					arr.push(stored.event as ConfigEvent);
-					configByRun.set(stored.run_id, arr);
-				}
-			}
+		const summaries = await Promise.all(
+			runIds.map(async (runId) => ({
+				runId,
+				summary: await readRunSummary(appId, runId),
+			})),
+		);
+		const summaryByRun = new Map<string, RunSummaryDoc>();
+		for (const { runId, summary } of summaries) {
+			if (summary) summaryByRun.set(runId, summary);
 		}
 
 		printSection("Chat Threads");
@@ -317,18 +316,17 @@ async function main() {
 			console.log(`    Summary:  ${truncate(t.summary ?? "", 100)}`);
 			console.log(`    Run ID:   ${t.run_id}`);
 
-			/* Show config events for this run — one per HTTP request. */
-			const configs = configByRun.get(t.run_id);
-			if (configs?.length) {
-				for (let i = 0; i < configs.length; i++) {
-					const c = configs[i];
-					const label = configs.length > 1 ? ` (request ${i + 1})` : "";
-					console.log(
-						`    Config${label}: prompt=${c.prompt_mode} appReady=${c.app_ready} cacheExpired=${c.cache_expired} modules=${c.module_count}`,
-					);
-				}
-			} else if (showThreads) {
-				console.log("    Config:   (no config events found for this run)");
+			/* Run summary fields mirror the old config-event output: prompt mode,
+			 * app-ready state, cache-expired flag, module count at start of run.
+			 * Always rendered — shown as a "no summary doc" placeholder when the
+			 * run never finalised (e.g. builds that failed before flush). */
+			const summary = summaryByRun.get(t.run_id);
+			if (summary) {
+				console.log(
+					`    Run:      prompt=${summary.promptMode} appReady=${summary.appReady} cacheExpired=${summary.cacheExpired} modules=${summary.moduleCount}`,
+				);
+			} else {
+				console.log("    Run:      (no run summary doc for this run)");
 			}
 
 			/* Full message content when --threads is active. */

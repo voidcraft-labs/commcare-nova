@@ -11,7 +11,7 @@
  */
 "use server";
 
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { collections } from "./firestore";
 import type { ThreadDoc } from "./types";
 

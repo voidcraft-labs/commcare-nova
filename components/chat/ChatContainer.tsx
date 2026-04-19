@@ -25,17 +25,14 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
+import { BuilderPhase } from "@/lib/services/builder";
 import { showToast } from "@/lib/services/toastStore";
+import { derivePhase, useReplayMessages } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
 } from "@/lib/session/provider";
-
-/** Reference-stable empty array for replay messages when not in replay mode.
- *  Avoids creating a new `[]` on every render, which would cause unnecessary
- *  re-renders in shallow-equality consumers. */
-const EMPTY_MESSAGES: UIMessage[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -79,31 +76,43 @@ function createChatInstance(
 				const session = sessionStoreRef.current;
 				if (!session) return {};
 				const sessionState = session.getState();
-				const docHasData = (doc?.moduleOrder.length ?? 0) > 0;
+				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
 				/* Send the normalized doc directly — the route converts to the
 				 * SA's wire format server-side. `fieldParent` is a derived,
 				 * non-persisted field, so we omit it from the wire payload
 				 * (matches Firestore's persistence contract). */
 				const wireDoc =
-					doc && docHasData
+					doc && hasData
 						? (() => {
 								const { fieldParent: _fp, ...persistable } = doc;
 								return persistable;
 							})()
 						: undefined;
+				/* `appReady` gates whether the server strips generation tools
+				 * (editing mode) vs exposes them (build mode). We use the
+				 * derived phase as the single source of truth — Ready or
+				 * Completed both imply "app is usable, this is an edit-mode
+				 * request." Generating / Idle / Loading all mean "don't strip
+				 * tools." This handles the askQuestions-auto-resend during an
+				 * initial build correctly: the buffer still contains the
+				 * build's schema/scaffold events, so phase stays Generating
+				 * → appReady=false → gen tools remain available. */
+				const phase = derivePhase(
+					{
+						loading: sessionState.loading,
+						runCompletedAt: sessionState.runCompletedAt,
+						events: sessionState.events,
+					},
+					hasData,
+				);
+				const appReady =
+					phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 				return {
 					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
-					/* appReady must be false during initial generation even after
-					 * scaffold creates modules — generation tools must not be
-					 * stripped mid-build. The Generating check mirrors the old
-					 * selectIsReady which excluded phase === Generating. */
-					appReady:
-						docHasData &&
-						!sessionState.loading &&
-						!(sessionState.agentActive && !sessionState.postBuildEdit),
+					appReady,
 				};
 			},
 		}),
@@ -122,23 +131,17 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* After first save, update the URL from /build/new → /build/{id} without
-			 * triggering a navigation or remount. The stream dispatcher stores the
-			 * ID on the session store. */
+			/* After first save, update the URL from /build/new → /build/{id}
+			 * without triggering a navigation or remount. The appId lives on
+			 * the session store; no dispatcher pass-through needed for this
+			 * purely-UI signal. */
 			if (type === "data-app-saved") {
-				applyStreamEvent(type, data, docApi, sessionApi);
+				sessionApi.getState().setAppId(data.appId as string);
 				window.history.replaceState({}, "", `/build/${data.appId as string}`);
 				return;
 			}
 
 			applyStreamEvent(type, data, docApi, sessionApi);
-			if (type === "data-error") {
-				showToast(
-					data.fatal ? "error" : "warning",
-					"Generation error",
-					data.message as string,
-				);
-			}
 		},
 	});
 }
@@ -164,11 +167,10 @@ export function ChatContainer({
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const inReplayMode = useBuilderSession((s) => s.replay !== undefined);
-	/** Replay messages — written by ReplayController, read here. Both
-	 *  communicate through the session store, not through a shared parent. */
-	const replayMessages = useBuilderSession(
-		(s) => s.replay?.messages ?? EMPTY_MESSAGES,
-	);
+	/** Replay messages — derived on read from the session store's event
+	 *  log + cursor. ReplayController writes the cursor; this hook
+	 *  projects the events into `UIMessage[]`. */
+	const replayMessages = useReplayMessages();
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);
@@ -176,6 +178,13 @@ export function ChatContainer({
 	const sessionStoreRef = useRef(sessionApi);
 	sessionStoreRef.current = sessionApi;
 	const runIdRef = useRef<string | undefined>(undefined);
+	/** Whether the SSE transport was open on the previous render — used
+	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
+	 *  for the `beginRun` / `endRun` handoff. Local to this component so
+	 *  the session store never has to mirror the transport status as a
+	 *  shadow field. Initial false matches the SDK's initial `status:
+	 *  "ready"` so the very first render is a no-op. */
+	const prevStreamOpenRef = useRef(false);
 	/** ISO timestamp of the SA's last response — used to determine if the
 	 *  Anthropic prompt cache is still warm on subsequent requests. */
 	const lastResponseAtRef = useRef<string | undefined>(undefined);
@@ -224,33 +233,66 @@ export function ChatContainer({
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
-	/* Sync chat transport status → agent state on the session store (drives
-	 * the signal grid's "thinking" badge). Also stamps `lastResponseAtRef`
-	 * when the SA finishes so the next request can decide whether the
-	 * Anthropic prompt cache is still warm. */
+	/* Drive run boundaries from chat-transport status. `submitted` +
+	 * `streaming` mean the SSE stream is open. On the first transition
+	 * into either, `beginRun` clears the events buffer + runCompletedAt
+	 * and pauses doc undo. On the transition back to `ready`, `endRun`
+	 * clears the events buffer and resumes doc undo.
+	 *
+	 * Transition detection uses a local ref — the session store has no
+	 * `agentActive` field to read from. The buffer is the "a run is in
+	 * progress" signal (non-empty between beginRun and endRun); we just
+	 * need to know WHEN to flip it, which is the status edge.
+	 *
+	 * `endRun` is a pure stream-close — whether the run was "completed"
+	 * in the celebration sense is decided by the dispatcher's
+	 * `data-done` handler via `markRunCompleted()`. So askQuestions
+	 * runs, clarifying text, and edit-tool responses close silently
+	 * without any animation. Stamps `lastResponseAtRef` on the ready
+	 * transition for the next request's Anthropic-cache warmth check. */
 	useEffect(() => {
 		if (!sessionApi) return;
-		const active = status === "submitted" || status === "streaming";
-		const session = sessionApi.getState();
-		const wasActive = session.agentActive;
-		session.setAgentActive(active);
-		if (status === "ready" && wasActive) {
-			lastResponseAtRef.current = new Date().toISOString();
+		const streamOpen = status === "submitted" || status === "streaming";
+		const wasOpen = prevStreamOpenRef.current;
+		prevStreamOpenRef.current = streamOpen;
+		if (streamOpen && !wasOpen) {
+			sessionApi.getState().beginRun();
+		} else if (!streamOpen && wasOpen) {
+			sessionApi.getState().endRun();
+			if (status === "ready") {
+				lastResponseAtRef.current = new Date().toISOString();
+			}
 		}
 	}, [status, sessionApi]);
 
-	/* Surface stream-level errors from useChat (network, API key, server crash, spend cap).
-	 * Only record the error when the agent is actively generating (not during post-build
-	 * edits) — idle errors get a toast only. Reads session state imperatively — they're
-	 * not deps, just point-in-time checks when chatError fires. */
+	/* Surface stream-level failures (network drops, spend cap, auth,
+	 * server crashes) that never got a chance to produce a
+	 * server-side conversation error event. Synthesize one client-side
+	 * and push it onto the buffer — the lifecycle derivation then picks
+	 * it up identically to a server-emitted error. Toast is fired here
+	 * because the synthetic event doesn't flow through the dispatcher's
+	 * conversation-event handler. */
 	useEffect(() => {
 		if (!chatError || !sessionApi) return;
 		const message = parseApiErrorMessage(chatError.message);
 		const session = sessionApi.getState();
-		const isGenerating = session.agentActive && !session.postBuildEdit;
-		if (isGenerating && !session.agentError) {
-			session.failAgentWrite(message, "failed");
-		}
+		const runId = runIdRef.current ?? "client-error";
+		session.pushEvent({
+			kind: "conversation",
+			runId,
+			ts: Date.now(),
+			/* Synthetic client-side events use `Number.MAX_SAFE_INTEGER`
+			 * as a sentinel `seq` so they can't collide with server-
+			 * issued seq numbers (which are monotonic from 0). This
+			 * event is client-only and never persisted to the log; the
+			 * sentinel makes "injected, not from the wire" obvious to
+			 * any future log-ordering code. */
+			seq: Number.MAX_SAFE_INTEGER,
+			payload: {
+				type: "error",
+				error: { type: "network", message, fatal: true },
+			},
+		});
 		showToast("error", "Generation failed", message);
 	}, [chatError, sessionApi]);
 

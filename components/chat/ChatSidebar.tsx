@@ -20,11 +20,20 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { BuilderPhase } from "@/lib/services/builder";
-import { useBuilderPhase, useSetSidebarOpen } from "@/lib/session/hooks";
+import {
+	derivePhase,
+	useAgentError,
+	useAgentStage,
+	useBuilderPhase,
+	usePostBuildEdit,
+	useSetSidebarOpen,
+	useStatusMessage,
+} from "@/lib/session/hooks";
+import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
+	useBuilderSession,
 	useBuilderSessionApi,
-	useBuilderSessionShallow,
 } from "@/lib/session/provider";
 import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
@@ -52,16 +61,21 @@ function createGridController(
 		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
 		consumeScaffoldProgress: () => {
 			const s = sessionRef.current.getState();
-			return computeScaffoldProgress(
+			const doc = docStoreRef.current?.getState();
+			const hasData = (doc?.moduleOrder.length ?? 0) > 0;
+			const phase = derivePhase(
 				{
-					agentStage: s.agentStage,
-					partialScaffold: s.partialScaffold,
-					agentActive: s.agentActive,
-					postBuildEdit: s.postBuildEdit,
-					justCompleted: s.justCompleted,
 					loading: s.loading,
+					runCompletedAt: s.runCompletedAt,
+					events: s.events,
 				},
-				docStoreRef.current?.getState(),
+				hasData,
+			);
+			return computeScaffoldProgress(
+				phase,
+				deriveAgentStage(s.events),
+				(doc?.caseTypes?.length ?? 0) > 0,
+				hasData,
 			);
 		},
 	});
@@ -102,16 +116,19 @@ export function ChatSidebar({
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
-	const { agentError, agentStage, agentActive, postBuildEdit, statusMessage } =
-		useBuilderSessionShallow((s) => ({
-			agentError: s.agentError,
-			agentStage: s.agentStage,
-			agentActive: s.agentActive,
-			postBuildEdit: s.postBuildEdit,
-			statusMessage: s.statusMessage,
-		}));
+	const agentError = useAgentError();
+	const agentStage = useAgentStage();
+	const postBuildEdit = usePostBuildEdit();
+	const statusMessage = useStatusMessage();
 	const isGenerating = phase === BuilderPhase.Generating;
-	const isLoading = status === "submitted" || status === "streaming";
+	/* `isLoading` and `streamOpen` are the same derived value from the
+	 * transport status — the "the SSE stream is open right now" signal.
+	 * Both names exist for readability: `isLoading` reads naturally in
+	 * UI gating (inputs disabled, empty state hidden), while
+	 * `streamOpen` is what the signal grid's desiredMode logic reasons
+	 * about. Kept as one constant to avoid drift. */
+	const streamOpen = status === "submitted" || status === "streaming";
+	const isLoading = streamOpen;
 
 	// ── Welcome intro timer ──────────────────────────────────────────────
 	// The welcome screen plays a 3.5s "reasoning" animation on mount, then
@@ -202,11 +219,11 @@ export function ChatSidebar({
 		// Later generation stages get the building visual (pink sweep + bursts)
 		if (isGenerating) return "building";
 		// Completed = celebration after generation finishes. Takes priority over
-		// agentActive because data-done fires mid-stream (the LLM's wrap-up text
-		// keeps the stream open). Without this, the grid shows "Thinking" for 5–15s
-		// after generation is already complete.
+		// the streaming branches below because data-done fires mid-stream (the
+		// LLM's wrap-up text keeps the stream open). Without this, the grid
+		// shows "Thinking" for 5–15s after generation is already complete.
 		if (phase === BuilderPhase.Completed) return "done";
-		if (agentActive) {
+		if (streamOpen) {
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
 			// look dead — the whole point of the signal grid is to show activity.
@@ -233,17 +250,32 @@ export function ChatSidebar({
 	}, [desiredMode, desiredLabel, gridController]);
 
 	// Auto-decay Completed → Ready after the done celebration finishes.
-	// The 3.5s delay covers the 2s celebration burst + 1.5s of the resting emerald
-	// pulse so the transition feels unhurried. If the builder leaves Completed
-	// before the timer fires (e.g. user starts a new edit), the cleanup cancels it.
+	//
+	// The 3.5s delay covers the 2s celebration burst + 1.5s of the resting
+	// emerald pulse so the transition feels unhurried.
+	//
+	// Gate on `bufferEmpty` — the timer must not arm until the SSE stream
+	// has actually closed (endRun cleared the events buffer). `data-done`
+	// stamps `runCompletedAt` mid-stream while the agent is still
+	// streaming its final summary text. If the 3.5s timer fired during
+	// that streaming window, `acknowledgeCompletion` would clear
+	// `runCompletedAt` while the events buffer still held the run's
+	// schema/scaffold/fix mutations — `derivePhase` would then flip from
+	// Completed straight to Generating (foundation + stage) for a
+	// fraction of a second until stream-close cleared the buffer,
+	// flashing the GenerationProgress card back on screen. Waiting for
+	// the buffer to empty first means the celebration lingers until the
+	// stream is genuinely done, then a clean 3.5s delay to Ready.
+	const bufferEmpty = useBuilderSession((s) => s.events.length === 0);
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
+		if (!bufferEmpty) return;
 		const id = setTimeout(
 			() => sessionApi.getState().acknowledgeCompletion(),
 			3500,
 		);
 		return () => clearTimeout(id);
-	}, [phase, sessionApi]);
+	}, [phase, bufferEmpty, sessionApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during

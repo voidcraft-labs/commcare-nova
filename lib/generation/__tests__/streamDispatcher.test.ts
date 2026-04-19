@@ -1,27 +1,23 @@
 /**
- * Tests for `applyStreamEvent` — the stream event dispatcher that replaces
- * the legacy `applyDataPart` function.
+ * Tests for `applyStreamEvent` — the stream event dispatcher.
  *
  * Uses real stores (BlueprintDocStore + BuilderSessionStore) wired together
  * via `_setDocStore`, mirroring the runtime SyncBridge setup. Each test
- * exercises one event category: legacy replay-shape doc mutations, doc
- * lifecycle, or session-only.
+ * exercises one event category: mutation batch, conversation event, or
+ * doc lifecycle.
  *
- * The `describe("doc mutation events"...)` block below covers the
- * `LEGACY_REPLAY_DOC_MUTATION_EVENTS` bucket — historical Firestore
- * emission logs with snapshot-shaped events that must be mapped to
- * `Mutation[]` on replay. The live `data-mutations` path (the canonical
- * Phase 3+ emission) is covered in `streamDispatcher-mutations.test.ts`.
+ * The live `data-mutations` doc-apply path is covered in more detail in
+ * `streamDispatcher-mutations.test.ts`.
  */
 
-import { assert, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
+import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
-import { createWiredStores, hydrateDoc } from "./testHelpers";
+import { createWiredStores } from "./testHelpers";
 
 // ── Fixture docs (normalized domain shape) ─────────────────────────────
 //
@@ -70,88 +66,15 @@ const MINIMAL_DOC: PersistableDoc = {
 	fieldOrder: { [asUuid("form-uuid-1")]: [asUuid("q-uuid-1")] },
 };
 
-/** Edited version of MINIMAL_DOC — app renamed, form renamed, one field
- *  added. Same uuids on the carry-over entities so the load path exercises
- *  a real reconciliation, not a wholesale swap. */
-const EDITED_DOC: PersistableDoc = {
-	appId: "test-app-id",
-	appName: "Test App v2",
-	connectType: null,
-	caseTypes: [
-		{
-			name: "patient",
-			properties: [
-				{ name: "case_name", label: "Name" },
-				{ name: "age", label: "Age" },
-			],
-		},
-	],
-	modules: {
-		[asUuid("mod-uuid-1")]: {
-			uuid: asUuid("mod-uuid-1"),
-			id: "registration",
-			name: "Registration",
-			caseType: "patient",
-		},
-	},
-	forms: {
-		[asUuid("form-uuid-1")]: {
-			uuid: asUuid("form-uuid-1"),
-			id: "register_patient",
-			name: "Register Patient (Edited)",
-			type: "registration",
-		},
-	},
-	fields: {
-		[asUuid("q-uuid-1")]: {
-			uuid: asUuid("q-uuid-1"),
-			id: "case_name",
-			kind: "text",
-			label: "Patient Name",
-		},
-		[asUuid("q-uuid-2")]: {
-			uuid: asUuid("q-uuid-2"),
-			id: "age",
-			kind: "int",
-			label: "Age",
-		},
-	},
-	moduleOrder: [asUuid("mod-uuid-1")],
-	formOrder: { [asUuid("mod-uuid-1")]: [asUuid("form-uuid-1")] },
-	fieldOrder: {
-		[asUuid("form-uuid-1")]: [asUuid("q-uuid-1"), asUuid("q-uuid-2")],
-	},
-};
-
-// ── Scaffold fixture ────────────────────────────────────────────────────
-
-/** Scaffold payload with top-level keys (matches the wire format the SA
- *  emits for `data-scaffold`). This event still uses wire-style snake_case
- *  fields because it carries the SA tool's raw input — the mutation mapper
- *  translates at ingress. */
-const SCAFFOLD_DATA = {
-	app_name: "Health App",
-	description: "A health monitoring app",
-	connect_type: "",
-	modules: [
-		{
-			name: "Registration",
-			case_type: "patient",
-			case_list_only: false,
-			purpose: "Register patients",
-			forms: [
-				{
-					name: "Register",
-					type: "registration",
-					purpose: "Register a new patient",
-					formDesign: "Name, age, gender",
-				},
-			],
-		},
-	],
-};
-
 // Test helpers live in ./testHelpers — shared with other generation tests.
+
+// Small factory for conversation-event payloads used below.
+function convEvent(
+	payload: ConversationEvent["payload"],
+	seq = 0,
+): ConversationEvent {
+	return { kind: "conversation", runId: "test-run", ts: 0, seq, payload };
+}
 
 // ── Test suite ──────────────────────────────────────────────────────────
 
@@ -166,144 +89,13 @@ describe("applyStreamEvent", () => {
 		signalGrid.reset();
 	});
 
-	// ── Category 3: Session-only events ─────────────────────────────────
-
-	describe("data-start-build", () => {
-		it("sets session.agentActive=true and pauses doc undo", () => {
-			/* Resume tracking first so we can verify the pause. */
-			docStore.temporal.getState().resume();
-			expect(docStore.temporal.getState().isTracking).toBe(true);
-
-			applyStreamEvent("data-start-build", {}, docStore, sessionStore);
-
-			expect(sessionStore.getState().agentActive).toBe(true);
-			/* Doc undo should be paused — `beginAgentWrite` on the session store
-			 * cascades to `docStore.beginAgentWrite()` which pauses temporal. */
-			expect(docStore.temporal.getState().isTracking).toBe(false);
-		});
-	});
-
-	// ── Category 1: Doc mutation events ─────────────────────────────────
-
-	describe("data-schema", () => {
-		it("updates doc.caseTypes via mutation mapper", () => {
-			const caseTypes = [
-				{
-					name: "patient",
-					properties: [{ name: "first_name", label: "First Name" }],
-				},
-			];
-
-			applyStreamEvent("data-schema", { caseTypes }, docStore, sessionStore);
-
-			expect(docStore.getState().caseTypes).toEqual(caseTypes);
-		});
-	});
-
-	describe("data-scaffold", () => {
-		it("creates modules and forms on the doc", () => {
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-
-			const doc = docStore.getState();
-			expect(doc.appName).toBe("Health App");
-			expect(doc.moduleOrder).toHaveLength(1);
-
-			const moduleUuid = doc.moduleOrder[0];
-			expect(doc.modules[moduleUuid].name).toBe("Registration");
-			expect(doc.formOrder[moduleUuid]).toHaveLength(1);
-		});
-	});
-
-	describe("data-module-done", () => {
-		it("updates module caseListColumns (needs scaffold first)", () => {
-			/* Apply scaffold to create the module structure. */
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-
-			const moduleUuid = docStore.getState().moduleOrder[0];
-			const columns = [
-				{ field: "name", header: "Name" },
-				{ field: "age", header: "Age" },
-			];
-
-			applyStreamEvent(
-				"data-module-done",
-				{ moduleIndex: 0, caseListColumns: columns },
-				docStore,
-				sessionStore,
-			);
-
-			expect(docStore.getState().modules[moduleUuid].caseListColumns).toEqual(
-				columns,
-			);
-		});
-	});
-
-	describe("data-form-done", () => {
-		it("replaces form with full question content (needs scaffold first)", () => {
-			/* Apply scaffold to create module + form shell. */
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-
-			const moduleUuid = docStore.getState().moduleOrder[0];
-			const formUuid = docStore.getState().formOrder[moduleUuid][0];
-
-			const incomingForm: BlueprintForm = {
-				uuid: "ignored-uuid",
-				name: "Register Patient",
-				type: "registration",
-				questions: [
-					{
-						uuid: "q-new-1",
-						id: "patient_name",
-						type: "text",
-						label: "Patient Name",
-					},
-					{
-						uuid: "q-new-2",
-						id: "patient_age",
-						type: "int",
-						label: "Age",
-					},
-				],
-			};
-
-			applyStreamEvent(
-				"data-form-done",
-				{ moduleIndex: 0, formIndex: 0, form: incomingForm },
-				docStore,
-				sessionStore,
-			);
-
-			/* The form should now have 2 fields. */
-			const doc = docStore.getState();
-			const fieldUuids = doc.fieldOrder[formUuid];
-			assert(fieldUuids);
-			expect(fieldUuids).toHaveLength(2);
-			expect(doc.fields[fieldUuids[0]].id).toBe("patient_name");
-			expect(doc.fields[fieldUuids[1]].id).toBe("patient_age");
-		});
-	});
-
-	// ── Category 2: Doc lifecycle events ────────────────────────────────
+	// ── Doc lifecycle (full-doc replacements) ───────────────────────────
 
 	describe("data-done", () => {
-		it("loads final doc, sets justCompleted=true, clears agentActive", () => {
-			/* Simulate a generation session: start build, then done. */
-			applyStreamEvent("data-start-build", {}, docStore, sessionStore);
+		it("loads final doc AND stamps runCompletedAt (whole-build completion)", () => {
+			/* Begin a run to simulate a live session. */
+			sessionStore.getState().beginRun();
+			expect(sessionStore.getState().runCompletedAt).toBeUndefined();
 
 			applyStreamEvent(
 				"data-done",
@@ -312,229 +104,86 @@ describe("applyStreamEvent", () => {
 				sessionStore,
 			);
 
-			/* Doc should have the payload's content. */
+			/* Doc replaced with the authoritative snapshot. */
 			const doc = docStore.getState();
 			expect(doc.appName).toBe("Test App");
 			expect(doc.moduleOrder).toHaveLength(1);
 
-			/* Session should be in post-generation state. agentActive stays true —
-			 * the chat status effect clears it when status transitions to "ready",
-			 * which also stamps lastResponseAtRef for Anthropic cache warmth. */
+			/* `data-done` IS the completion signal — the dispatcher stamps
+			 * runCompletedAt. Stream-close is orthogonal (owned by the
+			 * ChatContainer status effect via `endRun`). */
 			const session = sessionStore.getState();
-			expect(session.justCompleted).toBe(true);
-			expect(session.agentActive).toBe(true);
-
-			/* Doc undo tracking should be resumed — endAgentWrite on the session
-			 * store cascades to docStore.endAgentWrite() which resumes temporal. */
-			expect(docStore.temporal.getState().isTracking).toBe(true);
+			expect(session.runCompletedAt).toEqual(expect.any(Number));
 		});
 	});
 
-	describe("data-blueprint-updated", () => {
-		it("loads updated doc, does NOT set justCompleted", () => {
-			/* Pre-load an initial doc (simulates an existing app). */
-			hydrateDoc(docStore, MINIMAL_DOC);
-			sessionStore.getState().setAppId("test-app-id");
+	// ── Conversation events ──────────────────────────────────────────────
+
+	describe("data-conversation-event", () => {
+		it("pushes the event onto the session buffer", () => {
+			const event = convEvent({ type: "assistant-text", text: "hello" }, 0);
 
 			applyStreamEvent(
-				"data-blueprint-updated",
-				{ doc: EDITED_DOC as unknown as Record<string, unknown> },
+				"data-conversation-event",
+				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
 
-			/* Doc should reflect the edit. */
-			expect(docStore.getState().appName).toBe("Test App v2");
-
-			/* justCompleted must NOT be set — edit-tool responses skip celebration. */
-			expect(sessionStore.getState().justCompleted).toBe(false);
-
-			/* Doc undo tracking should be resumed (endAgentWrite on doc). */
-			expect(docStore.temporal.getState().isTracking).toBe(true);
-		});
-	});
-
-	// ── Category 3: Session-only events (continued) ─────────────────────
-
-	describe("data-error", () => {
-		it("sets agentError with correct severity on session store", () => {
-			applyStreamEvent(
-				"data-error",
-				{ message: "Validation failed", fatal: false },
-				docStore,
-				sessionStore,
-			);
-
-			const err = sessionStore.getState().agentError;
-			assert(err);
-			expect(err.message).toBe("Validation failed");
-			expect(err.severity).toBe("recovering");
+			expect(sessionStore.getState().events).toEqual([event]);
 		});
 
-		it("uses 'failed' severity when fatal is true", () => {
-			applyStreamEvent(
-				"data-error",
-				{ message: "Stream crashed", fatal: true },
-				docStore,
-				sessionStore,
-			);
-
-			const err = sessionStore.getState().agentError;
-			assert(err);
-			expect(err.severity).toBe("failed");
-		});
-	});
-
-	describe("data-app-saved", () => {
-		it("sets session.appId", () => {
-			applyStreamEvent(
-				"data-app-saved",
-				{ appId: "app-123" },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().appId).toBe("app-123");
-		});
-	});
-
-	describe("data-phase", () => {
-		it("updates session.agentStage", () => {
-			applyStreamEvent(
-				"data-phase",
-				{ phase: "structure" },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().agentStage).toBe("structure");
-		});
-	});
-
-	describe("data-fix-attempt", () => {
-		it("sets statusMessage with error info", () => {
-			applyStreamEvent(
-				"data-fix-attempt",
-				{ attempt: 2, errorCount: 3 },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().statusMessage).toBe(
-				"Fixing 3 errors, attempt 2",
-			);
-		});
-
-		it("uses singular 'error' for count of 1", () => {
-			applyStreamEvent(
-				"data-fix-attempt",
-				{ attempt: 1, errorCount: 1 },
-				docStore,
-				sessionStore,
-			);
-
-			expect(sessionStore.getState().statusMessage).toBe(
-				"Fixing 1 error, attempt 1",
-			);
-		});
-	});
-
-	describe("data-partial-scaffold", () => {
-		it("sets session.partialScaffold with parsed data", () => {
-			applyStreamEvent(
-				"data-partial-scaffold",
+		it("pushes an error event onto the buffer (and toast is UI-only)", () => {
+			const event = convEvent(
 				{
-					app_name: "Health App",
-					modules: [
-						{
-							name: "Registration",
-							case_type: "patient",
-							purpose: "Register patients",
-							forms: [
-								{
-									name: "Register",
-									type: "registration",
-									purpose: "Register a new patient",
-								},
-							],
-						},
-					],
+					type: "error",
+					error: { type: "internal", message: "boom", fatal: true },
 				},
+				0,
+			);
+
+			applyStreamEvent(
+				"data-conversation-event",
+				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
 
-			const ps = sessionStore.getState().partialScaffold;
-			assert(ps);
-			expect(ps.appName).toBe("Health App");
-			expect(ps.modules).toHaveLength(1);
-			expect(ps.modules[0].name).toBe("Registration");
-			expect(ps.modules[0].forms).toHaveLength(1);
-			expect(ps.modules[0].forms[0].name).toBe("Register");
+			expect(sessionStore.getState().events).toHaveLength(1);
+			expect(sessionStore.getState().events[0]).toEqual(event);
 		});
 
-		it("filters out modules and forms without names", () => {
-			applyStreamEvent(
-				"data-partial-scaffold",
+		it("pushes a validation-attempt event onto the buffer", () => {
+			const event = convEvent(
 				{
-					app_name: "Partial",
-					modules: [
-						{ name: "Valid", forms: [{ name: "", type: "survey" }] },
-						{ forms: [] },
-					],
+					type: "validation-attempt",
+					attempt: 2,
+					errors: ["missing xpath", "invalid ref"],
 				},
-				docStore,
-				sessionStore,
+				0,
 			);
 
-			const ps = sessionStore.getState().partialScaffold;
-			assert(ps);
-			/* Only the module with a name survives. */
-			expect(ps.modules).toHaveLength(1);
-			expect(ps.modules[0].name).toBe("Valid");
-			/* The form with empty-string name should be filtered out. */
-			expect(ps.modules[0].forms).toHaveLength(0);
-		});
-
-		it("sets undefined when no valid modules exist", () => {
 			applyStreamEvent(
-				"data-partial-scaffold",
-				{ modules: [{ forms: [] }] },
+				"data-conversation-event",
+				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
 
-			expect(sessionStore.getState().partialScaffold).toBeUndefined();
+			expect(sessionStore.getState().events).toEqual([event]);
 		});
 	});
 
 	// ── Signal grid energy injection ────────────────────────────────────
 
 	describe("signal grid energy injection", () => {
-		it("injects 200 energy for data-module-done", () => {
-			/* Scaffold first so the mutation mapper finds the module. */
+		it("injects 50 energy for data-conversation-event", () => {
 			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-			signalGrid.reset();
-
-			applyStreamEvent(
-				"data-module-done",
-				{ moduleIndex: 0, caseListColumns: null },
-				docStore,
-				sessionStore,
-			);
-
-			expect(signalGrid.drainEnergy()).toBe(200);
-		});
-
-		it("injects 50 energy for data-phase", () => {
-			applyStreamEvent(
-				"data-phase",
-				{ phase: "forms" },
+				"data-conversation-event",
+				convEvent(
+					{ type: "assistant-text", text: "..." },
+					0,
+				) as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
 			);
@@ -542,17 +191,21 @@ describe("applyStreamEvent", () => {
 			expect(signalGrid.drainEnergy()).toBe(50);
 		});
 
-		it("injects 100 energy for data-blueprint-updated", () => {
-			hydrateDoc(docStore, MINIMAL_DOC);
-
+		it("injects 200 energy for data-mutations", () => {
 			applyStreamEvent(
-				"data-blueprint-updated",
-				{ doc: EDITED_DOC as unknown as Record<string, unknown> },
+				"data-mutations",
+				{
+					mutations: [{ kind: "setAppName", name: "x" }] as unknown as Record<
+						string,
+						unknown
+					>[],
+					events: [],
+				},
 				docStore,
 				sessionStore,
 			);
 
-			expect(signalGrid.drainEnergy()).toBe(100);
+			expect(signalGrid.drainEnergy()).toBe(200);
 		});
 	});
 

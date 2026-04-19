@@ -1,6 +1,6 @@
 # Services Layer
 
-Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `questionPath`), UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`), and generation logging (`eventLogger`, `logReplay`).
+Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `questionPath`), and UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`). Generation logging moved to `lib/log/` — see its CLAUDE.md for the event log boundary.
 
 The Solutions Architect and its generation loop moved to `lib/agent/` in Phase 3 — see `lib/agent/CLAUDE.md` for the SA tool-loop rules, prompt caching, mutation-emission surface, and provider-options shape.
 

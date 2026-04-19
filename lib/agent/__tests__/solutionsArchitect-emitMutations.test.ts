@@ -36,16 +36,14 @@
  * leaks through.
  */
 
-import type { UIMessageStreamWriter } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session } from "@/lib/auth";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { ValidationError } from "@/lib/services/commcare/validate/errors";
-import type { EventLogger } from "@/lib/services/eventLogger";
-import { GenerationContext } from "../generationContext";
+import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
+import { makeTestContext } from "./fixtures";
 
 // ── Forbidden legacy events ──────────────────────────────────────────────
 //
@@ -129,35 +127,13 @@ function makeFixtureDoc(): BlueprintDoc {
 }
 
 // ── GenerationContext builder ────────────────────────────────────────────
-
-/**
- * Build a `GenerationContext` wired to a vi.fn writer + logger so tests
- * can inspect every `writer.write` call the SA makes. The session stub is
- * unused on the emission path but `GenerationContext`'s constructor
- * requires it.
- */
+//
+// Thin wrapper around the shared `makeTestContext` fixture. Kept as a
+// named function so the test bodies below stay readable — the SA tests
+// only care about ctx + writer, so we drop the `logWriter` handle.
 function buildCtx() {
-	const writer = {
-		write: vi.fn(),
-	} as unknown as UIMessageStreamWriter;
-	const logger = {
-		logEmission: vi.fn(),
-		logStep: vi.fn(),
-		logSubResult: vi.fn(),
-		logError: vi.fn(),
-		runId: "run-1",
-	} as unknown as EventLogger;
-	const session = { user: { id: "user-1" } } as unknown as Session;
-	const ctx = new GenerationContext({
-		apiKey: "sk-test",
-		writer,
-		logger,
-		session,
-	});
-	return {
-		ctx,
-		writer: writer as unknown as { write: ReturnType<typeof vi.fn> },
-	};
+	const { ctx, writer } = makeTestContext();
+	return { ctx, writer };
 }
 
 // ── Writer inspection helpers ────────────────────────────────────────────

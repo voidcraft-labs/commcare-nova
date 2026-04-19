@@ -6,22 +6,22 @@
  * lived in inspect-logs.ts and inspect-app.ts.
  *
  * Import from here — never define script-local interfaces for types that
- * already exist in lib/db/types.ts or lib/schemas/blueprint.ts.
+ * already exist in lib/log/types.ts, lib/db/types.ts, or
+ * lib/schemas/blueprint.ts.
  */
 
-// ── Log event system ────────────────────────────────────────────────
+// ── Event log (unified mutation + conversation stream) ──────────────
 
 export type {
-	ConfigEvent,
-	EmissionEvent,
-	ErrorEvent,
-	LogEvent,
-	LogToolCall,
-	MessageEvent,
-	StepEvent,
-	StoredEvent,
-	TokenUsage,
-} from "../../lib/db/types";
+	ConversationEvent,
+	ConversationPayload,
+	Event,
+	MutationEvent,
+} from "../../lib/log/types";
+
+// ── Per-run summary doc (cost + behavior snapshot) ──────────────────
+
+export type { RunSummaryDoc } from "../../lib/db/types";
 
 // ── Blueprint structure ─────────────────────────────────────────────
 

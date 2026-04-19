@@ -1,439 +1,430 @@
 /**
  * End-to-end generation lifecycle test.
  *
- * Replays the exact event sequence the server emits during a real
- * generation run, verifying phase transitions, stage progression, doc
- * state, and undo behavior at each step. This is the test that would
- * have caught the missing data-model stage, the endAgentWrite race,
- * and any future regression in the generation→builder handshake.
+ * Replays the event sequence the server emits during a real generation
+ * run — stage-tagged mutation batches + validation-attempt conversation
+ * events — and verifies that:
+ *   - The doc state advances as mutations land.
+ *   - The session events buffer mirrors the wire envelopes.
+ *   - Run boundaries (`beginRun` / `endRun` / `markRunCompleted`)
+ *     transition the buffer + `runCompletedAt` correctly.
+ *   - Derived lifecycle (phase / stage / status) matches the emissions.
  *
- * Uses real stores (doc + session) wired together, no mocks.
+ * Uses real stores wired together and drives them through the
+ * `data-mutations` + `data-conversation-event` dispatcher paths — the
+ * same paths the live server exercises. Phase derivation is the real
+ * `derivePhase` from `lib/session/hooks`. Priority chain:
+ *   Loading > Completed > Generating > Ready > Idle.
  */
 
 import { assert, describe, expect, it } from "vitest";
-import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { PersistableDoc } from "@/lib/domain";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
+import { docHasData } from "@/lib/doc/predicates";
+import type { BlueprintDocStoreApi } from "@/lib/doc/store";
+import type { Mutation } from "@/lib/doc/types";
+import { asUuid } from "@/lib/domain";
+import type {
+	ConversationEvent,
+	ConversationPayload,
+	MutationEvent,
+} from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
 import { derivePhase } from "@/lib/session/hooks";
-import { createBuilderSessionStore } from "@/lib/session/store";
+import { deriveAgentStage } from "@/lib/session/lifecycle";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { GenerationStage } from "@/lib/session/types";
 import { applyStreamEvent } from "../streamDispatcher";
+import { createWiredStores } from "./testHelpers";
 
 // ── Test helpers ───────────────────────────────────────────────────────
 
 /**
- * Derive a `PersistableDoc` snapshot from the current doc-store state —
- * strips the in-memory `fieldParent` reverse-index (rebuilt on load) so
- * the snapshot matches the wire shape the SA emits in `data-done` and
- * `data-blueprint-updated` events.
+ * Wrapper around the real `derivePhase` — reads the wired stores and
+ * returns the phase. Kept as a helper (rather than inlining at each
+ * call site) because the test file already had the name and it's a
+ * simple pass-through.
  */
-function snapshotDoc(
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-): PersistableDoc {
-	const { fieldParent: _fp, ...persistable } = docStore.getState();
-	return persistable;
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────
-
-function createStores() {
-	const docStore = createBlueprintDocStore();
-	docStore.temporal.getState().resume();
-	const sessionStore = createBuilderSessionStore();
-	sessionStore.getState()._setDocStore(docStore);
-	return { docStore, sessionStore };
-}
-
-/** Derive phase from the current store state — same logic as useBuilderPhase. */
-function phase(
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-	sessionStore: ReturnType<typeof createBuilderSessionStore>,
+function derivePhaseLocal(
+	sessionStore: BuilderSessionStoreApi,
+	docStore: BlueprintDocStoreApi,
 ): BuilderPhase {
 	const s = sessionStore.getState();
-	const docHasData = docStore.getState().moduleOrder.length > 0;
-	return derivePhase(s, docHasData);
+	return derivePhase(
+		{
+			loading: s.loading,
+			runCompletedAt: s.runCompletedAt,
+			events: s.events,
+		},
+		docHasData(docStore.getState()),
+	);
 }
 
-/** Fire an event through the dispatcher. */
-function emit(
-	type: string,
-	data: Record<string, unknown>,
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-	sessionStore: ReturnType<typeof createBuilderSessionStore>,
-) {
-	applyStreamEvent(type, data, docStore, sessionStore);
+/** Build MutationEvent envelopes. Mirrors the shape the server emits. */
+function envelopes(mutations: Mutation[], stage: string): MutationEvent[] {
+	return mutations.map((mutation, i) => ({
+		kind: "mutation",
+		runId: "test-run",
+		ts: 0,
+		seq: i,
+		actor: "agent",
+		stage,
+		mutation,
+	}));
+}
+
+/** Build a ConversationEvent envelope. */
+function convEvent(payload: ConversationPayload, seq = 0): ConversationEvent {
+	return { kind: "conversation", runId: "test-run", ts: 0, seq, payload };
+}
+
+/** Emit a data-mutations batch via the dispatcher (includes the
+ *  envelopes alongside the raw mutations, matching server shape). */
+function emitMutations(
+	mutations: Mutation[],
+	stage: string,
+	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
+): void {
+	applyStreamEvent(
+		"data-mutations",
+		{ mutations, events: envelopes(mutations, stage), stage },
+		docStore,
+		sessionStore,
+	);
+}
+
+/** Emit a data-conversation-event via the dispatcher. */
+function emitConversation(
+	payload: ConversationPayload,
+	seq: number,
+	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
+): void {
+	applyStreamEvent(
+		"data-conversation-event",
+		convEvent(payload, seq) as unknown as Record<string, unknown>,
+		docStore,
+		sessionStore,
+	);
 }
 
 // ── Fixture data ──────────────────────────────────────────────────────
+
+const MOD_UUID = asUuid("mod-registration");
+const FORM_UUID = asUuid("form-register");
+const Q_NAME_UUID = asUuid("q-patient-name");
+const Q_AGE_UUID = asUuid("q-patient-age");
 
 const CASE_TYPES = [
 	{ name: "patient", properties: [{ name: "name", label: "Name" }] },
 ];
 
-const SCAFFOLD = {
-	app_name: "Health App",
-	description: "A health monitoring app",
-	connect_type: "",
-	modules: [
-		{
+const SCAFFOLD_MUTATIONS: Mutation[] = [
+	{ kind: "setAppName", name: "Health App" },
+	{
+		kind: "addModule",
+		module: {
+			uuid: MOD_UUID,
+			id: "registration",
 			name: "Registration",
-			case_type: "patient",
-			case_list_only: false,
-			purpose: "Register patients",
-			forms: [
-				{
-					name: "Register",
-					type: "registration" as const,
-					purpose: "Register a new patient",
-					formDesign: "Name, age, gender",
-				},
-			],
+			caseType: "patient",
 		},
-	],
-};
+	},
+	{
+		kind: "addForm",
+		moduleUuid: MOD_UUID,
+		form: {
+			uuid: FORM_UUID,
+			id: "register",
+			name: "Register",
+			type: "registration",
+		},
+	},
+];
 
-const FORM: BlueprintForm = {
-	uuid: "will-be-replaced",
-	name: "Register",
-	type: "registration",
-	questions: [
-		{ uuid: "q-1", id: "patient_name", type: "text", label: "Patient Name" },
-		{ uuid: "q-2", id: "patient_age", type: "int", label: "Age" },
-	],
-};
+const FORM_CONTENT_MUTATIONS: Mutation[] = [
+	{
+		kind: "addField",
+		parentUuid: FORM_UUID,
+		field: {
+			uuid: Q_NAME_UUID,
+			id: "patient_name",
+			kind: "text",
+			label: "Patient Name",
+		},
+	},
+	{
+		kind: "addField",
+		parentUuid: FORM_UUID,
+		field: {
+			uuid: Q_AGE_UUID,
+			id: "patient_age",
+			kind: "int",
+			label: "Age",
+		},
+	},
+];
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("generation lifecycle (end-to-end)", () => {
-	it("full build: Idle → DataModel → Structure → Modules → Forms → Validate → Completed → Ready", () => {
+	/* Every test opts into active undo tracking — the suite verifies
+	 * pause-on-beginRun / resume-on-endRun transitions, which require
+	 * temporal to start in the tracking state. */
+	const createStores = () => createWiredStores({ resumeUndo: true });
+
+	it("full build: Idle → Generating → Ready via stage-tagged mutations", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 		const doc = () => docStore.getState();
 
 		// ── Pre-generation: Idle ──
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Idle);
-		expect(s().agentStage).toBeNull();
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Idle);
+		expect(s().events).toHaveLength(0);
 
-		// ── data-start-build + data-phase: data-model ──
-		// (both emitted by generateSchema's onInputStart)
-		emit("data-start-build", {}, docStore, sessionStore);
-		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Generating);
-		expect(s().agentActive).toBe(true);
-		expect(s().agentStage).toBe(GenerationStage.DataModel);
-		expect(s().statusMessage).toBe("Designing data model");
-		// Doc undo paused during generation
+		// ── Begin run (chat status effect's responsibility live) ──
+		s().beginRun();
+		/* beginRun pauses doc undo. The events buffer — which drives
+		 * lifecycle derivations — is empty at this instant but will fill
+		 * as the stream dispatcher pushes events. */
 		expect(docStore.temporal.getState().isTracking).toBe(false);
 
-		// ── data-schema ──
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
+		// ── Schema mutation lands → stage = DataModel ──
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			"schema",
+			docStore,
+			sessionStore,
+		);
 		expect(doc().caseTypes).toEqual(CASE_TYPES);
-		// Still in DataModel stage
-		expect(s().agentStage).toBe(GenerationStage.DataModel);
-
-		// ── data-phase: structure ──
-		// (emitted by generateScaffold's onInputStart)
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Structure);
-		expect(s().statusMessage).toBe("Designing app structure");
-
-		// ── data-scaffold ──
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
-			docStore,
-			sessionStore,
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.DataModel);
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
+			BuilderPhase.Generating,
 		);
-		// Doc now has modules and forms
-		expect(doc().moduleOrder).toHaveLength(1);
-		const moduleUuid = doc().moduleOrder[0];
-		expect(doc().modules[moduleUuid].name).toBe("Registration");
-		expect(doc().formOrder[moduleUuid]).toHaveLength(1);
-		const formUuid = doc().formOrder[moduleUuid][0];
 
-		// ── data-phase: modules ──
-		emit("data-phase", { phase: "modules" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Modules);
-		expect(s().statusMessage).toBe("Building app content");
+		// ── Scaffold mutations → stage = Structure ──
+		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
+		expect(doc().moduleOrder).toEqual([MOD_UUID]);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Structure);
 
-		// ── data-module-done ──
+		// ── Module-detail mutation → stage = Modules ──
 		const columns = [{ field: "name", header: "Name" }];
-		emit(
-			"data-module-done",
-			{ moduleIndex: 0, caseListColumns: columns },
+		emitMutations(
+			[
+				{
+					kind: "updateModule",
+					uuid: MOD_UUID,
+					patch: { caseListColumns: columns },
+				},
+			],
+			"module:0",
 			docStore,
 			sessionStore,
 		);
-		expect(doc().modules[moduleUuid].caseListColumns).toEqual(columns);
+		expect(doc().modules[MOD_UUID].caseListColumns).toEqual(columns);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Modules);
 
-		// ── data-phase: forms ──
-		emit("data-phase", { phase: "forms" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Forms);
+		// ── Form-content mutations → stage = Forms ──
+		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
+		expect(doc().fieldOrder[FORM_UUID]).toEqual([Q_NAME_UUID, Q_AGE_UUID]);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Forms);
 
-		// ── data-form-done ──
-		emit(
-			"data-form-done",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
-			docStore,
-			sessionStore,
+		// ── data-done arrives (models the dispatcher's markRunCompleted) ──
+		s().markRunCompleted();
+		expect(s().runCompletedAt).toEqual(expect.any(Number));
+		// ── Stream closes (models the chat status effect's endRun) ──
+		s().endRun();
+		/* endRun clears the events buffer + resumes doc undo. The
+		 * celebration stamp survives — it's orthogonal to stream close. */
+		expect(s().events).toEqual([]);
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
+			BuilderPhase.Completed,
 		);
-		// Form should have questions now
-		const topQuestions = doc().fieldOrder[formUuid] ?? [];
-		expect(topQuestions.length).toBeGreaterThan(0);
-
-		// ── data-phase: validate ──
-		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Validate);
-		expect(s().statusMessage).toBe("Validating blueprint");
-
-		// ── data-app-saved ──
-		emit("data-app-saved", { appId: "app-123" }, docStore, sessionStore);
-		expect(s().appId).toBe("app-123");
-
-		// ── data-done (with final doc snapshot) ──
-		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
-
-		// Phase should be Completed (justCompleted=true takes priority)
-		expect(s().justCompleted).toBe(true);
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Completed);
-		// agentActive is still true — the chat status effect clears it
-		expect(s().agentActive).toBe(true);
-		// Doc undo resumed
 		expect(docStore.temporal.getState().isTracking).toBe(true);
-		// Generation metadata cleared
-		expect(s().agentStage).toBeNull();
-		expect(s().agentError).toBeNull();
-		expect(s().statusMessage).toBe("");
 
-		// ── Simulate chat status effect: setAgentActive(false) ──
-		s().setAgentActive(false);
-		// Still Completed (justCompleted takes priority)
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Completed);
-
-		// ── acknowledgeCompletion (signal grid done animation) ──
+		// ── acknowledgeCompletion (celebration animation settled) ──
 		s().acknowledgeCompletion();
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Ready);
-		expect(s().justCompleted).toBe(false);
+		expect(s().runCompletedAt).toBeUndefined();
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 	});
 
-	it("fix loop: Validate → Fix → data-fix-attempt → data-form-fixed → Validate → Done", () => {
+	it("fix loop: validation-attempt conversation event + fix:attempt-N mutations", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 
-		// Fast-forward to a state with scaffold + forms
-		emit("data-start-build", {}, docStore, sessionStore);
-		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
+		s().beginRun();
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			"schema",
 			docStore,
 			sessionStore,
 		);
-		emit("data-phase", { phase: "modules" }, docStore, sessionStore);
-		emit(
-			"data-module-done",
-			{ moduleIndex: 0, caseListColumns: null },
-			docStore,
-			sessionStore,
-		);
-		emit("data-phase", { phase: "forms" }, docStore, sessionStore);
-		emit(
-			"data-form-done",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
+		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
+		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
+
+		// ── First validation round finds 2 errors ──
+		emitConversation(
+			{
+				type: "validation-attempt",
+				attempt: 1,
+				errors: ["bad xpath", "missing label"],
+			},
+			10,
 			docStore,
 			sessionStore,
 		);
 
-		// ── Validate stage ──
-		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Validate);
+		/* The validation-attempt event lands on the buffer; a reader
+		 * projects "Fixing 2 errors, attempt 1" as the status message. */
+		const attemptEv = s().events.at(-1);
+		assert(
+			attemptEv?.kind === "conversation" &&
+				attemptEv.payload.type === "validation-attempt",
+		);
+		expect(attemptEv.payload.attempt).toBe(1);
+		expect(attemptEv.payload.errors).toHaveLength(2);
 
-		// ── Fix stage ──
-		emit("data-phase", { phase: "fix" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Fix);
-
-		emit(
-			"data-fix-attempt",
-			{ attempt: 1, errorCount: 2 },
+		// ── Fix mutations land with fix:attempt-1 stage tag ──
+		emitMutations(
+			[
+				{
+					kind: "updateField",
+					uuid: Q_NAME_UUID,
+					patch: { label: "Patient Full Name" },
+				},
+			],
+			"fix:attempt-1",
 			docStore,
 			sessionStore,
 		);
-		expect(s().statusMessage).toContain("2 errors");
-		expect(s().statusMessage).toContain("attempt 1");
-
-		// ── Fixed form ──
-		emit(
-			"data-form-fixed",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
-			docStore,
-			sessionStore,
-		);
-
-		// ── Back to validate ──
-		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		expect(s().agentStage).toBe(GenerationStage.Validate);
+		const nameField = docStore.getState().fields[Q_NAME_UUID];
+		assert(nameField && nameField.kind === "text");
+		expect(nameField.label).toBe("Patient Full Name");
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Fix);
 
 		// ── Done ──
-		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Completed);
+		s().markRunCompleted();
+		s().endRun();
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
+			BuilderPhase.Completed,
+		);
 	});
 
-	it("mid-stream error preserves partial doc state", () => {
+	it("mid-stream error: doc state preserved, error appended to buffer", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 
-		emit("data-start-build", {}, docStore, sessionStore);
-		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
+		s().beginRun();
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			"schema",
 			docStore,
 			sessionStore,
 		);
+		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 
-		// Doc has entities from scaffold
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
 
-		// ── Error mid-stream ──
-		emit(
-			"data-error",
-			{ message: "Rate limit exceeded", fatal: true },
+		// ── Error arrives as a conversation event ──
+		emitConversation(
+			{
+				type: "error",
+				error: {
+					type: "rate_limit",
+					message: "Rate limit exceeded",
+					fatal: true,
+				},
+			},
+			10,
 			docStore,
 			sessionStore,
 		);
 
-		const err = s().agentError;
-		assert(err);
-		expect(err.message).toBe("Rate limit exceeded");
-		expect(err.severity).toBe("failed");
-		// Still generating (agent is active, error is metadata)
-		expect(s().agentActive).toBe(true);
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Generating);
-		// Doc entities preserved — partial scaffold is still there
+		const errEv = s().events.at(-1);
+		assert(errEv?.kind === "conversation" && errEv.payload.type === "error");
+		expect(errEv.payload.error.fatal).toBe(true);
+		/* Buffer still holds the run's events (endRun hasn't fired). */
+		expect(s().events.length).toBeGreaterThan(0);
+		/* Doc entities preserved. */
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
-	});
-
-	it("recovering error clears on next stage advance", () => {
-		const { docStore, sessionStore } = createStores();
-		const s = () => sessionStore.getState();
-
-		emit("data-start-build", {}, docStore, sessionStore);
-		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-
-		// Non-fatal error
-		emit(
-			"data-error",
-			{ message: "Retrying...", fatal: false },
-			docStore,
-			sessionStore,
-		);
-		const recErr = s().agentError;
-		assert(recErr);
-		expect(recErr.severity).toBe("recovering");
-
-		// Stage advance clears the error
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		expect(s().agentError).toBeNull();
-		expect(s().agentStage).toBe(GenerationStage.Structure);
 	});
 
 	it("post-build edit: stays Ready, no Generating phase", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 
-		// Set up a completed app
-		emit("data-start-build", {}, docStore, sessionStore);
-		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
+		// Full completed build.
+		s().beginRun();
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			"schema",
 			docStore,
 			sessionStore,
 		);
-		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
-		s().setAgentActive(false);
+		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
+		s().markRunCompleted();
+		s().endRun();
 		s().acknowledgeCompletion();
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Ready);
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 
-		// ── Post-build edit: SA modifies the app ──
-		// Chat status effect fires setAgentActive(true) — doc has data
-		s().setAgentActive(true);
-		expect(s().postBuildEdit).toBe(true);
-		// Phase stays Ready for post-build edits
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Ready);
+		// ── Post-build edit: new run opens on an app with data ──
+		s().beginRun();
+		/* Buffer has been cleared by beginRun; no schema/scaffold events yet
+		 * in this new run → no build foundation → phase stays Ready
+		 * (suppresses Generating) even once edit-tool mutations land. */
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 
-		// SA sends a blueprint-updated event (coarse edit tool) carrying a
-		// renamed doc. Build the edited payload from the current snapshot so
-		// all uuids + relationships remain coherent.
-		const editedDoc: PersistableDoc = {
-			...snapshotDoc(docStore),
-			appName: "Edited App",
-		};
-		emit("data-blueprint-updated", { doc: editedDoc }, docStore, sessionStore);
-		expect(docStore.getState().appName).toBe("Edited App");
-		// Still Ready (no justCompleted for edit-tool responses)
-		expect(s().justCompleted).toBe(false);
-		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Ready);
+		// Edit-tool mutation — `updateForm` emits `form:M-F` stage. This
+		// stage tag matches initial-build `addQuestions`, but with no
+		// schema/scaffold foundation in the buffer, derivePhase stays
+		// Ready.
+		emitMutations(
+			[
+				{
+					kind: "updateForm",
+					uuid: FORM_UUID,
+					patch: { name: "Register (Edited)" },
+				},
+			],
+			"form:0-0",
+			docStore,
+			sessionStore,
+		);
+		expect(docStore.getState().forms[FORM_UUID].name).toBe("Register (Edited)");
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
+
+		// Stream closes.
+		s().endRun();
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 	});
 
-	it("undo after generation reverses the entire build", () => {
+	it("undo after generation: generation not in history, user edits are", () => {
 		const { docStore, sessionStore } = createStores();
+		const s = () => sessionStore.getState();
 
-		// Full generation
-		emit("data-start-build", {}, docStore, sessionStore);
-		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
+		s().beginRun();
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			"schema",
 			docStore,
 			sessionStore,
 		);
-		emit("data-phase", { phase: "modules" }, docStore, sessionStore);
-		emit(
-			"data-module-done",
-			{ moduleIndex: 0, caseListColumns: null },
-			docStore,
-			sessionStore,
-		);
-		emit("data-phase", { phase: "forms" }, docStore, sessionStore);
-		emit(
-			"data-form-done",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
-			docStore,
-			sessionStore,
-		);
-		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
+		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
+		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
+		s().markRunCompleted();
+		s().endRun();
 
-		// Doc has data
-		expect(docStore.getState().moduleOrder).toHaveLength(1);
 		expect(docStore.getState().appName).toBe("Health App");
-
-		// Undo tracking was paused during generation, resumed on data-done.
-		// The entire generation is NOT in undo history — load() cleared it.
-		// User edits AFTER this point are undoable.
+		/* Undo was paused by beginRun → resumed by endRun. User edits now
+		 * enter history; the generation itself did not. */
 		expect(docStore.temporal.getState().isTracking).toBe(true);
 
-		// Make a user edit (this enters undo history)
 		docStore.getState().applyMany([{ kind: "setAppName", name: "Renamed" }]);
 		expect(docStore.getState().appName).toBe("Renamed");
 
-		// Undo the user edit
 		docStore.temporal.getState().undo();
 		expect(docStore.getState().appName).toBe("Health App");
 
-		// Can't undo further — generation is not in history
+		/* Can't undo further — generation mutations never entered history. */
 		docStore.temporal.getState().undo();
 		expect(docStore.getState().appName).toBe("Health App");
 	});

@@ -11,7 +11,7 @@
  */
 import { FieldValue, type Timestamp } from "@google-cloud/firestore";
 import type { ErrorType } from "@/lib/agent";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
 import { collections, docs, getDb } from "./firestore";
 import type { AppDoc } from "./types";

@@ -45,7 +45,7 @@ const casePropertySchema = z.object({
 });
 export type CaseProperty = z.infer<typeof casePropertySchema>;
 
-const caseTypeSchema = z.object({
+export const caseTypeSchema = z.object({
 	name: z.string(),
 	properties: z.array(casePropertySchema),
 	parent_type: z.string().optional(),

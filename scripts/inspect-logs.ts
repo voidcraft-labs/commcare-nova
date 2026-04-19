@@ -1,28 +1,39 @@
 /**
- * Read-only inspection of event logs for an app.
+ * Read-only inspection of the Phase-4 event log for an app.
  *
- * Shows all events grouped by run_id, with filtering by event type and run.
- * Cost summary is always shown in the run header. Analytical views (--steps,
- * --timeline, --tools) replace the default event list for focused analysis.
+ * Sources data from two collections:
+ *   - `apps/{appId}/events/{eventId}` — the unified mutation + conversation
+ *     stream (`Event`). Read via `readEvents(runId)` when filtered to a run,
+ *     or via a direct `collections.events(appId)` scan otherwise.
+ *   - `apps/{appId}/runs/{runId}` — per-run cost/behavior summary
+ *     (`RunSummaryDoc`). Read via `readRunSummary`.
+ *
+ * Cost analytics live on the per-run summary — the event log intentionally
+ * carries no token usage (spec §5: log is supplemental, mutation +
+ * conversation only). Scripts that want cost breakdowns read the summary
+ * doc directly.
+ *
  * Never writes to Firestore.
  *
  * Usage:
- *   npx tsx scripts/inspect-logs.ts <appId>                  # events + cost in header
+ *   npx tsx scripts/inspect-logs.ts <appId>                  # summary + event counts
  *   npx tsx scripts/inspect-logs.ts <appId> --verbose         # full event detail
- *   npx tsx scripts/inspect-logs.ts <appId> --steps           # per-step breakdown table
- *   npx tsx scripts/inspect-logs.ts <appId> --timeline        # step timing analysis
- *   npx tsx scripts/inspect-logs.ts <appId> --tools           # tool usage distribution
- *   npx tsx scripts/inspect-logs.ts <appId> --steps --tools   # combinable
- *   npx tsx scripts/inspect-logs.ts <appId> --type=error      # only error events
- *   npx tsx scripts/inspect-logs.ts <appId> --type=step       # only step events
- *   npx tsx scripts/inspect-logs.ts <appId> --run=<runId>     # filter to specific run
- *   npx tsx scripts/inspect-logs.ts <appId> --last=20         # last N events only
+ *   npx tsx scripts/inspect-logs.ts <appId> --runs            # per-run summary table
+ *   npx tsx scripts/inspect-logs.ts <appId> --timeline        # event timing gaps
+ *   npx tsx scripts/inspect-logs.ts <appId> --tools           # tool-call distribution
+ *   npx tsx scripts/inspect-logs.ts <appId> --stages          # mutations by stage
+ *   npx tsx scripts/inspect-logs.ts <appId> --run=<runId>     # filter to a run
+ *   npx tsx scripts/inspect-logs.ts <appId> --last=N          # last N events only
  */
-import { db } from "./lib/firestore";
+import "dotenv/config";
+import { collections } from "@/lib/db/firestore";
+import type { RunSummaryDoc } from "@/lib/db/types";
+import { readEvents, readRunSummary } from "@/lib/log/reader";
 import {
 	duration,
 	pct,
 	printHeader,
+	printKV,
 	printSection,
 	printTable,
 	tok,
@@ -30,229 +41,339 @@ import {
 	usd,
 } from "./lib/format";
 import {
-	analyzeRun,
-	computeStepBreakdown,
+	computeEventKindCounts,
+	computeMutationsByStage,
 	computeTimeline,
 	computeToolUsage,
 	groupByRun,
 } from "./lib/log-stats";
-import type { StoredEvent } from "./lib/types";
+import type { ConversationPayload, Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
 
 const appId = process.argv[2];
 if (!appId) {
 	console.error(
-		"Usage: npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--steps] [--timeline] [--tools] [--type=<type>] [--run=<runId>] [--last=N]",
+		"Usage: npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--runs] [--timeline] [--tools] [--stages] [--run=<runId>] [--last=N]",
 	);
 	process.exit(1);
 }
 
 const verbose = process.argv.includes("--verbose");
-const showSteps = process.argv.includes("--steps");
+const showRunsTable = process.argv.includes("--runs");
 const showTimeline = process.argv.includes("--timeline");
 const showTools = process.argv.includes("--tools");
-const typeFilter = process.argv
-	.find((a) => a.startsWith("--type="))
-	?.split("=")[1];
-const runFilter = process.argv
-	.find((a) => a.startsWith("--run="))
-	?.split("=")[1];
-const lastN = Number.parseInt(
-	process.argv.find((a) => a.startsWith("--last="))?.split("=")[1] ?? "0",
-	10,
-);
+const showStages = process.argv.includes("--stages");
 
-/** Whether any analytical view was requested (replaces default event list). */
-const hasAnalyticalView = showSteps || showTimeline || showTools;
+/**
+ * Extract the value of a `--flag=value` argument, or `null` when the flag
+ * is absent. A *present-but-empty* flag (`--run=`) is returned as `""` so
+ * the caller can reject it explicitly — silently coercing an empty value
+ * to "no filter" would mask typos.
+ */
+function extractFlagValue(flag: string): string | null {
+	const match = process.argv.find((a) => a.startsWith(`${flag}=`));
+	if (match === undefined) return null;
+	return match.slice(flag.length + 1);
+}
+
+/* `--run=<runId>` — filter to a single run. An empty value is user error,
+ * not intent to drop the filter, so we reject it instead of silently
+ * ignoring (which would hide typos like `--run= abc123`). */
+const rawRunFilter = extractFlagValue("--run");
+if (rawRunFilter !== null && rawRunFilter === "") {
+	console.error("--run requires a runId (e.g. --run=abc123).");
+	process.exit(1);
+}
+const runFilter: string | undefined = rawRunFilter ?? undefined;
+
+/* `--last=N` — trim to the last N events after loading. Must be a positive
+ * integer; anything else is a typo or non-numeric junk that we reject
+ * up-front rather than silently falling through to "no limit". The
+ * `String(parsed) !== rawLastN` check rejects trailing garbage like "5abc"
+ * that `Number.parseInt` would otherwise accept. */
+const rawLastN = extractFlagValue("--last");
+let lastN = 0;
+if (rawLastN !== null) {
+	const parsed = Number.parseInt(rawLastN, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== rawLastN) {
+		console.error(`--last requires a positive integer (got "${rawLastN}").`);
+		process.exit(1);
+	}
+	lastN = parsed;
+}
+
+/**
+ * Any analytical view flag replaces the default per-run event dump. The
+ * run summary header is always shown regardless.
+ */
+const hasAnalyticalView =
+	showRunsTable || showTimeline || showTools || showStages;
+
+/**
+ * `--runs` is the only view that can render without touching the events
+ * collection at all — it reads the `runs` subcollection directly. Every
+ * other view (including the default event dump) needs `Event[]`. When the
+ * user passes *only* `--runs` (no events-consuming companion view, no
+ * `--run=` filter), we skip the full-events scan entirely.
+ */
+const runsTableOnly =
+	showRunsTable && !showTimeline && !showTools && !showStages && !runFilter;
+
+// ── Data loading ────────────────────────────────────────────────────
+
+/**
+ * Load every event for the app. If `runFilter` is set, push the filter
+ * into Firestore via `readEvents` (indexed on `runId`). Otherwise scan the
+ * full events subcollection ordered by `(ts, seq)` so downstream grouping
+ * preserves chronological order within each run.
+ */
+async function loadEvents(): Promise<Event[]> {
+	if (runFilter) {
+		return readEvents(appId, runFilter);
+	}
+	const snap = await collections
+		.events(appId)
+		.orderBy("ts")
+		.orderBy("seq")
+		.get();
+	return snap.docs.map((d) => d.data());
+}
+
+/**
+ * Load every run-summary doc for the app, newest-first by `finishedAt`.
+ * Sole data source for the `--runs` fast path — no events are scanned.
+ * Runs that exist in the events collection but haven't been finalized
+ * (no summary doc written yet) do not appear here; the view reports
+ * what `runs/` contains.
+ */
+async function loadRunSummariesNewestFirst(): Promise<
+	Array<{ runId: string; summary: RunSummaryDoc }>
+> {
+	const snap = await collections
+		.runs(appId)
+		.orderBy("finishedAt", "desc")
+		.get();
+	return snap.docs.map((d) => ({ runId: d.id, summary: d.data() }));
+}
 
 // ── Event display ───────────────────────────────────────────────────
 
-/** Print a single event in summary mode (one-line-per-event). */
-function printEventSummary(e: StoredEvent) {
-	const evt = e.event;
-	const ts = e.timestamp.split("T")[1]?.slice(0, 12) ?? e.timestamp;
-	const prefix = `  [seq=${String(e.sequence).padStart(3)} req=${e.request}] ${ts}`;
+/**
+ * Truncated timestamp (HH:MM:SS.mmm) for single-line event output. The
+ * leading date portion is redundant inside a single run — all events share
+ * the same day in practice, and the run header already shows full ISO.
+ *
+ * `Date.prototype.toISOString()` is speced to always return the fixed-width
+ * shape `YYYY-MM-DDTHH:MM:SS.sssZ`, so a direct character-index slice
+ * (position 11 through 22) extracts `HH:MM:SS.mmm` without a fallback.
+ */
+function formatTime(ts: number): string {
+	return new Date(ts).toISOString().slice(11, 23);
+}
 
-	switch (evt.type) {
-		case "config":
-			console.log(
-				`${prefix}  ⚙️  config: prompt=${evt.prompt_mode} freshEdit=${evt.fresh_edit} appReady=${evt.app_ready} cacheExpired=${evt.cache_expired} modules=${evt.module_count}`,
-			);
-			break;
-
-		case "message":
-			console.log(`${prefix}  📨 message: ${truncate(evt.text ?? "", 80)}`);
-			break;
-
-		case "step": {
-			const tools =
-				evt.tool_calls?.map((t) => t.name).join(", ") || "(no tools)";
-			const cost = evt.usage ? ` ${usd(evt.usage.cost)}` : "";
-			const text = evt.text ? ` — ${truncate(evt.text, 60)}` : "";
-			console.log(
-				`${prefix}  🔧 step ${evt.step_index}: [${tools}]${cost}${text}`,
-			);
-			break;
-		}
-
-		case "emission":
-			console.log(
-				`${prefix}  📡 emission: ${evt.emission_type} (step ${evt.step_index})`,
-			);
-			break;
-
+/** One-line summary of a conversation payload. */
+function summarizeConversation(payload: ConversationPayload): string {
+	switch (payload.type) {
+		case "user-message":
+			return `user: ${truncate(payload.text, 80)}`;
+		case "assistant-text":
+			return `assistant: ${truncate(payload.text, 80)}`;
+		case "assistant-reasoning":
+			return `reasoning: ${truncate(payload.text, 80)}`;
+		case "tool-call":
+			return `tool-call ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
+		case "tool-result":
+			return `tool-result ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
 		case "error":
-			console.log(
-				`${prefix}  ❌ ERROR [${evt.error_type}]: ${truncate(evt.error_message ?? "", 80)}`,
-			);
-			if (evt.error_context) {
-				console.log(`           context: ${evt.error_context}`);
-			}
-			break;
-
-		default:
-			console.log(
-				`${prefix}  ❓ unknown type: ${(evt as { type: string }).type}`,
-			);
+			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${truncate(payload.error.message, 80)}`;
+		case "validation-attempt":
+			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
 	}
 }
 
-/** Print a single event in verbose mode (multi-line detail). */
-function printEventVerbose(e: StoredEvent) {
-	const evt = e.event;
+/** Print a single event on one line. Used in the default and --last views. */
+function printEventSummary(event: Event): void {
+	const prefix = `  [seq=${String(event.seq).padStart(4)}] ${formatTime(event.ts)}`;
+	if (event.kind === "mutation") {
+		const stage = event.stage ? ` (${event.stage})` : "";
+		/* Mutation discriminator is `kind` (see `mutationSchema` in lib/doc/types). */
+		const mutationKind = event.mutation.kind;
+		console.log(`${prefix}  [mutation:${event.actor}]${stage} ${mutationKind}`);
+		return;
+	}
 	console.log(
-		`\n  ┌─ seq=${e.sequence} req=${e.request} type=${evt.type} @ ${e.timestamp}`,
+		`${prefix}  [conversation] ${summarizeConversation(event.payload)}`,
+	);
+}
+
+/** Multi-line verbose rendering of a single event. */
+function printEventVerbose(event: Event): void {
+	console.log(
+		`\n  ┌─ seq=${event.seq} kind=${event.kind} ts=${new Date(event.ts).toISOString()}`,
 	);
 
-	switch (evt.type) {
-		case "config":
-			console.log(`  │ prompt_mode: ${evt.prompt_mode}`);
-			console.log(`  │ fresh_edit:  ${evt.fresh_edit}`);
-			console.log(`  │ app_ready:   ${evt.app_ready}`);
-			console.log(`  │ cache_expired: ${evt.cache_expired}`);
-			console.log(`  │ module_count: ${evt.module_count}`);
-			break;
-
-		case "message":
-			console.log(`  │ text: ${evt.text}`);
-			break;
-
-		case "step": {
-			if (evt.reasoning) {
-				console.log(`  │ reasoning: ${truncate(evt.reasoning, 200)}`);
-			}
-			if (evt.text) {
-				console.log(`  │ text: ${truncate(evt.text, 200)}`);
-			}
-			if (evt.usage) {
-				const u = evt.usage;
-				console.log(
-					`  │ usage: ${tok(u.input_tokens)} in / ${tok(u.output_tokens)} out / ${tok(u.cache_read_tokens)} cached / ${usd(u.cost)}`,
-				);
-			}
-			for (const tc of evt.tool_calls ?? []) {
-				console.log(`  │ tool: ${tc.name}`);
-				console.log(`  │   args: ${truncate(JSON.stringify(tc.args), 200)}`);
-				const output = JSON.stringify(tc.output);
-				console.log(`  │   output: ${truncate(output ?? "null", 200)}`);
-				if (tc.generation) {
-					console.log(
-						`  │   inner-llm: ${tok(tc.generation.input_tokens)} in / ${tok(tc.generation.output_tokens)} out / ${usd(tc.generation.cost)}`,
-					);
-				}
-				if (tc.reasoning) {
-					console.log(`  │   reasoning: ${truncate(tc.reasoning, 200)}`);
-				}
-			}
-			break;
-		}
-
-		case "emission":
-			console.log(`  │ emission_type: ${evt.emission_type}`);
-			console.log(
-				`  │ data: ${truncate(JSON.stringify(evt.emission_data) ?? "", 300)}`,
-			);
-			break;
-
-		case "error":
-			console.log(`  │ error_type: ${evt.error_type}`);
-			console.log(`  │ message: ${evt.error_message}`);
-			console.log(`  │ fatal: ${evt.error_fatal}`);
-			console.log(`  │ context: ${evt.error_context}`);
-			if (evt.error_raw) {
-				console.log(`  │ raw: ${truncate(evt.error_raw, 500)}`);
-			}
-			break;
+	if (event.kind === "mutation") {
+		console.log(`  │ actor:    ${event.actor}`);
+		if (event.stage) console.log(`  │ stage:    ${event.stage}`);
+		console.log(`  │ mutation: ${event.mutation.kind}`);
+		console.log(
+			`  │ payload:  ${truncate(JSON.stringify(event.mutation), 300)}`,
+		);
+		console.log("  └─");
+		return;
 	}
 
+	const p = event.payload;
+	console.log(`  │ payload.type: ${p.type}`);
+	switch (p.type) {
+		case "user-message":
+		case "assistant-text":
+		case "assistant-reasoning":
+			console.log(`  │ text: ${truncate(p.text, 400)}`);
+			break;
+		case "tool-call":
+			console.log(`  │ toolCallId: ${p.toolCallId}`);
+			console.log(`  │ toolName:   ${p.toolName}`);
+			console.log(`  │ input:      ${truncate(JSON.stringify(p.input), 400)}`);
+			break;
+		case "tool-result":
+			console.log(`  │ toolCallId: ${p.toolCallId}`);
+			console.log(`  │ toolName:   ${p.toolName}`);
+			console.log(`  │ output:     ${truncate(JSON.stringify(p.output), 400)}`);
+			break;
+		case "error":
+			console.log(`  │ error.type:    ${p.error.type}`);
+			console.log(`  │ error.fatal:   ${p.error.fatal}`);
+			console.log(`  │ error.message: ${truncate(p.error.message, 400)}`);
+			break;
+	}
 	console.log("  └─");
+}
+
+// ── Per-run summary rendering ───────────────────────────────────────
+
+/**
+ * Render the per-run summary doc as a KV block. This is the canonical
+ * replacement for the old per-step cost table — all cost data lives here
+ * now, keyed by runId.
+ */
+function printRunSummary(summary: RunSummaryDoc): void {
+	const cacheHitRate = pct(summary.cacheReadTokens, summary.inputTokens);
+	const durMs = Date.parse(summary.finishedAt) - Date.parse(summary.startedAt);
+	printKV([
+		["Model", summary.model],
+		["Prompt mode", summary.promptMode],
+		["Fresh edit", String(summary.freshEdit)],
+		["App ready", String(summary.appReady)],
+		["Cache expired", String(summary.cacheExpired)],
+		["Module count", String(summary.moduleCount)],
+		["Started", summary.startedAt],
+		["Finished", summary.finishedAt],
+		["Duration", duration(durMs)],
+		["Steps", String(summary.stepCount)],
+		["Tool calls", String(summary.toolCallCount)],
+		["Input tokens", tok(summary.inputTokens)],
+		["Output tokens", tok(summary.outputTokens)],
+		["Cache read", tok(summary.cacheReadTokens)],
+		["Cache write", tok(summary.cacheWriteTokens)],
+		["Cache hit rate", cacheHitRate],
+		["Total cost", usd(summary.costEstimate)],
+	]);
+}
+
+/** Event-kind distribution one-liner for the run header. */
+function formatEventCounts(events: Event[]): string {
+	const counts = computeEventKindCounts(events);
+	const parts = [`${counts.total} events`, `mutations: ${counts.mutation}`];
+	for (const [type, count] of Object.entries(counts.conversation)) {
+		parts.push(`${type}: ${count}`);
+	}
+	return parts.join(" | ");
 }
 
 // ── Analytical views ────────────────────────────────────────────────
 
-/** Print the --steps per-step breakdown table. */
-function printStepsView(events: StoredEvent[]) {
-	const steps = computeStepBreakdown(events);
-	if (steps.length === 0) {
-		console.log("  (no steps)");
-		return;
-	}
-
-	printSection("Per-Step Breakdown");
+/**
+ * Render the `--runs` per-run summary table. Accepts pre-fetched
+ * `{ runId, summary }` rows so callers can pick the data source that
+ * matches their invocation path:
+ *
+ *   - `--runs` alone → the `runs` subcollection (newest-first, no events).
+ *   - `--runs --timeline` / `--runs --tools` → merged with the event-derived
+ *     runIds so event-only runs render as "—" rows alongside finalised ones.
+ *
+ * Rows with a `null` summary (no summary doc) render as a single runId
+ * column plus dashes — they represent runs that logged events but never
+ * called `UsageAccumulator.flush`.
+ */
+function printRunsTableView(
+	rows: Array<{ runId: string; summary: RunSummaryDoc | null }>,
+): void {
+	printSection("Per-Run Summaries");
 
 	printTable(
 		[
-			{ header: "Step", align: "right" },
-			{ header: "Tools" },
+			{ header: "Run" },
+			{ header: "Mode" },
+			{ header: "Model" },
+			{ header: "Steps", align: "right" },
+			{ header: "Tool calls", align: "right" },
 			{ header: "Input", align: "right" },
 			{ header: "Output", align: "right" },
 			{ header: "Cache%", align: "right" },
 			{ header: "Cost", align: "right" },
-			{ header: "Reasoning" },
 		],
-		steps.map((s) => [
-			String(s.stepIndex),
-			s.tools.join(", ") || "(none)",
-			tok(s.inputTokens),
-			tok(s.outputTokens),
-			pct(s.cacheReadTokens, s.inputTokens),
-			usd(s.totalCost),
-			truncate(s.reasoningSnippet || s.textSnippet, 50),
-		]),
+		rows.map(({ runId, summary }) => {
+			if (!summary) {
+				return [
+					`${runId.slice(0, 8)}…`,
+					"—",
+					"—",
+					"—",
+					"—",
+					"—",
+					"—",
+					"—",
+					"—",
+				];
+			}
+			return [
+				`${runId.slice(0, 8)}…`,
+				summary.promptMode,
+				summary.model,
+				String(summary.stepCount),
+				String(summary.toolCallCount),
+				tok(summary.inputTokens),
+				tok(summary.outputTokens),
+				pct(summary.cacheReadTokens, summary.inputTokens),
+				usd(summary.costEstimate),
+			];
+		}),
 	);
 }
 
-/** Print the --timeline step timing table. */
-function printTimelineView(events: StoredEvent[]) {
+/** Render the --timeline inter-event gap table. */
+function printTimelineView(events: Event[]): void {
 	const timeline = computeTimeline(events);
 	if (timeline.length === 0) {
-		console.log("  (no steps)");
+		console.log("  (no events)");
 		return;
 	}
 
-	printSection("Step Timeline");
-
+	printSection("Timeline");
 	printTable(
-		[
-			{ header: "Step", align: "right" },
-			{ header: "Time" },
-			{ header: "Delta", align: "right" },
-			{ header: "Tools" },
-			{ header: "Cost", align: "right" },
-		],
-		timeline.map((t) => [
-			String(t.stepIndex),
-			t.timestamp.split("T")[1]?.slice(0, 12) ?? t.timestamp,
-			t.deltaMs > 0 ? `${(t.deltaMs / 1000).toFixed(1)}s` : "—",
-			t.tools.join(", ") || "(none)",
-			usd(t.cost),
+		[{ header: "Time" }, { header: "Gap", align: "right" }, { header: "Kind" }],
+		timeline.map((row) => [
+			formatTime(row.ts),
+			row.gapMs > 0 ? `${(row.gapMs / 1000).toFixed(2)}s` : "—",
+			row.kind,
 		]),
 	);
 }
 
-/** Print the --tools tool usage distribution table. */
-function printToolsView(events: StoredEvent[]) {
+/** Render the --tools tool-call distribution table. */
+function printToolsView(events: Event[]): void {
 	const tools = computeToolUsage(events);
 	if (tools.length === 0) {
 		console.log("  (no tool calls)");
@@ -260,107 +381,129 @@ function printToolsView(events: StoredEvent[]) {
 	}
 
 	printSection("Tool Usage");
-
 	printTable(
-		[
-			{ header: "Tool" },
-			{ header: "Calls", align: "right" },
-			{ header: "Inner LLM", align: "right" },
-		],
-		tools.map((t) => [
-			t.name,
-			String(t.callCount),
-			t.innerLLMCost > 0 ? usd(t.innerLLMCost) : "—",
-		]),
+		[{ header: "Tool" }, { header: "Calls", align: "right" }],
+		tools.map((t) => [t.tool, String(t.calls)]),
+	);
+}
+
+/** Render the --stages mutations-by-stage table. */
+function printStagesView(events: Event[]): void {
+	const stages = computeMutationsByStage(events);
+	if (stages.length === 0) {
+		console.log("  (no mutation events)");
+		return;
+	}
+
+	printSection("Mutations by Stage");
+	printTable(
+		[{ header: "Stage" }, { header: "Mutations", align: "right" }],
+		stages.map((s) => [s.stage, String(s.count)]),
 	);
 }
 
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main() {
-	/* Fetch log events — push filters into the Firestore query where possible
-	 * to reduce read costs on production data. */
-	let query: FirebaseFirestore.Query = db
-		.collection("apps")
-		.doc(appId)
-		.collection("logs")
-		.orderBy("sequence", "asc");
-
-	/* run_id is a top-level field, so it can be a Firestore where() clause. */
-	if (runFilter) {
-		query = query.where("run_id", "==", runFilter);
-	}
-
-	const snap = await query.get();
-
-	if (snap.empty) {
-		console.log(`No log events found for app ${appId}.`);
+	/* ── Fast path: only --runs was passed ─────────────────────────────
+	 * Read the `runs` subcollection directly (newest-first by finishedAt)
+	 * and render the summary table. Skips the full events scan that every
+	 * other view path requires. */
+	if (runsTableOnly) {
+		const runRows = await loadRunSummariesNewestFirst();
+		printHeader("LOG INSPECTION (read-only)");
+		printKV([
+			["App", appId],
+			["Runs with summary", String(runRows.length)],
+		]);
+		if (runRows.length === 0) {
+			console.log("\n  (no run summary docs — no runs have finalized yet)");
+			return;
+		}
+		printRunsTableView(runRows);
 		return;
 	}
 
-	let events: StoredEvent[] = snap.docs.map((d) => d.data() as StoredEvent);
+	const allEvents = await loadEvents();
+	const trimmed = lastN > 0 ? allEvents.slice(-lastN) : allEvents;
 
-	/* event.type is nested inside the event map — must filter client-side. */
-	if (typeFilter) {
-		events = events.filter((e) => e.event.type === typeFilter);
-	}
-	if (lastN > 0) {
-		events = events.slice(-lastN);
+	if (trimmed.length === 0) {
+		printHeader("LOG INSPECTION (read-only)");
+		console.log(
+			`  App: ${appId}${runFilter ? ` (run=${runFilter})` : ""}\n  No events found.`,
+		);
+		return;
 	}
 
-	/* Group by run_id. */
-	const runs = groupByRun(events);
+	const runs = groupByRun(trimmed);
+	const runIds = [...runs.keys()];
 
 	printHeader("LOG INSPECTION (read-only)");
+	/* Build the KV block incrementally so optional filter rows stay plain
+	 * mutable tuples — `as const` would make them readonly and fail
+	 * `printKV`'s signature. Labels are distinct per filter type so a
+	 * combined `--run=x --last=N` invocation doesn't emit two "Filter" rows. */
+	const headerRows: Array<[string, string]> = [
+		["App", appId],
+		["Events", String(trimmed.length)],
+		["Runs", String(runs.size)],
+	];
+	if (runFilter) headerRows.push(["Run filter", runFilter]);
+	if (lastN > 0) headerRows.push(["Last N", String(lastN)]);
+	printKV(headerRows);
 
-	console.log(
-		`  App:    ${appId}\n  Events: ${events.length} total across ${runs.size} run(s)\n`,
+	/* Pre-fetch every per-run summary in parallel before entering the render
+	 * loop. Serial `await`s inside the loop (one round-trip per run) turned
+	 * 20 runs into 20 × network-latency seconds; `Promise.all` collapses
+	 * that to one parallel burst. Lookups inside the render loop are then
+	 * synchronous `Map.get` calls. */
+	const summaryEntries = await Promise.all(
+		runIds.map(async (runId) => {
+			const summary = await readRunSummary(appId, runId);
+			return [runId, summary] as const;
+		}),
 	);
-	if (typeFilter) console.log(`  Filter: type=${typeFilter}`);
-	if (runFilter) console.log(`  Filter: run=${runFilter}`);
-	if (lastN) console.log(`  Filter: last ${lastN} events`);
+	const summaryByRun = new Map(summaryEntries);
 
+	/* --runs merges event-derived runIds with their summary docs (or `null`
+	 * when a run never finalised). Analytical-only view — no per-run event
+	 * dump below because the table up top already summarises every run. */
+	if (showRunsTable) {
+		const rows = runIds.map((runId) => ({
+			runId,
+			summary: summaryByRun.get(runId) ?? null,
+		}));
+		printRunsTableView(rows);
+	}
+
+	/* Per-run section: summary doc + (optional) analytical views or event list. */
 	for (const [runId, runEvents] of runs) {
-		/* Run header — always includes cost summary. */
-		const analysis = analyzeRun(runId, runEvents);
-		const typeSummary = Object.entries(analysis.eventTypes)
-			.map(([t, c]) => `${t}:${c}`)
-			.join(" ");
-		const start = analysis.timeRange.start.split("T")[1]?.slice(0, 8) ?? "";
-		const end = analysis.timeRange.end.split("T")[1]?.slice(0, 8) ?? "";
+		const summary = summaryByRun.get(runId) ?? null;
 
 		console.log(
-			`\n── Run ${runId.slice(0, 8)}… ${analysis.hasError ? "❌" : "✓"} ──────────────────────────────`,
+			`\n── Run ${runId.slice(0, 8)}… ─────────────────────────────────────`,
 		);
-		console.log(
-			`  ${analysis.eventCount} events (${typeSummary}) | ${start} → ${end}`,
-		);
+		console.log(`  ${formatEventCounts(runEvents)}`);
 
-		/* Cost summary is always shown — this was the --cost bug fix. */
-		const c = analysis.cost;
-		console.log(
-			`    Steps: ${c.stepCount}  |  Duration: ${duration(analysis.durationMs)}  |  Input: ${tok(c.agentInputTokens)}  |  Output: ${tok(c.agentOutputTokens)}  |  Cache: ${pct(c.cacheReadTokens, c.agentInputTokens)}  |  Cost: ${usd(c.totalCost)}`,
-		);
-		if (c.toolLLM.cost > 0) {
-			console.log(
-				`    Tool LLM: ${tok(c.toolLLM.inputTokens)} in / ${tok(c.toolLLM.outputTokens)} out / ${usd(c.toolLLM.cost)}`,
-			);
+		if (summary) {
+			console.log();
+			printRunSummary(summary);
+		} else {
+			console.log("  (no run summary doc)");
 		}
 
-		/* Analytical views replace the event list when requested. */
-		if (showSteps) printStepsView(runEvents);
 		if (showTimeline) printTimelineView(runEvents);
 		if (showTools) printToolsView(runEvents);
+		if (showStages) printStagesView(runEvents);
 
-		/* Default: show event list when no analytical view was requested. */
+		/* Default view: dump every event unless an analytical-only view was
+		 * requested. --runs is treated as analytical because the table up top
+		 * already summarises every run. */
 		if (!hasAnalyticalView) {
 			console.log();
-			for (const e of runEvents) {
-				if (verbose) {
-					printEventVerbose(e);
-				} else {
-					printEventSummary(e);
-				}
+			for (const event of runEvents) {
+				if (verbose) printEventVerbose(event);
+				else printEventSummary(event);
 			}
 		}
 	}

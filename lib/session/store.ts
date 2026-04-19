@@ -15,27 +15,20 @@
  * the canonical example — it stashes/restores sidebar visibility in a single
  * `set()` call so intermediate states never leak to subscribers.
  *
- * Generation lifecycle actions (`beginAgentWrite`, `endAgentWrite`,
- * `failAgentWrite`, `advanceStage`, `setFixAttempt`) bracket agent stream
- * writes and coordinate with the doc store's temporal middleware to
- * pause/resume undo tracking.
+ * Generation lifecycle actions (`beginRun`, `endRun`, plus the
+ * `pushEvents` / `pushEvent` / `replaceEvents` buffer mutators) bracket
+ * agent runs and coordinate with the doc store's temporal middleware to
+ * pause/resume undo tracking. Stage/error/status-message/postBuildEdit
+ * are derived from the events buffer — see `lifecycle.ts`.
  */
 
-import type { UIMessage } from "ai";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
-import {
-	type CursorMode,
-	type GenerationError,
-	GenerationStage,
-	type PartialScaffoldData,
-	type ReplayData,
-	type ReplayStage,
-	STAGE_LABELS,
-} from "./types";
+import type { Event } from "@/lib/log/types";
+import type { CursorMode, ReplayData, ReplayInit } from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -46,11 +39,15 @@ export type SidebarKind = "chat" | "structure";
  * Full state + actions for the BuilderSession store.
  *
  * Fields grouped by concern:
- *   - Generation lifecycle (`agentActive`, `agentStage`, `agentError`,
- *     `statusMessage`, `postBuildEdit`, `justCompleted`, `loading`) —
- *     what mode we're in during a build or edit.
+ *   - Generation lifecycle (`events`, `runCompletedAt`, `loading`) —
+ *     run boundaries + the canonical event stream. The buffer holds
+ *     events for the *currently active run only* (cleared at both run
+ *     ends), so `events.length > 0` is the canonical "a run is in
+ *     progress" signal — no mirror flag can drift. Stage, status
+ *     message, error, validation-attempt, postBuildEdit, even the
+ *     derived phase are computed from `events` via
+ *     `lib/session/lifecycle.ts`.
  *   - App identity (`appId`) — current app being built/edited.
- *   - Generation UI (`partialScaffold`) — transient scaffold preview.
  *   - Replay (`replay`) — build replay playback data.
  *   - Interaction (`cursorMode`, `activeFieldId`) — how the user is editing.
  *   - Chrome (`sidebars`) — layout visibility + stash for mode transitions.
@@ -59,30 +56,30 @@ export type SidebarKind = "chat" | "structure";
 export interface BuilderSessionState {
 	// ── Generation lifecycle ─────────────────────────────────────────────
 
-	/** Whether the agent is currently streaming a build or edit. While
-	 *  true, doc undo tracking is paused and the UI shows build progress. */
-	agentActive: boolean;
+	/** In-memory event-log buffer. Holds events for the *currently active
+	 *  run only* — cleared at both `beginRun()` (opening a new run) and
+	 *  `endRun()` (closing it). An empty buffer means no run is in
+	 *  progress; a non-empty buffer means the SSE stream is open (live)
+	 *  or the replay cursor is past the chapter start (replay). Live:
+	 *  appended by the stream dispatcher as `data-mutations` +
+	 *  `data-conversation-event` envelopes arrive. Replay: seeded by the
+	 *  hydrator + replaced on scrub.
+	 *
+	 *  Every lifecycle derivation (phase, stage, error, status message,
+	 *  validation attempt, postBuildEdit) reads from this buffer — see
+	 *  `lib/session/lifecycle.ts`. There's no shadow `agentActive` flag;
+	 *  `events.length > 0` is the canonical "a run is happening" signal,
+	 *  and it can't drift because both run-boundary writes are atomic
+	 *  state updates in `beginRun`/`endRun`. */
+	events: Event[];
 
-	/** Current stage within a generation run — drives the status message
-	 *  and signal grid animation. `null` when idle or between stages. */
-	agentStage: GenerationStage | null;
-
-	/** Error metadata during generation. The session stays agent-active;
-	 *  this describes what went wrong (recovering = retrying, failed = done). */
-	agentError: GenerationError;
-
-	/** Human-readable status text derived from the current stage or error.
-	 *  Displayed in the signal grid panel and progress UI. */
-	statusMessage: string;
-
-	/** True when the agent activated on an app that already had blueprint
-	 *  data — distinguishes initial generation from post-build edits. */
-	postBuildEdit: boolean;
-
-	/** Transient flag set when agent completes. Drives the celebration
-	 *  animation; cleared by `acknowledgeCompletion()` (auto-decay to
-	 *  ready state). */
-	justCompleted: boolean;
+	/** Timestamp of the most recent whole-build completion — stamped by
+	 *  the dispatcher's `data-done` handler (the server-side marker from
+	 *  `validateApp`). Cleared on `acknowledgeCompletion()` (after the
+	 *  celebration animation) and on `beginRun()` (new run starts clean).
+	 *  askQuestions / clarifying-text / edit-tool runs never stamp — they
+	 *  close silently. Drives the Completed phase. */
+	runCompletedAt: number | undefined;
 
 	/** Generic loading flag for async operations outside of agent writes
 	 *  (e.g. initial app load, import). */
@@ -95,19 +92,12 @@ export interface BuilderSessionState {
 	 *  the app document is created. */
 	appId: string | undefined;
 
-	// ── Generation UI state (transient) ─────────────────────────────────
-
-	/** Intermediate scaffold data streamed before the full Scaffold arrives.
-	 *  Drives the "building..." preview showing module/form names as they
-	 *  arrive from the SA's `setScaffold` tool call. Cleared on agent
-	 *  write completion. */
-	partialScaffold: PartialScaffoldData | undefined;
-
 	// ── Replay ───────────────────────────────────────────────────────────
 
-	/** Replay session data — present only during replay mode. Contains the
-	 *  replay script (stages), current progress (doneIndex), exit URL, and
-	 *  accumulated chat messages for the current stage. */
+	/** Replay session data — present only during replay mode. Holds the
+	 *  raw event log, derived chapter metadata, the current scrub cursor
+	 *  (index into `events`), and the URL to navigate to on exit. Chat
+	 *  messages are derived on read via `useReplayMessages`. */
 	replay: ReplayData | undefined;
 
 	// ── Interaction ──────────────────────────────────────────────────────
@@ -166,39 +156,34 @@ export interface BuilderSessionState {
 
 	// ── Generation lifecycle actions ─────────────────────────────────────
 
-	/** Begin an agent write stream. Pauses doc undo tracking, sets
-	 *  agentActive=true, and initializes the generation stage. If `stage`
-	 *  is provided, sets the initial stage and status message from
-	 *  STAGE_LABELS; otherwise starts with no stage. */
-	beginAgentWrite: (stage?: GenerationStage) => void;
+	/** Open a new run. Clears the events buffer + `runCompletedAt` stamp
+	 *  and pauses doc undo tracking (the whole run collapses into a
+	 *  single undoable unit on resume). The non-empty buffer that
+	 *  accumulates from this point until `endRun()` is the "a run is in
+	 *  progress" signal for all lifecycle derivations. Called by
+	 *  ChatContainer's chat-transport status effect on the
+	 *  ready→submitted/streaming transition. */
+	beginRun: () => void;
 
-	/** Complete an agent write stream. Resumes doc undo tracking, clears
-	 *  all generation-transient state, and sets justCompleted=true. */
-	endAgentWrite: () => void;
+	/** Close a run. Clears the events buffer and resumes doc undo
+	 *  tracking. Does NOT touch `runCompletedAt` — stream-close is not
+	 *  the completion signal. A run that was just a chat turn
+	 *  (askQuestions, clarifying text, edit-tool response) closes
+	 *  silently because `runCompletedAt` was never stamped. Called on
+	 *  the active→ready transition. */
+	endRun: () => void;
 
-	/** Record an error during generation without ending the agent write.
-	 *  Sets agentError and statusMessage; agentActive remains true.
-	 *  Defaults to "failed" severity when omitted. */
-	failAgentWrite: (message: string, severity?: "recovering" | "failed") => void;
+	/** Stamp `runCompletedAt` = now. Called by the stream dispatcher
+	 *  when `data-done` arrives — the server-side "whole build
+	 *  succeeded" marker from `validateApp`. Drives the Completed phase
+	 *  + celebration animation until `acknowledgeCompletion()` clears
+	 *  it. */
+	markRunCompleted: () => void;
 
-	/** Advance to a new generation stage. Maps the stage string to the
-	 *  GenerationStage enum, updates the status message, and clears any
-	 *  prior error. */
-	advanceStage: (stage: string) => void;
-
-	/** Update the status message with fix attempt progress details.
-	 *  Called by the validation/fix loop to show "Fixing N error(s),
-	 *  attempt M". */
-	setFixAttempt: (attempt: number, errorCount: number) => void;
-
-	/** Clear the justCompleted flag after the celebration animation
-	 *  has played. No-ops when already false. */
+	/** Clear `runCompletedAt` after the celebration animation has played,
+	 *  moving the derived phase from Completed → Ready. No-ops when
+	 *  already cleared. */
 	acknowledgeCompletion: () => void;
-
-	/** Toggle agent active state with post-build-edit detection. When
-	 *  activating, checks the doc store for existing blueprint data
-	 *  to set postBuildEdit. No-ops when value unchanged. */
-	setAgentActive: (active: boolean) => void;
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
@@ -206,21 +191,37 @@ export interface BuilderSessionState {
 	/** Set the generic loading flag. No-ops when unchanged. */
 	setLoading: (loading: boolean) => void;
 
-	/** Set or clear the partial scaffold preview data. */
-	setPartialScaffold: (data: PartialScaffoldData | undefined) => void;
+	/** Append events to the buffer. Used by the stream dispatcher's
+	 *  `data-mutations` and `data-conversation-event` handlers (live),
+	 *  and by the replay hydrator. No-ops on empty arrays — identity
+	 *  preserved so memoized subscribers don't needlessly fire. */
+	pushEvents: (events: Event[]) => void;
+
+	/** Append a single event. Convenience wrapper over `pushEvents`. */
+	pushEvent: (event: Event) => void;
+
+	/** Replace the events buffer wholesale. Used by `ReplayController`
+	 *  when scrubbing — every scrub is a full reconstruction from
+	 *  `events[0..cursor]`, not a delta, so appending would corrupt the
+	 *  buffer. Not exposed as an SSE handler path. */
+	replaceEvents: (events: Event[]) => void;
 
 	// ── Replay actions ──────────────────────────────────────────────────
 
-	/** Load a replay session from parsed stages. Initializes replay state
-	 *  with messages from the stage at doneIndex. */
-	loadReplay: (
-		stages: ReplayStage[],
-		doneIndex: number,
-		exitPath: string,
-	) => void;
+	/** Load a replay session from a raw event log + derived chapters.
+	 *  `initialCursor` is the scrub position to mount at (typically
+	 *  `events.length - 1` so the user lands on the final frame).
+	 *
+	 *  Takes `ReplayInit` directly — the same shape the RSC page builds
+	 *  and the BuilderProvider forwards. One source of truth for the
+	 *  page → provider → store handoff. */
+	loadReplay: (init: ReplayInit) => void;
 
-	/** Update the chat messages displayed during replay. */
-	setReplayMessages: (messages: UIMessage[]) => void;
+	/** Update the replay scrub cursor. Clamps to `[0, events.length - 1]`
+	 *  so callers don't have to repeat the bounds check, and no-ops when
+	 *  replay is not loaded or the clamped cursor equals the current one.
+	 *  The store is the source of truth for scrub position. */
+	setReplayCursor: (cursor: number) => void;
 
 	// ── Connect stash actions ────────────────────────────────────────────
 
@@ -297,12 +298,15 @@ export interface BuilderSessionState {
 
 	/** Reset all transient session state to the initial values.
 	 *
-	 *  Called from `resetBuilder` (the composite reset helper used by
-	 *  `ReplayController` when navigating between replay stages). Restores
-	 *  all generation lifecycle, replay, cursor mode, sidebars, connect
-	 *  stash, and one-shot UI hints to defaults. The private doc-store
-	 *  reference installed by SyncBridge is NOT cleared — the provider's
-	 *  effect owns its lifetime. */
+	 *  Composed alongside `resetBuilder` (the doc + engine + signal-grid
+	 *  reset helper) by callers that want a full clean slate — notably
+	 *  `ReplayController.handleExit`, which wipes both when the user
+	 *  leaves replay mode. Scrub callers (e.g. `goToChapter`) call
+	 *  `resetBuilder` without `reset()` so `replay.*` survives the click.
+	 *  Restores all generation lifecycle, replay, cursor mode, sidebars,
+	 *  connect stash, and one-shot UI hints to defaults. The private
+	 *  doc-store reference installed by SyncBridge is NOT cleared — the
+	 *  provider's effect owns its lifetime. */
 	reset: () => void;
 }
 
@@ -312,16 +316,6 @@ export interface BuilderSessionState {
 export type BuilderSessionStoreApi = ReturnType<
 	typeof createBuilderSessionStore
 >;
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-/** Map a generation stage string value to the GenerationStage enum member.
- *  Returns undefined if the string doesn't match any known stage. */
-function parseStage(value: string): GenerationStage | undefined {
-	return Object.values(GenerationStage).includes(value as GenerationStage)
-		? (value as GenerationStage)
-		: undefined;
-}
 
 // ── Factory ───────────────────────────────────────────────────────────────
 
@@ -346,8 +340,7 @@ export interface SessionStoreInit {
 export function createBuilderSessionStore(init?: SessionStoreInit) {
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
 	 * to devtools and doesn't fire subscribers on install/clear. Read
-	 * imperatively by `switchConnectMode`, `beginAgentWrite`, `endAgentWrite`,
-	 * and `setAgentActive`. */
+	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
 	return createStore<BuilderSessionState>()(
@@ -356,19 +349,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				// ── Initial state ────────────────────────────────────────
 
 				/* Generation lifecycle */
-				agentActive: false,
-				agentStage: null as GenerationStage | null,
-				agentError: null as GenerationError,
-				statusMessage: "",
-				postBuildEdit: false,
-				justCompleted: false,
+				events: [] as Event[],
+				runCompletedAt: undefined as number | undefined,
 				loading: init?.loading ?? false,
 
 				/* App identity */
 				appId: init?.appId as string | undefined,
-
-				/* Generation UI state */
-				partialScaffold: undefined as PartialScaffoldData | undefined,
 
 				/* Replay */
 				replay: undefined as ReplayData | undefined,
@@ -402,90 +388,55 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				// ── Generation lifecycle actions ─────────────────────────
 
-				beginAgentWrite(stage?: GenerationStage) {
-					/* Pause doc undo tracking so the entire agent write collapses
-					 * to a single undo entry when tracking resumes. Uses the doc
-					 * store's public API so any future behavior (e.g. snapshot
-					 * markers) is automatically inherited. */
+				beginRun() {
+					/* Open a run atomically: pause doc undo (whole run
+					 * collapses into one undoable unit on resume), clear the
+					 * events buffer, clear any stale completion stamp. The
+					 * non-empty buffer that accumulates from here is the
+					 * "a run is in progress" signal — no agentActive mirror
+					 * to maintain. */
 					docStoreRef?.getState().beginAgentWrite();
-
-					set({
-						agentActive: true,
-						postBuildEdit: false,
-						agentStage: stage ?? null,
-						statusMessage: stage ? STAGE_LABELS[stage] : "",
-						agentError: null,
-						justCompleted: false,
-						partialScaffold: undefined,
-					});
+					set({ events: [], runCompletedAt: undefined });
 				},
 
-				endAgentWrite() {
-					/* Resume doc undo tracking — the next user mutation starts
-					 * a fresh undo entry. Uses the doc store's public API. */
+				endRun() {
+					/* Close a run atomically: resume doc undo and clear the
+					 * events buffer. The empty buffer after this point means
+					 * no run is in progress — same signal, no drift possible.
+					 * `runCompletedAt` is intentionally NOT touched — the
+					 * dispatcher's `data-done` handler already stamped it
+					 * (for full builds), and askQuestions / clarifying-text /
+					 * edit-tool runs close silently because the stamp was
+					 * never set. */
 					docStoreRef?.getState().endAgentWrite();
-
-					/* Do NOT clear `agentActive` here. The chat transport status
-					 * effect owns that lifecycle — it reads `wasActive` before
-					 * calling `setAgentActive(false)`, and uses the transition to
-					 * stamp `lastResponseAtRef` (Anthropic cache warmth signal).
-					 * Clearing agentActive here would race with the effect and
-					 * prevent the cache timestamp from being set.
-					 *
-					 * `justCompleted` takes priority in `derivePhase`, so setting
-					 * it to true moves phase to Completed regardless of agentActive. */
-					set({
-						justCompleted: true,
-						agentStage: null,
-						agentError: null,
-						statusMessage: "",
-						partialScaffold: undefined,
-					});
+					set({ events: [] });
 				},
 
-				failAgentWrite(
-					message: string,
-					severity: "recovering" | "failed" = "failed",
-				) {
-					set({
-						agentError: { message, severity },
-						statusMessage: message,
-					});
-				},
-
-				advanceStage(stageStr: string) {
-					const stage = parseStage(stageStr);
-					if (!stage) return;
-					set({
-						agentStage: stage,
-						statusMessage: STAGE_LABELS[stage],
-						agentError: null,
-					});
-				},
-
-				setFixAttempt(attempt: number, errorCount: number) {
-					const plural = errorCount === 1 ? "error" : "errors";
-					set({
-						statusMessage: `Fixing ${errorCount} ${plural}, attempt ${attempt}`,
-					});
+				markRunCompleted() {
+					/* `data-done` arrived — `validateApp` succeeded, the
+					 * whole build is complete. Stamp the celebration. Phase
+					 * transitions to Completed and stays there until
+					 * `acknowledgeCompletion()` fires (3.5s after the
+					 * animation begins). */
+					set({ runCompletedAt: Date.now() });
 				},
 
 				acknowledgeCompletion() {
-					if (!get().justCompleted) return;
-					set({ justCompleted: false });
+					if (get().runCompletedAt === undefined) return;
+					set({ runCompletedAt: undefined });
 				},
 
-				setAgentActive(active: boolean) {
-					if (active === get().agentActive) return;
-					if (active) {
-						/* Check whether the doc already has blueprint data — if so,
-						 * this activation is a post-build edit, not initial generation. */
-						const hasData =
-							(docStoreRef?.getState().moduleOrder.length ?? 0) > 0;
-						set({ agentActive: true, postBuildEdit: hasData });
-					} else {
-						set({ agentActive: false });
-					}
+				pushEvents(events: Event[]) {
+					if (events.length === 0) return;
+					set((s) => ({ events: [...s.events, ...events] }));
+				},
+
+				pushEvent(event: Event) {
+					set((s) => ({ events: [...s.events, event] }));
+				},
+
+				replaceEvents(events: Event[]) {
+					set({ events });
 				},
 
 				setAppId(id: string) {
@@ -498,28 +449,34 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ loading });
 				},
 
-				setPartialScaffold(data: PartialScaffoldData | undefined) {
-					set({ partialScaffold: data });
-				},
-
 				// ── Replay actions ──────────────────────────────────────
 
-				loadReplay(stages: ReplayStage[], doneIndex: number, exitPath: string) {
-					const doneStage = stages[doneIndex];
+				loadReplay({ events, chapters, initialCursor, exitPath }) {
 					set({
 						replay: {
-							stages,
-							doneIndex,
+							events,
+							chapters,
+							cursor: initialCursor,
 							exitPath,
-							messages: doneStage?.messages ?? [],
 						},
 					});
 				},
 
-				setReplayMessages(messages: UIMessage[]) {
+				setReplayCursor(cursor: number) {
 					const replay = get().replay;
+					/* No-op outside an active replay session — cursor has no
+					 * meaning without an event log to index into. */
 					if (!replay) return;
-					set({ replay: { ...replay, messages } });
+					/* Clamp to valid event indices. Empty-events replay pins the
+					 * cursor at 0 (`max` collapses to 0). Clamping here lets UI
+					 * code pass deltas like `cursor - 1` without guarding. */
+					const max = Math.max(0, replay.events.length - 1);
+					const clamped = Math.min(Math.max(cursor, 0), max);
+					/* Skip redundant state writes — matches the setLoading /
+					 * setAppId idiom where same-value calls don't notify
+					 * subscribers. */
+					if (clamped === replay.cursor) return;
+					set({ replay: { ...replay, cursor: clamped } });
 				},
 
 				// ── Connect stash actions ───────────────────────────────
@@ -717,19 +674,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				reset() {
 					set({
 						/* Generation lifecycle */
-						agentActive: false,
-						agentStage: null,
-						agentError: null,
-						statusMessage: "",
-						postBuildEdit: false,
-						justCompleted: false,
+						events: [],
+						runCompletedAt: undefined,
 						loading: false,
 
 						/* App identity */
 						appId: undefined,
-
-						/* Generation UI */
-						partialScaffold: undefined,
 
 						/* Replay */
 						replay: undefined,
