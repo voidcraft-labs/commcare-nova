@@ -1,26 +1,37 @@
+/**
+ * OptionsEditor — declarative editor for the `options` array on
+ * single-select / multi-select fields.
+ *
+ * Public surface:
+ *   - `OptionsEditor` (default export shape for the declarative
+ *     panel) — takes FieldEditorComponentProps and dispatches via
+ *     `onChange`.
+ *   - `OptionsEditorWidget` — the underlying fieldset widget with the
+ *     `{ options, onSave }` shape. Kept exported during the panel
+ *     transition so the legacy contextual panel can reuse it; will
+ *     be inlined as a private helper once that panel is deleted.
+ */
+
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
-
-interface Option {
-	value: string;
-	label: string;
-}
+import type { Field, SelectOption } from "@/lib/domain";
+import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 
 /**
  * Draft option with a stable identity for React key management.
  * The `id` is component-local and never persisted — it exists purely
  * so that reordering or editing doesn't cause React to lose input state.
  */
-interface DraftOption extends Option {
+interface DraftOption extends SelectOption {
 	id: number;
 }
 
-interface OptionsEditorProps {
-	options: Option[];
-	onSave: (options: Option[]) => void;
+interface OptionsEditorWidgetProps {
+	options: SelectOption[];
+	onSave: (options: SelectOption[]) => void;
 	/** When true, the first option label input receives focus on mount (undo/redo restore). */
 	autoFocus?: boolean;
 }
@@ -34,20 +45,27 @@ const focusOnMount = (el: HTMLInputElement | null) =>
 	el?.focus({ preventScroll: true });
 
 /** Wrap raw options with stable draft IDs. */
-function toDraftOptions(options: Option[]): DraftOption[] {
+function toDraftOptions(options: SelectOption[]): DraftOption[] {
 	return options.map((o) => ({ ...o, id: nextDraftId++ }));
 }
 
 /** Strip draft IDs before persisting. */
-function toOptions(draft: DraftOption[]): Option[] {
+function toOptions(draft: DraftOption[]): SelectOption[] {
 	return draft.map(({ value, label }) => ({ value, label }));
 }
 
-export function OptionsEditor({
+/**
+ * Low-level widget: renders the label+value inputs, add/remove row
+ * affordances, and commits on group blur / Enter keypress. Kept
+ * distinct from the declarative adapter so ContextualEditorData can
+ * consume it with the legacy `{ options, onSave }` shape during the
+ * phase-5 transition.
+ */
+export function OptionsEditorWidget({
 	options,
 	onSave,
 	autoFocus,
-}: OptionsEditorProps) {
+}: OptionsEditorWidgetProps) {
 	const [draft, setDraft] = useState<DraftOption[]>(() =>
 		toDraftOptions(options),
 	);
@@ -187,5 +205,35 @@ export function OptionsEditor({
 				className="mt-2"
 			/>
 		</fieldset>
+	);
+}
+
+/**
+ * Declarative FieldEditorComponent adapter. Narrows the generic
+ * onChange(next: F[K]) to the widget's SelectOption[] callback:
+ * empty arrays become `undefined` (the reducer treats undefined as
+ * removal, and `min(2)` in the schema would reject a persisted `[]`).
+ *
+ * The `as F["options" & keyof F]` cast is the registry-narrowing
+ * invariant — this component is only wired on kinds whose `options`
+ * key is declared as `SelectOption[] | undefined`.
+ */
+export function OptionsEditor<F extends Field>(
+	props: FieldEditorComponentProps<F, "options" & keyof F>,
+) {
+	const { value, onChange, autoFocus } = props;
+	const current = Array.isArray(value) ? (value as SelectOption[]) : [];
+	return (
+		<div data-field-id="options">
+			<OptionsEditorWidget
+				options={current}
+				autoFocus={autoFocus}
+				onSave={(next) => {
+					onChange(
+						(next.length > 0 ? next : undefined) as F["options" & keyof F],
+					);
+				}}
+			/>
+		</div>
 	);
 }

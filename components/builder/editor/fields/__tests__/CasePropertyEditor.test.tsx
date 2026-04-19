@@ -42,7 +42,7 @@ function makeDoc(caseType: string | undefined): BlueprintDoc {
 		appId: "app-1",
 		appName: "Test",
 		connectType: null,
-		caseTypes: [{ name: "patient", parent_type: null }],
+		caseTypes: [{ name: "patient", properties: [] }],
 		modules: {
 			[MODULE_UUID]: { uuid: MODULE_UUID, id: "m", name: "M", caseType },
 		},

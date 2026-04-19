@@ -1,6 +1,7 @@
 "use client";
 import { useCallback } from "react";
 import { CasePropertyDropdown } from "@/components/builder/editor/fields/CasePropertyEditor";
+import { OptionsEditorWidget } from "@/components/builder/editor/fields/OptionsEditor";
 import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
@@ -10,7 +11,6 @@ import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { asUuid } from "@/lib/doc/types";
 import type { FieldKind } from "@/lib/domain";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
-import { OptionsEditor } from "./OptionsEditor";
 import {
 	type FieldEditorProps,
 	type FocusableFieldKey,
@@ -85,7 +85,7 @@ export function ContextualEditorData({ field }: FieldEditorProps) {
 				</div>
 				{hasOptions && (
 					<div data-field-id="options">
-						<OptionsEditor
+						<OptionsEditorWidget
 							options={field.options ?? []}
 							autoFocus={focusHint === "options"}
 							onSave={(options) => {
