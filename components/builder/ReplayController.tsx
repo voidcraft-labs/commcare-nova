@@ -127,12 +127,20 @@ export function ReplayController() {
 					},
 				);
 				/* Swap the session events buffer to the new slice so
-				 * lifecycle derivations (stage, status message, etc.) see
-				 * the chapter's terminal frame — the frame live rendered
-				 * at the same cursor position. `replaceEvents` (not
-				 * `pushEvents`) because scrub is a full reconstruction,
-				 * not a delta. */
-				sessionStore.getState().replaceEvents(slice);
+				 * lifecycle derivations see the chapter's terminal frame —
+				 * the frame live rendered at the same cursor position.
+				 * Exception: the final chapter represents a *completed*
+				 * run, and live's post-endRun state has an empty buffer →
+				 * derivePhase returns Ready. Mirroring that here means
+				 * clearing the buffer on the terminal scrub so the final
+				 * frame doesn't flash Generating. All earlier chapters use
+				 * the normal slice so Generating phase + stage progression
+				 * render correctly mid-scrub.
+				 *
+				 * `replaceEvents` (not `pushEvents`) because scrub is a
+				 * full reconstruction, not a delta. */
+				const atTerminal = chapterIndex === chapters.length - 1;
+				sessionStore.getState().replaceEvents(atTerminal ? [] : slice);
 				/* Record the new scrub position — `useReplayMessages`
 				 * subscribes to this and re-derives the chat view. */
 				sessionStore.getState().setReplayCursor(chapter.endIndex);

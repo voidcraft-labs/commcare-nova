@@ -177,12 +177,21 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 
 		/* Mirror the replayed slice into the session events buffer so
 		 * lifecycle derivations (stage, error, status message, postBuildEdit)
-		 * reflect exactly the frame the doc store now holds. This is what
-		 * makes replay + live share a single lifecycle code path — without
-		 * this seed, derivations over an empty buffer would render the
-		 * Idle / centered layout mid-replay. */
+		 * reflect exactly the frame the doc store now holds.
+		 *
+		 * Exception: when the cursor lands on the terminal frame (the last
+		 * event of the log), the buffer stays empty — the run is *done*
+		 * from the UI's perspective, and `derivePhase` must return Ready,
+		 * not Generating. This mirrors live's post-`endRun` state (buffer
+		 * cleared, doc populated). Without this guard the final frame would
+		 * render as Generating with stale stage-tagged mutations in the
+		 * buffer. Scrubs back through `ReplayController.goToChapter` apply
+		 * the same rule. */
 		const eventsToReplay = replay.events.slice(0, replay.initialCursor + 1);
-		sessionStore.getState().pushEvents(eventsToReplay);
+		const atTerminal = replay.initialCursor >= replay.events.length - 1;
+		if (!atTerminal) {
+			sessionStore.getState().pushEvents(eventsToReplay);
+		}
 
 		/* Replay events up to the initial cursor synchronously — the user
 		 * sees the final state immediately. The transport bar then lets

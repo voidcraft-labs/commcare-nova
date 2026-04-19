@@ -18,12 +18,11 @@
  *      panel will reflect the same info via the derived `agentError`,
  *      but a toast is the right UX for a stream-level failure.
  *
- *   3. **Doc lifecycle** — `data-done` (final reconciled doc from
- *      `validateApp`), `data-blueprint-updated` (post-build-edit
- *      replacement). Both replace the entire doc via `docStore.load()`.
- *      Run termination is owned by ChatContainer's chat-status effect;
- *      this handler does NOT call `endRun` — emitting from here would
- *      race with the effect and double-stamp `runCompletedAt`.
+ *   3. **Whole-build completion** — `data-done`. Reconciles the doc
+ *      against the final authoritative snapshot from `validateApp`
+ *      AND stamps `runCompletedAt` (the celebration signal).
+ *      Stream-close lifecycle is owned by ChatContainer's chat-status
+ *      effect via `endRun` — separate concern.
  *
  * `data-run-id` and `data-app-saved` are handled inline in
  * ChatContainer's `onData` and never reach this dispatcher.
@@ -53,9 +52,6 @@ function injectSignalEnergy(type: string): void {
 	switch (type) {
 		case "data-mutations":
 			signalGrid.injectEnergy(200);
-			break;
-		case "data-blueprint-updated":
-			signalGrid.injectEnergy(100);
 			break;
 		case "data-conversation-event":
 			signalGrid.injectEnergy(50);
@@ -146,21 +142,6 @@ export function applyStreamEvent(
 				docStore.getState().load(doc);
 			}
 			sessionStore.getState().markRunCompleted();
-			return;
-		}
-		case "data-blueprint-updated": {
-			/*
-			 * Full doc replacement from a post-build edit tool. `load()`
-			 * replaces the doc and pauses undo; we resume tracking
-			 * directly on the doc store — the edit should be undoable.
-			 * No session-lifecycle side effects here — the chat status
-			 * effect owns `beginRun` / `endRun`.
-			 */
-			const doc = data.doc as PersistableDoc | undefined;
-			if (doc) {
-				docStore.getState().load(doc);
-				docStore.getState().endAgentWrite();
-			}
 			return;
 		}
 	}

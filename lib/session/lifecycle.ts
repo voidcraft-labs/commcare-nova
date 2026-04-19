@@ -57,17 +57,18 @@ export function deriveAgentStage(
 }
 
 /**
- * Latest classified error on the buffer, or null. Cleared by any newer
- * non-error conversation event — a successful fix attempt that produces
- * fresh assistant output naturally clears the "recovering" warning.
- * Mutation events are transparent: a fix-mutation landing after an
- * error doesn't clear the error surface on its own.
+ * Latest classified error on the buffer, or null. Persists until
+ * either a newer error arrives (supersedes) or the run ends and the
+ * buffer clears. An older design cleared on any newer non-error
+ * conversation event — that flashed the signal panel's error bezel off
+ * as soon as the agent produced its next token of text or reasoning,
+ * which is essentially always. Errors are sticky within a run.
  */
 export function deriveAgentError(events: readonly Event[]): GenerationError {
 	for (let i = events.length - 1; i >= 0; i--) {
 		const e = events[i];
 		if (e.kind !== "conversation") continue;
-		if (e.payload.type !== "error") return null;
+		if (e.payload.type !== "error") continue;
 		return {
 			message: e.payload.error.message,
 			severity: e.payload.error.fatal ? "failed" : "recovering",

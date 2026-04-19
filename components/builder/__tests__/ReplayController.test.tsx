@@ -339,6 +339,38 @@ describe("ReplayController — goToChapter", () => {
 			[{ kind: "setAppName", name: "v3" }],
 		]);
 	});
+
+	/* Regression pin: scrubbing to the final chapter clears the session
+	 * events buffer so `derivePhase` returns Ready, matching live's
+	 * post-endRun state. Without this, the final frame of a completed
+	 * build would render as Generating (buffer has schema/scaffold +
+	 * later stage tags → bufferHasBuildFoundation=true → Generating).
+	 * Non-terminal scrubs populate the buffer normally. */
+	it("terminal scrub clears the session events buffer; non-terminal populates it", () => {
+		const { events } = buildFixture();
+		const { sessionStore, getAllByRole } = mountController({
+			events,
+			initialCursor: 1, // Scaffold chapter (non-terminal)
+		});
+
+		/* Click right arrow → advance to Module chapter (last, endIndex=3). */
+		const buttons = getAllByRole("button");
+		const rightArrow = buttons[1];
+		fireEvent.click(rightArrow);
+
+		/* Terminal scrub → buffer empty. Cursor committed at endIndex=3. */
+		expect(sessionStore.getState().events).toEqual([]);
+		expect(sessionStore.getState().replay?.cursor).toBe(3);
+
+		/* Click left arrow → back to Scaffold (non-terminal). */
+		const leftArrow = buttons[0];
+		fireEvent.click(leftArrow);
+
+		/* Non-terminal scrub → buffer populated with slice. Events[0..1]
+		 * is one conversation + one scaffold mutation. */
+		expect(sessionStore.getState().events).toHaveLength(2);
+		expect(sessionStore.getState().replay?.cursor).toBe(1);
+	});
 });
 
 describe("ReplayController — arrow gating", () => {

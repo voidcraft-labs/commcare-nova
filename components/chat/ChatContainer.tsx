@@ -277,12 +277,17 @@ export function ChatContainer({
 		const message = parseApiErrorMessage(chatError.message);
 		const session = sessionApi.getState();
 		const runId = runIdRef.current ?? "client-error";
-		const existingSeq = session.events.length;
 		session.pushEvent({
 			kind: "conversation",
 			runId,
 			ts: Date.now(),
-			seq: existingSeq,
+			/* Synthetic client-side events use `Number.MAX_SAFE_INTEGER`
+			 * as a sentinel `seq` so they can't collide with server-
+			 * issued seq numbers (which are monotonic from 0). This
+			 * event is client-only and never persisted to the log; the
+			 * sentinel makes "injected, not from the wire" obvious to
+			 * any future log-ordering code. */
+			seq: Number.MAX_SAFE_INTEGER,
 			payload: {
 				type: "error",
 				error: { type: "network", message, fatal: true },

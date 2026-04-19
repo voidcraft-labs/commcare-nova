@@ -21,7 +21,7 @@ import { assert, describe, expect, it } from "vitest";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type PersistableDoc } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import type {
 	ConversationEvent,
 	ConversationPayload,
@@ -36,11 +36,6 @@ import { applyStreamEvent } from "../streamDispatcher";
 import { createWiredStores } from "./testHelpers";
 
 // ── Test helpers ───────────────────────────────────────────────────────
-
-function snapshotDoc(docStore: BlueprintDocStoreApi): PersistableDoc {
-	const { fieldParent: _fp, ...persistable } = docStore.getState();
-	return persistable;
-}
 
 /**
  * Wrapper around the real `derivePhase` — reads the wired stores and
@@ -374,23 +369,31 @@ describe("generation lifecycle (end-to-end)", () => {
 		// ── Post-build edit: new run opens on an app with data ──
 		s().beginRun();
 		/* Buffer has been cleared by beginRun; no schema/scaffold events yet
-		 * in this new run → derivePostBuildEdit returns true → phase stays
-		 * Ready (suppresses Generating). */
+		 * in this new run → no build foundation → phase stays Ready
+		 * (suppresses Generating) even once edit-tool mutations land. */
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 
-		// Edit-tool replacement lands a renamed doc.
-		const editedDoc: PersistableDoc = {
-			...snapshotDoc(docStore),
-			appName: "Edited App",
-		};
-		applyStreamEvent(
-			"data-blueprint-updated",
-			{ doc: editedDoc as unknown as Record<string, unknown> },
+		// Edit-tool mutation — `updateForm` emits `form:M-F` stage. This
+		// stage tag matches initial-build `addQuestions`, but with no
+		// schema/scaffold foundation in the buffer, derivePhase stays
+		// Ready.
+		emitMutations(
+			[
+				{
+					kind: "updateForm",
+					uuid: FORM_UUID,
+					patch: { name: "Register (Edited)" },
+				},
+			],
+			"form:0-0",
 			docStore,
 			sessionStore,
 		);
-		expect(docStore.getState().appName).toBe("Edited App");
-		/* Still Ready (no runCompletedAt stamp from the dispatcher). */
+		expect(docStore.getState().forms[FORM_UUID].name).toBe("Register (Edited)");
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
+
+		// Stream closes.
+		s().endRun();
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 	});
 

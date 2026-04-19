@@ -17,7 +17,7 @@ import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
-import { createWiredStores, hydrateDoc } from "./testHelpers";
+import { createWiredStores } from "./testHelpers";
 
 // ── Fixture docs (normalized domain shape) ─────────────────────────────
 //
@@ -64,59 +64,6 @@ const MINIMAL_DOC: PersistableDoc = {
 	moduleOrder: [asUuid("mod-uuid-1")],
 	formOrder: { [asUuid("mod-uuid-1")]: [asUuid("form-uuid-1")] },
 	fieldOrder: { [asUuid("form-uuid-1")]: [asUuid("q-uuid-1")] },
-};
-
-/** Edited version of MINIMAL_DOC — app renamed, form renamed, one field
- *  added. Same uuids on the carry-over entities so the load path exercises
- *  a real reconciliation, not a wholesale swap. */
-const EDITED_DOC: PersistableDoc = {
-	appId: "test-app-id",
-	appName: "Test App v2",
-	connectType: null,
-	caseTypes: [
-		{
-			name: "patient",
-			properties: [
-				{ name: "case_name", label: "Name" },
-				{ name: "age", label: "Age" },
-			],
-		},
-	],
-	modules: {
-		[asUuid("mod-uuid-1")]: {
-			uuid: asUuid("mod-uuid-1"),
-			id: "registration",
-			name: "Registration",
-			caseType: "patient",
-		},
-	},
-	forms: {
-		[asUuid("form-uuid-1")]: {
-			uuid: asUuid("form-uuid-1"),
-			id: "register_patient",
-			name: "Register Patient (Edited)",
-			type: "registration",
-		},
-	},
-	fields: {
-		[asUuid("q-uuid-1")]: {
-			uuid: asUuid("q-uuid-1"),
-			id: "case_name",
-			kind: "text",
-			label: "Patient Name",
-		},
-		[asUuid("q-uuid-2")]: {
-			uuid: asUuid("q-uuid-2"),
-			id: "age",
-			kind: "int",
-			label: "Age",
-		},
-	},
-	moduleOrder: [asUuid("mod-uuid-1")],
-	formOrder: { [asUuid("mod-uuid-1")]: [asUuid("form-uuid-1")] },
-	fieldOrder: {
-		[asUuid("form-uuid-1")]: [asUuid("q-uuid-1"), asUuid("q-uuid-2")],
-	},
 };
 
 // Test helpers live in ./testHelpers — shared with other generation tests.
@@ -167,24 +114,6 @@ describe("applyStreamEvent", () => {
 			 * ChatContainer status effect via `endRun`). */
 			const session = sessionStore.getState();
 			expect(session.runCompletedAt).toEqual(expect.any(Number));
-		});
-	});
-
-	describe("data-blueprint-updated", () => {
-		it("loads updated doc and resumes doc undo tracking", () => {
-			hydrateDoc(docStore, MINIMAL_DOC);
-			sessionStore.getState().setAppId("test-app-id");
-
-			applyStreamEvent(
-				"data-blueprint-updated",
-				{ doc: EDITED_DOC as unknown as Record<string, unknown> },
-				docStore,
-				sessionStore,
-			);
-
-			expect(docStore.getState().appName).toBe("Test App v2");
-			/* Doc undo tracking should be resumed (endAgentWrite on doc). */
-			expect(docStore.temporal.getState().isTracking).toBe(true);
 		});
 	});
 
@@ -262,17 +191,21 @@ describe("applyStreamEvent", () => {
 			expect(signalGrid.drainEnergy()).toBe(50);
 		});
 
-		it("injects 100 energy for data-blueprint-updated", () => {
-			hydrateDoc(docStore, MINIMAL_DOC);
-
+		it("injects 200 energy for data-mutations", () => {
 			applyStreamEvent(
-				"data-blueprint-updated",
-				{ doc: EDITED_DOC as unknown as Record<string, unknown> },
+				"data-mutations",
+				{
+					mutations: [{ kind: "setAppName", name: "x" }] as unknown as Record<
+						string,
+						unknown
+					>[],
+					events: [],
+				},
 				docStore,
 				sessionStore,
 			);
 
-			expect(signalGrid.drainEnergy()).toBe(100);
+			expect(signalGrid.drainEnergy()).toBe(200);
 		});
 	});
 

@@ -125,7 +125,10 @@ describe("deriveAgentError", () => {
 		});
 	});
 
-	it("clears on non-error conversation event after an error", () => {
+	it("persists through newer non-error conversation events", () => {
+		/* Errors are sticky within a run — a newer assistant-text doesn't
+		 * clear the error panel. The panel only clears when a fresh
+		 * error supersedes or the run ends (buffer cleared). */
 		const events: Event[] = [
 			err("bad", false, 0),
 			{
@@ -133,17 +136,28 @@ describe("deriveAgentError", () => {
 				runId: "r",
 				ts: 0,
 				seq: 1,
-				payload: { type: "assistant-text", text: "recovered" },
+				payload: { type: "assistant-text", text: "still going" },
 			},
 		];
-		expect(deriveAgentError(events)).toBeNull();
+		expect(deriveAgentError(events)).toEqual({
+			message: "bad",
+			severity: "recovering",
+		});
 	});
 
-	it("mutations don't clear an error — walker keeps looking back", () => {
+	it("persists through newer mutations (walker skips mutations)", () => {
 		const events: Event[] = [err("bad", true, 0), mut("fix:attempt-1", 1)];
 		expect(deriveAgentError(events)).toEqual({
 			message: "bad",
 			severity: "failed",
+		});
+	});
+
+	it("newer error supersedes older error", () => {
+		const events: Event[] = [err("first", true, 0), err("second", false, 1)];
+		expect(deriveAgentError(events)).toEqual({
+			message: "second",
+			severity: "recovering",
 		});
 	});
 });
