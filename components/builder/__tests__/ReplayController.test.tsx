@@ -66,13 +66,23 @@ vi.mock("@/lib/preview/engine/provider", () => ({
 	useBuilderFormEngine: () => engineControllerStub,
 }));
 
-/* `resetBuilder` is called by both `goToChapter` and `handleExit`. We
- * spy on it so each test can assert the ordering of reset → applyMany
- * → setReplayCursor (goToChapter) or reset → router.push (handleExit)
- * without exercising the real multi-store teardown. */
+/* Two resets now live in `lib/services/resetBuilder`:
+ *   - `resetBuilder` — full wipe (doc + engine + signal + SESSION). Only
+ *     `handleExit` uses this.
+ *   - `resetBuilderForReplay` — scrub wipe (doc + engine + signal, session
+ *     PRESERVED). `goToChapter` uses this so the transport bar's
+ *     `replay.*` state survives the click.
+ *
+ * Spying on both separately lets us verify that each code path picks
+ * the right variant — a regression where `goToChapter` reverted to the
+ * full reset would wipe `session.replay` and leave the controller
+ * rendering `0/0` chapters until unmount. */
 const resetBuilderMock = vi.fn();
+const resetBuilderForReplayMock = vi.fn();
 vi.mock("@/lib/services/resetBuilder", () => ({
 	resetBuilder: (...args: unknown[]) => resetBuilderMock(...args),
+	resetBuilderForReplay: (...args: unknown[]) =>
+		resetBuilderForReplayMock(...args),
 }));
 
 // ── Fixtures ────────────────────────────────────────────────────────────
@@ -189,6 +199,7 @@ function mountWithSession<T>(
 beforeEach(() => {
 	routerPush.mockReset();
 	resetBuilderMock.mockReset();
+	resetBuilderForReplayMock.mockReset();
 	engineControllerStub.deactivate.mockReset();
 	engineControllerStub.activate.mockReset();
 });
@@ -217,7 +228,9 @@ describe("ReplayController — cursor derivation", () => {
 describe("ReplayController — goToChapter", () => {
 	/* Start at chapter 2 (cursor=3), click left arrow to go back to
 	 * chapter 1 (Scaffold, endIndex=1). Expect:
-	 *   - resetBuilder called once before applyMany
+	 *   - resetBuilderForReplay called once before applyMany (scrub
+	 *     preserves session state — the full resetBuilder would clear
+	 *     replay.*)
 	 *   - applyMany called for every mutation in events[0..1]
 	 *     (event[0] is conversation and contributes nothing)
 	 *   - session cursor advanced to 1 */
@@ -232,9 +245,11 @@ describe("ReplayController — goToChapter", () => {
 		const [leftArrow] = getAllByRole("button");
 		fireEvent.click(leftArrow);
 
-		/* resetBuilder runs first so the doc is empty before the replay
-		 * slice lands. */
-		expect(resetBuilderMock).toHaveBeenCalledTimes(1);
+		/* resetBuilderForReplay runs first so the doc is empty before the
+		 * replay slice lands. The full resetBuilder (session-wiping) must
+		 * NOT fire on scrub — that would clear `replay.*`. */
+		expect(resetBuilderForReplayMock).toHaveBeenCalledTimes(1);
+		expect(resetBuilderMock).not.toHaveBeenCalled();
 
 		/* Cumulative replay from event 0 through the *previous* chapter's
 		 * endIndex. Going back from chapter 2 (endIndex=3) lands on
@@ -248,6 +263,37 @@ describe("ReplayController — goToChapter", () => {
 		/* Cursor committed AFTER the mutations land — this is the sync
 		 * ordering guarantee `replayEventsSync` exists to protect. */
 		expect(sessionStore.getState().replay?.cursor).toBe(1);
+	});
+
+	/* Regression pin for Bug 3 — `goToChapter` must NOT call the full
+	 * `resetBuilder` (which calls `sessionStore.reset()` and clears
+	 * `replay: undefined`). If it did, the transport bar would render
+	 * `0/0` chapters on the next frame. Assert directly that replay
+	 * state survives the click. */
+	it("preserves session.replay across a scrub click", () => {
+		const { events } = buildFixture();
+		const { sessionStore, getAllByRole } = mountController({
+			events,
+			initialCursor: 3,
+		});
+
+		/* Baseline: replay state is populated on mount. */
+		const replayBefore = sessionStore.getState().replay;
+		expect(replayBefore).toBeDefined();
+		expect(replayBefore?.events).toHaveLength(4);
+		expect(replayBefore?.chapters).toHaveLength(3);
+
+		const [leftArrow] = getAllByRole("button");
+		fireEvent.click(leftArrow);
+
+		/* Post-scrub: replay still defined, chapters + events unchanged,
+		 * only the cursor has moved. This is the whole point of the
+		 * replay-aware reset variant. */
+		const replayAfter = sessionStore.getState().replay;
+		expect(replayAfter).toBeDefined();
+		expect(replayAfter?.events).toHaveLength(4);
+		expect(replayAfter?.chapters).toHaveLength(3);
+		expect(replayAfter?.cursor).toBe(1);
 	});
 
 	/* Forward navigation into the Module chapter (endIndex=3) replays
@@ -279,7 +325,7 @@ describe("ReplayController — goToChapter", () => {
 
 describe("ReplayController — arrow gating", () => {
 	/* At chapter 0, back is disabled. Clicking the disabled button is a
-	 * no-op — resetBuilder must not fire. */
+	 * no-op — neither reset variant must fire. */
 	it("disables the left arrow at chapter 0", () => {
 		const { events } = buildFixture();
 		const { getAllByRole } = mountController({
@@ -292,6 +338,7 @@ describe("ReplayController — arrow gating", () => {
 		 * check the property directly rather than using `toBeDisabled()`. */
 		expect((leftArrow as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(leftArrow);
+		expect(resetBuilderForReplayMock).not.toHaveBeenCalled();
 		expect(resetBuilderMock).not.toHaveBeenCalled();
 	});
 
@@ -306,16 +353,18 @@ describe("ReplayController — arrow gating", () => {
 		const rightArrow = buttons[1];
 		expect((rightArrow as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(rightArrow);
+		expect(resetBuilderForReplayMock).not.toHaveBeenCalled();
 		expect(resetBuilderMock).not.toHaveBeenCalled();
 	});
 });
 
 describe("ReplayController — error path", () => {
-	/* If `resetBuilder` throws, the controller should surface the error
-	 * in its toast and NOT advance the cursor. The previous `try/catch`
-	 * wrap is the whole reason this behaviour is worth pinning. */
+	/* If the scrub-scoped reset throws, the controller should surface the
+	 * error in its toast and NOT advance the cursor. The `try/catch`
+	 * around the whole `goToChapter` body is the whole reason this
+	 * behaviour is worth pinning. */
 	it("renders an error toast when goToChapter throws during reset", () => {
-		resetBuilderMock.mockImplementationOnce(() => {
+		resetBuilderForReplayMock.mockImplementationOnce(() => {
 			throw new Error("reset explosion");
 		});
 		const { events } = buildFixture();
@@ -338,20 +387,25 @@ describe("ReplayController — error path", () => {
 });
 
 describe("ReplayController — exit", () => {
-	/* Clicking the exit button should reset once and push the exitPath
-	 * from the replay state — not a hardcoded "/" fallback. */
+	/* Clicking the exit button should reset once (via the FULL
+	 * `resetBuilder`, not the scrub-scoped variant — exiting wipes
+	 * session state on purpose) and push the exitPath from the replay
+	 * state — not a hardcoded "/" fallback. */
 	it("resets and navigates to exitPath from the replay state", () => {
 		const { events } = buildFixture();
 		const { getAllByRole } = mountController({
 			events,
 			initialCursor: 3,
 		});
-		/* Exit is the 4th button: [←, →, ✕]. */
+		/* Exit is the 3rd button: [←, →, ✕]. */
 		const buttons = getAllByRole("button");
 		const exitButton = buttons[2];
 		fireEvent.click(exitButton);
 
+		/* Full reset — the replay-scoped variant must NOT fire on exit:
+		 * the user is leaving replay mode, so `replay.*` should clear. */
 		expect(resetBuilderMock).toHaveBeenCalledTimes(1);
+		expect(resetBuilderForReplayMock).not.toHaveBeenCalled();
 		expect(routerPush).toHaveBeenCalledTimes(1);
 		expect(routerPush).toHaveBeenCalledWith("/admin/logs");
 	});

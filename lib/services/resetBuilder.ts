@@ -1,10 +1,18 @@
 /**
- * resetBuilder — composite reset helper used when navigating between
+ * resetBuilder — composite reset helpers used when navigating between
  * replay stages.
  *
+ * Two variants:
+ *   - `resetBuilder` (full): wipes doc + session + engine + signal grid.
+ *     Used on EXIT from a replay (user leaving) or on a top-level clean
+ *     slate where every surface should zero out.
+ *   - `resetBuilderForReplay` (scrub): wipes doc + engine + signal grid
+ *     only; session state is preserved so `replay.events`,
+ *     `replay.chapters`, and the transport bar survive the click.
+ *
  * Each store owns its own reset, and the signal grid has a module-level
- * reset too — this helper fans out the calls so `ReplayController` doesn't
- * need to know the individual store shapes.
+ * reset too — these helpers fan out the calls so `ReplayController`
+ * doesn't need to know the individual store shapes.
  *
  * Lives in `lib/services/` (not in the React layer) so the replay
  * controller can call it imperatively from a click handler without
@@ -82,5 +90,57 @@ export function resetBuilder(inputs: ResetBuilderInputs): void {
 
 	/* 4. Signal grid energy baseline — prevents a leftover burst when the
 	 *    next stage's emissions land. */
+	signalGrid.reset();
+}
+
+// ── Replay-scoped reset ────────────────────────────────────────────────
+
+/**
+ * Inputs for `resetBuilderForReplay`. `sessionStore` is deliberately
+ * omitted — preserving session state is the whole point of this variant,
+ * so the function has no legitimate use for it. Accepting it would
+ * invite a future edit that "helpfully" adds `sessionStore.reset()` back
+ * and silently re-introduces Bug 3 (scrub clicks wipe `replay.*`,
+ * leaving the transport bar mounted with zero chapters).
+ */
+export interface ResetBuilderForReplayInputs {
+	/** BlueprintDoc store — blueprint entity data + undo history. */
+	docStore: BlueprintDocStore;
+	/** Form preview engine controller — per-question runtime store. */
+	engineController: EngineController;
+}
+
+/**
+ * Reset just the builder surfaces that need to be wiped BETWEEN replay
+ * scrub targets — doc, preview engine, signal grid. Session state is
+ * preserved: `replay.events`, `replay.chapters`, `replay.cursor`, and
+ * every other ephemeral flag carry over so the transport bar stays
+ * mounted and the next `goToChapter` call has chapters to render.
+ *
+ * Call order mirrors the full `resetBuilder` for the three surfaces it
+ * touches — engine first so blueprint-store subscriptions unwind before
+ * the doc empties, doc next, signal grid last so stale energy doesn't
+ * bleed into the next stage's emissions.
+ *
+ * See Bug 3 context in the Phase 4 plan — the previous behaviour reused
+ * `resetBuilder` for scrub, which called `sessionStore.reset()` and
+ * cleared `replay: undefined`; the subsequent `setReplayCursor` became a
+ * no-op and the controller rendered `0/0` chapters until unmount.
+ */
+export function resetBuilderForReplay(
+	inputs: ResetBuilderForReplayInputs,
+): void {
+	const { docStore, engineController } = inputs;
+
+	/* 1. Tear down the preview controller before the doc empties — same
+	 *    subscription-ordering reason as `resetBuilder`. */
+	engineController.deactivate();
+
+	/* 2. Wipe the doc store. The cumulative replay in `goToChapter` will
+	 *    rebuild it from event[0] through the target chapter's endIndex. */
+	docStore.getState().load(EMPTY_DOC);
+
+	/* 3. Signal grid energy baseline. NB: no `sessionStore.reset()` — see
+	 *    the interface docstring above for why. */
 	signalGrid.reset();
 }

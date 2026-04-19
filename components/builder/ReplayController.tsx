@@ -28,7 +28,10 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { replayEventsSync } from "@/lib/log/replay";
 import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
-import { resetBuilder } from "@/lib/services/resetBuilder";
+import {
+	resetBuilder,
+	resetBuilderForReplay,
+} from "@/lib/services/resetBuilder";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
@@ -94,32 +97,23 @@ export function ReplayController() {
 		return () => clearTimeout(timer);
 	}, [error]);
 
-	const doReset = useCallback(() => {
-		/* The provider stack guarantees all stores/controllers are
-		 * installed by the time this component mounts — assert loudly if
-		 * the invariant is violated instead of silently dropping the reset. */
-		if (!docStore || !sessionStore) {
-			throw new Error(
-				"ReplayController.reset: missing docStore or sessionStore context",
-			);
-		}
-		resetBuilder({
-			sessionStore,
-			docStore,
-			engineController,
-		});
-	}, [docStore, sessionStore, engineController]);
-
 	const goToChapter = useCallback(
 		(chapterIndex: number) => {
 			const chapter = chapters[chapterIndex];
 			if (!chapter || !docStore || !sessionStore) return;
 			try {
-				doReset();
+				/* Scrub-scoped reset — wipes doc + engine + signal grid, but
+				 * PRESERVES session state so `replay.events` / `replay.chapters`
+				 * / the transport bar all survive the click. Using the full
+				 * `resetBuilder` here (as an earlier iteration did) cleared
+				 * `replay: undefined`, which caused `setReplayCursor` below
+				 * to no-op and the controller to render `0/0` chapters until
+				 * unmount. */
+				resetBuilderForReplay({ docStore, engineController });
 				/* Cumulative replay — from event 0 through this chapter's
 				 * end. Chapters are scrub targets, not independent segments,
 				 * so every scrub reconstructs state from the beginning. The
-				 * doc store was just wiped by `doReset`, so no stale entities
+				 * doc store was just wiped by the reset, so no stale entities
 				 * bleed into the new frame.
 				 *
 				 * `replayEventsSync` guarantees every mutation lands before
@@ -145,17 +139,25 @@ export function ReplayController() {
 				);
 			}
 		},
-		[chapters, events, doReset, docStore, sessionStore],
+		[chapters, events, docStore, sessionStore, engineController],
 	);
 
 	/** Exit replay mode — reset the builder and navigate to the exit path.
 	 *  `replay.exitPath` is required on `ReplayInit` (see `lib/session/types`)
 	 *  and this component only mounts inside an active replay session, so
 	 *  a missing value is an invariant violation — throw loudly rather
-	 *  than silently navigating somewhere unexpected. */
+	 *  than silently navigating somewhere unexpected.
+	 *
+	 *  Uses the FULL `resetBuilder` (not the replay-scoped variant):
+	 *  exit is the one place where wiping session state is the desired
+	 *  behaviour — the user is leaving replay mode entirely, so
+	 *  `replay.*`, cursor mode, sidebar visibility, etc. all reset
+	 *  before the route navigation fires. */
 	const handleExit = useCallback(() => {
-		if (!sessionStore) {
-			throw new Error("ReplayController.handleExit: missing sessionStore");
+		if (!docStore || !sessionStore) {
+			throw new Error(
+				"ReplayController.handleExit: missing docStore or sessionStore",
+			);
 		}
 		const exitPath = sessionStore.getState().replay?.exitPath;
 		if (!exitPath) {
@@ -163,9 +165,9 @@ export function ReplayController() {
 				"ReplayController.handleExit: no exitPath in replay state",
 			);
 		}
-		doReset();
+		resetBuilder({ sessionStore, docStore, engineController });
 		router.push(exitPath);
-	}, [sessionStore, doReset, router]);
+	}, [docStore, sessionStore, engineController, router]);
 
 	const canGoBack = currentChapterIndex > 0;
 	/* When chapters is empty `currentChapterIndex` is -1 — the
