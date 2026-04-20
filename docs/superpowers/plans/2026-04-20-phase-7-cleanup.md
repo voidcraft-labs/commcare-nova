@@ -41,7 +41,7 @@ Every implementer subagent reads this section before their task and writes again
 
 2. **The CommCare boundary is one-way.** `lib/commcare/` imports freely from `lib/domain/`. Nothing outside `lib/commcare/` imports its internals except a tight allowlist: `app/api/compile/*`, `app/api/commcare/*`, `lib/agent/validationLoop`, `lib/codemirror/*` (for xpath + lint), `lib/preview/engine/*` (for xpath transpiler). Enforced by Biome.
 
-3. **No migration scripts, no wire-format converters, no `buildDocFromWire` helpers in production code.** The migration has already run; `git` preserves the scripts for reference. Test fixtures are constructed as `BlueprintDoc` literals (or via a small DSL helper), not promoted from `AppBlueprint` shapes.
+3. **No migration scripts, no wire-format converters.** The migration has already run; `git` preserves the scripts for reference. Test fixtures are constructed as `BlueprintDoc` via the existing DSL at `lib/__tests__/docHelpers.ts` (`buildDoc` + `f`), never promoted from `AppBlueprint` shapes.
 
 4. **Tests specify behavior, not implementation.** A test that runs a fixture through a pipeline and matches a serialized snapshot is not a behavior test — it's a freeze. Replace with specific invariants: "given a field with X, the output has Y". If you don't know what invariant a test proves, delete it or rewrite it.
 
@@ -83,9 +83,6 @@ lib/
     xpath/
       grammar.lezer.grammar parser.ts parser.terms.ts
       transpiler.ts typeInfer.ts passes/dateArithmetic.ts
-    __tests__/
-      fixtures/
-        makeDoc.ts   # small BlueprintDoc builder DSL (test-only)
   db/               # Firestore wrappers
   doc/              # Normalized blueprint store, provider, hooks, mutations
     fieldPath.ts    #   (moved from lib/services)
@@ -159,7 +156,7 @@ Structural moves (code relocation, no semantics change):
 - **T5** — Validator → `lib/commcare/validator/`
 
 Compile pipeline rewrite (semantics change: AppBlueprint → BlueprintDoc):
-- **T6** — `makeDoc()` fixture DSL + fixture rewrite strategy
+- **T6** — Confirm `buildDoc`/`f` at `lib/__tests__/docHelpers.ts` is the fixture DSL; delete the stray `makeDoc` artifact
 - **T7** — Expander rewrite → `lib/commcare/expander.ts`; tests rewritten
 - **T8** — XForm builder rewrite → `lib/commcare/xform/builder.ts`; tests rewritten
 - **T9** — CczCompiler rewrite → `lib/commcare/compiler.ts`; tests rewritten
@@ -534,253 +531,70 @@ git commit -m "refactor(phase-7): move validator into lib/commcare/validator/"
 
 ---
 
-## Task 6: `makeDoc()` fixture DSL + deletion plan for wire fixtures
+## Task 6: Adopt the existing fixture DSL; delete the stray `makeDoc` artifact
 
-**Why:** Tasks 7–10 rewrite the compile pipeline to consume `BlueprintDoc`. The existing test fixtures in `lib/services/__tests__/` are `AppBlueprint` literals — nested trees with `questions` arrays. They do not survive Phase 7 and cannot be preserved through a wire→doc converter (that's a migration script, and migration scripts are retired).
+**Why:** Tasks 7–10 rewrite the compile pipeline to consume `BlueprintDoc`. The repo **already has** a `BlueprintDoc` fixture DSL at `lib/__tests__/docHelpers.ts` (`buildDoc` + `f`), used by ~15 tests under `lib/commcare/__tests__/`, `lib/doc/__tests__/`, `lib/session/__tests__/`, `lib/routing/__tests__/`, and `lib/services/__tests__/`. Earlier in Phase 7 an additional `makeDoc` helper landed at `lib/commcare/__tests__/fixtures/makeDoc.ts` — a duplicate of `buildDoc` justified by "deterministic seeding for snapshot tests", which Phase 7's T22 explicitly eliminates.
 
-The replacement is a small fixture builder that constructs a `BlueprintDoc` from a nested input while minting deterministic uuids — clear to read, mechanical to maintain, no shared shape with the wire format.
+T6 corrects that mistake: the fixture DSL is `lib/__tests__/docHelpers.ts::buildDoc` + `f`. Period. No parallel helper.
 
 **Files:**
-- Create: `lib/commcare/__tests__/fixtures/makeDoc.ts`
-- Create: `lib/commcare/__tests__/fixtures/makeDoc.test.ts`
+- Delete: `lib/commcare/__tests__/fixtures/makeDoc.ts`
+- Delete: `lib/commcare/__tests__/fixtures/makeDoc.test.ts`
+- Delete: `lib/commcare/__tests__/fixtures/` (empty after deletion)
 
-- [ ] **Step 1: Write the helper's test first**
+### Fixture DSL reference (so T7–T10 consumers know what to call)
+
+`lib/__tests__/docHelpers.ts` exports:
+
+- `buildDoc(spec?: DocSpec): BlueprintDoc` — builds a fully normalized `BlueprintDoc` from a concise nested spec. `moduleOrder`, `formOrder`, `fieldOrder`, `fieldParent` are all populated. Uuids are auto-assigned unless the spec provides them. `id` defaults to a snake-cased name; `label` defaults to `id` for non-hidden fields.
+- `f(spec: FieldSpec): FieldSpec` — passes through a single field spec with optional `uuid`/`label`/`children`, with sensible defaults.
+- `DocSpec`, `ModuleSpec`, `FormSpec`, `FieldSpec` — the nested input shapes. Containers (group/repeat) recurse via `children`.
+
+Tests calling into the compile pipeline import from `@/lib/__tests__/docHelpers` directly:
 
 ```ts
-// lib/commcare/__tests__/fixtures/makeDoc.test.ts
-import { describe, expect, it } from "vitest";
-import { makeDoc } from "./makeDoc";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 
-describe("makeDoc fixture builder", () => {
-  it("produces a BlueprintDoc with correct orderings", () => {
-    const doc = makeDoc({
-      appId: "app-1",
-      appName: "Test App",
-      modules: [{
-        id: "registration",
-        name: "Registration",
-        caseType: "patient",
-        forms: [{
-          id: "register",
-          name: "Register",
-          type: "registration",
-          fields: [
-            { kind: "text", id: "name", label: "Name", required: "true()", case_property: "patient" },
-          ],
-        }],
-      }],
-    });
-
-    expect(doc.moduleOrder).toHaveLength(1);
-    const [moduleUuid] = doc.moduleOrder;
-    expect(doc.modules[moduleUuid].id).toBe("registration");
-    const [formUuid] = doc.formOrder[moduleUuid];
-    expect(doc.forms[formUuid].id).toBe("register");
-    const [fieldUuid] = doc.fieldOrder[formUuid];
-    expect(doc.fields[fieldUuid]).toMatchObject({
-      kind: "text", id: "name", label: "Name", required: "true()", case_property: "patient",
-    });
-    expect(doc.fieldParent[fieldUuid]).toBe(formUuid);
-  });
-
-  it("nests group / repeat fields via their children key", () => {
-    const doc = makeDoc({
-      appId: "app",
-      appName: "App",
-      modules: [{ id: "m", name: "m", forms: [{ id: "f", name: "f", type: "survey", fields: [
-        { kind: "group", id: "address", label: "Address", children: [
-          { kind: "text", id: "street", label: "Street" },
-        ]},
-      ]}]}],
-    });
-
-    const form = doc.formOrder[doc.moduleOrder[0]][0];
-    const group = doc.fieldOrder[form][0];
-    expect(doc.fields[group].kind).toBe("group");
-    const child = doc.fieldOrder[group][0];
-    expect(doc.fields[child]).toMatchObject({ kind: "text", id: "street" });
-    expect(doc.fieldParent[child]).toBe(group);
-  });
-
-  it("mints deterministic uuids for readable snapshots if seed provided", () => {
-    const a = makeDoc({ appId: "a", appName: "a", modules: [], seed: 42 });
-    const b = makeDoc({ appId: "a", appName: "a", modules: [], seed: 42 });
-    expect(a).toEqual(b);
-  });
+const doc = buildDoc({
+  modules: [{
+    name: "Registration",
+    caseType: "patient",
+    forms: [{ name: "Register", type: "registration", fields: [
+      f({ kind: "text", id: "name", case_property: "patient", required: "true()" }),
+    ]}],
+  }],
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails (helper doesn't exist)**
+Form uuids are read via `doc.formOrder[doc.moduleOrder[0]][0]` — two property accesses, no helper needed. If a test genuinely needs by-semantic-id lookup across many forms, add a minimal helper to `docHelpers.ts` as part of T7, but don't introduce one preemptively.
+
+### Steps
+
+- [ ] **Step 1: Delete the `makeDoc` files**
 
 ```bash
-npm test -- lib/commcare/__tests__/fixtures/makeDoc.test.ts
+cd /Users/braxtonperry/work/personal/code/commcare-nova/.worktrees/phase-7-final
+git rm lib/commcare/__tests__/fixtures/makeDoc.ts
+git rm lib/commcare/__tests__/fixtures/makeDoc.test.ts
+rmdir lib/commcare/__tests__/fixtures
 ```
 
-Expected: FAIL — cannot resolve `./makeDoc`.
-
-- [ ] **Step 3: Write the helper**
-
-```ts
-// lib/commcare/__tests__/fixtures/makeDoc.ts
-//
-// Test-only BlueprintDoc builder. Accepts a nested, human-readable input
-// and produces a normalized BlueprintDoc with deterministic uuids.
-// Lives under __tests__ because it's scaffolding for tests, not a
-// shim for production code.
-
-import { asUuid, type BlueprintDoc, type Field, type FieldKind, type Form, type Module, type Uuid } from "@/lib/domain";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-
-// Minimal, readable input shape. Mirrors how the test author thinks
-// about the domain — not the wire format.
-export interface MakeFieldInput {
-  kind: FieldKind;
-  id: string;
-  label?: string;
-  /** Optional pre-assigned uuid; otherwise minted deterministically. */
-  uuid?: string;
-  /** Container fields (group/repeat) carry children. */
-  children?: MakeFieldInput[];
-  /** Any other kind-specific properties — copied verbatim after the
-   *  discriminated-union safety check at the call site. Typed as
-   *  unknown so the DSL doesn't have to enumerate every kind's keys. */
-  [key: string]: unknown;
-}
-
-export interface MakeFormInput {
-  id: string;
-  name: string;
-  type: Form["type"];
-  uuid?: string;
-  fields: MakeFieldInput[];
-  [key: string]: unknown;
-}
-
-export interface MakeModuleInput {
-  id: string;
-  name: string;
-  caseType?: string;
-  uuid?: string;
-  forms: MakeFormInput[];
-  [key: string]: unknown;
-}
-
-export interface MakeDocInput {
-  appId: string;
-  appName: string;
-  connectType?: BlueprintDoc["connectType"];
-  caseTypes?: BlueprintDoc["caseTypes"];
-  modules: MakeModuleInput[];
-  /** Deterministic seed for minted uuids. Defaults to 0. */
-  seed?: number;
-}
-
-/**
- * Build a valid BlueprintDoc from a nested, domain-shaped input.
- * Mints deterministic uuids (so snapshots + equality checks are stable),
- * populates moduleOrder / formOrder / fieldOrder / fieldParent
- * automatically, and handles container-field recursion (group/repeat).
- */
-export function makeDoc(input: MakeDocInput): BlueprintDoc {
-  let counter = input.seed ?? 0;
-  const nextUuid = (): Uuid => {
-    counter += 1;
-    // Pad to the UUID hex slots. Deterministic, reproducible, readable in
-    // snapshots. The shape is a valid RFC 4122 v4 template — version +
-    // variant bits set.
-    const hex = counter.toString(16).padStart(12, "0");
-    return asUuid(`00000000-0000-4000-8000-${hex}`);
-  };
-
-  const modules: Record<Uuid, Module> = {};
-  const forms: Record<Uuid, Form> = {};
-  const fields: Record<Uuid, Field> = {};
-  const moduleOrder: Uuid[] = [];
-  const formOrder: Record<Uuid, Uuid[]> = {};
-  const fieldOrder: Record<Uuid, Uuid[]> = {};
-
-  const installField = (
-    f: MakeFieldInput,
-    parentUuid: Uuid,
-  ): void => {
-    const uuid = f.uuid ? asUuid(f.uuid) : nextUuid();
-    (fieldOrder[parentUuid] ??= []).push(uuid);
-    // Destructure the DSL keys that don't belong on the Field record,
-    // then spread the rest as kind-specific properties.
-    const { children, ...rest } = f;
-    fields[uuid] = { ...rest, uuid } as Field;
-    if (children?.length) {
-      fieldOrder[uuid] = [];
-      for (const child of children) installField(child, uuid);
-    }
-  };
-
-  for (const mIn of input.modules) {
-    const muid = mIn.uuid ? asUuid(mIn.uuid) : nextUuid();
-    moduleOrder.push(muid);
-    formOrder[muid] = [];
-    const { forms: formInputs, uuid: _u, ...rest } = mIn;
-    modules[muid] = { ...rest, uuid: muid } as Module;
-
-    for (const fIn of formInputs) {
-      const fuid = fIn.uuid ? asUuid(fIn.uuid) : nextUuid();
-      formOrder[muid].push(fuid);
-      fieldOrder[fuid] = [];
-      const { fields: fieldInputs, uuid: _fu, ...fRest } = fIn;
-      forms[fuid] = { ...fRest, uuid: fuid } as Form;
-      for (const field of fieldInputs) installField(field, fuid);
-    }
-  }
-
-  const doc: BlueprintDoc = {
-    appId: input.appId,
-    appName: input.appName,
-    connectType: input.connectType ?? null,
-    caseTypes: input.caseTypes ?? null,
-    modules,
-    forms,
-    fields,
-    moduleOrder,
-    formOrder,
-    fieldOrder,
-    fieldParent: {} as Record<Uuid, Uuid | null>,
-  };
-  rebuildFieldParent(doc);
-  return doc;
-}
-
-/**
- * Resolve the uuid of a form by its semantic id, scoped to a module id.
- * Tests that exercise buildXForm(doc, formUuid, ...) need to look up
- * the uuid from the id they wrote in the fixture.
- */
-export function formUuidByIds(
-  doc: BlueprintDoc,
-  moduleId: string,
-  formId: string,
-): Uuid {
-  const moduleUuid = doc.moduleOrder.find((u) => doc.modules[u].id === moduleId);
-  if (!moduleUuid) throw new Error(`module with id "${moduleId}" not found`);
-  const formUuid = (doc.formOrder[moduleUuid] ?? []).find((u) => doc.forms[u].id === formId);
-  if (!formUuid) throw new Error(`form with id "${formId}" in module "${moduleId}" not found`);
-  return formUuid;
-}
-```
-
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 2: Verify**
 
 ```bash
-npm test -- lib/commcare/__tests__/fixtures/makeDoc.test.ts
+npx tsc --noEmit && npm run lint && npm test -- --run
 ```
 
-Expected: all pass.
+All three must pass. Test count drops by 10 (the `makeDoc.test.ts` tests go away) — expect `1449` passing tests in `101` files, matching the baseline from before the errant T6 commit.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add lib/commcare/__tests__/fixtures/
-git commit -m "test(phase-7): add makeDoc fixture DSL for BlueprintDoc construction"
+git add -A
+git commit -m "revert(phase-7): drop makeDoc — use existing lib/__tests__/docHelpers.ts"
 ```
+
+Commit message body (one paragraph): the `buildDoc`/`f` DSL at `lib/__tests__/docHelpers.ts` already builds `BlueprintDoc` from a nested spec with ~15 consumers. The earlier `makeDoc` addition duplicated that for a snapshot-test use case T22 deletes. Source of truth is `docHelpers.ts`; T7–T10 rewrite their tests against it.
 
 ---
 
@@ -794,29 +608,26 @@ git commit -m "test(phase-7): add makeDoc fixture DSL for BlueprintDoc construct
 - Create: `lib/commcare/expander.ts`
 - Delete: `lib/services/hqJsonExpander.ts`
 - Move + rewrite: `lib/services/__tests__/hqJsonExpander.test.ts` → `lib/commcare/__tests__/expander.test.ts`
-- Rewrite tests: fixtures become `makeDoc()` calls instead of `AppBlueprint` literals
+- Rewrite tests: fixtures become `buildDoc()` calls from `@/lib/__tests__/docHelpers` instead of `AppBlueprint` literals
 
 - [ ] **Step 1: Write failing tests for the new API**
 
-Move `hqJsonExpander.test.ts` to `lib/commcare/__tests__/expander.test.ts` and rewrite every test to use `expandDoc` + `makeDoc`. Example:
+Move `hqJsonExpander.test.ts` to `lib/commcare/__tests__/expander.test.ts` and rewrite every test to use `expandDoc` + `buildDoc` from `@/lib/__tests__/docHelpers`. Example:
 
 ```ts
 // lib/commcare/__tests__/expander.test.ts
 import { describe, expect, it } from "vitest";
 import { expandDoc } from "@/lib/commcare/expander";
-import { makeDoc } from "./fixtures/makeDoc";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 
 describe("expandDoc — followup module", () => {
   it("emits a followup form with case_references.load built from the form's fields", () => {
-    const doc = makeDoc({
-      appId: "app",
-      appName: "App",
+    const doc = buildDoc({
       modules: [{
-        id: "followup", name: "Follow-up", caseType: "patient",
-        forms: [{
-          id: "visit", name: "Visit", type: "followup",
-          fields: [{ kind: "text", id: "notes", label: "Notes", case_property: "patient" }],
-        }],
+        name: "Follow-up", caseType: "patient",
+        forms: [{ name: "Visit", type: "followup", fields: [
+          f({ kind: "text", id: "notes", case_property: "patient" }),
+        ]}],
       }],
     });
 
@@ -830,7 +641,7 @@ describe("expandDoc — followup module", () => {
 });
 ```
 
-Rewrite every `const blueprint: AppBlueprint = { ... }` literal in the old test file as a `makeDoc({...})` call.
+Rewrite every `const blueprint: AppBlueprint = { ... }` literal in the old test file as a `buildDoc({...})` call. Use `f(...)` for individual field specs; it sets sensible defaults (label = id, auto-uuid) while letting callers override any key.
 
 Run the test — expect `expandDoc` to not exist:
 
@@ -935,8 +746,8 @@ git rm lib/services/deriveCaseConfig.ts
 
 - [ ] **Step 4: Rewrite every test file that imported the old modules**
 
-- `lib/services/__tests__/hqJsonExpander.test.ts` → `lib/commcare/__tests__/expander.test.ts` (rewritten to use `expandDoc` + `makeDoc`)
-- `lib/services/__tests__/formBuilderAgent.test.ts` → `lib/commcare/__tests__/formBuilder.test.ts` (rewritten to use `buildXForm(doc, formUuid, opts)` + `makeDoc`)
+- `lib/services/__tests__/hqJsonExpander.test.ts` → `lib/commcare/__tests__/expander.test.ts` (rewritten to use `expandDoc` + `buildDoc`/`f` from `@/lib/__tests__/docHelpers`)
+- `lib/services/__tests__/formBuilderAgent.test.ts` → `lib/commcare/__tests__/formBuilder.test.ts` (rewritten to use `buildXForm(doc, formUuid, opts)` + `buildDoc`/`f`)
 - `lib/services/__tests__/postExpansionValidation.test.ts` → `lib/commcare/__tests__/postExpansionValidation.test.ts` (same pattern)
 - `lib/services/__tests__/session.test.ts` → `lib/commcare/__tests__/session.test.ts`
 - `lib/services/__tests__/connectConfig.test.ts` — stays at `lib/services/__tests__/` until Task 17 moves `connectConfig` — adjust imports to the new expander only
@@ -986,7 +797,7 @@ Internal walkers read `doc.fieldOrder[parentUuid]` + `doc.fields[fieldUuid]` + `
 
 - [ ] **Step 1: Write the new compiler's tests first**
 
-Rewrite `cczCompiler.test.ts` to use `compileCcz(hqJson, appName, doc)` where `doc` is built via `makeDoc`. Each test asserts a specific invariant about the archive contents — e.g. "archive includes `suite.xml` with a menu entry for module m0", "profile.ccpr has appName set", "case-block injection inserts a `<case>` element before `</data>` in form XML", etc. If a test was just `toMatchSnapshot()` on the archive, rewrite it as specific assertions.
+Rewrite `cczCompiler.test.ts` to use `compileCcz(hqJson, appName, doc)` where `doc` is built via `buildDoc`/`f` from `@/lib/__tests__/docHelpers`. Each test asserts a specific invariant about the archive contents — e.g. "archive includes `suite.xml` with a menu entry for module m0", "profile.ccpr has appName set", "case-block injection inserts a `<case>` element before `</data>` in form XML", etc. If a test was just `toMatchSnapshot()` on the archive, rewrite it as specific assertions.
 
 Run:
 
