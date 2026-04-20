@@ -14,28 +14,28 @@ import { TextEditable } from "../TextEditable";
  * `FieldState`.
  */
 export function LabelField({
-	question,
+	field,
 	state,
 }: {
-	/** The label field entity. Named `question` to keep this surface
+	/** The label field entity. Prop name is `field` to match the domain.
 	 *  consistent with other preview field components — the prop name is
 	 *  cosmetic; the value is a domain `LabelField`. */
-	question: LabelFieldEntity;
+	field: LabelFieldEntity;
 	state: FieldState;
 }) {
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";
-	const saveField = useTextEditSave(question.uuid);
+	const saveField = useTextEditSave(field.uuid);
 
 	return (
 		<div className="py-1">
 			<TextEditable
-				value={question.label ?? ""}
+				value={field.label ?? ""}
 				onSave={saveField ? (v) => saveField("label", v) : undefined}
 				fieldType="label"
 			>
 				<LabelContent
-					label={question.label ?? ""}
+					label={field.label ?? ""}
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={isEditMode}
 					className={FIELD_STYLES.label}

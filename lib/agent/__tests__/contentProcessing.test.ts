@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/schemas/blueprint";
+import type { CaseType } from "@/lib/domain";
 import { applyDefaults } from "../contentProcessing";
 
+// Fixture: case types model the CommCare case data layer, so their
+// property metadata uses CommCare-flavored `validation` / `validation_msg`.
+// `applyDefaults` is the one place in the agent where the case-type
+// vocabulary meets the field vocabulary: the output field uses domain
+// names (`validate`, `kind`, `case_property`).
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
@@ -33,9 +38,9 @@ const testCaseType: CaseType = {
 };
 
 describe("applyDefaults", () => {
-	it("fills in label from case type for sparse question", () => {
+	it("fills in label from case type for sparse field", () => {
 		const result = applyDefaults(
-			{ id: "case_name", type: "text", case_property_on: "patient" },
+			{ id: "case_name", kind: "text", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.label).toBe("Full Name");
@@ -45,28 +50,28 @@ describe("applyDefaults", () => {
 		const result = applyDefaults(
 			{
 				id: "case_name",
-				type: "text",
+				kind: "text",
 				label: "Custom Label",
-				case_property_on: "patient",
+				case_property: "patient",
 			},
 			[testCaseType],
 		);
 		expect(result.label).toBe("Custom Label");
 	});
 
-	it("fills in validation, required, and validation_msg", () => {
+	it("fills in validate, required, and validate_msg (translated from case-type vocab)", () => {
 		const result = applyDefaults(
-			{ id: "age", type: "int", case_property_on: "patient" },
+			{ id: "age", kind: "int", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.required).toBe("true()");
-		expect(result.validation).toBe(". > 0 and . < 150");
-		expect(result.validation_msg).toBe("Age must be between 1 and 149");
+		expect(result.validate).toBe(". > 0 and . < 150");
+		expect(result.validate_msg).toBe("Age must be between 1 and 149");
 	});
 
 	it("fills in options for select properties", () => {
 		const result = applyDefaults(
-			{ id: "gender", type: "single_select", case_property_on: "patient" },
+			{ id: "gender", kind: "single_select", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.options).toEqual([
@@ -77,39 +82,39 @@ describe("applyDefaults", () => {
 
 	it("fills in hint from case type", () => {
 		const result = applyDefaults(
-			{ id: "phone", type: "text", case_property_on: "patient" },
+			{ id: "phone", kind: "text", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.hint).toBe("Include country code");
 	});
 
-	it("derives type from case type data_type", () => {
-		const result = applyDefaults({ id: "age", case_property_on: "patient" }, [
+	it("derives kind from case type data_type", () => {
+		const result = applyDefaults({ id: "age", case_property: "patient" }, [
 			testCaseType,
 		]);
-		expect(result.type).toBe("int");
+		expect(result.kind).toBe("int");
 	});
 
-	it("returns question unchanged when no case_property_on", () => {
+	it("returns field unchanged when no case_property", () => {
 		const result = applyDefaults(
-			{ id: "notes", type: "text", label: "Notes" },
+			{ id: "notes", kind: "text", label: "Notes" },
 			[testCaseType],
 		);
 		expect(result.label).toBe("Notes");
 		expect(result.hint).toBeUndefined();
 	});
 
-	it("returns question unchanged when case types is null", () => {
+	it("returns field unchanged when case types is null", () => {
 		const result = applyDefaults(
-			{ id: "case_name", type: "text", case_property_on: "patient" },
+			{ id: "case_name", kind: "text", case_property: "patient" },
 			null,
 		);
 		expect(result.label).toBeUndefined();
 	});
 
-	it("returns question unchanged when property not found in case type", () => {
+	it("returns field unchanged when property not found in case type", () => {
 		const result = applyDefaults(
-			{ id: "nonexistent", type: "text", case_property_on: "patient" },
+			{ id: "nonexistent", kind: "text", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.label).toBeUndefined();
@@ -117,19 +122,19 @@ describe("applyDefaults", () => {
 
 	it("unescapes HTML entities in XPath fields", () => {
 		const result = applyDefaults(
-			{ id: "x", type: "text", validation: ". &gt; 0 &amp;&amp; . &lt; 10" },
+			{ id: "x", kind: "text", validate: ". &gt; 0 &amp;&amp; . &lt; 10" },
 			null,
 		);
-		expect(result.validation).toBe(". > 0 && . < 10");
+		expect(result.validate).toBe(". > 0 && . < 10");
 	});
 
-	it("looks up the correct case type from array by case_property_on", () => {
+	it("looks up the correct case type from array by case_property", () => {
 		const otherCaseType: CaseType = {
 			name: "household",
 			properties: [{ name: "case_name", label: "Household ID" }],
 		};
 		const result = applyDefaults(
-			{ id: "case_name", type: "text", case_property_on: "household" },
+			{ id: "case_name", kind: "text", case_property: "household" },
 			[testCaseType, otherCaseType],
 		);
 		expect(result.label).toBe("Household ID");
@@ -139,7 +144,7 @@ describe("applyDefaults", () => {
 
 	it("auto-sets default_value for primary case properties in follow-up forms", () => {
 		const result = applyDefaults(
-			{ id: "age", type: "int", case_property_on: "patient" },
+			{ id: "age", kind: "int", case_property: "patient" },
 			[testCaseType],
 			"followup",
 			"patient",
@@ -149,7 +154,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value for case_name in follow-up forms", () => {
 		const result = applyDefaults(
-			{ id: "case_name", type: "text", case_property_on: "patient" },
+			{ id: "case_name", kind: "text", case_property: "patient" },
 			[testCaseType],
 			"followup",
 			"patient",
@@ -159,7 +164,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value in registration forms", () => {
 		const result = applyDefaults(
-			{ id: "age", type: "int", case_property_on: "patient" },
+			{ id: "age", kind: "int", case_property: "patient" },
 			[testCaseType],
 			"registration",
 			"patient",
@@ -169,7 +174,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value for child case properties", () => {
 		const result = applyDefaults(
-			{ id: "age", type: "int", case_property_on: "patient" },
+			{ id: "age", kind: "int", case_property: "patient" },
 			[testCaseType],
 			"followup",
 			"household",
@@ -181,8 +186,8 @@ describe("applyDefaults", () => {
 		const result = applyDefaults(
 			{
 				id: "age",
-				type: "int",
-				case_property_on: "patient",
+				kind: "int",
+				case_property: "patient",
 				default_value: "today()",
 			},
 			[testCaseType],
@@ -192,12 +197,12 @@ describe("applyDefaults", () => {
 		expect(result.default_value).toBe("today()");
 	});
 
-	it("does not auto-set default_value when question has calculate", () => {
+	it("does not auto-set default_value when field has calculate", () => {
 		const result = applyDefaults(
 			{
 				id: "age",
-				type: "int",
-				case_property_on: "patient",
+				kind: "int",
+				case_property: "patient",
 				calculate: "#case/age + 1",
 			},
 			[testCaseType],
@@ -209,7 +214,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value when formType/moduleCaseType not provided", () => {
 		const result = applyDefaults(
-			{ id: "age", type: "int", case_property_on: "patient" },
+			{ id: "age", kind: "int", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.default_value).toBeUndefined();

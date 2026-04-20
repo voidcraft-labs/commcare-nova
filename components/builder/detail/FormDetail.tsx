@@ -7,7 +7,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { CASE_FORM_TYPES, type FormType } from "@/lib/domain";
-import { formTypeIcons } from "@/lib/fieldTypeIcons";
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -22,37 +22,6 @@ const formTypeOptions: { value: FormType; label: string }[] = [
 	{ value: "close", label: "Close" },
 	{ value: "survey", label: "Survey" },
 ];
-
-interface FormDetailProps {
-	/** Module uuid to look up module-level context (case type). */
-	moduleUuid: Uuid;
-	/** Form uuid to look up the form entity. */
-	formUuid: Uuid;
-}
-
-/**
- * Read-only close condition info within FormSettingsPanel.
- * Renders only when the form is a close form — shows conditional vs unconditional.
- */
-export function FormDetail({ formUuid }: FormDetailProps) {
-	const form = useForm(formUuid);
-	if (form?.type !== "close") return null;
-
-	return (
-		<div>
-			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
-				Close Behavior
-			</span>
-			<p className="text-sm text-nova-rose">
-				{form.closeCondition?.field
-					? `Conditional: when ${form.closeCondition.field} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
-					: "Always closes case on submit"}
-			</p>
-		</div>
-	);
-}
-
-// ── Form Type Button (for FormScreen header) ──────────────────────────
 
 interface FormTypeButtonProps {
 	moduleUuid: Uuid;
@@ -85,7 +54,7 @@ export function FormTypeButton({
 		[editable, updateForm, formUuid],
 	);
 
-	const icon = formTypeIcons[form?.type ?? "survey"] ?? formTypeIcons.survey;
+	const icon = formTypeIcons[form?.type ?? "survey"];
 	const hasCaseType = editable && !!mod?.caseType;
 	const activeType = form?.type ?? "survey";
 	const last = formTypeOptions.length - 1;
@@ -141,7 +110,7 @@ export function FormTypeButton({
 												className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-nova-violet" : "bg-transparent"}`}
 											/>
 											<Icon
-												icon={formTypeIcons[opt.value] ?? formTypeIcons.survey}
+												icon={formTypeIcons[opt.value]}
 												width="16"
 												height="16"
 												className={

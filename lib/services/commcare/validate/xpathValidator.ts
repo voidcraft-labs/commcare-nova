@@ -115,7 +115,7 @@ export function validateXPath(
 			if (!validPaths.has(ref)) {
 				errors.push({
 					code: "INVALID_REF",
-					message: `References unknown question path "${ref}"`,
+					message: `References unknown field path "${ref}"`,
 				});
 			}
 		}

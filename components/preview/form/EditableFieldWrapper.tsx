@@ -7,7 +7,7 @@ import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
 
 interface EditableFieldWrapperProps {
 	/** Stable crypto UUID — the sole identity prop (survives renames). */
-	questionUuid: Uuid;
+	fieldUuid: Uuid;
 	children: ReactNode;
 	style?: React.CSSProperties;
 	isDragging?: boolean;
@@ -21,7 +21,7 @@ interface EditableFieldWrapperProps {
 }
 
 /**
- * Wrapper that makes a question selectable by click in edit mode.
+ * Wrapper that makes a field selectable by click in edit mode.
  *
  * Selection is driven by the URL (`sel=` query param). `useIsFieldSelected`
  * reads the URL's `sel` and returns `true` for exactly one wrapper at a time.
@@ -29,11 +29,11 @@ interface EditableFieldWrapperProps {
  * no Zustand write, no re-render cascade.
  *
  * Scroll behavior is delegated to `ScrollRegistryContext.setPending` so the
- * selected question's panel (mounted by SortableQuestion) can honor it
+ * selected field's panel (mounted by EditableFieldWrapper) can honor it
  * via `useFulfillPendingScroll` once the panel paints.
  */
 export function EditableFieldWrapper({
-	questionUuid,
+	fieldUuid,
 	children,
 	style,
 	isDragging,
@@ -50,7 +50,7 @@ export function EditableFieldWrapper({
 	/* Selection via URL-driven boolean selector — only this wrapper and the
 	 * previously-selected wrapper re-render on selection change. All other
 	 * wrappers return the same `false` and skip rendering entirely. */
-	const isSelected = useIsFieldSelected(questionUuid);
+	const isSelected = useIsFieldSelected(fieldUuid);
 
 	const clearHoldTimer = useCallback(() => {
 		if (holdTimerRef.current) {
@@ -88,15 +88,15 @@ export function EditableFieldWrapper({
 		if (holdReady) setHoldReady(false);
 	}
 
-	/** Select this question in the builder and scroll its tree row into view.
+	/** Select this field in the builder and scroll its tree row into view.
 	 *  `hasToolbar` signals that a text-editable zone was clicked — the scroll
 	 *  target needs extra clearance for the floating TipTap label toolbar. */
-	const selectQuestion = useCallback(
+	const selectField = useCallback(
 		(hasToolbar = false) => {
-			setPending(questionUuid, "smooth", hasToolbar);
-			select(questionUuid);
+			setPending(fieldUuid, "smooth", hasToolbar);
+			select(fieldUuid);
 		},
-		[setPending, questionUuid, select],
+		[setPending, fieldUuid, select],
 	);
 
 	const handleClick = useCallback(
@@ -108,40 +108,40 @@ export function EditableFieldWrapper({
 			if (!e.currentTarget.contains(target)) return;
 			// Don't intercept clicks inside the inline settings panel, nested wrappers, or insertion points
 			if (target.closest("[data-no-drag]")) return;
-			/* Nested wrapper guard — if the click landed inside a child question's
+			/* Nested wrapper guard — if the click landed inside a child field's
 			 * wrapper, bail so only that child handles selection. Must run before
-			 * the text-editable check: without this, clicking a nested question's
+			 * the text-editable check: without this, clicking a nested field's
 			 * label (a [data-text-editable] zone) would match here and select the
 			 * GROUP, then the child's handler would re-select the child — two
 			 * select calls with two scrollTo targets, the second missing the
 			 * collapsing panel compensation from the first. */
-			const closestWrapper = target.closest("[data-question-wrapper]");
+			const closestWrapper = target.closest("[data-field-wrapper]");
 			if (closestWrapper && closestWrapper !== e.currentTarget) return;
-			/* Let clicks on text-editable zones pass through — select the question
+			/* Let clicks on text-editable zones pass through — select the field
 			 * but don't stop propagation so TextEditable's handler also fires.
 			 * Pass hasToolbar so the scroll leaves clearance for the floating
-			 * TipTap label toolbar that will render above the question.
+			 * TipTap label toolbar that will render above the field.
 			 *
-			 * If the question is already selected, the URL `sel=` won't change,
+			 * If the field is already selected, the URL `sel=` won't change,
 			 * so fulfillPendingScroll never fires. Call scrollToQuestion directly
 			 * to ensure the toolbar gets clearance when activating a text editor
-			 * on the current question. */
+			 * on the current field. */
 			if (target.closest("[data-text-editable]")) {
 				if (isSelected) {
-					scrollTo(questionUuid, undefined, "smooth", true);
+					scrollTo(fieldUuid, undefined, "smooth", true);
 				} else {
-					selectQuestion(true);
+					selectField(true);
 				}
 				return;
 			}
 			if (target.closest("[data-insertion-point]")) return;
 			e.stopPropagation();
-			selectQuestion();
+			selectField();
 		},
-		[selectQuestion, isSelected, questionUuid, scrollTo],
+		[selectField, isSelected, fieldUuid, scrollTo],
 	);
 
-	/** Keyboard activation — Enter or Space selects this question, matching
+	/** Keyboard activation — Enter or Space selects this field, matching
 	 *  the click behavior for keyboard-only users (role="button" contract).
 	 *  Skip when the event originates from an active text editor (TipTap
 	 *  contenteditable) — otherwise the bubbling keydown swallows spaces
@@ -153,10 +153,10 @@ export function EditableFieldWrapper({
 				if (target.closest("[contenteditable]")) return;
 				e.preventDefault();
 				e.stopPropagation();
-				selectQuestion();
+				selectField();
 			}
 		},
-		[selectQuestion],
+		[selectField],
 	);
 
 	if (!ctx || ctx.mode === "test") {
@@ -176,8 +176,8 @@ export function EditableFieldWrapper({
 		<div
 			role="button"
 			tabIndex={0}
-			data-question-wrapper
-			aria-label="Select question"
+			data-field-wrapper
+			aria-label="Select field"
 			/* Selection ring uses an ::after pseudo-element instead of CSS
 			 * outline or box-shadow because:
 			 *  - CSS outline gets clipped at the top edge by the GPU

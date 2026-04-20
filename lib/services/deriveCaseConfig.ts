@@ -1,6 +1,6 @@
 // Form-level case config derivation.
 //
-// A pure function over a duck-typed question tree. Consumers (the
+// A pure function over a duck-typed field tree. Consumers (the
 // CommCare form validator, the HQ JSON expander, the CCZ compiler,
 // formActions) feed the current wire-format `Question[]` tree straight
 // in — the helper only reads `id`, `type`, `case_property_on`, and
@@ -18,11 +18,11 @@ import {
 } from "@/lib/domain";
 
 /**
- * Derive form-level case config from per-question case_property_on fields.
+ * Derive form-level case config from per-field case_property fields.
  *
  * Questions with case_property_on matching the module's case type → primary case config.
  * Questions with case_property_on pointing to a different type → child case creation.
- * Case name is always the question with id "case_name" within each case type group.
+ * Case name is always the field with id "case_name" within each case type group.
  */
 export interface CaseConfigQuestion {
 	id: string;
@@ -109,7 +109,7 @@ export function deriveCaseConfig(
 			const ctDef = caseTypes.find((ct) => ct.name === childType);
 			const relationship = ctDef?.relationship ?? "child";
 
-			// Find case_name question for this child type
+			// Find case_name field for this child type
 			const nameEntry = entries.find((e) => e.id === "case_name");
 			const childCaseName = nameEntry?.id ?? entries[0].id;
 

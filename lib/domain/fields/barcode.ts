@@ -4,8 +4,9 @@
 // Supports XPath validation and calculation. No default_value — the value is
 // always populated by the device scanner, not a user-supplied default.
 
+import tablerBarcode from "@iconify-icons/tabler/barcode";
 import { z } from "zod";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
 
 export const barcodeFieldSchema = inputFieldBaseSchema.extend({
@@ -21,27 +22,10 @@ export const barcodeFieldMetadata: FieldKindMetadata<"barcode"> = {
 	kind: "barcode",
 	xformKind: "input",
 	dataType: "xsd:string",
-	icon: "tabler:barcode",
+	icon: tablerBarcode,
+	label: "Barcode",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Barcode/QR scan.",
 	convertTargets: [],
-};
-
-// Editor schema is a placeholder for Phase 1 — components referenced here
-// (`CasePropertySelect`, `TextareaField`, `XPathField`, `BooleanField`) are
-// Phase 5's job. In Phase 1 we publish the entries with stub components that
-// match the typed shape but render a disabled input. Phase 5 replaces them.
-import { StubField } from "@/components/builder/editor/StubField";
-
-export const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
-	data: [{ key: "case_property", component: StubField }],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-		{ key: "validate", component: StubField },
-		{ key: "validate_msg", component: StubField },
-		{ key: "calculate", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

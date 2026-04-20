@@ -8,6 +8,7 @@
  */
 
 import { type Diagnostic, linter } from "@codemirror/lint";
+import type { FieldKind } from "@/lib/domain";
 import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 
 /**
@@ -30,11 +31,14 @@ export interface XPathLintContext {
 	caseProperties: Map<string, { label?: string }> | undefined;
 	/** Value-producing fields in the current form, mapped to their XPath path
 	 *  + human label. Used by #form/x autocomplete (label as `detail`). The
-	 *  caller filters to value-producing kinds before handing the list in. */
+	 *  caller filters to value-producing kinds before handing the list in.
+	 *  `kind` is narrowed to the domain `FieldKind` union so downstream
+	 *  consumers (reference provider, chip rendering) can index
+	 *  `fieldRegistry` without a widening cast. */
 	formEntries: ReadonlyArray<{
 		path: string;
 		label: string;
-		kind: string;
+		kind: FieldKind;
 	}>;
 }
 

@@ -9,7 +9,7 @@
  * rule enforced by Biome's `noRestrictedImports`.
  *
  * Fixtures are built in the normalized `BlueprintDoc` shape directly — no
- * legacy `AppBlueprint` / `Question` types cross the test boundary.
+ * legacy `AppBlueprint` / `Question` wire types cross the test boundary.
  */
 
 import { act, renderHook } from "@testing-library/react";
@@ -79,9 +79,9 @@ describe("useFormRows", () => {
 		// ins(0), q(a), ins(1), q(b), ins(2)
 		expect(kinds).toEqual([
 			"insertion",
-			"question",
+			"field",
 			"insertion",
-			"question",
+			"field",
 			"insertion",
 		]);
 	});
@@ -100,9 +100,9 @@ describe("useFormRows", () => {
 			}),
 			{ wrapper },
 		);
-		expect(
-			result.current.rows.filter((r) => r.kind === "question"),
-		).toHaveLength(2);
+		expect(result.current.rows.filter((r) => r.kind === "field")).toHaveLength(
+			2,
+		);
 
 		act(() => {
 			result.current.storeApi.getState().applyMany([
@@ -118,9 +118,9 @@ describe("useFormRows", () => {
 				},
 			]);
 		});
-		expect(
-			result.current.rows.filter((r) => r.kind === "question"),
-		).toHaveLength(3);
+		expect(result.current.rows.filter((r) => r.kind === "field")).toHaveLength(
+			3,
+		);
 	});
 
 	it("recomputes when the collapsed set reference changes", () => {
@@ -155,17 +155,17 @@ describe("useFormRows", () => {
 			]);
 		});
 
-		/* Group is expanded — all 3 question rows present (form's A + B,
+		/* Group is expanded — all 3 field rows present (form's A + B,
 		 * plus group's child z). */
-		expect(
-			result.current.rows.filter((r) => r.kind === "question"),
-		).toHaveLength(3);
+		expect(result.current.rows.filter((r) => r.kind === "field")).toHaveLength(
+			3,
+		);
 
 		rerender({ collapsed: new Set([groupUuid]) });
 		/* Group is collapsed — child is gone, only bracket rows remain. */
-		expect(
-			result.current.rows.filter((r) => r.kind === "question"),
-		).toHaveLength(2);
+		expect(result.current.rows.filter((r) => r.kind === "field")).toHaveLength(
+			2,
+		);
 		expect(
 			result.current.rows.filter(
 				(r) => r.kind === "group-open" || r.kind === "group-close",

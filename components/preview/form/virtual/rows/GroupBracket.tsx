@@ -139,10 +139,10 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					paddingRight: depthPadding(depth),
 					opacity: isDraggingSelf ? 0.4 : 1,
 				}}
-				data-question-uuid={uuid}
+				data-field-uuid={uuid}
 			>
 				<EditableFieldWrapper
-					questionUuid={uuid}
+					fieldUuid={uuid}
 					isDragging={isDraggingSelf}
 					flatBottomOnSelect={!collapsed}
 				>

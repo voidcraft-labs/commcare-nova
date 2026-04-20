@@ -38,10 +38,10 @@ describe("isDraggableQuestionData", () => {
 });
 
 describe("readDropTargetData", () => {
-	it("narrows drop-question payloads", () => {
+	it("narrows drop-field payloads", () => {
 		const data = makeDropFieldData(Q(1), F, 0);
 		const narrowed = readDropTargetData(data);
-		expect(narrowed?.kind).toBe("drop-question");
+		expect(narrowed?.kind).toBe("drop-field");
 	});
 
 	it("narrows drop-group-header payloads", () => {
@@ -63,7 +63,7 @@ describe("readDropTargetData", () => {
 });
 
 describe("targetContainerUuidFor", () => {
-	it("resolves a drop-question to the target's parent", () => {
+	it("resolves a drop-field to the target's parent", () => {
 		const data = makeDropFieldData(Q(1), F, 0);
 		const drop = readDropTargetData(data);
 		if (!drop) throw new Error("unreachable");
@@ -131,7 +131,7 @@ describe("isUuidInSubtree", () => {
 	});
 
 	it("returns false when the ancestor has no entry in questionOrder", () => {
-		// A leaf question has no order entry — everything outside its own
+		// A leaf field has no order entry — everything outside its own
 		// uuid should register as non-descendant.
 		expect(isUuidInSubtree(order, Q(1), G(1))).toBe(false);
 	});

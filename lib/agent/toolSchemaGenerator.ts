@@ -1,226 +1,298 @@
-// lib/agent/toolSchemaGenerator.ts
+// Generates the SA's field-mutation tool input schemas directly from the
+// domain's `fieldRegistry` + per-kind Zod schemas.
 //
-// Generates SA tool input schemas from the field registry.
+// Three tools share this shape: addFields (batch), addField (single),
+// editField (patch). Each takes the same per-field property set — the
+// difference is wrapping (array vs object), optionality, and whether null
+// is accepted as "clear this property" (patch only).
 //
-// The SA today works with three hand-written schemas in
-// `lib/schemas/toolSchemas.ts`:
+// ## The 8-optional ceiling
 //
-//   - `addQuestionsQuestionSchema` — flat batch generation shape, with 2
-//     required sentinels (label, required) and 8 optionals (hint,
-//     validation, validation_msg, relevant, calculate, default_value,
-//     options, case_property_on) to stay under Anthropic's 8-optional-
-//     per-array-item compiler limit.
-//   - `addQuestionQuestionSchema` — single-field insertion shape.
-//   - `editQuestionUpdatesSchema` — partial patch shape, with nullable
-//     optionals for clearable XPath properties.
+// Anthropic's structured-output schema compiler times out on array-item
+// schemas that carry more than ~8 optional fields. The field union
+// accepts every kind in one shape (the SA picks `kind` at the top), so
+// the full set of optionals is the UNION across all kinds: ~10+. To keep
+// the add-batch schema within the 8-optional cap, `label` and `required`
+// are promoted to REQUIRED fields and carry sentinel values instead:
 //
-// Phase 3 replaces those hand-written definitions with a GENERATED bundle
-// that reads the single-source-of-truth `fieldRegistry` (via the `type`
-// enum — every kind listed in `fieldKinds` must appear in the SA's `type`
-// field).
+//   - `label: ""`   means "no label" (used by hidden fields, which have
+//     no user-visible label but still need a slot in the shape).
+//   - `required: ""` means "not required" (the SA fills an XPath
+//     expression or "true()" when it wants a field required).
 //
-// Why generate: adding a new field kind becomes one edit (a new file
-// under `lib/domain/fields/` plus an entry in the `fieldKinds` tuple).
-// Without the generator the tool schemas, the SA prompt, the compiler,
-// and the validator all need parallel updates for every new kind —
-// exactly the drift the registry is meant to eliminate.
+// `contentProcessing.stripEmpty()` collapses these sentinels to
+// `undefined` before the mutation mapper builds a `Field` — the domain
+// shape never sees an empty string where it expects absence.
 //
-// Wire vocabulary. Phase 3 generates the `flat-sentinels` mode byte-
-// identically to today's hand-written shape — `type` stays as the
-// discriminant key, `validation` / `validation_msg` / `case_property_on`
-// stay as the CommCare-flavored names. The future `per-type` mode (one
-// tool per kind) + the wire-name flip (`kind`, `validate`, `case_property`)
-// are explicit non-goals of this phase (spec §Non-goals).
+// ## Vocabulary
 //
-// Byte-identity. `lib/agent/__tests__/toolSchemaGenerator.test.ts`
-// compares `JSON.stringify(z.toJSONSchema(generated))` to committed
-// fixture snapshots (captured from the CURRENT hand-written schemas
-// BEFORE the generator replaces them). A mismatch anywhere — field
-// order, description string, enum list, required/optional flag — fails
-// the test. This gate ensures the LLM's input schema is visually
-// identical to today's, so the SA's behavior is unaffected by the
-// migration.
+// The SA speaks domain vocabulary end-to-end: `kind`, `validate`,
+// `validate_msg`, `case_property`. There is no translation layer between
+// the LLM and the mutation reducer — tool args flow straight through.
+// CommCare wire terms live only at the emission boundary (`lib/commcare/`
+// for XForm output, `lib/doc/legacyBridge.ts` while the compile path
+// still round-trips the legacy nested shape).
+//
+// ## Per-kind docs
+//
+// The `kind` enum's description is composed from each kind's `saDocs`
+// (in `fieldRegistry[kind].saDocs`) so the SA reads a concise per-kind
+// summary instead of a single-line umbrella. Adding a new kind to
+// `fieldKinds` therefore propagates through the generator automatically
+// — no generator edits, no re-hand-rolling of documentation strings.
 
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
-import { fieldKinds } from "@/lib/domain";
-import {
-	QUESTION_DOCS,
-	questionFields,
-	selectOptionSchema,
-} from "@/lib/schemas/blueprint";
+import { fieldKinds, fieldRegistry, selectOptionSchema } from "@/lib/domain";
 
 /**
- * The mode controls how the generator shapes tool inputs.
- *
- * - `"flat-sentinels"` (Phase 3 default): one `addQuestions` tool that
- *   accepts any `FieldKind` in its `type` field. The optional key set is
- *   the UNION of all kinds' optionals; each field has sentinel defaults
- *   (empty string for strings, `false` for booleans) so the structured-
- *   output compiler stays under Anthropic's per-array-item optional
- *   limit. Post-processing via `stripEmpty()` collapses sentinels back.
- *
- * - `"per-type"` (future): one tool per kind (`addTextFields`,
- *   `addSelectFields`, …). Each tool's schema carries only the kind's
- *   actual optionals, so no sentinel tricks are needed. Enabled by the
- *   caller passing a different mode; Phase 3 ships only flat-sentinels.
+ * The `kind` field's description: a compact per-kind guide the SA reads
+ * when choosing which kind to emit. Each entry is one sentence pulled
+ * from `fieldRegistry[kind].saDocs`, prefixed with the kind name so the
+ * SA sees the discriminant value alongside its meaning.
  */
-export type ToolSchemaMode = "flat-sentinels" | "per-type";
+function buildKindDescription(kinds: readonly FieldKind[]): string {
+	const lines = kinds.map((k) => `  - "${k}": ${fieldRegistry[k].saDocs}`);
+	return [
+		"Field kind — the discriminant that picks which CommCare control and " +
+			"data type to emit. Pick the most specific kind for the data being " +
+			"captured (e.g. `int` for a count, not `text`).",
+		"",
+		...lines,
+	].join("\n");
+}
 
-/**
- * Bundle of generated SA tool schemas.
- *
- * Each field is a Zod schema ready to hand to `tool({ inputSchema: ... })`
- * inside the Solutions Architect. The type is inferred from the generator
- * functions so consumers' `z.infer<typeof ...>` calls see the concrete
- * per-field shape (not `ZodRawShape`, which would erase the field types).
- */
-export type GeneratedToolSchemas = {
-	addQuestionsQuestionSchema: ReturnType<typeof generateAddQuestionsSchema>;
-	addQuestionQuestionSchema: ReturnType<typeof generateAddQuestionSchema>;
-	editQuestionUpdatesSchema: ReturnType<
-		typeof generateEditQuestionUpdatesSchema
-	>;
-};
-
-/**
- * The enum of every kind the SA may reference as a question `type`.
- *
- * Built from the caller-supplied `kinds` tuple (which defaults to the
- * authoritative `fieldKinds` registry) so that the `type` field's enum
- * list stays in lockstep with the domain — adding a kind to
- * `fieldKinds` automatically propagates to the SA's tool schema.
- */
 function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
 		.enum(kinds as readonly [FieldKind, ...FieldKind[]])
-		.describe(QUESTION_DOCS.type);
+		.describe(buildKindDescription(kinds));
 }
 
+// ── Per-property descriptions (SA-facing docstrings) ─────────────────
+//
+// These descriptions live in this file — they're LLM-facing guidance
+// for tool arguments, not domain-layer metadata. The domain's Zod
+// schemas describe the INTERNAL shape (which optional/required),
+// whereas these strings describe the EXTERNAL LLM contract (how to
+// fill each slot, when to use sentinels, hashtag reference rules, etc.).
+//
+// Field names here are the domain names (`validate`, `case_property`,
+// …). If we ever flip to per-type tools (one schema per kind), these
+// strings still apply — they carry the per-property guidance, not the
+// per-kind shape.
+
+const FIELD_DOCS = {
+	id:
+		"Unique identifier per parent level. Use alphanumeric snake_case " +
+		"(must start with a letter). Becomes the XForm node name and the " +
+		"CommCare case-property key when `case_property` is set.",
+	label:
+		"Human-friendly label shown to the end user. Supports hashtag " +
+		"references (`#case/prop`, `#form/path`, `#user/prop`) and " +
+		"markdown. Do NOT use {curly_brace} template syntax — unsupported. " +
+		'Pass "" (empty string) for hidden fields, which have no label.',
+	hint: "Help text rendered below the input.",
+	required:
+		'XPath expression — "true()" for always-required, or a conditional ' +
+		'like "#form/age > 0". Pass "" for not required. Supports hashtag ' +
+		"references.",
+	validate:
+		"XPath expression evaluated when the user leaves the field. " +
+		'Example: ". > 0 and . < 150". Pass "" for no validation. Supports ' +
+		"hashtag references.",
+	validate_msg:
+		"Error message displayed when `validate` evaluates to false. Only " +
+		"meaningful when `validate` is set.",
+	relevant:
+		"XPath expression that conditionally shows/hides this field. " +
+		'Example: "#form/age >= 18". Supports hashtag references.',
+	calculate:
+		"XPath expression evaluated on form load and whenever dependencies " +
+		"update. Used for hidden computed values and derived display fields. " +
+		"Supports hashtag references.",
+	default_value:
+		"XPath expression evaluated once on form load to seed an initial " +
+		"value. Does not re-run on dependency change — use `calculate` for " +
+		"that. Supports hashtag references.",
+	options:
+		"Choice list for single_select / multi_select — minimum 2 options. " +
+		"Omit entirely for other kinds.",
+	case_property:
+		"Case type name this field saves to. When it matches the module's " +
+		"case type, the field becomes a normal case property. When " +
+		"different, the field implicitly creates a child case of that " +
+		'type. The case-name field must always have id "case_name". Must ' +
+		"NOT be set on media fields (image, audio, video, signature).",
+} as const satisfies Record<string, string>;
+
+// ── Reusable Zod field primitives ───────────────────────────────────
+//
+// Each helper returns a fresh Zod schema — never share an instance
+// across multiple generator outputs, because downstream consumers
+// (e.g. `z.toJSONSchema`) mutate the Zod node's internal cache and a
+// shared instance can leak that cache between tools.
+
+const idField = () => z.string().describe(FIELD_DOCS.id);
+const parentIdField = () =>
+	z
+		.string()
+		.describe(
+			'Parent group/repeat id (semantic id, not uuid). Pass "" to ' +
+				"insert at the form's top level.",
+		);
+
+// Sentinel-carrying required fields. Empty string = "not set"; the
+// mutation mapper drops them via `stripEmpty`. Required here so the
+// Anthropic compiler counts them as NON-optional, leaving the 8-slot
+// optional budget free for the real optionals.
+const labelSentinel = () => z.string().describe(FIELD_DOCS.label);
+const requiredSentinel = () => z.string().describe(FIELD_DOCS.required);
+
+// Optional shape primitives — these DO count against the 8-optional
+// ceiling on the batch-item schema.
+const hintField = () => z.string().optional().describe(FIELD_DOCS.hint);
+const validateField = () => z.string().optional().describe(FIELD_DOCS.validate);
+const validateMsgField = () =>
+	z.string().optional().describe(FIELD_DOCS.validate_msg);
+const relevantField = () => z.string().optional().describe(FIELD_DOCS.relevant);
+const calculateField = () =>
+	z.string().optional().describe(FIELD_DOCS.calculate);
+const defaultValueField = () =>
+	z.string().optional().describe(FIELD_DOCS.default_value);
+const optionsField = () =>
+	z.array(selectOptionSchema).optional().describe(FIELD_DOCS.options);
+const casePropertyField = () =>
+	z.string().optional().describe(FIELD_DOCS.case_property);
+
+// Nullable variants for the edit patch. `null` means "clear this
+// property" (distinct from "leave unchanged", which is the key absent).
+// Every clearable edit-patch key uses these — the tool handler maps
+// `null → undefined` before dispatch, and Immer's `Object.assign` drops
+// keys set to `undefined`, which is how the reducer clears a property
+// without needing a separate "remove" mutation.
+const nullableString = (doc: string) =>
+	z.string().nullable().optional().describe(doc);
+const nullableOptions = () =>
+	z
+		.array(selectOptionSchema)
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.options);
+
 /**
- * `addQuestions`-tool batch input shape. Two required sentinels
- * (`label`, `required`) hold strings that the consumer normalizes away
- * via `stripEmpty()`, keeping the optional-field count at exactly 8 —
- * the ceiling the Anthropic structured-output compiler can handle for
- * array items without timing out.
+ * Batch-add item shape. Lives inside `z.array(...)` as the per-item
+ * schema for `addFields`. Eight optional fields exactly — `label` and
+ * `required` are promoted to sentinel-required to stay under the
+ * Anthropic compiler limit.
  */
-function generateAddQuestionsSchema(kinds: readonly FieldKind[]) {
+function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 	return z.object({
-		id: questionFields.id,
-		type: makeKindEnum(kinds),
-		parentId: z
-			.string()
-			.describe("Parent group/repeat ID. Empty string for top-level."),
-		// Required sentinels — empty string means "not set"
-		label: z.string().describe(QUESTION_DOCS.label),
-		required: z.string().describe(QUESTION_DOCS.required),
-		// Optionals — exactly 8 to stay under Anthropic's per-array-item limit
-		hint: questionFields.hint,
-		validation: questionFields.validation,
-		validation_msg: questionFields.validation_msg,
-		relevant: questionFields.relevant,
-		calculate: questionFields.calculate,
-		default_value: questionFields.default_value,
-		options: questionFields.options,
-		case_property_on: questionFields.case_property_on,
+		id: idField(),
+		kind: makeKindEnum(kinds),
+		parentId: parentIdField(),
+		// Required sentinels (don't count against the 8-optional cap).
+		label: labelSentinel(),
+		required: requiredSentinel(),
+		// Eight optionals — the maximum the Anthropic compiler handles per
+		// array item without timing out. Adding a ninth would push the
+		// batch-add tool into compile failures.
+		hint: hintField(),
+		validate: validateField(),
+		validate_msg: validateMsgField(),
+		relevant: relevantField(),
+		calculate: calculateField(),
+		default_value: defaultValueField(),
+		options: optionsField(),
+		case_property: casePropertyField(),
 	});
 }
 
 /**
- * `addQuestion`-tool single-insert shape. All fields optional except
- * `id` and `type` (the SA always knows both). No `parentId` — the
- * caller already located the insertion point.
+ * Single-insert shape used by the `addField` tool. Only `id` and
+ * `kind` are required — the handler already located the insertion
+ * point via separate tool arguments (`parentId`, `beforeFieldId`,
+ * `afterFieldId`). Everything else is genuinely optional: this
+ * schema is NOT inside an array and therefore isn't subject to the
+ * 8-optional ceiling, so no sentinels are needed.
  */
-function generateAddQuestionSchema(kinds: readonly FieldKind[]) {
+function buildAddFieldSchema(kinds: readonly FieldKind[]) {
 	return z.object({
-		id: questionFields.id,
-		type: makeKindEnum(kinds),
-		label: questionFields.label,
-		hint: questionFields.hint,
-		required: questionFields.required,
-		validation: questionFields.validation,
-		validation_msg: questionFields.validation_msg,
-		relevant: questionFields.relevant,
-		calculate: questionFields.calculate,
-		default_value: questionFields.default_value,
-		options: questionFields.options,
-		case_property_on: questionFields.case_property_on,
+		id: idField(),
+		kind: makeKindEnum(kinds),
+		label: z.string().optional().describe(FIELD_DOCS.label),
+		hint: hintField(),
+		required: z.string().optional().describe(FIELD_DOCS.required),
+		validate: validateField(),
+		validate_msg: validateMsgField(),
+		relevant: relevantField(),
+		calculate: calculateField(),
+		default_value: defaultValueField(),
+		options: optionsField(),
+		case_property: casePropertyField(),
 	});
 }
 
 /**
- * `editQuestion`-tool patch shape. Every field optional (the SA only
- * includes properties it wants to change). `relevant` / `calculate` /
- * `default_value` / `options` / `case_property_on` accept `null` so the
- * SA can explicitly CLEAR a value — distinct from "leave unchanged"
- * (field absent).
+ * Edit-patch shape. Every key is optional (omitted = "leave as-is").
+ * Every clearable key is nullable (null = "clear this property"). The
+ * tool handler maps null→undefined before dispatch so the reducer's
+ * Object.assign drops the key and the field goes back to its default.
+ *
+ * `id` and `kind` are also optional but NOT nullable: both are required
+ * identity/structural properties that have no meaningful "cleared"
+ * state. `id` routes through `renameField` before this patch runs;
+ * `kind` routes through `convertField`. Neither reaches the scalar-
+ * patch reducer.
  */
-function generateEditQuestionUpdatesSchema(kinds: readonly FieldKind[]) {
+function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 	return z
 		.object({
-			id: questionFields.id.optional(),
-			label: questionFields.label,
-			type: makeKindEnum(kinds).optional(),
-			hint: questionFields.hint,
-			required: questionFields.required,
-			validation: questionFields.validation,
-			validation_msg: questionFields.validation_msg,
-			// Nullable optionals — accept null to clear the value
-			relevant: z
-				.string()
-				.nullable()
-				.optional()
-				.describe(QUESTION_DOCS.relevant),
-			calculate: z
-				.string()
-				.nullable()
-				.optional()
-				.describe(QUESTION_DOCS.calculate),
-			default_value: z
-				.string()
-				.nullable()
-				.optional()
-				.describe(QUESTION_DOCS.default_value),
-			options: z
-				.array(selectOptionSchema)
-				.nullable()
-				.optional()
-				.describe(QUESTION_DOCS.options),
-			case_property_on: z
-				.string()
-				.nullable()
-				.optional()
-				.describe(QUESTION_DOCS.case_property_on),
+			id: idField().optional(),
+			kind: makeKindEnum(kinds).optional(),
+			label: nullableString(FIELD_DOCS.label),
+			hint: nullableString(FIELD_DOCS.hint),
+			required: nullableString(FIELD_DOCS.required),
+			validate: nullableString(FIELD_DOCS.validate),
+			validate_msg: nullableString(FIELD_DOCS.validate_msg),
+			relevant: nullableString(FIELD_DOCS.relevant),
+			calculate: nullableString(FIELD_DOCS.calculate),
+			default_value: nullableString(FIELD_DOCS.default_value),
+			options: nullableOptions(),
+			case_property: nullableString(FIELD_DOCS.case_property),
 		})
 		.describe(
-			"Properties to update. Only include properties you want to change.",
+			"Properties to update. Omit a key to leave it unchanged; pass " +
+				"`null` on any clearable key to reset it to default. `id` and " +
+				"`kind` changes are structural (rename / convert) — pass the " +
+				"new value directly, no null-clearing needed.",
 		);
 }
 
 /**
- * Generate the three SA tool schemas from the field registry.
- *
- * The `kinds` parameter defaults to `fieldKinds` (the authoritative
- * registry tuple) but is exposed for tests that want to exercise the
- * generator against a custom subset.
- *
- * Throws if the mode is anything other than `"flat-sentinels"` — the
- * per-type mode is explicit future work.
+ * Bundle of generated SA tool schemas. The `addFieldsItemSchema` is the
+ * per-item shape used inside `z.array(...)` for the batch-add tool —
+ * exposed separately so consumers that wrap it in their own input
+ * schema (which adds `moduleIndex`/`formIndex`) can reuse the same
+ * inferred TS type.
+ */
+export type GeneratedToolSchemas = {
+	addFieldsItemSchema: ReturnType<typeof buildAddFieldsItemSchema>;
+	addFieldSchema: ReturnType<typeof buildAddFieldSchema>;
+	editFieldUpdatesSchema: ReturnType<typeof buildEditFieldUpdatesSchema>;
+};
+
+/**
+ * Generate the three SA field-mutation tool schemas from the field
+ * registry. `kinds` defaults to the authoritative `fieldKinds` tuple;
+ * tests may pass a subset to exercise generator behavior without pulling
+ * in the full registry.
  */
 export function generateToolSchemas(
-	mode: ToolSchemaMode,
 	kinds: readonly FieldKind[] = fieldKinds,
 ): GeneratedToolSchemas {
-	if (mode !== "flat-sentinels") {
-		throw new Error(
-			`toolSchemaGenerator: mode "${mode}" is not implemented. ` +
-				`Only "flat-sentinels" is supported in Phase 3.`,
-		);
-	}
-
 	return {
-		addQuestionsQuestionSchema: generateAddQuestionsSchema(kinds),
-		addQuestionQuestionSchema: generateAddQuestionSchema(kinds),
-		editQuestionUpdatesSchema: generateEditQuestionUpdatesSchema(kinds),
+		addFieldsItemSchema: buildAddFieldsItemSchema(kinds),
+		addFieldSchema: buildAddFieldSchema(kinds),
+		editFieldUpdatesSchema: buildEditFieldUpdatesSchema(kinds),
 	};
 }

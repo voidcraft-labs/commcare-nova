@@ -14,16 +14,16 @@
  *
  * Row semantics:
  *
- * - `question`       — a leaf question (text / select / label / hidden).
+ * - `field`          — a leaf field (text / select / label / hidden).
  * - `group-open`     — the opening bracket of a group or repeat container.
  * - `group-close`    — the closing bracket of that same container.
  * - `empty-container`— placeholder row inside a group/repeat that has no
  *                      children; carries the pragmatic-drag-and-drop drop
- *                      target so the user can drop a question into an
+ *                      target so the user can drop a field into an
  *                      empty group.
  * - `insertion`      — the gap between two children of the SAME parent; the
  *                      row IS the gap (24px). Owning the gap as a sibling row
- *                      (rather than margins on question rows) makes it
+ *                      (rather than margins on field rows) makes it
  *                      structurally impossible to accidentally double up
  *                      vertical spacing.
  *
@@ -74,13 +74,13 @@ export interface InsertionRow {
 }
 
 /**
- * A leaf question — any question type other than `group` or `repeat`.
+ * A leaf field — any field kind other than `group` or `repeat`.
  * `parentUuid` + `siblingIndex` locate this row inside its parent's child
  * array so the drop-target `getData` and cycle checks can address it
  * without the row component having to walk the doc itself.
  */
 export interface FieldRow {
-	readonly kind: "question";
+	readonly kind: "field";
 	readonly id: string;
 	readonly uuid: Uuid;
 	readonly parentUuid: Uuid;
@@ -92,7 +92,7 @@ export interface FieldRow {
  * Opening bracket of a group or repeat container. Holds the collapsed flag.
  * Groups and repeats are themselves draggable (the whole container moves
  * when the user drags the bracket), so the row carries the same sortable
- * locator fields as a leaf question.
+ * locator fields as a leaf field.
  */
 export interface GroupOpenRow {
 	readonly kind: "group-open";
@@ -251,7 +251,7 @@ function walk(
 			});
 		} else {
 			rows.push({
-				kind: "question",
+				kind: "field",
 				id: `q:${uuid}`,
 				uuid,
 				parentUuid,

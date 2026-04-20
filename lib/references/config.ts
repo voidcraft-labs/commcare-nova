@@ -11,16 +11,16 @@
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerFileText from "@iconify-icons/tabler/file-text";
 import tablerUser from "@iconify-icons/tabler/user";
-import { qpathId } from "@/lib/services/questionPath";
+import { fpathId } from "@/lib/services/fieldPath";
 import type { Reference, ReferenceType, ReferenceTypeConfig } from "./types";
 
 /**
- * Extract the display ID for a reference chip. Form refs use qpathId to get
- * the leaf question ID from a potentially nested path. Case and user refs
+ * Extract the display ID for a reference chip. Form refs use fpathId to get
+ * the leaf field ID from a potentially nested path. Case and user refs
  * are already bare identifiers — returned as-is.
  */
 export function displayId(ref: Reference): string {
-	return ref.type === "form" ? qpathId(ref.path) : ref.path;
+	return ref.type === "form" ? fpathId(ref.path) : ref.path;
 }
 
 /**

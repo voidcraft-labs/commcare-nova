@@ -9,25 +9,20 @@ import { ValidationError } from "./ValidationError";
 
 interface DateFieldProps {
 	/** Any of the three datetime-family kinds; the input type maps 1-to-1. */
-	question: DateFieldEntity | TimeField | DatetimeField;
+	field: DateFieldEntity | TimeField | DatetimeField;
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
 
-export function DateField({
-	question,
-	state,
-	onChange,
-	onBlur,
-}: DateFieldProps) {
+export function DateField({ field, state, onChange, onBlur }: DateFieldProps) {
 	// `kind` replaces wire `type`. The three kinds map to their native
 	// HTML input types; `datetime` uses `datetime-local` because the
 	// plain `datetime` type is obsolete.
 	const inputType =
-		question.kind === "time"
+		field.kind === "time"
 			? "time"
-			: question.kind === "datetime"
+			: field.kind === "datetime"
 				? "datetime-local"
 				: "date";
 	const showError = state.touched && !state.valid;

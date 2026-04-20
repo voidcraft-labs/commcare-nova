@@ -141,7 +141,7 @@ export function rewriteXPathOnMove(
  * Walk the CST for absolute path expressions matching `targetSegments`.
  * When found, replace everything after `/data/` with the new segments
  * joined by `/`. This handles paths that change depth (e.g. a top-level
- * question moving into a group gains a prefix segment).
+ * field moving into a group gains a prefix segment).
  */
 function walkForAbsolutePaths(
 	node: SyntaxNode,

@@ -218,7 +218,7 @@ function useMutationsWithStore() {
 
 /**
  * Helper: resolve the first form's uuid from the store snapshot. Used
- * by most tests as the `parentUuid` for question mutations.
+ * by most tests as the `parentUuid` for field mutations.
  */
 function getFormUuid(store: BlueprintDocStore | null): Uuid {
 	if (!store) throw new Error("getFormUuid: store is null");
@@ -262,7 +262,7 @@ describe("useBlueprintMutations", () => {
 		expect(ids).not.toContain("a");
 	});
 
-	it("removeQuestion drops the question from order", () => {
+	it("removeField drops the field from order", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -286,9 +286,9 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.appName).toBe("New");
 	});
 
-	// ── addQuestion ────────────────────────────────────────────────────────
+	// ── addField ────────────────────────────────────────────────────────
 
-	it("addQuestion returns the new question's uuid", () => {
+	it("addField returns the new field's uuid", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -304,13 +304,13 @@ describe("useBlueprintMutations", () => {
 		});
 
 		// Returned value is a uuid (non-empty string) and matches the newly
-		// inserted question in the form's children.
+		// inserted field in the form's children.
 		expect(returned).toMatch(/[0-9a-f-]/);
 		const inserted = result.current.children.find((q) => q.id === "d");
 		expect(inserted?.uuid).toBe(returned);
 	});
 
-	it("addQuestion with parentUuid inserts into a group", () => {
+	it("addField with parentUuid inserts into a group", () => {
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
@@ -326,7 +326,7 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.groupChildren.map((q) => q.id)).toEqual(["c", "c2"]);
 	});
 
-	it("addQuestion with afterUuid/beforeUuid positions correctly", () => {
+	it("addField with afterUuid/beforeUuid positions correctly", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -411,7 +411,7 @@ describe("useBlueprintMutations", () => {
 
 		expect(dup).toBeDefined();
 		expect(dup?.newUuid).toMatch(/[0-9a-f-]/);
-		// The duplicated question's path is top-level (no slashes) and its id
+		// The duplicated field's path is top-level (no slashes) and its id
 		// should be either `a` + dedup suffix.
 		expect(dup?.newPath.startsWith("a")).toBe(true);
 		// The new uuid should actually exist in the current form's children.
@@ -868,13 +868,13 @@ describe("useBlueprintMutations", () => {
 
 	it("moveField returns MoveFieldResult with renamed on cross-parent dedup", () => {
 		// Use the fixture that has form F0 with [a, b, grp > [c]].
-		// Add a question with id "a" inside the group, then move Q_A into the
+		// Add a field with id "a" inside the group, then move Q_A into the
 		// group — it should dedup to "a_2".
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
 
-		// Seed a question inside the group with id "a" to force dedup.
+		// Seed a field inside the group with id "a" to force dedup.
 		act(() => {
 			result.current.mutations.addField(Q_G, {
 				id: "a",

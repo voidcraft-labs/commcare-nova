@@ -9,7 +9,7 @@ describe("rewriteXPathRefs", () => {
 			);
 		});
 
-		it("rewrites a nested question reference", () => {
+		it("rewrites a nested field reference", () => {
 			expect(
 				rewriteXPathRefs(
 					'/data/group/old_id = "yes"',
@@ -52,7 +52,7 @@ describe("rewriteXPathRefs", () => {
 			).toBe('if(/data/new_id = "yes", "a", "b")');
 		});
 
-		it("handles predicates referencing the question", () => {
+		it("handles predicates referencing the field", () => {
 			expect(
 				rewriteXPathRefs(
 					"count(/data/repeat[/data/old_id > 0])",

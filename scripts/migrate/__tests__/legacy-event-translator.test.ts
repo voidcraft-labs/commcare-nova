@@ -10,8 +10,9 @@
 
 import { assert, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintForm } from "@/lib/doc/legacyTypes";
 import { asUuid, type BlueprintDoc, type Mutation } from "@/lib/doc/types";
-import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
+import type { CaseType } from "@/lib/domain";
 import { toDocMutations } from "../legacy-event-translator";
 
 const APP_ID = "test-app-id";

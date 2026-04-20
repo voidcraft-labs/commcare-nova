@@ -47,7 +47,7 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([formUuid]);
 	});
 
-	it("returns [selectedUuid] when a question is selected (flat — parser derives form)", () => {
+	it("returns [selectedUuid] when a field is selected (flat — parser derives form)", () => {
 		const loc: Location = {
 			kind: "form",
 			moduleUuid: modUuid,
@@ -106,7 +106,7 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("parses form+selection from single segment (question UUID)", () => {
+	it("parses form+selection from single segment (field UUID)", () => {
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
 			fields: { [qUuid]: { uuid: qUuid } as never },
@@ -163,7 +163,7 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("falls back to form without selection when second segment is not a question", () => {
+	it("falls back to form without selection when second segment is not a field", () => {
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
 			formOrder: { [modUuid]: [formUuid] },
@@ -175,7 +175,7 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("resolves nested question (inside a group) to its parent form", () => {
+	it("resolves nested field (inside a group) to its parent form", () => {
 		const groupUuid = asUuid("44444444-4444-4444-4444-444444444444");
 		const nestedQUuid = asUuid("55555555-5555-5555-5555-555555555555");
 		const doc = makeParseDoc({
@@ -288,7 +288,7 @@ describe("isValidLocation", () => {
 		).toBe(true);
 	});
 
-	it("rejects form when selectedUuid points to a missing question", () => {
+	it("rejects form when selectedUuid points to a missing field", () => {
 		const doc = docWith({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 			forms: { [formUuid]: { uuid: formUuid } as never },
@@ -306,7 +306,7 @@ describe("isValidLocation", () => {
 		).toBe(false);
 	});
 
-	it("accepts form when selectedUuid points to an existing question", () => {
+	it("accepts form when selectedUuid points to an existing field", () => {
 		const doc = docWith({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 			forms: { [formUuid]: { uuid: formUuid } as never },

@@ -36,7 +36,7 @@ interface LabelContentProps {
  * Split a text node on ref patterns and render chips inline. Uses
  * parseLabelSegments (canonical regex split) so the pattern logic lives
  * in one place. Optional `iconOverrides` enriches form refs with
- * question-type icons when rendering outside the ReferenceProvider context.
+ * field-kind icons when rendering outside the ReferenceProvider context.
  */
 export function textWithChips(
 	text: string,

@@ -23,7 +23,7 @@ const Q_UUID = asUuid("q-111-0000-0000-0000-000000000000");
 
 /**
  * Seed the store with a normalized `BlueprintDoc` containing one module,
- * one form, and one text question. Returns the store + stable UUIDs so
+ * one form, and one text field. Returns the store + stable UUIDs so
  * tests can assert on entity access without re-deriving them.
  *
  * `load()` now accepts the normalized shape directly — no `toDoc` or
@@ -63,13 +63,13 @@ function setup() {
 	store.getState().load(doc);
 	const moduleUuid = store.getState().moduleOrder[0];
 	const formUuid = store.getState().formOrder[moduleUuid][0];
-	const questionUuid = store.getState().fieldOrder[formUuid][0];
+	const fieldUuid = store.getState().fieldOrder[formUuid][0];
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<BlueprintDocContext.Provider value={store}>
 			{children}
 		</BlueprintDocContext.Provider>
 	);
-	return { store, wrapper, moduleUuid, formUuid, questionUuid };
+	return { store, wrapper, moduleUuid, formUuid, fieldUuid };
 }
 
 describe("useModule / useForm / useField", () => {
@@ -88,12 +88,12 @@ describe("useModule / useForm / useField", () => {
 	});
 
 	it("does not re-render when an unrelated entity changes", () => {
-		const { store, wrapper, questionUuid } = setup();
+		const { store, wrapper, fieldUuid } = setup();
 		let renderCount = 0;
 		renderHook(
 			() => {
 				renderCount++;
-				return useField(questionUuid);
+				return useField(fieldUuid);
 			},
 			{ wrapper },
 		);
@@ -102,7 +102,7 @@ describe("useModule / useForm / useField", () => {
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "Changed" }]);
 		});
-		// setAppName doesn't touch any question entity, so Immer preserves
+		// setAppName doesn't touch any field entity, so Immer preserves
 		// the reference — useField must NOT re-render.
 		expect(renderCount).toBe(initialRenders);
 	});
@@ -155,12 +155,12 @@ describe("useOrderedForms", () => {
 
 describe("useOrderedFields", () => {
 	it("returns uuids of children under a given parent (form or group)", () => {
-		const { wrapper, formUuid, questionUuid } = setup();
+		const { wrapper, formUuid, fieldUuid } = setup();
 		const { result } = renderHook(() => useOrderedFields(formUuid), {
 			wrapper,
 		});
 		expect(result.current).toHaveLength(1);
-		expect(result.current[0]).toBe(questionUuid);
+		expect(result.current[0]).toBe(fieldUuid);
 	});
 
 	it("returns empty array when parent has no children or doesn't exist", () => {

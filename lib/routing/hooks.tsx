@@ -4,7 +4,7 @@
  *
  * The URL on /build/[id] is the sole source of truth for "where you are"
  * (home / module / case list / form) and "what's focused" (selected
- * question). Nothing in any Zustand store represents this state.
+ * field). Nothing in any Zustand store represents this state.
  *
  * Navigation uses the browser History API directly (pushState/replaceState)
  * instead of Next.js's router to avoid server-side RSC re-renders on
@@ -16,10 +16,10 @@
  * 1. **Screen changes** (home ↔ module ↔ form) use `pushState` so each
  *    move becomes a browser history entry. The back/forward buttons
  *    traverse this history for free.
- * 2. **Selection changes** (the question UUID segment flipping on clicks)
+ * 2. **Selection changes** (the field UUID segment flipping on clicks)
  *    use `replaceState` so rapid clicking through questions doesn't
  *    flood history. Back from a form goes to the module, not through
- *    every question the user happened to click in that form.
+ *    every field the user happened to click in that form.
  */
 
 "use client";
@@ -151,7 +151,7 @@ export function useIsFormSelected(uuid: Uuid): boolean {
 }
 
 /**
- * `true` when a specific question uuid is the current selection.
+ * `true` when a specific field uuid is the current selection.
  * Each `EditableFieldWrapper` calls this with its own identity —
  * only the previously-selected and newly-selected wrappers re-render
  * on a selection change.
@@ -334,7 +334,7 @@ export function parentLocation(loc: Location): Location | undefined {
 }
 
 /**
- * Selection-only operation. Updates the question UUID segment on the
+ * Selection-only operation. Updates the field UUID segment on the
  * current form URL without otherwise changing the screen. No-ops when
  * not on a form location (selection only exists inside a form).
  *
@@ -352,7 +352,7 @@ export function useSelect(): SelectAction {
 
 	/* Ref for `loc` so the returned callback doesn't churn on every
 	 * selection change. The callback only needs the screen identity
-	 * (moduleUuid, formUuid) — not the selected question — and those
+	 * (moduleUuid, formUuid) — not the selected field — and those
 	 * only change on screen navigation, not selection clicks. */
 	const locRef = useRef(loc);
 	locRef.current = loc;

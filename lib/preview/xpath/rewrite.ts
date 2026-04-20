@@ -39,7 +39,7 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
 }
 
 /**
- * Rewrite question path references in an XPath expression.
+ * Rewrite field path references in an XPath expression.
  *
  * Uses the Lezer parser to find exact source positions of path segments
  * and hashtag references, then surgically replaces matching occurrences.
@@ -49,8 +49,8 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  * - Hashtag refs: #form/old_id → #form/new_id (top-level questions only)
  *
  * @param expr       The XPath expression to rewrite
- * @param oldPath    The old question path segments (e.g. 'old_id' or 'group/old_id')
- * @param newId      The new question ID (replaces the final segment)
+ * @param oldPath    The old field path segments (e.g. 'old_id' or 'group/old_id')
+ * @param newId      The new field ID (replaces the final segment)
  */
 export function rewriteXPathRefs(
 	expr: string,
@@ -124,7 +124,7 @@ function walkForPaths(
 				(seg, i) => seg.text === targetSegments[i],
 			);
 			if (matches) {
-				// Replace the final segment (the question ID)
+				// Replace the final segment (the field ID)
 				const last = collected[collected.length - 1];
 				edits.push({ from: last.from, to: last.to, text: newId });
 				return; // Don't recurse into matched path's children

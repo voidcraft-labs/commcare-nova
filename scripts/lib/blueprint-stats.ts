@@ -1,83 +1,83 @@
 /**
  * Blueprint analysis functions for diagnostic scripts.
  *
- * Computes structural metrics, quality indicators, and logic element
- * counts from an AppBlueprint. All functions are pure — they take
- * blueprint data and return computed results. No Firestore access.
+ * Operates on the normalized `BlueprintDoc` shape persisted in Firestore.
+ * Each form is visited in a single DFS pass — the collected `Field[]` is
+ * reused across every per-form metric (kind counts, logic counts, case
+ * property count, quality flags). This is a deliberate departure from
+ * the first draft which made six independent walks per form.
  *
- * Used by inspect-app (--stats, --logic, --case-lists) and
- * inspect-compare (side-by-side quality comparison).
+ * Field discriminator is `kind` (not `type`); validation key is
+ * `validate` (not `validation`); case linkage is `case_property` (not
+ * `case_property_on`). Children live in `fieldOrder[parentUuid]`, not
+ * on the field itself.
  */
 
-import type {
-	AppBlueprint,
-	BlueprintForm,
-	BlueprintModule,
-	Question,
-} from "./types";
+import { isContainer } from "../../lib/domain";
+import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
 // ── Result types ────────────────────────────────────────────────────
 
-/** Counts of questions grouped by their `type` field. */
-export interface QuestionTypeCounts {
+/** Counts of fields grouped by their `kind` discriminator. */
+export interface FieldKindCounts {
 	/** e.g. { text: 12, int: 5, single_select: 8, group: 3, hidden: 2 } */
-	byType: Record<string, number>;
+	byKind: Record<string, number>;
 	/** Total including nested children. */
 	total: number;
 }
 
 /**
- * Counts of "logic elements" — questions that have XPath expressions.
+ * Counts of "logic elements" — fields that carry XPath expressions.
  *
- * These are the indicators of form sophistication: how much conditional
- * behavior, validation, and computed state the form contains. A form
- * with many logic elements handles edge cases well; one with few is
- * a basic data entry form.
+ * Indicators of form sophistication: how much conditional behavior,
+ * validation, and computed state the form contains.
  */
 export interface LogicCounts {
-	/** Questions with a `calculate` expression (computed fields). */
+	/** Fields with a `calculate` expression (computed fields). */
 	calculates: number;
-	/** Questions with a `relevant` expression (show-when / skip logic). */
+	/** Fields with a `relevant` expression (show-when / skip logic). */
 	relevants: number;
-	/** Questions with a `default_value` expression. */
+	/** Fields with a `default_value` expression. */
 	defaults: number;
-	/** Questions with a `validation` expression. */
+	/** Fields with a `validate` expression. */
 	validations: number;
-	/** Questions with a `required` expression set to something other than "false()". */
+	/** Fields with a `required` expression set to something other than "false()". */
 	requireds: number;
-	/** Questions with a `hint` string. */
+	/** Fields with a `hint` string. */
 	hints: number;
-	/** Questions of type "label" (display-only, no data capture). */
+	/** Fields of kind "label" (display-only, no data capture). */
 	labels: number;
-	/** Total unique questions with at least one logic element. */
-	questionsWithLogic: number;
+	/** Total unique fields with at least one logic element. */
+	fieldsWithLogic: number;
 }
 
 /** Per-form summary statistics. */
 export interface FormStats {
+	uuid: Uuid;
 	name: string;
 	type: string;
-	questionCount: number;
-	questionTypes: QuestionTypeCounts;
+	fieldCount: number;
+	fieldKinds: FieldKindCounts;
 	logic: LogicCounts;
 	hasPostSubmit: boolean;
 	postSubmitValue: string | undefined;
 	hasCloseCase: boolean;
 	hasFormLinks: boolean;
 	hasConnect: boolean;
-	/** Number of case properties saved by this form (questions with case_property_on). */
+	/** Number of case properties saved by this form (fields with case_property). */
 	casePropertyCount: number;
 }
 
 /** Per-module summary statistics. */
 export interface ModuleStats {
+	uuid: Uuid;
 	name: string;
 	caseType: string | undefined;
 	caseListOnly: boolean;
 	caseListColumns: number;
 	caseDetailColumns: number;
 	forms: FormStats[];
-	totalQuestions: number;
+	totalFields: number;
 }
 
 /** Top-level blueprint analysis result. */
@@ -88,15 +88,15 @@ export interface BlueprintStats {
 	totals: {
 		modules: number;
 		forms: number;
-		questions: number;
-		questionTypes: QuestionTypeCounts;
+		fields: number;
+		fieldKinds: FieldKindCounts;
 		logic: LogicCounts;
 		/** Form count by type, e.g. { registration: 2, followup: 3, survey: 1 }. */
 		formsByType: Record<string, number>;
 	};
 	/** Quality flags — things that might indicate missing configuration. */
 	qualityFlags: QualityFlag[];
-	/** Case types defined in the blueprint. */
+	/** Case types defined in the doc. */
 	caseTypes: Array<{
 		name: string;
 		propertyCount: number;
@@ -113,63 +113,72 @@ export interface QualityFlag {
 }
 
 /**
- * A question with at least one logic element, for the --logic view.
+ * A field with at least one logic element, for the --logic view.
  *
- * Includes the full tree path so a user can locate the question within
- * the blueprint without having to search for it by ID.
+ * Includes the full tree path so a user can locate the field within
+ * the doc without having to search for it by id.
  */
-export interface LogicQuestion {
-	/** Full path: "Module > Form > group_id > question_id" */
+export interface LogicField {
+	/** Full path: "Module > Form > group_id > field_id" */
 	path: string;
-	type: string;
+	kind: string;
 	id: string;
 	/** Which logic elements are present. */
 	has: Array<
-		"calculate" | "relevant" | "default" | "validation" | "required" | "hint"
+		"calculate" | "relevant" | "default" | "validate" | "required" | "hint"
 	>;
 	/** The actual expressions, keyed by element name. */
 	expressions: Record<string, string>;
 }
 
-// ── Core counting functions ─────────────────────────────────────────
+// ── Core walking helpers ────────────────────────────────────────────
 
-/** Recursively count all questions (including children in groups/repeats). */
-export function countQuestions(questions: Question[]): number {
-	let count = 0;
-	for (const q of questions) {
-		count++;
-		if (q.children?.length) {
-			count += countQuestions(q.children);
+/**
+ * Collect every field uuid under `parentUuid` (recursive, containers
+ * included). The parent itself is NOT returned. Safe against dangling
+ * uuids in `fieldOrder` — entries whose field has been removed are
+ * skipped.
+ *
+ * Private to this module. Callers that only need a count import
+ * `countFieldsUnder` from `@/lib/doc/fieldWalk`; this function exists
+ * because every per-form analysis needs the full `Field[]` for
+ * kind counts, logic counts, and case-property counts in one pass.
+ */
+function collectFieldsUnder(doc: BlueprintDoc, parentUuid: Uuid): Field[] {
+	const out: Field[] = [];
+	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
+	while (stack.length > 0) {
+		const uuid = stack.pop() as Uuid;
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		out.push(field);
+		if (isContainer(field)) {
+			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
 		}
 	}
-	return count;
-}
-
-/** Count questions grouped by type, recursively through children. */
-export function countQuestionTypes(questions: Question[]): QuestionTypeCounts {
-	const byType: Record<string, number> = {};
-	let total = 0;
-
-	function walk(qs: Question[]) {
-		for (const q of qs) {
-			const t = q.type ?? "unknown";
-			byType[t] = (byType[t] ?? 0) + 1;
-			total++;
-			if (q.children?.length) walk(q.children);
-		}
-	}
-
-	walk(questions);
-	return { byType, total };
+	return out;
 }
 
 /**
- * Count logic elements across all questions, recursively.
- *
- * A question "has logic" if it has at least one of: calculate, relevant,
- * default_value, validation, required (non-false), or hint.
+ * Count fields grouped by `kind` from a pre-collected list. Pure
+ * over the list — no walk.
  */
-export function countLogicElements(questions: Question[]): LogicCounts {
+function countKindsFromList(fields: Field[]): FieldKindCounts {
+	const byKind: Record<string, number> = {};
+	for (const f of fields) {
+		byKind[f.kind] = (byKind[f.kind] ?? 0) + 1;
+	}
+	return { byKind, total: fields.length };
+}
+
+/**
+ * Count logic elements from a pre-collected list. A field "has logic"
+ * if it carries at least one of: calculate, relevant, default_value,
+ * validate, required (non-false), or hint. Not every field kind carries
+ * every key — reads are guarded via `in` because the discriminated
+ * union doesn't narrow across per-key access.
+ */
+function countLogicFromList(fields: Field[]): LogicCounts {
 	const counts: LogicCounts = {
 		calculates: 0,
 		relevants: 0,
@@ -178,105 +187,125 @@ export function countLogicElements(questions: Question[]): LogicCounts {
 		requireds: 0,
 		hints: 0,
 		labels: 0,
-		questionsWithLogic: 0,
+		fieldsWithLogic: 0,
 	};
 
-	function walk(qs: Question[]) {
-		for (const q of qs) {
-			let hasAny = false;
+	for (const f of fields) {
+		let hasAny = false;
 
-			if (q.calculate) {
-				counts.calculates++;
-				hasAny = true;
-			}
-			if (q.relevant) {
-				counts.relevants++;
-				hasAny = true;
-			}
-			if (q.default_value) {
-				counts.defaults++;
-				hasAny = true;
-			}
-			if (q.validation) {
-				counts.validations++;
-				hasAny = true;
-			}
-			/* required = "true()" is meaningful; "false()" is the default / absent. */
-			if (q.required && q.required !== "false()") {
-				counts.requireds++;
-				hasAny = true;
-			}
-			if (q.hint) {
-				counts.hints++;
-				hasAny = true;
-			}
-			if (q.type === "label") {
-				counts.labels++;
-			}
-
-			if (hasAny) counts.questionsWithLogic++;
-
-			if (q.children?.length) walk(q.children);
+		if ("calculate" in f && f.calculate) {
+			counts.calculates++;
+			hasAny = true;
 		}
+		if ("relevant" in f && f.relevant) {
+			counts.relevants++;
+			hasAny = true;
+		}
+		if ("default_value" in f && f.default_value) {
+			counts.defaults++;
+			hasAny = true;
+		}
+		if ("validate" in f && f.validate) {
+			counts.validations++;
+			hasAny = true;
+		}
+		/* required = "true()" is meaningful; "false()" is the default / absent. */
+		if ("required" in f && f.required && f.required !== "false()") {
+			counts.requireds++;
+			hasAny = true;
+		}
+		if ("hint" in f && f.hint) {
+			counts.hints++;
+			hasAny = true;
+		}
+		if (f.kind === "label") {
+			counts.labels++;
+		}
+
+		if (hasAny) counts.fieldsWithLogic++;
 	}
 
-	walk(questions);
 	return counts;
 }
 
 /**
- * Count questions that save to a case property (have case_property_on set).
- * Recurses through children in groups/repeats.
+ * Count fields from a pre-collected list that save to a case property
+ * (have `case_property` set).
  */
-function countCaseProperties(questions: Question[]): number {
+function countCasePropertiesFromList(fields: Field[]): number {
 	let count = 0;
-	function walk(qs: Question[]) {
-		for (const q of qs) {
-			if (q.case_property_on) count++;
-			if (q.children?.length) walk(q.children);
-		}
+	for (const f of fields) {
+		if ("case_property" in f && f.case_property) count++;
 	}
-	walk(questions);
 	return count;
 }
 
 // ── Per-entity analysis ─────────────────────────────────────────────
 
-/** Compute full stats for a single form. */
-export function analyzeForm(form: BlueprintForm): FormStats {
-	const questions = form.questions ?? [];
-	return {
+/** Internal: form stats + the collected field list used to produce them. */
+interface FormAnalysis {
+	stats: FormStats;
+	fields: Field[];
+}
+
+/**
+ * Compute stats for a single form with exactly one DFS walk. Returns
+ * both the stats and the collected field list so the caller
+ * (`analyzeBlueprint` → `checkQuality`) can reuse the walk for the
+ * quality-flag checks instead of re-traversing.
+ */
+function analyzeForm(doc: BlueprintDoc, form: Form): FormAnalysis {
+	const fields = collectFieldsUnder(doc, form.uuid);
+	const stats: FormStats = {
+		uuid: form.uuid,
 		name: form.name,
 		type: form.type,
-		questionCount: countQuestions(questions),
-		questionTypes: countQuestionTypes(questions),
-		logic: countLogicElements(questions),
-		hasPostSubmit: form.post_submit !== undefined,
-		postSubmitValue: form.post_submit,
+		fieldCount: fields.length,
+		fieldKinds: countKindsFromList(fields),
+		logic: countLogicFromList(fields),
+		hasPostSubmit: form.postSubmit !== undefined,
+		postSubmitValue: form.postSubmit,
 		hasCloseCase: form.type === "close",
-		hasFormLinks: (form.form_links?.length ?? 0) > 0,
-		hasConnect: form.connect !== undefined,
-		casePropertyCount: countCaseProperties(questions),
+		hasFormLinks: (form.formLinks?.length ?? 0) > 0,
+		hasConnect: form.connect != null,
+		casePropertyCount: countCasePropertiesFromList(fields),
 	};
+	return { stats, fields };
 }
 
-/** Compute full stats for a single module. */
-export function analyzeModule(mod: BlueprintModule): ModuleStats {
-	const forms = (mod.forms ?? []).map(analyzeForm);
-	return {
+/** Internal: module stats + per-form collected fields (keyed by form uuid). */
+interface ModuleAnalysis {
+	stats: ModuleStats;
+	formFields: Map<Uuid, Field[]>;
+}
+
+function analyzeModule(doc: BlueprintDoc, mod: Module): ModuleAnalysis {
+	const formUuids = doc.formOrder[mod.uuid] ?? [];
+	const analyses = formUuids
+		.map((uuid) => doc.forms[uuid])
+		.filter((f): f is Form => f !== undefined)
+		.map((f) => analyzeForm(doc, f));
+
+	const formFields = new Map<Uuid, Field[]>();
+	for (const { stats, fields } of analyses) {
+		formFields.set(stats.uuid, fields);
+	}
+
+	const stats: ModuleStats = {
+		uuid: mod.uuid,
 		name: mod.name,
-		caseType: mod.case_type,
-		caseListOnly: mod.case_list_only ?? false,
-		caseListColumns: mod.case_list_columns?.length ?? 0,
-		caseDetailColumns: mod.case_detail_columns?.length ?? 0,
-		forms,
-		totalQuestions: forms.reduce((sum, f) => sum + f.questionCount, 0),
+		caseType: mod.caseType,
+		caseListOnly: mod.caseListOnly ?? false,
+		caseListColumns: mod.caseListColumns?.length ?? 0,
+		caseDetailColumns: mod.caseDetailColumns?.length ?? 0,
+		forms: analyses.map((a) => a.stats),
+		totalFields: analyses.reduce((sum, a) => sum + a.stats.fieldCount, 0),
 	};
+	return { stats, formFields };
 }
 
-// ── Aggregate logic helpers ─────────────────────────────────────────
+// ── Aggregate helpers ───────────────────────────────────────────────
 
-/** Merge two LogicCounts by summing every field. */
 function mergeLogicCounts(a: LogicCounts, b: LogicCounts): LogicCounts {
 	return {
 		calculates: a.calculates + b.calculates,
@@ -286,23 +315,21 @@ function mergeLogicCounts(a: LogicCounts, b: LogicCounts): LogicCounts {
 		requireds: a.requireds + b.requireds,
 		hints: a.hints + b.hints,
 		labels: a.labels + b.labels,
-		questionsWithLogic: a.questionsWithLogic + b.questionsWithLogic,
+		fieldsWithLogic: a.fieldsWithLogic + b.fieldsWithLogic,
 	};
 }
 
-/** Merge two QuestionTypeCounts by summing every key. */
-function mergeQuestionTypes(
-	a: QuestionTypeCounts,
-	b: QuestionTypeCounts,
-): QuestionTypeCounts {
-	const merged: Record<string, number> = { ...a.byType };
-	for (const [type, count] of Object.entries(b.byType)) {
-		merged[type] = (merged[type] ?? 0) + count;
+function mergeFieldKinds(
+	a: FieldKindCounts,
+	b: FieldKindCounts,
+): FieldKindCounts {
+	const merged: Record<string, number> = { ...a.byKind };
+	for (const [kind, count] of Object.entries(b.byKind)) {
+		merged[kind] = (merged[kind] ?? 0) + count;
 	}
-	return { byType: merged, total: a.total + b.total };
+	return { byKind: merged, total: a.total + b.total };
 }
 
-/** Zero-valued LogicCounts for use as an accumulator seed. */
 const EMPTY_LOGIC: LogicCounts = {
 	calculates: 0,
 	relevants: 0,
@@ -311,39 +338,41 @@ const EMPTY_LOGIC: LogicCounts = {
 	requireds: 0,
 	hints: 0,
 	labels: 0,
-	questionsWithLogic: 0,
+	fieldsWithLogic: 0,
 };
 
-/** Zero-valued QuestionTypeCounts for use as an accumulator seed. */
-const EMPTY_TYPES: QuestionTypeCounts = { byType: {}, total: 0 };
+const EMPTY_KINDS: FieldKindCounts = { byKind: {}, total: 0 };
 
 // ── Main entry point ────────────────────────────────────────────────
 
 /**
  * Compute comprehensive blueprint statistics.
  *
- * Analyzes the entire blueprint and returns structured stats suitable
- * for display (--stats), comparison (inspect-compare), and quality flagging.
+ * Walks the normalized doc in `moduleOrder` / `formOrder` order so the
+ * output matches the user's visual mental model. Each form is DFS-walked
+ * exactly once; the collected field lists feed both the per-form
+ * analysis and the quality-flag checks.
  */
-export function analyzeBlueprint(bp: AppBlueprint): BlueprintStats {
-	const modules = (bp.modules ?? []).map(analyzeModule);
+export function analyzeBlueprint(doc: BlueprintDoc): BlueprintStats {
+	const moduleAnalyses = doc.moduleOrder
+		.map((uuid) => doc.modules[uuid])
+		.filter((m): m is Module => m !== undefined)
+		.map((m) => analyzeModule(doc, m));
 
-	/* Aggregate totals across all modules. */
+	const modules = moduleAnalyses.map((a) => a.stats);
 	const totalForms = modules.reduce((sum, m) => sum + m.forms.length, 0);
-	const totalQuestions = modules.reduce((sum, m) => sum + m.totalQuestions, 0);
+	const totalFields = modules.reduce((sum, m) => sum + m.totalFields, 0);
 
 	const totalLogic = modules.reduce(
 		(acc, m) => m.forms.reduce((a, f) => mergeLogicCounts(a, f.logic), acc),
 		EMPTY_LOGIC,
 	);
 
-	const totalTypes = modules.reduce(
-		(acc, m) =>
-			m.forms.reduce((a, f) => mergeQuestionTypes(a, f.questionTypes), acc),
-		EMPTY_TYPES,
+	const totalKinds = modules.reduce(
+		(acc, m) => m.forms.reduce((a, f) => mergeFieldKinds(a, f.fieldKinds), acc),
+		EMPTY_KINDS,
 	);
 
-	/* Count forms by type (registration, followup, survey). */
 	const formsByType: Record<string, number> = {};
 	for (const m of modules) {
 		for (const f of m.forms) {
@@ -351,98 +380,105 @@ export function analyzeBlueprint(bp: AppBlueprint): BlueprintStats {
 		}
 	}
 
-	/* Extract case type summary. */
-	const caseTypes = (bp.case_types ?? []).map((ct) => ({
+	const caseTypes = (doc.caseTypes ?? []).map((ct) => ({
 		name: ct.name,
 		propertyCount: ct.properties?.length ?? 0,
 		parentType: ct.parent_type,
 	}));
 
 	return {
-		appName: bp.app_name,
-		connectType: bp.connect_type,
+		appName: doc.appName,
+		connectType: doc.connectType ?? undefined,
 		modules,
 		totals: {
 			modules: modules.length,
 			forms: totalForms,
-			questions: totalQuestions,
-			questionTypes: totalTypes,
+			fields: totalFields,
+			fieldKinds: totalKinds,
 			logic: totalLogic,
 			formsByType,
 		},
-		qualityFlags: checkQuality(bp, modules),
+		qualityFlags: checkQuality(doc, moduleAnalyses),
 		caseTypes,
 	};
 }
 
-// ── Logic question extraction ───────────────────────────────────────
+// ── Logic field extraction ──────────────────────────────────────────
 
 /**
- * Extract all questions with logic elements, with full tree paths.
+ * Extract all fields with logic elements, with full tree paths.
  *
- * Returns a flat list of "smart" questions — those with at least one
- * calculate, relevant, default_value, validation, required, or hint.
- * Used by the --logic flag to show only the logic-bearing questions.
+ * Walks the ordered tree (not the flat entity table) so paths reflect
+ * actual containment.
  */
-export function extractLogicQuestions(bp: AppBlueprint): LogicQuestion[] {
-	const results: LogicQuestion[] = [];
+export function extractLogicFields(doc: BlueprintDoc): LogicField[] {
+	const results: LogicField[] = [];
 
-	for (const mod of bp.modules ?? []) {
-		for (const form of mod.forms ?? []) {
-			walkForLogic(results, mod.name, form.name, "", form.questions ?? []);
+	for (const modUuid of doc.moduleOrder) {
+		const mod = doc.modules[modUuid];
+		if (!mod) continue;
+		for (const formUuid of doc.formOrder[modUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (!form) continue;
+			walkForLogic(doc, results, mod.name, form.name, "", form.uuid);
 		}
 	}
 
 	return results;
 }
 
-/** Recursive walker that collects questions with logic into `out`. */
+/** Recursive walker that collects fields with logic into `out`. */
 function walkForLogic(
-	out: LogicQuestion[],
+	doc: BlueprintDoc,
+	out: LogicField[],
 	moduleName: string,
 	formName: string,
 	parentPath: string,
-	questions: Question[],
+	parentUuid: Uuid,
 ) {
-	for (const q of questions) {
-		const path = parentPath
-			? `${parentPath}/${q.id}`
-			: `${moduleName} > ${formName} > ${q.id}`;
+	const childUuids = doc.fieldOrder[parentUuid] ?? [];
+	for (const uuid of childUuids) {
+		const f = doc.fields[uuid];
+		if (!f) continue;
 
-		const has: LogicQuestion["has"] = [];
+		const path = parentPath
+			? `${parentPath}/${f.id}`
+			: `${moduleName} > ${formName} > ${f.id}`;
+
+		const has: LogicField["has"] = [];
 		const expressions: Record<string, string> = {};
 
-		if (q.calculate) {
+		if ("calculate" in f && f.calculate) {
 			has.push("calculate");
-			expressions.calculate = q.calculate;
+			expressions.calculate = f.calculate;
 		}
-		if (q.relevant) {
+		if ("relevant" in f && f.relevant) {
 			has.push("relevant");
-			expressions.relevant = q.relevant;
+			expressions.relevant = f.relevant;
 		}
-		if (q.default_value) {
+		if ("default_value" in f && f.default_value) {
 			has.push("default");
-			expressions.default = q.default_value;
+			expressions.default = f.default_value;
 		}
-		if (q.validation) {
-			has.push("validation");
-			expressions.validation = q.validation;
+		if ("validate" in f && f.validate) {
+			has.push("validate");
+			expressions.validate = f.validate;
 		}
-		if (q.required && q.required !== "false()") {
+		if ("required" in f && f.required && f.required !== "false()") {
 			has.push("required");
-			expressions.required = q.required;
+			expressions.required = f.required;
 		}
-		if (q.hint) {
+		if ("hint" in f && f.hint) {
 			has.push("hint");
-			expressions.hint = q.hint;
+			expressions.hint = f.hint;
 		}
 
 		if (has.length > 0) {
-			out.push({ path, type: q.type, id: q.id, has, expressions });
+			out.push({ path, kind: f.kind, id: f.id, has, expressions });
 		}
 
-		if (q.children?.length) {
-			walkForLogic(out, moduleName, formName, path, q.children);
+		if (isContainer(f)) {
+			walkForLogic(doc, out, moduleName, formName, path, f.uuid);
 		}
 	}
 }
@@ -450,47 +486,48 @@ function walkForLogic(
 // ── Quality checks ──────────────────────────────────────────────────
 
 /**
- * Run quality checks and return flags.
+ * Run quality checks against pre-computed module analyses. Consumes the
+ * already-collected per-form field lists — no additional walks.
  *
- * Identifies common configuration oversights:
- *   - Registration forms without a case_name question (case has no name)
- *   - Modules with case_type but no case_list_columns (invisible columns)
- *   - Hidden questions without calculate (orphaned, always blank)
- *   - Forms with zero case_property_on questions (form saves nothing)
+ * Checks:
+ *   - Registration forms without a case_name field (case has no name)
+ *   - Modules with caseType but no caseListColumns (invisible columns)
+ *   - Hidden fields without calculate/default (orphaned, always blank)
+ *   - Forms with zero case_property fields (form saves nothing)
  *
- * NOTE: post_submit is NOT flagged. The system applies form-type defaults
- * automatically ("previous" for followup, "app_home" for registration/survey),
- * so omitting post_submit is correct behavior — the SA shouldn't set them.
+ * NOTE: post_submit is NOT flagged. The system applies form-type
+ * defaults automatically, so omitting it is correct behavior.
  */
-function checkQuality(bp: AppBlueprint, modules: ModuleStats[]): QualityFlag[] {
+function checkQuality(
+	_doc: BlueprintDoc,
+	moduleAnalyses: ModuleAnalysis[],
+): QualityFlag[] {
 	const flags: QualityFlag[] = [];
 
-	for (const mod of modules) {
-		/* Modules with a case type should have case list columns configured. */
+	for (const { stats: mod, formFields } of moduleAnalyses) {
 		if (mod.caseType && !mod.caseListOnly && mod.caseListColumns === 0) {
 			flags.push({
 				severity: "warn",
 				module: mod.name,
-				message: `Module has case_type "${mod.caseType}" but no case_list_columns`,
+				message: `Module has caseType "${mod.caseType}" but no caseListColumns`,
 			});
 		}
 
 		for (const form of mod.forms) {
-			/* Registration forms need a case_name question. */
+			const fields = formFields.get(form.uuid) ?? [];
+
 			if (form.type === "registration") {
-				const hasCaseName = hasCaseNameQuestion(bp, mod, form);
-				if (!hasCaseName) {
+				if (!fields.some((f) => f.id === "case_name")) {
 					flags.push({
 						severity: "error",
 						module: mod.name,
 						form: form.name,
 						message:
-							"Registration form has no case_name question — case will have no name",
+							"Registration form has no case_name field — case will have no name",
 					});
 				}
 			}
 
-			/* Forms with case_type but no case properties saved are suspicious. */
 			if (
 				mod.caseType &&
 				!mod.caseListOnly &&
@@ -502,67 +539,27 @@ function checkQuality(bp: AppBlueprint, modules: ModuleStats[]): QualityFlag[] {
 					module: mod.name,
 					form: form.name,
 					message:
-						"Form has no questions with case_property_on — saves nothing to the case",
+						"Form has no fields with case_property — saves nothing to the case",
 				});
+			}
+
+			/* Orphaned hidden fields: hidden kind without calculate. */
+			for (const f of fields) {
+				if (
+					f.kind === "hidden" &&
+					!("calculate" in f && f.calculate) &&
+					!("default_value" in f && f.default_value)
+				) {
+					flags.push({
+						severity: "info",
+						module: mod.name,
+						form: form.name,
+						message: `Hidden field "${f.id}" has no calculate or default_value`,
+					});
+				}
 			}
 		}
 	}
 
-	/* Check for orphaned hidden questions (hidden without calculate). */
-	for (const mod of bp.modules ?? []) {
-		for (const form of mod.forms ?? []) {
-			checkOrphanedHiddens(flags, mod.name, form.name, form.questions ?? []);
-		}
-	}
-
 	return flags;
-}
-
-/** Check if a registration form has a case_name question (recursive). */
-function hasCaseNameQuestion(
-	_bp: AppBlueprint,
-	_mod: ModuleStats,
-	_form: FormStats,
-): boolean {
-	/* Walk the original blueprint form to find the question. The FormStats
-	 * doesn't carry individual question IDs — we need the raw blueprint. */
-	const origMod = (_bp.modules ?? []).find((m) => m.name === _mod.name);
-	const origForm = (origMod?.forms ?? []).find((f) => f.name === _form.name);
-	if (!origForm) return false;
-
-	function findCaseName(qs: Question[]): boolean {
-		for (const q of qs) {
-			if (q.id === "case_name") return true;
-			if (q.children?.length && findCaseName(q.children)) return true;
-		}
-		return false;
-	}
-
-	return findCaseName(origForm.questions ?? []);
-}
-
-/**
- * Flag hidden questions that have no calculate expression.
- * These are likely orphaned — they'll always be blank unless populated
- * by some external mechanism not visible in the blueprint.
- */
-function checkOrphanedHiddens(
-	flags: QualityFlag[],
-	moduleName: string,
-	formName: string,
-	questions: Question[],
-) {
-	for (const q of questions) {
-		if (q.type === "hidden" && !q.calculate && !q.default_value) {
-			flags.push({
-				severity: "info",
-				module: moduleName,
-				form: formName,
-				message: `Hidden question "${q.id}" has no calculate or default_value`,
-			});
-		}
-		if (q.children?.length) {
-			checkOrphanedHiddens(flags, moduleName, formName, q.children);
-		}
-	}
 }

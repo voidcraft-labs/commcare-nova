@@ -178,11 +178,8 @@ export async function validateAndFix(
 		// Collect all mutations from the fix registry. We apply them as one
 		// atomic Immer draft below so downstream listeners see a single
 		// consistent update rather than a partial-apply state. Per-form
-		// grouping (previously tracked via `fixedFormUuids` to drive
-		// `data-form-fixed` wire snapshots) is deliberately NOT tracked
-		// here — Phase 3 emits raw mutation batches; the Phase 4 log UI
-		// can reconstruct per-form grouping from mutation targets if
-		// needed.
+		// grouping is derivable from each mutation's target uuid by
+		// downstream consumers that need it; this loop doesn't pre-bucket.
 		const allMutations: Mutation[] = [];
 		for (const error of errors) {
 			const fix = FIX_REGISTRY.get(error.code);
@@ -206,12 +203,8 @@ export async function validateAndFix(
 		});
 
 		// Emit the fix mutations as a single staged batch. The client
-		// applies them via `applyMany` — same result as re-mapping the
-		// old `data-form-fixed` wire payloads through `toDocMutations`,
-		// minus the snapshot round-trip. The `fix:attempt-N` stage tag
-		// lets the Phase 4 log UI group fix passes into separate
-		// chapters, which was the only real consumer of the per-form
-		// breakdown the previous wire emission carried.
+		// applies them via `applyMany`. The `fix:attempt-N` stage tag
+		// lets the log UI render each fix pass as its own chapter.
 		ctx.emitMutations(allMutations, `fix:attempt-${attempt}`);
 	}
 }

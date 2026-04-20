@@ -56,7 +56,7 @@ function src(
 // ── Flat form ──────────────────────────────────────────────────────────
 
 describe("buildFormRows — flat form", () => {
-	it("emits insertion + question rows with trailing insertion when edit mode", () => {
+	it("emits insertion + field rows with trailing insertion when edit mode", () => {
 		const rows = buildFormRows(
 			src(
 				{ [Q(1)]: text(Q(1), "a"), [Q(2)]: text(Q(2), "b") },
@@ -74,13 +74,13 @@ describe("buildFormRows — flat form", () => {
 			beforeIndex: 0,
 			depth: 0,
 		});
-		expect(rows[1]).toMatchObject({ kind: "question", uuid: Q(1), depth: 0 });
+		expect(rows[1]).toMatchObject({ kind: "field", uuid: Q(1), depth: 0 });
 		expect(rows[2]).toMatchObject({
 			kind: "insertion",
 			parentUuid: F,
 			beforeIndex: 1,
 		});
-		expect(rows[3]).toMatchObject({ kind: "question", uuid: Q(2) });
+		expect(rows[3]).toMatchObject({ kind: "field", uuid: Q(2) });
 		expect(rows[4]).toMatchObject({
 			kind: "insertion",
 			parentUuid: F,
@@ -95,7 +95,7 @@ describe("buildFormRows — flat form", () => {
 			{ includeInsertionPoints: false, collapsed: EMPTY },
 		);
 		expect(rows).toHaveLength(1);
-		expect(rows[0].kind).toBe("question");
+		expect(rows[0].kind).toBe("field");
 	});
 
 	it("empty root form produces no rows (no empty-container at depth 0)", () => {
@@ -143,7 +143,7 @@ describe("buildFormRows — groups", () => {
 			collapsed: false,
 		});
 		expect(rows[1]).toMatchObject({
-			kind: "question",
+			kind: "field",
 			uuid: Q(1),
 			depth: 1,
 		});
@@ -205,7 +205,7 @@ describe("buildFormRows — groups", () => {
 		expect(summary).toEqual([
 			{ kind: "group-open", depth: 0 },
 			{ kind: "group-open", depth: 1 },
-			{ kind: "question", depth: 2 },
+			{ kind: "field", depth: 2 },
 			{ kind: "group-close", depth: 1 },
 			{ kind: "group-close", depth: 0 },
 		]);
@@ -226,7 +226,7 @@ describe("buildFormRows — repeats", () => {
 		);
 		expect(rows.map((r) => r.kind)).toEqual([
 			"group-open",
-			"question",
+			"field",
 			"group-close",
 		]);
 	});
@@ -283,7 +283,7 @@ describe("buildFormRows — defensive", () => {
 			{ includeInsertionPoints: false, collapsed: EMPTY },
 		);
 		expect(rows).toHaveLength(1);
-		expect(rows[0].kind).toBe("question");
+		expect(rows[0].kind).toBe("field");
 	});
 });
 
@@ -306,7 +306,7 @@ describe("buildFormRows — row id stability", () => {
 		expect(a.map((r) => r.id)).toEqual(b.map((r) => r.id));
 	});
 
-	it("question row id reflects the question uuid, not its position", () => {
+	it("field row id reflects the field uuid, not its position", () => {
 		// Reorder the same questions — their row ids must not change.
 		const questions = {
 			[Q(1)]: text(Q(1), "a"),
@@ -320,10 +320,8 @@ describe("buildFormRows — row id stability", () => {
 			includeInsertionPoints: false,
 			collapsed: EMPTY,
 		});
-		const q1Before = before.find(
-			(r) => r.kind === "question" && r.uuid === Q(1),
-		);
-		const q1After = after.find((r) => r.kind === "question" && r.uuid === Q(1));
+		const q1Before = before.find((r) => r.kind === "field" && r.uuid === Q(1));
+		const q1After = after.find((r) => r.kind === "field" && r.uuid === Q(1));
 		expect(q1Before?.id).toBe(q1After?.id);
 	});
 });

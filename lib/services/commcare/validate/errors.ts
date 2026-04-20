@@ -26,16 +26,16 @@ export type ValidationErrorCode =
 	| "NO_CASE_NAME_FIELD"
 	| "CASE_NAME_FIELD_MISSING"
 	| "RESERVED_CASE_PROPERTY"
-	| "CASE_PROPERTY_MISSING_QUESTION"
+	| "CASE_PROPERTY_MISSING_FIELD"
 	| "MEDIA_CASE_PROPERTY"
-	| "CASE_PRELOAD_MISSING_QUESTION"
+	| "CASE_PRELOAD_MISSING_FIELD"
 	| "CASE_PRELOAD_RESERVED"
 	| "DUPLICATE_CASE_PROPERTY"
 	| "REGISTRATION_NO_CASE_PROPS"
 	| "CLOSE_CONDITION_WRONG_TYPE"
 	| "CLOSE_FORM_NO_CASE_TYPE"
 	| "CLOSE_CONDITION_INCOMPLETE"
-	| "CLOSE_CONDITION_QUESTION_NOT_FOUND"
+	| "CLOSE_CONDITION_FIELD_NOT_FOUND"
 	| "INVALID_POST_SUBMIT"
 	| "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED"
 	| "POST_SUBMIT_MODULE_CASE_LIST_ONLY"
@@ -47,15 +47,15 @@ export type ValidationErrorCode =
 	| "CONNECT_MISSING_LEARN"
 	| "CONNECT_MISSING_DELIVER"
 	| "CONNECT_UNQUOTED_XPATH"
-	| "DUPLICATE_QUESTION_ID"
+	| "DUPLICATE_FIELD_ID"
 	| "CASE_PROPERTY_BAD_FORMAT"
 	| "CASE_PROPERTY_TOO_LONG"
-	// Question-level
+	// Field-level
 	| "SELECT_NO_OPTIONS"
 	| "HIDDEN_NO_VALUE"
 	| "UNQUOTED_STRING_LITERAL"
-	| "INVALID_QUESTION_ID"
-	| "VALIDATION_ON_NON_INPUT_TYPE"
+	| "INVALID_FIELD_ID"
+	| "VALIDATION_ON_NON_INPUT_KIND"
 	// Case list column
 	| "INVALID_COLUMN_FIELD"
 	// XForm output (post-expansion)
@@ -102,7 +102,7 @@ export interface ValidationLocation {
 
 export interface ValidationError {
 	code: ValidationErrorCode;
-	scope: "app" | "module" | "form" | "question";
+	scope: "app" | "module" | "form" | "field";
 	message: string;
 	location: ValidationLocation;
 	/** Extra context for auto-fixes (e.g. reserved property name, suggested fix). */

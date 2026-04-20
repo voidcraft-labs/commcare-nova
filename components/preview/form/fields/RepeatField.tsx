@@ -21,7 +21,7 @@
  *
  * The inner renderer is called with `leadingGap={false}`: the instance
  * divider supplies the 24px gap between the divider and the first
- * question, so the default `pt-6` would double up.
+ * field, so the default `pt-6` would double up.
  */
 
 "use client";
@@ -36,7 +36,7 @@ import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -47,8 +47,8 @@ interface RepeatFieldProps {
 	field: RepeatFieldEntity;
 	/** XForm data path prefix — we append `[idx]` per instance. */
 	path: string;
-	/** Blueprint question path threaded through to descendants. */
-	fieldPath: QuestionPath;
+	/** Blueprint field path threaded through to descendants. */
+	fieldPath: FieldPath;
 	/** Nesting depth of this repeat — instance content renders at
 	 *  `depth + 1` for flipbook parity with edit mode. */
 	depth: number;
@@ -65,7 +65,7 @@ interface InstanceDividerProps {
 /**
  * Thin header above each repeat instance's template questions. Aligns to
  * `depthPadding(depth)` so it sits in the same column as the instance's
- * first question. `mb-6` gives the 24px gap to the first question — the
+ * first field. `mb-6` gives the 24px gap to the first field — the
  * caller passes `leadingGap={false}` to the instance's renderer to
  * prevent a double gap.
  */
@@ -192,7 +192,7 @@ export function RepeatField({
 					{/* `flow-root` prevents the last instance's trailing `mb-6`
 					 *  from collapsing out through the rails container's bottom
 					 *  edge — it must stay inside so the close cap sits 24px
-					 *  below the last question, matching edit mode's
+					 *  below the last field, matching edit mode's
 					 *  insertion(N+1) row. */}
 					<div className="relative flow-root pt-6">
 						<div

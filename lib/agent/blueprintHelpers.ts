@@ -37,6 +37,7 @@ import type {
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
 import { normalizeConnectConfig } from "@/lib/services/connectConfig";
+import type { Scaffold } from "./scaffoldSchemas";
 
 // ── Positional lookup helpers ───────────────────────────────────────────
 
@@ -481,8 +482,10 @@ export function duplicateFieldMutations(
 
 /** Patch arbitrary fields on a field entity. The `Field` union is
  *  discriminated by `kind`; the patch must match the specific kind's
- *  shape. Narrowing callers (SA editQuestion tool, inspect panel) are
- *  responsible for constructing a valid patch. */
+ *  shape. Narrowing callers (SA `editField` tool, inspect panel) are
+ *  responsible for constructing a valid patch — the reducer parses the
+ *  merged shape against `fieldSchema` and rejects patches that don't
+ *  satisfy the target kind. */
 export function updateFieldMutations(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
@@ -493,27 +496,6 @@ export function updateFieldMutations(
 }
 
 // ── Mutation builders — scaffold ────────────────────────────────────────
-
-/** The scaffold wire shape emitted by the SA's `generateScaffold` tool.
- *  Matches `scaffoldModulesSchema` in `lib/schemas/blueprint.ts` — kept
- *  duplicated here so this file has no dependency on the legacy schema
- *  module (which Task 22 deletes). */
-export interface ScaffoldInput {
-	app_name: string;
-	description?: string;
-	connect_type?: "learn" | "deliver" | "";
-	modules: Array<{
-		name: string;
-		case_type?: string | null;
-		case_list_only?: boolean;
-		purpose?: string;
-		forms: Array<{
-			name: string;
-			type: string;
-			purpose?: string;
-		}>;
-	}>;
-}
 
 /**
  * Build the mutation batch for applying a scaffold to an (effectively
@@ -528,7 +510,7 @@ export interface ScaffoldInput {
  */
 export function setScaffoldMutations(
 	doc: BlueprintDoc,
-	scaffold: ScaffoldInput,
+	scaffold: Scaffold,
 ): Mutation[] {
 	const muts: Mutation[] = [];
 	muts.push({ kind: "setAppName", name: scaffold.app_name });
@@ -557,7 +539,7 @@ export function setScaffoldMutations(
 				uuid: formUuid,
 				id: slugifyFormId(sf.name),
 				name: sf.name,
-				type: sf.type as FormType,
+				type: sf.type,
 				...(sf.purpose !== undefined && { purpose: sf.purpose }),
 			};
 			muts.push({ kind: "addForm", moduleUuid, form: formEntity });

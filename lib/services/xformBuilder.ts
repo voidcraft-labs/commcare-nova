@@ -10,12 +10,8 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
-import type {
-	BlueprintForm,
-	ConnectConfig,
-	Question,
-} from "../schemas/blueprint";
-import { supportsValidation } from "../schemas/blueprint";
+import type { ConnectConfig } from "@/lib/domain";
+import type { BlueprintForm, Question } from "../doc/legacyTypes";
 import {
 	escapeXml,
 	expandHashtags,
@@ -23,6 +19,7 @@ import {
 	hasHashtags,
 	VELLUM_HASHTAG_TRANSFORMS,
 } from "./commcare";
+import { supportsValidation } from "./commcare/constants";
 
 const PARSE_OPTS = { xmlMode: true } as const;
 const RENDER_OPTS = {

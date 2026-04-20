@@ -1,36 +1,42 @@
 /**
- * SA tool input schemas, generated from the field registry.
+ * Materialized SA tool input schemas.
  *
- * This file exists so consumers (the Solutions Architect, test-schema.ts,
- * callers that want a pre-materialized JSON schema via `.jsonSchema`)
- * import stable named values rather than reaching into the generator.
- *
- * The named shapes here (`addQuestionsSchema`, `addQuestionsQuestionSchema`,
- * `addQuestionQuestionSchema`, `editQuestionUpdatesSchema`) match the names
- * the old hand-written `lib/schemas/toolSchemas.ts` exported — drop-in for
- * every consumer.
+ * This file is the single point where the generator runs — downstream
+ * consumers (solutionsArchitect.ts, test-schema.ts) import stable
+ * named values from here rather than re-running the generator. Running
+ * it once keeps Zod's internal cache attached to these specific Zod
+ * nodes (important for `z.toJSONSchema` behavior) and avoids
+ * accidentally producing two non-referentially-equal schemas for the
+ * same tool.
  */
 
 import { z } from "zod";
 import { generateToolSchemas } from "./toolSchemaGenerator";
 
-const generated = generateToolSchemas("flat-sentinels");
+const generated = generateToolSchemas();
 
-export const addQuestionsQuestionSchema = generated.addQuestionsQuestionSchema;
-export const addQuestionQuestionSchema = generated.addQuestionQuestionSchema;
-export const editQuestionUpdatesSchema = generated.editQuestionUpdatesSchema;
+/** Per-item shape inside `z.array(...)` for the `addFields` batch tool. */
+export const addFieldsItemSchema = generated.addFieldsItemSchema;
+
+/** Whole-input shape for the single-insert `addField` tool. */
+export const addFieldSchema = generated.addFieldSchema;
+
+/** Patch shape for the `editField` tool. */
+export const editFieldUpdatesSchema = generated.editFieldUpdatesSchema;
 
 /**
- * Full `addQuestions` input schema — wraps the question array with module
- * and form indices. Matches the shape of the hand-written export.
+ * Full `addFields` input — wraps the per-item schema in an array and
+ * carries the module/form anchor. Exposed as an object with both the
+ * Zod schema and a cached JSON Schema so `scripts/test-schema.ts` can
+ * verify the structured-output compile size without re-running the
+ * toJSONSchema conversion on every check.
  */
-export const addQuestionsSchema = {
+export const addFieldsSchema = {
 	schema: z.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		questions: z.array(addQuestionsQuestionSchema),
+		fields: z.array(addFieldsItemSchema),
 	}),
-	/** Pre-computed JSON schema for scripts/test-schema.ts size checks. */
 	get jsonSchema() {
 		return z.toJSONSchema(this.schema);
 	},

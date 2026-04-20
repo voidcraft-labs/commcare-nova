@@ -1,23 +1,22 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useEditContext } from "@/hooks/useEditContext";
-import type { Field } from "@/lib/domain";
-import { fieldKindIcons, fieldKindLabels } from "@/lib/fieldTypeIcons";
+import { type Field, fieldRegistry } from "@/lib/domain";
 
 /**
  * Placeholder card for media-capture kinds (image/audio/video/barcode/
  * signature/geopoint). The preview engine has no native capture affordance,
  * so we render the icon + kind label with an "(not available in preview)"
  * note outside of edit mode.
+ *
+ * Icon + human-readable label come from `fieldRegistry[kind]` — the
+ * domain-owned metadata registry. The lookup is total over `FieldKind`,
+ * so no fallback is required.
  */
-export function MediaField({ question }: { question: Field }) {
+export function MediaField({ field }: { field: Field }) {
 	const ctx = useEditContext();
 	const isDesign = ctx?.mode === "edit";
-	// `kind` replaces the legacy wire `type` discriminant — both icon and
-	// label registries are keyed by the same strings.
-	const icon = fieldKindIcons[question.kind] ?? tablerPhoto;
-	const label = fieldKindLabels[question.kind] ?? question.kind;
+	const { icon, label } = fieldRegistry[field.kind];
 
 	return (
 		<div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-pv-surface border border-dashed border-pv-input-border">

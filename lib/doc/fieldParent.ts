@@ -10,6 +10,7 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { PersistableDoc } from "@/lib/domain";
 
 /**
  * Rebuild the fieldParent reverse index from fieldOrder.
@@ -42,4 +43,18 @@ export function rebuildFieldParent(doc: BlueprintDoc): void {
 	for (const uuid of Object.keys(doc.fields)) {
 		if (!(uuid in doc.fieldParent)) doc.fieldParent[uuid as Uuid] = null;
 	}
+}
+
+/**
+ * Strip the derived `fieldParent` index from a doc, producing the
+ * Firestore-shaped `PersistableDoc`. `fieldParent` is rebuilt from
+ * `fieldOrder` on load (via `rebuildFieldParent`), so persisting it
+ * would double-store the same information and create drift risk if the
+ * two ever diverged. Call at every boundary that ships a doc to
+ * Firestore or over an SSE payload consumed by clients that rebuild
+ * their own index.
+ */
+export function toPersistableDoc(doc: BlueprintDoc): PersistableDoc {
+	const { fieldParent: _fp, ...persistable } = doc;
+	return persistable;
 }

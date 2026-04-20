@@ -4,13 +4,13 @@
  * References are data source pointers (#form/, #case/, #user/) that appear
  * in XPath expressions and labels. The Reference type is a discriminated union
  * because the three namespaces have fundamentally different path semantics:
- *   - form: QuestionPath (slash-delimited, potentially nested in groups)
+ *   - form: FieldPath (slash-delimited, potentially nested in groups)
  *   - case: bare case property name (flat identifier)
  *   - user: bare user property name (flat identifier)
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 
 /** The three hashtag reference namespaces in CommCare XPath. */
 export type ReferenceType = "form" | "case" | "user";
@@ -21,14 +21,14 @@ interface BaseReference {
 	label: string;
 	/** Canonical serialization form: "#type/path" (e.g. "#form/patient_name"). */
 	raw: string;
-	/** Override icon for this specific reference (e.g. question type icon for #form/ refs). */
+	/** Override icon for this specific reference (e.g. field kind icon for #form/ refs). */
 	icon?: IconifyIcon;
 }
 
-/** A form question reference — path may be nested (e.g. "group1/age"). */
+/** A form field reference — path may be nested (e.g. "group1/age"). */
 export interface FormReference extends BaseReference {
 	type: "form";
-	path: QuestionPath;
+	path: FieldPath;
 }
 
 /** A case property reference — always a bare identifier (e.g. "age"). */

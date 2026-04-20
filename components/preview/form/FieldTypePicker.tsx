@@ -1,19 +1,18 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
-import { Icon } from "@iconify/react/offline";
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
+import tablerFolder from "@iconify-icons/tabler/folder";
+import tablerForms from "@iconify-icons/tabler/forms";
+import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useCallback, useContext } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
-import type { Field, FieldKind } from "@/lib/domain";
-import {
-	fieldKindIcons,
-	fieldKindLabels,
-	INSERTION_CATEGORIES,
-	INSERTION_TOP_LEVEL,
-} from "@/lib/fieldTypeIcons";
+import { type Field, type FieldKind, fieldRegistry } from "@/lib/domain";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
 import {
@@ -23,6 +22,57 @@ import {
 	MENU_SUBMENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
+/* ── Insertion menu organization ────────────────────────────────────────
+ * Menu-layout-only concern: which kinds group into submenus, which kinds
+ * render as direct level-1 items. The picker is the single consumer —
+ * co-located rather than pulled into the domain layer because field
+ * grouping is a UI decision, not a data-model invariant.
+ *
+ * Categories with 2+ types render as submenus; top-level items render as
+ * direct `Menu.Item`s (e.g. Hidden — single-purpose types that don't
+ * belong in a family). */
+
+interface InsertionCategory {
+	/** Human label shown on the submenu trigger. */
+	label: string;
+	/** Representative icon for the category trigger row. */
+	icon: IconifyIcon;
+	/** Field kinds surfaced inside the submenu. */
+	types: readonly FieldKind[];
+}
+
+/** Grouped families — each becomes a submenu in the insertion menu. */
+const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
+	{
+		label: "Input",
+		icon: tablerForms,
+		types: ["text", "int", "decimal", "secret"],
+	},
+	{
+		label: "Date & Time",
+		icon: tablerCalendar,
+		types: ["date", "time", "datetime"],
+	},
+	{
+		label: "Choice",
+		icon: tablerCircleDot,
+		types: ["single_select", "multi_select"],
+	},
+	{
+		label: "Media",
+		icon: tablerPhoto,
+		types: ["image", "audio", "video", "barcode", "signature"],
+	},
+	{ label: "Structure", icon: tablerFolder, types: ["group", "repeat"] },
+];
+
+/** Standalone kinds rendered as level-1 items (no submenu needed). */
+const INSERTION_TOP_LEVEL: readonly FieldKind[] = [
+	"geopoint",
+	"label",
+	"hidden",
+];
+
 interface FieldTypePickerPopupProps {
 	/** Insertion index within the parent's children array. */
 	atIndex: number;
@@ -31,7 +81,7 @@ interface FieldTypePickerPopupProps {
 }
 
 /**
- * Popup content for the question insertion menu.
+ * Popup content for the field insertion menu.
  *
  * Renders the portal, positioner, popup shell, and categorised menu items.
  * Rendered as a child of the shared `Menu.Root` in `FormRenderer` — each
@@ -92,14 +142,14 @@ export function FieldTypePickerPopup({
 			const newField = {
 				id: newId,
 				kind,
-				label: "New Question",
+				label: "New Field",
 				...(defaultOptions ? { options: defaultOptions } : {}),
 			} as unknown as Omit<Field, "uuid">;
 
 			const newUuid = addField(parentUuid, newField, { atIndex });
 
-			/* Mark as new question so the UI can apply entry animations, then
-			 * select and scroll to the newly-inserted question. */
+			/* Mark as new field so the UI can apply entry animations, then
+			 * select and scroll to the newly-inserted field. */
 			markNewField(newUuid);
 			setPending(newUuid, "smooth", false);
 			select(newUuid);
@@ -164,7 +214,7 @@ export function FieldTypePickerPopup({
 	);
 }
 
-/* ── Reusable menu item for a single question type ─────────────────────── */
+/* ── Reusable menu item for a single field kind ─────────────────────── */
 
 function TypeMenuItem({
 	type,
@@ -173,18 +223,15 @@ function TypeMenuItem({
 	type: FieldKind;
 	onSelect: (type: FieldKind) => void;
 }) {
-	const icon = fieldKindIcons[type];
-	const label = fieldKindLabels[type] ?? type;
+	const { icon, label } = fieldRegistry[type];
 	return (
 		<Menu.Item className={MENU_ITEM_CLS} onClick={() => onSelect(type)}>
-			{icon && (
-				<Icon
-					icon={icon}
-					width="16"
-					height="16"
-					className="text-nova-text-muted shrink-0"
-				/>
-			)}
+			<Icon
+				icon={icon}
+				width="16"
+				height="16"
+				className="text-nova-text-muted shrink-0"
+			/>
 			<span>{label}</span>
 		</Menu.Item>
 	);

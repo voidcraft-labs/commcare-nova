@@ -118,7 +118,7 @@ describe("BuilderFormEngineProvider", () => {
 	 * fix, the provider installed the doc store inside its own useEffect.
 	 * A descendant calling `controller.activateForm(...)` from its own
 	 * mount effect would therefore fire FIRST — see `docStore === null`
-	 * — and silently no-op, leaving the form preview without per-question
+	 * — and silently no-op, leaving the form preview without per-field
 	 * runtime state. Direct deep-link loads of `/build/[id]?s=f&...` are
 	 * the canonical user trigger.
 	 *

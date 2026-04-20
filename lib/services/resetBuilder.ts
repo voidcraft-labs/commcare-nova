@@ -30,7 +30,7 @@ import { signalGrid } from "@/lib/signalGrid/store";
 export interface ResetBuilderInputs {
 	/** BlueprintDoc store — blueprint entity data + undo history. */
 	docStore: BlueprintDocStore;
-	/** Form preview engine controller — per-question runtime store. */
+	/** Form preview engine controller — per-field runtime store. */
 	engineController: EngineController;
 }
 

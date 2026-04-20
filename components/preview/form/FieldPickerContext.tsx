@@ -8,7 +8,7 @@
  *
  * Each InsertionPoint renders a lightweight `Menu.Trigger` with a typed
  * payload (`atIndex`, `parentPath`) that the shared popup reads to determine
- * where to insert the new question.
+ * where to insert the new field.
  *
  * The `subscribeClose` pub/sub lets InsertionPoints reset their hover state
  * when the shared menu closes — necessary because the InsertionPoint no
@@ -21,7 +21,7 @@ import { createContext, useContext } from "react";
 import type { Uuid } from "@/lib/doc/types";
 
 /** Payload sent from each InsertionPoint's `Menu.Trigger` to the shared popup.
- *  Identifies the insertion location in the form's question tree. */
+ *  Identifies the insertion location in the form's field tree. */
 export interface FieldPickerPayload {
 	/** Insertion index within the parent's children array. */
 	atIndex: number;
@@ -44,7 +44,7 @@ export const FieldPickerContext = createContext<FieldPickerContextValue | null>(
 	null,
 );
 
-/** Read the shared question picker handle from context.
+/** Read the shared field picker handle from context.
  *  Returns `null` outside the provider (non-edit mode, non-root scenarios). */
 export function useFieldPicker(): FieldPickerContextValue | null {
 	return useContext(FieldPickerContext);

@@ -10,7 +10,7 @@ import {
 	rewriteHashtagRefs,
 	rewriteXPathRefs,
 } from "@/lib/preview/xpath/rewrite";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 import {
 	cascadeDeleteField,
 	cloneFieldSubtree,
@@ -38,7 +38,7 @@ export interface MoveFieldResult {
 	renamed?: {
 		oldId: string;
 		newId: string;
-		newPath: QuestionPath;
+		newPath: FieldPath;
 		xpathFieldsRewritten: number;
 	};
 	droppedCrossDepthRefs: number;
@@ -344,7 +344,7 @@ export function applyFieldMutation(
 					? {
 							oldId,
 							newId: field.id,
-							newPath: (newPathStr || "") as QuestionPath,
+							newPath: (newPathStr || "") as FieldPath,
 							xpathFieldsRewritten,
 						}
 					: undefined;

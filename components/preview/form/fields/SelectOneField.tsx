@@ -6,7 +6,7 @@ import { ValidationError } from "./ValidationError";
 
 interface SelectOneFieldProps {
 	/** A single-select field; `options` is required on this kind. */
-	question: SingleSelectField;
+	field: SingleSelectField;
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
@@ -19,12 +19,12 @@ interface SelectOneFieldProps {
  * for touch tracking.
  */
 export function SelectOneField({
-	question,
+	field,
 	state,
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
-	const options = question.options ?? [];
+	const options = field.options ?? [];
 	const showError = state.touched && !state.valid;
 
 	return (

@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { ConnectType as DomainConnectType } from "@/lib/domain";
-import { buildDoc, type FormSpec, f } from "../../__tests__/docHelpers";
-import { q } from "../../schemas/__tests__/wireFixtures";
+import type { AppBlueprint, BlueprintForm } from "@/lib/doc/legacyTypes";
 import type {
-	AppBlueprint,
-	BlueprintForm,
 	ConnectConfig,
 	ConnectLearnModule,
 	ConnectType,
-} from "../../schemas/blueprint";
+	ConnectType as DomainConnectType,
+} from "@/lib/domain";
+import { buildDoc, type FormSpec, f } from "../../__tests__/docHelpers";
 import { runValidation } from "../commcare/validate/runner";
 import { deriveConnectDefaults } from "../connectConfig";
 import { expandBlueprint } from "../hqJsonExpander";
+import { q } from "./wireFixtures";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

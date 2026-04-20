@@ -266,20 +266,20 @@ describe("CommCare XPath Parser", () => {
 	// --------------- CommCare hashtag references ---------------
 	describe("hashtags", () => {
 		const cases = [
-			"#form/question",
-			"#form/group/question",
+			"#form/field",
+			"#form/group/field",
 			"#case/type/prop",
-			"#form/question = #case/question",
-			"#form/question     =    #case/question",
-			"/data/filtered[@id = #form/question]",
-			"-some-function(#form/question)",
+			"#form/field = #case/property",
+			"#form/field     =    #case/property",
+			"/data/filtered[@id = #form/field]",
+			"-some-function(#form/field)",
 		];
 		it.each(cases)("parses %s", (expr) => {
 			expect(parsesClean(expr)).toBe(true);
 		});
 
 		it("identifies HashtagRef nodes", () => {
-			expect(allNodes("#form/question")).toContain("HashtagRef");
+			expect(allNodes("#form/field")).toContain("HashtagRef");
 		});
 	});
 

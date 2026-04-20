@@ -5,20 +5,15 @@ import { ValidationError } from "./ValidationError";
 
 interface TextFieldProps {
 	/** Plain text or secret field. The DOM input type differs by kind. */
-	question: TextFieldEntity | SecretField;
+	field: TextFieldEntity | SecretField;
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
 
-export function TextField({
-	question,
-	state,
-	onChange,
-	onBlur,
-}: TextFieldProps) {
+export function TextField({ field, state, onChange, onBlur }: TextFieldProps) {
 	// `secret` kind renders a password-masked input; `text` is plain.
-	const inputType = question.kind === "secret" ? "password" : "text";
+	const inputType = field.kind === "secret" ? "password" : "text";
 	const showError = state.touched && !state.valid;
 
 	return (

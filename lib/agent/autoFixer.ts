@@ -118,10 +118,9 @@ export class AutoFixer {
 		// Collect all inline labels from the body
 		// Matches: <label>Some Text</label> (NOT <label ref="..."/>)
 		const _inlineLabelRegex = /<label>([^<]+)<\/label>/g;
-		const _inlineLabels: { full: string; text: string; questionId: string }[] =
-			[];
+		const _inlineLabels: { full: string; text: string; fieldId: string }[] = [];
 
-		// We need the context around each label to figure out the question ID
+		// We need the context around each label to figure out the field ID
 		// Look for patterns like <input ref="/data/xyz">...<label>Text</label>
 		// or <select1 ref="/data/xyz">...<label>Text</label>
 		// Also handle <item><label>Text</label><value>val</value></item>
@@ -129,7 +128,7 @@ export class AutoFixer {
 		const _bodyResult = body;
 		let hasInlineLabels = false;
 
-		// First pass: collect all question/item labels with their context
+		// First pass: collect all field/item labels with their context
 		const entries = this.collectLabelEntries(body);
 
 		if (entries.length === 0) {
@@ -165,26 +164,26 @@ export class AutoFixer {
 		let fixedBody = body;
 
 		for (const entry of entries) {
-			if (entry.type === "question-label") {
-				const id = `${entry.questionId}-label`;
+			if (entry.type === "field-label") {
+				const id = `${entry.fieldId}-label`;
 				itextEntries.set(id, entry.text);
 				// Replace the inline label with itext ref
 				// Be specific to avoid replacing item labels
 				fixedBody = this.replaceQuestionLabel(
 					fixedBody,
-					entry.questionId,
+					entry.fieldId,
 					entry.text,
 					id,
 				);
-			} else if (entry.type === "question-hint") {
-				const id = `${entry.questionId}-hint`;
+			} else if (entry.type === "field-hint") {
+				const id = `${entry.fieldId}-hint`;
 				itextEntries.set(id, entry.text);
 				fixedBody = fixedBody.replace(
 					new RegExp(`(<hint>)${escapeRegex(entry.text)}(</hint>)`),
 					`<hint ref="jr:itext('${id}')"/>`,
 				);
 			} else if (entry.type === "item-label") {
-				const id = `${entry.questionId}-${entry.itemValue}-label`;
+				const id = `${entry.fieldId}-${entry.itemValue}-label`;
 				itextEntries.set(id, entry.text);
 				fixedBody = this.replaceItemLabel(
 					fixedBody,
@@ -244,38 +243,38 @@ export class AutoFixer {
 	}
 
 	/**
-	 * Collect all inline labels from the body with their context (question ID, item value, etc.)
+	 * Collect all inline labels from the body with their context (field id, item value, etc.)
 	 */
 	private collectLabelEntries(body: string): Array<{
-		type: "question-label" | "question-hint" | "item-label";
-		questionId: string;
+		type: "field-label" | "field-hint" | "item-label";
+		fieldId: string;
 		text: string;
 		itemValue?: string;
 	}> {
 		const entries: Array<{
-			type: "question-label" | "question-hint" | "item-label";
-			questionId: string;
+			type: "field-label" | "field-hint" | "item-label";
+			fieldId: string;
 			text: string;
 			itemValue?: string;
 		}> = [];
 
-		// Parse question blocks: <input ref="/data/xyz">, <select1 ref="/data/xyz">, <select ref="/data/xyz">
-		const questionBlockRegex =
+		// Parse field blocks: <input ref="/data/xyz">, <select1 ref="/data/xyz">, <select ref="/data/xyz">
+		const fieldBlockRegex =
 			/<(input|select1?|trigger|upload)\s+ref="\/data\/([^"]+)"[^>]*>([\s\S]*?)(?:<\/\1>)/g;
-		let match: RegExpExecArray | null = questionBlockRegex.exec(body);
+		let match: RegExpExecArray | null = fieldBlockRegex.exec(body);
 
 		while (match !== null) {
-			const questionId = match[2];
+			const fieldId = match[2];
 			const blockContent = match[3];
 
-			// Check for inline question label (direct child, not inside <item>)
+			// Check for inline field label (direct child, not inside <item>)
 			// We need to find labels NOT inside <item> blocks
 			const withoutItems = blockContent.replace(/<item>[\s\S]*?<\/item>/g, "");
 			const labelMatch = withoutItems.match(/<label>([^<]+)<\/label>/);
 			if (labelMatch) {
 				entries.push({
-					type: "question-label",
-					questionId,
+					type: "field-label",
+					fieldId,
 					text: labelMatch[1].trim(),
 				});
 			}
@@ -284,8 +283,8 @@ export class AutoFixer {
 			const hintMatch = withoutItems.match(/<hint>([^<]+)<\/hint>/);
 			if (hintMatch) {
 				entries.push({
-					type: "question-hint",
-					questionId,
+					type: "field-hint",
+					fieldId,
 					text: hintMatch[1].trim(),
 				});
 			}
@@ -297,13 +296,13 @@ export class AutoFixer {
 			while (itemMatch !== null) {
 				entries.push({
 					type: "item-label",
-					questionId,
+					fieldId,
 					text: itemMatch[1].trim(),
 					itemValue: itemMatch[2].trim(),
 				});
 				itemMatch = itemRegex.exec(blockContent);
 			}
-			match = questionBlockRegex.exec(body);
+			match = fieldBlockRegex.exec(body);
 		}
 
 		// Also handle <group> labels
@@ -312,8 +311,8 @@ export class AutoFixer {
 		match = groupRegex.exec(body);
 		while (match !== null) {
 			entries.push({
-				type: "question-label",
-				questionId: match[1],
+				type: "field-label",
+				fieldId: match[1],
 				text: match[2].trim(),
 			});
 			match = groupRegex.exec(body);
@@ -324,16 +323,16 @@ export class AutoFixer {
 
 	private replaceQuestionLabel(
 		body: string,
-		questionId: string,
+		fieldId: string,
 		text: string,
 		itextId: string,
 	): string {
-		// Replace <label>Text</label> that directly follows ref="/data/questionId"
+		// Replace <label>Text</label> that directly follows ref="/data/fieldId"
 		// We need to be careful not to replace item labels
 		const escapedText = escapeRegex(text);
 		// Match the question opening tag and its label
 		const pattern = new RegExp(
-			`((?:input|select1?|trigger|upload)\\s+ref="/data/${escapeRegex(questionId)}"[^>]*>[\\s\\S]*?)<label>${escapedText}</label>`,
+			`((?:input|select1?|trigger|upload)\\s+ref="/data/${escapeRegex(fieldId)}"[^>]*>[\\s\\S]*?)<label>${escapedText}</label>`,
 		);
 		const replaced = body.replace(
 			pattern,

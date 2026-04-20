@@ -4,7 +4,7 @@
  * The engine consumes a `FormEngineInput` (form + fields map + fieldOrder) —
  * the same domain shape produced by the normalized doc store. These tests
  * build fixtures directly in that shape via the `dTree` helper so no legacy
- * `Question`/`BlueprintForm` types appear.
+ * `Question`/`BlueprintForm` wire types appear.
  */
 import { describe, expect, it } from "vitest";
 import type {
@@ -106,7 +106,7 @@ const sampleCaseTypes: CaseType[] = [
 ];
 
 describe("FormEngine", () => {
-	it("initializes with question states", () => {
+	it("initializes with field states", () => {
 		const input = dTree([
 			{ id: "name", kind: "text", label: "Name" },
 			{ id: "age", kind: "int", label: "Age" },

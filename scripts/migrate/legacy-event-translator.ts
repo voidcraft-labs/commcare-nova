@@ -36,6 +36,8 @@
  *      top-down tree order so container parents land before their kids.
  */
 
+import type { Scaffold } from "@/lib/agent/scaffoldSchemas";
+import type { BlueprintForm } from "@/lib/doc/legacyTypes";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -47,7 +49,6 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldSchema } from "@/lib/domain";
-import type { BlueprintForm, Scaffold } from "@/lib/schemas/blueprint";
 
 // ── Event type constants ───────────────────────────────────────────────
 

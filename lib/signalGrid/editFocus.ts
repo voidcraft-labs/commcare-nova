@@ -1,8 +1,8 @@
 /**
  * Pure computation of the signal grid's edit focus zone.
  *
- * Given the current blueprint structure (module/form/question ordering) and
- * the agent's current edit scope (which module, form, or question the SA is
+ * Given the current blueprint structure (module/form/field ordering) and
+ * the agent's current edit scope (which module, form, or field the SA is
  * working on), this function returns a normalized `{ start, end }` range
  * (0–1) that the `SignalGridController` uses to highlight the active zone.
  *
@@ -16,7 +16,7 @@ import type { EditFocus } from "@/lib/signalGridController";
 
 /**
  * Minimum normalized width for the focus zone. Prevents the highlight from
- * collapsing to a hairline when the scope targets a single question in a
+ * collapsing to a hairline when the scope targets a single field in a
  * large form.
  */
 const MIN_EDIT_ZONE = 0.15;
@@ -40,7 +40,7 @@ export interface EditFocusData {
  * range in [0, 1] that covers the scope's questions with a minimum width
  * of `MIN_EDIT_ZONE`.
  *
- * @param data  - The blueprint's ordering maps (module, form, question order).
+ * @param data  - The blueprint's ordering maps (module, form, field order).
  * @param scope - The agent's current edit scope, or `null` if not editing.
  */
 export function computeEditFocus(
@@ -64,7 +64,7 @@ export function computeEditFocus(
 		const formIds = data.formOrder[moduleId] ?? [];
 		for (let fi = 0; fi < formIds.length; fi++) {
 			const formId = formIds[fi];
-			const count = countQuestionsDeep(data.fieldOrder, formId);
+			const count = countFieldsDeep(data.fieldOrder, formId);
 			formPositions.push({
 				moduleIndex: mi,
 				formIndex: fi,
@@ -91,22 +91,22 @@ export function computeEditFocus(
 		return clampEditFocus(start, end);
 	}
 
-	/* Form-level or question-level scope. */
+	/* Form-level or field-level scope. */
 	const form = formPositions.find(
 		(f) =>
 			f.moduleIndex === scope.moduleIndex && f.formIndex === scope.formIndex,
 	);
 	if (!form || form.count === 0) return null;
 
-	/* Question-level — center a zone around the specific question. */
-	if (scope.questionIndex != null) {
+	/* Field-level — center a zone around the specific field. */
+	if (scope.fieldIndex != null) {
 		const qPos =
-			(form.start + Math.min(scope.questionIndex, form.count - 1)) / total;
+			(form.start + Math.min(scope.fieldIndex, form.count - 1)) / total;
 		const halfZone = Math.max(MIN_EDIT_ZONE / 2, (form.count / total) * 0.3);
 		return clampEditFocus(qPos - halfZone, qPos + halfZone);
 	}
 
-	/* Form-level — span the form's full question range. */
+	/* Form-level — span the form's full field range. */
 	return clampEditFocus(form.start / total, (form.start + form.count) / total);
 }
 
@@ -138,7 +138,7 @@ function clampEditFocus(start: number, end: number): EditFocus {
  * Count all questions reachable from a parent in the fieldOrder tree.
  * Recursively counts children of groups and repeats.
  */
-function countQuestionsDeep(
+function countFieldsDeep(
 	fieldOrder: Readonly<Record<string, readonly string[]>>,
 	parentId: string,
 ): number {
@@ -146,7 +146,7 @@ function countQuestionsDeep(
 	if (!childIds) return 0;
 	let count = childIds.length;
 	for (const uuid of childIds) {
-		count += countQuestionsDeep(fieldOrder, uuid);
+		count += countFieldsDeep(fieldOrder, uuid);
 	}
 	return count;
 }

@@ -463,7 +463,7 @@ function InlineXPathEditor({
 		() => [
 			...baseEditingExtensions,
 			/* Portal tooltips to body so they aren't clipped by overflow on
-			 * ancestor panels (ContextualEditor, FormSettingsPanel). */
+			 * ancestor panels (InlineSettingsPanel, FormSettingsPanel). */
 			tooltips({ parent: document.body }),
 			xpathLinter(() => getLintContextRef.current?.()),
 			xpathAutocomplete(() => getLintContextRef.current?.()),

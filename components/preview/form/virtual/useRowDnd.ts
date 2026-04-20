@@ -12,7 +12,7 @@
  *     target for the empty group/repeat's "sole child" landing zone.
  *
  * The rules are identical across both flavors:
- *   - Only accept sources whose data matches our own `draggable-question`
+ *   - Only accept sources whose data matches our own `draggable-field`
  *     tag (`isDraggableQuestionData`).
  *   - Reject a self-drop — a draggable row can't be a drop target for
  *     itself.
@@ -91,7 +91,7 @@ export interface UseRowDndOptions {
 	 * container (self-drop into self, already caught above) or an ancestor
 	 * of it, the drop is rejected.
 	 *
-	 *   - For question rows, this is the question's parent (source
+	 *   - For field rows, this is the field's parent (source
 	 *     becomes a sibling).
 	 *   - For group-header drops, this is the group's own uuid (source
 	 *     becomes a child).
@@ -109,7 +109,7 @@ export interface UseRowDndOptions {
 
 	/**
 	 * Enable closest-edge tracking — only relevant for row-between drop
-	 * targets (question rows). When true, the hook listens to `onDrag`,
+	 * targets (field rows). When true, the hook listens to `onDrag`,
 	 * extracts the closest edge from `self.data`, and exposes it as
 	 * `dropEdge`. Callers render an edge indicator based on this state.
 	 */

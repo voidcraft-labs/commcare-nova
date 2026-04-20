@@ -20,7 +20,7 @@ interface ReferenceProviderWrapperProps {
 	getContext: () => XPathLintContext | undefined;
 	/** Subscribe to external mutations that invalidate cached data.
 	 *  Follows the useSyncExternalStore contract: subscribe(listener) → unsubscribe.
-	 *  Fires when question entities change — not on UI state changes. */
+	 *  Fires when field entities change — not on UI state changes. */
 	subscribeMutation: (listener: () => void) => () => void;
 	children: React.ReactNode;
 }
@@ -45,7 +45,7 @@ export function ReferenceProviderWrapper({
 
 	/* Subscribe to mutation events and invalidate caches. The subscription fires
      only when the blueprint is mutated, replaced, or the active form changes —
-     exactly when cached question/case data may be stale. */
+     exactly when cached field/case data may be stale. */
 	useEffect(
 		() => subscribeMutation(() => provider.invalidate()),
 		[subscribeMutation, provider],

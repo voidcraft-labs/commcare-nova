@@ -5,7 +5,7 @@
  * container has no children. Provides the sole drop target for "make
  * this the first child of the empty group."
  *
- * Unlike question/group rows, an empty container can't participate in
+ * Unlike field/group rows, an empty container can't participate in
  * live reorder (there are no siblings to shift), so it keeps a local
  * `isDragOver` highlight via the shared `useRowDnd` hook.
  */
@@ -55,7 +55,7 @@ export const EmptyContainerRow = memo(function EmptyContainerRow({
 				style={{ height: EMPTY_CONTAINER_HEIGHT_PX }}
 			>
 				<Icon icon={tablerDragDrop} width="14" height="14" />
-				Empty — drag a question here
+				Empty — drag a field here
 			</div>
 		</div>
 	);

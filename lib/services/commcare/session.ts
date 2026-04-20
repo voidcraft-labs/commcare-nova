@@ -22,13 +22,12 @@
  *   - Parent/child module navigation (future)
  */
 
+import type { FormType, PostSubmitDestination } from "@/lib/domain";
+import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type {
 	AppBlueprint,
-	FormLink,
-	FormType,
-	PostSubmitDestination,
-} from "../../schemas/blueprint";
-import { CASE_LOADING_FORM_TYPES } from "../../schemas/blueprint";
+	WireFormLink as FormLink,
+} from "../../doc/legacyTypes";
 import { validateCaseType } from "./validate";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -91,9 +90,9 @@ export interface StackOperation {
 	children: StackChild[];
 }
 
-// ── Re-export FormLink types from schema for convenience ───────────────
+// ── Re-export FormLink types for downstream convenience ───────────────
 
-export type { FormLinkDatum } from "../../schemas/blueprint";
+export type { WireFormLinkDatum as FormLinkDatum } from "../../doc/legacyTypes";
 export type { FormLink };
 
 // ── Entry Definition ───────────────────────────────────────────────────

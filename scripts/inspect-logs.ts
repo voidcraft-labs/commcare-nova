@@ -13,19 +13,10 @@
  * conversation only). Scripts that want cost breakdowns read the summary
  * doc directly.
  *
- * Never writes to Firestore.
- *
- * Usage:
- *   npx tsx scripts/inspect-logs.ts <appId>                  # summary + event counts
- *   npx tsx scripts/inspect-logs.ts <appId> --verbose         # full event detail
- *   npx tsx scripts/inspect-logs.ts <appId> --runs            # per-run summary table
- *   npx tsx scripts/inspect-logs.ts <appId> --timeline        # event timing gaps
- *   npx tsx scripts/inspect-logs.ts <appId> --tools           # tool-call distribution
- *   npx tsx scripts/inspect-logs.ts <appId> --stages          # mutations by stage
- *   npx tsx scripts/inspect-logs.ts <appId> --run=<runId>     # filter to a run
- *   npx tsx scripts/inspect-logs.ts <appId> --last=N          # last N events only
+ * Never writes to Firestore. Run with `--help` for the flag reference.
  */
 import "dotenv/config";
+import { Command, InvalidArgumentError } from "commander";
 import { collections } from "@/lib/db/firestore";
 import type { RunSummaryDoc } from "@/lib/db/types";
 import { readEvents, readRunSummary } from "@/lib/log/reader";
@@ -47,61 +38,85 @@ import {
 	computeToolUsage,
 	groupByRun,
 } from "./lib/log-stats";
+import { requireArg, runMain } from "./lib/main";
 import type { ConversationPayload, Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
 
-const appId = process.argv[2];
-if (!appId) {
-	console.error(
-		"Usage: npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--runs] [--timeline] [--tools] [--stages] [--run=<runId>] [--last=N]",
-	);
-	process.exit(1);
+interface InspectLogsOptions {
+	verbose?: boolean;
+	runs?: boolean;
+	timeline?: boolean;
+	tools?: boolean;
+	stages?: boolean;
+	run?: string;
+	last?: number;
 }
-
-const verbose = process.argv.includes("--verbose");
-const showRunsTable = process.argv.includes("--runs");
-const showTimeline = process.argv.includes("--timeline");
-const showTools = process.argv.includes("--tools");
-const showStages = process.argv.includes("--stages");
 
 /**
- * Extract the value of a `--flag=value` argument, or `null` when the flag
- * is absent. A *present-but-empty* flag (`--run=`) is returned as `""` so
- * the caller can reject it explicitly — silently coercing an empty value
- * to "no filter" would mask typos.
+ * Commander coerces `--last=N` through this function. We enforce
+ * "positive integer, no trailing junk" up-front so "--last=5abc" is
+ * rejected rather than silently parsed as 5. Throwing
+ * `InvalidArgumentError` makes commander print a clean error + usage hint
+ * rather than leaking a stack trace.
  */
-function extractFlagValue(flag: string): string | null {
-	const match = process.argv.find((a) => a.startsWith(`${flag}=`));
-	if (match === undefined) return null;
-	return match.slice(flag.length + 1);
-}
-
-/* `--run=<runId>` — filter to a single run. An empty value is user error,
- * not intent to drop the filter, so we reject it instead of silently
- * ignoring (which would hide typos like `--run= abc123`). */
-const rawRunFilter = extractFlagValue("--run");
-if (rawRunFilter !== null && rawRunFilter === "") {
-	console.error("--run requires a runId (e.g. --run=abc123).");
-	process.exit(1);
-}
-const runFilter: string | undefined = rawRunFilter ?? undefined;
-
-/* `--last=N` — trim to the last N events after loading. Must be a positive
- * integer; anything else is a typo or non-numeric junk that we reject
- * up-front rather than silently falling through to "no limit". The
- * `String(parsed) !== rawLastN` check rejects trailing garbage like "5abc"
- * that `Number.parseInt` would otherwise accept. */
-const rawLastN = extractFlagValue("--last");
-let lastN = 0;
-if (rawLastN !== null) {
-	const parsed = Number.parseInt(rawLastN, 10);
-	if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== rawLastN) {
-		console.error(`--last requires a positive integer (got "${rawLastN}").`);
-		process.exit(1);
+function parsePositiveInt(raw: string): number {
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== raw) {
+		throw new InvalidArgumentError(`expected a positive integer, got "${raw}"`);
 	}
-	lastN = parsed;
+	return parsed;
 }
+
+const program = new Command();
+program
+	.name("inspect-logs")
+	.description(
+		"Read-only inspection of the event log + per-run summary docs for an app.",
+	)
+	.argument("<appId>", "Firestore app document id")
+	.option(
+		"--verbose",
+		"multi-line rendering of every event (default: one-line)",
+	)
+	.option(
+		"--runs",
+		"show the per-run summary table (skips the event scan when used alone)",
+	)
+	.option("--timeline", "per-run event-time-gap table")
+	.option("--tools", "per-run tool-call distribution")
+	.option("--stages", "per-run mutations-by-stage counts")
+	.option("--run <runId>", "only show events for this run")
+	.option(
+		"--last <n>",
+		"trim the event stream to the last N events (positive integer)",
+		parsePositiveInt,
+	)
+	.addHelpText(
+		"after",
+		"\nExamples:\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId>\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId> --runs\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId> --timeline --tools\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId> --run=<runId> --verbose\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId> --last=50\n",
+	);
+
+program.parse();
+
+const appId = requireArg(program.args, 0, "appId");
+const opts = program.opts<InspectLogsOptions>();
+
+const verbose = opts.verbose === true;
+const showRunsTable = opts.runs === true;
+const showTimeline = opts.timeline === true;
+const showTools = opts.tools === true;
+const showStages = opts.stages === true;
+/* `opts.run` already widens from `InspectLogsOptions`; no annotation needed.
+ * `lastN` keeps its explicit `number` annotation because the ?? 0 collapses
+ * `number | undefined` to `number`, and the annotation documents the coercion. */
+const runFilter = opts.run;
+const lastN: number = opts.last ?? 0;
 
 /**
  * Any analytical view flag replaces the default per-run event dump. The
@@ -509,7 +524,4 @@ async function main() {
 	}
 }
 
-main().catch((err) => {
-	console.error("Fatal:", err);
-	process.exit(1);
-});
+runMain(main);

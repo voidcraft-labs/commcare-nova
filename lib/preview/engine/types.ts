@@ -1,4 +1,4 @@
-/** Per-question reactive state tracked by the form engine. */
+/** Per-field reactive state tracked by the form engine. */
 export interface FieldState {
 	path: string;
 	value: string;

@@ -1,5 +1,5 @@
 /**
- * StructureSidebar — collapsible panel showing the app's module/form/question
+ * StructureSidebar — collapsible panel showing the app's module/form/field
  * tree. Fully self-sufficient — subscribes to store state directly, no props
  * needed from BuilderLayout. Calls store actions to close itself.
  */
@@ -7,7 +7,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
-import { AppTree } from "@/components/builder/AppTree";
+import { AppTree } from "@/components/builder/appTree/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
 
