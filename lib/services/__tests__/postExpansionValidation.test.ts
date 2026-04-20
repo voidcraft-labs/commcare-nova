@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import type { AppBlueprint } from "@/lib/doc/legacyTypes";
 import { buildDoc, f } from "../../__tests__/docHelpers";
-import { runValidation } from "../commcare/validate/runner";
-import { validateXFormXml } from "../commcare/validate/xformValidator";
 import { expandBlueprint } from "../hqJsonExpander";
 import { q } from "./wireFixtures";
 

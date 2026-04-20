@@ -16,7 +16,7 @@ import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
-import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
+import { detectUnquotedStringLiteral } from "@/lib/services/hqJsonExpander";
 import { type ValidationError, validationError } from "../errors";
 
 /**

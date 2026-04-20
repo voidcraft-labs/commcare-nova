@@ -37,10 +37,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ValidationError } from "@/lib/commcare/validator/errors";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
-import type { ValidationError } from "@/lib/services/commcare/validate/errors";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
@@ -545,11 +545,11 @@ describe("solutionsArchitect — validateApp", () => {
 // would require plumbing the field-registry rule + fix pair, which is
 // far more invasive than the call-site change being tested.
 
-vi.mock("@/lib/services/commcare/validate/runner", () => ({
+vi.mock("@/lib/commcare/validator/runner", () => ({
 	runValidation: vi.fn(),
 }));
 
-vi.mock("@/lib/services/commcare/validate/fixes", () => ({
+vi.mock("@/lib/commcare/validator/fixes", () => ({
 	FIX_REGISTRY: new Map<string, (...args: unknown[]) => Mutation[]>(),
 }));
 
@@ -560,7 +560,7 @@ vi.mock("@/lib/services/hqJsonExpander", () => ({
 	})),
 }));
 
-vi.mock("@/lib/services/commcare/validate/xformValidator", () => ({
+vi.mock("@/lib/commcare/validator/xformValidator", () => ({
 	validateXFormXml: vi.fn(() => []),
 }));
 
@@ -570,8 +570,8 @@ describe("validationLoop — fix pass emission", () => {
 	});
 
 	it("emits a single data-mutations batch per fix attempt with stage fix:attempt-N", async () => {
-		const runnerMod = await import("@/lib/services/commcare/validate/runner");
-		const fixesMod = await import("@/lib/services/commcare/validate/fixes");
+		const runnerMod = await import("@/lib/commcare/validator/runner");
+		const fixesMod = await import("@/lib/commcare/validator/fixes");
 		// Load the real validationLoop. `importActual` bypasses the
 		// file-level mock regardless of cache state — the top-of-file
 		// `vi.mock("../validationLoop", ...)` only affects imports

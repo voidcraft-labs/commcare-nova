@@ -32,7 +32,7 @@ import {
 	type DerivedCaseConfig,
 	deriveCaseConfig,
 } from "@/lib/services/deriveCaseConfig";
-import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
+import { detectUnquotedStringLiteral } from "@/lib/services/hqJsonExpander";
 import { type ValidationError, validationError } from "../errors";
 
 // ── Helpers ────────────────────────────────────────────────────────

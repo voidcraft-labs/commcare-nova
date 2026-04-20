@@ -14,9 +14,9 @@ import {
 	fromHqWorkflow,
 	renderEntryXml,
 } from "@/lib/commcare/session";
+import { errorToString } from "@/lib/commcare/validator/errors";
+import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import type { AppBlueprint } from "../doc/legacyTypes";
-import { errorToString } from "./commcare/validate/errors";
-import { validateXFormXml } from "./commcare/validate/xformValidator";
 
 /**
  * Compiles HQ import JSON into a .ccz archive for deployment.

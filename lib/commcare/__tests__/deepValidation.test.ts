@@ -3,13 +3,13 @@ import type { CaseType } from "@/lib/domain";
 import { buildDoc, type FieldSpec, f } from "../../__tests__/docHelpers";
 import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
+import { validateBlueprintDeep } from "../validator";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
-} from "../commcare/validate/functionRegistry";
-import { validateBlueprintDeep } from "../commcare/validate/index";
-import { runValidation } from "../commcare/validate/runner";
-import { validateXPath } from "../commcare/validate/xpathValidator";
+} from "../validator/functionRegistry";
+import { runValidation } from "../validator/runner";
+import { validateXPath } from "../validator/xpathValidator";
 
 // ── XPath Validator ─────────────────────────────────────────────────
 

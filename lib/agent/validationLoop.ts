@@ -17,17 +17,17 @@
 
 import { produce } from "immer";
 import type { HqApplication } from "@/lib/commcare";
+import {
+	errorToString,
+	type ValidationError,
+} from "@/lib/commcare/validator/errors";
+import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	errorToString,
-	type ValidationError,
-} from "@/lib/services/commcare/validate/errors";
-import { FIX_REGISTRY } from "@/lib/services/commcare/validate/fixes";
-import { runValidation } from "@/lib/services/commcare/validate/runner";
-import { validateXFormXml } from "@/lib/services/commcare/validate/xformValidator";
 import { deriveConnectDefaults } from "@/lib/services/connectConfig";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import type { GenerationContext } from "./generationContext";

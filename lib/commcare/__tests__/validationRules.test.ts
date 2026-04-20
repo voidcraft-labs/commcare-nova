@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { applyMutations } from "@/lib/doc/mutations";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { buildDoc, f } from "../../__tests__/docHelpers";
-import { FIX_REGISTRY } from "../commcare/validate/fixes";
-import { runValidation } from "../commcare/validate/runner";
+import { FIX_REGISTRY } from "../validator/fixes";
+import { runValidation } from "../validator/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
 

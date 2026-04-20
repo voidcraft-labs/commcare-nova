@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppBlueprint } from "@/lib/doc/legacyTypes";
-import { runValidation } from "../commcare/validate/runner";
 import { expandBlueprint } from "../hqJsonExpander";
 import { q } from "./wireFixtures";
 

@@ -24,9 +24,9 @@ import {
 	novaChipTheme,
 	novaXPathTheme,
 } from "@/lib/codemirror/xpath-theme";
+import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
 import { ReferenceProvider } from "@/lib/references/provider";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
-import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 import { POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────

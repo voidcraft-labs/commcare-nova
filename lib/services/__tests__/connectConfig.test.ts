@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppBlueprint, BlueprintForm } from "@/lib/doc/legacyTypes";
 import type {
 	ConnectConfig,
@@ -7,7 +8,6 @@ import type {
 	ConnectType as DomainConnectType,
 } from "@/lib/domain";
 import { buildDoc, type FormSpec, f } from "../../__tests__/docHelpers";
-import { runValidation } from "../commcare/validate/runner";
 import { deriveConnectDefaults } from "../connectConfig";
 import { expandBlueprint } from "../hqJsonExpander";
 import { q } from "./wireFixtures";

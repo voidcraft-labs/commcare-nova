@@ -8,8 +8,8 @@
  */
 
 import { type Diagnostic, linter } from "@codemirror/lint";
+import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
 import type { FieldKind } from "@/lib/domain";
-import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 
 /**
  * Context snapshot used by the XPath linter and autocomplete sources.

@@ -25,8 +25,8 @@ import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
+import { FUNCTION_REGISTRY } from "@/lib/commcare/validator/functionRegistry";
 import { USER_PROPERTIES } from "@/lib/references/provider";
-import { FUNCTION_REGISTRY } from "@/lib/services/commcare/validate/functionRegistry";
 import type { XPathLintContext } from "./xpath-lint";
 
 // ── Static data ────────────────────────────────────────────────────────

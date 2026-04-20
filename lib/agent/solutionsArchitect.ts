@@ -36,6 +36,7 @@ import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -65,7 +66,6 @@ import {
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
-import { errorToString } from "@/lib/services/commcare/validate/errors";
 import {
 	addFieldMutations,
 	addFormMutations,
