@@ -18,6 +18,8 @@
  * unchanged — stable enough for `React.memo` without spurious churn.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/domain";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 

@@ -71,12 +71,12 @@ function createLoadedStore(doc: PersistableDoc = makeDoc()) {
 
 describe("EngineController", () => {
 	describe("activateForm", () => {
-		it("resolves module and form indices to the correct form", () => {
+		it("initializes runtime state for every field in the form", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			/* Runtime store should have entries for both fields */
 			const runtime = ctrl.store.getState();
@@ -86,30 +86,38 @@ describe("EngineController", () => {
 			expect(runtime[Q2_UUID].visible).toBe(true);
 		});
 
-		it("returns early for out-of-range module index", () => {
+		it("returns early for an unknown form uuid", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 
-			ctrl.activateForm(99, 0);
+			ctrl.activateForm(asUuid("does-not-exist"));
 
 			/* Runtime store should be empty — no form was activated */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
 		});
 
-		it("returns early for out-of-range form index", () => {
-			const store = createLoadedStore();
+		it("returns early when the form is not referenced by any module", () => {
+			/* Orphan case: the form entity exists but no module lists it in
+			 * `formOrder`. `findModuleForForm` returns undefined and the
+			 * controller bails before touching the engine — no case-type
+			 * context, no activation. */
+			const orphanDoc = makeDoc();
+			orphanDoc.formOrder = { [MODULE_UUID]: [] };
+			const store = createBlueprintDocStore();
+			store.getState().load(orphanDoc);
+			store.temporal.getState().resume();
+
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-
-			ctrl.activateForm(0, 99);
+			ctrl.activateForm(FORM_UUID);
 
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
 		});
 
 		it("returns early when no doc store is installed", () => {
 			const ctrl = new EngineController();
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
 		});
 	});
@@ -119,7 +127,7 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			/* Mutate the field's relevant expression to hide it */
 			store.getState().applyMany([
@@ -146,7 +154,7 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			/* Initial state should have 2 fields */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
@@ -177,7 +185,7 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			/* Remove the first field */
 			store.getState().applyMany([
@@ -200,7 +208,7 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			/* Verify we have state */
 			expect(Object.keys(ctrl.store.getState()).length).toBeGreaterThan(0);
@@ -217,7 +225,7 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			ctrl.onValueChange(Q1_UUID, "Alice");
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("Alice");
@@ -227,7 +235,7 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
-			ctrl.activateForm(0, 0);
+			ctrl.activateForm(FORM_UUID);
 
 			expect(ctrl.getPath(Q1_UUID)).toBe("/data/name");
 			expect(ctrl.getPath(Q2_UUID)).toBe("/data/age");

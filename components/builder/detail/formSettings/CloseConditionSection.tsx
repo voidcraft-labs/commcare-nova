@@ -2,9 +2,9 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useId, useMemo } from "react";
 import { FieldPicker } from "@/components/ui/FieldPicker";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
+import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import { asUuid } from "@/lib/doc/types";
 import { findFieldById } from "./findFieldById";
 import { InlineField } from "./InlineField";
@@ -46,15 +46,13 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const triggerId = useId();
 
-	/* Subscribe to the doc's normalized field + order maps. Shallow
-	 * equality short-circuits re-renders when an entity map's identity
-	 * changes but the referenced slice stays reference-stable (Immer
-	 * structural sharing). FieldPicker + close-field resolution both
-	 * consume the same slice so the doc walks once per render. */
-	const { fields, fieldOrder } = useBlueprintDocShallow((s) => ({
-		fields: s.fields,
-		fieldOrder: s.fieldOrder,
-	}));
+	/* Subscribe to the doc's normalized field + order maps. `useFieldsAndOrder`
+	 * runs shallow equality over the returned `{fields, fieldOrder}` pair so
+	 * re-renders only fire when one of the two maps changes identity — Immer
+	 * structural sharing keeps them stable through unrelated edits.
+	 * FieldPicker + close-field resolution both consume the same slice so
+	 * the doc walks once per render. */
+	const { fields, fieldOrder } = useFieldsAndOrder();
 	const closeFieldId = form?.closeCondition?.field;
 
 	/* Resolve the referenced field to check if it has selectable options. */

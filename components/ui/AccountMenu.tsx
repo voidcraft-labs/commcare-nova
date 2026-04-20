@@ -15,7 +15,7 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { type AuthUser, useAuth } from "@/hooks/useAuth";
+import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 import { formatCurrency } from "@/lib/utils/format";
 

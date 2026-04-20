@@ -3,14 +3,19 @@ import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { Toggle } from "@/components/ui/Toggle";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import type { ConnectType } from "@/lib/domain";
 import { useSwitchConnectMode } from "@/lib/session/hooks";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 export function AppConnectSettings() {
-	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
-	const moduleCount = useBlueprintDoc((s) => s.moduleOrder.length);
+	const connectType = useConnectTypeOrUndefined();
+	/* Module count is derived from the reference-stable `moduleOrder`
+	 * array returned by `useModuleIds`. `.length` stays primitive so the
+	 * default `Object.is` equality inside the upstream hook skips renders
+	 * when append/reorder operations don't change the total count. */
+	const moduleCount = useModuleIds().length;
 	const switchMode = useSwitchConnectMode();
 	const [open, setOpen] = useState(false);
 

@@ -22,28 +22,26 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
-import { useRouter } from "next/navigation";
 import { useCallback, useContext, useEffect, useState } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { replayEventsSync } from "@/lib/log/replay";
 import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
+import { useExternalNavigate } from "@/lib/routing/hooks";
 import { resetBuilder } from "@/lib/services/resetBuilder";
-import {
-	BuilderSessionContext,
-	useBuilderSession,
-} from "@/lib/session/provider";
+import { useReplayState } from "@/lib/session/hooks";
+import { BuilderSessionContext } from "@/lib/session/provider";
 import type { ReplayChapter } from "@/lib/session/types";
 
-/* Reference-stable empty-array sentinels keep the selectors below from
- * returning a fresh `[]` on every render when replay is not loaded — a
- * fresh reference would make `useBuilderSession`'s equality check fail
- * on every tick and thrash React reconciliation in the transport bar. */
+/* Reference-stable empty-array sentinels used when replay is not loaded.
+ * `useReplayState` returns `undefined` in that case; these sentinels keep
+ * the destructured `events` / `chapters` references stable across renders
+ * so the transport bar's downstream memos + `findIndex` don't thrash. */
 const EMPTY_EVENTS: readonly Event[] = [];
 const EMPTY_CHAPTERS: readonly ReplayChapter[] = [];
 
 export function ReplayController() {
-	const router = useRouter();
+	const navigate = useExternalNavigate();
 	const docStore = useContext(BlueprintDocContext);
 	const sessionStore = useContext(BuilderSessionContext);
 	const engineController = useBuilderFormEngine();
@@ -51,7 +49,7 @@ export function ReplayController() {
 	/* Self-subscribe to replay state — no props from parent. The cursor
 	 * lives in the session store so `useReplayMessages` and this
 	 * controller stay in lock-step across scrubs. */
-	const replay = useBuilderSession((s) => s.replay);
+	const replay = useReplayState();
 	const events = replay?.events ?? EMPTY_EVENTS;
 	const chapters = replay?.chapters ?? EMPTY_CHAPTERS;
 	const cursor = replay?.cursor ?? 0;
@@ -164,7 +162,7 @@ export function ReplayController() {
 	 *  explicit `sessionStore.reset()` — exit is the one place where
 	 *  session state should also clear, so `replay.*`, cursor mode,
 	 *  sidebar visibility, etc. all zero out before navigation. The
-	 *  session reset runs BEFORE `router.push` so the next route's
+	 *  session reset runs BEFORE `navigate.push` so the next route's
 	 *  mount doesn't observe stale session state during its initial
 	 *  render. */
 	const handleExit = useCallback(() => {
@@ -181,8 +179,8 @@ export function ReplayController() {
 		}
 		resetBuilder({ docStore, engineController });
 		sessionStore.getState().reset();
-		router.push(exitPath);
-	}, [docStore, sessionStore, engineController, router]);
+		navigate.push(exitPath);
+	}, [docStore, sessionStore, engineController, navigate]);
 
 	const canGoBack = currentChapterIndex > 0;
 	/* When chapters is empty `currentChapterIndex` is -1 — the

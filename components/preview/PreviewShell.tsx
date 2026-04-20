@@ -37,7 +37,7 @@
  */
 "use client";
 import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -69,8 +69,8 @@ interface PreviewShellProps {
  */
 function locationToScreen(
 	loc: Location,
-	moduleOrder: Uuid[],
-	formOrder: Record<Uuid, Uuid[]>,
+	moduleOrder: readonly Uuid[],
+	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
 ): PreviewScreen {
 	if (loc.kind === "home") return { type: "home" };
 
@@ -101,8 +101,10 @@ export function PreviewShell({
 	 * shape so the Activity boundaries and interact-mode pipeline keep working. */
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const moduleOrder = useBlueprintDoc((s) => s.moduleOrder);
-	const formOrder = useBlueprintDoc((s) => s.formOrder);
+	/* `useAppStructure` returns a shallow-stable `{moduleOrder, formOrder}`
+	 * pair so the location→screen adapter's `useMemo` below only invalidates
+	 * when one of the top-level order arrays actually changes reference. */
+	const { moduleOrder, formOrder } = useAppStructure();
 
 	/* Default back handler — callers can override (e.g. for selection sync),
 	 * otherwise fall back to URL-driven `navigate.back()`. */

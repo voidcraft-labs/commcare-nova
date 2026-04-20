@@ -11,6 +11,8 @@
  * array literal on every call, defeating `Object.is` memoization.
  */
 
+"use client";
+
 import type { CaseType } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 

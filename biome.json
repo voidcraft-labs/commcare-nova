@@ -15,7 +15,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["components/**", "app/**"],
+			"includes": ["components/**", "app/**", "!**/__tests__/**"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -25,6 +25,26 @@
 								"paths": {
 									"@/lib/doc/store": "Import from @/lib/doc/hooks/ — the store is a private module.",
 									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks — the store is a private module.",
+									"@/lib/doc/hooks/useBlueprintDoc": {
+										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/doc/hooks/*; useBlueprintDocApi stays allowed for imperative, non-subscribing access.",
+										"importNames": [
+											"useBlueprintDoc",
+											"useBlueprintDocShallow",
+											"useBlueprintDocEq",
+											"useBlueprintDocTemporal"
+										]
+									},
+									"@/lib/session/provider": {
+										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/session/hooks; useBuilderSessionApi and BuilderSessionStoreApi stay allowed.",
+										"importNames": [
+											"useBuilderSession",
+											"useBuilderSessionShallow"
+										]
+									},
+									"next/navigation": {
+										"message": "Use useExternalNavigate from @/lib/routing/hooks for router.push/replace/refresh. notFound, redirect, usePathname stay allowed.",
+										"importNames": ["useRouter"]
+									},
 									"@/hooks/useBuilder": "Deleted in Phase 6. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state.",
 									"@/lib/services/builderStore": "Deleted in Phase 6. The legacy builder store no longer exists."
 								}

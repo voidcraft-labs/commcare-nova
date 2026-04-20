@@ -23,7 +23,7 @@ import tablerCloudOff from "@iconify-icons/tabler/cloud-off";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { useAutoSave } from "@/hooks/useAutoSave";
+import { useAutoSave } from "@/lib/doc/hooks/useAutoSave";
 import { formatRelativeDate } from "@/lib/utils/format";
 
 /** How often to re-render for the relative timestamp (ms). */

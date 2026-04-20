@@ -21,7 +21,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import { useLocation } from "@/lib/routing/hooks";
 import {
 	buildUrl,
@@ -39,12 +39,11 @@ export function LocationRecoveryEffect() {
 	const segments = useBuilderPathSegments();
 
 	/* Subscribe to entity maps directly so the effect re-fires whenever a
-	 * referenced uuid might have disappeared. Each slice is an Immer-stable
-	 * reference, so `useBlueprintDoc` with the default `Object.is` equality
-	 * only triggers when the specific map's identity changes. */
-	const modules = useBlueprintDoc((s) => s.modules);
-	const forms = useBlueprintDoc((s) => s.forms);
-	const fields = useBlueprintDoc((s) => s.fields);
+	 * referenced uuid might have disappeared. `useDocEntityMaps` returns a
+	 * shallow-stable `{modules, forms, fields}` object — each slice is an
+	 * Immer-stable reference, so the hook only re-renders when one of the
+	 * three maps actually changes identity. */
+	const { modules, forms, fields } = useDocEntityMaps();
 
 	useEffect(() => {
 		/* Strategy 1: check if the parsed location has stale references that

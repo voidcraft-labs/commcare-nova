@@ -9,6 +9,8 @@
  * duplicating the "what counts as having data?" definition.
  */
 
+"use client";
+
 import { docHasData } from "../predicates";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 

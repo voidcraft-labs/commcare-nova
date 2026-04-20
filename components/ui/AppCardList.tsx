@@ -1,7 +1,7 @@
 "use client";
-import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import type { AppSummary } from "@/lib/db/apps";
+import { useExternalNavigate } from "@/lib/routing/hooks";
 import { AppCard } from "./AppCard";
 
 interface AppCardListProps {
@@ -21,13 +21,13 @@ export function AppCardList({
 	linkToApps = false,
 	showReplay = false,
 }: AppCardListProps) {
-	const router = useRouter();
+	const navigate = useExternalNavigate();
 
 	const handleReplay = useCallback(
 		(appId: string) => {
-			router.push(`/build/replay/${appId}`);
+			navigate.push(`/build/replay/${appId}`);
 		},
-		[router],
+		[navigate],
 	);
 
 	if (apps.length === 0) {

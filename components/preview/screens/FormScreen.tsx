@@ -5,19 +5,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { EditContextProvider } from "@/hooks/useEditContext";
-import { useFormEngine } from "@/hooks/useFormEngine";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
+import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import { defaultPostSubmit } from "@/lib/domain";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
@@ -37,20 +36,20 @@ interface FormScreenProps {
 }
 
 /**
- * Form screen — renders the form header + body inside EditContext and
- * EngineController context providers.
+ * Form screen — renders the form header + body and activates the shared
+ * EngineController for the form identified by the URL.
  *
  * Reads the form ENTITY (NForm — no children) for header display.
  * The EngineController manages its own runtime store via selective
  * blueprint store subscriptions that fire outside the React render cycle.
  *
  * Screen identity (moduleIndex, formIndex, caseId) arrives as a prop from
- * PreviewShell so the component remains valid while Activity hides it.
- * All other data still comes from targeted Zustand selectors.
+ * PreviewShell so the component remains valid while Activity hides it —
+ * but only `caseId` is consumed here. The form's UUID comes from the URL
+ * (`useLocation`), and the engine is activated by UUID rather than by the
+ * positional screen indices, which are opaque PreviewScreen routing data.
  */
 export function FormScreen({ screen, onBack }: FormScreenProps) {
-	const moduleIndex = screen.moduleIndex;
-	const formIndex = screen.formIndex;
 	const caseId = screen.caseId;
 	const caseTypes = useCaseTypes();
 	const loc = useLocation();
@@ -78,10 +77,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
 	const formId = formUuid;
 
-	/** Whether the form has any fields — drives the empty state. */
-	const hasFields = useBlueprintDoc((s) =>
-		formId ? (s.fieldOrder[formId as Uuid]?.length ?? 0) > 0 : false,
-	);
+	/** Whether the form has any fields — drives the empty state. The hook
+	 *  accepts `Uuid | undefined`, returning `false` when `formId` is
+	 *  undefined so the preview shell can mount a FormScreen while the
+	 *  URL is still being parsed. */
+	const hasFields = useHasFieldsInForm(formId as Uuid | undefined);
 
 	const caseData = useMemo(() => {
 		if (!mod?.caseType) return undefined;
@@ -97,8 +97,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/* Activate the engine controller for this form. The controller manages
 	 * its own runtime store via selective blueprint subscriptions — no
-	 * entity-map subscription here, no "setState during render" issues. */
-	const controller = useFormEngine(moduleIndex, formIndex, caseData);
+	 * entity-map subscription here, no "setState during render" issues.
+	 * Identified by UUID so the engine no longer depends on positional
+	 * module/form indices. */
+	const controller = useFormEngine(formUuid, caseData);
 
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
@@ -261,22 +263,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		<div className="h-full">
 			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
 				{/* FormLayoutProvider owns per-form layout state (currently
-				 *  group/repeat collapse). Wraps BOTH branches so the
-				 *  collapse set is shared: a group folded in live mode
-				 *  stays folded when the user flips to edit, and vice-versa. */}
-				<FormLayoutProvider>
-					{editable ? (
-						<EditContextProvider
-							moduleIndex={moduleIndex}
-							formIndex={formIndex}
-							mode={mode}
-						>
-							{formBody}
-						</EditContextProvider>
-					) : (
-						formBody
-					)}
-				</FormLayoutProvider>
+				 *  group/repeat collapse). The collapse set is shared across
+				 *  edit and live modes so a group folded in one stays folded
+				 *  when the user flips to the other. Preview descendants read
+				 *  the current edit mode from `useEditMode()` directly rather
+				 *  than a dedicated context — there's no per-form positional
+				 *  identity left to carry here. */}
+				<FormLayoutProvider>{formBody}</FormLayoutProvider>
 			</div>
 		</div>
 	);

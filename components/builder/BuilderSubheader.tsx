@@ -19,11 +19,9 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-	useBlueprintDoc,
-	useBlueprintDocTemporal,
-} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
+import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -55,22 +53,16 @@ export function BuilderSubheader({
 	/* Undo/redo from doc temporal — replaces engine.undo/redo. */
 	const { undo, redo } = useUndoRedo();
 
-	/* Undo/redo availability — subscribe to the doc store's temporal state.
-	 * `useBlueprintDocTemporal` uses `useStoreWithEqualityFn` internally to
-	 * compare the boolean output and skip re-renders when canUndo stays
-	 * true→true (which is every mutation after the first). */
-	const canUndo = useBlueprintDocTemporal(
-		(t) => t.pastStates.length > 0,
-		Object.is,
-	);
-	const canRedo = useBlueprintDocTemporal(
-		(t) => t.futureStates.length > 0,
-		Object.is,
-	);
+	/* Undo/redo availability — named hooks subscribe to zundo's temporal
+	 * state through `useBlueprintDocTemporal` and fold pastStates/
+	 * futureStates length into stable booleans so the toolbar only
+	 * re-renders when availability actually flips. */
+	const canUndo = useCanUndo();
+	const canRedo = useCanRedo();
 
 	/* Breadcrumbs derived from URL + doc entity names. */
 	const breadcrumbs = useBreadcrumbs();
-	const appName = useBlueprintDoc((s) => s.appName);
+	const appName = useAppName();
 
 	/* Breadcrumb click handlers — navigate to each breadcrumb's location.
 	 * Memoized on navigation structure so CollapsibleBreadcrumb's memo()

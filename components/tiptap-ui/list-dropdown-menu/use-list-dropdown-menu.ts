@@ -13,10 +13,10 @@ import {
 	type ListType,
 	listIcons,
 } from "@/components/tiptap-ui/list-button";
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 // --- Lib ---
 import { isNodeInSchema } from "@/lib/tiptap-utils";
+// --- Hooks ---
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 /**
  * Configuration for the list dropdown menu functionality

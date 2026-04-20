@@ -1,9 +1,10 @@
 "use client";
-import { useEditContext } from "@/hooks/useEditContext";
-import { useTextEditSave } from "@/hooks/useTextEditSave";
-import type { LabelField as LabelFieldEntity } from "@/lib/domain";
+import { useMemo } from "react";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import type { FieldPatch, LabelField as LabelFieldEntity } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { useEditMode } from "@/lib/session/hooks";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 
@@ -23,9 +24,24 @@ export function LabelField({
 	field: LabelFieldEntity;
 	state: FieldState;
 }) {
-	const ctx = useEditContext();
-	const isEditMode = ctx?.mode === "edit";
-	const saveField = useTextEditSave(field.uuid);
+	const mode = useEditMode();
+	const isEditMode = mode === "edit";
+	const { updateField } = useBlueprintMutations();
+	/* Inline save callback — null in live/test mode so the TextEditable
+	 * below falls back to read-only. In edit mode returns a stable
+	 * `(field, value) => void` that coerces empty strings to undefined
+	 * (an unset property) and commits through the doc store. */
+	const saveField = useMemo<
+		((field: string, value: string) => void) | null
+	>(() => {
+		if (!isEditMode) return null;
+		return (property, value) => {
+			const patch = {
+				[property]: value === "" ? undefined : value,
+			} as FieldPatch;
+			updateField(field.uuid, patch);
+		};
+	}, [isEditMode, field.uuid, updateField]);
 
 	return (
 		<div className="py-1">

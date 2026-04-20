@@ -1,9 +1,9 @@
 "use client";
 import { motion } from "motion/react";
 import { useMemo } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
+import { useFirstFormForModule } from "@/lib/doc/hooks/useFirstFormForModule";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -26,18 +26,12 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 *  click time by looking up the first case-loading form in the module. */
 	const moduleUuid = loc.kind === "cases" ? loc.moduleUuid : undefined;
 
-	/** Read the first form uuid in this module for case-row navigation. The
-	 *  case list always opens into the first case-loading form. */
-	const firstFormUuid = useBlueprintDoc((s) => {
-		if (!moduleUuid) return undefined;
-		const formIds = s.formOrder[moduleUuid];
-		return formIds?.[0];
-	});
-
-	/** Read the first form's name for the header display. */
-	const firstFormName = useBlueprintDoc((s) =>
-		firstFormUuid ? s.forms[firstFormUuid]?.name : undefined,
-	);
+	/** First form in this module — the case list always opens into it
+	 *  (the case-loading form). Returns the whole entity so the header
+	 *  row can show the form's display name without a second subscription. */
+	const firstForm = useFirstFormForModule(moduleUuid);
+	const firstFormUuid = firstForm?.uuid;
+	const firstFormName = firstForm?.name;
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);

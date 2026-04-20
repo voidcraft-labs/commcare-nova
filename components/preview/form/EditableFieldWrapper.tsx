@@ -1,9 +1,9 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
+import { useEditMode } from "@/lib/session/hooks";
 
 interface EditableFieldWrapperProps {
 	/** Stable crypto UUID — the sole identity prop (survives renames). */
@@ -39,7 +39,7 @@ export function EditableFieldWrapper({
 	isDragging,
 	flatBottomOnSelect = false,
 }: EditableFieldWrapperProps) {
-	const ctx = useEditContext();
+	const mode = useEditMode();
 	const { setPending, scrollTo } = useScrollIntoView();
 	const select = useSelect();
 	const [hovered, setHovered] = useState(false);
@@ -159,7 +159,10 @@ export function EditableFieldWrapper({
 		[selectField],
 	);
 
-	if (!ctx || ctx.mode === "test") {
+	/* In live/test mode this wrapper is a no-op — selection affordances only
+	 * belong in edit mode. `useEditMode()` is derived from the session store,
+	 * so it always returns a defined value; no "no context" fallback needed. */
+	if (mode === "test") {
 		return <div style={style}>{children}</div>;
 	}
 

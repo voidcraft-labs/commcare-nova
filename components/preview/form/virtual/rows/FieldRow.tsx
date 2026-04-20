@@ -16,7 +16,7 @@
 
 "use client";
 import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
@@ -25,12 +25,16 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
-import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
-import { useTextEditSave } from "@/hooks/useTextEditSave";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/domain";
+import type { FieldPatch, Uuid } from "@/lib/domain";
+import {
+	useEngineController,
+	useEngineState,
+} from "@/lib/preview/hooks/useFormEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
+import { useEditMode } from "@/lib/session/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropFieldData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -54,7 +58,22 @@ export const FieldRow = memo(function FieldRow({
 	const controller = useEngineController();
 	const isFieldSelected = useIsFieldSelected(uuid);
 	useFulfillPendingScroll(uuid, isFieldSelected);
-	const saveField = useTextEditSave(uuid);
+	const mode = useEditMode();
+	const { updateField } = useBlueprintMutations();
+	/* Inline save for TextEditable — null outside edit mode so the inline
+	 * editor falls back to read-only. Empty string coerces to undefined so
+	 * clearing a property removes it rather than storing an empty value. */
+	const saveField = useMemo<
+		((field: string, value: string) => void) | null
+	>(() => {
+		if (mode !== "edit") return null;
+		return (property, value) => {
+			const patch = {
+				[property]: value === "" ? undefined : value,
+			} as FieldPatch;
+			updateField(uuid, patch);
+		};
+	}, [mode, uuid, updateField]);
 
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]

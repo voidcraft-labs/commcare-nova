@@ -13,9 +13,9 @@ import {
 	useReactTable,
 } from "@tanstack/react-table";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
+import { useExternalNavigate } from "@/lib/routing/hooks";
 import type { AdminUserRow } from "@/lib/types/admin";
 import { formatCurrency, formatRelativeDate } from "@/lib/utils/format";
 
@@ -127,10 +127,10 @@ function SortIndicator({ direction }: { direction: false | "asc" | "desc" }) {
  * Interactive admin user table with sorting, filtering, and row navigation.
  *
  * Client component because it manages table state (sorting, search filter)
- * and handles row click/keyboard navigation via useRouter.
+ * and handles row click/keyboard navigation via useExternalNavigate.
  */
 export function UserTable({ users }: { users: AdminUserRow[] }) {
-	const router = useRouter();
+	const navigate = useExternalNavigate();
 	const [sorting, setSorting] = useState<SortingState>([
 		{ id: "last_active_at", desc: true },
 	]);
@@ -203,11 +203,11 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 								key={row.id}
 								tabIndex={0}
 								aria-label={`View ${row.original.name}'s profile`}
-								onClick={() => router.push(`/admin/users/${row.original.id}`)}
+								onClick={() => navigate.push(`/admin/users/${row.original.id}`)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter" || e.key === " ") {
 										e.preventDefault();
-										router.push(`/admin/users/${row.original.id}`);
+										navigate.push(`/admin/users/${row.original.id}`);
 									}
 								}}
 								className="border-b border-nova-border/50 hover:bg-nova-surface/50 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-nova-violet/50"
