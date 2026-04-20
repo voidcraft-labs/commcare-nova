@@ -57,12 +57,19 @@ export async function readLatestRunId(appId: string): Promise<string | null> {
 /**
  * Load the per-run summary doc. Returns `null` if none was written.
  *
- * When `snap.exists` is `true`, the Firestore converter has already run
- * `runSummaryDocSchema.parse()` and produced a valid `RunSummaryDoc` — or
- * thrown. `data()` cannot resolve to `undefined` in that branch. The static
- * type is `T | undefined` only because TS can't narrow through `.exists`;
- * we throw on the impossible case so a future converter regression surfaces
- * loudly instead of being silently coerced to `null`.
+ * The Zod converter on `docs.run` (see `lib/db/firestore.ts`) runs
+ * `runSummaryDocSchema.parse()` inside `fromFirestore` and either returns
+ * a valid `RunSummaryDoc` or throws — so when `snap.exists === true`,
+ * `data()` cannot legitimately return `undefined`. TypeScript types it as
+ * `T | undefined` only because `.exists` can't narrow through the
+ * Firestore SDK's generic signature. The throw catches a hypothetical
+ * future converter regression loudly instead of silently coercing to
+ * `null` and masking it.
+ *
+ * (The writer in `lib/db/runSummary.ts` uses a raw doc ref without the
+ * converter, so its "empty doc with exists=true" case is a different
+ * scenario — not a converter contract violation — and is handled there
+ * by treating the read as "no prev" and overwriting.)
  */
 export async function readRunSummary(
 	appId: string,

@@ -11,12 +11,14 @@
  * outage degrades observability but does NOT block generation or the
  * spend cap (usage tracking flushes via its own path).
  *
- * Doc IDs use `eventDocId(event)` = `{runId}_{seqPad}` so chronological
- * sort aligns with Firestore's default document-id ordering.
+ * Doc IDs are Firestore's auto-generated 20-char IDs, so concurrent
+ * writers (including multiple requests sharing a `runId`) cannot collide
+ * on disk. Chronological order is recovered at read time by
+ * `readEvents` via `orderBy("ts").orderBy("seq")`.
  */
 import { collections } from "@/lib/db/firestore";
 import { log } from "@/lib/logger";
-import { type Event, eventDocId } from "./types";
+import type { Event } from "./types";
 
 /** Batch size beyond which the writer flushes synchronously. Matches the
  *  Firestore `WriteBatch` hard limit (500) with a safety margin. */
@@ -25,18 +27,22 @@ const DEFAULT_MAX_BATCH = 450;
 /** Flush interval — coalesces SSE bursts into a single round-trip. */
 const DEFAULT_FLUSH_MS = 100;
 
-/** Firestore-facing sink. Tests inject a mock; production uses the default. */
+/** Persistence target the writer drains into. Tests inject a mock; the
+ *  production default is `firestoreSink`. */
 export type EventSink = (
 	appId: string,
 	events: readonly Event[],
 ) => Promise<void>;
 
-/** Production sink: one document per event, via WriteBatch for atomicity. */
-const defaultSink: EventSink = async (appId, events) => {
-	const db = collections.events(appId).firestore;
-	const batch = db.batch();
+/** Production sink: one document per event via `WriteBatch`. `.doc()`
+ *  with no argument mints a fresh auto-ID — collision-free by
+ *  construction, so concurrent writers (including multiple requests in
+ *  the same run) never overwrite each other. */
+const firestoreSink: EventSink = async (appId, events) => {
+	const col = collections.events(appId);
+	const batch = col.firestore.batch();
 	for (const ev of events) {
-		batch.set(collections.events(appId).doc(eventDocId(ev)), ev);
+		batch.create(col.doc(), ev);
 	}
 	await batch.commit();
 };
@@ -67,7 +73,7 @@ export class LogWriter {
 		private readonly appId: string,
 		opts: LogWriterOptions = {},
 	) {
-		this.sink = opts.sink ?? defaultSink;
+		this.sink = opts.sink ?? firestoreSink;
 		this.flushMs = opts.flushMs ?? DEFAULT_FLUSH_MS;
 		this.maxBatch = opts.maxBatch ?? DEFAULT_MAX_BATCH;
 	}

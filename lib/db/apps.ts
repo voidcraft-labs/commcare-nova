@@ -143,16 +143,12 @@ export async function userHasApps(owner: string): Promise<boolean> {
 /**
  * Create a new app document at the start of generation.
  *
- * Called by the route handler when a new build starts (no appId from client).
- * The document starts with `status: 'generating'` and an empty normalized doc.
- * `updateApp` writes intermediate snapshots during generation (advancing
- * `updated_at`), and `completeApp` writes the final validated doc.
- * Returns the generated appId for immediate use (logging, URL update).
- *
- * NOTE: Until Task 17-18 migrate the SA to emit normalized docs, the
- * intermediate and final saves from generation will overwrite this with
- * a legacy `AppBlueprint`-shaped value. Task 19's migration script converts
- * all stored docs to the normalized shape.
+ * Called by the route handler when a new build starts (no appId from
+ * client). The document starts with `status: 'generating'` and an empty
+ * normalized doc. `updateApp` writes intermediate snapshots during
+ * generation (advancing `updated_at`); `completeApp` writes the final
+ * validated doc. Returns the generated appId for immediate use (logging,
+ * URL update).
  */
 export async function createApp(owner: string, runId: string): Promise<string> {
 	const ref = collections.apps().doc();
@@ -189,12 +185,8 @@ export async function createApp(owner: string, runId: string): Promise<string> {
  * Update an app with the final validated doc on generation success.
  *
  * Called by validateApp after the build pipeline completes. Updates the
- * blueprint, denormalized fields, status, and run_id — preserves created_at
- * and owner.
- *
- * TODO Task 17-18: generation SA currently still produces `AppBlueprint`;
- * until then the caller casts to `PersistableDoc` via `as unknown`. Task
- * 17-18 rewrites the SA to emit normalized docs and removes that cast.
+ * blueprint, denormalized fields, status, and run_id — preserves
+ * created_at and owner.
  */
 export async function completeApp(
 	appId: string,
@@ -236,18 +228,17 @@ export function failApp(appId: string, errorType: ErrorType): void {
 /**
  * Merge-update an existing app with a new normalized doc snapshot.
  *
- * Called by the client-side auto-save route (`PUT /api/apps/{id}`) after
- * user edits. Accepts `PersistableDoc` (the Zod-validated on-disk shape
- * without `fieldParent`) so the route can pass `blueprintDocSchema.safeParse()`
- * results directly. `BlueprintDoc` (in-memory with `fieldParent`) is also
- * assignable since it extends `PersistableDoc`.
+ * Called by both the client-side auto-save route (`PUT /api/apps/{id}`)
+ * after user edits and by `GenerationContext.saveBlueprint` for
+ * intermediate saves during generation. Accepts `PersistableDoc` (the
+ * Zod-validated on-disk shape without `fieldParent`) so the route can
+ * pass `blueprintDocSchema.safeParse` results directly. `BlueprintDoc`
+ * (in-memory with `fieldParent`) is also assignable since it extends
+ * `PersistableDoc`.
  *
  * Only touches the blueprint, denormalized fields, and updated_at —
- * preserves created_at, owner, run_id, and status from the original save.
- *
- * NOTE: `GenerationContext.saveBlueprint()` (Tasks 17-18) will be updated
- * to call this function once the SA emits normalized docs. Until then,
- * generation intermediate saves use `updateAppLegacy` below.
+ * preserves created_at, owner, run_id, and status from the original
+ * save.
  */
 export async function updateApp(
 	appId: string,
@@ -257,33 +248,6 @@ export async function updateApp(
 		{
 			...denormalize(doc),
 			blueprint: doc,
-			updated_at: FieldValue.serverTimestamp(),
-		},
-		{ merge: true },
-	);
-}
-
-/**
- * Merge-update an existing app from the legacy `AppBlueprint` shape.
- *
- * Temporary shim for `GenerationContext.saveBlueprint()` and the
- * initial generation path until Tasks 17-18 migrate the SA to emit
- * normalized `BlueprintDoc` objects. At that point this function is
- * deleted and `saveBlueprint()` calls `updateApp` directly.
- *
- * @deprecated Remove in Task 17-18 when the SA emits normalized docs.
- */
-export async function updateAppLegacy(
-	appId: string,
-	blueprint: Record<string, unknown>,
-): Promise<void> {
-	await docs.app(appId).set(
-		{
-			// Denormalization is skipped for legacy writes — the list-display
-			// fields will be stale until the migration script runs or the app
-			// is re-saved via the normalized path. Acceptable in the half-
-			// migrated state; Task 19 corrects it.
-			blueprint,
 			updated_at: FieldValue.serverTimestamp(),
 		},
 		{ merge: true },

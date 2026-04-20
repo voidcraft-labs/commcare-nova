@@ -352,11 +352,16 @@ async function main() {
 			sumA && sumB ? formatPctDelta(cacheA, cacheB) : undefined;
 		printCompRow("Cache hit rate", cacheAStr, cacheBStr, cacheDelta);
 
-		/* Duration is derived from ISO strings on the summary. */
-		const durA = sumA
+		/* "Span" is first-turn → last-turn on the summary, NOT the agent's
+		 * wall-clock runtime. A runId spans an entire chat thread now, so
+		 * this value includes any idle gaps between turns. Admin reading
+		 * this should treat it as "activity window," not "how long the
+		 * agent ran." Labeled `Duration` previously — kept intentionally
+		 * in sync with `inspect-logs.ts`. */
+		const spanA = sumA
 			? Date.parse(sumA.finishedAt) - Date.parse(sumA.startedAt)
 			: Number.NaN;
-		const durB = sumB
+		const spanB = sumB
 			? Date.parse(sumB.finishedAt) - Date.parse(sumB.startedAt)
 			: Number.NaN;
 		/* `formatDelta` already passes `Math.abs(diff)` to the formatter and
@@ -365,10 +370,10 @@ async function main() {
 		 * (e.g. "+30s" vs "−30s"). Do NOT re-absolutize inside the lambda:
 		 * that was load-bearing-looking noise that suggested a sign bug. */
 		printCompRow(
-			"Duration",
-			sumA ? duration(durA) : "—",
-			sumB ? duration(durB) : "—",
-			sumA && sumB ? formatDelta(durA, durB, duration) : undefined,
+			"Span",
+			sumA ? duration(spanA) : "—",
+			sumB ? duration(spanB) : "—",
+			sumA && sumB ? formatDelta(spanA, spanB, duration) : undefined,
 		);
 	}
 

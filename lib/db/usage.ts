@@ -175,32 +175,14 @@ export interface AccumulatorRunConfig {
 }
 
 /**
- * Accumulates per-request LLM usage for two write targets:
- *
- * 1. **Monthly spend cap** — `incrementUsage(userId, …)` at request end.
- *    This path is fail-closed via the pre-request `getMonthlyUsage` read
- *    (see route handler); an error here logs but does not re-throw —
- *    observability writes must never break the response.
- * 2. **Per-run summary doc** — `writeRunSummary(appId, runId, …)` with
- *    full token + cost breakdown for admin inspect tools. The event log
- *    itself does NOT carry token usage (spec §5), so this is the only
- *    persistence surface for per-run cost observability.
- *
- * `track({…}, {step: true})` marks an outer agent step (vs. a sub-gen
- * inside a tool). `stepCount` goes onto the run summary for admin use.
- * Sub-gen usage still accumulates into the totals — just not step count.
- *
- * `flush()` is idempotent via a `_finalized` guard so the route can call
- * it from multiple places (finally block, onFinish, abort handler)
- * without double-writing. `configureRun` is a separate no-op after
- * finalization — late config mutations from a completing request must
- * not appear in the summary under a new `finishedAt`.
+ * Per-request LLM usage accumulator. `flush()` fans out to the monthly
+ * spend-cap document and the per-run summary doc — see the two methods
+ * for the contracts they own.
  */
 export class UsageAccumulator {
-	// Non-readonly because configureRun mutates fields in place — keeping the
-	// declaration honest avoids the reader pausing on `readonly` + Object.assign.
-	// `private` still prevents call sites from bypassing the finalized guard.
-	private seed: AccumulatorSeed;
+	/* `configureRun` replaces this field with a fresh object rather than
+	 * mutating in place, which lets us mark it `readonly` honestly. */
+	private readonly seed: AccumulatorSeed;
 	private readonly startedAt: string;
 	private inputTokens = 0;
 	private outputTokens = 0;
@@ -287,10 +269,15 @@ export class UsageAccumulator {
 	 * the work; subsequent calls no-op.
 	 *
 	 * Write ordering:
-	 * - Run summary is always written (fire-and-forget), even on zero-cost
-	 *   edit replays, so inspect tools have a row to display.
+	 * - Run summary is always written (awaited, transactional), even on
+	 *   zero-cost edit replays, so inspect tools have a row to display
+	 *   and multi-turn threads accumulate correctly.
 	 * - Monthly increment is skipped for zero-cost runs — `incrementUsage`
 	 *   would otherwise bump `request_count` without matching spend.
+	 *
+	 * Both writes swallow their own errors (fire-and-forget semantics from
+	 * the caller's perspective) so finalization never blocks on
+	 * observability failures.
 	 */
 	async flush(): Promise<void> {
 		if (this._finalized) return;
@@ -302,7 +289,10 @@ export class UsageAccumulator {
 			finishedAt: new Date().toISOString(),
 		};
 
-		writeRunSummary(this.seed.appId, this.seed.runId, summary);
+		/* Awaited so Cloud Run's cold-kill after response resolution can't
+		 * truncate the summary write. `writeRunSummary` catches its own
+		 * errors, so we don't wrap in try/catch here. */
+		await writeRunSummary(this.seed.appId, this.seed.runId, summary);
 
 		if (summary.costEstimate > 0) {
 			try {

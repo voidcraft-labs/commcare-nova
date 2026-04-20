@@ -139,20 +139,24 @@ const runsTableOnly =
 
 /**
  * Load every event for the app. If `runFilter` is set, push the filter
- * into Firestore via `readEvents` (indexed on `runId`). Otherwise scan the
- * full events subcollection ordered by `(ts, seq)` so downstream grouping
- * preserves chronological order within each run.
+ * into Firestore via `readEvents` (covered by the `(runId, ts, seq)`
+ * composite index). Otherwise scan the full events subcollection
+ * unordered and sort client-side.
+ *
+ * Why client-side sort: an unfiltered `orderBy("ts").orderBy("seq")`
+ * query would require a dedicated `(ts asc, seq asc)` composite index
+ * that isn't worth maintaining for an ops script. The script already
+ * pulls every doc into memory for display, so a JS sort is trivially
+ * cheap and avoids the index-deployment coupling.
  */
 async function loadEvents(): Promise<Event[]> {
 	if (runFilter) {
 		return readEvents(appId, runFilter);
 	}
-	const snap = await collections
-		.events(appId)
-		.orderBy("ts")
-		.orderBy("seq")
-		.get();
-	return snap.docs.map((d) => d.data());
+	const snap = await collections.events(appId).get();
+	const events = snap.docs.map((d) => d.data());
+	events.sort((a, b) => a.ts - b.ts || a.seq - b.seq);
+	return events;
 }
 
 /**
@@ -272,10 +276,16 @@ function printEventVerbose(event: Event): void {
  * Render the per-run summary doc as a KV block. This is the canonical
  * replacement for the old per-step cost table — all cost data lives here
  * now, keyed by runId.
+ *
+ * Note on "Span": a runId spans every chat turn inside the same thread.
+ * `finishedAt` advances to the most recent turn's finalize time, so the
+ * value below is "first turn → last turn," NOT "wall-clock time the
+ * agent spent generating." A thread that sits idle for hours between
+ * two quick turns will show a large span with tiny `stepCount`.
  */
 function printRunSummary(summary: RunSummaryDoc): void {
 	const cacheHitRate = pct(summary.cacheReadTokens, summary.inputTokens);
-	const durMs = Date.parse(summary.finishedAt) - Date.parse(summary.startedAt);
+	const spanMs = Date.parse(summary.finishedAt) - Date.parse(summary.startedAt);
 	printKV([
 		["Model", summary.model],
 		["Prompt mode", summary.promptMode],
@@ -283,9 +293,9 @@ function printRunSummary(summary: RunSummaryDoc): void {
 		["App ready", String(summary.appReady)],
 		["Cache expired", String(summary.cacheExpired)],
 		["Module count", String(summary.moduleCount)],
-		["Started", summary.startedAt],
-		["Finished", summary.finishedAt],
-		["Duration", duration(durMs)],
+		["First turn", summary.startedAt],
+		["Last turn", summary.finishedAt],
+		["Span", duration(spanMs)],
 		["Steps", String(summary.stepCount)],
 		["Tool calls", String(summary.toolCallCount)],
 		["Input tokens", tok(summary.inputTokens)],

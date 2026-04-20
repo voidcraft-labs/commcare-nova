@@ -11,9 +11,12 @@
  * Schema authority: Zod schemas below are the source of truth. TS types
  * infer via `z.infer`. Firestore reads validate via `eventSchema.parse()`.
  *
- * Storage: one document per event at `apps/{appId}/events/{runId}_{seqPad}`,
- * where `seqPad = String(seq).padStart(6, "0")`. Sorting by document id
- * yields chronological order within a run.
+ * Storage: one document per event at `apps/{appId}/events/{autoId}`, using
+ * Firestore's auto-generated 20-char IDs. Chronological order is
+ * recovered at read time via `.where("runId", "==", runId).orderBy("ts").orderBy("seq")` —
+ * see `readEvents`. Doc IDs themselves carry no ordering semantics; every
+ * write is guaranteed collision-free regardless of how many requests a
+ * single run spans.
  */
 import { z } from "zod";
 import { mutationSchema } from "@/lib/doc/types";
@@ -112,9 +115,25 @@ export type ConversationPayload = z.infer<typeof conversationPayloadSchema>;
 
 /**
  * Shared envelope fields. Every event carries `runId` (groups a generation
- * session), `ts` (millisecond timestamp for chronological sort), and `seq`
- * (per-run monotonic counter — the tie-breaker when multiple events share
- * `ts` under SSE bursts).
+ * session — spans all requests within one chat thread), `ts` (millisecond
+ * timestamp, the primary ordering key), and `seq` (per-request monotonic
+ * counter, the tiebreaker when multiple events share a `ts`).
+ *
+ * `seq` is per-request and resets to 0 on every HTTP request — follow-up
+ * turns in the same thread reset it too. Doc IDs are auto-generated, so
+ * per-request seqs cannot collide with earlier requests' events on disk.
+ * Reads recover chronological order via `orderBy("ts").orderBy("seq")`
+ * (see `readEvents`): `ts` separates across-request ordering, `seq`
+ * orders the single-millisecond bursts that SSE emissions produce.
+ *
+ * Inter-request `ts` ordering is *mostly* monotonic because the route's
+ * concurrency guard serializes same-user generations. The one known gap
+ * is a client abort + immediate retry: `hasActiveGeneration`'s
+ * `excludeAppId` branch lets the retry pass through, so two requests
+ * with the same `runId` can produce interleaved `ts` values. Same-
+ * thread interleave is semantically harmless (the user aborted the
+ * first; its events are noise), but readers should treat wall-clock
+ * order as approximate, not strict.
  */
 const envelopeSchema = z.object({
 	runId: z.string(),
@@ -150,17 +169,3 @@ export const eventSchema = z.discriminatedUnion("kind", [
 	conversationEventSchema,
 ]);
 export type Event = z.infer<typeof eventSchema>;
-
-/**
- * Build a chronological-sort document ID from an event. Padding `seq` to
- * 6 digits keeps lexicographic ordering of document IDs aligned with the
- * intended chronological order — Firestore's default query sort is over
- * document IDs when no `orderBy` is specified.
- *
- * Shape: `{runId}_{seqPad}`. `ts` intentionally NOT in the ID — multiple
- * events in a single SSE burst share `ts` to the millisecond, and seq is
- * already globally unique within a run.
- */
-export function eventDocId(event: Event): string {
-	return `${event.runId}_${String(event.seq).padStart(6, "0")}`;
-}

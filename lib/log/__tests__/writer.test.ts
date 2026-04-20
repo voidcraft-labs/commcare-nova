@@ -1,14 +1,38 @@
 /**
  * Tests for the LogWriter batcher.
  *
- * We verify batching semantics and failure isolation WITHOUT touching a
- * real Firestore. The writer accepts an injectable "sink" function whose
- * real default is `docs.events(appId).doc(...).set(event)`. Tests pass a
- * capture function so we can assert exactly which events land with which
- * doc ids, in which batches, and at which times.
+ * Two surfaces under test:
+ *   - `LogWriter`'s batching + failure-isolation semantics, exercised
+ *     via an injected sink stub (no Firestore).
+ *   - The default production sink (`firestoreSink`), exercised via the
+ *     no-opts-sink branch of `LogWriter` with Firestore mocked at the
+ *     `collections.events(appId)` entry point — so a regression that
+ *     reverted to deterministic doc IDs would be caught.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Event } from "../types";
+
+/* Hoisted mocks for the production-sink test. `collections.events(appId)`
+ * returns a minimal chainable stub: `.doc()` mints a tracked ref,
+ * `.firestore.batch()` returns a batch stub with `create` + `commit`.
+ * Hoisted so the `vi.mock` factory can reference them at hoist time. */
+const { eventsDocMock, batchCreateMock, batchCommitMock, firestoreBatchMock } =
+	vi.hoisted(() => ({
+		eventsDocMock: vi.fn(),
+		batchCreateMock: vi.fn(),
+		batchCommitMock: vi.fn().mockResolvedValue(undefined),
+		firestoreBatchMock: vi.fn(),
+	}));
+
+vi.mock("@/lib/db/firestore", () => ({
+	collections: {
+		events: () => ({
+			doc: eventsDocMock,
+			firestore: { batch: firestoreBatchMock },
+		}),
+	},
+}));
+
 import { LogWriter } from "../writer";
 
 function makeEvent(seq: number, runId = "r"): Event {
@@ -162,5 +186,59 @@ describe("LogWriter", () => {
 		resolveSlow?.();
 		await emptyFlush;
 		expect(resolved).toBe(true);
+	});
+});
+
+/**
+ * Production-sink path. Guards against regressions that would swap the
+ * `.doc()` + `batch.create()` pair (auto-ID, collision-free) for a
+ * deterministic-ID pattern — which is exactly the bug the event-log
+ * refactor fixed (runId+seq doc IDs colliding across edit turns).
+ *
+ * The injected-sink tests above can't catch that regression because
+ * they don't exercise `firestoreSink`. These tests do, via a Firestore
+ * mock that tracks the exact calls `firestoreSink` makes.
+ */
+describe("LogWriter default firestoreSink", () => {
+	beforeEach(() => {
+		vi.useRealTimers();
+		eventsDocMock.mockReset();
+		batchCreateMock.mockReset();
+		batchCommitMock.mockReset();
+		batchCommitMock.mockResolvedValue(undefined);
+		firestoreBatchMock.mockReset();
+		firestoreBatchMock.mockImplementation(() => ({
+			create: batchCreateMock,
+			commit: batchCommitMock,
+		}));
+		/* Each call to `.doc()` returns a distinct sentinel — lets us
+		 * assert `batch.create` was called with matching refs and events. */
+		let nextRefId = 0;
+		eventsDocMock.mockImplementation(() => ({ __refId: nextRefId++ }));
+	});
+
+	it("mints one auto-ID per event and creates each in the batch", async () => {
+		const writer = new LogWriter("app-1");
+		writer.logEvent(makeEvent(0));
+		writer.logEvent(makeEvent(1));
+		writer.logEvent(makeEvent(2));
+		await writer.flush();
+
+		/* `.doc()` called with NO arguments — the fingerprint of auto-ID
+		 * allocation. A regression to `.doc(someDeterministicId)` would
+		 * fail this assertion. */
+		expect(eventsDocMock).toHaveBeenCalledTimes(3);
+		for (const call of eventsDocMock.mock.calls) {
+			expect(call).toHaveLength(0);
+		}
+		/* `batch.create(ref, event)` for each enqueued event — the
+		 * `.create` form (vs `.set`) is the collision-fails form, which
+		 * is the safer of the two pairings with auto-IDs. */
+		expect(batchCreateMock).toHaveBeenCalledTimes(3);
+		for (let i = 0; i < 3; i++) {
+			expect(batchCreateMock.mock.calls[i][0]).toEqual({ __refId: i });
+			expect(batchCreateMock.mock.calls[i][1]).toMatchObject({ seq: i });
+		}
+		expect(batchCommitMock).toHaveBeenCalledTimes(1);
 	});
 });
