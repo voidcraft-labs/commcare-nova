@@ -31,7 +31,7 @@ import {
 } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { Uuid } from "@/lib/doc/types";
-import { useEditContext } from "@/lib/preview/hooks/useEditContext";
+import { useEditMode } from "@/lib/session/hooks";
 import { useFieldPicker } from "./FieldPickerContext";
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
@@ -58,10 +58,13 @@ interface InsertionPointProps {
  * and Tooltip for all 26+ insertion points until the user actually approaches.
  */
 export function InsertionPoint(props: InsertionPointProps) {
-	const ctx = useEditContext();
+	const mode = useEditMode();
 	const [activated, setActivated] = useState(false);
 
-	if (!ctx || ctx.mode === "test") return null;
+	/* Insertion points are an edit-mode-only affordance — they don't exist
+	 * in live/test mode. `useEditMode()` is derived from the session store
+	 * so a "no context" branch is never needed. */
+	if (mode === "test") return null;
 	if (props.disabled) return null;
 
 	if (!activated) {

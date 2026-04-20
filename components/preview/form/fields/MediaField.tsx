@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { type Field, fieldRegistry } from "@/lib/domain";
-import { useEditContext } from "@/lib/preview/hooks/useEditContext";
+import { useEditMode } from "@/lib/session/hooks";
 
 /**
  * Placeholder card for media-capture kinds (image/audio/video/barcode/
@@ -14,8 +14,7 @@ import { useEditContext } from "@/lib/preview/hooks/useEditContext";
  * so no fallback is required.
  */
 export function MediaField({ field }: { field: Field }) {
-	const ctx = useEditContext();
-	const isDesign = ctx?.mode === "edit";
+	const isDesign = useEditMode() === "edit";
 	const { icon, label } = fieldRegistry[field.kind];
 
 	return (

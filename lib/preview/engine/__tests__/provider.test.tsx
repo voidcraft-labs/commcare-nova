@@ -101,7 +101,7 @@ describe("BuilderFormEngineProvider", () => {
 		});
 		/* activateForm short-circuits when the doc store isn't installed, so
 		 * reaching any non-empty runtime state proves the effect ran. */
-		result.current.activateForm(0, 0);
+		result.current.activateForm(FORM_UUID);
 		const runtime = result.current.store.getState();
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
 	});
@@ -139,7 +139,7 @@ describe("BuilderFormEngineProvider", () => {
 			useEffect(() => {
 				/* Capture the controller once we know its activate ran with the
 				 * doc store available; assertions then read from this ref. */
-				controller.activateForm(0, 0);
+				controller.activateForm(FORM_UUID);
 				captured = controller;
 			}, [controller]);
 			return null;

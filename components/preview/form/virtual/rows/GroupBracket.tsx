@@ -26,21 +26,22 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/domain";
+import type { FieldPatch, Uuid } from "@/lib/domain";
 import {
 	useEngineController,
 	useEngineState,
 } from "@/lib/preview/hooks/useFormEngine";
-import { useTextEditSave } from "@/lib/preview/hooks/useTextEditSave";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
+import { useEditMode } from "@/lib/session/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropGroupHeaderData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -68,7 +69,22 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
-	const saveField = useTextEditSave(uuid);
+	const mode = useEditMode();
+	const { updateField } = useBlueprintMutations();
+	/* Inline save for the TextEditable header — null outside edit mode so
+	 * the group label stays read-only. Matches FieldRow's inlined pattern
+	 * (empty string → undefined, commit via doc store). */
+	const saveField = useMemo<
+		((field: string, value: string) => void) | null
+	>(() => {
+		if (mode !== "edit") return null;
+		return (property, value) => {
+			const patch = {
+				[property]: value === "" ? undefined : value,
+			} as FieldPatch;
+			updateField(uuid, patch);
+		};
+	}, [mode, uuid, updateField]);
 
 	const isFieldSelected = useIsFieldSelected(uuid);
 	useFulfillPendingScroll(uuid, isFieldSelected);

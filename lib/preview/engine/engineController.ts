@@ -84,14 +84,8 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
  */
 function buildEngineInput(
 	state: Pick<BlueprintDocState, "forms" | "fields" | "fieldOrder">,
-	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): FormEngineInput | undefined {
-	// moduleUuid is an implicit precondition — the caller has already
-	// resolved it from `state.moduleOrder`. We keep it in the signature so
-	// future callers that need the module context (e.g. caseType coupling)
-	// don't have to re-resolve it.
-	void moduleUuid;
 	const form = state.forms[formUuid];
 	if (!form) return undefined;
 	return {
@@ -100,6 +94,31 @@ function buildEngineInput(
 		fields: state.fields as unknown as Record<string, Field>,
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
 	};
+}
+
+/**
+ * Locate the module that owns a given form by scanning `formOrder`.
+ *
+ * The blueprint doc stores forms and modules as separate entity maps with
+ * `formOrder[moduleUuid]: Uuid[]` acting as the parent→children adjacency
+ * list. There is no back-pointer on the form entity itself (see
+ * `lib/domain/forms.ts`), so to resolve "which module owns this form" we
+ * walk `moduleOrder` and check each module's child list. The controller
+ * only needs this answer to fetch the owning module's `caseType` for
+ * engine construction / metadata subscriptions — called at most a handful
+ * of times per form activation. The loop bounds are tiny (N_modules *
+ * avg_forms_per_module) and complexity stays well inside the budget.
+ */
+function findModuleForForm(
+	state: Pick<BlueprintDocState, "moduleOrder" | "formOrder">,
+	formUuid: Uuid,
+): Uuid | undefined {
+	for (const moduleUuid of state.moduleOrder) {
+		if (state.formOrder[moduleUuid]?.includes(formUuid)) {
+			return moduleUuid;
+		}
+	}
+	return undefined;
 }
 
 /**
@@ -234,9 +253,11 @@ export class EngineController {
 	private uuidToPath = new Map<string, string>();
 	private pathToUuid = new Map<string, string>();
 
-	/** The active form's position in the module/form ordering arrays. */
-	private activeModuleIndex = 0;
-	private activeFormIndex = 0;
+	/** UUID of the form this controller is currently activated for. Undefined
+	 *  between `deactivate()` and the next `activateForm()`. Subscription
+	 *  callbacks and the `currentEngineInput()` helper read this to re-derive
+	 *  the owning module + form state from the latest doc snapshot. */
+	private activeFormUuid: Uuid | undefined;
 	private activeCaseData: Map<string, string> | undefined;
 
 	/** Field UUIDs with active per-field subscriptions. */
@@ -263,27 +284,29 @@ export class EngineController {
 	/**
 	 * Activate the engine for a specific form. Builds the computation engine,
 	 * UUID↔path maps, initial runtime state, and per-field subscriptions.
+	 *
+	 * The form is identified by UUID — the controller resolves the owning
+	 * module internally via `findModuleForForm` so callers never have to
+	 * thread positional indices through React state.
 	 */
-	activateForm(
-		moduleIndex: number,
-		formIndex: number,
-		caseData?: Map<string, string>,
-	): void {
+	activateForm(formUuid: Uuid, caseData?: Map<string, string>): void {
 		this.deactivate();
 		if (!this.docStore) return;
 
 		const s = this.docStore.getState();
-		const moduleUuid = s.moduleOrder[moduleIndex];
+		// Bail out silently if the form no longer exists — the hook uses an
+		// effect-based lifecycle so a transient "form deleted during
+		// re-render" window is normal; the next effect tick reactivates
+		// against the new active form.
+		if (!s.forms[formUuid]) return;
+		const moduleUuid = findModuleForForm(s, formUuid);
 		if (!moduleUuid) return;
-		const formUuid = s.formOrder[moduleUuid]?.[formIndex];
-		if (!formUuid) return;
 
-		this.activeModuleIndex = moduleIndex;
-		this.activeFormIndex = formIndex;
+		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
 
 		/* Build the FormEngine input from the doc store */
-		const input = buildEngineInput(s, moduleUuid, formUuid);
+		const input = buildEngineInput(s, formUuid);
 		if (!input) return;
 
 		const mod = s.modules[moduleUuid];
@@ -316,6 +339,8 @@ export class EngineController {
 		this.engine = undefined;
 		this.uuidToPath.clear();
 		this.pathToUuid.clear();
+		this.activeFormUuid = undefined;
+		this.activeCaseData = undefined;
 		this.store.setState({}, true);
 	}
 
@@ -484,11 +509,11 @@ export class EngineController {
 
 		const unsub = store.subscribe(
 			(s) => {
-				const moduleUuid = s.moduleOrder[this.activeModuleIndex];
-				const formUuid = moduleUuid
-					? s.formOrder[moduleUuid]?.[this.activeFormIndex]
-					: undefined;
+				const formUuid = this.activeFormUuid;
 				const form = formUuid ? s.forms[formUuid] : undefined;
+				const moduleUuid = formUuid
+					? findModuleForForm(s, formUuid)
+					: undefined;
 				const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
 				return `${form?.type}|${mod?.caseType}`;
 			},
@@ -505,12 +530,10 @@ export class EngineController {
 	 *  mid-subscription). */
 	private currentEngineInput(): FormEngineInput | undefined {
 		if (!this.docStore) return undefined;
-		const s = this.docStore.getState();
-		const moduleUuid = s.moduleOrder[this.activeModuleIndex];
-		if (!moduleUuid) return undefined;
-		const formUuid = s.formOrder[moduleUuid]?.[this.activeFormIndex];
+		const formUuid = this.activeFormUuid;
 		if (!formUuid) return undefined;
-		return buildEngineInput(s, moduleUuid, formUuid);
+		const s = this.docStore.getState();
+		return buildEngineInput(s, formUuid);
 	}
 
 	/** A field's expression changed. Rebuild DAG (sub-ms), then
@@ -673,7 +696,9 @@ export class EngineController {
 		if (!input) return;
 
 		const s = this.docStore.getState();
-		const moduleUuid = s.moduleOrder[this.activeModuleIndex];
+		const moduleUuid = this.activeFormUuid
+			? findModuleForForm(s, this.activeFormUuid)
+			: undefined;
 		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
 
 		this.engine.refreshCaseContext(
