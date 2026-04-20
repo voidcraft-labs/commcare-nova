@@ -22,12 +22,12 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
-import { useRouter } from "next/navigation";
 import { useCallback, useContext, useEffect, useState } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { replayEventsSync } from "@/lib/log/replay";
 import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
+import { useExternalNavigate } from "@/lib/routing/hooks";
 import { resetBuilder } from "@/lib/services/resetBuilder";
 import { useReplayState } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
@@ -41,7 +41,7 @@ const EMPTY_EVENTS: readonly Event[] = [];
 const EMPTY_CHAPTERS: readonly ReplayChapter[] = [];
 
 export function ReplayController() {
-	const router = useRouter();
+	const navigate = useExternalNavigate();
 	const docStore = useContext(BlueprintDocContext);
 	const sessionStore = useContext(BuilderSessionContext);
 	const engineController = useBuilderFormEngine();
@@ -162,7 +162,7 @@ export function ReplayController() {
 	 *  explicit `sessionStore.reset()` — exit is the one place where
 	 *  session state should also clear, so `replay.*`, cursor mode,
 	 *  sidebar visibility, etc. all zero out before navigation. The
-	 *  session reset runs BEFORE `router.push` so the next route's
+	 *  session reset runs BEFORE `navigate.push` so the next route's
 	 *  mount doesn't observe stale session state during its initial
 	 *  render. */
 	const handleExit = useCallback(() => {
@@ -179,8 +179,8 @@ export function ReplayController() {
 		}
 		resetBuilder({ docStore, engineController });
 		sessionStore.getState().reset();
-		router.push(exitPath);
-	}, [docStore, sessionStore, engineController, router]);
+		navigate.push(exitPath);
+	}, [docStore, sessionStore, engineController, navigate]);
 
 	const canGoBack = currentChapterIndex > 0;
 	/* When chapters is empty `currentChapterIndex` is -1 — the
