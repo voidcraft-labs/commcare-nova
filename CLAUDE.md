@@ -111,7 +111,12 @@ Navigation is URL-owned and uses the browser History API (not Next's router) to 
 
 **Undo tracking is paused during hydration and agent writes** — the empty→populated transition must not enter history, and the entire agent write becomes one undoable unit. Do not remove the pause/resume calls.
 
-**Store boundary rules enforced by Biome.** Components and app code import from `lib/doc/hooks/`, `lib/session/hooks`, and `lib/routing/hooks` — never from the raw store modules. The `noRestrictedImports` rule in `biome.json` fails the build on violations.
+**Store boundary rules enforced by Biome.** `noRestrictedImports` enforces three independent boundaries:
+- Raw Zustand store modules (`@/lib/doc/store`, `@/lib/session/store`) cannot be imported outside their owning package — use the named hooks in `lib/doc/hooks/`, `lib/session/hooks`, or `lib/routing/hooks.tsx`.
+- Raw selector-accepting hooks (`useBlueprintDoc`, `useBlueprintDocShallow`, `useBlueprintDocEq`, `useBlueprintDocTemporal`, `useBuilderSession`, `useBuilderSessionShallow`) are lib-private — components/app code uses named domain hooks. The imperative `*Api` hooks (`useBlueprintDocApi`, `useBuilderSessionApi`) stay allowed everywhere because they don't subscribe.
+- Next.js `useRouter` is banned outside `lib/routing/**` — `useNavigate` handles intra-builder navigation via the History API, `useExternalNavigate` wraps router.push/replace/refresh for cross-route moves.
+
+All hooks colocate with their domain: `lib/doc/hooks/`, `lib/session/hooks.tsx`, `lib/routing/hooks.tsx`, `lib/ui/hooks/`, `lib/auth/hooks/`, `lib/preview/hooks/`. The top-level `/hooks/` directory no longer exists.
 
 **BuilderProvider** lives at `components/builder/BuilderProvider.tsx` — mounts the full provider stack (doc store → session store → scroll registry → edit guard → form engine) and the lifecycle hydrators (SyncBridge, ReplayHydrator, LoadAppHydrator).
 

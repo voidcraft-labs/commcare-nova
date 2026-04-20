@@ -7,7 +7,7 @@
  *
  * We wrap the provider in a `BlueprintDocContext.Provider` so the effect
  * inside `BuilderFormEngineProvider` can read the doc store — mirroring
- * the real provider stack in `hooks/useBuilder.tsx`.
+ * the real provider stack in `components/builder/BuilderProvider.tsx`.
  *
  * Fixtures are built in the normalized doc shape directly — no legacy
  * `AppBlueprint` tree. The doc store's `load()` takes a `PersistableDoc`.
