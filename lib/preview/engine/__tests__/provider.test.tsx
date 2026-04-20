@@ -24,7 +24,7 @@ import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
 /** Single-form doc with one text field — the minimum structure the engine
- *  needs to produce a non-empty runtime state from `activateForm(0, 0)`. */
+ *  needs to produce a non-empty runtime state from `activateForm(FORM_UUID)`. */
 const MODULE_UUID = asUuid("module-1-uuid");
 const FORM_UUID = asUuid("form-1-uuid");
 const FIELD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
