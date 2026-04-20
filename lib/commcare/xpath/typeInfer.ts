@@ -20,7 +20,7 @@
 
 import type { SyntaxNode, Tree } from "@lezer/common";
 import { NodeWeakMap } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath";
+import { parser } from "./parser";
 
 // ── Public types ────────────────────────────────────────────────────
 

@@ -26,8 +26,8 @@
  */
 
 import type { Tree } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath";
-import type { SourceEdit } from "../index";
+import { parser } from "../parser";
+import type { SourceEdit } from "../transpiler";
 import type { TypeMap } from "../typeInfer";
 
 // ── Node type lookup ────────────────────────────────────────────────

@@ -4,8 +4,9 @@
 // formats. THIS PACKAGE IS THE ONLY PLACE in lib/ that imports
 // CommCare-specific vocabulary (question, case_property_on, etc.).
 //
-// In Phase 1 this directory is empty. Phase 2+ populates it by moving
-// lib/services/cczCompiler, hqJsonExpander, lib/transpiler, and
-// lib/services/commcare/validate/ here.
+// Sub-packages own their own surface and are imported directly
+// (e.g. `@/lib/commcare/xpath`) — this barrel intentionally exports
+// nothing so that adding a new sub-package does not grow a single
+// monolithic surface.
 
 export {};

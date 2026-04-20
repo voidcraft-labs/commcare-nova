@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parser } from "@/lib/commcare/xpath";
-import { transpile } from "../index";
+import { parser } from "../parser";
+import { transpile } from "../transpiler";
 import type { XPathType } from "../typeInfer";
 import { inferTypes } from "../typeInfer";
 
@@ -11,11 +11,6 @@ function rootType(source: string): XPathType {
 	const tree = parser.parse(source);
 	const types = inferTypes(tree, source);
 	return types.get(tree.topNode) ?? "unknown";
-}
-
-/** Parse + infer + run the dateArithmetic pass, return edited source. */
-function applyDatePass(source: string): string {
-	return transpile(source);
 }
 
 // ── Type inference ──────────────────────────────────────────────────
@@ -186,22 +181,22 @@ describe("type inference", () => {
 describe("dateArithmetic pass", () => {
 	describe("wraps date-producing arithmetic", () => {
 		it("today() + N", () => {
-			expect(applyDatePass("today() + 1")).toBe("date(today() + 1)");
-			expect(applyDatePass("today() + 7")).toBe("date(today() + 7)");
-			expect(applyDatePass("today() + 30")).toBe("date(today() + 30)");
+			expect(transpile("today() + 1")).toBe("date(today() + 1)");
+			expect(transpile("today() + 7")).toBe("date(today() + 7)");
+			expect(transpile("today() + 30")).toBe("date(today() + 30)");
 		});
 
 		it("today() - N", () => {
-			expect(applyDatePass("today() - 1")).toBe("date(today() - 1)");
-			expect(applyDatePass("today() - 30")).toBe("date(today() - 30)");
+			expect(transpile("today() - 1")).toBe("date(today() - 1)");
+			expect(transpile("today() - 30")).toBe("date(today() - 30)");
 		});
 
 		it("N + today() (commutative)", () => {
-			expect(applyDatePass("1 + today()")).toBe("date(1 + today())");
+			expect(transpile("1 + today()")).toBe("date(1 + today())");
 		});
 
 		it("date() + N", () => {
-			expect(applyDatePass("date('2024-01-01') + 30")).toBe(
+			expect(transpile("date('2024-01-01') + 30")).toBe(
 				"date(date('2024-01-01') + 30)",
 			);
 		});
@@ -209,7 +204,7 @@ describe("dateArithmetic pass", () => {
 		it("nested date arithmetic in expressions", () => {
 			/* The inner addition is date-typed and needs wrapping,
 			   but the outer comparison does not */
-			expect(applyDatePass("today() + 7 > today()")).toBe(
+			expect(transpile("today() + 7 > today()")).toBe(
 				"date(today() + 7) > today()",
 			);
 		});
@@ -217,22 +212,22 @@ describe("dateArithmetic pass", () => {
 
 	describe("skips non-date arithmetic", () => {
 		it("number + number unchanged", () => {
-			expect(applyDatePass("2 + 3")).toBe("2 + 3");
+			expect(transpile("2 + 3")).toBe("2 + 3");
 		});
 
 		it("string path + number unchanged", () => {
-			expect(applyDatePass("/data/age + 1")).toBe("/data/age + 1");
+			expect(transpile("/data/age + 1")).toBe("/data/age + 1");
 		});
 
 		it("multiply/divide/mod unchanged", () => {
-			expect(applyDatePass("3 * 4")).toBe("3 * 4");
-			expect(applyDatePass("10 div 2")).toBe("10 div 2");
+			expect(transpile("3 * 4")).toBe("3 * 4");
+			expect(transpile("10 div 2")).toBe("10 div 2");
 		});
 	});
 
 	describe("skips date - date (produces number, not date)", () => {
 		it("date subtraction unchanged", () => {
-			expect(applyDatePass("date('2024-06-15') - date('2024-01-01')")).toBe(
+			expect(transpile("date('2024-06-15') - date('2024-01-01')")).toBe(
 				"date('2024-06-15') - date('2024-01-01')",
 			);
 		});
@@ -240,11 +235,11 @@ describe("dateArithmetic pass", () => {
 
 	describe("avoids double-wrapping", () => {
 		it("already inside date() call", () => {
-			expect(applyDatePass("date(today() + 1)")).toBe("date(today() + 1)");
+			expect(transpile("date(today() + 1)")).toBe("date(today() + 1)");
 		});
 
 		it("date(date('...') + N) stays single-wrapped", () => {
-			expect(applyDatePass("date(date('2024-01-01') + 30)")).toBe(
+			expect(transpile("date(date('2024-01-01') + 30)")).toBe(
 				"date(date('2024-01-01') + 30)",
 			);
 		});
@@ -252,17 +247,17 @@ describe("dateArithmetic pass", () => {
 
 	describe("passthrough edge cases", () => {
 		it("empty string", () => {
-			expect(applyDatePass("")).toBe("");
+			expect(transpile("")).toBe("");
 		});
 
 		it("parse error — passed through unchanged", () => {
-			expect(applyDatePass("[[invalid")).toBe("[[invalid");
+			expect(transpile("[[invalid")).toBe("[[invalid");
 		});
 
 		it("no-op expressions", () => {
-			expect(applyDatePass("true()")).toBe("true()");
-			expect(applyDatePass('"hello"')).toBe('"hello"');
-			expect(applyDatePass("42")).toBe("42");
+			expect(transpile("true()")).toBe("true()");
+			expect(transpile('"hello"')).toBe('"hello"');
+			expect(transpile("42")).toBe("42");
 		});
 	});
 });
