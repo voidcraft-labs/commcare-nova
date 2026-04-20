@@ -5,9 +5,9 @@
  * Called after all questions are built (in validateAndFix) so it has
  * access to the full question tree.
  */
+import { toSnakeId } from "@/lib/commcare";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import type { BlueprintForm, Question } from "../doc/legacyTypes";
-import { toSnakeId } from "./commcare/validate";
 
 /** Count questions recursively (excluding structural containers). */
 function countQuestions(questions: Question[]): number {

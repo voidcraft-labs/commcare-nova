@@ -1,25 +1,22 @@
 /**
- * XForm XML builder for CommCare forms.
- *
- * Generates complete XForm XML from blueprint question definitions, including
- * itext translations, binds, setvalues, body elements, and secondary instances.
- * Extracted from hqJsonExpander.ts to isolate XForm construction logic.
+ * XForm XML builder: emits complete XForm XML (itext, binds, setvalues,
+ * body, secondary instances) from blueprint question definitions.
  */
 
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
-import type { ConnectConfig } from "@/lib/domain";
-import type { BlueprintForm, Question } from "../doc/legacyTypes";
 import {
 	escapeXml,
 	expandHashtags,
 	extractHashtags,
 	hasHashtags,
+	supportsValidation,
 	VELLUM_HASHTAG_TRANSFORMS,
-} from "./commcare";
-import { supportsValidation } from "./commcare/constants";
+} from "@/lib/commcare";
+import type { ConnectConfig } from "@/lib/domain";
+import type { BlueprintForm, Question } from "../doc/legacyTypes";
 
 const PARSE_OPTS = { xmlMode: true } as const;
 const RENDER_OPTS = {

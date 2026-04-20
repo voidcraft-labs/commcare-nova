@@ -16,11 +16,11 @@
  */
 
 import { produce } from "immer";
+import type { HqApplication } from "@/lib/commcare";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { HqApplication } from "@/lib/services/commcare";
 import {
 	errorToString,
 	type ValidationError,

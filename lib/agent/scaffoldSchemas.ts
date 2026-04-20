@@ -22,7 +22,7 @@ import { FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 //
 // The LLM needs to see the reserved set spelled out so it picks safe
 // property names. This exact list also lives in
-// `lib/services/commcare/constants.ts` as an authoritative Set for
+// `lib/commcare/constants.ts` as an authoritative Set for
 // runtime validation — the two stay in sync manually (a mismatch here
 // affects LLM guidance only; the runtime check in `formActions.ts` +
 // validate rules is the gate).

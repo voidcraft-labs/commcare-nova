@@ -1,7 +1,4 @@
-import { NameTest, parser } from "@/lib/commcare/xpath";
-import { defaultPostSubmit } from "@/lib/domain";
-import type { AppBlueprint } from "../doc/legacyTypes";
-import type { HqApplication } from "./commcare";
+import type { HqApplication } from "@/lib/commcare";
 import {
 	applicationShell,
 	detailColumn,
@@ -10,8 +7,11 @@ import {
 	genHexId,
 	genShortId,
 	moduleShell,
-} from "./commcare";
-import { toHqWorkflow } from "./commcare/session";
+} from "@/lib/commcare";
+import { toHqWorkflow } from "@/lib/commcare/session";
+import { NameTest, parser } from "@/lib/commcare/xpath";
+import { defaultPostSubmit } from "@/lib/domain";
+import type { AppBlueprint } from "../doc/legacyTypes";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { buildXForm } from "./xformBuilder";
 

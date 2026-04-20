@@ -23,7 +23,7 @@ import {
 	validateXFormPath,
 	XFORM_PATH_REGEX,
 	XML_ELEMENT_NAME_REGEX,
-} from "../commcare";
+} from "..";
 
 describe("RESERVED_CASE_PROPERTIES", () => {
 	it("contains all known reserved words", () => {

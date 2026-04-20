@@ -27,8 +27,8 @@ import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type {
 	AppBlueprint,
 	WireFormLink as FormLink,
-} from "../../doc/legacyTypes";
-import { validateCaseType } from "./validate";
+} from "../doc/legacyTypes";
+import { validateCaseType } from "./identifierValidation";
 
 // ── Session Datums ─────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ export interface StackOperation {
 
 // ── Re-export FormLink types for downstream convenience ───────────────
 
-export type { WireFormLinkDatum as FormLinkDatum } from "../../doc/legacyTypes";
+export type { WireFormLinkDatum as FormLinkDatum } from "../doc/legacyTypes";
 export type { FormLink };
 
 // ── Entry Definition ───────────────────────────────────────────────────

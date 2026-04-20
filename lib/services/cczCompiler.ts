@@ -1,22 +1,20 @@
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import type { AppBlueprint } from "../doc/legacyTypes";
 import {
+	type DetailColumn,
 	escapeXml,
+	type FormActions,
+	type HqApplication,
 	validateCaseType,
 	validatePropertyName,
 	validateXFormPath,
-} from "./commcare";
-import type {
-	DetailColumn,
-	FormActions,
-	HqApplication,
-} from "./commcare/hqTypes";
+} from "@/lib/commcare";
 import {
 	deriveEntryDefinition,
 	fromHqWorkflow,
 	renderEntryXml,
-} from "./commcare/session";
+} from "@/lib/commcare/session";
+import type { AppBlueprint } from "../doc/legacyTypes";
 import { errorToString } from "./commcare/validate/errors";
 import { validateXFormXml } from "./commcare/validate/xformValidator";
 

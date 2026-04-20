@@ -9,7 +9,7 @@ import type {
 	HqApplication,
 	HqForm,
 	HqModule,
-} from "./hqTypes";
+} from "./types";
 
 // ── Condition factories ──────────────────────────────────────────────
 

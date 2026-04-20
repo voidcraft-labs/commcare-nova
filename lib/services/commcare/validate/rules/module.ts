@@ -6,12 +6,12 @@
  * every module.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
 	CASE_TYPE_REGEX,
 	MAX_CASE_TYPE_LENGTH,
 	STANDARD_CASE_LIST_PROPERTIES,
-} from "../../constants";
+} from "@/lib/commcare";
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import { collectCaseProperties } from "../index";
 

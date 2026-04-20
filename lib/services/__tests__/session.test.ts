@@ -1,9 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type {
-	AppBlueprint,
-	WireFormLink as FormLink,
-} from "@/lib/doc/legacyTypes";
-import type { PostSubmitDestination } from "@/lib/domain";
 import {
 	deriveEntryDefinition,
 	deriveFormLinkStack,
@@ -15,7 +10,12 @@ import {
 	renderStackXml,
 	type StackOperation,
 	toHqWorkflow,
-} from "../commcare/session";
+} from "@/lib/commcare/session";
+import type {
+	AppBlueprint,
+	WireFormLink as FormLink,
+} from "@/lib/doc/legacyTypes";
+import type { PostSubmitDestination } from "@/lib/domain";
 import { q } from "./wireFixtures";
 
 // ── deriveSessionDatums ────────────────────────────────────────────

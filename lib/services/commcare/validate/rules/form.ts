@@ -14,6 +14,12 @@
  */
 
 import {
+	CASE_PROPERTY_REGEX,
+	MAX_CASE_PROPERTY_LENGTH,
+	MEDIA_FIELD_KINDS,
+	RESERVED_CASE_PROPERTIES,
+} from "@/lib/commcare";
+import {
 	type BlueprintDoc,
 	type Field,
 	type Form,
@@ -27,12 +33,6 @@ import {
 	deriveCaseConfig,
 } from "@/lib/services/deriveCaseConfig";
 import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
-import {
-	CASE_PROPERTY_REGEX,
-	MAX_CASE_PROPERTY_LENGTH,
-	MEDIA_FIELD_KINDS,
-	RESERVED_CASE_PROPERTIES,
-} from "../../constants";
 import { type ValidationError, validationError } from "../errors";
 
 // ── Helpers ────────────────────────────────────────────────────────

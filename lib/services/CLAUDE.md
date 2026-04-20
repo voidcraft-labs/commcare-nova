@@ -1,8 +1,8 @@
 # Services Layer
 
-Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `fieldPath`), and UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`). Generation logging moved to `lib/log/` — see its CLAUDE.md for the event log boundary.
+Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/validate/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `fieldPath`), and UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`). The CommCare wire-format primitives (constants, HQ JSON types, shell factories, hashtag expansion, ids, session, identifier validation, xml helpers) live at `lib/commcare/`; generation logging lives at `lib/log/`.
 
-The Solutions Architect and its generation loop moved to `lib/agent/` in Phase 3 — see `lib/agent/CLAUDE.md` for the SA tool-loop rules, prompt caching, mutation-emission surface, and provider-options shape.
+The Solutions Architect and its generation loop live at `lib/agent/` — see `lib/agent/CLAUDE.md` for the SA tool-loop rules, prompt caching, mutation-emission surface, and provider-options shape.
 
 ## Expander decisions
 

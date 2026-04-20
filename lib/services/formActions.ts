@@ -1,14 +1,10 @@
 /**
- * Form action builder for CommCare HQ import format.
- *
- * Builds the HQ FormActions object (case open/update/close, preloads, subcases)
- * and case_references_data.load map from blueprint form definitions.
- * Extracted from hqJsonExpander.ts to isolate case/action logic.
+ * Builds the HQ FormActions object (case open/update/close, preloads,
+ * subcases) and the case_references_data.load map from blueprint form
+ * definitions.
  */
 
-import type { CaseType, ConnectConfig } from "@/lib/domain";
-import type { BlueprintForm, Question } from "../doc/legacyTypes";
-import type { FormActions, OpenSubCaseAction } from "./commcare";
+import type { FormActions, OpenSubCaseAction } from "@/lib/commcare";
 import {
 	alwaysCondition,
 	emptyFormActions,
@@ -17,7 +13,9 @@ import {
 	MEDIA_FIELD_KINDS,
 	neverCondition,
 	RESERVED_CASE_PROPERTIES,
-} from "./commcare";
+} from "@/lib/commcare";
+import type { CaseType, ConnectConfig } from "@/lib/domain";
+import type { BlueprintForm, Question } from "../doc/legacyTypes";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 
 /**

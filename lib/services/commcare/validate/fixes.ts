@@ -12,9 +12,9 @@
  * persistence stay consistent with manual edits.
  */
 
+import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, FieldPatch, Uuid } from "@/lib/domain";
-import { XML_ELEMENT_NAME_REGEX } from "../constants";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 
 /** A fix: (error, doc) → zero-or-more mutations that resolve the error. */
