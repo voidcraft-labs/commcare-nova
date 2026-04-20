@@ -9,38 +9,10 @@ import {
 	moduleShell,
 } from "@/lib/commcare";
 import { toHqWorkflow } from "@/lib/commcare/session";
-import { NameTest, parser } from "@/lib/commcare/xpath";
 import { defaultPostSubmit } from "@/lib/domain";
 import type { AppBlueprint } from "../doc/legacyTypes";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { buildXForm } from "./xformBuilder";
-
-/**
- * Detect unquoted string literals in XPath expressions using the Lezer parser.
- * A bare word like "no" parses as a single NameTest — almost always an error
- * where the author forgot to quote a string literal.
- */
-export function detectUnquotedStringLiteral(expr: string): string | null {
-	const trimmed = expr.trim();
-	if (!trimmed) return null;
-
-	const tree = parser.parse(trimmed);
-	const top = tree.topNode;
-	const child = top.firstChild;
-	if (!child || child.nextSibling) return null;
-	if (child.type.id !== NameTest) return null;
-
-	// Verify no error nodes
-	let hasError = false;
-	tree.iterate({
-		enter(node) {
-			if (node.type.isError) hasError = true;
-		},
-	});
-	if (hasError) return null;
-
-	return trimmed;
-}
 
 /**
  * Expand an AppBlueprint into the full HQ import JSON.

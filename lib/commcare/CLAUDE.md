@@ -15,7 +15,7 @@ One-way emission boundary. This package owns CommCare's wire vocabulary — ever
 
 ## Sub-paths imported directly (not re-exported)
 
-- `@/lib/commcare/xpath` — Lezer grammar + parser + transpiler (see its CLAUDE.md). Imported directly because it has its own focused surface (`parser`, `transpile`, parser term constants).
+- `@/lib/commcare/xpath` — Lezer grammar + parser, export-time transpiler, and parser-backed helpers like `detectUnquotedStringLiteral` (see its CLAUDE.md). Imported directly because it has its own focused surface (`parser`, `transpile`, parser term constants, `detectUnquotedStringLiteral`).
 - `@/lib/commcare/validator` — deep pre- and post-expansion validator. Callers import named modules (`/runner`, `/errors`, `/fixes`, `/xformValidator`, `/xpathValidator`, `/functionRegistry`) so the full rule surface isn't pulled into every consumer.
 - `@/lib/commcare/client` — server-only HQ REST API client.
 - `@/lib/commcare/encryption` — KMS wrapper for user API keys at rest.

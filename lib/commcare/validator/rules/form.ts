@@ -19,6 +19,7 @@ import {
 	MEDIA_FIELD_KINDS,
 	RESERVED_CASE_PROPERTIES,
 } from "@/lib/commcare";
+import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -32,7 +33,6 @@ import {
 	type DerivedCaseConfig,
 	deriveCaseConfig,
 } from "@/lib/services/deriveCaseConfig";
-import { detectUnquotedStringLiteral } from "@/lib/services/hqJsonExpander";
 import { type ValidationError, validationError } from "../errors";
 
 // ── Helpers ────────────────────────────────────────────────────────

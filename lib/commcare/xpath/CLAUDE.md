@@ -9,7 +9,8 @@ CommCare's XPath dialect: the Lezer grammar + generated parser and the export-ti
 - `transpiler.ts` — public `transpile(source)` entry point.
 - `typeInfer.ts` — internal bottom-up type inference over the Lezer CST.
 - `passes/` — internal transform passes, each shaped `(tree, types, source) → SourceEdit[]`.
-- `index.ts` — public barrel: `parser`, parser term constants, `transpile`. Internals (`typeInfer`, `passes`) are not exported.
+- `detectUnquotedStringLiteral.ts` — standalone parser-backed check for the "bare word where a string literal was intended" authoring mistake. Used by the deep validator's form + field rules.
+- `index.ts` — public barrel: `parser`, parser term constants, `transpile`, `detectUnquotedStringLiteral`. Internals (`typeInfer`, `passes`) are not exported.
 
 ## Transpiler pipeline
 

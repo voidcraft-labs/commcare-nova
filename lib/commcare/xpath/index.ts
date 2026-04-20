@@ -18,6 +18,7 @@
 // Type inference (typeInfer.ts) and individual transpiler passes
 // (passes/) are implementation details — not exported.
 
+export { detectUnquotedStringLiteral } from "./detectUnquotedStringLiteral";
 export { parser } from "./parser";
 export * from "./parser.terms";
 export { transpile } from "./transpiler";
