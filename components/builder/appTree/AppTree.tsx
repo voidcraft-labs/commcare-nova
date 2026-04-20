@@ -22,9 +22,9 @@ import { AnimatePresence } from "motion/react";
 import { useCallback, useDeferredValue, useState } from "react";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
-import { useSearchFilter } from "@/components/builder/appTree/useSearchFilter";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
+import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BuilderPhase } from "@/lib/services/builder";
 import { useBuilderPhase } from "@/lib/session/hooks";
 
@@ -35,7 +35,7 @@ interface AppTreeProps {
 
 export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	const moduleOrder = useModuleIds();
-	const appName = useBlueprintDoc((s) => s.appName);
+	const appName = useAppName();
 	const phase = useBuilderPhase();
 
 	const locked =

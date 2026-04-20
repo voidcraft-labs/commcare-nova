@@ -29,16 +29,14 @@ import { replayEventsSync } from "@/lib/log/replay";
 import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { resetBuilder } from "@/lib/services/resetBuilder";
-import {
-	BuilderSessionContext,
-	useBuilderSession,
-} from "@/lib/session/provider";
+import { useReplayState } from "@/lib/session/hooks";
+import { BuilderSessionContext } from "@/lib/session/provider";
 import type { ReplayChapter } from "@/lib/session/types";
 
-/* Reference-stable empty-array sentinels keep the selectors below from
- * returning a fresh `[]` on every render when replay is not loaded — a
- * fresh reference would make `useBuilderSession`'s equality check fail
- * on every tick and thrash React reconciliation in the transport bar. */
+/* Reference-stable empty-array sentinels used when replay is not loaded.
+ * `useReplayState` returns `undefined` in that case; these sentinels keep
+ * the destructured `events` / `chapters` references stable across renders
+ * so the transport bar's downstream memos + `findIndex` don't thrash. */
 const EMPTY_EVENTS: readonly Event[] = [];
 const EMPTY_CHAPTERS: readonly ReplayChapter[] = [];
 
@@ -51,7 +49,7 @@ export function ReplayController() {
 	/* Self-subscribe to replay state — no props from parent. The cursor
 	 * lives in the session store so `useReplayMessages` and this
 	 * controller stay in lock-step across scrubs. */
-	const replay = useBuilderSession((s) => s.replay);
+	const replay = useReplayState();
 	const events = replay?.events ?? EMPTY_EVENTS;
 	const chapters = replay?.chapters ?? EMPTY_CHAPTERS;
 	const cursor = replay?.cursor ?? 0;

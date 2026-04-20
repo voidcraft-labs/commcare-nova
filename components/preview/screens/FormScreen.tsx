@@ -5,13 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
+import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import { defaultPostSubmit } from "@/lib/domain";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
@@ -78,10 +78,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
 	const formId = formUuid;
 
-	/** Whether the form has any fields — drives the empty state. */
-	const hasFields = useBlueprintDoc((s) =>
-		formId ? (s.fieldOrder[formId as Uuid]?.length ?? 0) > 0 : false,
-	);
+	/** Whether the form has any fields — drives the empty state. The hook
+	 *  accepts `Uuid | undefined`, returning `false` when `formId` is
+	 *  undefined so the preview shell can mount a FormScreen while the
+	 *  URL is still being parsed. */
+	const hasFields = useHasFieldsInForm(formId as Uuid | undefined);
 
 	const caseData = useMemo(() => {
 		if (!mod?.caseType) return undefined;

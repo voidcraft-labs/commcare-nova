@@ -1,5 +1,5 @@
 /**
- * Field-icon-map hook + field-count helper used by the AppTree rows.
+ * Field-icon-map hook + field-count helpers used by the AppTree rows.
  *
  * `useFieldIconMap` walks a form's field subtree once and memoizes a
  * `FieldPath → IconifyIcon` map keyed by path. FormCard passes the
@@ -7,15 +7,24 @@
  * reference chips (e.g. `#form/question_id`) with the correct
  * field-kind icon without prop-drilling.
  *
- * `countQuestionsFromOrder` is kept alongside because it walks the same
- * subtree and is called from FormCard's selector. Keeping it a pure
- * function (primitive result) lets Zustand's equality check skip
- * re-renders when unrelated forms' field lists change.
+ * `useFormDescendantCount` + the underlying pure `countQuestionsFromOrder`
+ * helper live here because they walk the same subtree shape. Keeping the
+ * pure walker as a primitive-returning function lets Zustand's equality
+ * check skip re-renders when unrelated forms' field lists change.
+ *
+ * Lives in `lib/doc/hooks/` because — despite the "iconmap" name — these
+ * are narrow doc-store subscription hooks, not AppTree-presentation
+ * utilities. Colocating them with the other `lib/doc/hooks/*` entries
+ * keeps the boundary rule (components import hooks, never the raw
+ * store) trivially enforceable.
  */
 "use client";
 import type { IconifyIcon } from "@iconify/react/offline";
 import { useMemo } from "react";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	useBlueprintDoc,
+	useBlueprintDocShallow,
+} from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { fieldRegistry } from "@/lib/domain";
 import { type FieldPath, fpath } from "@/lib/services/fieldPath";
@@ -58,8 +67,8 @@ export function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
 
 /**
  * Count questions recursively under a form or group. Pure, primitive
- * result — safe to call inside a Zustand selector so the FormCard
- * re-renders only when its own count actually changes.
+ * result — safe to call inside a Zustand selector so the caller re-renders
+ * only when its own count actually changes.
  */
 export function countQuestionsFromOrder(
 	parentId: Uuid,
@@ -75,4 +84,21 @@ export function countQuestionsFromOrder(
 	}
 	walk(parentId);
 	return count;
+}
+
+/**
+ * Recursive descendant count for a form or container. Subscribes to the
+ * whole `fieldOrder` map (Immer-stable reference) and walks the subtree
+ * via `countQuestionsFromOrder`. Preferred over the inline
+ * `useBlueprintDoc((s) => countQuestionsFromOrder(id, s.fieldOrder))`
+ * pattern at AppTree row call sites.
+ *
+ * Accepts `Uuid | undefined` so call sites that derive the parent uuid
+ * from an optional URL selection don't need to guard the hook call.
+ * Returns 0 when `parentUuid` is missing.
+ */
+export function useFormDescendantCount(parentUuid: Uuid | undefined): number {
+	return useBlueprintDoc((s) =>
+		parentUuid ? countQuestionsFromOrder(parentUuid, s.fieldOrder) : 0,
+	);
 }

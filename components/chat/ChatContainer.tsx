@@ -27,12 +27,13 @@ import {
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { BuilderPhase } from "@/lib/services/builder";
 import { showToast } from "@/lib/services/toastStore";
-import { derivePhase, useReplayMessages } from "@/lib/session/hooks";
-import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
-	BuilderSessionContext,
-	useBuilderSession,
-} from "@/lib/session/provider";
+	derivePhase,
+	useInReplayMode,
+	useReplayMessages,
+} from "@/lib/session/hooks";
+import type { BuilderSessionStoreApi } from "@/lib/session/provider";
+import { BuilderSessionContext } from "@/lib/session/provider";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ export function ChatContainer({
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
-	const inReplayMode = useBuilderSession((s) => s.replay !== undefined);
+	const inReplayMode = useInReplayMode();
 	/** Replay messages — derived on read from the session store's event
 	 *  log + cursor. ReplayController writes the cursor; this hook
 	 *  projects the events into `UIMessage[]`. */

@@ -127,14 +127,17 @@ Move targets and `isFirst` / `isLast` flags are computed in the render body, NOT
   components, one per entity level. Each subscribes to its own entity in
   the doc store; Immer structural sharing means an edit to one field
   re-renders only its `FieldRow`.
-- `useSearchFilter.ts` — entity-map-based search filter. SEARCH_IDLE
-  sentinel keeps the subscription stable when the user isn't searching.
-- `useFieldIconMap.ts` — per-form `{ path → icon }` for chip rendering.
 - `useAppTreeSelection.ts` — produces the `handleSelect` callback. Field
   selection primes a pending scroll BEFORE navigating so the target row's
   `useFulfillPendingScroll` has a request waiting when `isSelected` flips.
 - `shared.tsx` — `TreeItemRow`, `CollapseChevron`, `HighlightedText`,
   `FormIconContext`.
+
+Doc-subscription helpers used by the AppTree rows live with the other
+doc hooks in `lib/doc/hooks/`, not here: `useSearchFilter` (entity-map
+search with the `SEARCH_IDLE` sentinel), `useFieldIconMap` (per-form
+`{ path → icon }` for chip rendering), and `useFormDescendantCount`
+(recursive field count for the FormCard "N q" badge).
 
 ## Form settings
 

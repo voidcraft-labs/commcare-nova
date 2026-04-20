@@ -12,6 +12,11 @@
  * subscription entirely during normal editing — without it, every
  * blueprint mutation would invalidate six entity-map keys and force
  * AppTree to re-render.
+ *
+ * Lives in `lib/doc/hooks/` because — though currently only AppTree
+ * consumes it — the hook is a narrow doc-store subscription, not a
+ * presentation component. Colocation keeps the "components import
+ * hooks, never the raw store" boundary trivially enforceable.
  */
 "use client";
 import { useMemo } from "react";

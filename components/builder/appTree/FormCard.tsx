@@ -23,15 +23,15 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import {
-	countQuestionsFromOrder,
-	useFieldIconMap,
-} from "@/components/builder/appTree/useFieldIconMap";
-import type { SearchResult } from "@/components/builder/appTree/useSearchFilter";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
-import type { Form, Uuid } from "@/lib/domain";
+import {
+	useFieldIconMap,
+	useFormDescendantCount,
+} from "@/lib/doc/hooks/useFieldIconMap";
+import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
+import type { Uuid } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useIsFormSelected } from "@/lib/routing/hooks";
 
@@ -61,16 +61,18 @@ export const FormCard = memo(function FormCard({
 	locked?: boolean;
 }) {
 	/** Subscribe to this form's entity from the doc store. */
-	const form = useFormDoc(formId) as Form | undefined;
+	const form = useFormDoc(formId);
 
-	/** Subscribe to this form's field UUIDs from the doc store. */
-	const fieldUuids = useBlueprintDoc((s) => s.fieldOrder[formId]);
+	/** Subscribe to this form's field UUIDs from the doc store.
+	 *  `useOrderedFields` returns a reference-stable empty-array sentinel
+	 *  when the form has no children entry, so downstream `.length`
+	 *  checks work without an existence guard. */
+	const fieldUuids = useOrderedFields(formId);
 
-	// Count via selector so the result is a primitive — reference equality
-	// then prevents re-renders when unrelated forms' questions change.
-	const count = useBlueprintDoc((s) =>
-		countQuestionsFromOrder(formId, s.fieldOrder),
-	);
+	/** Recursive descendant count — drives the "N q" badge. Walks every
+	 *  nested group so grouped questions are counted the same as top-level
+	 *  ones. */
+	const count = useFormDescendantCount(formId);
 
 	/** Boolean selection — URL-driven via useIsFormSelected.
 	 *  Only this form + the previously selected re-render on change. */
@@ -80,7 +82,7 @@ export const FormCard = memo(function FormCard({
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
 		: collapsed.has(collapseKey);
-	const hasFields = fieldUuids && fieldUuids.length > 0;
+	const hasFields = fieldUuids.length > 0;
 	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
 	/** Build icon map for reference chips in field labels. */
@@ -155,7 +157,7 @@ export const FormCard = memo(function FormCard({
 				<FormIconContext value={fieldIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
-							{fieldUuids?.map((uuid, qIdx) => {
+							{fieldUuids.map((uuid, qIdx) => {
 								if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
 									return null;
 								return (

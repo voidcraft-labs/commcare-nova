@@ -44,7 +44,7 @@ import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -320,8 +320,12 @@ export function BuilderLayout({
 	// ── Navigate to first form when generation completes ──────────────
 
 	const navigate = useNavigate();
-	const docModuleOrder = useBlueprintDoc((s) => s.moduleOrder);
-	const docFormOrder = useBlueprintDoc((s) => s.formOrder);
+	/* Read the two top-level order arrays together — `useAppStructure`
+	 * returns a shallow-stable `{moduleOrder, formOrder}` pair so the
+	 * navigate-to-first-form effect only re-fires when one of them
+	 * actually changes reference. */
+	const { moduleOrder: docModuleOrder, formOrder: docFormOrder } =
+		useAppStructure();
 
 	const prevPhaseRef = useRef(phase);
 	useEffect(() => {

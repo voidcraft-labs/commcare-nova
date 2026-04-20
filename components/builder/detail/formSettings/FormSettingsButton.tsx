@@ -4,7 +4,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import { useCallback, useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useConnectType } from "@/lib/doc/hooks/useConnectType";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
@@ -36,7 +36,7 @@ export function FormSettingsButton({
 	formUuid,
 }: FormSettingsButtonProps) {
 	const form = useForm(formUuid);
-	const connectType = useBlueprintDoc((s) => s.connectType);
+	const connectType = useConnectType();
 	const hasConnect = !!form?.connect && !!connectType;
 	const [open, setOpen] = useState(false);
 

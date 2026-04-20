@@ -5,7 +5,8 @@ import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { Badge } from "@/components/ui/Badge";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
@@ -13,8 +14,12 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
 export function HomeScreen() {
-	const appName = useBlueprintDoc((s) => s.appName);
-	const formOrder = useBlueprintDoc((s) => s.formOrder);
+	const appName = useAppName();
+	/* Read only the `formOrder` slice of the app structure — the module
+	 * sequence is served separately by `useOrderedModules()` below.
+	 * `useAppStructure` returns a shallow-stable pair, so destructuring
+	 * one field keeps the reference cheap. */
+	const { formOrder } = useAppStructure();
 	const navigate = useNavigate();
 	const { updateApp } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();

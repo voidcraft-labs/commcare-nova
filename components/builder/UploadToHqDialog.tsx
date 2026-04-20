@@ -22,7 +22,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { PersistableDoc } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ export function UploadToHqDialog({
 }: UploadToHqDialogProps) {
 	/* Self-subscribe to the app name from the doc store — no prop drilling
 	 * from BuilderLayout needed. Only re-renders when appName actually changes. */
-	const storeAppName = useBlueprintDoc((s) => s.appName);
+	const storeAppName = useAppName();
 	const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
 		type: "idle",
 	});

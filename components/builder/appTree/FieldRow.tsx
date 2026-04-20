@@ -25,9 +25,10 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import type { SearchResult } from "@/components/builder/appTree/useSearchFilter";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { type Field, fieldRegistry, type Uuid } from "@/lib/domain";
+import { useField } from "@/lib/doc/hooks/useEntity";
+import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
+import { fieldRegistry, type Uuid } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { type FieldPath, fpath } from "@/lib/services/fieldPath";
@@ -58,10 +59,13 @@ export const FieldRow = memo(function FieldRow({
 	parentPath?: FieldPath;
 }) {
 	/** Subscribe to this field's entity by UUID from the doc store. */
-	const q = useBlueprintDoc((s) => s.fields[uuid]) as Field | undefined;
+	const q = useField(uuid);
 
-	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
-	const childUuids = useBlueprintDoc((s) => s.fieldOrder[uuid]);
+	/** Subscribe to children UUIDs (for groups/repeats) from the doc store.
+	 *  `useOrderedFields` returns the reference-stable empty-array sentinel
+	 *  when the field has no children entry, so downstream `.length`
+	 *  checks are safe without an existence guard. */
+	const childUuids = useOrderedFields(uuid);
 
 	/** Boolean selection — URL-driven via useIsFieldSelected.
 	 *  Only this field + the old selection re-render on change. */
@@ -73,7 +77,7 @@ export const FieldRow = memo(function FieldRow({
 
 	const fieldPath = fpath(q.id, parentPath);
 	const iconData = fieldRegistry[q.kind].icon;
-	const hasChildren = childUuids && childUuids.length > 0;
+	const hasChildren = childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
 		(searchResult?.forceExpand?.has(fieldPath)
@@ -165,7 +169,7 @@ export const FieldRow = memo(function FieldRow({
 				)}
 				{hasChildren && isCollapsed && (
 					<span className="text-[10px] text-nova-text-muted ml-auto shrink-0">
-						{childUuids?.length ?? 0}
+						{childUuids.length}
 					</span>
 				)}
 			</TreeItemRow>
@@ -173,7 +177,7 @@ export const FieldRow = memo(function FieldRow({
 			{/* Nested children for groups/repeats — self-recursive */}
 			{hasChildren && !isCollapsed && (
 				<div>
-					{childUuids?.map((childUuid, cIdx) => (
+					{childUuids.map((childUuid, cIdx) => (
 						<FieldRow
 							key={childUuid}
 							uuid={childUuid}

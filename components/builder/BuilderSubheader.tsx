@@ -19,10 +19,8 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-	useBlueprintDoc,
-	useBlueprintDocTemporal,
-} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { useBlueprintDocTemporal } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
@@ -70,7 +68,7 @@ export function BuilderSubheader({
 
 	/* Breadcrumbs derived from URL + doc entity names. */
 	const breadcrumbs = useBreadcrumbs();
-	const appName = useBlueprintDoc((s) => s.appName);
+	const appName = useAppName();
 
 	/* Breadcrumb click handlers — navigate to each breadcrumb's location.
 	 * Memoized on navigation structure so CollapsibleBreadcrumb's memo()
