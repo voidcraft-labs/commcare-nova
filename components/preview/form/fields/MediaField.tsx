@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import { useEditContext } from "@/hooks/useEditContext";
 import { type Field, fieldRegistry } from "@/lib/domain";
+import { useEditContext } from "@/lib/preview/hooks/useEditContext";
 
 /**
  * Placeholder card for media-capture kinds (image/audio/video/barcode/

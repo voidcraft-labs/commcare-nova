@@ -1,8 +1,8 @@
 "use client";
-import { useEditContext } from "@/hooks/useEditContext";
-import { useTextEditSave } from "@/hooks/useTextEditSave";
 import type { LabelField as LabelFieldEntity } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { useEditContext } from "@/lib/preview/hooks/useEditContext";
+import { useTextEditSave } from "@/lib/preview/hooks/useTextEditSave";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";

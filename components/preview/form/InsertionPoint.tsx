@@ -30,8 +30,8 @@ import {
 	useState,
 } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
+import { useEditContext } from "@/lib/preview/hooks/useEditContext";
 import { useFieldPicker } from "./FieldPickerContext";
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */

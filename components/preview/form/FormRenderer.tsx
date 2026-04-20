@@ -27,8 +27,8 @@
 
 "use client";
 import { memo } from "react";
-import { useEditContext } from "@/hooks/useEditContext";
 import { asUuid } from "@/lib/doc/types";
+import { useEditContext } from "@/lib/preview/hooks/useEditContext";
 import type { FieldPath } from "@/lib/services/fieldPath";
 import { useCursorMode } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "./InteractiveFormRenderer";

@@ -1,8 +1,8 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
+import { useEditContext } from "@/lib/preview/hooks/useEditContext";
 import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
 
 interface EditableFieldWrapperProps {

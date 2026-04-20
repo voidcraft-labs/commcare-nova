@@ -32,9 +32,12 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback } from "react";
-import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
+import {
+	useEngineController,
+	useEngineState,
+} from "@/lib/preview/hooks/useFormEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { FieldPath } from "@/lib/services/fieldPath";
 import { useFormLayout } from "../FormLayoutContext";

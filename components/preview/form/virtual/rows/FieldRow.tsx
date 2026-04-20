@@ -25,10 +25,13 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
-import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
-import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/domain";
+import {
+	useEngineController,
+	useEngineState,
+} from "@/lib/preview/hooks/useFormEngine";
+import { useTextEditSave } from "@/lib/preview/hooks/useTextEditSave";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
