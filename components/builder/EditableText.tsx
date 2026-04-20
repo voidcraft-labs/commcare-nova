@@ -2,7 +2,7 @@
 import { useCallback, useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
-import { useCommitField } from "@/hooks/useCommitField";
+import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 
 interface EditableTextProps {
 	label: string;

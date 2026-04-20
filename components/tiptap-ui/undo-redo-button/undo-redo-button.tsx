@@ -14,10 +14,10 @@ import { Badge } from "@/components/tiptap-ui-primitive/badge";
 // --- UI Primitives ---
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button";
 import { Button } from "@/components/tiptap-ui-primitive/button";
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 // --- Lib ---
 import { parseShortcutKeys } from "@/lib/tiptap-utils";
+// --- Hooks ---
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 export interface UndoRedoButtonProps
 	extends Omit<ButtonProps, "type">,

@@ -19,7 +19,7 @@ import {
 	PopoverTrigger,
 	ToolbarPopoverContent,
 } from "@/components/tiptap-ui-primitive/popover";
-import { useIsBreakpoint } from "@/hooks/use-is-breakpoint";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 import "./image-popover.css";
 

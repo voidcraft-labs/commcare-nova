@@ -4,8 +4,8 @@ import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { Separator } from "@/components/tiptap-ui-primitive/separator";
 import "@/components/tiptap-ui-primitive/toolbar/toolbar.css";
 import { useMergeRefs } from "@floating-ui/react";
-import { useMenuNavigation } from "@/hooks/use-menu-navigation";
 import { cn } from "@/lib/tiptap-utils";
+import { useMenuNavigation } from "@/lib/ui/hooks/useMenuNavigation";
 
 type BaseProps = React.HTMLAttributes<HTMLDivElement>;
 

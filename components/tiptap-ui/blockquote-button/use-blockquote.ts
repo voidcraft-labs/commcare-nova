@@ -5,9 +5,6 @@ import type { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useState } from "react";
 // --- Icons ---
 import { BlockquoteIcon } from "@/components/tiptap-icons/blockquote-icon";
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
-
 // --- UI Utils ---
 import {
 	findNodePosition,
@@ -17,6 +14,8 @@ import {
 	isValidPosition,
 	selectionWithinConvertibleTypes,
 } from "@/lib/tiptap-utils";
+// --- Hooks ---
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 export const BLOCKQUOTE_SHORTCUT_KEY = "mod+shift+b";
 

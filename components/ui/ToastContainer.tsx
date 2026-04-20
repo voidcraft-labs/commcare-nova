@@ -3,8 +3,8 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
-import { useToasts } from "@/hooks/useToasts";
 import type { Toast, ToastSeverity } from "@/lib/services/toastStore";
+import { useToasts } from "@/lib/ui/hooks/useToasts";
 
 const AUTO_DISMISS_MS: Record<ToastSeverity, number> = {
 	error: 0, // persistent by default

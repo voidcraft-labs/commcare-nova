@@ -43,7 +43,6 @@ import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollR
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
-import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -57,6 +56,7 @@ import {
 	useSwitchCursorMode,
 } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
+import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 
 /** Extra space above the scroll target so the field isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,

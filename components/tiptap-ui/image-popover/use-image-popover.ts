@@ -3,8 +3,8 @@
 import type { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useState } from "react";
 import { ImageIcon } from "@/components/tiptap-icons/image-icon";
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 import { isNodeInSchema } from "@/lib/tiptap-utils";
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 export interface UseImagePopoverConfig {
 	editor?: Editor | null;

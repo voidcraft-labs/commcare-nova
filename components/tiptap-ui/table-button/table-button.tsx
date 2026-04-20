@@ -11,7 +11,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from "@/components/tiptap-ui-primitive/dropdown-menu";
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 /** Maximum grid dimensions for the picker. */
 const MAX_ROWS = 6;

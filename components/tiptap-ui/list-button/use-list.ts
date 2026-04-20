@@ -7,9 +7,6 @@ import { useCallback, useEffect, useState } from "react";
 import { ListIcon } from "@/components/tiptap-icons/list-icon";
 import { ListOrderedIcon } from "@/components/tiptap-icons/list-ordered-icon";
 import { ListTodoIcon } from "@/components/tiptap-icons/list-todo-icon";
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
-
 // --- Lib ---
 import {
 	findNodePosition,
@@ -19,6 +16,8 @@ import {
 	isValidPosition,
 	selectionWithinConvertibleTypes,
 } from "@/lib/tiptap-utils";
+// --- Hooks ---
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 export type ListType = "bulletList" | "orderedList" | "taskList";
 

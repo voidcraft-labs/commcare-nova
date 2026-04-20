@@ -1,7 +1,7 @@
 "use client";
 import { useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
-import { useCommitField } from "@/hooks/useCommitField";
+import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 
 /**
  * Compact labeled text field used inside the form settings panel. Shares
