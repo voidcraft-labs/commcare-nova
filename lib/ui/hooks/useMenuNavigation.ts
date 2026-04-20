@@ -1,8 +1,10 @@
 /**
- * Keyboard navigation hook for menu/toolbar containers.
+ * Arrow-key navigation for menu/toolbar containers.
  *
- * Installed as a dependency of the TipTap CLI Toolbar primitive.
- * Handles arrow-key navigation between focusable items in a container.
+ * Binds a keydown listener to `containerRef` that steps through `items` on
+ * ArrowLeft/Right (horizontal) or ArrowUp/Down (vertical), wrapping at the
+ * ends; Enter / Space invokes `onSelect` on the current item. Used by the
+ * TipTap primitive toolbar (`components/tiptap-ui-primitive/toolbar`).
  */
 
 "use client";
