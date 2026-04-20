@@ -211,12 +211,12 @@ export function useDragIntent({
 
 				// Find the INSERTION ROW that corresponds to the drop
 				// position. The row model interleaves insertion rows
-				// between every pair of question/group rows:
+				// between every pair of field/group rows:
 				//   ins(0), Q(A), ins(1), Q(B), ins(2)
 				// "top of B" and "bottom of A" both resolve to ins(1).
 				// By targeting the insertion row, we:
 				//   1. Place the placeholder in the natural gap (not
-				//      kissing the question border).
+				//      kissing the field border).
 				//   2. Eliminate edge thrashing — both edges of the
 				//      boundary resolve to the same insertion row index.
 				const br = baseRowsRef.current;
@@ -224,18 +224,18 @@ export function useDragIntent({
 				let insertionDepth = 0;
 
 				switch (drop.kind) {
-					case "drop-question": {
-						// Find the question row, then look for the adjacent
+					case "drop-field": {
+						// Find the field row, then look for the adjacent
 						// insertion row on the correct side. Group-open rows
-						// never carry `drop-question` data (they use
-						// `drop-group-header`), so only match `question` here.
+						// never carry `drop-field` data (they use
+						// `drop-group-header`), so only match `field` here.
 						for (let i = 0; i < br.length; i++) {
 							const r = br[i];
-							const isTarget = r.kind === "question" && r.uuid === drop.uuid;
+							const isTarget = r.kind === "field" && r.uuid === drop.uuid;
 							if (!isTarget) continue;
 
 							if (edge === "top") {
-								// Look backward for the insertion row before this question.
+								// Look backward for the insertion row before this field.
 								for (let j = i - 1; j >= 0; j--) {
 									if (br[j].kind === "insertion") {
 										insertionRowIndex = j;
@@ -245,7 +245,7 @@ export function useDragIntent({
 								}
 							} else {
 								// "bottom" or null — look forward for the insertion
-								// row after this question (skipping group-close, etc.).
+								// row after this field (skipping group-close, etc.).
 								for (let j = i + 1; j < br.length; j++) {
 									if (br[j].kind === "insertion") {
 										insertionRowIndex = j;
@@ -328,7 +328,7 @@ export function useDragIntent({
 							: null;
 					const isSource = (r: FormRow | null): boolean => {
 						if (!r) return false;
-						if (r.kind === "question" && r.uuid === dragUuid) return true;
+						if (r.kind === "field" && r.uuid === dragUuid) return true;
 						if (r.kind === "group-open" && r.uuid === dragUuid) return true;
 						// group-close trailing a dragged group — the row
 						// before the insertion is the group's close bracket.
@@ -392,7 +392,7 @@ export function useDragIntent({
 				// No-op detection: if the source would land in the same
 				// position it started (adjacent to itself), skip the
 				// mutation entirely — it's a cancel, not a move.
-				if (drop.kind === "drop-question") {
+				if (drop.kind === "drop-field") {
 					const parentOrder =
 						docs.getState().fieldOrder[drop.parentUuid as Uuid] ?? [];
 					const sourceIdx = parentOrder.indexOf(asUuid(dragUuid));
@@ -410,7 +410,7 @@ export function useDragIntent({
 				let result: ReturnType<typeof moveField> | undefined;
 
 				switch (drop.kind) {
-					case "drop-question": {
+					case "drop-field": {
 						if (drop.uuid === dragUuid) return;
 						if (edge === "top") {
 							result = moveField(asUuid(dragUuid), {
@@ -431,7 +431,7 @@ export function useDragIntent({
 						// edge === "top" means the user aimed at the gap ABOVE
 						// the group header — insert the source at the parent
 						// level immediately before the group, not as a child.
-						// Mirrors the drop-question/top branch above.
+						// Mirrors the drop-field/top branch above.
 						if (edge === "top") {
 							result = moveField(asUuid(dragUuid), {
 								beforeUuid: drop.uuid,

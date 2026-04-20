@@ -1,6 +1,6 @@
 # lib/doc — Builder document store
 
-The normalized, undoable source of truth for the blueprint domain. Every module, form, and question the builder edits lives here, keyed by UUID.
+The normalized, undoable source of truth for the blueprint domain. Every module, form, and field the builder edits lives here, keyed by UUID.
 
 ## Boundary rule
 

@@ -109,8 +109,8 @@ export function selectNoOptions(
 	return [
 		validationError(
 			"SELECT_NO_OPTIONS",
-			"question",
-			`Question "${field.id}" in "${ctx.formName}" is a ${typeName} question but has no options to choose from. Add at least one option with a value and label.`,
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" is a ${typeName} field but has no options to choose from. Add at least one option with a value and label.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -132,8 +132,8 @@ export function hiddenNoValue(
 	return [
 		validationError(
 			"HIDDEN_NO_VALUE",
-			"question",
-			`Question "${field.id}" in "${ctx.formName}" is a hidden field but has no calculate expression or default_value. Hidden fields are invisible to users, so without a computed or default value they'll always be blank. Add a calculate expression or a default_value.`,
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" is a hidden field but has no calculate expression or default_value. Hidden fields are invisible to users, so without a computed or default value they'll always be blank. Add a calculate expression or a default_value.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -160,8 +160,8 @@ export function unquotedStringLiteral(
 		errors.push(
 			validationError(
 				"UNQUOTED_STRING_LITERAL",
-				"question",
-				`Question "${field.id}" in "${ctx.formName}" has ${desc} set to: ${bare} — this looks like a text value, not an XPath expression. If you meant the literal string "${bare}", wrap it in quotes: '${bare}'.`,
+				"field",
+				`Field "${field.id}" in "${ctx.formName}" has ${desc} set to: ${bare} — this looks like a text value, not an XPath expression. If you meant the literal string "${bare}", wrap it in quotes: '${bare}'.`,
 				{
 					moduleUuid: ctx.moduleUuid,
 					moduleName: ctx.moduleName,
@@ -182,10 +182,7 @@ export function unquotedStringLiteral(
  * Validation (`validate` + `validate_msg`) only makes sense on input
  * fields — the user must enter a value AND see an error. We flag either
  * key being set on a non-input kind so typos produce a clear message
- * instead of being silently dropped by the XForm emitter. The reported
- * field name in the error message preserves the wire-facing naming
- * ("validation" / "validation_msg") since that is what the user sees in
- * tools and docs.
+ * instead of being silently dropped by the XForm emitter.
  */
 export function validationOnNonInputType(
 	field: Field,
@@ -195,13 +192,12 @@ export function validationOnNonInputType(
 	const validateExpr = readString(field, "validate");
 	const validateMsg = readString(field, "validate_msg");
 	if (!validateExpr && !validateMsg) return [];
-	const reported = validateExpr ? "validation" : "validation_msg";
-	const internal = validateExpr ? "validate" : "validate_msg";
+	const reported = validateExpr ? "validate" : "validate_msg";
 	return [
 		validationError(
-			"VALIDATION_ON_NON_INPUT_TYPE",
-			"question",
-			`Question "${field.id}" (type "${field.kind}") in "${ctx.formName}" has a ${reported} set, but ${field.kind} questions can't have validation. Only input questions (text, int, date, select, etc.) support constraint messages — structural containers, labels, and hidden/computed fields can't show an error to the user. Remove the ${reported} field, or change the question type.`,
+			"VALIDATION_ON_NON_INPUT_KIND",
+			"field",
+			`Field "${field.id}" (kind "${field.kind}") in "${ctx.formName}" has \`${reported}\` set, but ${field.kind} fields can't have validation. Only input kinds (text, int, date, select, etc.) support constraint messages — structural containers, labels, and hidden/computed fields can't show an error to the user. Clear \`${reported}\`, or change the field's kind.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -209,23 +205,23 @@ export function validationOnNonInputType(
 				formName: ctx.formName,
 				fieldUuid: field.uuid,
 				fieldId: field.id,
-				field: internal,
+				field: reported,
 			},
-			{ field: internal },
+			{ field: reported },
 		),
 	];
 }
 
-export function invalidQuestionId(
+export function invalidFieldId(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (XML_ELEMENT_NAME_REGEX.test(field.id)) return [];
 	return [
 		validationError(
-			"INVALID_QUESTION_ID",
-			"question",
-			`Question "${field.id}" in "${ctx.formName}" has an invalid ID. Question IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores. No spaces, hyphens, or special characters.`,
+			"INVALID_FIELD_ID",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" has an invalid ID. Field IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores. No spaces, hyphens, or special characters.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -243,7 +239,7 @@ const FIELD_RULES = [
 	selectNoOptions,
 	hiddenNoValue,
 	unquotedStringLiteral,
-	invalidQuestionId,
+	invalidFieldId,
 	validationOnNonInputType,
 ];
 

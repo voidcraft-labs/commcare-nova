@@ -2,7 +2,7 @@
  * GenerationContext — shared abstraction for all LLM calls and generation state.
  *
  * Owns the fan-out from a single agent run to every write surface the server
- * produces during generation. Phase 4 splits that fan-out cleanly:
+ * produces during generation:
  *
  *  - **SSE (`UIMessageStreamWriter`)** — live wire to the interactive builder.
  *    `emit()` is a pure pass-through for lifecycle/error events (`data-phase`,
@@ -96,10 +96,9 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
 export type DocProvider = () => BlueprintDoc | undefined;
 
 /**
- * Constructor options. Phase 4 dropped the legacy `EventLogger` dependency —
- * the two new collaborators are orthogonal: `LogWriter` owns durable event
- * persistence (fire-and-forget), `UsageAccumulator` owns cost aggregation
- * and exposes the `runId` used on every event envelope.
+ * Constructor options. Two orthogonal collaborators: `LogWriter` owns
+ * durable event persistence (fire-and-forget); `UsageAccumulator` owns
+ * cost aggregation and exposes the `runId` used on every event envelope.
  */
 export interface GenerationContextOptions {
 	apiKey: string;

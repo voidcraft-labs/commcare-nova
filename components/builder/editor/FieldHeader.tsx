@@ -187,7 +187,7 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 			}
 
 			/* Rename succeeded — uuid stays the same, selection is stable.
-			 * Clear the new-question highlight so subsequent edits are normal. */
+			 * Clear the new-field highlight so subsequent edits are normal. */
 			setIdNotice(null);
 			clearNewField();
 			return true;

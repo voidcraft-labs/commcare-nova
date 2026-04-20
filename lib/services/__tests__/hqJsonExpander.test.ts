@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { q } from "@/lib/schemas/__tests__/wireFixtures";
-import type { AppBlueprint } from "../../schemas/blueprint";
+import type { AppBlueprint } from "@/lib/doc/legacyTypes";
 import { runValidation } from "../commcare/validate/runner";
 import { expandBlueprint } from "../hqJsonExpander";
+import { q } from "./wireFixtures";
 
 const followupBlueprint: AppBlueprint = {
 	app_name: "Test App",

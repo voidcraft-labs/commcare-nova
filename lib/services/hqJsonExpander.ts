@@ -1,6 +1,7 @@
 import { parser } from "@/lib/codemirror/xpath-parser";
 import { NameTest } from "@/lib/codemirror/xpath-parser.terms";
-import { type AppBlueprint, defaultPostSubmit } from "../schemas/blueprint";
+import { defaultPostSubmit } from "@/lib/domain";
+import type { AppBlueprint } from "../doc/legacyTypes";
 import type { HqApplication } from "./commcare";
 import {
 	applicationShell,

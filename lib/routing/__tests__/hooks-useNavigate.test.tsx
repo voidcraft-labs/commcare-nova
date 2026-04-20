@@ -127,10 +127,10 @@ describe("useNavigate", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		const questionUuid = state.fieldOrder[formUuid][0];
+		const fieldUuid = state.fieldOrder[formUuid][0];
 
 		/* Set segments to simulate being on form+selection. */
-		mockSegments.current = [formUuid, questionUuid];
+		mockSegments.current = [formUuid, fieldUuid];
 
 		const { result } = renderHook(() => useNavigate(), {
 			wrapper: wrap(store),
@@ -156,8 +156,8 @@ describe("useNavigate", () => {
 			wrapper: wrap(store),
 		});
 		act(() => result.current(asUuid("q-42")));
-		/* Selection serializes as a single question UUID — the parser
-		 * derives the parent form via findFormForQuestion. */
+		/* Selection serializes as a single field UUID — the parser
+		 * derives the parent form via findFormForField. */
 		expect(replaceStateSpy).toHaveBeenCalledWith(null, "", "/build/app-1/q-42");
 		expect(pushStateSpy).not.toHaveBeenCalled();
 	});

@@ -10,7 +10,7 @@ interface FieldTypeListProps {
 	onSelect: (kind: FieldKind) => void;
 }
 
-/** Single-column list for converting a question to a sibling type.
+/** Single-column list for converting a field to a sibling type.
  *  Surface styling (background, border, shadow) comes from the parent
  *  Menu.Positioner — this component only renders the item rows.
  *  Conversion targets are always a short list (1–3 items), so a

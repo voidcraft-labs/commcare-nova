@@ -1,6 +1,6 @@
 # CommCare XPath Language (CodeMirror 6)
 
-XPath 1.0 language with CommCare hashtag references (`#case/prop`, `#form/question`, `#user/prop`), built on a Lezer grammar.
+XPath 1.0 language with CommCare hashtag references (`#case/prop`, `#form/field`, `#user/prop`), built on a Lezer grammar.
 
 ## Grammar design decisions
 

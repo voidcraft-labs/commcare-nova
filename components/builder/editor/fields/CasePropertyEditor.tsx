@@ -6,7 +6,7 @@
  * Base UI menu to pick one. Renders nothing when:
  *   - no form is selected (no context to write against),
  *   - the field can't write to any case type AND isn't a case_name
- *     question.
+ *     field.
  *
  * This file also defines and exports `CasePropertyDropdown`, the
  * dropdown widget the adapter composes. Exporting the widget lets
@@ -111,7 +111,7 @@ export function CasePropertyDropdown({
 	}, [caseTypes]);
 
 	// Hide entirely when no case types exist and this isn't a
-	// case_name question. CasePropertyEditor applies the same gate
+	// case_name field. CasePropertyEditor applies the same gate
 	// higher up, but keeping it here defends the widget as a
 	// standalone primitive.
 	if (caseTypes.length === 0 && !isCaseName) return null;

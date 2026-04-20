@@ -294,11 +294,11 @@ describe("form rules", () => {
 			],
 		});
 		const errors = runValidation(doc);
-		// Fires both INVALID_QUESTION_ID and CASE_PROPERTY_BAD_FORMAT
+		// Fires both INVALID_FIELD_ID and CASE_PROPERTY_BAD_FORMAT
 		expect(errors.some((e) => e.code === "CASE_PROPERTY_BAD_FORMAT")).toBe(
 			true,
 		);
-		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(true);
+		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
 	});
 
 	it("catches case property name too long", () => {
@@ -348,17 +348,17 @@ describe("form rules", () => {
 		).toBe(false);
 	});
 
-	it("duplicate question IDs at the same scope are caught", () => {
+	it("duplicate field IDs at the same scope are caught", () => {
 		const doc = surveyDoc([
 			f({ kind: "text", id: "name", label: "A" }),
 			f({ kind: "text", id: "name", label: "B" }),
 		]);
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_QUESTION_ID"),
+			runValidation(doc).some((e) => e.code === "DUPLICATE_FIELD_ID"),
 		).toBe(true);
 	});
 
-	it("same question ID in different groups is allowed (different XML paths)", () => {
+	it("same field ID in different groups is allowed (different XML paths)", () => {
 		const doc = surveyDoc([
 			f({ kind: "text", id: "name", label: "Top-level name" }),
 			f({
@@ -369,11 +369,11 @@ describe("form rules", () => {
 			}),
 		]);
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_QUESTION_ID"),
+			runValidation(doc).some((e) => e.code === "DUPLICATE_FIELD_ID"),
 		).toBe(false);
 	});
 
-	it("duplicate question IDs within a group are caught", () => {
+	it("duplicate field IDs within a group are caught", () => {
 		const doc = surveyDoc([
 			f({
 				kind: "group",
@@ -386,40 +386,40 @@ describe("form rules", () => {
 			}),
 		]);
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_QUESTION_ID"),
+			runValidation(doc).some((e) => e.code === "DUPLICATE_FIELD_ID"),
 		).toBe(true);
 	});
 });
 
-// ── Question-level (field-level) rules ─────────────────────────────
+// ── Field-level (field-level) rules ─────────────────────────────
 
-describe("question rules", () => {
-	it("catches question ID starting with digit", () => {
+describe("field rules", () => {
+	it("catches field ID starting with digit", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "123_bad", label: "Q" })]),
 		);
-		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(true);
+		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
 	});
 
-	it("catches question ID with hyphens (not valid XML element name)", () => {
+	it("catches field ID with hyphens (not valid XML element name)", () => {
 		const errors = runValidation(
-			surveyDoc([f({ kind: "text", id: "my-question", label: "Q" })]),
+			surveyDoc([f({ kind: "text", id: "my-field", label: "Q" })]),
 		);
-		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(true);
+		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
 	});
 
-	it("allows question IDs with underscores", () => {
+	it("allows field IDs with underscores", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "my_question", label: "Q" })]),
 		);
-		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(false);
+		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
 	});
 
-	it("allows question IDs starting with underscore", () => {
+	it("allows field IDs starting with underscore", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "_hidden", label: "Q" })]),
 		);
-		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(false);
+		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
 	});
 
 	// Validation (constraint + message) is a user-facing concept: the user
@@ -439,7 +439,7 @@ describe("question rules", () => {
 				}),
 			]),
 		);
-		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			true,
 		);
 	});
@@ -455,7 +455,7 @@ describe("question rules", () => {
 				}),
 			]),
 		);
-		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			true,
 		);
 	});
@@ -472,12 +472,12 @@ describe("question rules", () => {
 				}),
 			]),
 		);
-		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			true,
 		);
 	});
 
-	it("allows validation on input question types", () => {
+	it("allows validation on input field kinds", () => {
 		const errors = runValidation(
 			surveyDoc([
 				f({
@@ -489,7 +489,7 @@ describe("question rules", () => {
 				}),
 			]),
 		);
-		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			false,
 		);
 	});
@@ -501,13 +501,13 @@ describe("question rules", () => {
 // assert on the post-mutation doc to verify the fix moved the needle.
 
 describe("fix registry", () => {
-	it("fixes invalid question ID", () => {
+	it("fixes invalid field ID", () => {
 		const doc = surveyDoc([f({ kind: "text", id: "123-bad", label: "Q" })]);
 		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "INVALID_QUESTION_ID");
-		if (!err) throw new Error("expected INVALID_QUESTION_ID error");
-		const fix = FIX_REGISTRY.get("INVALID_QUESTION_ID");
-		if (!fix) throw new Error("expected INVALID_QUESTION_ID fix");
+		const err = errors.find((e) => e.code === "INVALID_FIELD_ID");
+		if (!err) throw new Error("expected INVALID_FIELD_ID error");
+		const fix = FIX_REGISTRY.get("INVALID_FIELD_ID");
+		if (!fix) throw new Error("expected INVALID_FIELD_ID fix");
 		const muts = fix(err, doc);
 		expect(muts.length).toBeGreaterThan(0);
 		// Brace-wrap the recipe body so it returns void — `applyMutations`

@@ -1,9 +1,9 @@
 /**
- * Recursive question row in the AppTree sidebar.
+ * Recursive field row in the AppTree sidebar.
  *
- * A `FieldRow` subscribes by UUID to exactly one question entity + its
+ * A `FieldRow` subscribes by UUID to exactly one field entity + its
  * child UUIDs. Immer's structural sharing means that editing one
- * question's label only re-renders that row — sibling FieldRows,
+ * field's label only re-renders that row — sibling FieldRows,
  * FormCards, and ModuleCards are untouched.
  *
  * Group / repeat containers expand to reveal their children, and the
@@ -12,7 +12,7 @@
  * if child rows lived in a different module importing back here.
  *
  * The component also reads the `FormIconContext` so inline reference
- * chips in labels render with the correct question-type icon.
+ * chips in labels render with the correct field-kind icon.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -30,7 +30,7 @@ import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { type Field, fieldRegistry, type Uuid } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
-import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 export const FieldRow = memo(function FieldRow({
 	uuid,
@@ -55,32 +55,32 @@ export const FieldRow = memo(function FieldRow({
 	toggle: (key: string) => void;
 	searchResult: SearchResult | null;
 	locked?: boolean;
-	parentPath?: QuestionPath;
+	parentPath?: FieldPath;
 }) {
-	/** Subscribe to this question's entity by UUID from the doc store. */
+	/** Subscribe to this field's entity by UUID from the doc store. */
 	const q = useBlueprintDoc((s) => s.fields[uuid]) as Field | undefined;
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
 	const childUuids = useBlueprintDoc((s) => s.fieldOrder[uuid]);
 
 	/** Boolean selection — URL-driven via useIsFieldSelected.
-	 *  Only this question + the old selection re-render on change. */
+	 *  Only this field + the old selection re-render on change. */
 	const isSelected = useIsFieldSelected(uuid);
 
 	const iconOverrides = use(FormIconContext);
 
 	if (!q) return null;
 
-	const questionPath = qpath(q.id, parentPath);
+	const fieldPath = fpath(q.id, parentPath);
 	const iconData = fieldRegistry[q.kind].icon;
 	const hasChildren = childUuids && childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
-		(searchResult?.forceExpand?.has(questionPath)
+		(searchResult?.forceExpand?.has(fieldPath)
 			? false
-			: collapsed.has(questionPath));
-	const labelIndices = searchResult?.matchMap?.get(questionPath);
-	const idIndices = searchResult?.matchMap?.get(`${questionPath}__id`);
+			: collapsed.has(fieldPath));
+	const labelIndices = searchResult?.matchMap?.get(fieldPath);
+	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
 	// `label` is absent from the `hidden` field kind — guard every access with
 	// a `"label" in q` narrowing so the tree row still renders for hidden
 	// fields (id-only display).
@@ -99,7 +99,7 @@ export const FieldRow = memo(function FieldRow({
 			transition={{ delay, duration: 0.2 }}
 		>
 			<TreeItemRow
-				data-tree-question={questionPath}
+				data-tree-field={fieldPath}
 				className={`flex items-center gap-1 py-2.5 transition-colors text-xs ${
 					locked
 						? "pointer-events-none text-nova-text-secondary"
@@ -111,10 +111,10 @@ export const FieldRow = memo(function FieldRow({
 				onClick={(e) => {
 					e.stopPropagation();
 					onSelect({
-						kind: "question",
+						kind: "field",
 						moduleUuid,
 						formUuid,
-						questionUuid: uuid,
+						fieldUuid: uuid,
 					});
 				}}
 			>
@@ -123,7 +123,7 @@ export const FieldRow = memo(function FieldRow({
 						isCollapsed={!!isCollapsed}
 						onClick={(e) => {
 							e.stopPropagation();
-							toggle(questionPath);
+							toggle(fieldPath);
 						}}
 						hidden={locked}
 					/>
@@ -186,7 +186,7 @@ export const FieldRow = memo(function FieldRow({
 							toggle={toggle}
 							searchResult={searchResult}
 							locked={locked}
-							parentPath={questionPath}
+							parentPath={fieldPath}
 						/>
 					))}
 				</div>

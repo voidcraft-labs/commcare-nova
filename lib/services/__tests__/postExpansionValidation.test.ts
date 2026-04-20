@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { AppBlueprint } from "@/lib/doc/legacyTypes";
 import { buildDoc, f } from "../../__tests__/docHelpers";
-import { q } from "../../schemas/__tests__/wireFixtures";
-import type { AppBlueprint } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { validateXFormXml } from "../commcare/validate/xformValidator";
 import { expandBlueprint } from "../hqJsonExpander";
+import { q } from "./wireFixtures";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 

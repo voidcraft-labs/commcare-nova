@@ -28,8 +28,8 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  * when the respective temporal side is empty.
  *
  * Scroll target:
- *   - If the current URL has a `sel=` uuid, scroll to that question's
- *     field (or the question card itself when no activeFieldId is set).
+ *   - If the current URL has a `sel=` uuid, scroll to that field's
+ *     field (or the field card itself when no activeFieldId is set).
  *   - Otherwise no scroll — the user wasn't focused on a specific row.
  *
  * Cross-form undo limitation (see spec Section 4 "undo flash" table):
@@ -76,7 +76,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			}
 
 			/* Resolve the flash/scroll target from the live DOM. If neither
-			 * the field element nor the question card exists, the undone
+			 * the field element nor the field card exists, the undone
 			 * mutation targeted a different form and the current viewport
 			 * has nothing to animate — bail gracefully. See the block
 			 * comment above for the cross-form undo limitation. */
@@ -84,7 +84,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			const flashEl =
 				targetEl ??
 				(document.querySelector(
-					`[data-question-uuid="${selectedUuid}"]`,
+					`[data-field-uuid="${selectedUuid}"]`,
 				) as HTMLElement | null);
 			if (!flashEl) return;
 
@@ -100,10 +100,10 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 }
 
 /**
- * Delete the currently selected question and navigate to the adjacent
+ * Delete the currently selected field and navigate to the adjacent
  * one (next if present, else previous, else clear the selection).
  *
- * No-op if no question is selected. The call sequence:
+ * No-op if no field is selected. The call sequence:
  *   1. Resolve the neighbor via `flattenFieldRefs` on the live doc.
  *   2. Dispatch `removeField` through `useBlueprintMutations` — keeps
  *      the delete path consistent with every other doc mutation in the

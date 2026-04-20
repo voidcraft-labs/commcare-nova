@@ -5,14 +5,14 @@ import { ValidationError } from "./ValidationError";
 
 interface NumberFieldProps {
 	/** Either an int or decimal field. `step` derives from the kind. */
-	question: IntField | DecimalField;
+	field: IntField | DecimalField;
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
 
 export function NumberField({
-	question,
+	field,
 	state,
 	onChange,
 	onBlur,
@@ -26,7 +26,7 @@ export function NumberField({
 				// Integer fields only accept whole numbers; decimal fields
 				// accept any precision. `kind` replaces the legacy wire-format
 				// `type` discriminant.
-				step={question.kind === "int" ? "1" : "any"}
+				step={field.kind === "int" ? "1" : "any"}
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}

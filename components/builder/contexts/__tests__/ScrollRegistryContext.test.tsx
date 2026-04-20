@@ -142,7 +142,7 @@ describe("ScrollRegistryContext", () => {
 			{ wrapper, initialProps: { isSelected: false } },
 		);
 
-		/* Set a pending scroll while the question is not selected. */
+		/* Set a pending scroll while the field is not selected. */
 		act(() => {
 			result.current.setPending("q-target", "smooth", false);
 		});
@@ -150,7 +150,7 @@ describe("ScrollRegistryContext", () => {
 
 		/* Flip isSelected true — the effect re-fires and fulfills the
 		 * pending request. This is the critical within-form navigation path
-		 * where the target question is already mounted. */
+		 * where the target field is already mounted. */
 		rerender({ isSelected: true });
 		expect(cb).toHaveBeenCalledOnce();
 		expect(cb).toHaveBeenCalledWith("q-target", undefined, "smooth", false);

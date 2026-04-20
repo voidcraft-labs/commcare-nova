@@ -1,5 +1,5 @@
 /**
- * StructureSidebar — collapsible panel showing the app's module/form/question
+ * StructureSidebar — collapsible panel showing the app's module/form/field
  * tree. Fully self-sufficient — subscribes to store state directly, no props
  * needed from BuilderLayout. Calls store actions to close itself.
  */

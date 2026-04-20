@@ -128,9 +128,9 @@ export function useClearFocusHint(): () => void {
 	return useBuilderSession((s) => s.clearFocusHint);
 }
 
-// ── New question marker ──────────────────────────────────────────────────
+// ── New field marker ──────────────────────────────────────────────────
 
-/** Whether the given uuid is the just-added question. Drives auto-focus
+/** Whether the given uuid is the just-added field. Drives auto-focus
  *  and select-all on the ID input in FieldHeader. */
 export function useIsNewField(uuid: string): boolean {
 	return useBuilderSession((s) => s.newQuestionUuid === uuid);
@@ -141,7 +141,7 @@ export function useMarkNewField(): (uuid: string) => void {
 	return useBuilderSession((s) => s.markNewField);
 }
 
-/** Clear the new-question marker. Called after the first rename succeeds
+/** Clear the new-field marker. Called after the first rename succeeds
  *  or when the header unmounts. */
 export function useClearNewField(): () => void {
 	return useBuilderSession((s) => s.clearNewField);

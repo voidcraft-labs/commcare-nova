@@ -58,13 +58,13 @@ export function buildFieldTree(
 }
 
 /**
- * Adapter: convert a legacy nested-wire-format question tree into the engine's
+ * Adapter: convert a legacy nested-wire-format field tree into the engine's
  * `FieldTreeNode` rose tree. Used by the server-side CommCare validator
  * (`lib/services/commcare/validate/*`), which operates on AppBlueprint and
- * therefore has `Question[]` already. Every consumer OUTSIDE the wire-format
+ * therefore has `Question[] wire array` already. Every consumer OUTSIDE the wire-format
  * boundary builds the tree from the normalized doc via `buildFieldTree`.
  *
- * The mapping is structural only: question properties flow through unchanged
+ * The mapping is structural only: field properties flow through unchanged
  * (the engine only reads `id`, `kind`, `label`, `hint`, xpath fields) — we
  * just rename `type` to `kind`. No semantic translation.
  */

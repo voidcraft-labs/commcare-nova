@@ -14,8 +14,8 @@ import { ExpressionContent } from "@/lib/references/ExpressionContent";
  * and surfaces any calculate/default expressions with dimmed inline chips for
  * hashtag references.
  */
-export function HiddenField({ question }: { question: HiddenFieldEntity }) {
-	const expr = question.calculate || question.default_value;
+export function HiddenField({ field }: { field: HiddenFieldEntity }) {
+	const expr = field.calculate || field.default_value;
 
 	return (
 		<div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-dashed border-nova-text-muted/25 bg-nova-text-muted/[0.03]">
@@ -34,7 +34,7 @@ export function HiddenField({ question }: { question: HiddenFieldEntity }) {
 			<div className="w-px h-4 bg-nova-text-muted/15 shrink-0" />
 
 			<span className="text-xs font-mono font-medium text-nova-text/70 shrink-0">
-				{question.id}
+				{field.id}
 			</span>
 
 			{expr && (
@@ -42,7 +42,7 @@ export function HiddenField({ question }: { question: HiddenFieldEntity }) {
 					<div className="w-px h-4 bg-nova-text-muted/15 shrink-0" />
 					<Tooltip content={expr}>
 						<span className="min-w-0 text-[11px] font-mono text-nova-text-muted/50 truncate">
-							{question.calculate ? (
+							{field.calculate ? (
 								<>
 									<span className="text-nova-violet/50">f</span>{" "}
 								</>

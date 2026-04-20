@@ -2,41 +2,82 @@
  * Read-only inspection of a user's usage data.
  *
  * Shows monthly token consumption and cost estimates.
- * Never writes to Firestore.
- *
- * Usage:
- *   npx tsx scripts/inspect-usage.ts <userId>
- *   npx tsx scripts/inspect-usage.ts <userId> --all    # show all months, not just current
+ * Never writes to Firestore. Run with `--help` for flags.
  */
+import { Command } from "commander";
 import { db } from "./lib/firestore";
 import { printHeader, printSection, tok, tsToISO, usd } from "./lib/format";
+import { requireArg, runMain } from "./lib/main";
 
-const userId = process.argv[2];
-const showAll = process.argv.includes("--all");
+interface InspectUsageOptions {
+	all?: boolean;
+}
 
-if (!userId) {
-	console.error("Usage: npx tsx scripts/inspect-usage.ts <userId> [--all]");
-	process.exit(1);
+const program = new Command();
+program
+	.name("inspect-usage")
+	.description(
+		"Read-only inspection of a user's monthly token usage + cost. Also lists their recent apps.",
+	)
+	.argument("<userId>", "Better Auth user id (auth_users doc id)")
+	.option("--all", "show every month on record (default: current month only)")
+	.addHelpText(
+		"after",
+		"\nExamples:\n" +
+			"  $ npx tsx scripts/inspect-usage.ts <userId>\n" +
+			"  $ npx tsx scripts/inspect-usage.ts <userId> --all\n",
+	);
+
+program.parse();
+
+const userId = requireArg(program.args, 0, "userId");
+const showAll = program.opts<InspectUsageOptions>().all === true;
+
+/** Shape of a single month's usage row as read from Firestore. */
+interface UsageMonth {
+	period: string;
+	data: {
+		request_count?: number;
+		input_tokens?: number;
+		output_tokens?: number;
+		cost_estimate?: number;
+		updated_at?: { toDate(): Date } | null;
+	};
+}
+
+/**
+ * Load the usage rows to render. In `--all` mode this is every month on
+ * record, newest-first. Otherwise it's the single current-month doc
+ * looked up by ID — `.doc(yyyyMm).get()` is the direct API, no predicate,
+ * no index cost. An absent current-month doc is a normal "no records"
+ * state, not an error.
+ */
+async function loadUsageRows(): Promise<UsageMonth[]> {
+	const monthsRef = db.collection("usage").doc(userId).collection("months");
+
+	if (showAll) {
+		const snap = await monthsRef.orderBy("updated_at", "desc").get();
+		return snap.docs.map((d) => ({
+			period: d.id,
+			data: d.data() as UsageMonth["data"],
+		}));
+	}
+
+	const yyyyMm = new Date().toISOString().slice(0, 7);
+	const doc = await monthsRef.doc(yyyyMm).get();
+	if (!doc.exists) return [];
+	// biome-ignore lint/style/noNonNullAssertion: guarded by doc.exists
+	return [{ period: doc.id, data: doc.data()! as UsageMonth["data"] }];
 }
 
 async function main() {
-	const monthsRef = db.collection("usage").doc(userId).collection("months");
-
-	const snap = showAll
-		? await monthsRef.orderBy("updated_at", "desc").get()
-		: await monthsRef
-				.where(
-					"__name__",
-					"==",
-					new Date().toISOString().slice(0, 7), // yyyy-mm
-				)
-				.get();
+	const rows = await loadUsageRows();
 
 	printHeader("USAGE INSPECTION (read-only)");
 
 	console.log(`  User ID: ${userId}\n`);
 
-	if (snap.empty) {
+	if (rows.length === 0) {
 		console.log("  No usage records found.");
 		return;
 	}
@@ -76,9 +117,8 @@ async function main() {
 
 	printSection("Monthly Usage");
 
-	for (const doc of snap.docs) {
-		const d = doc.data();
-		console.log(`  Period:    ${doc.id}`);
+	for (const { period, data: d } of rows) {
+		console.log(`  Period:    ${period}`);
 		console.log(`  Requests:  ${d.request_count ?? 0}`);
 		console.log(`  Input:     ${tok(d.input_tokens ?? 0)} tokens`);
 		console.log(`  Output:    ${tok(d.output_tokens ?? 0)} tokens`);
@@ -88,7 +128,4 @@ async function main() {
 	}
 }
 
-main().catch((err) => {
-	console.error("Fatal:", err);
-	process.exit(1);
-});
+runMain(main);

@@ -253,8 +253,10 @@ export type FieldPatch = {
 	[K in FieldKind]: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>;
 }[FieldKind];
 
-// Re-export the shared option shape (used by single_select + multi_select).
 export type { SelectOption } from "./base";
+// Re-export the shared option shape (used by single_select + multi_select,
+// and by the SA tool schema generator for the `options` field on select tools).
+export { selectOptionSchema } from "./base";
 
 // Re-export individual kind types for downstream switch blocks.
 export type {

@@ -60,7 +60,7 @@ export function runValidation(doc: BlueprintDoc): ValidationError[] {
  *
  * The regex-driven parser below decodes the three formats emitted by
  * `validateBlueprintDeep`:
- *   - `Question "id" in "formName": field expression error — message`
+ *   - `Field "id" in "formName": key expression error — message`
  *   - `"formName" in "moduleName" label: message`
  *   - `"formName" in "moduleName" has a circular dependency: cycle`
  *
@@ -72,11 +72,11 @@ function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 
 	for (const errStr of deepErrors) {
-		const questionMatch = errStr.match(
-			/^Question "([^"]+)" in "([^"]+)": (\w+) expression error — (.+)$/,
+		const fieldMatch = errStr.match(
+			/^Field "([^"]+)" in "([^"]+)": (\w+) expression error — (.+)$/,
 		);
-		if (questionMatch) {
-			const [, fieldId, formName, field, rawMessage] = questionMatch;
+		if (fieldMatch) {
+			const [, fieldId, formName, field, rawMessage] = fieldMatch;
 			const code = inferXPathErrorCode(rawMessage);
 			const message = humanizeXPathError(
 				code,
@@ -86,7 +86,7 @@ function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
 				field,
 			);
 			errors.push(
-				validationError(code, "question", message, {
+				validationError(code, "field", message, {
 					formName,
 					fieldId,
 					field,
@@ -142,7 +142,7 @@ function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
 
 const FIELD_NAMES: Record<string, string> = {
 	relevant: "display condition",
-	validation: "validation rule",
+	validate: "validation rule",
 	calculate: "calculated value",
 	default_value: "default value",
 	required: "required condition",
@@ -159,7 +159,7 @@ function humanizeXPathError(
 ): string {
 	const loc =
 		fieldId && formName
-			? `Question "${fieldId}" in "${formName}"${field ? ` (${FIELD_NAMES[field] || field})` : ""}`
+			? `Field "${fieldId}" in "${formName}"${field ? ` (${FIELD_NAMES[field] || field})` : ""}`
 			: formName
 				? `"${formName}"${label ? ` ${label}` : ""}`
 				: "Expression";
@@ -183,12 +183,12 @@ function humanizeXPathError(
 
 		case "INVALID_REF": {
 			const path = rawMessage.match(/"([^"]+)"/)?.[1] || "";
-			return `${loc} references "${path}" which doesn't exist in this form. Check for typos in the question ID, or make sure the question hasn't been renamed or removed.`;
+			return `${loc} references "${path}" which doesn't exist in this form. Check for typos in the field ID, or make sure the field hasn't been renamed or removed.`;
 		}
 
 		case "INVALID_CASE_REF": {
 			const prop = rawMessage.match(/"([^"]+)"/)?.[1] || "";
-			return `${loc} references case property "${prop}" which doesn't exist on this case type. Check for typos, or make sure a question saves to this property with case_property_on.`;
+			return `${loc} references case property "${prop}" which doesn't exist on this case type. Check for typos, or make sure a field saves to this property via \`case_property\`.`;
 		}
 
 		case "TYPE_ERROR":
@@ -206,7 +206,7 @@ function inferXPathErrorCode(message: string): ValidationError["code"] {
 		return "WRONG_ARITY";
 	if (message.includes("Unknown case property")) return "INVALID_CASE_REF";
 	if (
-		message.includes("unknown question path") ||
+		message.includes("unknown field path") ||
 		message.includes("References unknown")
 	)
 		return "INVALID_REF";

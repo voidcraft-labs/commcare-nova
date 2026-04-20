@@ -18,7 +18,7 @@ import { useMemo } from "react";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
 import type { MatchIndices } from "@/lib/filterTree";
-import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 /**
  * Locate the substring-match range for a fuzzy filter. Returns a
@@ -43,7 +43,7 @@ function findMatchIndices(
  * query so the row components can hit O(1) lookups during render.
  */
 export interface SearchResult {
-	/** Question-path → highlight ranges for matched labels / names. */
+	/** Field-path → highlight ranges for matched labels / names. */
 	matchMap: Map<string, MatchIndices>;
 	/** Collapse-keys that must stay expanded so matches are visible. */
 	forceExpand: Set<string>;
@@ -51,8 +51,8 @@ export interface SearchResult {
 	visibleModuleIndices: Set<number>;
 	/** Form UUIDs that either match themselves or contain a match. */
 	visibleFormIds: Set<string>;
-	/** Question UUIDs whose label OR id matched the query. */
-	visibleQuestionUuids: Set<string>;
+	/** Field UUIDs whose label OR id matched the query. */
+	visibleFieldUuids: Set<string>;
 }
 
 /**
@@ -116,7 +116,7 @@ export function useSearchFilter(query: string): SearchResult | null {
 		const forceExpand = new Set<string>();
 		const visibleModuleIndices = new Set<number>();
 		const visibleFormIds = new Set<string>();
-		const visibleQuestionUuids = new Set<string>();
+		const visibleFieldUuids = new Set<string>();
 
 		for (let mIdx = 0; mIdx < moduleOrder.length; mIdx++) {
 			const moduleId = moduleOrder[mIdx];
@@ -142,12 +142,12 @@ export function useSearchFilter(query: string): SearchResult | null {
 
 				/* Check questions recursively */
 				let formHasMatch = !!formIndices;
-				const checkFields = (parentId: Uuid, parentPath?: QuestionPath) => {
+				const checkFields = (parentId: Uuid, parentPath?: FieldPath) => {
 					const uuids = fieldOrder[parentId] ?? [];
 					for (const uuid of uuids) {
 						const field = fields[uuid];
 						if (!field) continue;
-						const fieldPath = qpath(field.id, parentPath);
+						const fieldPath = fpath(field.id, parentPath);
 
 						// `label` is absent on the `hidden` kind — guard before reading.
 						const fieldLabel = "label" in field ? field.label : "";
@@ -158,7 +158,7 @@ export function useSearchFilter(query: string): SearchResult | null {
 						if (idIndices) matchMap.set(`${fieldPath}__id`, idIndices);
 
 						if (labelIndices || idIndices) {
-							visibleQuestionUuids.add(uuid);
+							visibleFieldUuids.add(uuid);
 							formHasMatch = true;
 							/* Force-expand parent groups */
 							if (parentPath) forceExpand.add(parentPath);
@@ -188,7 +188,7 @@ export function useSearchFilter(query: string): SearchResult | null {
 			forceExpand,
 			visibleModuleIndices,
 			visibleFormIds,
-			visibleQuestionUuids,
+			visibleFieldUuids,
 		};
 	}, [query, moduleOrder, formOrder, fieldOrder, modules, forms, fields]);
 }

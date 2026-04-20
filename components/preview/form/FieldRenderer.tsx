@@ -11,7 +11,7 @@ import { TextField } from "./fields/TextField";
 
 interface FieldRendererProps {
 	/** Domain field entity — discriminated union narrowed by `kind` below. */
-	question: Field;
+	field: Field;
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
@@ -39,21 +39,21 @@ const MEDIA_KINDS = new Set<Field["kind"]>([
  * skips them.
  */
 export function FieldRenderer({
-	question,
+	field,
 	state,
 	onChange,
 	onBlur,
 }: FieldRendererProps) {
-	if (MEDIA_KINDS.has(question.kind)) {
-		return <MediaField question={question} />;
+	if (MEDIA_KINDS.has(field.kind)) {
+		return <MediaField field={field} />;
 	}
 
-	switch (question.kind) {
+	switch (field.kind) {
 		case "text":
 		case "secret":
 			return (
 				<TextField
-					question={question}
+					field={field}
 					state={state}
 					onChange={onChange}
 					onBlur={onBlur}
@@ -63,7 +63,7 @@ export function FieldRenderer({
 		case "decimal":
 			return (
 				<NumberField
-					question={question}
+					field={field}
 					state={state}
 					onChange={onChange}
 					onBlur={onBlur}
@@ -74,7 +74,7 @@ export function FieldRenderer({
 		case "datetime":
 			return (
 				<DateField
-					question={question}
+					field={field}
 					state={state}
 					onChange={onChange}
 					onBlur={onBlur}
@@ -83,7 +83,7 @@ export function FieldRenderer({
 		case "single_select":
 			return (
 				<SelectOneField
-					question={question}
+					field={field}
 					state={state}
 					onChange={onChange}
 					onBlur={onBlur}
@@ -92,14 +92,14 @@ export function FieldRenderer({
 		case "multi_select":
 			return (
 				<SelectMultiField
-					question={question}
+					field={field}
 					state={state}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
 			);
 		case "label":
-			return <LabelField question={question} state={state} />;
+			return <LabelField field={field} state={state} />;
 		default:
 			// Structural (group/repeat/hidden) kinds are rendered by callers;
 			// unknown kinds fall through silently.

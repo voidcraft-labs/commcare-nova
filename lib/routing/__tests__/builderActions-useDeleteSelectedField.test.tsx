@@ -117,7 +117,7 @@ const Q_C = "q-c-0000-0000-0000-000000000000";
 
 /**
  * Set mockSegments to simulate being on a form screen, optionally with
- * a selected question.
+ * a selected field.
  */
 function setFormUrl(
 	store: ReturnType<typeof makeStore>,
@@ -153,7 +153,7 @@ describe("useDeleteSelectedField", () => {
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
-	it("no-ops when no question is selected", () => {
+	it("no-ops when no field is selected", () => {
 		const store = makeStore();
 		setFormUrl(store); // form URL with no selection
 
@@ -166,7 +166,7 @@ describe("useDeleteSelectedField", () => {
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
-	it("deleting a middle question selects the next sibling", () => {
+	it("deleting a middle field selects the next sibling", () => {
 		const store = makeStore();
 		setFormUrl(store, Q_B);
 
@@ -176,7 +176,7 @@ describe("useDeleteSelectedField", () => {
 		act(() => result.current());
 
 		expect(store.getState().fields[asUuid(Q_B)]).toBeUndefined();
-		/* Flat URL: selected question is a single segment (parser derives form). */
+		/* Flat URL: selected field is a single segment (parser derives form). */
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
@@ -184,7 +184,7 @@ describe("useDeleteSelectedField", () => {
 		);
 	});
 
-	it("deleting the last question selects the previous sibling", () => {
+	it("deleting the last field selects the previous sibling", () => {
 		const store = makeStore();
 		setFormUrl(store, Q_C);
 
@@ -201,7 +201,7 @@ describe("useDeleteSelectedField", () => {
 		);
 	});
 
-	it("deleting the only remaining question clears the selection", () => {
+	it("deleting the only remaining field clears the selection", () => {
 		const store = makeStore();
 		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_B) }]);
 		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_C) }]);
@@ -221,7 +221,7 @@ describe("useDeleteSelectedField", () => {
 	});
 
 	it("drops selection when selected uuid is stale / not in refs (regression for idx<0 guard)", () => {
-		/* With path-based URLs, a stale question UUID in the selection segment
+		/* With path-based URLs, a stale field UUID in the selection segment
 		 * is already degraded by the parser — `parsePathToLocation` returns
 		 * a form location without `selectedUuid`. The delete hook sees no
 		 * selection and no-ops entirely (no doc mutation, no URL change).
@@ -240,7 +240,7 @@ describe("useDeleteSelectedField", () => {
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
-	it("doc question count drops by one after a successful delete", () => {
+	it("doc field count drops by one after a successful delete", () => {
 		const store = makeStore();
 		setFormUrl(store, Q_A);
 

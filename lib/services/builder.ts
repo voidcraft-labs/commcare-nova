@@ -9,7 +9,7 @@
  * What remains here: structural types consumed across the builder surface
  * that don't belong to any single store.
  */
-import type { QuestionPath } from "./questionPath";
+import type { FieldPath } from "./fieldPath";
 
 /** Builder lifecycle phases — what mode the builder is in right now.
  *  Phase is now derived from session + doc state via `derivePhase` in
@@ -26,20 +26,20 @@ export enum BuilderPhase {
 }
 
 export interface SelectedElement {
-	type: "module" | "form" | "question";
+	type: "module" | "form" | "field";
 	moduleIndex: number;
 	formIndex?: number;
-	questionPath?: QuestionPath;
+	fieldPath?: FieldPath;
 	/** Stable crypto UUID — the primary identity key for UI-layer concerns
 	 *  (React keys, DOM selectors, dnd-kit, scroll targeting). Unlike
-	 *  `questionPath` (which changes on rename), UUID never changes. */
-	questionUuid?: string;
+	 *  `fieldPath` (which changes on rename), UUID never changes. */
+	fieldUuid?: string;
 }
 
 /** Scope the agent is currently editing — drives signal grid focus zone. */
 export interface EditScope {
 	moduleIndex: number;
 	formIndex?: number;
-	/** Flat question index within the form (0-based, depth-first). */
-	questionIndex?: number;
+	/** Flat field index within the form (0-based, depth-first). */
+	fieldIndex?: number;
 }

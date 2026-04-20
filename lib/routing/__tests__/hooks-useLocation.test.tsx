@@ -108,13 +108,13 @@ describe("useLocation", () => {
 		expect(result.current).toEqual({ kind: "module", moduleUuid });
 	});
 
-	it("returns form+selected location for [formUuid, questionUuid]", () => {
+	it("returns form+selected location for [formUuid, fieldUuid]", () => {
 		const store = makeStore();
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		const questionUuid = state.fieldOrder[formUuid][0];
-		mockSegments.current = [formUuid, questionUuid];
+		const fieldUuid = state.fieldOrder[formUuid][0];
+		mockSegments.current = [formUuid, fieldUuid];
 		const { result } = renderHook(() => useLocation(), {
 			wrapper: wrapper(store),
 		});
@@ -122,7 +122,7 @@ describe("useLocation", () => {
 			kind: "form",
 			moduleUuid,
 			formUuid,
-			selectedUuid: questionUuid,
+			selectedUuid: fieldUuid,
 		});
 	});
 

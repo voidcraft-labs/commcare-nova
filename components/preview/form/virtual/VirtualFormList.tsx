@@ -19,7 +19,7 @@
  *   - The rows-array swap that turns the `placeholderIndex` from
  *     `useDragIntent` into a visible placeholder row.
  *   - `autoScrollForElements` on the scroll container.
- *   - The shared question-picker Base UI `Menu.Root`.
+ *   - The shared field-picker Base UI `Menu.Root`.
  *
  * The drag lifecycle (global `monitorForElements`, cursor-velocity
  * tracking, placeholder resolution) lives in `./useDragIntent`.
@@ -143,7 +143,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 		if (!uuid) return -1;
 		for (let i = 0; i < rows.length; i++) {
 			const row = rows[i];
-			if (row.kind === "question" && row.uuid === uuid) return i;
+			if (row.kind === "field" && row.uuid === uuid) return i;
 		}
 		return -1;
 	}, [rows, selectedField?.uuid]);
@@ -152,7 +152,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-	/** Height for the placeholder row — matches a typical question. */
+	/** Height for the placeholder row — matches a typical field. */
 	const DROP_PLACEHOLDER_HEIGHT_PX = 60;
 
 	const estimateSize = useCallback(
@@ -169,7 +169,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 					return EMPTY_CONTAINER_HEIGHT_PX;
 				case "drop-placeholder":
 					return DROP_PLACEHOLDER_HEIGHT_PX;
-				case "question":
+				case "field":
 					return QUESTION_DEFAULT_HEIGHT_PX;
 			}
 		},
@@ -215,7 +215,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 		});
 	}, []);
 
-	// ── Shared question-picker menu ──────────────────────────────────
+	// ── Shared field-picker menu ──────────────────────────────────
 
 	const questionPickerHandle = useMemo(
 		() => Menu.createHandle<FieldPickerPayload>(),
@@ -350,7 +350,7 @@ const RenderRow = memo(function RenderRow({
 					/>
 				</>
 			);
-		case "question":
+		case "field":
 			return (
 				<>
 					{rails}
@@ -414,7 +414,7 @@ const RenderRow = memo(function RenderRow({
  * fixed at `depthPadding(0)`.
  *
  * Rails render BEFORE the row content in the DOM, so they paint behind
- * it — question cards, insertion lines, and bracket decorations all sit
+ * it — field cards, insertion lines, and bracket decorations all sit
  * above the rails in the stacking order.
  */
 function GroupNestingRails({ depth }: { depth: number }) {

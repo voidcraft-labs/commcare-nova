@@ -6,7 +6,7 @@ import { ValidationError } from "./ValidationError";
 
 interface SelectMultiFieldProps {
 	/** Multi-select field — options are required on this kind. */
-	question: MultiSelectField;
+	field: MultiSelectField;
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
@@ -20,12 +20,12 @@ interface SelectMultiFieldProps {
  * and captures `onBlur` for touch tracking.
  */
 export function SelectMultiField({
-	question,
+	field,
 	state,
 	onChange,
 	onBlur,
 }: SelectMultiFieldProps) {
-	const options = question.options ?? [];
+	const options = field.options ?? [];
 	const selected = new Set(state.value ? state.value.split(" ") : []);
 	const showError = state.touched && !state.valid;
 

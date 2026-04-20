@@ -6,7 +6,7 @@
  *
  *   1. URL navigation via `useNavigate` — selection state lives in the
  *      URL, so a click ultimately resolves to a history update.
- *   2. Pending-scroll priming for question selections. The scroll
+ *   2. Pending-scroll priming for field selections. The scroll
  *      request must be posted BEFORE the URL change so the target row's
  *      `useFulfillPendingScroll` has a request waiting when its
  *      `isSelected` flips true. Reversing the order drops the scroll
@@ -29,7 +29,7 @@ type TreeSelectTarget =
 	| { kind: "clear" }
 	| { kind: "module"; moduleUuid: Uuid }
 	| { kind: "form"; moduleUuid: Uuid; formUuid: Uuid }
-	| { kind: "question"; moduleUuid: Uuid; formUuid: Uuid; questionUuid: Uuid };
+	| { kind: "field"; moduleUuid: Uuid; formUuid: Uuid; fieldUuid: Uuid };
 
 /** Callback passed down through the AppTree row components. */
 export type TreeSelectHandler = (target: TreeSelectTarget) => void;
@@ -48,12 +48,12 @@ export function useAppTreeSelection(): TreeSelectHandler {
 					return navigate.openModule(target.moduleUuid);
 				case "form":
 					return navigate.openForm(target.moduleUuid, target.formUuid);
-				case "question":
-					setPending(target.questionUuid, "instant", false);
+				case "field":
+					setPending(target.fieldUuid, "instant", false);
 					return navigate.openForm(
 						target.moduleUuid,
 						target.formUuid,
-						target.questionUuid,
+						target.fieldUuid,
 					);
 			}
 		},

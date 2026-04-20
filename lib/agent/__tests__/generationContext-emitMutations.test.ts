@@ -283,7 +283,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [
 					{
 						toolCallId: "tc-1",
-						toolName: "addQuestions",
+						toolName: "addFields",
 						input: { moduleIndex: 0 },
 					},
 				],
@@ -305,13 +305,13 @@ describe("GenerationContext.handleAgentStep", () => {
 			{
 				type: "tool-call",
 				toolCallId: "tc-1",
-				toolName: "addQuestions",
+				toolName: "addFields",
 				input: { moduleIndex: 0 },
 			},
 			{
 				type: "tool-result",
 				toolCallId: "tc-1",
-				toolName: "addQuestions",
+				toolName: "addFields",
 				output: { success: true },
 			},
 		]);

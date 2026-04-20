@@ -11,7 +11,7 @@ import type { CaseType } from "./blueprint";
  * case type plus any child types that declare the module's type as
  * their `parent_type`. Used by both the inspect panel's case-property
  * dropdown and any other UI that needs to reason about writable
- * destinations for a question.
+ * destinations for a field.
  *
  * A module with no configured `caseType` has nothing to write to —
  * the result is always an empty array in that case.

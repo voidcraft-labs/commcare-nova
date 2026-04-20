@@ -79,7 +79,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const formId = formUuid;
 
 	/** Whether the form has any fields — drives the empty state. */
-	const hasQuestions = useBlueprintDoc((s) =>
+	const hasFields = useBlueprintDoc((s) =>
 		formId ? (s.fieldOrder[formId as Uuid]?.length ?? 0) > 0 : false,
 	);
 
@@ -116,7 +116,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (!el || mode !== "test") return;
 			if (!selectedUuid) return;
 			const raf = requestAnimationFrame(() => {
-				const qEl = el.querySelector(`[data-question-uuid="${selectedUuid}"]`);
+				const qEl = el.querySelector(`[data-field-uuid="${selectedUuid}"]`);
 				const input = qEl?.querySelector(
 					"input, select, textarea",
 				) as HTMLElement | null;
@@ -222,10 +222,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			 *  mode toggle never shifts the user's reading position.
 			 *
 			 *  The bottom 24px is supplied the same way: `insertion(N+1)` in
-			 *  edit mode, the last question's `mb-6` in live mode. No body
+			 *  edit mode, the last field's `mb-6` in live mode. No body
 			 *  `pb-*` on either side so the two modes stay symmetric. */}
 			<div ref={formBodyRef} className="flex-1 pt-4">
-				{hasQuestions ? (
+				{hasFields ? (
 					<FormRenderer parentEntityId={formId} />
 				) : (
 					<div className="text-center text-nova-text-muted py-8">

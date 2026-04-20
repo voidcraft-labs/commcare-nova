@@ -81,7 +81,7 @@ interface FieldTypePickerPopupProps {
 }
 
 /**
- * Popup content for the question insertion menu.
+ * Popup content for the field insertion menu.
  *
  * Renders the portal, positioner, popup shell, and categorised menu items.
  * Rendered as a child of the shared `Menu.Root` in `FormRenderer` — each
@@ -142,14 +142,14 @@ export function FieldTypePickerPopup({
 			const newField = {
 				id: newId,
 				kind,
-				label: "New Question",
+				label: "New Field",
 				...(defaultOptions ? { options: defaultOptions } : {}),
 			} as unknown as Omit<Field, "uuid">;
 
 			const newUuid = addField(parentUuid, newField, { atIndex });
 
-			/* Mark as new question so the UI can apply entry animations, then
-			 * select and scroll to the newly-inserted question. */
+			/* Mark as new field so the UI can apply entry animations, then
+			 * select and scroll to the newly-inserted field. */
 			markNewField(newUuid);
 			setPending(newUuid, "smooth", false);
 			select(newUuid);
@@ -214,7 +214,7 @@ export function FieldTypePickerPopup({
 	);
 }
 
-/* ── Reusable menu item for a single question type ─────────────────────── */
+/* ── Reusable menu item for a single field kind ─────────────────────── */
 
 function TypeMenuItem({
 	type,

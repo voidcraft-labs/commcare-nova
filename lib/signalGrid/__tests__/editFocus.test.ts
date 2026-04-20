@@ -5,7 +5,7 @@ import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 /**
  * Build a minimal `EditFocusData` fixture from a compact description.
  *
- * Each entry in `modules` is an array of question counts per form.
+ * Each entry in `modules` is an array of field counts per form.
  * Example: `[[3, 5], [2]]` = 2 modules, module 0 has 2 forms (3q, 5q),
  * module 1 has 1 form (2q). UUIDs are generated as `m0`, `f0_0`, `q_*`.
  */
@@ -93,7 +93,7 @@ describe("computeEditFocus", () => {
 
 	// ── Form-level scope ────────────────────────────────────────────────
 
-	it("form-level scope spans the form's question range", () => {
+	it("form-level scope spans the form's field range", () => {
 		/* Module 0: form 0 has 3q, form 1 has 5q. Total=8. */
 		const data = fixture([[3, 5]]);
 		const focus = computeEditFocus(data, { moduleIndex: 0, formIndex: 1 });
@@ -105,15 +105,15 @@ describe("computeEditFocus", () => {
 		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 
-	// ── Question-level scope ────────────────────────────────────────────
+	// ── Field-level scope ────────────────────────────────────────────
 
-	it("question-level scope centers a zone around the question position", () => {
-		/* 1 module, 1 form, 5 questions. Scope targets question index 2. */
+	it("field-level scope centers a zone around the field position", () => {
+		/* 1 module, 1 form, 5 fields. Scope targets field index 2. */
 		const data = fixture([[5]]);
 		const focus = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionIndex: 2,
+			fieldIndex: 2,
 		});
 		assert(focus);
 
@@ -124,13 +124,13 @@ describe("computeEditFocus", () => {
 		expect(focus.end).toBeCloseTo(0.7, 5);
 	});
 
-	it("question-level scope clamps to [0,1] when zone overflows left", () => {
-		/* 1 module, 1 form, 5 questions. Scope targets question 0 (leftmost). */
+	it("field-level scope clamps to [0,1] when zone overflows left", () => {
+		/* 1 module, 1 form, 5 fields. Scope targets field 0 (leftmost). */
 		const data = fixture([[5]]);
 		const focus = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionIndex: 0,
+			fieldIndex: 0,
 		});
 		assert(focus);
 
@@ -140,13 +140,13 @@ describe("computeEditFocus", () => {
 		expect(focus.end).toBeCloseTo(0.6, 5);
 	});
 
-	it("question-level scope clamps to [0,1] when zone overflows right", () => {
-		/* 1 module, 1 form, 5 questions. Scope targets question 4 (rightmost). */
+	it("field-level scope clamps to [0,1] when zone overflows right", () => {
+		/* 1 module, 1 form, 5 fields. Scope targets field 4 (rightmost). */
 		const data = fixture([[5]]);
 		const focus = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionIndex: 4,
+			fieldIndex: 4,
 		});
 		assert(focus);
 
@@ -156,18 +156,18 @@ describe("computeEditFocus", () => {
 		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 
-	it("question index is clamped to the form's question count", () => {
-		/* Question index 99 exceeds the form's 5 questions — treated as last (index 4). */
+	it("field index is clamped to the form's field count", () => {
+		/* Question index 99 exceeds the form's 5 fields — treated as last (index 4). */
 		const data = fixture([[5]]);
 		const overflowed = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionIndex: 99,
+			fieldIndex: 99,
 		});
 		const lastQuestion = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionIndex: 4,
+			fieldIndex: 4,
 		});
 		expect(overflowed).toEqual(lastQuestion);
 	});
@@ -175,7 +175,7 @@ describe("computeEditFocus", () => {
 	// ── MIN_EDIT_ZONE enforcement ───────────────────────────────────────
 
 	it("enforces minimum zone width for small forms", () => {
-		/* 2 modules: m0 has 1 question, m1 has 99 questions. Total=100.
+		/* 2 modules: m0 has 1 field, m1 has 99 fields. Total=100.
 		 * Module-level scope for m0: raw range is [0, 0.01] — well below MIN_EDIT_ZONE.
 		 * Should be widened to 0.15 centered at 0.005 → [0, 0.15] after left clamp. */
 		const data = fixture([[1], [99]]);

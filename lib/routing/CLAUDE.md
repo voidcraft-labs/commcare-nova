@@ -10,10 +10,10 @@ The builder's "where you are" and "what's focused" state lives in the URL, not i
 /build/[id]/{moduleUuid}/cases                → case list
 /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
 /build/[id]/{formUuid}                        → form
-/build/[id]/{formUuid}/{questionUuid}         → form with question selected
+/build/[id]/{formUuid}/{fieldUuid}         → form with field selected
 ```
 
-All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / question maps.
+All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / field maps.
 
 ## Browser History API, not Next's router
 

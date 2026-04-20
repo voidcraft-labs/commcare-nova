@@ -13,8 +13,8 @@ import { createContext } from "react";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 
 /**
- * Per-form context carrying a question path → type icon map. Lets FieldRow
- * render reference chips with correct question-type icons without prop
+ * Per-form context carrying a field path → kind icon map. Lets FieldRow
+ * render reference chips with correct field-kind icons without prop
  * drilling through the recursive tree or depending on ReferenceProvider.
  */
 export const FormIconContext = createContext<Map<string, IconifyIcon>>(
@@ -53,7 +53,7 @@ export function CollapseChevron({
 /**
  * ARIA `role="treeitem"` row wrapper. Handles Enter / Space activation so
  * keyboard users can select rows just like mouse users. Extra data
- * attributes (e.g. `data-tree-question`) forward through to the element.
+ * attributes (e.g. `data-tree-field`) forward through to the element.
  */
 export function TreeItemRow({
 	onClick,
@@ -66,7 +66,7 @@ export function TreeItemRow({
 	className?: string;
 	style?: React.CSSProperties;
 	children: React.ReactNode;
-	"data-tree-question"?: string;
+	"data-tree-field"?: string;
 }) {
 	return (
 		<div

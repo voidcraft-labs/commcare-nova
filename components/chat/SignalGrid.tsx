@@ -8,7 +8,7 @@ import {
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { EditScope } from "@/lib/services/builder";
-import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
+import { type FieldPath, fpathId } from "@/lib/services/fieldPath";
 import { derivePostBuildEdit } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -117,7 +117,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 					if (typeof input.formIndex === "number") {
 						latestToolScope.formIndex = input.formIndex;
 
-						const rawRef = input.questionPath ?? input.questionId ?? input.path;
+						const rawRef = input.fieldPath ?? input.questionId ?? input.path;
 						const qRef = typeof rawRef === "string" ? rawRef : undefined;
 						if (typeof qRef === "string" && qRef) {
 							/* Resolve the field's flat index within its form by
@@ -129,9 +129,9 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 								? doc?.formOrder[moduleId]?.[input.formIndex as number]
 								: undefined;
 							if (doc && formId) {
-								const bareId = qpathId(qRef as QuestionPath);
+								const bareId = fpathId(qRef as FieldPath);
 								const flatIdx = flatIndexInForm(doc, formId, bareId);
-								if (flatIdx >= 0) latestToolScope.questionIndex = flatIdx;
+								if (flatIdx >= 0) latestToolScope.fieldIndex = flatIdx;
 							}
 						}
 					}

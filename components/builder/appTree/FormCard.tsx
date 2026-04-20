@@ -2,14 +2,14 @@
  * Form-row card in the AppTree sidebar.
  *
  * Renders the form header (type icon, name, optional Connect marker,
- * question count) plus — when expanded — the nested list of top-level
+ * field count) plus — when expanded — the nested list of top-level
  * FieldRows for the form's questions. Subscribes by UUID to exactly
- * this form's entity, its field-order array, and its question-count
+ * this form's entity, its field-order array, and its field-count
  * derivation, so unrelated form edits do not re-render this card.
  *
  * Publishes a per-form icon map via `FormIconContext` so the nested
  * FieldRows can render inline reference chips with correct
- * question-type icons without prop drilling.
+ * field-kind icons without prop drilling.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -63,8 +63,8 @@ export const FormCard = memo(function FormCard({
 	/** Subscribe to this form's entity from the doc store. */
 	const form = useFormDoc(formId) as Form | undefined;
 
-	/** Subscribe to this form's question UUIDs from the doc store. */
-	const questionUuids = useBlueprintDoc((s) => s.fieldOrder[formId]);
+	/** Subscribe to this form's field UUIDs from the doc store. */
+	const fieldUuids = useBlueprintDoc((s) => s.fieldOrder[formId]);
 
 	// Count via selector so the result is a primitive — reference equality
 	// then prevents re-renders when unrelated forms' questions change.
@@ -80,10 +80,10 @@ export const FormCard = memo(function FormCard({
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
 		: collapsed.has(collapseKey);
-	const hasQuestions = questionUuids && questionUuids.length > 0;
+	const hasFields = fieldUuids && fieldUuids.length > 0;
 	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
-	/** Build icon map for reference chips in question labels. */
+	/** Build icon map for reference chips in field labels. */
 	const fieldIcons = useFieldIconMap(formId);
 
 	if (!form) return null;
@@ -109,7 +109,7 @@ export const FormCard = memo(function FormCard({
 					})
 				}
 			>
-				{hasQuestions ? (
+				{hasFields ? (
 					<CollapseChevron
 						isCollapsed={isCollapsed}
 						onClick={(e) => {
@@ -144,22 +144,19 @@ export const FormCard = memo(function FormCard({
 						)}
 					</div>
 				</div>
-				{hasQuestions && (
+				{hasFields && (
 					<span className="text-xs text-nova-text-muted shrink-0">
 						{count} q
 					</span>
 				)}
 			</TreeItemRow>
 
-			{hasQuestions && !isCollapsed && (
+			{hasFields && !isCollapsed && (
 				<FormIconContext value={fieldIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
-							{questionUuids?.map((uuid, qIdx) => {
-								if (
-									searchResult &&
-									!searchResult.visibleQuestionUuids.has(uuid)
-								)
+							{fieldUuids?.map((uuid, qIdx) => {
+								if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
 									return null;
 								return (
 									<FieldRow

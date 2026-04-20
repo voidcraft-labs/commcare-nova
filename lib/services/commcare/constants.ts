@@ -65,13 +65,35 @@ export const RESERVED_RENAME_MAP: Readonly<Record<string, string>> = {
 	create: "create_info",
 };
 
-/** Question types that produce binary/media uploads — cannot be saved as case properties. */
-export const MEDIA_QUESTION_TYPES: ReadonlySet<string> = new Set([
+/** Field kinds that produce binary/media uploads — cannot be saved as case properties. */
+export const MEDIA_FIELD_KINDS: ReadonlySet<string> = new Set([
 	"image",
 	"audio",
 	"video",
 	"signature",
 ]);
+
+/**
+ * Field kinds that accept user input and therefore support validation
+ * (constraint + constraintMsg) on the wire. Structural kinds
+ * (group / repeat / label) have no value to check; hidden is a computed
+ * value the user can't correct, so validation there is a category error.
+ * Used by the XForm builder to gate constraint emission.
+ */
+const VALIDATABLE_KINDS: ReadonlySet<string> = new Set([
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"single_select",
+	"multi_select",
+]);
+
+export function supportsValidation(kind: string): boolean {
+	return VALIDATABLE_KINDS.has(kind);
+}
 
 /** Standard create-block properties (not user case properties). */
 export const STANDARD_CREATE_PROPS: ReadonlySet<string> = new Set([

@@ -5,12 +5,8 @@
  * Called after all questions are built (in validateAndFix) so it has
  * access to the full question tree.
  */
-import type {
-	BlueprintForm,
-	ConnectConfig,
-	ConnectType,
-	Question,
-} from "../schemas/blueprint";
+import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { BlueprintForm, Question } from "../doc/legacyTypes";
 import { toSnakeId } from "./commcare/validate";
 
 /** Count questions recursively (excluding structural containers). */

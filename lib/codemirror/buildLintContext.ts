@@ -10,7 +10,7 @@
  * connect panel need the same walk, so it's extracted here. Reads
  * exclusively from the normalized `BlueprintDocState` (Uuid-indexed
  * maps + adjacency list) — no wire-format `AppBlueprint`,
- * `BlueprintForm`, or `Question` types cross the boundary.
+ * `BlueprintForm`, or `Question` wire types cross the boundary.
  */
 
 import type { BlueprintDocState } from "@/lib/doc/store";

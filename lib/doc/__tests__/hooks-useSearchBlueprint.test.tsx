@@ -26,7 +26,7 @@ describe("useSearchBlueprint", () => {
 		expect(search("anything")).toEqual([]);
 	});
 
-	it("finds a question by label text", () => {
+	it("finds a field by label text", () => {
 		const MOD = asUuid("module-1-uuid");
 		const FORM = asUuid("form-1-uuid");
 		const Q_NAME = asUuid("q-name-0000-0000-0000-000000000000");
@@ -83,7 +83,7 @@ describe("useSearchBlueprint", () => {
 			hits.some((r) => r.field === "label" && r.value === "Patient Full Name"),
 		).toBe(true);
 
-		// Search for "age" should match the question id "age" and its label.
+		// Search for "age" should match the field id "age" and its label.
 		const ageHits = search("age");
 		expect(ageHits.length).toBeGreaterThan(0);
 		expect(ageHits.some((r) => r.type === "field")).toBe(true);

@@ -1,5 +1,5 @@
 /**
- * FieldRow — a single leaf question in the virtualized edit view.
+ * FieldRow — a single leaf field in the virtualized edit view.
  *
  * Drag wiring comes from the shared `useRowDnd` hook, which registers
  * the draggable + drop-target adapters and owns the cycle-safety +
@@ -101,9 +101,9 @@ export const FieldRow = memo(function FieldRow({
 	// Narrow on `kind` instead of the legacy wire `type` discriminant.
 	const content =
 		q.kind === "label" ? (
-			<LabelField question={q} state={displayState} />
+			<LabelField field={q} state={displayState} />
 		) : q.kind === "hidden" ? (
-			<HiddenField question={q} />
+			<HiddenField field={q} />
 		) : q.kind === "group" || q.kind === "repeat" ? null : (
 			<div className="block space-y-1.5">
 				{q.label && (
@@ -142,7 +142,7 @@ export const FieldRow = memo(function FieldRow({
 					</TextEditable>
 				)}
 				<FieldRenderer
-					question={q}
+					field={q}
 					state={displayState}
 					onChange={(value) => controller.onValueChange(uuid, value)}
 					onBlur={() => controller.onTouch(uuid)}
@@ -160,10 +160,10 @@ export const FieldRow = memo(function FieldRow({
 					paddingRight: depthPadding(depth),
 					opacity: isDraggingSelf ? 0.4 : 1,
 				}}
-				data-question-uuid={uuid}
+				data-field-uuid={uuid}
 			>
 				<EditableFieldWrapper
-					questionUuid={uuid}
+					fieldUuid={uuid}
 					isDragging={isDraggingSelf}
 					flatBottomOnSelect
 				>

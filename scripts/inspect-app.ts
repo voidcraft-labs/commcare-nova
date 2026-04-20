@@ -1,26 +1,19 @@
 /**
  * Read-only inspection of an app document in Firestore.
  *
- * Shows app metadata, status, blueprint structure (modules/forms/questions),
- * computed analytics, and thread history. Never writes to Firestore.
+ * Shows app metadata, status, blueprint structure (modules/forms/fields),
+ * computed analytics, and thread history. Operates on the hydrated
+ * `BlueprintDoc` — `hydrateBlueprint` attaches the derived `fieldParent`
+ * index so the domain walkers in `lib/doc/fieldWalk.ts` accept it.
  *
- * Usage:
- *   npx tsx scripts/inspect-app.ts <appId>                        # structure overview
- *   npx tsx scripts/inspect-app.ts <appId> --stats                # structure + analytics
- *   npx tsx scripts/inspect-app.ts <appId> --questions            # structure + question tree
- *   npx tsx scripts/inspect-app.ts <appId> --logic                # structure + logic questions
- *   npx tsx scripts/inspect-app.ts <appId> --case-lists           # structure + case list columns
- *   npx tsx scripts/inspect-app.ts <appId> --blueprint            # header + raw JSON only
- *   npx tsx scripts/inspect-app.ts <appId> --threads              # structure + thread content
- *   npx tsx scripts/inspect-app.ts <appId> --stats --case-lists   # combinable
+ * Never writes to Firestore. Run with `--help` for the flag reference.
  */
+import { Command } from "commander";
+import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
+import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
 import { readRunSummary } from "@/lib/log/reader";
-import {
-	analyzeBlueprint,
-	countQuestions,
-	extractLogicQuestions,
-} from "./lib/blueprint-stats";
-import { db } from "./lib/firestore";
+import { analyzeBlueprint, extractLogicFields } from "./lib/blueprint-stats";
+import { db, hydrateBlueprint } from "./lib/firestore";
 import {
 	printHeader,
 	printKV,
@@ -29,42 +22,84 @@ import {
 	truncate,
 	tsToISO,
 } from "./lib/format";
-import type {
-	AppBlueprint,
-	BlueprintModule,
-	Question,
-	RunSummaryDoc,
-} from "./lib/types";
+import { requireArg, runMain } from "./lib/main";
+import type { BlueprintDoc, Form, Module, RunSummaryDoc } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
 
-const appId = process.argv[2];
-const showQuestions = process.argv.includes("--questions");
-const showThreads = process.argv.includes("--threads");
-const showBlueprint = process.argv.includes("--blueprint");
-const showStats = process.argv.includes("--stats");
-const showCaseLists = process.argv.includes("--case-lists");
-const showLogic = process.argv.includes("--logic");
-
-if (!appId) {
-	console.error(
-		"Usage: npx tsx scripts/inspect-app.ts <appId> [--questions] [--threads] [--blueprint] [--stats] [--case-lists] [--logic]",
-	);
-	process.exit(1);
+/* View flags are additive switches. All combinable except --blueprint,
+ * which is standalone and short-circuits the render. */
+interface InspectAppOptions {
+	fields?: boolean;
+	threads?: boolean;
+	blueprint?: boolean;
+	stats?: boolean;
+	caseLists?: boolean;
+	logic?: boolean;
 }
 
-// ── Question tree printing ──────────────────────────────────────────
+const program = new Command();
+program
+	.name("inspect-app")
+	.description(
+		"Read-only inspection of an app document in Firestore. Shows metadata, blueprint structure, analytics, and chat threads.",
+	)
+	.argument("<appId>", "Firestore app document id (root-level apps collection)")
+	.option("--fields", "include the full ordered field tree under every form")
+	.option(
+		"--stats",
+		"include field-kind + logic-element + form-type + quality tables",
+	)
+	.option(
+		"--logic",
+		"include a flat table of fields with calculate/relevant/validate/required/etc.",
+	)
+	.option("--case-lists", "include every module's case list + detail columns")
+	.option(
+		"--blueprint",
+		"dump the raw BlueprintDoc JSON (standalone; skips other views)",
+	)
+	.option("--threads", "include full message content of every chat thread")
+	.addHelpText(
+		"after",
+		"\nExamples:\n" +
+			"  $ npx tsx scripts/inspect-app.ts <appId>\n" +
+			"  $ npx tsx scripts/inspect-app.ts <appId> --stats\n" +
+			"  $ npx tsx scripts/inspect-app.ts <appId> --stats --case-lists\n" +
+			"  $ npx tsx scripts/inspect-app.ts <appId> --blueprint    # raw JSON\n",
+	);
 
-/** Print question tree with indentation (for --questions flag). */
-function printQuestions(questions: Question[], indent = 0) {
+program.parse();
+
+const appId = requireArg(program.args, 0, "appId");
+const opts = program.opts<InspectAppOptions>();
+const showFields = opts.fields === true;
+const showThreads = opts.threads === true;
+const showBlueprint = opts.blueprint === true;
+const showStats = opts.stats === true;
+const showCaseLists = opts.caseLists === true;
+const showLogic = opts.logic === true;
+
+// ── Field tree printing ─────────────────────────────────────────────
+
+/**
+ * Print a pre-built ordered field tree. Consumes the output of
+ * `buildFieldTree`, which already resolved ordering and container
+ * descent — the printer just flattens it with indentation.
+ *
+ * `HiddenField` is the sole field kind with no `label` key; every
+ * other kind carries one. The `"label" in f` guard keeps this honest
+ * in the face of the discriminated union.
+ */
+function printFieldTree(tree: FieldWithChildren[], indent = 0): void {
 	const pad = "  ".repeat(indent);
-	for (const q of questions) {
-		const label = truncate(q.label ?? "(no label)", 60);
+	for (const f of tree) {
+		const label = "label" in f ? (f.label ?? "(no label)") : "(no label)";
 		console.log(
-			`${pad}  - [${q.type ?? "?"}] ${q.id ?? "?"} — "${label}" (${q.uuid?.slice(0, 8) ?? "no-uuid"})`,
+			`${pad}  - [${f.kind}] ${f.id} — "${truncate(label, 60)}" (${f.uuid.slice(0, 8)})`,
 		);
-		if (q.children?.length) {
-			printQuestions(q.children, indent + 1);
+		if (f.children) {
+			printFieldTree(f.children, indent + 1);
 		}
 	}
 }
@@ -81,21 +116,31 @@ async function main() {
 
 	// biome-ignore lint/style/noNonNullAssertion: guarded by snap.exists check above
 	const data = snap.data()!;
-	const bp: AppBlueprint | undefined = data.blueprint;
-	const modules: BlueprintModule[] = bp?.modules ?? [];
+	/* Firestore stores the `PersistableDoc` shape (no `fieldParent`).
+	 * `hydrateBlueprint` attaches the derived reverse index so the
+	 * domain walkers (`buildFieldTree`, `countFieldsUnder`) accept it. */
+	const doc: BlueprintDoc | undefined =
+		data.blueprint !== undefined ? hydrateBlueprint(data.blueprint) : undefined;
+
+	const moduleOrder = doc?.moduleOrder ?? [];
+	const modules: Module[] = moduleOrder
+		.map((uuid) => doc?.modules[uuid])
+		.filter((m): m is Module => m !== undefined);
+
 	const totalForms = modules.reduce(
-		(sum, m) => sum + (m.forms?.length ?? 0),
+		(sum, m) => sum + (doc?.formOrder[m.uuid]?.length ?? 0),
 		0,
 	);
-	const totalQuestions = modules.reduce(
-		(sum, m) =>
+	const totalFields = modules.reduce((sum, m) => {
+		const formUuids = doc?.formOrder[m.uuid] ?? [];
+		return (
 			sum +
-			(m.forms ?? []).reduce(
-				(fSum, f) => fSum + countQuestions(f.questions ?? []),
+			formUuids.reduce(
+				(s, fUuid) => s + (doc ? countFieldsUnder(doc, fUuid) : 0),
 				0,
-			),
-		0,
-	);
+			)
+		);
+	}, 0);
 
 	printHeader("APP INSPECTION (read-only)");
 
@@ -111,14 +156,19 @@ async function main() {
 		["Updated", tsToISO(data.updated_at)],
 		["Modules", String(modules.length)],
 		["Forms", String(totalForms)],
-		["Questions", String(totalQuestions)],
+		["Fields", String(totalFields)],
 	]);
 
 	/* ── Blueprint JSON dump (standalone mode) ───────────────────── */
 	if (showBlueprint) {
 		printSection("Full Blueprint JSON");
-		console.log(JSON.stringify(bp, null, 2));
+		console.log(JSON.stringify(doc, null, 2));
 		/* --blueprint is standalone — skip structure view, stats, threads. */
+		return;
+	}
+
+	if (!doc) {
+		console.error("\n  App has no blueprint.");
 		return;
 	}
 
@@ -126,10 +176,13 @@ async function main() {
 	printSection("Blueprint Structure");
 
 	for (const [i, mod] of modules.entries()) {
-		const modForms = mod.forms ?? [];
+		const formUuids = doc.formOrder[mod.uuid] ?? [];
+		const forms = formUuids
+			.map((uuid) => doc.forms[uuid])
+			.filter((f): f is Form => f !== undefined);
 		const flags = [
-			mod.case_type && `case: ${mod.case_type}`,
-			mod.case_list_only && "case-list-only",
+			mod.caseType && `case: ${mod.caseType}`,
+			mod.caseListOnly && "case-list-only",
 		]
 			.filter(Boolean)
 			.join(", ");
@@ -138,30 +191,30 @@ async function main() {
 			`  Module ${i}: ${mod.name ?? "(unnamed)"}${flags ? ` (${flags})` : ""}`,
 		);
 
-		for (const [j, form] of modForms.entries()) {
-			const qCount = countQuestions(form.questions ?? []);
+		for (const [j, form] of forms.entries()) {
+			const fieldCount = countFieldsUnder(doc, form.uuid);
 			console.log(
-				`    Form ${j}: ${form.name ?? "(unnamed)"} — ${qCount} questions`,
+				`    Form ${j}: ${form.name ?? "(unnamed)"} (${form.type}) — ${fieldCount} fields`,
 			);
 
-			if (showQuestions && form.questions?.length) {
-				printQuestions(form.questions, 3);
+			if (showFields) {
+				printFieldTree(buildFieldTree(doc, form.uuid), 3);
 			}
 		}
 	}
 
 	/* ── Stats view (--stats) ────────────────────────────────────── */
-	if (showStats && bp) {
-		const stats = analyzeBlueprint(bp);
+	if (showStats) {
+		const stats = analyzeBlueprint(doc);
 
-		/* Question types breakdown. */
-		printSection("Question Types");
-		const typeEntries = Object.entries(stats.totals.questionTypes.byType).sort(
+		/* Field kinds breakdown. */
+		printSection("Field Kinds");
+		const kindEntries = Object.entries(stats.totals.fieldKinds.byKind).sort(
 			(a, b) => b[1] - a[1],
 		);
 		printTable(
-			[{ header: "Type" }, { header: "Count", align: "right" }],
-			typeEntries.map(([type, count]) => [type, String(count)]),
+			[{ header: "Kind" }, { header: "Count", align: "right" }],
+			kindEntries.map(([kind, count]) => [kind, String(count)]),
 		);
 
 		/* Logic elements summary. */
@@ -177,7 +230,7 @@ async function main() {
 				["Required fields", String(logic.requireds)],
 				["Hints", String(logic.hints)],
 				["Labels (info)", String(logic.labels)],
-				["Questions with logic", String(logic.questionsWithLogic)],
+				["Fields with logic", String(logic.fieldsWithLogic)],
 			],
 		);
 
@@ -230,11 +283,11 @@ async function main() {
 	if (showCaseLists) {
 		printSection("Case List Columns");
 		for (const mod of modules) {
-			const cols = mod.case_list_columns ?? [];
-			const detailCols = mod.case_detail_columns ?? [];
+			const cols = mod.caseListColumns ?? [];
+			const detailCols = mod.caseDetailColumns ?? [];
 			if (cols.length === 0 && detailCols.length === 0) continue;
 
-			console.log(`  ${mod.name} (${mod.case_type ?? "no case type"}):`);
+			console.log(`  ${mod.name} (${mod.caseType ?? "no case type"}):`);
 			if (cols.length > 0) {
 				console.log("    List columns:");
 				printTable(
@@ -253,19 +306,19 @@ async function main() {
 		}
 	}
 
-	/* ── Logic questions view (--logic) ──────────────────────────── */
-	if (showLogic && bp) {
-		const logicQs = extractLogicQuestions(bp);
-		printSection(`Logic Questions (${logicQs.length} total)`);
+	/* ── Logic fields view (--logic) ─────────────────────────────── */
+	if (showLogic) {
+		const logicFields = extractLogicFields(doc);
+		printSection(`Logic Fields (${logicFields.length} total)`);
 
-		if (logicQs.length === 0) {
-			console.log("  (no questions with logic elements)");
+		if (logicFields.length === 0) {
+			console.log("  (no fields with logic elements)");
 		} else {
 			printTable(
-				[{ header: "Path" }, { header: "Type" }, { header: "Elements" }],
-				logicQs.map((lq) => [
+				[{ header: "Path" }, { header: "Kind" }, { header: "Elements" }],
+				logicFields.map((lq) => [
 					truncate(lq.path, 50),
-					lq.type,
+					lq.kind,
 					lq.has.join(", "),
 				]),
 			);
@@ -281,14 +334,11 @@ async function main() {
 		.get();
 
 	if (!threads.empty) {
-		/* Pre-fetch per-run summary docs for every thread, unconditionally. The
-		 * Phase-4 summary doc at apps/{appId}/runs/{runId} is the replacement
-		 * for the Phase-3 config-event rendering — prompt mode, app-ready
-		 * state, cache-expiry flag, and module count. The previous revision
-		 * gated the fetch on `--threads`, which silently hid the "Run: ..."
-		 * line from the default structure view even though the code below
-		 * renders it unconditionally from `summaryByRun`. Fetch always so
-		 * the per-thread row shows the same context in both views. */
+		/* Pre-fetch per-run summary docs for every thread unconditionally.
+		 * The summary doc at apps/{appId}/runs/{runId} carries prompt mode,
+		 * app-ready state, cache-expiry flag, and module count — rendered
+		 * per thread below. Gating the fetch on `--threads` would silently
+		 * hide the "Run: ..." line in the default structure view. */
 		const runIds = threads.docs
 			.map((d) => d.data().run_id as string | undefined)
 			.filter((id): id is string => Boolean(id));
@@ -306,20 +356,16 @@ async function main() {
 
 		printSection("Chat Threads");
 
-		for (const doc of threads.docs) {
-			const t = doc.data();
+		for (const threadDoc of threads.docs) {
+			const t = threadDoc.data();
 			const msgCount = t.messages?.length ?? 0;
 			console.log(
-				`  Thread ${doc.id.slice(0, 8)}… (${t.thread_type}) — ${msgCount} messages`,
+				`  Thread ${threadDoc.id.slice(0, 8)}… (${t.thread_type}) — ${msgCount} messages`,
 			);
 			console.log(`    Created:  ${t.created_at}`);
 			console.log(`    Summary:  ${truncate(t.summary ?? "", 100)}`);
 			console.log(`    Run ID:   ${t.run_id}`);
 
-			/* Run summary fields mirror the old config-event output: prompt mode,
-			 * app-ready state, cache-expired flag, module count at start of run.
-			 * Always rendered — shown as a "no summary doc" placeholder when the
-			 * run never finalised (e.g. builds that failed before flush). */
 			const summary = summaryByRun.get(t.run_id);
 			if (summary) {
 				console.log(
@@ -337,7 +383,6 @@ async function main() {
 					console.log(`    [${msg.role}]`);
 					for (const part of msg.parts ?? []) {
 						if (part.type === "text") {
-							/* Indent each line of text content for readability. */
 							for (const line of part.text.split("\n")) {
 								console.log(`      ${line}`);
 							}
@@ -359,7 +404,4 @@ async function main() {
 	}
 }
 
-main().catch((err) => {
-	console.error("Fatal:", err);
-	process.exit(1);
-});
+runMain(main);

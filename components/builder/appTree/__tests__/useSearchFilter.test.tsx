@@ -20,7 +20,7 @@ import { asUuid } from "@/lib/doc/types";
 /**
  * Build a small deterministic blueprint for filter testing: one module,
  * one form, two questions. Identifiers differ so we can disambiguate
- * module/form/question matches.
+ * module/form/field matches.
  */
 function buildFixture(): BlueprintDoc {
 	const MOD = asUuid("module-aaaa-0000-0000-000000000000");
@@ -107,7 +107,7 @@ describe("useSearchFilter", () => {
 		expect(r.forceExpand.has("m0")).toBe(true);
 	});
 
-	it("matches a question label and force-expands its parent form", () => {
+	it("matches a field label and force-expands its parent form", () => {
 		const doc = buildFixture();
 		const { result } = renderHook(() => useSearchFilter("age"), {
 			wrapper: wrapWithDoc(doc),
@@ -118,7 +118,7 @@ describe("useSearchFilter", () => {
 
 		// Q_AGE has label "Age in Years" → visible.
 		const Q_AGE = asUuid("q-age-0000-0000-0000-000000000000");
-		expect(r.visibleQuestionUuids.has(Q_AGE)).toBe(true);
+		expect(r.visibleFieldUuids.has(Q_AGE)).toBe(true);
 
 		// The form containing the match must be in visibleFormIds.
 		const FORM = asUuid("form-bbbb-0000-0000-000000000000");
@@ -161,7 +161,7 @@ describe("useSearchFilter", () => {
 		if (!r) return;
 		expect(r.visibleModuleIndices.size).toBe(0);
 		expect(r.visibleFormIds.size).toBe(0);
-		expect(r.visibleQuestionUuids.size).toBe(0);
+		expect(r.visibleFieldUuids.size).toBe(0);
 	});
 
 	it("SEARCH_IDLE is a stable reference across accesses", () => {

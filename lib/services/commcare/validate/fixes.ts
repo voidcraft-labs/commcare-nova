@@ -337,10 +337,10 @@ const fixWrongArity: FixFn = (error, doc) => {
 };
 
 /**
- * INVALID_QUESTION_ID: Rename the field to a sanitized XML-safe form. The
+ * INVALID_FIELD_ID: Rename the field to a sanitized XML-safe form. The
  * mutation reducer handles XPath rewriting across the form automatically.
  */
-const fixInvalidQuestionId: FixFn = (error, doc) => {
+const fixInvalidFieldId: FixFn = (error, doc) => {
 	const fieldUuid = error.location.fieldUuid ?? error.details?.fieldUuid;
 	if (!fieldUuid) return [];
 	const field = doc.fields[fieldUuid];
@@ -421,9 +421,9 @@ export const FIX_REGISTRY = new Map<ValidationErrorCode, FixFn>([
 	["SELECT_NO_OPTIONS", fixSelectNoOptions],
 	["CLOSE_CONDITION_WRONG_TYPE", fixCloseCondition],
 	["CLOSE_CONDITION_INCOMPLETE", fixCloseCondition],
-	["CLOSE_CONDITION_QUESTION_NOT_FOUND", fixCloseCondition],
+	["CLOSE_CONDITION_FIELD_NOT_FOUND", fixCloseCondition],
 	["UNKNOWN_FUNCTION", fixUnknownFunction],
 	["WRONG_ARITY", fixWrongArity],
-	["INVALID_QUESTION_ID", fixInvalidQuestionId],
+	["INVALID_FIELD_ID", fixInvalidFieldId],
 	["CASE_PROPERTY_BAD_FORMAT", fixCasePropertyBadFormat],
 ]);

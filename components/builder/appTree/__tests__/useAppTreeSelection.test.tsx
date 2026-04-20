@@ -7,7 +7,7 @@
  * Two responsibilities must hold:
  *
  *   1. Every target kind routes to the correct `useNavigate` method.
- *   2. Question targets set a pending scroll request BEFORE navigating,
+ *   2. Field targets set a pending scroll request BEFORE navigating,
  *      so the target row's `useFulfillPendingScroll` has a request
  *      waiting when its `isSelected` flips true.
  *
@@ -39,7 +39,7 @@ vi.mock("@/lib/routing/hooks", () => ({
 
 /**
  * The scroll-registry mock captures `setPending` so tests can assert
- * question selections prime a scroll request before navigation.
+ * field selections prime a scroll request before navigation.
  */
 const setPendingMock = vi.fn();
 
@@ -84,23 +84,23 @@ describe("useAppTreeSelection", () => {
 		expect(setPendingMock).not.toHaveBeenCalled();
 	});
 
-	it("dispatches `question` → setPending BEFORE navigate.openForm", () => {
+	it("dispatches `field` → setPending BEFORE navigate.openForm", () => {
 		const { result } = renderHook(() => useAppTreeSelection());
 		const moduleUuid = asUuid("mod-1");
 		const formUuid = asUuid("form-1");
-		const questionUuid = asUuid("q-1");
+		const fieldUuid = asUuid("q-1");
 
 		act(() =>
-			result.current({ kind: "question", moduleUuid, formUuid, questionUuid }),
+			result.current({ kind: "field", moduleUuid, formUuid, fieldUuid }),
 		);
 
 		expect(setPendingMock).toHaveBeenCalledOnce();
-		expect(setPendingMock).toHaveBeenCalledWith(questionUuid, "instant", false);
+		expect(setPendingMock).toHaveBeenCalledWith(fieldUuid, "instant", false);
 		expect(navigateMock.openForm).toHaveBeenCalledOnce();
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			moduleUuid,
 			formUuid,
-			questionUuid,
+			fieldUuid,
 		);
 
 		// Order matters: pending scroll must be primed first so the target

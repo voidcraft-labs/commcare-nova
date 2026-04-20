@@ -13,10 +13,10 @@ import { type Field, fieldRegistry } from "@/lib/domain";
  * domain-owned metadata registry. The lookup is total over `FieldKind`,
  * so no fallback is required.
  */
-export function MediaField({ question }: { question: Field }) {
+export function MediaField({ field }: { field: Field }) {
 	const ctx = useEditContext();
 	const isDesign = ctx?.mode === "edit";
-	const { icon, label } = fieldRegistry[question.kind];
+	const { icon, label } = fieldRegistry[field.kind];
 
 	return (
 		<div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-pv-surface border border-dashed border-pv-input-border">

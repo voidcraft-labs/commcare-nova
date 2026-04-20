@@ -28,7 +28,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_MODEL } from "@/lib/models";
-import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
+import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
 
 export const maxDuration = 300;
 

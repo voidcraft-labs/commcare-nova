@@ -85,7 +85,7 @@ export interface EvalContext {
 	getValue(path: string): string | undefined;
 	/** Resolve a hashtag ref (#case/prop, #user/prop, #form/question_id) to a value. */
 	resolveHashtag(ref: string): string;
-	/** Current question path (for '.') */
+	/** Current field path (for '.') */
 	contextPath: string;
 	/** Current repeat position (for position()) — 1-based */
 	position: number;

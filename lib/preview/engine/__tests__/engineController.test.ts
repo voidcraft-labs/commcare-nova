@@ -160,7 +160,7 @@ describe("EngineController", () => {
 						uuid: newUuid,
 						id: "new_q",
 						kind: "text",
-						label: "New Question",
+						label: "New Field",
 					},
 				},
 			]);

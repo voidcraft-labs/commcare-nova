@@ -22,8 +22,8 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import type { Field, Form } from "@/lib/domain";
-import type { AppBlueprint, FormType } from "../../schemas/blueprint";
+import type { Field, Form, FormType } from "@/lib/domain";
+import type { AppBlueprint } from "../../doc/legacyTypes";
 import { deriveCaseConfig } from "../deriveCaseConfig";
 
 // ── Fixture builders ──────────────────────────────────────────────────

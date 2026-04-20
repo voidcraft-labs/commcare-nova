@@ -100,7 +100,7 @@ export function BuilderFormEngineProvider({
 /**
  * Imperative access to the form preview's EngineController. Does NOT
  * subscribe to any state — callers that want to observe runtime state
- * for a specific question should use `useEngineState(uuid)` from
+ * for a specific field should use `useEngineState(uuid)` from
  * `hooks/useFormEngine.ts`.
  *
  * Throws when used outside `BuilderFormEngineProvider` to surface

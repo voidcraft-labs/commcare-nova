@@ -600,7 +600,7 @@ body {
  *
  * Pointer cursor signals editability on hover — switches to text cursor
  * naturally when the TipTap inline editor opens. */
-[data-question-wrapper] [data-text-editable] {
+[data-field-wrapper] [data-text-editable] {
 	pointer-events: auto;
 	position: relative;
 	z-index: 1;
@@ -608,7 +608,7 @@ body {
 
 /* Pointer cursor on idle text-editable buttons; active editors (div with
  * cursor-text) are left alone so the text cursor takes over. */
-[data-question-wrapper] button[data-text-editable] {
+[data-field-wrapper] button[data-text-editable] {
 	cursor: pointer;
 }
 
@@ -617,7 +617,7 @@ body {
  * layout as elements scroll into view. `auto` in contain-intrinsic-size
  * uses the last-known rendered height once available, falling back to
  * 80px for the initial estimate (keeps scrollbar calculations stable). */
-[data-question-uuid] {
+[data-field-uuid] {
 	content-visibility: auto;
 	contain-intrinsic-size: auto 80px;
 }

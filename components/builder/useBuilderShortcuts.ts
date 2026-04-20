@@ -24,7 +24,7 @@ import type { CursorMode } from "@/lib/session/types";
  * Returns an empty array when the builder is not in Ready/Completed phase.
  * When active, includes: Escape (deselect/exit pointer), V/E (switch cursor
  * mode), Tab/Shift+Tab (navigate questions in edit mode), Delete/Backspace
- * (delete question), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
+ * (delete field), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
  * Cmd+Z/Cmd+Shift+Z (undo/redo).
  *
@@ -55,7 +55,7 @@ export function useBuilderShortcuts(
 		if (!isReady) return [];
 
 		/** Navigate to a field by uuid — update selection via URL and
-		 *  request a scroll to bring the question into view. */
+		 *  request a scroll to bring the field into view. */
 		const navigateToField = (uuid: Uuid): void => {
 			setPending(uuid, "smooth", false);
 			select(uuid);
