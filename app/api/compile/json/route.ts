@@ -29,10 +29,7 @@ export async function POST(req: NextRequest) {
 			throw new ApiError(
 				"Invalid doc",
 				400,
-				parsedDoc.error.issues.map(
-					(e: { path: PropertyKey[]; message: string }) =>
-						`${e.path.join(".")}: ${e.message}`,
-				),
+				parsedDoc.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
 		}
 

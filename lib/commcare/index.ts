@@ -14,6 +14,7 @@
 // their sub-path rather than re-exported here, to keep the barrel
 // focused on shared primitives.
 
+export * from "./compiler";
 export * from "./constants";
 export * from "./deriveCaseConfig";
 export * from "./expander";

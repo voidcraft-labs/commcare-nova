@@ -1,14 +1,12 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { expandDoc } from "@/lib/commcare";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
-import { CczCompiler } from "../cczCompiler";
+import { compileCcz, expandDoc } from "@/lib/commcare";
 
-// CczCompiler reads the legacy `AppBlueprint` shape for its form-type
-// lookup. Tests build a domain doc via the shared DSL, call
-// `expandDoc(doc)` directly for the HQ JSON, and materialize the legacy
-// shape via `toBlueprint(doc)` only for the compiler's input.
+// The compiler consumes the domain doc directly — we build the fixture
+// via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed
+// both into `compileCcz`. Tests below assert archive-level invariants
+// (present files, case-block injection, suite.xml structure).
 const doc = buildDoc({
 	appName: "CHW App",
 	modules: [
@@ -62,12 +60,11 @@ const doc = buildDoc({
 		},
 	],
 });
-const blueprint = toBlueprint(doc);
 
-describe("CczCompiler", () => {
-	it("produces a valid zip with expected files", async () => {
+describe("compileCcz", () => {
+	it("produces a valid zip with expected files", () => {
 		const hq = expandDoc(doc);
-		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
+		const buf = compileCcz(hq, "CHW App", doc);
 		const zip = new AdmZip(buf);
 		const entries = zip
 			.getEntries()
@@ -83,9 +80,9 @@ describe("CczCompiler", () => {
 		).toHaveLength(2);
 	});
 
-	it("injects case create block into registration XForms", async () => {
+	it("injects case create block into registration XForms", () => {
 		const hq = expandDoc(doc);
-		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
+		const buf = compileCcz(hq, "CHW App", doc);
 		const zip = new AdmZip(buf);
 		const regXform = zip.readAsText("modules-0/forms-0.xml");
 
@@ -95,9 +92,9 @@ describe("CczCompiler", () => {
 		expect(regXform).toContain("calculate=\"'patient'\""); // case type bind
 	});
 
-	it("injects case update block into followup XForms", async () => {
+	it("injects case update block into followup XForms", () => {
 		const hq = expandDoc(doc);
-		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
+		const buf = compileCcz(hq, "CHW App", doc);
 		const zip = new AdmZip(buf);
 		const followupXform = zip.readAsText("modules-0/forms-1.xml");
 
@@ -106,29 +103,25 @@ describe("CczCompiler", () => {
 		expect(followupXform).not.toContain("<create>"); // followup should not create
 	});
 
-	it("post-injection validation catches orphaned binds", async () => {
+	it("post-injection validation catches orphaned binds", () => {
 		const hq = expandDoc(doc);
 
 		// Sabotage: inject a bind that points to a node we never create.
 		const formId = hq.modules[0].forms[0].unique_id;
-		hq._attachments[`${formId}.xml`] += ""; // ensure it exists
-		const xml = hq._attachments[`${formId}.xml`] as string;
+		const xml = hq._attachments[`${formId}.xml`];
 		hq._attachments[`${formId}.xml`] = xml.replace(
 			"</model>",
 			'      <bind nodeset="/data/meta/location" type="xsd:geopoint"/>\n    </model>',
 		);
 
-		const err = await new CczCompiler()
-			.compile(hq, "CHW App", blueprint)
-			.catch((e) => e);
-		expect(err).toBeInstanceOf(Error);
-		expect(err.message).toContain("/data/meta/location");
-		expect(err.message).toContain("XForm validation failed");
+		expect(() => compileCcz(hq, "CHW App", doc)).toThrow(
+			/XForm validation failed[\s\S]*\/data\/meta\/location/,
+		);
 	});
 
-	it("generates suite.xml with case detail and menu entries", async () => {
+	it("generates suite.xml with case detail and menu entries", () => {
 		const hq = expandDoc(doc);
-		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
+		const buf = compileCcz(hq, "CHW App", doc);
 		const zip = new AdmZip(buf);
 		const suite = zip.readAsText("suite.xml");
 

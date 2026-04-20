@@ -2,12 +2,11 @@
 
 A grab-bag of shared helpers that don't yet have a domain-specific home:
 
-- `cczCompiler.ts` — CCZ packager. Reads the nested `AppBlueprint` wire shape for per-form metadata lookups; callers materialize one via `toBlueprint` at this single boundary.
 - `connectConfig.ts` — Connect-config defaults derivation. Operates on the nested wire form and is called from the validation loop before any domain rules run.
 - `fieldPath.ts`, `resetBuilder.ts`, `builder.ts` — doc-facing helpers the builder UI leans on.
 - `toastStore.ts`, `keyboardManager.ts` — UI singletons (toast queue + keyboard shortcut registry).
 
-The expander, XForm emitter, form-action / case-reference builders, and case-config derivation live at `lib/commcare/` — the CommCare compile pipeline is not owned here.
+The expander, CCZ compiler, XForm emitter, form-action / case-reference builders, and case-config derivation all live at `lib/commcare/` — the CommCare compile pipeline is not owned here.
 
 The Solutions Architect and its generation loop live at `lib/agent/`; the CommCare wire-format primitives + validator live at `lib/commcare/`; generation logging lives at `lib/log/`.
 
