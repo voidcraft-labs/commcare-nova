@@ -6,6 +6,7 @@ import {
 	type UIMessage,
 } from "ai";
 import {
+	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
 	createSolutionsArchitect,
 	GenerationContext,
@@ -335,17 +336,47 @@ export async function POST(req: Request) {
 
 				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
-				/* When editing with an expired cache, only send the last user message.
-				 * The SA's system prompt includes a compact blueprint summary for
-				 * context. Sending the full build history would (a) waste tokens on a
-				 * dead cache and (b) fail SDK validation because tool call parts from
-				 * generation (generateSchema, etc.) reference tools excluded in edit
-				 * mode. Within the cache window, full history is safe — it only
-				 * contains edit-session messages with shared-tool references. */
-				const effectiveMessages =
-					editing && cacheExpired
+				/* Two message-strategy knobs, both driven by `editing`:
+				 *
+				 * 1. **Cache-expired edits get one-shot delivery.** The SA's system
+				 *    prompt already carries a compact blueprint summary, so past
+				 *    turns would just waste tokens against a dead cache.
+				 *
+				 * 2. **Live-cache edits get full history, but with build-only tool
+				 *    parts stripped.** Edit mode excludes `generateSchema` /
+				 *    `generateScaffold` / `addModule` from the tool set; any
+				 *    lingering tool-use parts from the original build would make
+				 *    Anthropic reject the request ("tool not found in tools
+				 *    array"). Stripping them by `tool-${name}` part type removes
+				 *    both the call and its output in one step — AI SDK v5 keeps
+				 *    both sides of a tool invocation on the same part — so the
+				 *    converted Anthropic messages come out with matched
+				 *    `tool_use` / `tool_result` pairs for the tools that remain.
+				 *    Assistant messages that collapse to zero parts after the
+				 *    strip are dropped so the wire doesn't carry empty turns.
+				 *    The filter is deterministic in its inputs, so successive
+				 *    edit requests produce identical prefixes and hit the
+				 *    prompt cache as intended. */
+				const buildOnlyPartTypes = new Set<string>(
+					BUILD_ONLY_TOOL_NAMES.map((name) => `tool-${name}`),
+				);
+				const stripBuildOnlyParts = (m: UIMessage): UIMessage | undefined => {
+					if (m.role !== "assistant") return m;
+					const nextParts = m.parts.filter(
+						(p) => !buildOnlyPartTypes.has(p.type),
+					);
+					if (nextParts.length === 0) return undefined;
+					return nextParts.length === m.parts.length
+						? m
+						: { ...m, parts: nextParts };
+				};
+				const effectiveMessages = editing
+					? cacheExpired
 						? messages.filter((m) => m.role === "user").slice(-1)
-						: messages;
+						: messages
+								.map(stripBuildOnlyParts)
+								.filter((m): m is UIMessage => m !== undefined)
+					: messages;
 
 				const agentStream = await createAgentUIStream({
 					agent: sa,
