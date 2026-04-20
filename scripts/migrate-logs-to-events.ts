@@ -176,6 +176,9 @@ const EPHEMERAL_EMISSION_TYPES = new Set([
 	"data-start-build",
 	"data-fix-attempt",
 	"data-partial-scaffold",
+	// Legacy event name — the live wire now emits `data-app-id`, but
+	// historical log records on disk literally contain `data-app-saved`.
+	// Do not rename; this string is matched against archived data.
 	"data-app-saved",
 	"data-run-id",
 	"data-error",

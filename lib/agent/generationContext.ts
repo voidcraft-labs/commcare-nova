@@ -239,13 +239,19 @@ export class GenerationContext {
 	/**
 	 * Emit a transient data part to the live SSE stream. Pure pass-through.
 	 *
-	 * Remaining consumers after Phase-5 lifecycle derivation: `data-done`
-	 * (full-doc reconciliation from validateApp), `data-blueprint-updated`
-	 * (edit-mode coarse-tool replacements), `data-app-saved`
-	 * (Firestore-save notification), `data-run-id` (client echo). All
-	 * other former SSE signposts (`data-start-build`, `data-phase`,
-	 * `data-fix-attempt`, `data-error`) are derived from the mutation +
-	 * conversation event streams.
+	 * Used for one-shot lifecycle signals that live outside the
+	 * `data-mutations` / `data-conversation-event` streams:
+	 *
+	 *   - `data-done` — full-doc reconciliation from validateApp.
+	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
+	 *   - `data-app-id` — one-shot appId announcement driving the
+	 *     `/build/new` → `/build/{id}` URL swap on new builds.
+	 *   - `data-run-id` — server-minted run identifier the client echoes
+	 *     back on follow-up requests.
+	 *
+	 * Other signposts (start-build, phase, fix-attempt, error) are derived
+	 * client-side from the mutation + conversation event streams rather
+	 * than emitted here.
 	 */
 	emit(type: `data-${string}`, data: unknown): void {
 		this.writer.write({ type, data, transient: true });

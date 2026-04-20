@@ -104,9 +104,11 @@ export async function POST(req: Request) {
 	 * pass the check before either writes a doc (classic TOCTOU).
 	 */
 	let appId = parsed.data.appId;
+	let appCreated = false;
 	if (!appId) {
 		try {
 			appId = await createApp(keyResult.session.user.id, effectiveRunId);
+			appCreated = true;
 		} catch (err) {
 			log.error("[chat] app creation failed", err);
 			return Response.json(
@@ -170,7 +172,7 @@ export async function POST(req: Request) {
 	 *
 	 * Placeholder fields (`promptMode` / `freshEdit` / `appReady` / `cacheExpired`
 	 * / `moduleCount`) are rewritten via `usage.configureRun()` inside the
-	 * execute block once we know the editing mode. See plan §Task 9. */
+	 * execute block once we know the editing mode. */
 	const logWriter = new LogWriter(appId);
 	const usage = new UsageAccumulator({
 		appId,
@@ -201,14 +203,22 @@ export async function POST(req: Request) {
 				transient: true,
 			});
 
-			// Emit appId immediately so the client can update the URL.
-			// appId is guaranteed non-null here — the createApp / ownership
-			// branch above returns on every failure path.
-			writer.write({
-				type: "data-app-saved",
-				data: { appId },
-				transient: true,
-			});
+			/* Announce the freshly-minted appId to the client exactly once, on
+			 * the request that created it, so a new build can promote its URL
+			 * from `/build/new` to `/build/{appId}`. The client's handler for
+			 * this event unconditionally rewrites the URL to `/build/{appId}`;
+			 * emitting on edit requests would clobber any form/field selection
+			 * segments (e.g. `/build/{id}/{formUuid}/{fieldUuid}`) that the
+			 * user has already navigated into. This is a one-shot identity
+			 * signal, not a save receipt — per-mutation persistence happens
+			 * silently server-side inside the mutation tool handlers. */
+			if (appCreated) {
+				writer.write({
+					type: "data-app-id",
+					data: { appId },
+					transient: true,
+				});
+			}
 
 			/* Build the SA's working doc. The client ships the persistable
 			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight

@@ -24,7 +24,7 @@
  *      Stream-close lifecycle is owned by ChatContainer's chat-status
  *      effect via `endRun` — separate concern.
  *
- * `data-run-id` and `data-app-saved` are handled inline in
+ * `data-run-id` and `data-app-id` are handled inline in
  * ChatContainer's `onData` and never reach this dispatcher.
  *
  * Signal grid energy is injected BEFORE processing so the animation
@@ -146,7 +146,7 @@ export function applyStreamEvent(
 		}
 	}
 
-	// `data-run-id` and `data-app-saved` are handled inline by
+	// `data-run-id` and `data-app-id` are handled inline by
 	// ChatContainer's `onData` and never reach this dispatcher. Any other
 	// type is ignored.
 }

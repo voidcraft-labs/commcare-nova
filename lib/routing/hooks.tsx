@@ -259,10 +259,12 @@ export function useNavigate(): NavigateActions {
 	locRef.current = loc;
 
 	return useMemo(() => {
-		/** Read the `/build/{appId}` prefix from the current URL at call
-		 * time. NOT captured in a ref — the prefix changes when
-		 * `data-app-saved` replaces `/build/new` with `/build/{appId}`.
-		 * A stale ref would keep building URLs with `/build/new/...`. */
+		/** Read the `/build/{appId}` prefix at call time.
+		 * `window.location.pathname` is external mutable state we don't own
+		 * — the new-build flow rewrites the prefix via `history.replaceState`
+		 * once the server mints the appId. Caching the prefix in a ref would
+		 * leave us building URLs against a stale `/build/new/...` value
+		 * after that rewrite lands. */
 		const getBasePath = (): string => {
 			const parts = window.location.pathname.split("/").filter(Boolean);
 			return `/${parts.slice(0, 2).join("/")}`;

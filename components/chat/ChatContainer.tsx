@@ -131,11 +131,14 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* After first save, update the URL from /build/new → /build/{id}
-			 * without triggering a navigation or remount. The appId lives on
-			 * the session store; no dispatcher pass-through needed for this
-			 * purely-UI signal. */
-			if (type === "data-app-saved") {
+			/* `data-app-id` is the one-shot identity announcement the server
+			 * emits only on the request that actually minted the app (see
+			 * the `appCreated` gate in app/api/chat/route.ts). Receiving it
+			 * is unambiguous proof that this is the /build/new → /build/{id}
+			 * transition, so we can stamp the session store and rewrite the
+			 * URL without any further checks. Edit requests never emit this
+			 * event, so the handler never runs for them. */
+			if (type === "data-app-id") {
 				sessionApi.getState().setAppId(data.appId as string);
 				window.history.replaceState({}, "", `/build/${data.appId as string}`);
 				return;
