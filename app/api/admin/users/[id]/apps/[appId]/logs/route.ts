@@ -1,14 +1,15 @@
 /**
- * Admin log replay endpoint — load generation logs for any user's app.
+ * Admin log replay endpoint — load generation events for any user's app.
  *
  * GET /api/admin/users/{userId}/apps/{appId}/logs
  * GET /api/admin/users/{userId}/apps/{appId}/logs?runId={id}
  *
- * The userId URL segment is retained for admin navigation context but is no
- * longer used for Firestore access — logs are read directly by appId from
- * the root-level `apps/{appId}/logs/` subcollection.
+ * The userId URL segment is retained for admin navigation context but is
+ * not used for Firestore access — events are read by appId from
+ * `apps/{appId}/events/` via `readEvents`. Without `runId`,
+ * `readLatestRunId` picks the most recent run.
  *
- * Admin-only access. Returns `{ events: StoredEvent[], runId: string | null }`.
+ * Admin-only access. Returns `{ events: Event[], runId: string | null }`.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";

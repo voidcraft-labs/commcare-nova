@@ -153,9 +153,9 @@ export class GenerationContext {
 	 */
 	private docProvider: DocProvider | undefined;
 	/**
-	 * Per-request monotonic counter. Each event envelope carries the next
-	 * value — independent from the ts field so multiple events in one SSE
-	 * burst stay chronologically ordered even when they share a millisecond.
+	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
+	 * each request; doc IDs are Firestore-minted, so no cross-request
+	 * uniqueness is needed.
 	 */
 	private seq = 0;
 
