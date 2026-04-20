@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
 	/* Produces a self-contained build with only necessary node_modules. */
 	output: "standalone",
 
+	/* Silence the dev-mode "ƒ serverAction(args)" trace — its safe-stable-stringify
+	   truncation renders large args (e.g. saveThread's ThreadDoc) as [Object] /
+	   "N items not stringified", which is noise rather than signal. */
+	logging: {
+		serverFunctions: false,
+	},
+
 	/* Allow next/image optimization for Google OAuth profile avatars. */
 	images: {
 		remotePatterns: [
