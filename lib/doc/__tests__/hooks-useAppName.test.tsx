@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 //
-// Tests for `useAppName` — the named selector hook that replaces inline
-// `useBlueprintDoc((s) => s.appName)` call sites.
+// Tests for `useAppName` — the named selector hook that exposes the
+// app's display name with primitive-equality re-render semantics.
 
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";

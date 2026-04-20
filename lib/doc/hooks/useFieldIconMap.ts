@@ -18,7 +18,6 @@
  * keeps the boundary rule (components import hooks, never the raw
  * store) trivially enforceable.
  */
-"use client";
 import type { IconifyIcon } from "@iconify/react/offline";
 import { useMemo } from "react";
 import {
@@ -89,9 +88,9 @@ export function countQuestionsFromOrder(
 /**
  * Recursive descendant count for a form or container. Subscribes to the
  * whole `fieldOrder` map (Immer-stable reference) and walks the subtree
- * via `countQuestionsFromOrder`. Preferred over the inline
- * `useBlueprintDoc((s) => countQuestionsFromOrder(id, s.fieldOrder))`
- * pattern at AppTree row call sites.
+ * via `countQuestionsFromOrder`. Returns a number primitive, so the
+ * default `Object.is` comparison inside `useBlueprintDoc` re-renders
+ * the caller only when the count actually changes.
  *
  * Accepts `Uuid | undefined` so call sites that derive the parent uuid
  * from an optional URL selection don't need to guard the hook call.

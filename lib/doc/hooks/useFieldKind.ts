@@ -2,12 +2,11 @@
  * Named hooks for AppTree row rendering — narrow reads used by field
  * row + group-header components.
  *
- * Row components previously subscribed to entire `fields[uuid]` entities
- * just to display the kind icon or the collapsed child count. That made
- * every unrelated field mutation (e.g. renaming `name` → `full_name` on
- * a different field) re-render the whole tree. These hooks select only
- * the primitive of interest, so row re-renders fire only when the kind
- * or immediate-child count actually changes.
+ * Each hook selects only the primitive of interest (`kind` discriminant
+ * or immediate-child count) rather than the full `fields[uuid]` entity.
+ * Row re-renders fire only when that primitive actually changes, so
+ * unrelated field edits (e.g. renaming a sibling) leave these rows
+ * quiet.
  *
  * Both accept `Uuid | undefined` so call sites deriving the uuid from
  * discriminated-union URL selections don't need unsound casts.

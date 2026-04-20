@@ -38,8 +38,8 @@
 
 "use client";
 import { memo } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useField } from "@/lib/doc/hooks/useEntity";
+import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { asUuid, type Uuid } from "@/lib/domain";
 import {
 	useEngineController,
@@ -53,10 +53,6 @@ import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
 import { RepeatField } from "./fields/RepeatField";
 import { depthPadding } from "./virtual/rowStyles";
-
-/** Stable empty array for the fieldOrder selector. Prevents new array
- *  allocation on every render of an empty container. */
-const EMPTY_UUIDS: readonly Uuid[] = [];
 
 // ── Props ─────────────────────────────────────────────────────────────
 
@@ -94,9 +90,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	depth = 0,
 	leadingGap = true,
 }: InteractiveFormRendererProps) {
-	const fieldUuids = useBlueprintDoc(
-		(s) => s.fieldOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
-	);
+	const fieldUuids = useOrderedFields(parentEntityId as Uuid);
 
 	// `flow-root` creates a new block formatting context so the last child's
 	// `mb-6` stays contained inside this renderer's box instead of collapsing

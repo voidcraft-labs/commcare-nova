@@ -1,9 +1,7 @@
 /**
  * Named hooks — subscribe to the app-level `connectType` flag.
  *
- * Two call-site shapes exist across the builder UI and both are exposed
- * here so every consumer gets a named hook rather than an inline
- * selector:
+ * Two call-site shapes exist across the builder UI:
  *
  * - `useConnectType()` returns `ConnectType | null` — matches the raw
  *   doc field shape (null means "no connect type chosen"). Consumers
@@ -31,9 +29,9 @@ export function useConnectType(): ConnectType | null {
  * null → undefined coercion at the hook boundary.
  *
  * The doc stores `null` for "no connect type chosen", but several call
- * sites want `undefined` instead (for `??` defaults, optional form
- * wrappers, etc.). Centralizing the coercion here means callers never
- * write `useBlueprintDoc((s) => s.connectType ?? undefined)` inline.
+ * sites want `undefined` instead — for `??` defaults, optional form
+ * wrappers, or props typed as `ConnectType | undefined`. Centralizing
+ * the coercion here keeps the call sites free of `?? undefined` noise.
  */
 export function useConnectTypeOrUndefined(): ConnectType | undefined {
 	return useBlueprintDoc((s) => s.connectType ?? undefined);

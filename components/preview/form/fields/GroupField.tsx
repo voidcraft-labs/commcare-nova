@@ -28,7 +28,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
 import { useEngineState } from "@/lib/preview/hooks/useFormEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -71,11 +71,9 @@ export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 
-	// Subscribe to children count — drives the empty-state placeholder
+	// Subscribe to children presence — drives the empty-state placeholder
 	// block when the group has no template children yet.
-	const hasChildren = useBlueprintDoc(
-		(s) => (s.fieldOrder[field.uuid]?.length ?? 0) > 0,
-	);
+	const hasChildren = useHasFieldsInForm(field.uuid);
 
 	const onToggle = useCallback(() => {
 		toggleCollapse(field.uuid);

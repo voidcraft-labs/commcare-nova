@@ -141,4 +141,64 @@ describe("useFormDescendantCount", () => {
 		});
 		expect(result.current).toBe(0);
 	});
+
+	it("counts leaf-only forms without descending into nested containers", () => {
+		// A form with only leaf questions (no groups/repeats) exercises the
+		// base-case branch of the walker in isolation: each direct child
+		// contributes 1 and the recursion into `fieldOrder[leaf]` hits an
+		// empty array immediately.
+		const store = createBlueprintDocStore();
+		const LEAF_FORM = asUuid("form-leaf-0000-0000-0000-000000000000");
+		const Q_A = asUuid("q-a----0000-0000-0000-000000000000");
+		const Q_B = asUuid("q-b----0000-0000-0000-000000000000");
+		const doc: BlueprintDoc = {
+			appId: "app-1",
+			appName: "Leaf-only form test",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[MOD_UUID]: {
+					uuid: MOD_UUID,
+					id: "registration",
+					name: "Registration",
+				},
+			},
+			forms: {
+				[LEAF_FORM]: {
+					uuid: LEAF_FORM,
+					id: "simple",
+					name: "Simple",
+					type: "registration",
+				},
+			},
+			fields: {
+				[Q_A]: {
+					uuid: Q_A,
+					id: "a",
+					kind: "text",
+					label: "A",
+				} as BlueprintDoc["fields"][string],
+				[Q_B]: {
+					uuid: Q_B,
+					id: "b",
+					kind: "text",
+					label: "B",
+				} as BlueprintDoc["fields"][string],
+			},
+			moduleOrder: [MOD_UUID],
+			formOrder: { [MOD_UUID]: [LEAF_FORM] },
+			fieldOrder: { [LEAF_FORM]: [Q_A, Q_B] },
+			fieldParent: {},
+		};
+		store.getState().load(doc);
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BlueprintDocContext.Provider value={store}>
+				{children}
+			</BlueprintDocContext.Provider>
+		);
+		const { result } = renderHook(() => useFormDescendantCount(LEAF_FORM), {
+			wrapper,
+		});
+		expect(result.current).toBe(2);
+	});
 });

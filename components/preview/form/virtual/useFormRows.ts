@@ -14,14 +14,9 @@
  */
 
 import { useMemo } from "react";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	buildFormRows,
-	type CollapseState,
-	type FormRow,
-	type RowSource,
-} from "./rowModel";
+import { buildFormRows, type CollapseState, type FormRow } from "./rowModel";
 
 export interface UseFormRowsOptions {
 	/** The form's uuid — root parent for the walker. */
@@ -39,11 +34,9 @@ export function useFormRows(options: UseFormRowsOptions): FormRow[] {
 	const { formUuid, includeInsertionPoints, collapsed } = options;
 
 	// Subscribe only to the slices the walker reads. Shallow-equality
-	// skips re-renders when unrelated parts of the doc change.
-	const source = useBlueprintDocShallow<RowSource>((s) => ({
-		fields: s.fields,
-		fieldOrder: s.fieldOrder,
-	}));
+	// inside `useFieldsAndOrder` skips re-renders when unrelated parts of
+	// the doc change.
+	const source = useFieldsAndOrder();
 
 	return useMemo(
 		() =>

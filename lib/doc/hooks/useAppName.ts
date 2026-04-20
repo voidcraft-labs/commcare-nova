@@ -1,14 +1,11 @@
 /**
  * Named hook — subscribe to the app's display name.
  *
- * Replaces inline `useBlueprintDoc((s) => s.appName)` call sites (header
- * title, breadcrumb, save-indicator label, HQ upload dialog). Re-renders
- * only when `appName` changes reference — `setAppName` is the only
- * mutation that touches it, so components using this hook stay quiet for
+ * Selects a string primitive, so the default `Object.is` comparison
+ * inside `useBlueprintDoc` is sufficient (no shallow wrapper needed).
+ * Re-renders only when `appName` itself changes reference — `setAppName`
+ * is the only mutation that touches it, so consumers stay quiet for
  * every unrelated edit.
- *
- * No shallow wrapper needed: `appName` is a string primitive, so the
- * default `Object.is` comparison inside `useBlueprintDoc` is sufficient.
  */
 
 import { useBlueprintDoc } from "./useBlueprintDoc";
