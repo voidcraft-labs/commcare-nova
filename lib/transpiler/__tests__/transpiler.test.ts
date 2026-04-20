@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 import { transpile } from "../index";
 import type { XPathType } from "../typeInfer";
 import { inferTypes } from "../typeInfer";

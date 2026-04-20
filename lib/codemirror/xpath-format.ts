@@ -1,5 +1,5 @@
 import type { NodeType, SyntaxNode } from "@lezer/common";
-import { parser } from "./xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 // --------------- Types ---------------
 

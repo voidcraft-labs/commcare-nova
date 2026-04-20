@@ -18,7 +18,7 @@
  */
 
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 /**
  * Pre-resolved Lezer node types — cached at module load so the walker

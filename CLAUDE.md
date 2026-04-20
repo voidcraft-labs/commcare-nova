@@ -19,7 +19,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 npm run dev                             # Turbopack
 npm run build / lint / format / test
 npx tsx scripts/test-schema.ts          # test structured output schemas
-npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from xpath.grammar
+npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from lib/commcare/xpath/grammar.lezer.grammar
 ```
 
 `scripts/` also has read-only Firestore inspection tools and a `recover-app` writer (⚠️). Run any with `--help` for flags. Excluded from Docker.

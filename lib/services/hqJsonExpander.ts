@@ -1,5 +1,4 @@
-import { parser } from "@/lib/codemirror/xpath-parser";
-import { NameTest } from "@/lib/codemirror/xpath-parser.terms";
+import { NameTest, parser } from "@/lib/commcare/xpath";
 import { defaultPostSubmit } from "@/lib/domain";
 import type { AppBlueprint } from "../doc/legacyTypes";
 import type { HqApplication } from "./commcare";

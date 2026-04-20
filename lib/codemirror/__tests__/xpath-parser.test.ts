@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parser } from "../xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 /** Returns true if the parse tree contains no error nodes (⚠). */
 function parsesClean(expr: string): boolean {

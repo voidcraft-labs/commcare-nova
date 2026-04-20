@@ -6,7 +6,7 @@
  * expanded XPath. The shorthand is preserved in vellum:* attributes for
  * round-tripping back to the editor.
  */
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 // Pre-resolve node types — zero string comparisons at runtime
 const T = (() => {

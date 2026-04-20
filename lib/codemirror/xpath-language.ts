@@ -5,7 +5,7 @@ import {
 	LRLanguage,
 } from "@codemirror/language";
 import { styleTags, tags as t } from "@lezer/highlight";
-import { parser } from "./xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 const xpathHighlighting = styleTags({
 	// Data references — all parts of a hashtag ref share the same style

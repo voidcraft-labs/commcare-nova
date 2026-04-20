@@ -45,7 +45,7 @@
  */
 
 import type { Tree } from "@lezer/common";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 import { dateArithmetic } from "./passes/dateArithmetic";
 import type { TypeMap } from "./typeInfer";
 import { inferTypes } from "./typeInfer";

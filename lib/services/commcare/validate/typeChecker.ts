@@ -10,7 +10,7 @@
  */
 
 import type { NodeType, SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 import { FUNCTION_REGISTRY, type XPathType } from "./functionRegistry";
 
 export interface TypeError {

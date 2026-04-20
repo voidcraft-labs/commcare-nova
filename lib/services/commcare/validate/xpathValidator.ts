@@ -10,7 +10,7 @@
  */
 
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import {
 	FUNCTION_REGISTRY,
