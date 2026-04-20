@@ -11,10 +11,10 @@
  * Auto-fixes from the fix registry produce domain `Mutation`s, which are
  * applied to the working doc between validation attempts via the same
  * reducer the builder and SA use for manual edits. Connect-config
- * defaults are derived on the legacy `BlueprintForm` wire shape by
- * `deriveConnectDefaults`; `applyConnectDefaults` below is where the
- * doc is materialized into that shape, run through the helper, and
- * folded back via `updateForm` mutations.
+ * defaults are filled in by `deriveConnectDefaults`, which operates on
+ * `BlueprintDoc` directly and returns the defaulted `ConnectConfig`;
+ * `applyConnectDefaults` below folds that into an `updateForm` mutation
+ * per affected form.
  */
 
 import { produce } from "immer";
@@ -26,7 +26,7 @@ import {
 import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { iterForms } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -110,13 +110,12 @@ export async function validateAndFix(
 ): Promise<ValidateAndFixResult> {
 	let workingDoc = doc;
 
-	// Auto-populate Connect config defaults before validation. This mutates
-	// the form.connect struct in place — we re-wire by materializing the
-	// wire form, running the existing helper, then folding the result back
-	// via a set of `updateForm` mutations. In practice the helper rarely
-	// changes anything (it only fills in id/name/description defaults), so
-	// the cost is negligible.
-	workingDoc = applyConnectDefaults(workingDoc);
+	// Auto-populate Connect config defaults before validation. The helper
+	// produces a defaulted `ConnectConfig` per affected form; we apply the
+	// resulting `updateForm` batch locally AND emit it through `ctx` so the
+	// live builder sees the same defaults the server's working doc carries
+	// into the validator.
+	workingDoc = applyConnectDefaults(ctx, workingDoc);
 
 	const recentSignatures: string[] = [];
 	const MAX_STUCK_REPEATS = 3;
@@ -212,47 +211,42 @@ export async function validateAndFix(
 
 /**
  * Apply `deriveConnectDefaults` to every form's connect block (if present).
- * The helper operates on the wire `BlueprintForm` shape; we round-trip the
- * whole doc through the wire format, let the helper fill in defaults in
- * place, then fold any resulting changes back via `updateForm` mutations.
+ * The helper produces a defaulted `ConnectConfig` per form; we batch one
+ * `updateForm` mutation per affected form, apply locally on an Immer draft
+ * (so the validator sees the defaults), AND emit through `ctx.emitMutations`
+ * (so the live builder applies the identical batch via `docStore.applyMany`).
  *
- * Nothing here changes semantics — it mirrors the previous loop's behavior
- * — but keeping it off to the side prevents it from hiding inside the
- * main validate/fix flow.
+ * The `connect-defaults` stage tag is stamped on every envelope so the log
+ * UI can render the defaults pass distinctly from `fix:attempt-N` batches.
  */
-function applyConnectDefaults(doc: BlueprintDoc): BlueprintDoc {
+function applyConnectDefaults(
+	ctx: GenerationContext,
+	doc: BlueprintDoc,
+): BlueprintDoc {
 	if (!doc.connectType) return doc;
 
-	// Only forms that already have `form.connect` set receive defaults.
-	// We build the set of affected form uuids first; if none, skip.
-	const affected: string[] = [];
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			if (doc.forms[formUuid].connect) affected.push(formUuid);
-		}
-	}
-	if (affected.length === 0) return doc;
-
-	const wire = toBlueprint(doc);
 	const mutations: Mutation[] = [];
-	for (let mIdx = 0; mIdx < wire.modules.length; mIdx++) {
-		const mod = wire.modules[mIdx];
-		for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
-			const form = mod.forms[fIdx];
-			if (!form.connect) continue;
-			deriveConnectDefaults(doc.connectType, form, mod.name);
-			const formUuid = doc.formOrder[doc.moduleOrder[mIdx]]?.[fIdx];
-			if (!formUuid) continue;
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: { connect: form.connect },
-			});
-		}
+	for (const { moduleName, formUuid } of iterForms(doc)) {
+		const form = doc.forms[formUuid];
+		if (!form?.connect) continue;
+		const next = deriveConnectDefaults({
+			connectType: doc.connectType,
+			doc,
+			formUuid,
+			moduleName,
+		});
+		if (!next) continue;
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: { connect: next },
+		});
 	}
 
 	if (mutations.length === 0) return doc;
-	return produce(doc, (draft) => {
+	const nextDoc = produce(doc, (draft) => {
 		applyMutations(draft, mutations);
 	});
+	ctx.emitMutations(mutations, "connect-defaults");
+	return nextDoc;
 }

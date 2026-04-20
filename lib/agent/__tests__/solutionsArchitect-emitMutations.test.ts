@@ -621,6 +621,72 @@ describe("validationLoop — fix pass emission", () => {
 		expect(muts[0].mutations).toEqual(fixMutations);
 		expectNoLegacyEvents(writer);
 	});
+
+	it("emits a data-mutations batch with stage connect-defaults when applyConnectDefaults runs", async () => {
+		// applyConnectDefaults must flow through ctx.emitMutations so the
+		// in-browser doc receives the same `updateForm(connect)` patch the
+		// server's working doc carries into the validator. Before this test
+		// landed, the loop applied the mutations locally via Immer +
+		// `applyMutations` but never emitted — the live builder ended up
+		// with an empty/partial connect block while the validator saw a
+		// fully defaulted one.
+		const runnerMod = await import("@/lib/commcare/validator/runner");
+		const { validateAndFix } =
+			await vi.importActual<typeof import("../validationLoop")>(
+				"../validationLoop",
+			);
+
+		// Validator returns no errors so the loop exits straight after
+		// applyConnectDefaults runs — isolates the connect-defaults emit
+		// from the fix:attempt-N path.
+		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
+
+		const docWithConnect: BlueprintDoc = {
+			...makeFixtureDoc(),
+			connectType: "learn",
+			forms: {
+				[FORM_A]: {
+					uuid: FORM_A,
+					id: "enroll",
+					name: "Enroll Patient",
+					type: "registration",
+					connect: {
+						learn_module: {
+							name: "",
+							description: "",
+						} as unknown as {
+							name: string;
+							description: string;
+							time_estimate: number;
+						},
+					},
+				},
+			},
+		};
+
+		const { ctx, writer } = buildCtx();
+		await validateAndFix(ctx, docWithConnect);
+
+		const muts = mutationEvents(writer);
+		const connectMut = muts.find((m) => m.stage === "connect-defaults");
+		expect(connectMut).toBeDefined();
+		expect(connectMut?.mutations).toHaveLength(1);
+		expect(connectMut?.mutations[0]).toMatchObject({
+			kind: "updateForm",
+			uuid: FORM_A,
+		});
+		// The defaulted learn_module fills in id/name/description/time_estimate.
+		const patch = (
+			connectMut?.mutations[0] as Extract<Mutation, { kind: "updateForm" }>
+		).patch;
+		expect(patch.connect?.learn_module).toMatchObject({
+			id: "patient",
+			name: "Enroll Patient",
+			description: "Enroll Patient",
+			time_estimate: 1,
+		});
+		expectNoLegacyEvents(writer);
+	});
 });
 
 // ── Small helpers kept at the bottom to avoid pollution ─────────────────

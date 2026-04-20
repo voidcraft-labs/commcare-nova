@@ -2,7 +2,7 @@
 
 A grab-bag of shared helpers that don't yet have a domain-specific home:
 
-- `connectConfig.ts` — Connect-config defaults derivation. Operates on the nested wire form and is called from the validation loop before any domain rules run.
+- `connectConfig.ts` — Connect-config defaults derivation. Takes `BlueprintDoc` + a form uuid and returns a defaulted `ConnectConfig`; called from the validation loop before any domain rules run, with the resulting `updateForm` mutations emitted through `ctx.emitMutations` so the live builder applies them too.
 - `fieldPath.ts`, `resetBuilder.ts`, `builder.ts` — doc-facing helpers the builder UI leans on.
 - `toastStore.ts`, `keyboardManager.ts` — UI singletons (toast queue + keyboard shortcut registry).
 
@@ -20,7 +20,7 @@ Controls where the user lands after form submit. Three user-facing values: `app_
 
 ### Form links
 
-`form_links` on a form enables conditional navigation: `condition?` (XPath) + `target` (form or module by index) + optional `datums` overrides. Evaluation order: first matching condition wins; `post_submit` is the fallback. Fully validated (target existence, self-reference, cycles, missing fallback, empty array). Setting `form_links` directly on the blueprint generates correct suite.xml — the SA tool surface and HQ export (unique-id mapping) are not yet wired.
+`formLinks` on a form models conditional navigation as a list of `{ condition?, target: { type: 'form' | 'module', moduleUuid, formUuid? }, datums? }` entries; evaluation order is first-matching-condition-wins with `postSubmit` as the fallback. The validator enforces target existence, self-reference, cycles, missing fallback, and empty arrays. Suite-emission for form-link stacks isn't wired yet — `deriveEntryDefinition` only handles simple `postSubmit` destinations today.
 
 ## Not-yet-implemented (watch when adding features)
 

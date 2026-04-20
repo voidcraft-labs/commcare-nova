@@ -844,6 +844,81 @@ describe("form_links validation", () => {
 		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
 	});
 
+	it("detects a self-loop form link (A → A)", () => {
+		// Form-level FORM_LINK_SELF_REFERENCE fires too — but the cycle
+		// detector also catches it as a 1-form cycle, and the assertion
+		// here pins that behavior so a future change to the form-level
+		// rule doesn't silently unwire app-level cycle coverage of
+		// self-links.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M0",
+					forms: [
+						{
+							name: "F0",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const [f0Uuid] = doc.formOrder[moduleUuid];
+		const doc2 = update(doc, (d) => {
+			d.forms[f0Uuid].formLinks = [
+				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
+			];
+		});
+		const errors = runValidation(doc2);
+		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
+	});
+
+	it("detects a 3-chain cycle (A → B → C → A)", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M0",
+					forms: [
+						{
+							name: "F0",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+						{
+							name: "F1",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+						{
+							name: "F2",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const [f0Uuid, f1Uuid, f2Uuid] = doc.formOrder[moduleUuid];
+		const doc2 = update(doc, (d) => {
+			d.forms[f0Uuid].formLinks = [
+				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
+			];
+			d.forms[f1Uuid].formLinks = [
+				{ target: { type: "form", moduleUuid, formUuid: f2Uuid } },
+			];
+			d.forms[f2Uuid].formLinks = [
+				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
+			];
+		});
+		const errors = runValidation(doc2);
+		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
+	});
+
 	it("accepts valid form links", () => {
 		const doc = buildDoc({
 			appName: "Test",

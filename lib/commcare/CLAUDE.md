@@ -10,7 +10,7 @@ One-way emission boundary. This package owns CommCare's wire vocabulary — ever
 - `hashtags` — Vellum hashtag expansion (`#form/`, `#case/`, `#user/`) via the shared Lezer XPath parser, with the `VELLUM_HASHTAG_TRANSFORMS` table.
 - `ids` — hex-id generators for HQ `unique_id` / xmlns URIs.
 - `identifierValidation` — CommCare identifier guards (`validateCaseType`, `validateXFormPath`, `validatePropertyName`, `isReservedProperty`) and the `toSnakeId` slugifier.
-- `session` — session datums, stack operations, entry-definition derivation, post-submit / form-link stacks.
+- `session` — session datums, stack operations, post-submit destination → stack derivation, entry-definition assembly, and the `PostSubmitDestination` ↔ HQ workflow string mapping.
 - `xml` — the single XML escape helper used across XForm + suite emission.
 
 ## Sub-paths imported directly (not re-exported)

@@ -8,11 +8,7 @@ External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `compon
 
 **The SA speaks domain vocabulary end-to-end.** Tool names, tool arguments, tool return shapes, and the system prompt all use domain names (`field`, `kind`, `validate`, `validate_msg`, `case_property`). There is no CommCare→domain translation layer anywhere in this directory — SA tool args feed directly into `blueprintHelpers.ts` reducers.
 
-CommCare wire terms live only at two genuine boundaries, both outside `lib/agent/`:
-- `lib/commcare/` (XForm emission, HQ JSON expander).
-- `lib/doc/legacyBridge.ts` (one-way conversion for the live compile / HQ-upload path).
-
-`validateAndFix` internally converts the doc to the legacy nested shape to run XForm validation, then hands back a normalized doc — the CommCare boundary is contained inside that helper.
+CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). `validateAndFix` feeds `BlueprintDoc` through the validator + `expandDoc` directly — no wire-format round-trip inside the agent layer.
 
 ## What lives here
 

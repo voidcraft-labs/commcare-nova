@@ -1,19 +1,50 @@
 /**
- * Field-tree walking utilities over `BlueprintDoc`.
+ * Doc-walking utilities over `BlueprintDoc`.
  *
- * The doc stores fields flat (`doc.fields[uuid]`) with structural order
- * tracked separately (`doc.fieldOrder[parentUuid]`). Most callers that
- * need "the fields under this form / container" can't read that shape
- * directly — they want either a depth-first count, a nested tree, or a
- * top-down traversal. Those patterns live here so neither the agent
- * layer nor the prompt renderer has to reinvent them.
+ * The doc stores everything flat — modules, forms, and fields keyed by
+ * uuid — with structural order tracked separately (`doc.moduleOrder`,
+ * `doc.formOrder[moduleUuid]`, `doc.fieldOrder[parentUuid]`). Most
+ * callers that need "the forms in canonical order" or "the fields under
+ * this container" don't want to assemble that shape themselves. Those
+ * patterns live here so the agent, prompt renderer, and
+ * CommCare-adjacent helpers don't reinvent them.
  *
- * Everything here is pure: takes a doc + a root uuid, returns derived
- * data. No mutations, no dependencies on the store's hooks.
+ * Everything here is pure: takes a doc, returns derived data. No
+ * mutations, no dependencies on the store's hooks.
  */
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+
+/**
+ * One form's identity in canonical (module-then-form) order, alongside
+ * its module's display name. The shape callers want when they walk the
+ * whole app form-by-form (Connect-defaults derivation, suite emission
+ * scaffolding, etc.). Module name is included because the most common
+ * use of this iteration also needs a human-readable scope label, and a
+ * second `doc.modules[moduleUuid]` lookup at every call site is
+ * boilerplate.
+ */
+export interface FormIterEntry {
+	moduleUuid: Uuid;
+	moduleName: string;
+	formUuid: Uuid;
+}
+
+/**
+ * Iterate every form in the doc in canonical (module-then-form) order.
+ * Defensive against a doc whose `moduleOrder` references a stale uuid:
+ * the missing-module case yields an empty `moduleName` so the caller can
+ * still emit / log against the form uuid without crashing.
+ */
+export function* iterForms(doc: BlueprintDoc): Generator<FormIterEntry> {
+	for (const moduleUuid of doc.moduleOrder) {
+		const moduleName = doc.modules[moduleUuid]?.name ?? "";
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			yield { moduleUuid, moduleName, formUuid };
+		}
+	}
+}
 
 /**
  * Count every field recursively under `parentUuid` (DFS, containers

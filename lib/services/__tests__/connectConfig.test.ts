@@ -7,93 +7,270 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import type { BlueprintForm, Question } from "@/lib/doc/legacyTypes";
 import type {
+	BlueprintDoc,
 	ConnectConfig,
 	ConnectLearnModule,
 	ConnectType,
 	ConnectType as DomainConnectType,
+	Uuid,
 } from "@/lib/domain";
 import { deriveConnectDefaults } from "../connectConfig";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 //
-// `deriveConnectDefaults` reads the legacy `BlueprintForm` wire shape,
-// so the direct-call tests use a local `Question` factory. The
-// `expandDoc`-facing tests below build domain fixtures via `buildDoc` /
-// `f` from the shared DSL.
+// `deriveConnectDefaults` operates on `BlueprintDoc` directly. The
+// builders below wrap a form's fields + connect block in a single-module
+// doc so every assertion has the shape the helper actually sees.
 
-let counter = 0;
-function q(overrides: Omit<Question, "uuid"> & { uuid?: string }): Question {
-	return { uuid: `connect-test-q-${++counter}`, ...overrides };
-}
-
-function makeLearnForm(
-	connect?: ConnectConfig,
-	questions: BlueprintForm["questions"] = [],
-): BlueprintForm {
-	return {
-		uuid: "form-1-uuid",
-		name: "ILC Training",
-		type: "survey",
-		connect,
-		questions: questions.length
-			? questions
-			: [
-					q({
-						id: "intro",
-						type: "label",
-						label: "Welcome to the training module",
-					}),
-					q({
-						id: "q1",
-						type: "single_select",
-						label: "What is the correct dosage?",
-						options: [
-							{ value: "a", label: "10mg" },
-							{ value: "b", label: "20mg" },
-						],
-					}),
-					q({
-						id: "q2",
-						type: "single_select",
-						label: "How often should you check?",
-						options: [
-							{ value: "daily", label: "Daily" },
-							{ value: "weekly", label: "Weekly" },
-						],
-					}),
-					q({
-						id: "assessment_score",
-						type: "hidden",
-						calculate: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
-					}),
-				],
-	};
-}
-
-function makeDeliverForm(connect?: ConnectConfig): BlueprintForm {
-	return {
-		uuid: "form-2-uuid",
-		name: "Weekly Report",
-		type: "survey",
-		connect,
-		questions: [
-			q({
-				id: "report_date",
-				type: "date",
-				label: "Report Date",
-				required: "true()",
-			}),
-			q({
-				id: "chlorine_level",
-				type: "int",
-				label: "Chlorine Level",
-				validation: ". >= 0 and . <= 10",
-			}),
+const LEARN_FIELDS: FieldSpec[] = [
+	f({ kind: "label", id: "intro", label: "Welcome to the training module" }),
+	f({
+		kind: "single_select",
+		id: "q1",
+		label: "What is the correct dosage?",
+		options: [
+			{ value: "a", label: "10mg" },
+			{ value: "b", label: "20mg" },
 		],
-	};
+	}),
+	f({
+		kind: "single_select",
+		id: "q2",
+		label: "How often should you check?",
+		options: [
+			{ value: "daily", label: "Daily" },
+			{ value: "weekly", label: "Weekly" },
+		],
+	}),
+	f({
+		kind: "hidden",
+		id: "assessment_score",
+		calculate: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
+	}),
+];
+
+const DELIVER_FIELDS: FieldSpec[] = [
+	f({
+		kind: "date",
+		id: "report_date",
+		label: "Report Date",
+		required: "true()",
+	}),
+	f({
+		kind: "int",
+		id: "chlorine_level",
+		label: "Chlorine Level",
+		validate: ". >= 0 and . <= 10",
+	}),
+];
+
+/**
+ * Build a one-module single-form doc with the given connect config + fields.
+ * Returns both the doc and the form's uuid so tests can read the form back
+ * after `deriveConnectDefaults` returns.
+ */
+function buildConnectDoc(params: {
+	connectType: ConnectType;
+	moduleName?: string;
+	formName: string;
+	connect?: ConnectConfig;
+	fields?: FieldSpec[];
+}): { doc: BlueprintDoc; formUuid: Uuid } {
+	const doc = buildDoc({
+		connectType: params.connectType,
+		modules: [
+			{
+				name: params.moduleName ?? "Main",
+				forms: [
+					{
+						name: params.formName,
+						type: "survey",
+						connect: params.connect,
+						fields: params.fields,
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	return { doc, formUuid };
 }
+
+// ── deriveConnectDefaults ────────────────────────────────────────────
+
+describe("deriveConnectDefaults", () => {
+	it("returns undefined when form has no connect config", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			formName: "ILC Training",
+			fields: LEARN_FIELDS,
+		});
+		expect(
+			deriveConnectDefaults({ connectType: "learn", doc, formUuid }),
+		).toBeUndefined();
+	});
+
+	it("fills learn_module defaults when learn_module is present", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			formName: "ILC Training",
+			connect: {
+				learn_module: {
+					name: "",
+					description: "",
+				} as Partial<ConnectLearnModule> as ConnectLearnModule,
+			},
+			fields: LEARN_FIELDS,
+		});
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid,
+			moduleName: "Main",
+		});
+		expect(next?.learn_module).toEqual({
+			id: "main",
+			name: "ILC Training",
+			description: "ILC Training",
+			// 4 fields / 3 rounded up = 2 — hidden assessment_score included;
+			// label/singleSelect/singleSelect/hidden all count (containers don't).
+			time_estimate: 2,
+		});
+	});
+
+	it("auto-detects assessment score when assessment is present", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			formName: "ILC Training",
+			connect: { assessment: { user_score: "" } },
+			fields: LEARN_FIELDS,
+		});
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid,
+			moduleName: "Main",
+		});
+		expect(next?.assessment).toEqual({
+			id: "main_ilc_training",
+			user_score: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
+		});
+	});
+
+	it("does not auto-create learn_module or assessment from empty connect", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			formName: "ILC Training",
+			connect: {},
+			fields: LEARN_FIELDS,
+		});
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid,
+			moduleName: "Main",
+		});
+		expect(next?.learn_module).toBeUndefined();
+		expect(next?.assessment).toBeUndefined();
+	});
+
+	it("does not overwrite existing learn_module", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			formName: "ILC Training",
+			connect: {
+				learn_module: {
+					name: "Custom Name",
+					description: "Custom Desc",
+					time_estimate: 10,
+				},
+			},
+			fields: LEARN_FIELDS,
+		});
+		const next = deriveConnectDefaults({ connectType: "learn", doc, formUuid });
+		expect(next?.learn_module?.name).toBe("Custom Name");
+		expect(next?.learn_module?.time_estimate).toBe(10);
+	});
+
+	it("does not overwrite existing assessment", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			formName: "ILC Training",
+			connect: { assessment: { user_score: "50" } },
+			fields: LEARN_FIELDS,
+		});
+		const next = deriveConnectDefaults({ connectType: "learn", doc, formUuid });
+		expect(next?.assessment?.user_score).toBe("50");
+	});
+
+	it("fills deliver_unit defaults when deliver_unit is present", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "deliver",
+			formName: "Weekly Report",
+			connect: {
+				deliver_unit: { name: "", entity_id: "", entity_name: "" },
+			},
+			fields: DELIVER_FIELDS,
+		});
+		const next = deriveConnectDefaults({
+			connectType: "deliver",
+			doc,
+			formUuid,
+			moduleName: "Main",
+		});
+		expect(next?.deliver_unit).toEqual({
+			id: "main",
+			name: "Weekly Report",
+			entity_id: "concat(#user/username, '-', today())",
+			entity_name: "#user/username",
+		});
+	});
+
+	it("does not overwrite existing deliver_unit", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "deliver",
+			formName: "Weekly Report",
+			connect: {
+				deliver_unit: {
+					name: "Custom Unit",
+					entity_id: "custom_id",
+					entity_name: "custom_name",
+				},
+			},
+			fields: DELIVER_FIELDS,
+		});
+		const next = deriveConnectDefaults({
+			connectType: "deliver",
+			doc,
+			formUuid,
+		});
+		expect(next?.deliver_unit?.name).toBe("Custom Unit");
+	});
+
+	it("fills assessment default score of 100 when no score field exists", () => {
+		const { doc, formUuid } = buildConnectDoc({
+			connectType: "learn",
+			moduleName: "Training",
+			formName: "Simple Learn",
+			connect: { assessment: { user_score: "" } },
+			fields: [f({ kind: "label", id: "content", label: "Read this." })],
+		});
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid,
+			moduleName: "Training",
+		});
+		expect(next?.assessment).toEqual({
+			id: "training_simple_learn",
+			user_score: "100",
+		});
+	});
+});
+
+// ── XForm Export ─────────────────────────────────────────────────────
 
 /**
  * Minimal domain doc carrying one survey form with the supplied Connect
@@ -125,111 +302,6 @@ function makeConnectExpandDoc(
 		],
 	});
 }
-
-// ── deriveConnectDefaults ────────────────────────────────────────────
-
-describe("deriveConnectDefaults", () => {
-	it("does nothing when form has no connect config", () => {
-		const form = makeLearnForm();
-		deriveConnectDefaults("learn", form);
-		expect(form.connect).toBeUndefined();
-	});
-
-	it("fills learn_module defaults when learn_module is present", () => {
-		const form = makeLearnForm({
-			learn_module: {
-				name: "",
-				description: "",
-			} as Partial<ConnectLearnModule> as ConnectLearnModule,
-		});
-		deriveConnectDefaults("learn", form, "Main");
-		expect(form.connect?.learn_module).toEqual({
-			id: "main",
-			name: "ILC Training",
-			description: "ILC Training",
-			time_estimate: 2, // 4 questions / 3, rounded up, min 1
-		});
-	});
-
-	it("auto-detects assessment score when assessment is present", () => {
-		const form = makeLearnForm({ assessment: { user_score: "" } });
-		deriveConnectDefaults("learn", form, "Main");
-		expect(form.connect?.assessment).toEqual({
-			id: "main_ilc_training",
-			user_score: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
-		});
-	});
-
-	it("does not auto-create learn_module or assessment from empty connect", () => {
-		const form = makeLearnForm({});
-		deriveConnectDefaults("learn", form, "Main");
-		expect(form.connect?.learn_module).toBeUndefined();
-		expect(form.connect?.assessment).toBeUndefined();
-	});
-
-	it("does not overwrite existing learn_module", () => {
-		const form = makeLearnForm({
-			learn_module: {
-				name: "Custom Name",
-				description: "Custom Desc",
-				time_estimate: 10,
-			},
-		});
-		deriveConnectDefaults("learn", form);
-		expect(form.connect?.learn_module?.name).toBe("Custom Name");
-		expect(form.connect?.learn_module?.time_estimate).toBe(10);
-	});
-
-	it("does not overwrite existing assessment", () => {
-		const form = makeLearnForm({
-			assessment: { user_score: "50" },
-		});
-		deriveConnectDefaults("learn", form);
-		expect(form.connect?.assessment?.user_score).toBe("50");
-	});
-
-	it("fills deliver_unit defaults when deliver_unit is present", () => {
-		const form = makeDeliverForm({
-			deliver_unit: { name: "", entity_id: "", entity_name: "" },
-		});
-		deriveConnectDefaults("deliver", form, "Main");
-		expect(form.connect?.deliver_unit).toEqual({
-			id: "main",
-			name: "Weekly Report",
-			entity_id: "concat(#user/username, '-', today())",
-			entity_name: "#user/username",
-		});
-	});
-
-	it("does not overwrite existing deliver_unit", () => {
-		const form = makeDeliverForm({
-			deliver_unit: {
-				name: "Custom Unit",
-				entity_id: "custom_id",
-				entity_name: "custom_name",
-			},
-		});
-		deriveConnectDefaults("deliver", form);
-		expect(form.connect?.deliver_unit?.name).toBe("Custom Unit");
-	});
-
-	it("fills assessment default score of 100 when no score question exists", () => {
-		const form: BlueprintForm = {
-			uuid: "form-3-uuid",
-			name: "Simple Learn",
-			type: "survey",
-			connect: { assessment: { user_score: "" } },
-			questions: [q({ id: "content", type: "label", label: "Read this." })],
-		};
-		deriveConnectDefaults("learn", form, "Training");
-		expect(form.connect?.assessment).toEqual({
-			id: "training_simple_learn",
-			user_score: "100",
-		});
-	});
-});
-
-// ── XForm Export ─────────────────────────────────────────────────────
 
 describe("Connect XForm export", () => {
 	it("generates correct learn module data block", () => {
@@ -359,7 +431,7 @@ describe("Connect XForm export", () => {
  * Build a one-module, one-form BlueprintDoc carrying the supplied Connect
  * config. Mirrors `makeConnectExpandDoc` but sized for the validator:
  * the validator reads the form's metadata + connect block, not the
- * question content, so tests inline minimal field sets where needed.
+ * field content, so tests inline minimal field sets where needed.
  */
 function makeConnectValidationDoc(
 	connectType: DomainConnectType,
@@ -448,7 +520,3 @@ describe("Connect validation", () => {
 		expect(errors).toHaveLength(0);
 	});
 });
-
-/* MutableBlueprint Connect tests removed — class replaced by standalone
- * functions in blueprintHelpers.ts. Connect stash logic moved to BuilderEngine.
- * TODO: add equivalent tests for blueprintHelpers.setScaffold and updateForm. */

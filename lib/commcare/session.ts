@@ -1,33 +1,25 @@
 /**
- * CommCare Session, Datum & Stack Management
+ * CommCare suite-entry derivation.
  *
- * Single source of truth for deriving CommCare session mechanics from the blueprint.
- * Controls entry definitions (what datums a form requires) and stack operations
- * (where to navigate after form submission) in suite.xml.
+ * Derives the per-form `<entry>` block compiled into `suite.xml`: the form
+ * command + locale, any session datums the entry needs (currently the
+ * single `case_id` for case-loading forms), and the post-submit `<stack>`
+ * operations that decide where the user lands after `<submit/>`. Also
+ * owns the post-submit destination ↔ HQ-workflow string mapping that
+ * round-trips between the in-memory enum and the wire vocabulary HQ
+ * expects.
  *
- * CommCare Core processes three stack operation types after form submission:
- *   <create>  — Push a new navigation frame (module/form target + datums)
- *   <push>    — Add steps to the current frame (append datums/commands)
- *   <clear>   — Remove frames from the stack (wipe navigation history)
- *
- * All three are modeled here. Currently only <create> is generated;
- * <push> and <clear> are typed for completeness and future use.
- *
- * Architecture:
- *   - Post-submit navigation (implemented: all 5 destinations)
- *   - Form linking / conditional navigation (validated, generation not wired to UI/tools)
- *   - Case selection datums (implemented)
- *   - Advanced module multi-datum sessions (future)
- *   - Case search datums (future)
- *   - Parent/child module navigation (future)
+ * CommCare Core defines three stack-operation kinds — `<create>`,
+ * `<push>`, `<clear>`. All three are typed for completeness; only
+ * `<create>` is currently emitted. Conditional / form-link stacks (one
+ * `<create>` per link with a fallback whose condition negates every
+ * link condition) belong here too once the SA + UI surface them; the
+ * derivation logic will land alongside `derivePostSubmitStack` when
+ * called for, with the index resolution done by the compiler.
  */
 
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
-import type {
-	AppBlueprint,
-	WireFormLink as FormLink,
-} from "../doc/legacyTypes";
 import { validateCaseType } from "./identifierValidation";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -90,11 +82,6 @@ export interface StackOperation {
 	children: StackChild[];
 }
 
-// ── Re-export FormLink types for downstream convenience ───────────────
-
-export type { WireFormLinkDatum as FormLinkDatum } from "../doc/legacyTypes";
-export type { FormLink };
-
 // ── Entry Definition ───────────────────────────────────────────────────
 
 /** Complete entry definition for a form in suite.xml. */
@@ -114,8 +101,9 @@ const SESSION_REF = "instance('commcaresession')/session/data";
 /**
  * Derive session datums required by a form entry.
  *
- * Currently: single case_id datum for case-loading forms (followup, close).
- * Future: multiple datums for advanced modules, parent datums, search datums.
+ * Currently emits a single `case_id` datum for case-loading forms
+ * (followup, close). Advanced-module multi-datum sessions, parent
+ * datums, and search datums will extend this when those features ship.
  */
 export function deriveSessionDatums(
 	formType: FormType,
@@ -201,85 +189,11 @@ export function derivePostSubmitStack(
 }
 
 /**
- * Derive stack operations for form linking.
- *
- * Generates one <create> per link (with ifClause from link.condition),
- * plus a fallback <create> whose condition negates all link conditions.
- *
- * Datum management:
- *   - For form targets: includes module command + form command + session datums
- *   - For module targets: includes module command only
- *   - Manual datums from FormLink.datums override auto-derived ones
- *
- * NOT YET WIRED TO UI OR SA TOOLS.
- * Validated by the validation suite; generation works when called directly.
- * UI and SA tool support will be added when form linking is exposed.
- */
-export function deriveFormLinkStack(
-	links: FormLink[],
-	fallback: PostSubmitDestination,
-	sourceModuleIndex: number,
-	sourceFormType: FormType,
-	sourceCaseType?: string,
-): StackOperation[] {
-	const ops: StackOperation[] = [];
-	const conditions: string[] = [];
-
-	for (const link of links) {
-		if (link.condition) conditions.push(link.condition);
-
-		const children: StackChild[] = [];
-
-		if (link.target.type === "form") {
-			children.push({
-				type: "command",
-				value: `'m${link.target.moduleIndex}'`,
-			});
-			children.push({
-				type: "command",
-				value: `'m${link.target.moduleIndex}-f${link.target.formIndex}'`,
-			});
-		} else {
-			children.push({
-				type: "command",
-				value: `'m${link.target.moduleIndex}'`,
-			});
-		}
-
-		// Manual datum overrides
-		if (link.datums) {
-			for (const d of link.datums) {
-				children.push({ type: "datum", id: d.name, value: d.xpath });
-			}
-		}
-
-		ops.push({
-			op: "create",
-			...(link.condition && { ifClause: link.condition }),
-			children,
-		});
-	}
-
-	// Fallback frame: when any link has a condition, generate a fallback
-	// whose condition negates ALL link conditions.
-	if (conditions.length > 0) {
-		const negated = conditions.map((c) => `not(${c})`).join(" and ");
-		const fallbackOps = derivePostSubmitStack(
-			fallback,
-			sourceModuleIndex,
-			sourceFormType,
-			sourceCaseType,
-		);
-		for (const op of fallbackOps) {
-			ops.push({ ...op, ifClause: negated });
-		}
-	}
-
-	return ops;
-}
-
-/**
  * Build a complete EntryDefinition for a form.
+ *
+ * The compiler resolves the form's module/form indices + case type from
+ * its uuid before calling this — `deriveEntryDefinition` only deals with
+ * the suite-level index world and never touches the doc.
  */
 export function deriveEntryDefinition(
 	formXmlns: string,
@@ -288,7 +202,6 @@ export function deriveEntryDefinition(
 	formType: FormType,
 	postSubmit: PostSubmitDestination,
 	caseType?: string,
-	formLinks?: FormLink[],
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -306,31 +219,14 @@ export function deriveEntryDefinition(
 		}
 	}
 
-	// Determine stack operations
-	let operations: StackOperation[] | undefined;
-
-	if (formLinks && formLinks.length > 0) {
-		// Form linking takes priority over simple post_submit
-		operations = deriveFormLinkStack(
-			formLinks,
-			postSubmit,
-			moduleIndex,
-			formType,
-			caseType,
-		);
-	} else if (postSubmit !== "app_home") {
-		operations = derivePostSubmitStack(
-			postSubmit,
-			moduleIndex,
-			formType,
-			caseType,
-		);
-	}
-	// When postSubmit === 'default' and no form links: omit <stack> entirely.
-	// CommCare's default behavior (no stack ops) pops the form frame.
-	// But HQ emits an empty <create/> for WORKFLOW_DEFAULT when
-	// enable_post_form_workflow is on. We omit it for cleaner XML —
-	// the empty <create/> produces the same home-navigation result.
+	// Determine stack operations. When postSubmit === 'app_home' we omit
+	// the <stack> entirely — CommCare's default (no stack ops) pops the
+	// form frame, which produces the same home-navigation result as an
+	// empty <create/> with cleaner XML.
+	const operations: StackOperation[] | undefined =
+		postSubmit !== "app_home"
+			? derivePostSubmitStack(postSubmit, moduleIndex, formType, caseType)
+			: undefined;
 
 	return {
 		formXmlns,
@@ -410,64 +306,6 @@ export function renderStackXml(operations: StackOperation[]): string {
 	});
 
 	return `    <stack>\n${elements.join("\n")}\n    </stack>`;
-}
-
-// ── Form Link Validation Helpers ───────────────────────────────────────
-
-/**
- * Detect circular form links: A→B→A.
- *
- * Walks the link graph from each form, checking if any path leads
- * back to a previously visited form. Returns the cycle path if found.
- */
-export function detectFormLinkCycles(
-	blueprint: AppBlueprint,
-): Array<{ chain: string[]; formKey: string }> {
-	const cycles: Array<{ chain: string[]; formKey: string }> = [];
-
-	// Build adjacency: formKey → set of target formKeys
-	const adj = new Map<string, Set<string>>();
-	for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
-		const mod = blueprint.modules[mIdx];
-		for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
-			const form = mod.forms[fIdx];
-			if (!form.form_links?.length) continue;
-			const key = `m${mIdx}f${fIdx}`;
-			const targets = new Set<string>();
-			for (const link of form.form_links) {
-				if (link.target.type === "form") {
-					targets.add(`m${link.target.moduleIndex}f${link.target.formIndex}`);
-				}
-				// Module targets don't create cycles (they navigate to a menu, not a form)
-			}
-			if (targets.size > 0) adj.set(key, targets);
-		}
-	}
-
-	// DFS for each starting form
-	for (const startKey of adj.keys()) {
-		const visited = new Set<string>();
-		const stack = [{ key: startKey, chain: [startKey] }];
-
-		while (stack.length > 0) {
-			const popped = stack.pop();
-			if (!popped) break;
-			const { key, chain } = popped;
-			const targets = adj.get(key);
-			if (!targets) continue;
-
-			for (const target of targets) {
-				if (target === startKey) {
-					cycles.push({ chain: [...chain, target], formKey: startKey });
-				} else if (!visited.has(target)) {
-					visited.add(target);
-					stack.push({ key: target, chain: [...chain, target] });
-				}
-			}
-		}
-	}
-
-	return cycles;
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────

@@ -1,32 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
 	deriveEntryDefinition,
-	deriveFormLinkStack,
 	derivePostSubmitStack,
 	deriveSessionDatums,
-	detectFormLinkCycles,
 	fromHqWorkflow,
 	renderEntryXml,
 	renderStackXml,
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
-import type {
-	AppBlueprint,
-	WireFormLink as FormLink,
-	Question,
-} from "@/lib/doc/legacyTypes";
 import type { PostSubmitDestination } from "@/lib/domain";
-
-// `detectFormLinkCycles` reads the nested `AppBlueprint` wire shape,
-// so the cycle-detection fixtures below need legacy `Question` values.
-// Every other test in this file exercises enum / stack helpers that
-// take primitives, not a blueprint — the factory is only called from
-// the `detectFormLinkCycles` block.
-let counter = 0;
-function q(overrides: Omit<Question, "uuid"> & { uuid?: string }): Question {
-	return { uuid: `session-test-q-${++counter}`, ...overrides };
-}
 
 // ── deriveSessionDatums ────────────────────────────────────────────
 
@@ -140,96 +123,6 @@ describe("derivePostSubmitStack", () => {
 	});
 });
 
-// ── deriveFormLinkStack ────────────────────────────────────────────
-
-describe("deriveFormLinkStack", () => {
-	it("generates create operation per link", () => {
-		const links: FormLink[] = [
-			{ target: { type: "form", moduleIndex: 1, formIndex: 0 } },
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
-		expect(ops).toHaveLength(1);
-		expect(ops[0].op).toBe("create");
-		expect(ops[0].children).toEqual([
-			{ type: "command", value: "'m1'" },
-			{ type: "command", value: "'m1-f0'" },
-		]);
-	});
-
-	it("generates module-only command for module targets", () => {
-		const links: FormLink[] = [{ target: { type: "module", moduleIndex: 2 } }];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
-		expect(ops[0].children).toEqual([{ type: "command", value: "'m2'" }]);
-	});
-
-	it("includes manual datums", () => {
-		const links: FormLink[] = [
-			{
-				target: { type: "form", moduleIndex: 0, formIndex: 1 },
-				datums: [
-					{
-						name: "case_id",
-						xpath: "instance('commcaresession')/session/data/case_id",
-					},
-				],
-			},
-		];
-		const ops = deriveFormLinkStack(
-			links,
-			"app_home",
-			0,
-			"followup",
-			"patient",
-		);
-		const datumChild = ops[0].children.find((c) => c.type === "datum");
-		expect(datumChild).toEqual({
-			type: "datum",
-			id: "case_id",
-			value: "instance('commcaresession')/session/data/case_id",
-		});
-	});
-
-	it("generates fallback when links have conditions", () => {
-		const links: FormLink[] = [
-			{
-				condition: "age > 18",
-				target: { type: "form", moduleIndex: 1, formIndex: 0 },
-			},
-		];
-		const ops = deriveFormLinkStack(links, "module", 0, "registration");
-		expect(ops).toHaveLength(2);
-		// Link operation
-		expect(ops[0].ifClause).toBe("age > 18");
-		// Fallback operation — negates all conditions, falls back to module
-		expect(ops[1].ifClause).toBe("not(age > 18)");
-		expect(ops[1].children).toEqual([{ type: "command", value: "'m0'" }]);
-	});
-
-	it("generates compound fallback condition for multiple conditional links", () => {
-		const links: FormLink[] = [
-			{
-				condition: "x = 1",
-				target: { type: "form", moduleIndex: 1, formIndex: 0 },
-			},
-			{
-				condition: "x = 2",
-				target: { type: "form", moduleIndex: 2, formIndex: 0 },
-			},
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
-		expect(ops).toHaveLength(3); // 2 links + 1 fallback
-		expect(ops[2].ifClause).toBe("not(x = 1) and not(x = 2)");
-	});
-
-	it("omits fallback when no links have conditions", () => {
-		const links: FormLink[] = [
-			{ target: { type: "form", moduleIndex: 1, formIndex: 0 } },
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
-		expect(ops).toHaveLength(1); // no fallback needed
-	});
-});
-
 // ── deriveEntryDefinition ──────────────────────────────────────────
 
 describe("deriveEntryDefinition", () => {
@@ -258,131 +151,6 @@ describe("deriveEntryDefinition", () => {
 			"app_home",
 		);
 		expect(entry.stack).toBeUndefined();
-	});
-
-	it("uses form_links when provided", () => {
-		const links: FormLink[] = [
-			{
-				condition: "x = 1",
-				target: { type: "form", moduleIndex: 1, formIndex: 0 },
-			},
-		];
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			0,
-			"registration",
-			"module",
-			undefined,
-			links,
-		);
-		// Should have link + fallback
-		expect(entry.stack?.operations).toHaveLength(2);
-		expect(entry.stack?.operations[0].ifClause).toBe("x = 1");
-	});
-
-	it("form_links override post_submit", () => {
-		const links: FormLink[] = [
-			{ target: { type: "form", moduleIndex: 1, formIndex: 0 } },
-		];
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			0,
-			"registration",
-			"app_home",
-			undefined,
-			links,
-		);
-		// Even with post_submit='app_home', stack is generated because form_links exist
-		expect(entry.stack).toBeDefined();
-	});
-});
-
-// ── detectFormLinkCycles ───────────────────────────────────────────
-
-describe("detectFormLinkCycles", () => {
-	const mkBlueprint = (modules: AppBlueprint["modules"]): AppBlueprint => ({
-		app_name: "Test",
-		modules,
-		case_types: null,
-	});
-
-	it("detects simple A→B→A cycle", () => {
-		const bp = mkBlueprint([
-			{
-				uuid: "module-1-uuid",
-				name: "M0",
-				forms: [
-					{
-						uuid: "form-1-uuid",
-						name: "F0",
-						type: "survey",
-						questions: [q({ id: "q", type: "text" })],
-						form_links: [
-							{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
-						],
-					},
-					{
-						uuid: "form-2-uuid",
-						name: "F1",
-						type: "survey",
-						questions: [q({ id: "q", type: "text" })],
-						form_links: [
-							{ target: { type: "form", moduleIndex: 0, formIndex: 0 } },
-						],
-					},
-				],
-			},
-		]);
-		const cycles = detectFormLinkCycles(bp);
-		expect(cycles.length).toBeGreaterThan(0);
-	});
-
-	it("returns empty for acyclic links", () => {
-		const bp = mkBlueprint([
-			{
-				uuid: "module-2-uuid",
-				name: "M0",
-				forms: [
-					{
-						uuid: "form-3-uuid",
-						name: "F0",
-						type: "survey",
-						questions: [q({ id: "q", type: "text" })],
-						form_links: [
-							{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
-						],
-					},
-					{
-						uuid: "form-4-uuid",
-						name: "F1",
-						type: "survey",
-						questions: [q({ id: "q", type: "text" })],
-					},
-				],
-			},
-		]);
-		expect(detectFormLinkCycles(bp)).toEqual([]);
-	});
-
-	it("ignores module targets (no cycle possible)", () => {
-		const bp = mkBlueprint([
-			{
-				uuid: "module-3-uuid",
-				name: "M0",
-				forms: [
-					{
-						uuid: "form-5-uuid",
-						name: "F0",
-						type: "survey",
-						questions: [q({ id: "q", type: "text" })],
-						form_links: [{ target: { type: "module", moduleIndex: 0 } }],
-					},
-				],
-			},
-		]);
-		expect(detectFormLinkCycles(bp)).toEqual([]);
 	});
 });
 
