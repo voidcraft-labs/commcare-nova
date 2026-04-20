@@ -26,15 +26,13 @@ import {
 	useAgentStage,
 	useBuilderPhase,
 	usePostBuildEdit,
+	useSessionEventsEmpty,
 	useSetSidebarOpen,
 	useStatusMessage,
 } from "@/lib/session/hooks";
 import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
-import {
-	useBuilderSession,
-	useBuilderSessionApi,
-} from "@/lib/session/provider";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
@@ -266,7 +264,7 @@ export function ChatSidebar({
 	// flashing the GenerationProgress card back on screen. Waiting for
 	// the buffer to empty first means the celebration lingers until the
 	// stream is genuinely done, then a clean 3.5s delay to Ready.
-	const bufferEmpty = useBuilderSession((s) => s.events.length === 0);
+	const bufferEmpty = useSessionEventsEmpty();
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
 		if (!bufferEmpty) return;

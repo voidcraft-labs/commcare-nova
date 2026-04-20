@@ -27,10 +27,9 @@
 
 "use client";
 import { memo } from "react";
-import { useEditContext } from "@/hooks/useEditContext";
 import { asUuid } from "@/lib/doc/types";
 import type { FieldPath } from "@/lib/services/fieldPath";
-import { useCursorMode } from "@/lib/session/hooks";
+import { useCursorMode, useEditMode } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "./InteractiveFormRenderer";
 import { VirtualFormList } from "./virtual/VirtualFormList";
 
@@ -50,7 +49,7 @@ export const FormRenderer = memo(function FormRenderer({
 	prefix,
 	parentPath,
 }: FormRendererProps) {
-	const ctx = useEditContext();
+	const mode = useEditMode();
 	const cursorMode = useCursorMode();
 
 	// The virtualized path applies only at the form root — nested calls
@@ -58,8 +57,7 @@ export const FormRenderer = memo(function FormRenderer({
 	// and must go recursively. The root-only gate is the `parentPath`
 	// check: nested calls always pass one.
 	const isRoot = !parentPath;
-	const useVirtualized =
-		isRoot && ctx?.mode === "edit" && cursorMode === "edit";
+	const useVirtualized = isRoot && mode === "edit" && cursorMode === "edit";
 
 	if (useVirtualized) {
 		// `parentEntityId` at the root is the form uuid — cast to the

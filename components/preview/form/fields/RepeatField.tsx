@@ -32,9 +32,12 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback } from "react";
-import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
+import {
+	useEngineController,
+	useEngineState,
+} from "@/lib/preview/hooks/useFormEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { FieldPath } from "@/lib/services/fieldPath";
 import { useFormLayout } from "../FormLayoutContext";
@@ -111,9 +114,7 @@ export function RepeatField({
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 
-	const hasChildren = useBlueprintDoc(
-		(s) => (s.fieldOrder[field.uuid]?.length ?? 0) > 0,
-	);
+	const hasChildren = useHasFieldsInForm(field.uuid);
 
 	const count = controller.getRepeatCount(field.uuid);
 

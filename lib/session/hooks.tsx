@@ -26,7 +26,12 @@ import {
 } from "./lifecycle";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
-import type { CursorMode, GenerationError, GenerationStage } from "./types";
+import type {
+	CursorMode,
+	GenerationError,
+	GenerationStage,
+	ReplayData,
+} from "./types";
 
 // ── Cursor mode ───────────────────────────────────────────────────────────
 
@@ -190,6 +195,17 @@ export function useValidationAttempt(): {
 	return useMemo(() => deriveValidationAttempt(events), [events]);
 }
 
+/** Whether the session's events buffer is currently empty. The buffer is
+ *  cleared at both `beginRun()` and `endRun()`, so an empty buffer means
+ *  no run is in flight — i.e. the SSE stream has closed. Consumed by
+ *  ChatSidebar to gate the Completed → Ready auto-decay timer: the timer
+ *  must not arm while the agent is still streaming its closing summary,
+ *  otherwise `derivePhase` would briefly flip Completed → Generating
+ *  after `acknowledgeCompletion` clears the run stamp. */
+export function useSessionEventsEmpty(): boolean {
+	return useBuilderSession((s) => s.events.length === 0);
+}
+
 /** Whether the current run is a post-build edit (run in progress, no
  *  `schema` / `scaffold` mutations in this run, doc has data). */
 export function usePostBuildEdit(): boolean {
@@ -214,6 +230,19 @@ export function useIsLoading(): boolean {
 /** Whether the builder is currently in replay mode. */
 export function useInReplayMode(): boolean {
 	return useBuilderSession((s) => s.replay !== undefined);
+}
+
+/** Raw replay state object — the full `{ events, chapters, cursor,
+ *  exitPath }` bundle, or `undefined` when no replay is loaded.
+ *
+ *  Consumed by `ReplayController`, which needs every field (events to
+ *  seed its chapter navigation, cursor for the scrub position, exitPath
+ *  for the close button). Most other replay consumers want a derived
+ *  view and should prefer the narrower hooks (`useInReplayMode`,
+ *  `useReplayMessages`) — direct access to the whole object couples the
+ *  caller to the session store's shape. */
+export function useReplayState(): ReplayData | undefined {
+	return useBuilderSession((s) => s.replay);
 }
 
 /**

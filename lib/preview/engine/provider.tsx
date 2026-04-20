@@ -8,9 +8,9 @@
  * so it lives in a context at the provider-stack level rather than in a
  * per-component hook.
  *
- * This provider replaces the `engineController` field that used to live
- * on `BuilderEngine`. Consumers now read it via `useBuilderFormEngine()`
- * instead of `useBuilderEngine().engineController`.
+ * Descendants access the controller via `useBuilderFormEngine()`. Direct
+ * imports of `EngineController` are confined to this file and the
+ * controller's own module — components never construct one themselves.
  *
  * Install timing matters: the doc store reference is bound on the
  * controller SYNCHRONOUSLY inside `useState`'s initializer, not in a

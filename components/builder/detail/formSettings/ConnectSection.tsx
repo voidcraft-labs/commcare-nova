@@ -2,8 +2,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { Toggle } from "@/components/ui/Toggle";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
@@ -37,7 +37,7 @@ export function ConnectSection({
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
-	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
+	const connectType = useConnectTypeOrUndefined();
 	const connect = form?.connect;
 	const enabled = !!connect;
 

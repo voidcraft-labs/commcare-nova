@@ -22,9 +22,11 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import type { SearchResult } from "@/components/builder/appTree/useSearchFilter";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Module, Uuid } from "@/lib/domain";
+import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
+import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
+import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
+import type { Uuid } from "@/lib/domain";
 import { useIsModuleSelected } from "@/lib/routing/hooks";
 
 export const ModuleCard = memo(function ModuleCard({
@@ -46,14 +48,14 @@ export const ModuleCard = memo(function ModuleCard({
 }) {
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
-	const mod = useBlueprintDoc((s) => s.modules[moduleUuid]) as
-		| Module
-		| undefined;
+	const mod = useModuleDoc(moduleUuid);
 
-	/** Subscribe to this module's form IDs from the doc store. */
-	const formIds = useBlueprintDoc((s) => s.formOrder[moduleUuid]);
+	/** Subscribe to this module's form IDs from the doc store. `undefined`
+	 *  while the module row is mounted without a formOrder entry — the
+	 *  component returns null below in that case. */
+	const formIds = useFormIds(moduleUuid);
 
-	const connectType = useBlueprintDoc((s) => s.connectType);
+	const connectType = useConnectTypeOrUndefined();
 
 	/** Boolean selection — URL-driven via useIsModuleSelected.
 	 *  Only this module + the previously selected re-render on change. */
@@ -159,7 +161,7 @@ export const ModuleCard = memo(function ModuleCard({
 										collapsed={collapsed}
 										toggle={toggle}
 										searchResult={searchResult}
-										connectType={connectType ?? undefined}
+										connectType={connectType}
 										locked={locked}
 									/>
 								);

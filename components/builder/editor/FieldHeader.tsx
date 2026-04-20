@@ -35,7 +35,6 @@ import { SavedCheck } from "@/components/builder/EditableTitle";
 import { FieldTypeList } from "@/components/builder/FieldTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useCommitField } from "@/hooks/useCommitField";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -61,6 +60,7 @@ import {
 	MENU_SUBMENU_POSITIONER_CLS,
 	POPOVER_POPUP_CLS,
 } from "@/lib/styles";
+import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 
 interface FieldHeaderProps {
 	field: Field;

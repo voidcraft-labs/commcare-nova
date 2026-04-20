@@ -17,7 +17,7 @@
 "use client";
 import { useEffect } from "react";
 import { useStore } from "zustand";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/doc/types";
 import type { RuntimeStoreState } from "@/lib/preview/engine/engineController";
 import {
 	DEFAULT_RUNTIME_STATE,
@@ -63,31 +63,26 @@ export function useEngineState(uuid: string): FieldState {
  * Activate the engine controller for the given form. Returns the controller
  * for imperative access (setValue, touch, validateAll, etc.).
  *
+ * The form is identified by UUID — the controller resolves the owning
+ * module internally, so callers no longer thread positional indices
+ * through the preview tree. Pass `undefined` while the URL is still being
+ * parsed; the effect no-ops and waits for the next tick.
+ *
  * The controller's doc store subscriptions (expression fingerprint,
  * question order, form metadata) are set up during `activateForm` and
  * cleaned up by `deactivate` on unmount or form navigation.
  */
 export function useFormEngine(
-	moduleIndex: number,
-	formIndex: number,
+	formUuid: Uuid | undefined,
 	caseData?: Map<string, string>,
 ): EngineController {
 	const controller = useBuilderFormEngine();
 
-	/** Reactive formId subscription — when the form identity at these indices
-	 *  changes (e.g., form deleted and another takes its index), the effect
-	 *  re-runs and reactivates the controller with the new form. Reads from
-	 *  the BlueprintDoc store, the single source of truth for entity data. */
-	const formId = useBlueprintDoc((s) => {
-		const moduleId = s.moduleOrder[moduleIndex];
-		return moduleId ? s.formOrder[moduleId]?.[formIndex] : undefined;
-	});
-
 	useEffect(() => {
-		if (!formId) return;
-		controller.activateForm(moduleIndex, formIndex, caseData);
+		if (!formUuid) return;
+		controller.activateForm(formUuid, caseData);
 		return () => controller.deactivate();
-	}, [controller, moduleIndex, formIndex, formId, caseData]);
+	}, [controller, formUuid, caseData]);
 
 	return controller;
 }

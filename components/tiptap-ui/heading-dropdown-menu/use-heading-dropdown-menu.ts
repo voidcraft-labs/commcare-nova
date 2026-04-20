@@ -13,7 +13,7 @@ import {
 	shouldShowButton,
 } from "@/components/tiptap-ui/heading-button";
 // --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 /**
  * Configuration for the heading dropdown menu functionality

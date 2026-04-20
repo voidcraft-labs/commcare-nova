@@ -6,7 +6,7 @@ import type { UseHorizontalRuleConfig } from "@/components/tiptap-ui/horizontal-
 import { useHorizontalRule } from "@/components/tiptap-ui/horizontal-rule-button";
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button";
 import { Button } from "@/components/tiptap-ui-primitive/button";
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 export interface HorizontalRuleButtonProps
 	extends Omit<ButtonProps, "type">,

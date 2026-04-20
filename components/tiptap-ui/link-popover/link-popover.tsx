@@ -27,8 +27,8 @@ import {
 } from "@/components/tiptap-ui-primitive/popover";
 import { Separator } from "@/components/tiptap-ui-primitive/separator";
 // --- Hooks ---
-import { useIsBreakpoint } from "@/hooks/use-is-breakpoint";
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
+import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
 
 import "./link-popover.css";
 

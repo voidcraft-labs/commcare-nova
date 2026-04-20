@@ -2,7 +2,7 @@
 import { motion } from "motion/react";
 import { useState } from "react";
 import { Logo } from "@/components/ui/Logo";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/lib/auth/hooks/useAuth";
 
 /** Google "G" logo for the sign-in button. Inline SVG to avoid external dependencies. */
 function GoogleLogo({ size = 18 }: { size?: number }) {

@@ -9,10 +9,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import {
-	SEARCH_IDLE,
-	useSearchFilter,
-} from "@/components/builder/appTree/useSearchFilter";
+import { SEARCH_IDLE, useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";

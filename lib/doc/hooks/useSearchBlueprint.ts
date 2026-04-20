@@ -11,6 +11,8 @@
  * callers that read from the doc store.
  */
 
+"use client";
+
 import { useCallback, useContext } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {

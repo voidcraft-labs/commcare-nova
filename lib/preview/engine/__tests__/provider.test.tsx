@@ -7,7 +7,7 @@
  *
  * We wrap the provider in a `BlueprintDocContext.Provider` so the effect
  * inside `BuilderFormEngineProvider` can read the doc store — mirroring
- * the real provider stack in `hooks/useBuilder.tsx`.
+ * the real provider stack in `components/builder/BuilderProvider.tsx`.
  *
  * Fixtures are built in the normalized doc shape directly — no legacy
  * `AppBlueprint` tree. The doc store's `load()` takes a `PersistableDoc`.
@@ -24,7 +24,7 @@ import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
 /** Single-form doc with one text field — the minimum structure the engine
- *  needs to produce a non-empty runtime state from `activateForm(0, 0)`. */
+ *  needs to produce a non-empty runtime state from `activateForm(FORM_UUID)`. */
 const MODULE_UUID = asUuid("module-1-uuid");
 const FORM_UUID = asUuid("form-1-uuid");
 const FIELD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
@@ -101,7 +101,7 @@ describe("BuilderFormEngineProvider", () => {
 		});
 		/* activateForm short-circuits when the doc store isn't installed, so
 		 * reaching any non-empty runtime state proves the effect ran. */
-		result.current.activateForm(0, 0);
+		result.current.activateForm(FORM_UUID);
 		const runtime = result.current.store.getState();
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
 	});
@@ -139,7 +139,7 @@ describe("BuilderFormEngineProvider", () => {
 			useEffect(() => {
 				/* Capture the controller once we know its activate ran with the
 				 * doc store available; assertions then read from this ref. */
-				controller.activateForm(0, 0);
+				controller.activateForm(FORM_UUID);
 				captured = controller;
 			}, [controller]);
 			return null;

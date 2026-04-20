@@ -24,9 +24,13 @@
 
 "use client";
 
-/* No Next.js router imports — all navigation uses the browser History API
- * directly via pushState/replaceState + notifyPathChange(). This avoids
- * triggering Next.js server-side re-renders on intra-builder navigation. */
+/* Intra-builder navigation uses the browser History API directly via
+ * pushState/replaceState + notifyPathChange() — see `useNavigate` below.
+ * Next.js's `useRouter` is imported only for `useExternalNavigate`, the
+ * ONE sanctioned wrapper for cross-route navigation (leaving the
+ * builder, landing-page flows, etc.) — no other app code should import
+ * `next/navigation` directly. */
+import { useRouter } from "next/navigation";
 import { useMemo, useRef } from "react";
 import { useConsultEditGuard } from "@/components/builder/contexts/EditGuardContext";
 import {
@@ -301,7 +305,7 @@ export function useNavigate(): NavigateActions {
 				if (parent) push(parent);
 			},
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- basePath is captured once via ref
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentional stable object; all state read at call time via locRef/window.location
 	}, []);
 }
 
@@ -384,4 +388,52 @@ export function useSelect(): SelectAction {
 			notifyPathChange();
 		};
 	}, [consultGuard]);
+}
+
+/**
+ * Action bag for cross-route navigation — the three methods an app
+ * navigating between Next.js routes actually needs. Kept deliberately
+ * minimal: no `back`/`forward`/`prefetch` — if a future call site
+ * genuinely needs one, add it here rather than re-exposing the full
+ * router surface. Every method is a standalone arrow, safe to
+ * destructure without losing `this` context.
+ */
+export interface ExternalNavigateActions {
+	push: (path: string) => void;
+	replace: (path: string) => void;
+	refresh: () => void;
+}
+
+/**
+ * Sanctioned wrapper over Next.js's `useRouter` for cross-route
+ * navigation (leaving the builder, landing/auth flows, admin pages).
+ *
+ * Components navigating WITHIN the builder use `useNavigate` — that
+ * hook talks to the browser History API directly so intra-builder
+ * clicks don't trigger server-side RSC re-renders. Components
+ * navigating ACROSS routes use `useExternalNavigate`, which routes
+ * through `useRouter` so Next.js can prefetch + stream the next route
+ * normally.
+ *
+ * Keeping both behind named hooks means app code never imports
+ * `next/navigation` directly — reviewers can search for
+ * `useExternalNavigate` to audit every cross-route jump, and switching
+ * navigation strategies in the future is a one-file change.
+ *
+ * The returned object is memoized on `router` so consumers can safely
+ * place `navigate` in `useCallback`/`useMemo` dependency arrays without
+ * re-firing on every parent render. App Router's `router` reference is
+ * stable within a session, so in practice the memo returns the same
+ * object bag for the lifetime of the component.
+ */
+export function useExternalNavigate(): ExternalNavigateActions {
+	const router = useRouter();
+	return useMemo(
+		() => ({
+			push: (path: string) => router.push(path),
+			replace: (path: string) => router.replace(path),
+			refresh: () => router.refresh(),
+		}),
+		[router],
+	);
 }

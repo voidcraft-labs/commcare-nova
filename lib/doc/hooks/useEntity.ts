@@ -8,6 +8,8 @@
  * this specific entity (Immer structural sharing).
  */
 
+"use client";
+
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
