@@ -4,6 +4,7 @@
 // imports from here or from the kind-specific files under ./fields.
 
 export * from "./blueprint";
+export * from "./caseTypes";
 export * from "./fields";
 export * from "./forms";
 export * from "./kinds";

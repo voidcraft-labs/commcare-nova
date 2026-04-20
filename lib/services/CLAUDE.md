@@ -1,6 +1,6 @@
 # Services Layer
 
-Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `questionPath`), and UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`). Generation logging moved to `lib/log/` — see its CLAUDE.md for the event log boundary.
+Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `fieldPath`), and UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`). Generation logging moved to `lib/log/` — see its CLAUDE.md for the event log boundary.
 
 The Solutions Architect and its generation loop moved to `lib/agent/` in Phase 3 — see `lib/agent/CLAUDE.md` for the SA tool-loop rules, prompt caching, mutation-emission surface, and provider-options shape.
 
@@ -20,7 +20,7 @@ All itext entries (labels, hints, option labels) emit both `<value>` and `<value
 
 ### Secondary instances
 
-Required instances (`casedb`, `commcaresession`) are accumulated at the point of use during the build: XPath field + label scans during question-part generation, Connect expression scans during connect-block generation. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
+Required instances (`casedb`, `commcaresession`) are accumulated at the point of use during the build: XPath field + label scans during field-part generation, Connect expression scans during connect-block generation. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
 
 ## Error flow
 

@@ -46,7 +46,7 @@ import type {
 	BlueprintForm,
 	BlueprintModule,
 	Question,
-} from "@/lib/schemas/blueprint";
+} from "./legacyTypes";
 
 // ─── AppBlueprint → BlueprintDoc ────────────────────────────────────────
 

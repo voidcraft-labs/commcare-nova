@@ -4,7 +4,7 @@
  * Two-phase rendering for performance:
  *
  * 1. **Lazy shell** (initial mount): A minimal 24px div with a single `useState`
- *    hook. Inflates to the full UI on first mouse entry. For a 25-question form,
+ *    hook. Inflates to the full UI on first mouse entry. For a 25-field form,
  *    this reduces 26 InsertionPoints from ~338 hooks to ~26 hooks at mount time.
  *
  * 2. **Full InsertionPoint** (after first hover): Hover detection logic with
@@ -16,7 +16,7 @@
  * The shared menu pattern uses Base UI's official detached trigger API:
  * each InsertionPoint sends its context (`atIndex`, `parentPath`) as payload
  * to the shared `Menu.Root` via the handle. The popup reads the payload to
- * determine where to insert the new question.
+ * determine where to insert the new field.
  */
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -100,7 +100,7 @@ function FullInsertionPoint({
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
 	/* Subscribe to menu close events from the shared Menu.Root so we can
-	 * collapse the hover line when the user finishes selecting a question type
+	 * collapse the hover line when the user finishes selecting a field kind
 	 * or clicks outside the popup. */
 	useEffect(() => {
 		if (!pickerCtx) return;
@@ -213,7 +213,7 @@ function FullInsertionPoint({
 		triggerRef.current?.click();
 	}, []);
 
-	/** Prevent click from bubbling to parent question wrappers. */
+	/** Prevent click from bubbling to parent field wrappers. */
 	const stopClick = useCallback((e: React.MouseEvent) => {
 		e.stopPropagation();
 	}, []);
@@ -236,7 +236,7 @@ function FullInsertionPoint({
 		>
 			{/* Invisible hover detector covering the insertion point's own area.
 			 * No negative margins — the detector stays within the gap so the user
-			 * won't accidentally trigger it from an adjacent question field.
+			 * won't accidentally trigger it from an adjacent field.
 			 * Semantic <button> with tabIndex={-1} so keyboard users skip it (they
 			 * use the visible "+" button below). aria-hidden keeps it out of the
 			 * a11y tree. Clicks forward to the Menu.Trigger via ref. */}
@@ -262,14 +262,14 @@ function FullInsertionPoint({
 
 				{/* Detached trigger connected to the shared Menu.Root in FormRenderer.
 				 *  The payload carries this InsertionPoint's location so the shared
-				 *  FieldTypePickerPopup knows where to insert the new question. */}
-				<Tooltip content="Insert question">
+				 *  FieldTypePickerPopup knows where to insert the new field. */}
+				<Tooltip content="Insert field">
 					<Menu.Trigger
 						ref={triggerRef}
 						handle={pickerCtx?.handle}
 						payload={{ atIndex, parentUuid }}
 						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
-						aria-label="Insert question"
+						aria-label="Insert field"
 						onClick={stopClick}
 					>
 						<Icon icon={tablerPlus} width="12" height="12" />

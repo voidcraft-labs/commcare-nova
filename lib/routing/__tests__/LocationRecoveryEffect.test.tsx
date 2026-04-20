@@ -112,7 +112,7 @@ describe("LocationRecoveryEffect", () => {
 
 	it("no-op when URL is already valid (form + valid selection)", () => {
 		const store = makeStore();
-		/* Flat URL: single question UUID — parser derives the parent form. */
+		/* Flat URL: single field UUID — parser derives the parent form. */
 		mockSegments.current = ["q-a-0000-0000-0000-000000000000"];
 
 		renderEffect(store);
@@ -133,7 +133,7 @@ describe("LocationRecoveryEffect", () => {
 		const store = makeStore();
 		const state = store.getState();
 		const formUuid = state.formOrder[state.moduleOrder[0]][0];
-		/* The second segment is a stale question UUID. The parser degrades
+		/* The second segment is a stale field UUID. The parser degrades
 		 * to form-without-selection; the effect detects the URL mismatch
 		 * and replaces the path with the canonical form URL. */
 		mockSegments.current = [formUuid, "does-not-exist"];

@@ -309,27 +309,27 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("addQuestions emits a single data-mutations batch (not data-form-updated)", async () => {
+	it("addFields emits a single data-mutations batch (not data-form-updated)", async () => {
 		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
 
-		await runTool(sa, "addQuestions", {
+		await runTool(sa, "addFields", {
 			moduleIndex: 0,
 			formIndex: 0,
-			questions: [
+			fields: [
 				{
 					id: "dob",
-					type: "date",
+					kind: "date",
 					parentId: "",
 					label: "Date of birth",
 					required: "",
 					hint: "",
-					validation: "",
-					validation_msg: "",
+					validate: "",
+					validate_msg: "",
 					relevant: "",
 					calculate: "",
 					default_value: "",
 					options: [],
-					case_property_on: "",
+					case_property: "",
 				},
 			],
 		});
@@ -343,13 +343,13 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("editQuestion with id rename emits rename + update as two separate data-mutations batches", async () => {
+	it("editField with id rename emits rename + update as two separate data-mutations batches", async () => {
 		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
 
-		await runTool(sa, "editQuestion", {
+		await runTool(sa, "editField", {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionId: "case_name",
+			fieldId: "case_name",
 			updates: {
 				id: "full_name", // triggers the rename batch
 				label: "Full patient name", // triggers the second batch
@@ -434,31 +434,31 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		await runTool(sa, "searchBlueprint", { query: "patient" });
 		await runTool(sa, "getModule", { moduleIndex: 0 });
 		await runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 });
-		await runTool(sa, "getQuestion", {
+		await runTool(sa, "getField", {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionId: "case_name",
+			fieldId: "case_name",
 		});
 
-		await runTool(sa, "addQuestion", {
+		await runTool(sa, "addField", {
 			moduleIndex: 0,
 			formIndex: 0,
-			question: {
+			field: {
 				id: "dob",
-				type: "date",
+				kind: "date",
 				label: "Date of birth",
 			},
 		});
-		await runTool(sa, "editQuestion", {
+		await runTool(sa, "editField", {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionId: "case_name",
+			fieldId: "case_name",
 			updates: { label: "New label" },
 		});
-		await runTool(sa, "removeQuestion", {
+		await runTool(sa, "removeField", {
 			moduleIndex: 0,
 			formIndex: 0,
-			questionId: "dob",
+			fieldId: "dob",
 		});
 		await runTool(sa, "updateModule", {
 			moduleIndex: 0,

@@ -8,19 +8,19 @@
  * context.
  *
  * Both are used by `lib/routing/builderActions.ts#useUndoRedo` to highlight
- * the affected question after a temporal undo/redo. They are exported for
+ * the affected field after a temporal undo/redo. They are exported for
  * unit tests (`__tests__/builderActions-useUndoRedo.test.tsx`) which mock
  * this module to spy on the DOM side-effects in isolation.
  */
 "use client";
 
 /**
- * Find a specific field element within a question's InlineSettingsPanel.
+ * Find a specific field element within a field's InlineSettingsPanel.
  *
- * The panel renders as the next-sibling of the question wrapper (see
+ * The panel renders as the next-sibling of the field wrapper (see
  * `EditableFieldWrapper` + `SortableQuestion` in `FormRenderer.tsx`).
- * We locate the panel by its stable `data-question-uuid` attribute — not
- * by question `id`, so the lookup survives renames — then match the
+ * We locate the panel by its stable `data-field-uuid` attribute — not
+ * by field `id`, so the lookup survives renames — then match the
  * requested field by `data-field-id`.
  *
  * Returns `null` when the panel is not mounted (no current selection) or
@@ -28,12 +28,12 @@
  * Callers treat `null` as "nothing to highlight" and bail gracefully.
  */
 export function findFieldElement(
-	questionUuid: string,
+	fieldUuid: string,
 	fieldId?: string,
 ): HTMLElement | null {
 	if (!fieldId) return null;
 	const questionEl = document.querySelector(
-		`[data-question-uuid="${questionUuid}"]`,
+		`[data-field-uuid="${fieldUuid}"]`,
 	) as HTMLElement | null;
 	const panel = questionEl?.nextElementSibling as HTMLElement | null;
 	if (!panel?.hasAttribute("data-settings-panel")) return null;

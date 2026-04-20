@@ -30,7 +30,7 @@ import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 import {
 	CASE_PROPERTY_REGEX,
 	MAX_CASE_PROPERTY_LENGTH,
-	MEDIA_QUESTION_TYPES,
+	MEDIA_FIELD_KINDS,
 	RESERVED_CASE_PROPERTIES,
 } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
@@ -92,8 +92,9 @@ function toCaseConfigQuestions(
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		// CaseConfigQuestion uses the wire-format key name `case_property_on`
-		// (the schema predates the domain rename). We translate at this
-		// adapter boundary rather than renaming the shared helper.
+		// — translate here so the shared `deriveCaseConfig` helper stays
+		// on wire vocabulary. This adapter is the one place in this file
+		// where the CommCare dialect meets the domain dialect.
 		const node: CaseConfigQuestion = {
 			id: field.id,
 			type: field.kind,
@@ -136,7 +137,7 @@ export function emptyForm(
 		validationError(
 			"EMPTY_FORM",
 			"form",
-			`"${ctx.formName}" in "${ctx.moduleName}" has no questions. CommCare can't build an empty form — add at least one question.`,
+			`"${ctx.formName}" in "${ctx.moduleName}" has no fields. CommCare can't build an empty form — add at least one field.`,
 			baseLocation(ctx),
 		),
 	];
@@ -152,7 +153,7 @@ export function noCaseNameField(
 			validationError(
 				"NO_CASE_NAME_FIELD",
 				"form",
-				`"${ctx.formName}" is a registration form but none of its questions has id "case_name". Every new case needs a name — add a text question with id "case_name" and case_property_on set to the module's case type.`,
+				`"${ctx.formName}" is a registration form but none of its fields has id "case_name". Every new case needs a name — add a text field with id "case_name" and \`case_property\` set to the module's case type.`,
 				baseLocation(ctx),
 			),
 		];
@@ -173,7 +174,7 @@ export function caseNameFieldMissing(
 		validationError(
 			"CASE_NAME_FIELD_MISSING",
 			"form",
-			`"${ctx.formName}" expects a question with id "${caseConfig.case_name_field}" for the case name, but no such question exists. Either add this question or rename an existing one.`,
+			`"${ctx.formName}" expects a field with id "${caseConfig.case_name_field}" for the case name, but no such field exists. Either add this field or rename an existing one.`,
 			baseLocation(ctx),
 		),
 	];
@@ -191,7 +192,7 @@ export function reservedCaseProperty(
 				validationError(
 					"RESERVED_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" saves to case property "${prop}", which is a reserved name in CommCare (used internally for case tracking). Rename the question to something like "${prop}_value" or "case_${prop}" instead.`,
+					`"${ctx.formName}" saves to case property "${prop}", which is a reserved name in CommCare (used internally for case tracking). Rename the field to something like "${prop}_value" or "case_${prop}" instead.`,
 					baseLocation(ctx),
 					{ reservedName: prop },
 				),
@@ -201,7 +202,7 @@ export function reservedCaseProperty(
 	return errors;
 }
 
-export function casePropertyMissingQuestion(
+export function casePropertyMissingField(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -216,9 +217,9 @@ export function casePropertyMissingQuestion(
 		if (!ids.includes(qId)) {
 			errors.push(
 				validationError(
-					"CASE_PROPERTY_MISSING_QUESTION",
+					"CASE_PROPERTY_MISSING_FIELD",
 					"form",
-					`"${ctx.formName}" maps case property "${prop}" to question "${qId}", but that question doesn't exist in this form. Either add the question or remove the case property mapping.`,
+					`"${ctx.formName}" maps case property "${prop}" to field "${qId}", but that field doesn't exist in this form. Either add the field or remove the case property mapping.`,
 					baseLocation(ctx),
 				),
 			);
@@ -239,12 +240,12 @@ export function mediaCaseProperty(
 		question_id: qId,
 	} of caseConfig.case_properties) {
 		const field = findFieldById(doc, ctx.formUuid, qId);
-		if (field && MEDIA_QUESTION_TYPES.has(field.kind)) {
+		if (field && MEDIA_FIELD_KINDS.has(field.kind)) {
 			errors.push(
 				validationError(
 					"MEDIA_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" tries to save the ${field.kind} question "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Remove the case_property_on from this question.`,
+					`"${ctx.formName}" tries to save the ${field.kind} field "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Clear \`case_property\` on this field.`,
 					baseLocation(ctx),
 					{ property: prop, questionId: qId },
 				),
@@ -254,7 +255,7 @@ export function mediaCaseProperty(
 	return errors;
 }
 
-export function casePreloadMissingQuestion(
+export function casePreloadMissingField(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -269,9 +270,9 @@ export function casePreloadMissingQuestion(
 		if (!ids.includes(qId)) {
 			errors.push(
 				validationError(
-					"CASE_PRELOAD_MISSING_QUESTION",
+					"CASE_PRELOAD_MISSING_FIELD",
 					"form",
-					`"${ctx.formName}" tries to preload case property "${prop}" into question "${qId}", but that question doesn't exist. The preload needs a matching question to receive the data.`,
+					`"${ctx.formName}" tries to preload case property "${prop}" into field "${qId}", but that field doesn't exist. The preload needs a matching field to receive the data.`,
 					baseLocation(ctx),
 				),
 			);
@@ -318,7 +319,7 @@ export function duplicateCasePropertyMapping(
 				validationError(
 					"DUPLICATE_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" has two questions ("${prev}" and "${qId}") both saving to case property "${prop}". Each case property can only be updated by one question — rename one of the question IDs so they map to different properties.`,
+					`"${ctx.formName}" has two fields ("${prev}" and "${qId}") both saving to case property "${prop}". Each case property can only be updated by one field — rename one of the field IDs so they map to different properties.`,
 					baseLocation(ctx),
 					{ property: prop, questionId1: prev, questionId2: qId },
 				),
@@ -342,7 +343,7 @@ export function registrationNoCaseProperties(
 			validationError(
 				"REGISTRATION_NO_CASE_PROPS",
 				"form",
-				`"${ctx.formName}" is a registration form but none of its questions save data to the "${mod.caseType}" case. A registration form should capture information about the new case. Add case_property_on: "${mod.caseType}" to questions whose answers should be saved to the case.`,
+				`"${ctx.formName}" is a registration form but none of its fields save data to the "${mod.caseType}" case. A registration form should capture information about the new case. Set \`case_property\` to "${mod.caseType}" on fields whose answers should be saved to the case.`,
 				baseLocation(ctx),
 			),
 		];
@@ -396,7 +397,7 @@ export function closeConditionValidation(
 				validationError(
 					"CLOSE_CONDITION_INCOMPLETE",
 					"form",
-					`"${ctx.formName}" has a close_condition but is missing the ${!cc.field ? "question" : "answer"} field. Both question and answer are required for conditional close. To close unconditionally, remove the close_condition entirely.`,
+					`"${ctx.formName}" has a close_condition but is missing the ${!cc.field ? "field" : "answer"}. Both field and answer are required for conditional close. To close unconditionally, remove the close_condition entirely.`,
 					loc,
 				),
 			);
@@ -406,9 +407,9 @@ export function closeConditionValidation(
 			if (!ids.includes(cc.field)) {
 				errors.push(
 					validationError(
-						"CLOSE_CONDITION_QUESTION_NOT_FOUND",
+						"CLOSE_CONDITION_FIELD_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" has close_condition checking question "${cc.field}", but no question with that ID exists in the form. Either add the question or update close_condition to reference an existing one.`,
+						`"${ctx.formName}" has close_condition checking field "${cc.field}", but no field with that ID exists in the form. Either add the field or update close_condition to reference an existing one.`,
 						loc,
 					),
 				);
@@ -678,11 +679,11 @@ export function connectValidation(
 }
 
 /**
- * Question IDs must be unique among siblings (same parent scope). Different
+ * Field IDs must be unique among siblings (same parent scope). Different
  * scopes (e.g. /data/grp/name and /data/other/name) coexist — they have
  * different XML paths.
  */
-export function duplicateQuestionIds(
+export function duplicateFieldIds(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 ): ValidationError[] {
@@ -699,9 +700,9 @@ export function duplicateQuestionIds(
 			if (count > 1) {
 				errors.push(
 					validationError(
-						"DUPLICATE_QUESTION_ID",
+						"DUPLICATE_FIELD_ID",
 						"form",
-						`"${ctx.formName}" in "${ctx.moduleName}" has ${count} questions with the ID "${id}" at the same level (${parentPath}). Questions at the same level share an XML path, so they need unique IDs. Rename the duplicates.`,
+						`"${ctx.formName}" in "${ctx.moduleName}" has ${count} fields with the ID "${id}" at the same level (${parentPath}). Fields at the same level share an XML path, so they need unique IDs. Rename the duplicates.`,
 						baseLocation(ctx),
 					),
 				);
@@ -790,13 +791,13 @@ export function runFormRules(
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));
-	errors.push(...duplicateQuestionIds(doc, ctx));
+	errors.push(...duplicateFieldIds(doc, ctx));
 	errors.push(...noCaseNameField(form, ctx, caseConfig));
 	errors.push(...caseNameFieldMissing(doc, form, ctx, caseConfig));
 	errors.push(...reservedCaseProperty(ctx, caseConfig));
-	errors.push(...casePropertyMissingQuestion(doc, ctx, caseConfig));
+	errors.push(...casePropertyMissingField(doc, ctx, caseConfig));
 	errors.push(...mediaCaseProperty(doc, ctx, caseConfig));
-	errors.push(...casePreloadMissingQuestion(doc, ctx, caseConfig));
+	errors.push(...casePreloadMissingField(doc, ctx, caseConfig));
 	errors.push(...casePreloadReserved(ctx, caseConfig));
 	errors.push(...duplicateCasePropertyMapping(ctx, caseConfig));
 	errors.push(...registrationNoCaseProperties(form, ctx, caseConfig, mod));

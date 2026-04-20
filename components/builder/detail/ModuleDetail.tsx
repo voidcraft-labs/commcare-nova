@@ -1,20 +1,12 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerFile from "@iconify-icons/tabler/file";
-import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
-import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-
-const formTypeIcons = {
-	registration: tablerFilePlus,
-	followup: tablerFilePencil,
-	survey: tablerFile,
-} as const;
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 
 interface ModuleDetailProps {
 	/** Module uuid in the blueprint. */
@@ -95,10 +87,7 @@ export function ModuleDetail({ moduleUuid }: ModuleDetailProps) {
 					{forms.map((f) => (
 						<div key={f.uuid} className="flex items-center gap-2 text-sm">
 							<Icon
-								icon={
-									formTypeIcons[f.type as keyof typeof formTypeIcons] ??
-									tablerFile
-								}
+								icon={formTypeIcons[f.type]}
 								width="14"
 								height="14"
 								className="text-nova-text-muted shrink-0"

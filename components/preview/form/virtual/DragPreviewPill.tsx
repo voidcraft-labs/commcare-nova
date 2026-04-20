@@ -1,6 +1,6 @@
 /**
  * DragPreviewPill — the small "chip" rendered as the custom drag preview
- * while a question or group is being dragged.
+ * while a field or group is being dragged.
  *
  * Exists as a named component (rather than an inline JSX literal) so
  * every draggable row type uses the SAME visual, and so future tweaks
@@ -18,7 +18,7 @@ import tablerDrag from "@iconify-icons/tabler/grip-vertical";
 
 interface DragPreviewPillProps {
 	/** Short textual label to show next to the grip icon. Usually the
-	 *  question/group label, or the semantic id as fallback. */
+	 *  field/group label, or the semantic id as fallback. */
 	readonly label: string;
 }
 

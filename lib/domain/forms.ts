@@ -56,7 +56,7 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 }
 
 const closeConditionSchema = z.object({
-	field: z.string(), // was `question` — renamed
+	field: z.string(),
 	answer: z.string(),
 	operator: z.enum(["=", "selected"]).optional(),
 });
@@ -69,8 +69,8 @@ const formLinkDatumSchema = z.object({
 const formLinkTargetSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("form"),
-		moduleUuid: uuidSchema, // was moduleIndex
-		formUuid: uuidSchema, // was formIndex
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
 	}),
 	z.object({
 		type: z.literal("module"),

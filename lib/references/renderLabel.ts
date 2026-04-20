@@ -10,7 +10,7 @@
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 import { HASHTAG_REF_PATTERN } from "./config";
 import { ReferenceProvider } from "./provider";
 import type { Reference } from "./types";
@@ -93,14 +93,14 @@ export function parseLabelSegments(text: string): LabelSegment[] {
 
 /**
  * Resolve a parsed expression string to a Reference. When a provider is
- * available, delegates to it for rich resolution (question label, type icon).
+ * available, delegates to it for rich resolution (field label, type icon).
  * Returns null if the provider can't resolve — unresolvable refs render as
  * plain text on the canvas to avoid misleading chips for typos or stale refs.
  *
  * When no provider is passed (null), falls back to pattern-based parsing that
  * produces a basic Reference with the path as the label — used by surfaces
  * outside the ReferenceProvider context (e.g. structure sidebar). Optional
- * `iconOverrides` enriches form refs with question-type icons in this mode.
+ * `iconOverrides` enriches form refs with field-kind icons in this mode.
  */
 export function resolveRefFromExpr(
 	expr: string,
@@ -113,7 +113,7 @@ export function resolveRefFromExpr(
 	return parsed.type === "form"
 		? {
 				type: "form",
-				path: parsed.path as QuestionPath,
+				path: parsed.path as FieldPath,
 				label: parsed.path,
 				raw: expr,
 				icon: iconOverrides?.get(parsed.path),

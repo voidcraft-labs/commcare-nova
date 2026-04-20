@@ -9,9 +9,9 @@
 // calculate and default_value are still valid for pre-populating coordinates
 // (e.g. loading a saved location from a case property).
 
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
 
 export const geopointFieldSchema = inputFieldBaseSchema.extend({
@@ -26,22 +26,10 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	kind: "geopoint",
 	xformKind: "input",
 	dataType: "geopoint",
-	icon: "tabler:map-pin",
+	icon: tablerMapPin,
+	label: "Location",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "GPS coordinate capture.",
 	convertTargets: [],
-};
-
-// Editor schema is a placeholder for Phase 1 — real XPath and coordinate
-// fields are Phase 5's job. StubField renders a disabled input at every slot.
-export const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
-	data: [{ key: "case_property", component: StubField }],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-		{ key: "calculate", component: StubField },
-		{ key: "default_value", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

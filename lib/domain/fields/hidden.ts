@@ -12,9 +12,9 @@
 // common base with the other kinds means any code that assumes "every
 // field has uuid + id" stays correct for hidden fields.
 
+import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { structuralFieldBase } from "./base";
 
 export const hiddenFieldSchema = structuralFieldBase.extend({
@@ -34,25 +34,11 @@ export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	kind: "hidden",
 	xformKind: "input",
 	dataType: "xsd:string",
-	icon: "tabler:eye-off",
+	icon: tablerEyeOff,
+	label: "Hidden",
 	isStructural: false,
 	isContainer: false,
 	saDocs:
 		"Computed value that the user never sees. Must have a calculate expression.",
 	convertTargets: [],
-};
-
-// Editor schema — Phase 1 stubs. calculate is surfaced in logic (required,
-// non-optional from the UX perspective too) alongside the other XPath
-// expressions. case_property allows the computed value to be written to a
-// case property.
-export const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
-	data: [{ key: "case_property", component: StubField }],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-		{ key: "calculate", component: StubField },
-		{ key: "default_value", component: StubField },
-	],
-	ui: [],
 };

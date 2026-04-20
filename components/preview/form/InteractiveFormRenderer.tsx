@@ -12,7 +12,7 @@
  *   - **Answer-driven visibility.** Questions whose engine state is
  *     `visible: false` are removed from the render entirely (relevance
  *     expressions drive visibility). The edit view always shows every
- *     question so the author can edit structure regardless of relevance.
+ *     field so the author can edit structure regardless of relevance.
  *   - **Hidden-type questions disappear.** The edit view renders them as
  *     a compact card so authors can edit them; the live / preview view
  *     must not expose them to the data-entering user.
@@ -43,7 +43,7 @@ import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -65,9 +65,9 @@ interface InteractiveFormRendererProps {
 	 *  root, threaded through nested containers by `GroupField` /
 	 *  `RepeatField`. */
 	readonly prefix?: string;
-	/** Blueprint question path of the parent, used by descendants to build
+	/** Blueprint field path of the parent, used by descendants to build
 	 *  engine-state keys. Absent at the form root. */
-	readonly parentPath?: QuestionPath;
+	readonly parentPath?: FieldPath;
 	/** Nesting depth of the children this renderer is about to emit.
 	 *  Rows inside a group-at-depth-N render at depth N+1. */
 	readonly depth?: number;
@@ -81,7 +81,7 @@ interface InteractiveFormRendererProps {
 
 /**
  * Subscribes to the ordered UUID list at this nesting level only. Per-
- * question data and engine state are read inside `InteractiveQuestion`
+ * field data and engine state are read inside `InteractiveField`
  * so unrelated questions don't cause siblings to re-render.
  */
 export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
@@ -91,7 +91,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	depth = 0,
 	leadingGap = true,
 }: InteractiveFormRendererProps) {
-	const questionUuids = useBlueprintDoc(
+	const fieldUuids = useBlueprintDoc(
 		(s) => s.fieldOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
 	);
 
@@ -102,10 +102,10 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 
 	return (
 		<div className={containerClass}>
-			{questionUuids.map((rawUuid) => {
+			{fieldUuids.map((rawUuid) => {
 				const uuid = asUuid(rawUuid);
 				return (
-					<InteractiveQuestion
+					<InteractiveField
 						key={uuid}
 						uuid={uuid}
 						prefix={prefix}
@@ -118,17 +118,17 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	);
 });
 
-// ── InteractiveQuestion ───────────────────────────────────────────────
+// ── InteractiveField ───────────────────────────────────────────────
 
 interface InteractiveQuestionProps {
 	readonly uuid: Uuid;
 	readonly prefix: string;
-	readonly parentPath?: QuestionPath;
+	readonly parentPath?: FieldPath;
 	readonly depth: number;
 }
 
 /**
- * Per-question renderer for pointer/test mode. Owns the per-entity doc
+ * Per-field renderer for pointer/test mode. Owns the per-entity doc
  * subscription, engine state subscription, and visibility gating; does
  * NOT own edit-mode affordances (selection, dnd, insertion).
  *
@@ -139,7 +139,7 @@ interface InteractiveQuestionProps {
  * The outer `mb-6` provides the 24px trailing gap that matches edit
  * mode's between-row `insertion` spacing.
  */
-const InteractiveQuestion = memo(function InteractiveQuestion({
+const InteractiveField = memo(function InteractiveField({
 	uuid,
 	prefix,
 	parentPath,
@@ -161,7 +161,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 
 	const fieldId = field.id;
 	const path = `${prefix}/${fieldId}`;
-	const fieldPath = qpath(fieldId, parentPath);
+	const fieldPath = fpath(fieldId, parentPath);
 
 	const showInvalid = state.touched && !state.valid;
 
@@ -197,7 +197,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 					paddingRight: depthPadding(depth),
 				}}
 			>
-				<LabelField question={field} state={state} />
+				<LabelField field={field} state={state} />
 			</div>
 		);
 	} else {
@@ -242,7 +242,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 					</div>
 				)}
 				<FieldRenderer
-					question={field}
+					field={field}
 					state={state}
 					onChange={(value) => controller.onValueChange(uuid, value)}
 					onBlur={() => controller.onTouch(uuid)}
@@ -255,7 +255,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 		<div
 			className="relative mb-6"
 			data-invalid={showInvalid ? "true" : undefined}
-			data-question-uuid={uuid}
+			data-field-uuid={uuid}
 		>
 			{content}
 		</div>

@@ -6,9 +6,9 @@
 // `relevant` (to conditionally show/hide the message). Marked isStructural
 // because it contributes to layout/presentation without producing a value.
 
+import tablerTag from "@iconify-icons/tabler/tag";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const labelFieldSchema = fieldBaseSchema.extend({
@@ -22,18 +22,10 @@ export const labelFieldMetadata: FieldKindMetadata<"label"> = {
 	kind: "label",
 	xformKind: "trigger",
 	dataType: "",
-	icon: "tabler:info-circle",
+	icon: tablerTag,
+	label: "Label",
 	isStructural: true,
 	isContainer: false,
 	saDocs: "Display-only text. Renders a read-only message — collects no input.",
 	convertTargets: [],
-};
-
-// Editor schema — Phase 1 stubs. Labels carry no data wiring and no UI
-// decoration (no hint — the label text itself is the message). Only a
-// relevant expression is meaningful here.
-export const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
-	data: [],
-	logic: [{ key: "relevant", component: StubField }],
-	ui: [],
 };

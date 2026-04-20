@@ -20,10 +20,9 @@
  *
  * The engine consumes domain `Form` + `Field[]` entities (via the normalized
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
- * `FieldTreeNode` rose tree built at construction / schema refresh — the
- * walkers used to operate on the legacy nested `Question` shape and switched
- * to the domain tree during the Phase 1 rename. No `Question` / `BlueprintForm`
- * types live in this file or its helpers.
+ * `FieldTreeNode` rose tree built at construction / schema refresh. No
+ * legacy wire types (`Question` / `BlueprintForm`) live in this file or
+ * its helpers.
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
@@ -149,7 +148,7 @@ export class FormEngine {
 			this.evaluateAndCollect(affectedPath, updates);
 		}
 
-		/* Re-validate the changed question itself */
+		/* Re-validate the changed field itself */
 		const latestState = updates[path] ?? current;
 		if (latestState) {
 			if (latestState.touched) {
@@ -297,7 +296,7 @@ export class FormEngine {
 
 	/**
 	 * Rebuild only the TriggerDag from a refreshed form input. Does NOT rebuild
-	 * the DataInstance or question states — only the dependency graph + the
+	 * the DataInstance or field states — only the dependency graph + the
 	 * cached field tree.
 	 *
 	 * Used by the EngineController when a single field's expression changes:
@@ -313,7 +312,7 @@ export class FormEngine {
 	/**
 	 * Re-evaluate expressions for specific paths and write only the changed
 	 * results to the internal store. Used by the EngineController for
-	 * targeted updates when a single question's expression changes —
+	 * targeted updates when a single field's expression changes —
 	 * avoids re-evaluating the entire form.
 	 */
 	evaluatePathsInto(paths: string[]): void {

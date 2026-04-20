@@ -15,6 +15,12 @@
  * field. Drag-drop still works — the panel is inside the row wrapper
  * and moves with the field during drag.
  *
+ * Composition: `<FieldHeader>` (ID input + kebab + delete) stacked
+ * above `<FieldEditorPanel>` (Data / Logic / Appearance section
+ * cards, driven by `fieldEditorSchemas`). The panel adds no section
+ * chrome of its own — card + label come from the section chrome
+ * helpers consumed inside `FieldEditorPanel`.
+ *
  * Two visual variants:
  *
  *   - **`attached`** — flat top, rounded bottom, violet border on every
@@ -31,10 +37,8 @@
 import { useCallback } from "react";
 import type { Field } from "@/lib/domain";
 import { useSetActiveFieldId } from "@/lib/session/hooks";
-import { ContextualEditorData } from "./contextual/ContextualEditorData";
-import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
-import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
-import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
+import { FieldEditorPanel } from "./editor/FieldEditorPanel";
+import { FieldHeader } from "./editor/FieldHeader";
 
 interface InlineSettingsPanelProps {
 	/** Domain field entity — all sub-editors consume the same shape. */
@@ -44,22 +48,6 @@ interface InlineSettingsPanelProps {
 	 *  flat-bottomed selected row. */
 	variant?: "attached" | "floating";
 }
-
-/** Static section label with a left accent bar for visual grouping. */
-export function SectionLabel({ label }: { label: string }) {
-	return (
-		<div className="flex items-center gap-2 mb-2">
-			<div className="w-0.5 h-3 rounded-full bg-nova-violet/40" />
-			<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted/70">
-				{label}
-			</span>
-		</div>
-	);
-}
-
-/** Shared styling for each section card inside the panel. */
-export const SECTION_CARD_CLASS =
-	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
 export function InlineSettingsPanel({
 	field,
@@ -103,20 +91,8 @@ export function InlineSettingsPanel({
 			data-no-drag
 			onFocus={handleFocus}
 		>
-			<ContextualEditorHeader field={field} />
-
-			<div className="p-2 space-y-2">
-				{/* Data and Appearance own their own visibility — return null
-				    when the field kind has no applicable fields. */}
-				<ContextualEditorData field={field} />
-
-				<div className={SECTION_CARD_CLASS}>
-					<SectionLabel label="Logic" />
-					<ContextualEditorLogic field={field} />
-				</div>
-
-				<ContextualEditorUI field={field} />
-			</div>
+			<FieldHeader field={field} />
+			<FieldEditorPanel field={field} />
 		</div>
 	);
 }

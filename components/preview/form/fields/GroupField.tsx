@@ -32,7 +32,7 @@ import { useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -45,9 +45,9 @@ interface GroupFieldProps {
 	/** XForm data path for this level (e.g. `/data/household_group`).
 	 *  Used as the prefix for descendants' paths. */
 	path: string;
-	/** Blueprint question path for descendants — threaded through so
+	/** Blueprint field path for descendants — threaded through so
 	 *  engine-state keys stay stable across nesting levels. */
-	fieldPath: QuestionPath;
+	fieldPath: FieldPath;
 	/** Nesting depth of this group — children render at `depth + 1` so
 	 *  they share the edit-mode `depthPadding` column exactly (flipbook
 	 *  parity). */

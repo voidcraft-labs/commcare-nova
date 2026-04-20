@@ -13,7 +13,7 @@
  *   /build/[id]/{moduleUuid}/cases                → case list
  *   /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
  *   /build/[id]/{formUuid}                        → form
- *   /build/[id]/{formUuid}/{questionUuid}          → form + selected question
+ *   /build/[id]/{formUuid}/{fieldUuid}          → form + selected field
  *
  * All entity UUIDs are globally unique in the doc store. A single UUID
  * segment identifies the entity type by checking `doc.modules[uuid]`,

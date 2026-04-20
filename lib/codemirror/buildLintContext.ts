@@ -6,10 +6,11 @@
  *   - case property names/labels reachable from this module, and
  *   - value-producing form fields (for `#form/x` completions).
  *
- * Both the contextual editor and the form-settings connect panel need the
- * same walk, so it's extracted here. Reads exclusively from the normalized
- * `BlueprintDocState` (Uuid-indexed maps + adjacency list) — no wire-format
- * `AppBlueprint`, `BlueprintForm`, or `Question` types cross the boundary.
+ * Both the field inspector's XPath editors and the form-settings
+ * connect panel need the same walk, so it's extracted here. Reads
+ * exclusively from the normalized `BlueprintDocState` (Uuid-indexed
+ * maps + adjacency list) — no wire-format `AppBlueprint`,
+ * `BlueprintForm`, or `Question` wire types cross the boundary.
  */
 
 import type { BlueprintDocState } from "@/lib/doc/store";
@@ -45,7 +46,7 @@ export function buildLintContext(
 	const formEntries: Array<{
 		path: string;
 		label: string;
-		kind: string;
+		kind: FieldKind;
 	}> = [];
 	function walk(parent: Uuid, prefix: string) {
 		const order = state.fieldOrder[parent] ?? [];
@@ -94,8 +95,6 @@ export function buildLintContext(
 	return {
 		validPaths,
 		caseProperties: moduleCaseType ? caseProperties : undefined,
-		formEntries: formEntries.filter((e) =>
-			VALUE_PRODUCING_TYPES.has(e.kind as FieldKind),
-		),
+		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
 	};
 }

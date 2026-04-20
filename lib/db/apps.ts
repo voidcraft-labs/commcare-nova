@@ -12,6 +12,7 @@
 import { FieldValue, type Timestamp } from "@google-cloud/firestore";
 import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
+import { toPersistableDoc } from "../doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
 import { collections, docs, getDb } from "./firestore";
 import type { AppDoc } from "./types";
@@ -170,8 +171,7 @@ export async function createApp(owner: string, runId: string): Promise<string> {
 		fieldOrder: {},
 		fieldParent: {},
 	};
-	// Strip fieldParent before writing — it is derived on load, not stored.
-	const { fieldParent: _fp, ...persistable } = emptyDoc;
+	const persistable = toPersistableDoc(emptyDoc);
 	await ref.set({
 		owner,
 		...denormalize(emptyDoc),

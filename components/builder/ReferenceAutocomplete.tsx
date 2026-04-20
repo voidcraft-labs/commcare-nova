@@ -22,7 +22,7 @@ const NAMESPACE_OPTIONS: Array<{
 	label: string;
 	description: string;
 }> = [
-	{ type: "form", label: "#form/", description: "Form question" },
+	{ type: "form", label: "#form/", description: "Form field" },
 	{ type: "case", label: "#case/", description: "Case property" },
 	{ type: "user", label: "#user/", description: "User property" },
 ];

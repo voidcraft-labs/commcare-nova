@@ -7,14 +7,14 @@
  */
 
 import type { CaseType, ConnectConfig } from "@/lib/domain";
-import type { BlueprintForm, Question } from "../schemas/blueprint";
+import type { BlueprintForm, Question } from "../doc/legacyTypes";
 import type { FormActions, OpenSubCaseAction } from "./commcare";
 import {
 	alwaysCondition,
 	emptyFormActions,
 	extractHashtags,
 	ifCondition,
-	MEDIA_QUESTION_TYPES,
+	MEDIA_FIELD_KINDS,
 	neverCondition,
 	RESERVED_CASE_PROPERTIES,
 } from "./commcare";
@@ -24,7 +24,7 @@ import { deriveCaseConfig } from "./deriveCaseConfig";
  * Resolve a question ID to its full /data/... path (including parent groups/repeats).
  * Questions inside groups need paths like /data/group_id/question_id.
  */
-function resolveQuestionPath(
+function resolveFieldPath(
 	questions: Question[],
 	questionId: string,
 	prefix = "/data",
@@ -32,7 +32,7 @@ function resolveQuestionPath(
 	for (const q of questions) {
 		if (q.id === questionId) return `${prefix}/${q.id}`;
 		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			const found = resolveQuestionPath(
+			const found = resolveFieldPath(
 				q.children,
 				questionId,
 				`${prefix}/${q.id}`,
@@ -102,9 +102,9 @@ export function buildFormActions(
 		} of caseProperties) {
 			if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue; // skip reserved words
 			const qType = getQuestionType(form.questions || [], questionId);
-			if (qType && MEDIA_QUESTION_TYPES.has(qType)) continue; // skip media/binary questions
+			if (qType && MEDIA_FIELD_KINDS.has(qType)) continue; // skip media/binary questions
 			const qPath =
-				resolveQuestionPath(form.questions || [], questionId) ||
+				resolveFieldPath(form.questions || [], questionId) ||
 				`/data/${questionId}`;
 			updateMap[caseProp] = { question_path: qPath, update_mode: "always" };
 		}
@@ -116,7 +116,7 @@ export function buildFormActions(
 		base.open_case.condition = alwaysCondition();
 		const nameFieldId = case_name_field || form.questions[0]?.id || "name";
 		base.open_case.name_update.question_path =
-			resolveQuestionPath(form.questions || [], nameFieldId) ||
+			resolveFieldPath(form.questions || [], nameFieldId) ||
 			`/data/${nameFieldId}`;
 
 		// Update case properties (filtered)
@@ -144,7 +144,7 @@ export function buildFormActions(
 			} of case_preload) {
 				if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue; // HQ rejects reserved words in preloads
 				const qPath =
-					resolveQuestionPath(form.questions || [], questionId) ||
+					resolveFieldPath(form.questions || [], questionId) ||
 					`/data/${questionId}`;
 				preloadMap[qPath] = caseProp;
 			}
@@ -163,7 +163,7 @@ export function buildFormActions(
 			base.close_case = {
 				doc_type: "FormAction",
 				condition: ifCondition(
-					resolveQuestionPath(
+					resolveFieldPath(
 						form.questions || [],
 						form.close_condition.question,
 					) || `/data/${form.close_condition.question}`,
@@ -193,13 +193,13 @@ export function buildFormActions(
 			} of child.case_properties) {
 				if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue;
 				const qPath =
-					resolveQuestionPath(form.questions || [], questionId) ||
+					resolveFieldPath(form.questions || [], questionId) ||
 					`/data/${questionId}`;
 				childProps[caseProp] = { question_path: qPath, update_mode: "always" };
 			}
 
 			const nameFieldPath =
-				resolveQuestionPath(form.questions || [], child.case_name_field) ||
+				resolveFieldPath(form.questions || [], child.case_name_field) ||
 				`/data/${child.case_name_field}`;
 
 			return {
@@ -209,7 +209,7 @@ export function buildFormActions(
 				reference_id: "",
 				case_properties: childProps,
 				repeat_context: child.repeat_context
-					? resolveQuestionPath(form.questions || [], child.repeat_context) ||
+					? resolveFieldPath(form.questions || [], child.repeat_context) ||
 						`/data/${child.repeat_context}`
 					: "",
 				relationship: child.relationship,

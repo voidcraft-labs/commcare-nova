@@ -1,9 +1,9 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { q } from "../../schemas/__tests__/wireFixtures";
-import type { AppBlueprint } from "../../schemas/blueprint";
+import type { AppBlueprint } from "@/lib/doc/legacyTypes";
 import { CczCompiler } from "../cczCompiler";
 import { expandBlueprint } from "../hqJsonExpander";
+import { q } from "./wireFixtures";
 
 const blueprint: AppBlueprint = {
 	app_name: "CHW App",

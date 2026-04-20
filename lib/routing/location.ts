@@ -12,7 +12,7 @@
  *   [moduleUuid, "cases"]           → case list
  *   [moduleUuid, "cases", caseId]   → case detail
  *   [formUuid]                      → form
- *   [formUuid, questionUuid]        → form + selected question
+ *   [formUuid, fieldUuid]        → form + selected field
  *
  * Entity disambiguation: all UUIDs are globally unique. A single-segment
  * path checks `doc.modules[uuid]` first, then `doc.forms[uuid]`, then
@@ -56,10 +56,10 @@ export function serializePath(loc: Location): string[] {
 				? [loc.moduleUuid, "cases", loc.caseId]
 				: [loc.moduleUuid, "cases"];
 		case "form":
-			/* A selected question is serialized as a single UUID — the parser
-			 * resolves it to its parent form via findFormForQuestion. This
-			 * keeps URLs flat: /build/{appId}/{questionUuid} instead of
-			 * /build/{appId}/{formUuid}/{questionUuid}. */
+			/* A selected field is serialized as a single UUID — the parser
+			 * resolves it to its parent form via findFormForField. This
+			 * keeps URLs flat: /build/{appId}/{fieldUuid} instead of
+			 * /build/{appId}/{formUuid}/{fieldUuid}. */
 			return loc.selectedUuid !== undefined
 				? [loc.selectedUuid]
 				: [loc.formUuid];
@@ -87,7 +87,7 @@ export function buildUrl(basePath: string, loc: Location): string {
  * contains the UUID, then check whether that parent is itself a field
  * (group/repeat) and recurse, or whether it's a form.
  */
-function findFormForQuestion(
+function findFormForField(
 	uuid: Uuid,
 	doc: LocationParseDoc,
 ): { formUuid: Uuid; moduleUuid: Uuid } | undefined {
@@ -148,7 +148,7 @@ export function parsePathToLocation(
 	const first = segments[0] as Uuid;
 
 	if (segments.length === 1) {
-		/* Single segment — could be a module, form, or question UUID. */
+		/* Single segment — could be a module, form, or field UUID. */
 		if (doc.modules[first] !== undefined) {
 			return { kind: "module", moduleUuid: first };
 		}
@@ -170,7 +170,7 @@ export function parsePathToLocation(
 		if (doc.fields[first] !== undefined) {
 			/* Field UUID as the first (and only) segment — derive the
 			 * parent form and return form + selection. */
-			const parent = findFormForQuestion(first, doc);
+			const parent = findFormForField(first, doc);
 			if (parent) {
 				return {
 					kind: "form",
@@ -195,7 +195,7 @@ export function parsePathToLocation(
 		return { kind: "cases", moduleUuid: first, caseId: segments[2] };
 	}
 
-	/* Two-segment path: /build/{id}/{formUuid}/{questionUuid} */
+	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
 	const secondUuid = second as Uuid;
 
 	if (doc.forms[first] !== undefined) {
@@ -280,7 +280,7 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	if (loc.kind === "module") return loc;
 	if (loc.kind === "cases") return loc;
 
-	/* loc.kind === "form" — walk inward: form, then selected question. */
+	/* loc.kind === "form" — walk inward: form, then selected field. */
 	if (doc.forms[loc.formUuid] === undefined) {
 		return { kind: "module", moduleUuid: loc.moduleUuid };
 	}

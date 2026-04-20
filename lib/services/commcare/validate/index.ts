@@ -235,11 +235,8 @@ function validateTreeXPath(
 			if (!expr) continue;
 			const xpathErrors = validateXPath(expr, validPaths, caseProperties);
 			for (const err of xpathErrors) {
-				// The decoder in runner.ts looks for the word "validation" for
-				// the validate field — preserve that mapping at the boundary.
-				const reportedKey = key === "validate" ? "validation" : key;
 				errors.push(
-					`Question "${node.field.id}" in "${formName}": ${reportedKey} expression error — ${err.message}`,
+					`Field "${node.field.id}" in "${formName}": ${key} expression error — ${err.message}`,
 				);
 			}
 		}

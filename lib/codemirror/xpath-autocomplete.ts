@@ -33,7 +33,7 @@ import type { XPathLintContext } from "./xpath-lint";
 
 const NAMESPACE_OPTIONS: Completion[] = [
 	{ label: "#case/", type: "namespace", detail: "case property", boost: 2 },
-	{ label: "#form/", type: "namespace", detail: "form question", boost: 1 },
+	{ label: "#form/", type: "namespace", detail: "form field", boost: 1 },
 	{ label: "#user/", type: "namespace", detail: "user property", boost: 0 },
 ];
 

@@ -1,41 +1,38 @@
 /**
- * Type re-exports for diagnostic scripts.
+ * Shared type re-exports for diagnostic scripts.
  *
- * Imports canonical types from the app's type system so scripts have a
- * single import path. Eliminates the duplicated interfaces that previously
- * lived in inspect-logs.ts and inspect-app.ts.
+ * Only re-exports types that are imported by MULTIPLE scripts through
+ * this module. Single-consumer types import directly from their canonical
+ * home — re-exporting them here would drift without a second user to
+ * catch the drift.
  *
- * Import from here — never define script-local interfaces for types that
- * already exist in lib/log/types.ts, lib/db/types.ts, or
- * lib/schemas/blueprint.ts.
+ * Migration scripts (`scripts/migrate-*.ts`, `scripts/migrate/`) import
+ * `ConversationEvent` / `MutationEvent` / `FormLink` / `CaseType`
+ * directly from `@/lib/log/types` or `@/lib/domain` — not through here.
  */
 
-// ── Event log (unified mutation + conversation stream) ──────────────
+// ── Event log (read by inspect-logs + inspect-compare) ──────────────
 
-export type {
-	ConversationEvent,
-	ConversationPayload,
-	Event,
-	MutationEvent,
-} from "../../lib/log/types";
+export type { ConversationPayload, Event } from "../../lib/log/types";
 
-// ── Per-run summary doc (cost + behavior snapshot) ──────────────────
+// ── Per-run summary doc (read by inspect-app + inspect-logs + inspect-compare) ──
 
 export type { RunSummaryDoc } from "../../lib/db/types";
 
-// ── Blueprint structure ─────────────────────────────────────────────
+// ── Blueprint structure (normalized shape) ──────────────────────────
+// Scripts read the normalized doc shape persisted by Firestore. The
+// distinction between `PersistableDoc` (stored shape — no `fieldParent`)
+// and `BlueprintDoc` (in-memory shape — includes the derived
+// `fieldParent` reverse index) is load-bearing:
+//   - Reads from Firestore hand back `PersistableDoc`.
+//   - Walkers in `lib/doc/fieldWalk.ts` require `BlueprintDoc`.
+// Use `hydrateBlueprint` from `./firestore` at the boundary.
 
 export type {
-	AppBlueprint,
-	BlueprintForm,
-	BlueprintModule,
-	CaseProperty,
-	CaseType,
-	ConnectConfig,
-	FormLink,
-	Question,
-} from "../../lib/schemas/blueprint";
-
-// ── Model pricing ───────────────────────────────────────────────────
-
-export { DEFAULT_PRICING, MODEL_PRICING } from "../../lib/models";
+	BlueprintDoc,
+	Field,
+	Form,
+	Module,
+	PersistableDoc,
+	Uuid,
+} from "../../lib/domain";

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import type { AppBlueprint } from "../schemas/blueprint";
+import type { AppBlueprint } from "../doc/legacyTypes";
 import {
 	escapeXml,
 	validateCaseType,

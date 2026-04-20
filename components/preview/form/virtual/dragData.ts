@@ -29,14 +29,14 @@ type DropRecord<T> = T & Record<string | symbol, unknown>;
 // ── Source (draggable) payloads ───────────────────────────────────────
 
 /** Tag on a draggable row's `source.data`. The dragged thing is ALWAYS a
- *  question (leaf) or a group/repeat (container) — identified by uuid. */
+ *  field (leaf) or a group/repeat (container) — identified by uuid. */
 export interface DraggableQuestionData {
-	readonly kind: "draggable-question";
+	readonly kind: "draggable-field";
 	readonly uuid: Uuid;
 }
 
 const DRAGGABLE_QUESTION_KIND: DraggableQuestionData["kind"] =
-	"draggable-question";
+	"draggable-field";
 
 export function makeDraggableQuestionData(
 	uuid: Uuid,
@@ -52,10 +52,10 @@ export function isDraggableQuestionData(
 
 // ── Drop target payloads ──────────────────────────────────────────────
 
-/** A question row drop target — drop here with a top/bottom edge to place
- *  the dragged item before or after this question. */
+/** A field row drop target — drop here with a top/bottom edge to place
+ *  the dragged item before or after this field. */
 export interface DropQuestionData {
-	readonly kind: "drop-question";
+	readonly kind: "drop-field";
 	readonly uuid: Uuid;
 	readonly parentUuid: Uuid;
 	readonly siblingIndex: number;
@@ -89,7 +89,7 @@ export function makeDropFieldData(
 	parentUuid: Uuid,
 	siblingIndex: number,
 ): DropRecord<DropQuestionData> {
-	return { kind: "drop-question", uuid, parentUuid, siblingIndex };
+	return { kind: "drop-field", uuid, parentUuid, siblingIndex };
 }
 
 export function makeDropGroupHeaderData(
@@ -117,7 +117,7 @@ export function readDropTargetData(
 ): DropTargetData | null {
 	const kind = data.kind;
 	if (
-		kind === "drop-question" ||
+		kind === "drop-field" ||
 		kind === "drop-group-header" ||
 		kind === "drop-empty-container"
 	) {
@@ -165,7 +165,7 @@ export function isUuidInSubtree(
  * cycle-creating drops without the drop-target rows needing to know the
  * full moveQuestion arg shape.
  *
- *   - `drop-question`                   → target's parent (source becomes sibling)
+ *   - `drop-field`                   → target's parent (source becomes sibling)
  *   - `drop-group-header` + edge "top"  → target's parent (source becomes sibling
  *                                          BEFORE the group, not a child of it)
  *   - `drop-group-header` + otherwise   → the group uuid (source becomes child)
@@ -186,7 +186,7 @@ export function targetContainerUuidFor(
 	edge?: Edge | null,
 ): Uuid {
 	switch (drop.kind) {
-		case "drop-question":
+		case "drop-field":
 			return drop.parentUuid;
 		case "drop-group-header":
 			return edge === "top" ? drop.parentUuid : drop.uuid;

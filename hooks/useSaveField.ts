@@ -1,11 +1,8 @@
 /**
- * Shared hook for saving a single field property. Used by all contextual
- * editor sections (UI, Logic, Data, Footer) to avoid duplicating the same
- * mutation boilerplate. Converts empty strings to undefined (removal).
- *
- * Takes a uuid directly — callers pass the selected field's uuid from
- * `useSelectedField()`. Returns a no-op when the uuid is falsy
- * (callers gate on selection first).
+ * Shared hook for saving a single field property. Converts empty
+ * strings to undefined (removal). Takes a uuid directly — callers
+ * pass the selected field's uuid from `useSelectedField()`. Returns
+ * a no-op when the uuid is falsy (callers gate on selection first).
  */
 
 import { useCallback } from "react";

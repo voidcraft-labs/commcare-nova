@@ -5,7 +5,7 @@
  * The form editor has two fundamentally different presentations:
  *
  *   1. Edit view (edit context + edit cursor): structural editing with
- *      selection, insertion points, drag-to-reorder, per-question panels.
+ *      selection, insertion points, drag-to-reorder, per-field panels.
  *      Performance critical — rendered via `VirtualFormList` over a flat
  *      row model.
  *
@@ -29,7 +29,7 @@
 import { memo } from "react";
 import { useEditContext } from "@/hooks/useEditContext";
 import { asUuid } from "@/lib/doc/types";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 import { useCursorMode } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "./InteractiveFormRenderer";
 import { VirtualFormList } from "./virtual/VirtualFormList";
@@ -41,8 +41,8 @@ interface FormRendererProps {
 	readonly parentEntityId: string;
 	/** XForm data path prefix. Defaults to `"/data"` at the root. */
 	readonly prefix?: string;
-	/** Blueprint question path of the parent (nested calls only). */
-	readonly parentPath?: QuestionPath;
+	/** Blueprint field path of the parent (nested calls only). */
+	readonly parentPath?: FieldPath;
 }
 
 export const FormRenderer = memo(function FormRenderer({

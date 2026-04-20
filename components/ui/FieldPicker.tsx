@@ -14,7 +14,7 @@
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
 import { useCallback, useMemo } from "react";
-import { fieldKindIcons } from "@/lib/fieldTypeIcons";
+import { type FieldKind, fieldRegistry } from "@/lib/domain";
 import {
 	collectFieldEntries,
 	type FieldEntrySource,
@@ -37,7 +37,7 @@ export interface FieldEntry {
 	/** Human-readable label. */
 	label: string;
 	/** Field kind (text, single_select, etc.) — drives the icon. */
-	kind: string;
+	kind: FieldKind;
 }
 
 // ── Utility ──────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ export interface FieldEntry {
 export function buildFieldEntries(
 	src: FieldEntrySource,
 	parentUuid: string,
-	typeFilter?: ReadonlySet<string>,
+	typeFilter?: ReadonlySet<FieldKind>,
 ): FieldEntry[] {
 	const raw = collectFieldEntries(src, parentUuid);
 	const filter = typeFilter ?? VALUE_PRODUCING_TYPES;
@@ -87,7 +87,7 @@ interface FieldPickerProps {
 	/** Label text shown above the input. */
 	label: string;
 	/** Optional kind filter — defaults to `VALUE_PRODUCING_TYPES`. */
-	typeFilter?: ReadonlySet<string>;
+	typeFilter?: ReadonlySet<FieldKind>;
 	/** Placeholder text for empty state. */
 	placeholder?: string;
 	/** Mark as required (shows rose asterisk). */
@@ -180,7 +180,7 @@ export function FieldPicker({
 											className={`${MENU_ITEM_BASE} text-nova-text cursor-pointer data-[highlighted]:bg-white/[0.06] first:rounded-t-xl last:rounded-b-xl`}
 										>
 											<Icon
-												icon={fieldKindIcons[field.kind] ?? fieldKindIcons.text}
+												icon={fieldRegistry[field.kind].icon}
 												width="14"
 												height="14"
 												className="text-nova-text-muted shrink-0"

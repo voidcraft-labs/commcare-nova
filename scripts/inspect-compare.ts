@@ -2,28 +2,21 @@
  * Side-by-side comparison of two generation runs.
  *
  * Two modes:
- *   - Cross-app: `inspect-compare.ts <appId1> <appId2>`
- *                Compares the most recent run of each app (resolved via
- *                `readLatestRunId`). Typical A/B: same prompt on two apps
- *                generated with different model or reasoning settings.
- *   - Same-app:  `inspect-compare.ts <appId> --runs=<runId1>,<runId2>`
- *                Compares two explicit runs of the same app — useful for
- *                initial-build vs edit, or for diffing two retries.
+ *   - Cross-app: `inspect-compare <appId1> <appId2>`
+ *                Compares the most recent run of each app.
+ *   - Same-app:  `inspect-compare <appId> --runs <runIdA>,<runIdB>`
+ *                Compares two explicit runs of the same app.
  *
  * Data sources per run:
  *   - `apps/{appId}/runs/{runId}` — `RunSummaryDoc` (cost + behavior).
- *     The source of truth for cost deltas.
- *   - `apps/{appId}/events/` filtered to `runId` — used for event-count
- *     and tool-usage deltas (the summary stores total tool calls but not
+ *   - `apps/{appId}/events/` filtered to `runId` — event-count and
+ *     tool-usage deltas (the summary stores total tool calls but not
  *     per-tool breakdown).
  *
- * Read-only — never writes to Firestore.
- *
- * Usage:
- *   npx tsx scripts/inspect-compare.ts <appId1> <appId2>
- *   npx tsx scripts/inspect-compare.ts <appId> --runs=<runIdA>,<runIdB>
+ * Read-only — never writes to Firestore. Run with `--help` for flags.
  */
 import "dotenv/config";
+import { Command, InvalidArgumentError } from "commander";
 import type { RunSummaryDoc } from "@/lib/db/types";
 import { readEvents, readLatestRunId, readRunSummary } from "@/lib/log/reader";
 import {
@@ -37,6 +30,7 @@ import {
 	usd,
 } from "./lib/format";
 import { computeEventKindCounts, computeToolUsage } from "./lib/log-stats";
+import { requireArg, runMain } from "./lib/main";
 import type { Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -45,7 +39,7 @@ import type { Event } from "./lib/types";
  * Resolve the positional args + flags into a well-typed comparison target.
  * One of two shapes:
  *   - cross-app:  two app IDs, each resolved to their latest run
- *   - same-app:   one app ID + `--runs=<a>,<b>` explicit run IDs
+ *   - same-app:   one app ID + `--runs <a>,<b>` explicit run IDs
  */
 type CompareTarget =
 	| { mode: "cross-app"; appA: string; appB: string }
@@ -56,54 +50,82 @@ type CompareTarget =
 			runIdB: string;
 	  };
 
-function parseTarget(): CompareTarget {
-	const args = process.argv.slice(2);
-	const runsFlag = args.find((a) => a.startsWith("--runs="))?.split("=")[1];
-
-	if (runsFlag) {
-		const appId = args[0];
-		if (!appId || appId.startsWith("--")) {
-			console.error(
-				"Usage: npx tsx scripts/inspect-compare.ts <appId> --runs=<runIdA>,<runIdB>",
-			);
-			process.exit(1);
-		}
-		const parts = runsFlag.split(",");
-		if (parts.length !== 2 || !parts[0] || !parts[1]) {
-			console.error(
-				`Invalid --runs value "${runsFlag}". Expected "<runIdA>,<runIdB>".`,
-			);
-			process.exit(1);
-		}
-		return {
-			mode: "same-app",
-			appId,
-			runIdA: parts[0],
-			runIdB: parts[1],
-		};
-	}
-
-	const appA = args[0];
-	const appB = args[1];
-	if (!appA || !appB || appA.startsWith("--") || appB.startsWith("--")) {
-		console.error(
-			"Usage:\n" +
-				"  npx tsx scripts/inspect-compare.ts <appId1> <appId2>\n" +
-				"  npx tsx scripts/inspect-compare.ts <appId> --runs=<runIdA>,<runIdB>",
-		);
-		process.exit(1);
-	}
-	return { mode: "cross-app", appA, appB };
+interface InspectCompareOptions {
+	runs?: [string, string];
 }
 
-const target = parseTarget();
+/**
+ * Commander coerces `--runs A,B` through this parser. We validate the
+ * comma-split shape up-front so "bad,,input" or a single value fail
+ * cleanly with a usage hint rather than silently falling through.
+ */
+function parseRunsPair(raw: string): [string, string] {
+	const parts = raw.split(",");
+	if (parts.length !== 2 || !parts[0] || !parts[1]) {
+		throw new InvalidArgumentError(
+			`expected "<runIdA>,<runIdB>", got "${raw}"`,
+		);
+	}
+	return [parts[0], parts[1]];
+}
+
+const program = new Command();
+program
+	.name("inspect-compare")
+	.description(
+		"Side-by-side comparison of two generation runs. Takes two appIds (cross-app latest-run diff) or one appId + --runs <A>,<B> (same-app run diff).",
+	)
+	.argument("<appIdA>", "First app id (or the app id for --runs mode)")
+	.argument("[appIdB]", "Second app id (cross-app mode only)")
+	.option(
+		"--runs <runIdA,runIdB>",
+		"same-app mode: compare these two runs of appIdA",
+		parseRunsPair,
+	)
+	.addHelpText(
+		"after",
+		"\nExamples:\n" +
+			"  # Cross-app: same prompt, two builds — compare latest runs\n" +
+			"  $ npx tsx scripts/inspect-compare.ts <appIdA> <appIdB>\n" +
+			"\n" +
+			"  # Same-app: compare the initial build against a later edit\n" +
+			"  $ npx tsx scripts/inspect-compare.ts <appId> --runs <runIdA>,<runIdB>\n",
+	);
+
+program.parse();
+
+const positionalA = requireArg(program.args, 0, "appIdA");
+const positionalB = program.args[1]; // optional — only required in cross-app mode
+const compareOpts = program.opts<InspectCompareOptions>();
+
+/* Validate up-front so the `cross-app` branch narrows `positionalB` to
+ * `string` naturally. `program.error` returns `never` (calls
+ * `process.exit`), so execution past this guard implies either
+ * `compareOpts.runs` is set or `positionalB` is present. */
+if (!compareOpts.runs && !positionalB) {
+	program.error(
+		"Cross-app mode requires two appIds, or pass --runs <A>,<B> for same-app mode.",
+	);
+}
+
+const target: CompareTarget = compareOpts.runs
+	? {
+			mode: "same-app",
+			appId: positionalA,
+			runIdA: compareOpts.runs[0],
+			runIdB: compareOpts.runs[1],
+		}
+	: { mode: "cross-app", appA: positionalA, appB: positionalB };
 
 // ── Run payload loading ─────────────────────────────────────────────
 
 /**
  * The bundle of data fetched per comparison side. `summary` is `null`
- * when no summary doc exists (legacy runs predating Phase-4); the caller
- * prints "—" in affected rows so the comparison still renders.
+ * when `apps/{appId}/runs/{runId}` does not exist — runs emit events as
+ * they stream but the summary doc is only written at
+ * `UsageAccumulator.flush`, so a run that aborted or is still in flight
+ * will have events without a summary. Affected rows render as "—" so
+ * the rest of the comparison still shows.
  */
 interface RunPayload {
 	appId: string;
@@ -422,7 +444,4 @@ async function main() {
 	}
 }
 
-main().catch((err) => {
-	console.error("Fatal:", err);
-	process.exit(1);
-});
+runMain(main);

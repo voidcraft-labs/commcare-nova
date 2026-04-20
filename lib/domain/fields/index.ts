@@ -1,127 +1,78 @@
 // lib/domain/fields/index.ts
 //
 // Public barrel: Field discriminated union, ContainerField, fieldKinds
-// tuple, fieldRegistry, fieldEditorSchemas, isContainer type guard.
+// tuple, fieldRegistry, isContainer type guard.
 //
 // This file is the ONLY place anything outside lib/domain/ imports from
 // the fields/ directory. Individual kind files are private.
+//
+// Per-kind editor schemas live at
+// `components/builder/editor/fieldEditorSchemas.ts` rather than here —
+// keeping them out of the domain barrel keeps the kind files free of
+// UI imports, which is what makes the `fieldKinds`/`fieldRegistry`
+// module graph acyclic with the XPathField/reference provider chain.
 
 import { z } from "zod";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
-import {
-	type AudioField,
-	audioFieldEditorSchema,
-	audioFieldMetadata,
-	audioFieldSchema,
-} from "./audio";
+import type { FieldKindMetadata } from "../kinds";
+import { type AudioField, audioFieldMetadata, audioFieldSchema } from "./audio";
 import {
 	type BarcodeField,
-	barcodeFieldEditorSchema,
 	barcodeFieldMetadata,
 	barcodeFieldSchema,
 } from "./barcode";
-import {
-	type DateField,
-	dateFieldEditorSchema,
-	dateFieldMetadata,
-	dateFieldSchema,
-} from "./date";
+import { type DateField, dateFieldMetadata, dateFieldSchema } from "./date";
 import {
 	type DatetimeField,
-	datetimeFieldEditorSchema,
 	datetimeFieldMetadata,
 	datetimeFieldSchema,
 } from "./datetime";
 import {
 	type DecimalField,
-	decimalFieldEditorSchema,
 	decimalFieldMetadata,
 	decimalFieldSchema,
 } from "./decimal";
 import {
 	type GeopointField,
-	geopointFieldEditorSchema,
 	geopointFieldMetadata,
 	geopointFieldSchema,
 } from "./geopoint";
-import {
-	type GroupField,
-	groupFieldEditorSchema,
-	groupFieldMetadata,
-	groupFieldSchema,
-} from "./group";
+import { type GroupField, groupFieldMetadata, groupFieldSchema } from "./group";
 import {
 	type HiddenField,
-	hiddenFieldEditorSchema,
 	hiddenFieldMetadata,
 	hiddenFieldSchema,
 } from "./hidden";
-import {
-	type ImageField,
-	imageFieldEditorSchema,
-	imageFieldMetadata,
-	imageFieldSchema,
-} from "./image";
-import {
-	type IntField,
-	intFieldEditorSchema,
-	intFieldMetadata,
-	intFieldSchema,
-} from "./int";
-import {
-	type LabelField,
-	labelFieldEditorSchema,
-	labelFieldMetadata,
-	labelFieldSchema,
-} from "./label";
+import { type ImageField, imageFieldMetadata, imageFieldSchema } from "./image";
+import { type IntField, intFieldMetadata, intFieldSchema } from "./int";
+import { type LabelField, labelFieldMetadata, labelFieldSchema } from "./label";
 import {
 	type MultiSelectField,
-	multiSelectFieldEditorSchema,
 	multiSelectFieldMetadata,
 	multiSelectFieldSchema,
 } from "./multiSelect";
 import {
 	type RepeatField,
-	repeatFieldEditorSchema,
 	repeatFieldMetadata,
 	repeatFieldSchema,
 } from "./repeat";
 import {
 	type SecretField,
-	secretFieldEditorSchema,
 	secretFieldMetadata,
 	secretFieldSchema,
 } from "./secret";
 import {
 	type SignatureField,
-	signatureFieldEditorSchema,
 	signatureFieldMetadata,
 	signatureFieldSchema,
 } from "./signature";
 import {
 	type SingleSelectField,
-	singleSelectFieldEditorSchema,
 	singleSelectFieldMetadata,
 	singleSelectFieldSchema,
 } from "./singleSelect";
-import {
-	type TextField,
-	textFieldEditorSchema,
-	textFieldMetadata,
-	textFieldSchema,
-} from "./text";
-import {
-	type TimeField,
-	timeFieldEditorSchema,
-	timeFieldMetadata,
-	timeFieldSchema,
-} from "./time";
-import {
-	type VideoField,
-	videoFieldEditorSchema,
-	videoFieldMetadata,
-	videoFieldSchema,
-} from "./video";
+import { type TextField, textFieldMetadata, textFieldSchema } from "./text";
+import { type TimeField, timeFieldMetadata, timeFieldSchema } from "./time";
+import { type VideoField, videoFieldMetadata, videoFieldSchema } from "./video";
 
 // Order here defines iteration order for the type picker + docs.
 export const fieldKinds = [
@@ -194,30 +145,6 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	secret: secretFieldMetadata,
 	group: groupFieldMetadata,
 	repeat: repeatFieldMetadata,
-};
-
-export const fieldEditorSchemas: {
-	[K in FieldKind]: FieldEditorSchema<Extract<Field, { kind: K }>>;
-} = {
-	text: textFieldEditorSchema,
-	int: intFieldEditorSchema,
-	decimal: decimalFieldEditorSchema,
-	date: dateFieldEditorSchema,
-	time: timeFieldEditorSchema,
-	datetime: datetimeFieldEditorSchema,
-	single_select: singleSelectFieldEditorSchema,
-	multi_select: multiSelectFieldEditorSchema,
-	geopoint: geopointFieldEditorSchema,
-	image: imageFieldEditorSchema,
-	audio: audioFieldEditorSchema,
-	video: videoFieldEditorSchema,
-	barcode: barcodeFieldEditorSchema,
-	signature: signatureFieldEditorSchema,
-	label: labelFieldEditorSchema,
-	hidden: hiddenFieldEditorSchema,
-	secret: secretFieldEditorSchema,
-	group: groupFieldEditorSchema,
-	repeat: repeatFieldEditorSchema,
 };
 
 /** Type guard for container kinds (group, repeat). Used wherever "can this
@@ -325,6 +252,11 @@ export function reconcileFieldForKind(
 export type FieldPatch = {
 	[K in FieldKind]: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>;
 }[FieldKind];
+
+export type { SelectOption } from "./base";
+// Re-export the shared option shape (used by single_select + multi_select,
+// and by the SA tool schema generator for the `options` field on select tools).
+export { selectOptionSchema } from "./base";
 
 // Re-export individual kind types for downstream switch blocks.
 export type {

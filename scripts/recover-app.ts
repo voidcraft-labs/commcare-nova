@@ -1,24 +1,47 @@
 /**
  * ⚠️  WRITES TO PRODUCTION — Recover an app stuck in error/generating status.
  *
- * Sets status to "complete" and clears error_type. Only works if the blueprint
- * has modules (i.e. the data is intact). Requires explicit --confirm flag.
+ * Sets status to "complete" and clears error_type. Only works if the
+ * blueprint has modules (i.e. the data is intact). Requires an explicit
+ * `--confirm` flag; omit it for a dry run.
  *
- * Usage:
- *   npx tsx scripts/recover-app.ts <appId>              # dry run (shows what would change)
- *   npx tsx scripts/recover-app.ts <appId> --confirm     # actually writes
+ * Run with `--help` for flags.
  */
 import { FieldValue } from "@google-cloud/firestore";
+import { Command } from "commander";
 import { db } from "./lib/firestore";
 import { tsToISO } from "./lib/format";
+import { requireArg, runMain } from "./lib/main";
+import type { PersistableDoc } from "./lib/types";
 
-const appId = process.argv[2];
-const confirmed = process.argv.includes("--confirm");
-
-if (!appId) {
-	console.error("Usage: npx tsx scripts/recover-app.ts <appId> [--confirm]");
-	process.exit(1);
+interface RecoverAppOptions {
+	confirm?: boolean;
 }
+
+const program = new Command();
+program
+	.name("recover-app")
+	.description(
+		"Recover an app stuck in error/generating status. Defaults to a dry run — pass --confirm to actually write.",
+	)
+	.argument("<appId>", "Firestore app document id")
+	.option("--confirm", "actually write the status change (default: dry run)")
+	.addHelpText(
+		"after",
+		"\nWhat this does:\n" +
+			"  • Sets status → 'complete'\n" +
+			"  • Clears error_type\n" +
+			"  • Bumps updated_at\n" +
+			"\nRefuses to run if the blueprint has zero modules (nothing to recover).\n" +
+			"\nExamples:\n" +
+			"  $ npx tsx scripts/recover-app.ts <appId>             # dry run\n" +
+			"  $ npx tsx scripts/recover-app.ts <appId> --confirm    # write\n",
+	);
+
+program.parse();
+
+const appId = requireArg(program.args, 0, "appId");
+const confirmed = program.opts<RecoverAppOptions>().confirm === true;
 
 async function main() {
 	const ref = db.collection("apps").doc(appId);
@@ -31,9 +54,13 @@ async function main() {
 
 	// biome-ignore lint/style/noNonNullAssertion: guarded by snap.exists check above
 	const data = snap.data()!;
-	const modules = data.blueprint?.modules ?? [];
-	const formCount = modules.reduce(
-		(sum: number, m: { forms?: unknown[] }) => sum + (m.forms?.length ?? 0),
+	/* Blueprint is persisted as `PersistableDoc` (no `fieldParent` —
+	 * that's rebuilt on hydration). Recovery only needs the order maps
+	 * to produce module / form counts, so we don't hydrate here. */
+	const doc = data.blueprint as PersistableDoc | undefined;
+	const moduleCount = doc?.moduleOrder.length ?? 0;
+	const formCount = (doc?.moduleOrder ?? []).reduce(
+		(sum, modUuid) => sum + (doc?.formOrder[modUuid]?.length ?? 0),
 		0,
 	);
 
@@ -45,7 +72,7 @@ async function main() {
 	console.log(`  App Name:  ${data.app_name}`);
 	console.log(`  Owner:     ${data.owner}`);
 	console.log(`  Updated:   ${tsToISO(data.updated_at)}`);
-	console.log(`  Modules:   ${modules.length}`);
+	console.log(`  Modules:   ${moduleCount}`);
 	console.log(`  Forms:     ${formCount}`);
 
 	/* Pre-flight checks. */
@@ -57,7 +84,7 @@ async function main() {
 		return;
 	}
 
-	if (modules.length === 0) {
+	if (moduleCount === 0) {
 		console.log(`\n  Status:    ${data.status}`);
 		console.error(
 			"\n✗ Blueprint has no modules — cannot recover an empty app.",
@@ -86,7 +113,4 @@ async function main() {
 	console.log("\n✓ Done. Status set to 'complete', error_type cleared.");
 }
 
-main().catch((err) => {
-	console.error("Fatal:", err);
-	process.exit(1);
-});
+runMain(main);

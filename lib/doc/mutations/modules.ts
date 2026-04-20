@@ -38,7 +38,7 @@ export function applyModuleMutation(
 		case "removeModule": {
 			const { uuid } = mut;
 			if (draft.modules[uuid] === undefined) return;
-			// Cascade: delete each form and its question subtree before clearing the module.
+			// Cascade: delete each form and its field subtree before clearing the module.
 			for (const formUuid of [...(draft.formOrder[uuid] ?? [])]) {
 				cascadeDeleteForm(draft, formUuid);
 			}

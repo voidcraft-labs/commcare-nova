@@ -7,14 +7,15 @@
  * - **Edit mode** (existing app): core prompt + editing preamble + compact
  *   blueprint summary + shared tail. Always active when the app exists,
  *   regardless of cache state.
+ *
+ * The edit-mode summary is rendered from the normalized `BlueprintDoc`
+ * and uses domain vocabulary (`field`, `kind`, `case_property`) to
+ * match the SA's tool surface.
  */
 
-import type {
-	AppBlueprint,
-	BlueprintForm,
-	BlueprintModule,
-	Question,
-} from "@/lib/schemas/blueprint";
+import { countFieldsUnder } from "@/lib/doc/fieldWalk";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { isContainer } from "@/lib/domain";
 
 // ── Core prompt (shared across build and edit modes) ──────────────────
 
@@ -34,10 +35,10 @@ The details in this prompt are for your knowledge only — do not overexplain in
 
 ## CommCare XPath Functions — Quick Reference
 
-String literals must be wrapped in quotes. 
+String literals must be wrapped in quotes.
 
 In any XPath Expression or label-type field, use the correct hashtag reference with their full path to output a node's or property's value:
-1. \`#form/full/path/to/question\`
+1. \`#form/full/path/to/field\`
 2. \`#case/case_property\`
 3. \`#user/user_property\`
 
@@ -140,9 +141,9 @@ In any XPath Expression or label-type field, use the correct hashtag reference w
 
 ### Multi-Select Helpers
 
-- \`selected(question, value)\` → true if value is selected in a multi-select
-- \`count-selected(question)\` → number of items selected
-- \`selected-at(question, index)\` → nth selected item (0-indexed)
+- \`selected(field, value)\` → true if value is selected in a multi-select
+- \`count-selected(field)\` → number of items selected
+- \`selected-at(field, index)\` → nth selected item (0-indexed)
 
 ### Sequence / Nodeset Functions
 
@@ -189,7 +190,7 @@ For a new app, you move through these stages:
 1. Set the data model — \`generateSchema\`.
 2. Lay out the modules and forms — \`generateScaffold\`.
 3. Configure each module's case list and detail columns — \`addModule\`.
-4. Populate every form with its fields — \`addQuestions\`. Batch each form's fields into a single call where practical; split across calls when the set is large or when later fields need to reference groups added in earlier calls as parents.
+4. Populate every form with its fields — \`addFields\`. Batch each form's fields into a single call where practical; split across calls when the set is large or when later fields need to reference groups added in earlier calls as parents.
 5. Validate — \`validateApp\`.`;
 
 // ── Shared tail (architecture, Connect, error recovery) ──────────────
@@ -237,95 +238,120 @@ You are editing an existing app — not building one from scratch. The current a
 
 Trust your tool outputs. When a mutation tool returns a success message, the change is applied. Do not re-read to verify.`;
 
-// ── Blueprint summarizer ──────────────────────────────────────────────
+// ── Blueprint summarizer (domain-native) ─────────────────────────────
+//
+// Walks `BlueprintDoc` directly and emits a compact field-vocabulary
+// summary. Counts/labels/kinds come from the same `Field` shape the
+// mutation reducers consume, so anything the SA reads here matches
+// what its next tool call will operate on.
 
-/** Count fields recursively (groups/repeats contain children). */
-function countFields(questions: Question[]): number {
-	let count = 0;
-	for (const q of questions) {
-		count++;
-		if (q.children) count += countFields(q.children);
+/**
+ * Render a field and its children as nested bullet lines. Shows `id`,
+ * `kind`, and the `label` / `case_property` hints when present. Nested
+ * containers indent their children by two spaces per level so depth is
+ * visually obvious.
+ */
+function summarizeField(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	indent: string,
+): string | undefined {
+	const field = doc.fields[uuid];
+	if (!field) return undefined;
+	// Every field has `id` and `kind`; `label` is absent on hidden,
+	// `case_property` is absent on structural/media kinds and on
+	// non-case fields. We render each piece only when it's meaningful.
+	const pieces: string[] = [`${indent}- ${field.id} (${field.kind})`];
+	if ("label" in field && field.label) pieces[0] += `: "${field.label}"`;
+	if ("case_property" in field && field.case_property) {
+		pieces[0] += ` → ${field.case_property}`;
 	}
-	return count;
+	if (isContainer(field)) {
+		const children = doc.fieldOrder[uuid] ?? [];
+		const childLines = children
+			.map((c) => summarizeField(doc, c, `${indent}  `))
+			.filter((s): s is string => typeof s === "string");
+		if (childLines.length > 0) pieces.push(childLines.join("\n"));
+	}
+	return pieces.join("\n");
 }
 
-/** Summarize a form's fields as a compact list of IDs with types. Reads
- *  from the wire-format `Question` shape (still `case_property_on`
- *  on the wire — the summary is consumed by the SA, which speaks wire
- *  format). */
-function summarizeFields(questions: Question[], indent = "    "): string {
-	return questions
-		.map((q) => {
-			const parts = [`${indent}- ${q.id} (${q.type})`];
-			if (q.label) parts[0] += `: "${q.label}"`;
-			if (q.case_property_on) parts[0] += ` → ${q.case_property_on}`;
-			if (q.children?.length) {
-				parts.push(summarizeFields(q.children, `${indent}  `));
-			}
-			return parts.join("\n");
-		})
-		.join("\n");
-}
-
-/** Summarize a form: name, type, field count, and field list. */
-function summarizeForm(form: BlueprintForm, formIndex: number): string {
-	const qCount = countFields(form.questions);
-	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${qCount} field${qCount === 1 ? "" : "s"})`;
+/** Summarize one form: name, type, field count, nested field list. */
+function summarizeForm(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	formIndex: number,
+): string {
+	const form = doc.forms[formUuid];
+	if (!form) return `  - Form ${formIndex}: <missing>`;
+	const count = countFieldsUnder(doc, formUuid);
+	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
 	const extras: string[] = [];
-	if (form.post_submit) {
-		extras.push(`    post_submit: ${form.post_submit}`);
-	}
+	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
 	if (form.connect) extras.push("    [Connect enabled]");
-	if (form.close_condition) {
+	if (form.closeCondition) {
 		const op =
-			form.close_condition.operator === "selected" ? "has selected" : "=";
+			form.closeCondition.operator === "selected" ? "has selected" : "=";
 		extras.push(
-			`    close_condition: ${form.close_condition.question} ${op} "${form.close_condition.answer}"`,
+			`    close_condition: ${form.closeCondition.field} ${op} "${form.closeCondition.answer}"`,
 		);
 	}
+	const topLevelFields = doc.fieldOrder[formUuid] ?? [];
 	const fieldSummary =
-		form.questions.length > 0
-			? summarizeFields(form.questions)
+		topLevelFields.length > 0
+			? topLevelFields
+					.map((u) => summarizeField(doc, u, "    "))
+					.filter((s): s is string => typeof s === "string")
+					.join("\n")
 			: "    (no fields)";
 	return [header, ...extras, fieldSummary].join("\n");
 }
 
 /** Summarize a module: name, case type, forms. */
-function summarizeModule(mod: BlueprintModule, index: number): string {
-	const caseInfo = mod.case_type ? ` (case_type: ${mod.case_type})` : "";
-	const listOnly = mod.case_list_only ? " [case list only]" : "";
+function summarizeModule(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	index: number,
+): string {
+	const mod = doc.modules[moduleUuid];
+	if (!mod) return `- Module ${index}: <missing>`;
+	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
+	const listOnly = mod.caseListOnly ? " [case list only]" : "";
 	const header = `- Module ${index}: "${mod.name}"${caseInfo}${listOnly}`;
-	const forms = mod.forms.map((f, fi) => summarizeForm(f, fi)).join("\n");
+	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	const forms = formUuids
+		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))
+		.join("\n");
 	return forms ? `${header}\n${forms}` : header;
 }
 
 /**
- * Build a compact text summary of an app blueprint for the SA's editing context.
- * Includes the full structure and field inventory so the SA can make edits
- * without needing to read every form first.
+ * Produce the compact text summary of the app that lands in the SA's
+ * edit-mode prompt. Reads from the normalized doc — no intermediate
+ * legacy shape, no `toBlueprint` call.
  */
-function summarizeBlueprint(bp: AppBlueprint): string {
+function summarizeBlueprint(doc: BlueprintDoc): string {
 	const lines: string[] = [];
 
-	lines.push(`### App: "${bp.app_name}"`);
-	if (bp.connect_type) lines.push(`Connect type: ${bp.connect_type}`);
+	lines.push(`### App: "${doc.appName}"`);
+	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
 
-	/* Case types with properties */
-	if (bp.case_types?.length) {
+	if (doc.caseTypes?.length) {
 		lines.push("");
 		lines.push("**Case types:**");
-		for (const ct of bp.case_types) {
+		for (const ct of doc.caseTypes) {
 			const props = ct.properties.map((p) => p.name).join(", ");
 			const parentInfo = ct.parent_type ? ` (child of ${ct.parent_type})` : "";
 			lines.push(`- ${ct.name}${parentInfo}: ${props}`);
 		}
 	}
 
-	/* Module / form / field structure */
 	lines.push("");
 	lines.push("**Structure:**");
-	for (let i = 0; i < bp.modules.length; i++) {
-		lines.push(summarizeModule(bp.modules[i], i));
+	for (let i = 0; i < doc.moduleOrder.length; i++) {
+		const moduleUuid = doc.moduleOrder[i];
+		if (!moduleUuid) continue;
+		lines.push(summarizeModule(doc, moduleUuid, i));
 	}
 
 	return lines.join("\n");
@@ -336,20 +362,21 @@ function summarizeBlueprint(bp: AppBlueprint): string {
 /**
  * Build the SA system prompt by composing mode-specific sections:
  *
- * - **Build mode** (no blueprint): core + build interaction + shared tail
- * - **Edit mode** (blueprint provided): core + edit preamble + summary + shared tail
+ * - **Build mode** (no doc passed, or an empty doc): core + build
+ *   interaction + shared tail.
+ * - **Edit mode** (doc with modules): core + edit preamble + summary +
+ *   shared tail.
  *
- * The "Initial Interaction" section is replaced, not appended to, in edit mode —
- * otherwise the SA still asks discovery questions about an app that already exists.
+ * An empty doc (created by `createApp` before generation starts) is
+ * treated as build mode — the SA should run through the initial build
+ * sequence rather than try to edit a skeleton.
  */
-export function buildSolutionsArchitectPrompt(
-	blueprint?: AppBlueprint,
-): string {
-	const isEditing = blueprint && blueprint.modules.length > 0;
+export function buildSolutionsArchitectPrompt(doc?: BlueprintDoc): string {
+	const isEditing = doc && doc.moduleOrder.length > 0;
 
 	if (!isEditing) {
 		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${SHARED_TAIL}`;
 	}
 
-	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n${summarizeBlueprint(blueprint)}\n\n---\n\n${SHARED_TAIL}`;
+	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n${summarizeBlueprint(doc)}\n\n---\n\n${SHARED_TAIL}`;
 }

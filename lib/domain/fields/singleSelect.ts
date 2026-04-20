@@ -8,9 +8,9 @@
 // pre-selected default the same way text inputs do. Validation and calculate
 // expressions are still valid for conditional logic.
 
+import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema, selectOptionSchema } from "./base";
 
 export const singleSelectFieldSchema = inputFieldBaseSchema.extend({
@@ -27,27 +27,10 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	kind: "single_select",
 	xformKind: "select1",
 	dataType: "xsd:string",
-	icon: "tabler:circle-dot",
+	icon: tablerCircleDot,
+	label: "Single Select",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Single-choice from a fixed option list.",
 	convertTargets: ["multi_select"],
 };
-
-// Editor schema is a placeholder for Phase 1 — real option editors and XPath
-// fields are Phase 5's job. StubField renders a disabled input at every slot.
-export const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> =
-	{
-		data: [
-			{ key: "case_property", component: StubField },
-			{ key: "options", component: StubField },
-		],
-		logic: [
-			{ key: "required", component: StubField },
-			{ key: "relevant", component: StubField },
-			{ key: "validate", component: StubField },
-			{ key: "validate_msg", component: StubField },
-			{ key: "calculate", component: StubField },
-		],
-		ui: [{ key: "hint", component: StubField }],
-	};

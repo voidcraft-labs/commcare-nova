@@ -4,7 +4,7 @@
  * Every consumer that edits a module, form, or field calls this hook
  * and dispatches via the returned action object. All signatures take
  * uuid-first parameters and domain types (`Field`, `Form`, `Module`,
- * `FieldPatch`). No legacy `Question` / `BlueprintForm` / `AppBlueprint`
+ * `FieldPatch`). No legacy `Question` wire type / `BlueprintForm` / `AppBlueprint`
  * shape crosses this boundary — tool handlers that speak to the LLM
  * translate at their own wire boundary before calling here.
  *
@@ -48,7 +48,7 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { FieldPath } from "@/lib/services/fieldPath";
 
 /**
  * Result of a `renameField` dispatch.
@@ -65,7 +65,7 @@ import type { QuestionPath } from "@/lib/services/questionPath";
  * and to decide whether a cross-form view needs refreshing.
  */
 export interface FieldRenameResult {
-	newPath: QuestionPath;
+	newPath: FieldPath;
 	xpathFieldsRewritten: number;
 	peerFieldsRenamed: number;
 	columnsRewritten: number;
@@ -82,7 +82,7 @@ export interface FieldRenameResult {
  */
 function emptyFieldRenameResult(): FieldRenameResult {
 	return {
-		newPath: "" as QuestionPath,
+		newPath: "" as FieldPath,
 		xpathFieldsRewritten: 0,
 		peerFieldsRenamed: 0,
 		columnsRewritten: 0,
@@ -100,7 +100,7 @@ function emptyFieldRenameResult(): FieldRenameResult {
  * return the new uuid). `undefined` if the dispatch was a no-op.
  */
 export interface DuplicateFieldResult {
-	newPath: QuestionPath;
+	newPath: FieldPath;
 	newUuid: string;
 }
 
@@ -458,7 +458,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				 * is unchanged, but the walk needs the post-dispatch snapshot
 				 * of `fields` to read the new id. */
 				const after = get();
-				const newPath = (computePathForUuid(after, uuid) ?? "") as QuestionPath;
+				const newPath = (computePathForUuid(after, uuid) ?? "") as FieldPath;
 				return {
 					newPath,
 					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
@@ -562,7 +562,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					: (computePathForUuid(afterDoc, parentUuid) ?? "");
 				const newPath = (
 					parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
-				) as QuestionPath;
+				) as FieldPath;
 
 				return { newPath, newUuid: newUuid as string };
 			},

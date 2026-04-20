@@ -9,7 +9,7 @@
  * Three public hooks expose the API to consumers:
  *  - `useRegisterScrollCallback` — BuilderLayout registers the DOM scroll impl
  *  - `useScrollIntoView` — setPending + scrollTo for navigation/edit call sites
- *  - `useFulfillPendingScroll` — consumed by the selected question's mount effect
+ *  - `useFulfillPendingScroll` — consumed by the selected field's mount effect
  */
 "use client";
 
@@ -27,7 +27,7 @@ import {
 type ScrollTarget = HTMLElement | undefined;
 
 type ScrollCallback = (
-	questionUuid: string,
+	fieldUuid: string,
 	overrideTarget?: ScrollTarget,
 	behavior?: ScrollBehavior,
 	hasToolbar?: boolean,
@@ -37,7 +37,7 @@ interface ScrollRegistryApi {
 	/** Consumed by BuilderLayout to register the DOM scroll implementation.
 	 *  Returns a cleanup function for ref-callback use. */
 	registerCallback: (cb: ScrollCallback) => () => void;
-	/** Request a pending scroll — fulfilled when a matching question's
+	/** Request a pending scroll — fulfilled when a matching field's
 	 *  panel mount effect calls `fulfill(uuid)`. */
 	setPending: (
 		uuid: string,
@@ -120,7 +120,7 @@ export function useRegisterScrollCallback(callback: ScrollCallback): void {
 	useEffect(() => registerCallback(callback), [registerCallback, callback]);
 }
 
-/** Request a scroll that will fire once the target question's panel mounts,
+/** Request a scroll that will fire once the target field's panel mounts,
  *  or scroll immediately when the DOM is already committed. */
 export function useScrollIntoView(): {
 	setPending: ScrollRegistryApi["setPending"];
@@ -130,9 +130,9 @@ export function useScrollIntoView(): {
 	return useMemo(() => ({ setPending, scrollTo }), [setPending, scrollTo]);
 }
 
-/** Consume a pending scroll request when the target question is selected.
+/** Consume a pending scroll request when the target field is selected.
  *  Re-fires when `isSelected` transitions false -> true, which is critical
- *  for within-form navigation where the target question is already mounted:
+ *  for within-form navigation where the target field is already mounted:
  *  setPending(uuid) -> select(uuid) -> isSelected flips -> effect re-runs
  *  -> fulfillPending matches -> scroll fires. */
 export function useFulfillPendingScroll(

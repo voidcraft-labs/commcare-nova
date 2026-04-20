@@ -5,7 +5,7 @@
  * - Phase-dependent layout structure (centered chat vs sidebar mode)
  * - Keyboard shortcuts (delegated to engine methods)
  * - Flipbook scroll sync (DOM measurement coordination during mode switches)
- * - The scroll-to-question callback registration
+ * - The scroll-to-field callback registration
  * - BuilderReferenceProvider wrapping (the URL-aware reference context) —
  *   extracted into its own child so the `useLocation()` subscription for
  *   reference resolution doesn't cascade into layout re-renders on every
@@ -58,7 +58,7 @@ import {
 } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
 
-/** Extra space above the scroll target so the question isn't flush with the
+/** Extra space above the scroll target so the field isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,
  *  and an expanded margin when a TipTap inline editor is active. */
 const SCROLL_MARGIN = 20;
@@ -92,19 +92,19 @@ export function BuilderLayout({
 	const commcareDomain = commcareSettings?.domain ?? null;
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
-	// Switching cursor modes preserves scroll position so the same question
+	// Switching cursor modes preserves scroll position so the same field
 	// stays at the same pixel offset. This is the one piece of cross-component
 	// coordination that BuilderLayout still owns because it needs to measure
 	// the DOM before the mode switch and correct scroll during the sidebar
 	// width animation that follows.
 
 	const pendingScrollAnchorRef = useRef<{
-		questionUuid: string;
+		fieldUuid: string;
 		offsetTop: number;
 	} | null>(null);
 
 	const [scrollAnchor, setScrollAnchor] = useState<{
-		questionUuid: string;
+		fieldUuid: string;
 		offsetTop: number;
 		allUuids: string[];
 	} | null>(null);
@@ -135,17 +135,16 @@ export function BuilderLayout({
 			if (scrollContainer) {
 				const containerRect = scrollContainer.getBoundingClientRect();
 				const questionEls = Array.from(
-					scrollContainer.querySelectorAll("[data-question-uuid]"),
+					scrollContainer.querySelectorAll("[data-field-uuid]"),
 				);
 				for (let i = 0; i < questionEls.length; i++) {
 					const rect = questionEls[i].getBoundingClientRect();
 					if (rect.bottom > containerRect.top) {
 						setScrollAnchor({
-							questionUuid:
-								questionEls[i].getAttribute("data-question-uuid") ?? "",
+							fieldUuid: questionEls[i].getAttribute("data-field-uuid") ?? "",
 							offsetTop: rect.top - containerRect.top,
 							allUuids: questionEls.map(
-								(el) => el.getAttribute("data-question-uuid") ?? "",
+								(el) => el.getAttribute("data-field-uuid") ?? "",
 							),
 						});
 						break;
@@ -169,26 +168,24 @@ export function BuilderLayout({
 		if (!scrollContainer) return;
 
 		let targetEl = scrollContainer.querySelector(
-			`[data-question-uuid="${scrollAnchor.questionUuid}"]`,
+			`[data-field-uuid="${scrollAnchor.fieldUuid}"]`,
 		) as HTMLElement | null;
 
 		if (!targetEl) {
 			/* Anchor hidden in new mode — bidirectional search for nearest visible. */
-			const anchorIdx = scrollAnchor.allUuids.indexOf(
-				scrollAnchor.questionUuid,
-			);
+			const anchorIdx = scrollAnchor.allUuids.indexOf(scrollAnchor.fieldUuid);
 			for (let dist = 1; dist < scrollAnchor.allUuids.length; dist++) {
 				const backIdx = anchorIdx - dist;
 				if (backIdx >= 0) {
 					targetEl = scrollContainer.querySelector(
-						`[data-question-uuid="${scrollAnchor.allUuids[backIdx]}"]`,
+						`[data-field-uuid="${scrollAnchor.allUuids[backIdx]}"]`,
 					) as HTMLElement | null;
 					if (targetEl) break;
 				}
 				const fwdIdx = anchorIdx + dist;
 				if (fwdIdx < scrollAnchor.allUuids.length) {
 					targetEl = scrollContainer.querySelector(
-						`[data-question-uuid="${scrollAnchor.allUuids[fwdIdx]}"]`,
+						`[data-field-uuid="${scrollAnchor.allUuids[fwdIdx]}"]`,
 					) as HTMLElement | null;
 					if (targetEl) break;
 				}
@@ -202,9 +199,8 @@ export function BuilderLayout({
 			scrollContainer.scrollTop += currentOffset - scrollAnchor.offsetTop;
 
 			pendingScrollAnchorRef.current = {
-				questionUuid:
-					targetEl.getAttribute("data-question-uuid") ??
-					scrollAnchor.questionUuid,
+				fieldUuid:
+					targetEl.getAttribute("data-field-uuid") ?? scrollAnchor.fieldUuid,
 				offsetTop: scrollAnchor.offsetTop,
 			};
 			setTimeout(() => {
@@ -237,7 +233,7 @@ export function BuilderLayout({
 			if (!anchor) return;
 
 			const el = scrollContainer.querySelector(
-				`[data-question-uuid="${anchor.questionUuid}"]`,
+				`[data-field-uuid="${anchor.fieldUuid}"]`,
 			) as HTMLElement | null;
 			if (!el) return;
 
@@ -250,12 +246,12 @@ export function BuilderLayout({
 		return () => observer.disconnect();
 	}, [docStore, phase]);
 
-	// ── Scroll-to-question callback ─────────────────────────────────────
+	// ── Scroll-to-field callback ─────────────────────────────────────
 
 	const scrollAnimationRef = useRef<number | null>(null);
 	const scrollToQuestion = useCallback(
 		(
-			questionUuid: string,
+			fieldUuid: string,
 			overrideTarget?: HTMLElement,
 			behavior: ScrollBehavior = "smooth",
 			hasToolbar = false,
@@ -266,7 +262,7 @@ export function BuilderLayout({
 			}
 
 			const questionEl = document.querySelector(
-				`[data-question-uuid="${questionUuid}"]`,
+				`[data-field-uuid="${fieldUuid}"]`,
 			) as HTMLElement | null;
 			const scrollContainer = questionEl?.closest(
 				"[data-preview-scroll-container]",

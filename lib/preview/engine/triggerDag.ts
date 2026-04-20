@@ -21,8 +21,8 @@ interface DagNode {
  * need their expressions re-evaluated.
  *
  * Walks the engine's `FieldTreeNode` rose tree (domain `Field` plus nested
- * children) rather than the legacy nested `Question` shape. The tree is built
- * once by the engine from the normalized doc's `fieldOrder` index.
+ * children). The tree is built once by the engine from the normalized
+ * doc's `fieldOrder` index.
  */
 export class TriggerDag {
 	/** Map from path → the DagNode for that field */
@@ -103,9 +103,10 @@ export class TriggerDag {
 	private registerExpressions(path: string, f: Field): void {
 		const expressions: { type: ExpressionType; expr: string }[] = [];
 
-		// All Field variants that carry xpath fields share the same property
-		// names as the legacy Question type. Label is optional on some kinds
-		// (hidden/label) — access via the union's intersection fallback.
+		// XPath-bearing keys (relevant/calculate/required/validate) and
+		// `label` live on different Field variants — access via the union's
+		// intersection fallback so a missing key on a variant that doesn't
+		// declare it reads as `undefined` rather than throwing.
 		const withExprs = f as Field & {
 			relevant?: string;
 			calculate?: string;

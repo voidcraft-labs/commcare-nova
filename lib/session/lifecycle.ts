@@ -107,7 +107,7 @@ export function deriveValidationAttempt(
  * Whether the buffer contains a `schema` or `scaffold` mutation —
  * the foundational stages of an initial build. Used to distinguish
  * "initial build in progress" from "post-build edit in progress",
- * which share stage tags like `form:M-F` (addQuestions during build
+ * which share stage tags like `form:M-F` (addFields during build
  * vs updateForm during edit).
  */
 export function bufferHasBuildFoundation(events: readonly Event[]): boolean {

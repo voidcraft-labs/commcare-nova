@@ -1,7 +1,7 @@
 /**
  * Domain-native navigation primitives for the builder's canvas layer.
  *
- * These are the replacement for the wire-shape `QuestionPath` navigation
+ * These are the replacement for the wire-shape `FieldPath` navigation
  * helpers in `lib/services/questionNavigation.ts`. Everything here operates
  * directly on the normalized `BlueprintDoc` (the `fields` map + `fieldOrder`
  * adjacency list) and identifies positions by `Uuid` rather than
@@ -9,10 +9,10 @@
  *
  * Why uuid-first:
  *   - Uuids are stable across renames — a path-based identity breaks when
- *     a user edits a question id.
+ *     a user edits a field id.
  *   - The mutation surface (`moveField`, `removeField`, etc.) already takes
  *     uuids, so path↔uuid translation adds a round-trip with no upside.
- *   - The wire-format `Question` / `BlueprintForm` only exists at the SA /
+ *   - The wire-format `Question` / `BlueprintForm` legacy types only exists at the SA /
  *     CommCare-HQ boundary; every internal consumer should walk the
  *     normalized doc instead of assembling a nested tree first.
  *
@@ -79,7 +79,7 @@ function walkFieldRefs(
  * Flatten a form's entire field subtree into visual render order.
  *
  * Used by `Tab`/`Shift+Tab` keyboard navigation (which crosses group
- * boundaries) and by delete-neighbor resolution (the adjacent question
+ * boundaries) and by delete-neighbor resolution (the adjacent field
  * in the flat list becomes the new selection after delete).
  *
  * Returns an empty array when the form uuid is unknown — consumers
