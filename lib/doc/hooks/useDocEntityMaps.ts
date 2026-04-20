@@ -21,6 +21,8 @@
  * equality. A `useMemo` wrap would just add overhead.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";

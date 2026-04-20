@@ -15,6 +15,8 @@
  * specific field's parent changes, not on every structural mutation.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 

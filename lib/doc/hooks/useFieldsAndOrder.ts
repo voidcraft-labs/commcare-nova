@@ -17,6 +17,8 @@
  * already reference-stable.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import type { Field } from "@/lib/domain";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";

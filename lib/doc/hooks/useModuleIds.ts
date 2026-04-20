@@ -7,6 +7,8 @@
  * (Immer structural sharing keeps unchanged maps/arrays stable).
  */
 
+"use client";
+
 import { useMemo } from "react";
 import type { Uuid } from "@/lib/doc/types";
 import type { Form, Module } from "@/lib/domain";

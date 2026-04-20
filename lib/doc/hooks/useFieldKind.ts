@@ -12,6 +12,8 @@
  * discriminated-union URL selections don't need unsound casts.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import type { FieldKind } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";

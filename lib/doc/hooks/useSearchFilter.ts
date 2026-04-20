@@ -18,6 +18,9 @@
  * presentation component. Colocation keeps the "components import
  * hooks, never the raw store" boundary trivially enforceable.
  */
+
+"use client";
+
 import { useMemo } from "react";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";

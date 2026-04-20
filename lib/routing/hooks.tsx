@@ -305,7 +305,7 @@ export function useNavigate(): NavigateActions {
 				if (parent) push(parent);
 			},
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- basePath is captured once via ref
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentional stable object; all state read at call time via locRef/window.location
 	}, []);
 }
 
@@ -420,18 +420,20 @@ export interface ExternalNavigateActions {
  * `useExternalNavigate` to audit every cross-route jump, and switching
  * navigation strategies in the future is a one-file change.
  *
- * The returned object is NOT memoized: App Router's `router` reference
- * is stable within a session, the three closures are trivial to
- * allocate, and wrapping them in `useMemo` would add a hook + a
- * dependency list for no real savings. Consumers calling this inside
- * tight render paths are expected to pull the methods they need via
- * destructuring at the top of the component.
+ * The returned object is memoized on `router` so consumers can safely
+ * place `navigate` in `useCallback`/`useMemo` dependency arrays without
+ * re-firing on every parent render. App Router's `router` reference is
+ * stable within a session, so in practice the memo returns the same
+ * object bag for the lifetime of the component.
  */
 export function useExternalNavigate(): ExternalNavigateActions {
 	const router = useRouter();
-	return {
-		push: (path: string) => router.push(path),
-		replace: (path: string) => router.replace(path),
-		refresh: () => router.refresh(),
-	};
+	return useMemo(
+		() => ({
+			push: (path: string) => router.push(path),
+			replace: (path: string) => router.replace(path),
+			refresh: () => router.refresh(),
+		}),
+		[router],
+	);
 }

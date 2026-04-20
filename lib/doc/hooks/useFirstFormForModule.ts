@@ -17,6 +17,8 @@
  * not trigger a re-render.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import type { Form } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";

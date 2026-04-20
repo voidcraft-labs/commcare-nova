@@ -10,6 +10,8 @@
  * on every history mutation regardless of the selected value.
  */
 
+"use client";
+
 import { useBlueprintDocTemporal } from "./useBlueprintDoc";
 
 /** `true` when the doc has at least one past state available to undo into. */

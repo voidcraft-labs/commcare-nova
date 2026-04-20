@@ -16,6 +16,8 @@
  * structural sharing.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";
 

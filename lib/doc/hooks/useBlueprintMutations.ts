@@ -27,6 +27,8 @@
  * reload or undo.
  */
 
+"use client";
+
 import { useContext, useMemo } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type {

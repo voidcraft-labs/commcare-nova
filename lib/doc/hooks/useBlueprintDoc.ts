@@ -13,6 +13,8 @@
  * any of these hooks outside a `<BlueprintDocProvider>` throws.
  */
 
+"use client";
+
 import { useContext } from "react";
 import type { TemporalState } from "zundo";
 import { useStore } from "zustand";

@@ -8,6 +8,8 @@
  * every unrelated edit.
  */
 
+"use client";
+
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 export function useAppName(): string {

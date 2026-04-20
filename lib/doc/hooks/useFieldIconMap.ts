@@ -18,6 +18,9 @@
  * keeps the boundary rule (components import hooks, never the raw
  * store) trivially enforceable.
  */
+
+"use client";
+
 import type { IconifyIcon } from "@iconify/react/offline";
 import { useMemo } from "react";
 import {

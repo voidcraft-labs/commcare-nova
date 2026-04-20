@@ -6,6 +6,8 @@
  * action. Returns null outside of edit mode or when no uuid is provided.
  */
 
+"use client";
+
 import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { asUuid, type Uuid } from "@/lib/doc/types";

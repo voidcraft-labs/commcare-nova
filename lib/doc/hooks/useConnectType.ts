@@ -17,6 +17,8 @@
  * sufficient — no shallow wrapper needed.
  */
 
+"use client";
+
 import type { ConnectType } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 

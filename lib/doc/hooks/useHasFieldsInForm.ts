@@ -15,6 +15,8 @@
  * Returns `false` when the uuid is missing or unknown.
  */
 
+"use client";
+
 import type { Uuid } from "@/lib/doc/types";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 

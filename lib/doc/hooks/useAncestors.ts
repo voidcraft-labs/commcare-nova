@@ -16,6 +16,8 @@
  * which is bounded by form nesting depth (typically ≤ 3 levels).
  */
 
+"use client";
+
 import { useMemo } from "react";
 import type { Uuid } from "@/lib/doc/types";
 import { useBlueprintDoc } from "./useBlueprintDoc";
