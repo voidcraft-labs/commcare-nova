@@ -540,7 +540,7 @@ describe("solutionsArchitect — validateApp", () => {
 // ── validationLoop fix pass — emits data-mutations, not data-form-fixed ──
 //
 // Shortcut (per Task 17d plan): we stub `runValidation`, `FIX_REGISTRY`,
-// and `expandBlueprint` at the module level so the loop walks exactly
+// and `expandDoc` at the module level so the loop walks exactly
 // one fix iteration. Building a real error that a real fix repairs
 // would require plumbing the field-registry rule + fix pair, which is
 // far more invasive than the call-site change being tested.
@@ -553,8 +553,8 @@ vi.mock("@/lib/commcare/validator/fixes", () => ({
 	FIX_REGISTRY: new Map<string, (...args: unknown[]) => Mutation[]>(),
 }));
 
-vi.mock("@/lib/services/hqJsonExpander", () => ({
-	expandBlueprint: vi.fn(() => ({
+vi.mock("@/lib/commcare/expander", () => ({
+	expandDoc: vi.fn(() => ({
 		modules: [],
 		_attachments: {},
 	})),

@@ -14,9 +14,19 @@ import {
 import type {
 	AppBlueprint,
 	WireFormLink as FormLink,
+	Question,
 } from "@/lib/doc/legacyTypes";
 import type { PostSubmitDestination } from "@/lib/domain";
-import { q } from "./wireFixtures";
+
+// `detectFormLinkCycles` reads the nested `AppBlueprint` wire shape,
+// so the cycle-detection fixtures below need legacy `Question` values.
+// Every other test in this file exercises enum / stack helpers that
+// take primitives, not a blueprint — the factory is only called from
+// the `detectFormLinkCycles` block.
+let counter = 0;
+function q(overrides: Omit<Question, "uuid"> & { uuid?: string }): Question {
+	return { uuid: `session-test-q-${++counter}`, ...overrides };
+}
 
 // ── deriveSessionDatums ────────────────────────────────────────────
 

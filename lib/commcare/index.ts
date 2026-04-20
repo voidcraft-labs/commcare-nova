@@ -15,10 +15,14 @@
 // focused on shared primitives.
 
 export * from "./constants";
+export * from "./deriveCaseConfig";
+export * from "./expander";
+export * from "./formActions";
 export * from "./hashtags";
 export * from "./hqShells";
 export * from "./identifierValidation";
 export * from "./ids";
 export * from "./session";
 export * from "./types";
+export * from "./xform";
 export * from "./xml";

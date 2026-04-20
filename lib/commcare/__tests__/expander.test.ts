@@ -1,50 +1,49 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expandDoc } from "@/lib/commcare";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import type { AppBlueprint } from "@/lib/doc/legacyTypes";
-import { expandBlueprint } from "../hqJsonExpander";
-import { q } from "./wireFixtures";
 
-const followupBlueprint: AppBlueprint = {
-	app_name: "Test App",
+// Shared fixtures used across the main expander cases below. Each test
+// outside this block constructs its own fixture inline to keep the
+// given-when-then narrative next to the assertion.
+const followupDoc = buildDoc({
+	appName: "Test App",
 	modules: [
 		{
-			uuid: "module-1-uuid",
 			name: "Visits",
-			case_type: "patient",
+			caseType: "patient",
+			caseListColumns: [{ field: "full_name", header: "Name" }],
 			forms: [
 				{
-					uuid: "form-1-uuid",
 					name: "Follow-up Visit",
 					type: "followup",
-					questions: [
-						q({
+					fields: [
+						f({
+							kind: "group",
 							id: "client_info",
-							type: "group",
 							label: "Client Info",
 							children: [
-								q({
+								f({
+									kind: "text",
 									id: "full_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						}),
-						q({
+						f({
+							kind: "hidden",
 							id: "total_visits",
-							type: "hidden",
 							calculate: "#case/total_visits + 1",
-							case_property_on: "patient",
+							case_property: "patient",
 						}),
-						q({ id: "notes", type: "text", label: "Notes" }),
+						f({ kind: "text", id: "notes", label: "Notes" }),
 					],
 				},
 			],
-			case_list_columns: [{ field: "full_name", header: "Name" }],
 		},
 	],
-	case_types: [
+	caseTypes: [
 		{
 			name: "patient",
 			properties: [
@@ -53,63 +52,8 @@ const followupBlueprint: AppBlueprint = {
 			],
 		},
 	],
-};
+});
 
-const registrationBlueprint: AppBlueprint = {
-	app_name: "Reg App",
-	modules: [
-		{
-			uuid: "module-2-uuid",
-			name: "Registration",
-			case_type: "patient",
-			case_list_columns: [
-				{ field: "case_name", header: "Name" },
-				{ field: "age", header: "Age" },
-			],
-			forms: [
-				{
-					uuid: "form-2-uuid",
-					name: "Register Patient",
-					type: "registration",
-					questions: [
-						q({
-							id: "case_name",
-							type: "text",
-							label: "Full Name",
-							required: "true()",
-							case_property_on: "patient",
-						}),
-						q({
-							id: "age",
-							type: "int",
-							label: "Age",
-							validation: ". > 0 and . < 150",
-							case_property_on: "patient",
-						}),
-						q({
-							id: "risk",
-							type: "hidden",
-							calculate: "if(/data/age > 65, 'high', 'low')",
-						}),
-					],
-				},
-			],
-		},
-	],
-	case_types: [
-		{
-			name: "patient",
-			properties: [
-				{ name: "case_name", label: "Full Name" },
-				{ name: "age", label: "Age" },
-			],
-		},
-	],
-};
-
-// Domain-shaped twin of `registrationBlueprint` for runValidation tests.
-// The expander still consumes the wire fixture; validation tests use this
-// one so the validator never has to cross the wire boundary.
 const registrationDoc = buildDoc({
 	appName: "Reg App",
 	modules: [
@@ -160,9 +104,9 @@ const registrationDoc = buildDoc({
 	],
 });
 
-describe("expandBlueprint", () => {
+describe("expandDoc", () => {
 	it("populates case_references_data.load with #case/ hashtag references", () => {
-		const hq = expandBlueprint(followupBlueprint);
+		const hq = expandDoc(followupDoc);
 		const form = hq.modules[0].forms[0];
 		const load = form.case_references_data.load;
 
@@ -172,36 +116,34 @@ describe("expandBlueprint", () => {
 	});
 
 	it("leaves case_references_data.load empty when no hashtags exist", () => {
-		const hq = expandBlueprint(registrationBlueprint);
+		const hq = expandDoc(registrationDoc);
 		const form = hq.modules[0].forms[0];
 
 		expect(form.case_references_data.load).toEqual({});
 	});
 
 	it("resolves nested question paths in case_references_data", () => {
-		const bp: AppBlueprint = {
-			app_name: "Nested",
+		const doc = buildDoc({
+			appName: "Nested",
 			modules: [
 				{
-					uuid: "module-3-uuid",
 					name: "M",
-					case_type: "case",
+					caseType: "case",
 					forms: [
 						{
-							uuid: "form-3-uuid",
 							name: "F",
 							type: "followup",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "group",
 									id: "grp",
-									type: "group",
 									label: "G",
 									children: [
-										q({
+										f({
+											kind: "hidden",
 											id: "some_prop",
-											type: "hidden",
 											calculate: "#case/some_prop + #user/role",
-											case_property_on: "case",
+											case_property: "case",
 										}),
 									],
 								}),
@@ -210,22 +152,21 @@ describe("expandBlueprint", () => {
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "case",
 					properties: [{ name: "some_prop", label: "Some Prop" }],
 				},
 			],
-		};
-		const load =
-			expandBlueprint(bp).modules[0].forms[0].case_references_data.load;
+		});
+		const load = expandDoc(doc).modules[0].forms[0].case_references_data.load;
 		expect(load["/data/grp/some_prop"]).toEqual(
 			expect.arrayContaining(["#case/some_prop", "#user/role"]),
 		);
 	});
 
 	it("expands #case/ to full XPath in calculate, keeps shorthand in vellum:calculate", () => {
-		const hq = expandBlueprint(followupBlueprint);
+		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 
 		// Real calculate should have the expanded instance() XPath
@@ -240,7 +181,7 @@ describe("expandBlueprint", () => {
 	});
 
 	it("wires registration form actions correctly", () => {
-		const hq = expandBlueprint(registrationBlueprint);
+		const hq = expandDoc(registrationDoc);
 		const actions = hq.modules[0].forms[0].actions;
 
 		expect(actions.open_case.condition.type).toBe("always");
@@ -249,7 +190,7 @@ describe("expandBlueprint", () => {
 	});
 
 	it("wires followup preload and update actions correctly", () => {
-		const hq = expandBlueprint(followupBlueprint);
+		const hq = expandDoc(followupDoc);
 		const actions = hq.modules[0].forms[0].actions;
 
 		expect(actions.open_case.condition.type).toBe("never");
@@ -267,27 +208,29 @@ describe("expandBlueprint", () => {
 	});
 
 	it("generates XForm with setvalue for default_value", () => {
-		const bp: AppBlueprint = {
-			app_name: "DV",
+		const doc = buildDoc({
+			appName: "DV",
 			modules: [
 				{
-					uuid: "module-4-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-4-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "status", type: "hidden", default_value: "'pending'" }),
+							fields: [
+								f({
+									kind: "hidden",
+									id: "status",
+									calculate: "'pending'",
+									default_value: "'pending'",
+								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('vellum:ref="#form/status" ref="/data/status"');
 		expect(xform).toContain("value=\"'pending'\"");
@@ -296,36 +239,34 @@ describe("expandBlueprint", () => {
 	});
 
 	it("expands #case/ in setvalue default_value, keeps shorthand in vellum:value", () => {
-		const bp: AppBlueprint = {
-			app_name: "DV",
+		const doc = buildDoc({
+			appName: "DV",
 			modules: [
 				{
-					uuid: "module-5-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
 					forms: [
 						{
-							uuid: "form-5-uuid",
 							name: "F",
 							type: "followup",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "full_name",
-									type: "text",
 									label: "Name",
 									default_value: "#case/full_name",
-									case_property_on: "c",
+									case_property: "c",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// Real value attribute should have expanded XPath (XML-escaped)
 		expect(xform).toContain("instance('casedb')");
@@ -335,7 +276,7 @@ describe("expandBlueprint", () => {
 	});
 
 	it("omits itext label for hidden questions without a label", () => {
-		const hq = expandBlueprint(followupBlueprint);
+		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// Hidden question 'total_visits' has no label — should not get an itext entry
 		expect(xform).not.toContain('id="total_visits-label"');
@@ -344,23 +285,21 @@ describe("expandBlueprint", () => {
 	});
 
 	it("handles close forms — conditional and unconditional", () => {
-		const bp: AppBlueprint = {
-			app_name: "Close",
+		const doc = buildDoc({
+			appName: "Close",
 			modules: [
 				{
-					uuid: "module-6-uuid",
 					name: "M",
-					case_type: "case",
+					caseType: "case",
 					forms: [
 						{
-							uuid: "form-6-uuid",
 							name: "Conditional Close",
 							type: "close",
-							close_condition: { question: "confirm", answer: "yes" },
-							questions: [
-								q({
+							closeCondition: { field: "confirm", answer: "yes" },
+							fields: [
+								f({
+									kind: "single_select",
 									id: "confirm",
-									type: "single_select",
 									label: "Close?",
 									options: [
 										{ value: "yes", label: "Yes" },
@@ -370,19 +309,18 @@ describe("expandBlueprint", () => {
 							],
 						},
 						{
-							uuid: "form-7-uuid",
 							name: "Always Close",
 							type: "close",
-							questions: [q({ id: "note", type: "text", label: "Note" })],
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "case", properties: [{ name: "name", label: "Name" }] },
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		/* Conditional close form → "if" condition */
 		expect(hq.modules[0].forms[0].actions.close_case.condition.type).toBe("if");
 		expect(hq.modules[0].forms[0].actions.close_case.condition.answer).toBe(
@@ -399,42 +337,6 @@ describe("expandBlueprint", () => {
 });
 
 describe("case_name in case list columns", () => {
-	// Expander side: wire-format fixture (expandBlueprint is the legitimate
-	// XForm wire-boundary; it stays on AppBlueprint).
-	const bp: AppBlueprint = {
-		app_name: "CL",
-		modules: [
-			{
-				uuid: "module-7-uuid",
-				name: "M",
-				case_type: "patient",
-				forms: [
-					{
-						uuid: "form-8-uuid",
-						name: "F",
-						type: "registration",
-						questions: [
-							q({
-								id: "case_name",
-								type: "text",
-								label: "Name",
-								case_property_on: "patient",
-							}),
-						],
-					},
-				],
-				case_list_columns: [
-					{ field: "case_name", header: "Full Name" },
-					{ field: "age", header: "Age" },
-				],
-			},
-		],
-		case_types: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
-		],
-	};
-
-	// Validator side: equivalent domain doc fixture.
 	const doc = buildDoc({
 		appName: "CL",
 		modules: [
@@ -467,7 +369,7 @@ describe("case_name in case list columns", () => {
 	});
 
 	it("expander keeps case_name column in case details", () => {
-		const hq = expandBlueprint(bp);
+		const hq = expandDoc(doc);
 		const cols = hq.modules[0].case_details.short.columns;
 		expect(cols.some((c) => c.field === "case_name")).toBe(true);
 	});
@@ -569,22 +471,20 @@ describe("runValidation", () => {
 
 describe("output references in labels", () => {
 	it('preserves <output value="..."/> in label itext, escaping surrounding text', () => {
-		const bp: AppBlueprint = {
-			app_name: "Output",
+		const doc = buildDoc({
+			appName: "Output",
 			modules: [
 				{
-					uuid: "module-11-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-12-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "name", type: "text", label: "Name" }),
-								q({
+							fields: [
+								f({ kind: "text", id: "name", label: "Name" }),
+								f({
+									kind: "label",
 									id: "greeting",
-									type: "label",
 									label: 'Hello <output value="/data/name"/>, welcome!',
 								}),
 							],
@@ -592,9 +492,8 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain(
 			'<text id="greeting-label"><value>Hello <output value="/data/name"/>, welcome!</value><value form="markdown">Hello <output value="/data/name"/>, welcome!</value></text>',
@@ -602,28 +501,26 @@ describe("output references in labels", () => {
 	});
 
 	it('expands #case/ hashtags inside <output value="..."/> tags', () => {
-		const bp: AppBlueprint = {
-			app_name: "Output",
+		const doc = buildDoc({
+			appName: "Output",
 			modules: [
 				{
-					uuid: "module-12-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
 					forms: [
 						{
-							uuid: "form-13-uuid",
 							name: "F",
 							type: "followup",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "full_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "label",
 									id: "msg",
-									type: "label",
 									label: 'Patient: <output value="#case/full_name"/>',
 								}),
 							],
@@ -631,11 +528,11 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// The output value= should have expanded XPath, vellum:value preserves shorthand
 		expect(xform).toContain('<output value="instance(');
@@ -643,40 +540,38 @@ describe("output references in labels", () => {
 	});
 
 	it("wraps bare #case/ in label text as <output> tags with expanded XPath", () => {
-		const bp: AppBlueprint = {
-			app_name: "BareRef",
+		const doc = buildDoc({
+			appName: "BareRef",
 			modules: [
 				{
-					uuid: "module-13-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
 					forms: [
 						{
-							uuid: "form-14-uuid",
 							name: "F",
 							type: "followup",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "date",
 									id: "start_date",
-									type: "date",
 									label: "Start",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "date",
 									id: "end_date",
-									type: "date",
 									label: "End",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "label",
 									id: "summary",
-									type: "label",
 									label:
 										"Plan: **#case/case_name**, from #case/start_date to #case/end_date",
 								}),
@@ -685,7 +580,7 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "c",
 					properties: [
@@ -695,8 +590,8 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// Bare #case/ text should not appear in label content
 		expect(xform).not.toContain("#case/case_name**");
@@ -713,22 +608,20 @@ describe("output references in labels", () => {
 	});
 
 	it("wraps bare #form/ in label text as <output> tags", () => {
-		const bp: AppBlueprint = {
-			app_name: "BareForm",
+		const doc = buildDoc({
+			appName: "BareForm",
 			modules: [
 				{
-					uuid: "module-14-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-15-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "user_name", type: "text", label: "Your name" }),
-								q({
+							fields: [
+								f({ kind: "text", id: "user_name", label: "Your name" }),
+								f({
+									kind: "label",
 									id: "greeting",
-									type: "label",
 									label: "Hello #form/user_name!",
 								}),
 							],
@@ -736,9 +629,8 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).not.toContain("#form/user_name!");
 		expect(xform).toContain(
@@ -747,34 +639,32 @@ describe("output references in labels", () => {
 	});
 
 	it("handles mixed bare hashtags and existing <output> tags in one label", () => {
-		const bp: AppBlueprint = {
-			app_name: "Mixed",
+		const doc = buildDoc({
+			appName: "Mixed",
 			modules: [
 				{
-					uuid: "module-15-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
 					forms: [
 						{
-							uuid: "form-16-uuid",
 							name: "F",
 							type: "followup",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "text",
 									id: "status",
-									type: "text",
 									label: "Status",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "label",
 									id: "info",
-									type: "label",
 									label:
 										'Hello <output value="#case/case_name"/>, status: #case/status',
 								}),
@@ -783,7 +673,7 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "c",
 					properties: [
@@ -792,8 +682,8 @@ describe("output references in labels", () => {
 					],
 				},
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// The bare #case/status from the label should be wrapped and expanded
 		const infoLabel =
@@ -806,9 +696,6 @@ describe("output references in labels", () => {
 });
 
 // ── Markdown itext for all question types ────────────────────────────────
-// CommCare only renders markdown when <value form="markdown"> is present alongside
-// <value> in itext. Verify every surface (labels, hints, options, groups)
-// emits the markdown form so markdown syntax doesn't render as plain text on-device.
 
 describe("markdown itext for all question types", () => {
 	/** Extract a single itext entry by ID from XForm XML. */
@@ -816,21 +703,19 @@ describe("markdown itext for all question types", () => {
 		xform.match(new RegExp(`<text id="${id}">.*?</text>`, "s"))?.[0] ?? "";
 
 	it("emits markdown form for regular text question labels", () => {
-		const bp: AppBlueprint = {
-			app_name: "MD",
+		const doc = buildDoc({
+			appName: "MD",
 			modules: [
 				{
-					uuid: "module-16-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-17-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "name",
-									type: "text",
 									label: "Enter your **full name**",
 								}),
 							],
@@ -838,10 +723,9 @@ describe("markdown itext for all question types", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 		const entry = extractItext(xform, "name-label");
 		expect(entry).toContain("<value>Enter your **full name**</value>");
@@ -851,21 +735,19 @@ describe("markdown itext for all question types", () => {
 	});
 
 	it("emits markdown form for select question labels and option labels", () => {
-		const bp: AppBlueprint = {
-			app_name: "MD",
+		const doc = buildDoc({
+			appName: "MD",
 			modules: [
 				{
-					uuid: "module-17-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-18-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "single_select",
 									id: "status",
-									type: "single_select",
 									label: "Current **status**",
 									options: [
 										{
@@ -880,10 +762,9 @@ describe("markdown itext for all question types", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 		// Question label
 		const label = extractItext(xform, "status-label");
@@ -900,21 +781,19 @@ describe("markdown itext for all question types", () => {
 	});
 
 	it("emits markdown form for hint text", () => {
-		const bp: AppBlueprint = {
-			app_name: "MD",
+		const doc = buildDoc({
+			appName: "MD",
 			modules: [
 				{
-					uuid: "module-18-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-19-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "int",
 									id: "age",
-									type: "int",
 									label: "Age",
 									hint: "Enter age in **years**",
 								}),
@@ -923,10 +802,9 @@ describe("markdown itext for all question types", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 		const hint = extractItext(xform, "age-hint");
 		expect(hint).toContain(
@@ -935,33 +813,30 @@ describe("markdown itext for all question types", () => {
 	});
 
 	it("emits markdown form for group labels", () => {
-		const bp: AppBlueprint = {
-			app_name: "MD",
+		const doc = buildDoc({
+			appName: "MD",
 			modules: [
 				{
-					uuid: "module-19-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-20-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "group",
 									id: "demographics",
-									type: "group",
 									label: "## Demographics",
-									children: [q({ id: "name", type: "text", label: "Name" })],
+									children: [f({ kind: "text", id: "name", label: "Name" })],
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 		const entry = extractItext(xform, "demographics-label");
 		expect(entry).toContain("<value>## Demographics</value>");
@@ -969,24 +844,22 @@ describe("markdown itext for all question types", () => {
 	});
 
 	it("emits markdown form for repeat group labels", () => {
-		const bp: AppBlueprint = {
-			app_name: "MD",
+		const doc = buildDoc({
+			appName: "MD",
 			modules: [
 				{
-					uuid: "module-20-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-21-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "repeat",
 									id: "children",
-									type: "repeat",
 									label: "Add **child** details",
 									children: [
-										q({ id: "child_name", type: "text", label: "Child name" }),
+										f({ kind: "text", id: "child_name", label: "Child name" }),
 									],
 								}),
 							],
@@ -994,10 +867,9 @@ describe("markdown itext for all question types", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 		const entry = extractItext(xform, "children-label");
 		expect(entry).toContain(
@@ -1006,34 +878,31 @@ describe("markdown itext for all question types", () => {
 	});
 
 	it("emits markdown form for date, decimal, and media question labels", () => {
-		const bp: AppBlueprint = {
-			app_name: "MD",
+		const doc = buildDoc({
+			appName: "MD",
 			modules: [
 				{
-					uuid: "module-21-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-22-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "date",
 									id: "visit_date",
-									type: "date",
 									label: "Date of **visit**",
 								}),
-								q({ id: "weight", type: "decimal", label: "Weight _(kg)_" }),
-								q({ id: "photo", type: "image", label: "Take a **photo**" }),
+								f({ kind: "decimal", id: "weight", label: "Weight _(kg)_" }),
+								f({ kind: "image", id: "photo", label: "Take a **photo**" }),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 		expect(extractItext(xform, "visit_date-label")).toContain(
 			'<value form="markdown">Date of **visit**</value>',
@@ -1051,23 +920,21 @@ describe("markdown itext for all question types", () => {
 
 describe("#form/ hashtag expansion", () => {
 	it("expands #form/ in calculate to /data/, keeps shorthand in vellum:calculate", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-22-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-23-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "first_name", type: "text", label: "First" }),
-								q({ id: "last_name", type: "text", label: "Last" }),
-								q({
+							fields: [
+								f({ kind: "text", id: "first_name", label: "First" }),
+								f({ kind: "text", id: "last_name", label: "Last" }),
+								f({
+									kind: "hidden",
 									id: "full_name",
-									type: "hidden",
 									calculate: "concat(#form/first_name, ' ', #form/last_name)",
 								}),
 							],
@@ -1075,9 +942,8 @@ describe("#form/ hashtag expansion", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain(
 			"calculate=\"concat(/data/first_name, ' ', /data/last_name)\"",
@@ -1088,30 +954,28 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("expands #form/ in relevant to /data/, keeps shorthand in vellum:relevant", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-23-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-24-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "single_select",
 									id: "consent",
-									type: "single_select",
 									label: "Consent?",
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
 								}),
-								q({
+								f({
+									kind: "text",
 									id: "details",
-									type: "text",
 									label: "Details",
 									relevant: "#form/consent = 'yes'",
 								}),
@@ -1120,48 +984,44 @@ describe("#form/ hashtag expansion", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain("relevant=\"/data/consent = 'yes'\"");
 		expect(xform).toContain("vellum:relevant=\"#form/consent = 'yes'\"");
 	});
 
 	it("expands #form/ in validation constraint", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-24-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-25-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "start_date", type: "date", label: "Start" }),
-								q({
+							fields: [
+								f({ kind: "date", id: "start_date", label: "Start" }),
+								f({
+									kind: "date",
 									id: "end_date",
-									type: "date",
 									label: "End",
-									validation: ". >= #form/start_date",
+									validate: ". >= #form/start_date",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('constraint=". &gt;= /data/start_date"');
 		expect(xform).toContain('vellum:constraint=". &gt;= #form/start_date"');
 	});
 
-	// Regression: validation_msg must round-trip through CommCare HQ.
+	// Regression: validate_msg must round-trip through CommCare HQ.
 	//
 	// HQ's XForm parser (`corehq/apps/app_manager/xform.py:1167`) only reads
 	// `jr:constraintMsg` when it points at an itext id via `jr:itext(...)` —
@@ -1170,35 +1030,32 @@ describe("#form/ hashtag expansion", () => {
 	// (b) register a matching `<text>` entry in the form's translation block.
 	// Previously we emitted the literal string as the attribute value, which
 	// is why the message vanished after upload.
-	it("emits validation_msg as an itext-referenced constraintMsg", () => {
-		const bp: AppBlueprint = {
-			app_name: "ValMsg",
+	it("emits validate_msg as an itext-referenced constraintMsg", () => {
+		const doc = buildDoc({
+			appName: "ValMsg",
 			modules: [
 				{
-					uuid: "module-25-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-26-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "int",
 									id: "age",
-									type: "int",
 									label: "Age",
-									validation: ". > 0 and . < 150",
-									validation_msg: "Age must be between 1 and 149",
+									validate: ". > 0 and . < 150",
+									validate_msg: "Age must be between 1 and 149",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 
 		// Bind references the itext id, not the raw message string.
@@ -1223,43 +1080,40 @@ describe("#form/ hashtag expansion", () => {
 	// Regression: validation is only legal on input question types.
 	//
 	// Hidden fields are computed from `calculate`/`default_value`, so the
-	// user can never see or correct a failing constraint — a
-	// `validation_msg` on them is dead metadata. Structural containers
-	// (group/repeat) and display-only labels similarly can't surface an
-	// error. The XForm emitter drops both the bind attributes and the
-	// itext entry for these types so a stale `validation_msg` can't leak
-	// into HQ.
-	it("drops validation and validation_msg on hidden questions", () => {
-		const bp: AppBlueprint = {
-			app_name: "HiddenVal",
+	// user can never see or correct a failing constraint — a `validate_msg`
+	// on them is dead metadata. Structural containers (group/repeat) and
+	// display-only labels similarly can't surface an error. The XForm
+	// emitter drops both the bind attributes and the itext entry for these
+	// kinds so a stale `validate_msg` can't leak into HQ.
+	it("drops validate and validate_msg on hidden questions", () => {
+		// The hidden-field schema doesn't declare `validate` / `validate_msg`,
+		// but the emitter must defensively strip them if they ever appear on
+		// a field value (e.g. via a stale migration). Use a looser field spec.
+		const doc = buildDoc({
+			appName: "HiddenVal",
 			modules: [
 				{
-					uuid: "module-26-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-27-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								{
+									kind: "hidden",
 									id: "risk",
-									type: "hidden",
 									calculate: "if(/data/age > 65, 'high', 'low')",
-									// These are meaningless on a hidden field and
-									// must not surface in the XForm output.
-									validation: ". != 'unknown'",
-									validation_msg: "Risk must resolve",
-								}),
+									validate: ". != 'unknown'",
+									validate_msg: "Risk must resolve",
+								},
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 
 		expect(xform).not.toContain("jr:constraintMsg");
@@ -1268,41 +1122,38 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).not.toContain("Risk must resolve");
 	});
 
-	it("drops validation_msg on label and group questions", () => {
-		const bp: AppBlueprint = {
-			app_name: "StructuralVal",
+	it("drops validate_msg on label and group questions", () => {
+		const doc = buildDoc({
+			appName: "StructuralVal",
 			modules: [
 				{
-					uuid: "module-27-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-28-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								{
+									kind: "label",
 									id: "section_header",
-									type: "label",
 									label: "Demographics",
-									validation_msg: "should never appear",
-								}),
-								q({
+									validate_msg: "should never appear",
+								},
+								{
+									kind: "group",
 									id: "demographics",
-									type: "group",
 									label: "Demographics",
-									validation_msg: "should never appear either",
-									children: [q({ id: "name", type: "text", label: "Name" })],
-								}),
+									validate_msg: "should never appear either",
+									children: [f({ kind: "text", id: "name", label: "Name" })],
+								},
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 		const xform: string = Object.values(
-			expandBlueprint(bp)._attachments,
+			expandDoc(doc)._attachments,
 		)[0] as string;
 
 		expect(xform).not.toContain("jr:constraintMsg");
@@ -1312,30 +1163,28 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("expands #form/ in required condition", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-28-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-29-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "single_select",
 									id: "has_issue",
-									type: "single_select",
 									label: "Issue?",
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
 								}),
-								q({
+								f({
+									kind: "text",
 									id: "details",
-									type: "text",
 									label: "Details",
 									required: "#form/has_issue = 'yes'",
 								}),
@@ -1344,35 +1193,33 @@ describe("#form/ hashtag expansion", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain("required=\"/data/has_issue = 'yes'\"");
 		expect(xform).toContain("vellum:required=\"#form/has_issue = 'yes'\"");
 	});
 
 	it("expands #form/ in <output> tags with vellum:value", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-29-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-30-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "hidden",
 									id: "text_value",
-									type: "hidden",
+									calculate: "'Text'",
 									default_value: "'Text'",
 								}),
-								q({
+								f({
+									kind: "label",
 									id: "here",
-									type: "label",
 									label: 'Here <output value="#form/text_value"/>',
 								}),
 							],
@@ -1380,9 +1227,8 @@ describe("#form/ hashtag expansion", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain(
 			'<output value="/data/text_value" vellum:value="#form/text_value"/>',
@@ -1390,23 +1236,22 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("expands #form/ in default_value setvalue", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-30-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-31-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "score_a", type: "int", label: "Score A" }),
-								q({ id: "score_b", type: "int", label: "Score B" }),
-								q({
+							fields: [
+								f({ kind: "int", id: "score_a", label: "Score A" }),
+								f({ kind: "int", id: "score_b", label: "Score B" }),
+								f({
+									kind: "hidden",
 									id: "total",
-									type: "hidden",
+									calculate: "#form/score_a + #form/score_b",
 									default_value: "#form/score_a + #form/score_b",
 								}),
 							],
@@ -1414,69 +1259,62 @@ describe("#form/ hashtag expansion", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('value="/data/score_a + /data/score_b"');
 		expect(xform).toContain('vellum:value="#form/score_a + #form/score_b"');
 	});
 
 	it("generates vellum:nodeset on all binds", () => {
-		const bp: AppBlueprint = {
-			app_name: "VN",
+		const doc = buildDoc({
+			appName: "VN",
 			modules: [
 				{
-					uuid: "module-31-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-32-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "name", type: "text", label: "Name" }),
-								q({ id: "age", type: "int", label: "Age" }),
+							fields: [
+								f({ kind: "text", id: "name", label: "Name" }),
+								f({ kind: "int", id: "age", label: "Age" }),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('vellum:nodeset="#form/name" nodeset="/data/name"');
 		expect(xform).toContain('vellum:nodeset="#form/age" nodeset="/data/age"');
 	});
 
 	it("generates vellum:nodeset for nested questions in groups", () => {
-		const bp: AppBlueprint = {
-			app_name: "VN",
+		const doc = buildDoc({
+			appName: "VN",
 			modules: [
 				{
-					uuid: "module-32-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-33-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "group",
 									id: "grp",
-									type: "group",
 									label: "Group",
-									children: [q({ id: "inner", type: "text", label: "Inner" })],
+									children: [f({ kind: "text", id: "inner", label: "Inner" })],
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain(
 			'vellum:nodeset="#form/grp/inner" nodeset="/data/grp/inner"',
@@ -1484,68 +1322,67 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("generates vellum:ref on setvalue elements", () => {
-		const bp: AppBlueprint = {
-			app_name: "VR",
+		const doc = buildDoc({
+			appName: "VR",
 			modules: [
 				{
-					uuid: "module-33-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-34-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "ts", type: "hidden", default_value: "now()" }),
+							fields: [
+								f({
+									kind: "hidden",
+									id: "ts",
+									calculate: "now()",
+									default_value: "now()",
+								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('vellum:ref="#form/ts" ref="/data/ts"');
 	});
 
 	it("expands #form/ in group relevant and adds vellum attributes", () => {
-		const bp: AppBlueprint = {
-			app_name: "GR",
+		const doc = buildDoc({
+			appName: "GR",
 			modules: [
 				{
-					uuid: "module-34-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-35-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "single_select",
 									id: "show",
-									type: "single_select",
 									label: "Show?",
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
 								}),
-								q({
+								f({
+									kind: "group",
 									id: "details",
-									type: "group",
 									label: "Details",
 									relevant: "#form/show = 'yes'",
-									children: [q({ id: "info", type: "text", label: "Info" })],
+									children: [f({ kind: "text", id: "info", label: "Info" })],
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain("relevant=\"/data/show = 'yes'\"");
 		expect(xform).toContain("vellum:relevant=\"#form/show = 'yes'\"");
@@ -1553,28 +1390,29 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("does not add vellum:hashtags or vellum:hashtagTransforms for #form/-only expressions", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-35-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-36-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "a", type: "int", label: "A" }),
-								q({ id: "b", type: "hidden", calculate: "#form/a * 2" }),
+							fields: [
+								f({ kind: "int", id: "a", label: "A" }),
+								f({
+									kind: "hidden",
+									id: "b",
+									calculate: "#form/a * 2",
+								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// #form/ is NOT in VELLUM_HASHTAG_TRANSFORMS — no transforms metadata needed
 		expect(xform).not.toContain("vellum:hashtags=");
@@ -1585,28 +1423,29 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("does not require secondary instances for #form/-only expressions", () => {
-		const bp: AppBlueprint = {
-			app_name: "FormRef",
+		const doc = buildDoc({
+			appName: "FormRef",
 			modules: [
 				{
-					uuid: "module-36-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-37-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "a", type: "int", label: "A" }),
-								q({ id: "b", type: "hidden", calculate: "#form/a * 2" }),
+							fields: [
+								f({ kind: "int", id: "a", label: "A" }),
+								f({
+									kind: "hidden",
+									id: "b",
+									calculate: "#form/a * 2",
+								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).not.toContain('id="casedb"');
 		expect(xform).not.toContain('id="commcaresession"');
@@ -1617,56 +1456,51 @@ describe("#form/ hashtag expansion", () => {
 
 describe("conditional required", () => {
 	it('generates required="true()" for required: "true()"', () => {
-		const bp: AppBlueprint = {
-			app_name: "R",
+		const doc = buildDoc({
+			appName: "R",
 			modules: [
 				{
-					uuid: "module-37-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-38-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "q", type: "text", label: "Q", required: "true()" }),
+							fields: [
+								f({ kind: "text", id: "q", label: "Q", required: "true()" }),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('required="true()"');
 	});
 
 	it("generates required XPath expression for string required", () => {
-		const bp: AppBlueprint = {
-			app_name: "R",
+		const doc = buildDoc({
+			appName: "R",
 			modules: [
 				{
-					uuid: "module-38-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-39-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "single_select",
 									id: "consent",
-									type: "single_select",
 									label: "Consent?",
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
 								}),
-								q({
+								f({
+									kind: "text",
 									id: "details",
-									type: "text",
 									label: "Details",
 									required: "/data/consent = 'yes'",
 								}),
@@ -1675,37 +1509,34 @@ describe("conditional required", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain("required=\"/data/consent = 'yes'\"");
 		expect(xform).not.toContain('required="true()"');
 	});
 
 	it("expands #case/ hashtags in required XPath and adds vellum:required", () => {
-		const bp: AppBlueprint = {
-			app_name: "R",
+		const doc = buildDoc({
+			appName: "R",
 			modules: [
 				{
-					uuid: "module-39-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
 					forms: [
 						{
-							uuid: "form-40-uuid",
 							name: "F",
 							type: "followup",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "risk",
-									type: "text",
 									label: "Q",
-									case_property_on: "c",
+									case_property: "c",
 								}),
-								q({
+								f({
+									kind: "text",
 									id: "notes",
-									type: "text",
 									label: "Notes",
 									required: "#case/risk = 'high'",
 								}),
@@ -1714,11 +1545,9 @@ describe("conditional required", () => {
 					],
 				},
 			],
-			case_types: [
-				{ name: "c", properties: [{ name: "risk", label: "Risk" }] },
-			],
-		};
-		const hq = expandBlueprint(bp);
+			caseTypes: [{ name: "c", properties: [{ name: "risk", label: "Risk" }] }],
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain("vellum:required=\"#case/risk = 'high'\"");
 		expect(xform).toContain("instance('casedb')");
@@ -1729,80 +1558,76 @@ describe("conditional required", () => {
 
 describe("case detail (long) view", () => {
 	it("mirrors short columns to long detail when case_detail_columns is not set", () => {
-		const bp: AppBlueprint = {
-			app_name: "D",
+		const doc = buildDoc({
+			appName: "D",
 			modules: [
 				{
-					uuid: "module-40-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
+					caseListColumns: [
+						{ field: "case_name", header: "Name" },
+						{ field: "age", header: "Age" },
+					],
 					forms: [
 						{
-							uuid: "form-41-uuid",
 							name: "F",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "c",
+									case_property: "c",
 								}),
 							],
 						},
 					],
-					case_list_columns: [
-						{ field: "case_name", header: "Name" },
-						{ field: "age", header: "Age" },
-					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "c", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const longCols = hq.modules[0].case_details.long.columns;
 		expect(longCols.length).toBe(2);
 		expect(longCols[0].field).toBe("case_name");
 	});
 
 	it("uses explicit case_detail_columns for long detail when provided", () => {
-		const bp: AppBlueprint = {
-			app_name: "D",
+		const doc = buildDoc({
+			appName: "D",
 			modules: [
 				{
-					uuid: "module-41-uuid",
 					name: "M",
-					case_type: "c",
-					forms: [
-						{
-							uuid: "form-42-uuid",
-							name: "F",
-							type: "registration",
-							questions: [
-								q({
-									id: "case_name",
-									type: "text",
-									label: "Name",
-									case_property_on: "c",
-								}),
-							],
-						},
-					],
-					case_list_columns: [{ field: "case_name", header: "Name" }],
-					case_detail_columns: [
+					caseType: "c",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseDetailColumns: [
 						{ field: "case_name", header: "Full Name" },
 						{ field: "age", header: "Age" },
 						{ field: "dob", header: "Date of Birth" },
 					],
+					forms: [
+						{
+							name: "F",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property: "c",
+								}),
+							],
+						},
+					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "c", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const longCols = hq.modules[0].case_details.long.columns;
 		expect(longCols.length).toBe(3);
 		expect(longCols[0].header.en).toBe("Full Name");
@@ -1814,27 +1639,22 @@ describe("case detail (long) view", () => {
 
 describe("single language itext", () => {
 	it("generates a single English translation block", () => {
-		const bp: AppBlueprint = {
-			app_name: "App",
+		const doc = buildDoc({
+			appName: "App",
 			modules: [
 				{
-					uuid: "module-42-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-43-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "name", type: "text", label: "Patient Name" }),
-							],
+							fields: [f({ kind: "text", id: "name", label: "Patient Name" })],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('lang="en" default=""');
 		expect(xform).toContain("Patient Name");
@@ -1846,26 +1666,25 @@ describe("single language itext", () => {
 
 describe("jr-insert for repeat defaults", () => {
 	it("uses jr-insert event for default_value inside repeat groups", () => {
-		const bp: AppBlueprint = {
-			app_name: "Rep",
+		const doc = buildDoc({
+			appName: "Rep",
 			modules: [
 				{
-					uuid: "module-43-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-44-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "repeat",
 									id: "items",
-									type: "repeat",
 									label: "Items",
 									children: [
-										q({
+										f({
+											kind: "hidden",
 											id: "status",
-											type: "hidden",
+											calculate: "'pending'",
 											default_value: "'pending'",
 										}),
 									],
@@ -1875,60 +1694,59 @@ describe("jr-insert for repeat defaults", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('event="jr-insert"');
 		expect(xform).not.toContain('event="xforms-ready"');
 	});
 
 	it("uses xforms-ready event for default_value outside repeat groups", () => {
-		const bp: AppBlueprint = {
-			app_name: "NR",
+		const doc = buildDoc({
+			appName: "NR",
 			modules: [
 				{
-					uuid: "module-44-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-45-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({ id: "status", type: "hidden", default_value: "'pending'" }),
+							fields: [
+								f({
+									kind: "hidden",
+									id: "status",
+									calculate: "'pending'",
+									default_value: "'pending'",
+								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('event="xforms-ready"');
 		expect(xform).not.toContain('event="jr-insert"');
 	});
 
 	it('adds jr:template="" attribute on repeat data elements', () => {
-		const bp: AppBlueprint = {
-			app_name: "Rep",
+		const doc = buildDoc({
+			appName: "Rep",
 			modules: [
 				{
-					uuid: "module-45-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-46-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "repeat",
 									id: "items",
-									type: "repeat",
 									label: "Items",
 									children: [
-										q({ id: "item_name", type: "text", label: "Item" }),
+										f({ kind: "text", id: "item_name", label: "Item" }),
 									],
 								}),
 							],
@@ -1936,9 +1754,8 @@ describe("jr-insert for repeat defaults", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('<items jr:template="">');
 	});
@@ -1948,79 +1765,75 @@ describe("jr-insert for repeat defaults", () => {
 
 describe("expansion with complete questions", () => {
 	it('derives case name from question with id "case_name"', () => {
-		const bp: AppBlueprint = {
-			app_name: "Case Name Test",
-			case_types: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
-			],
+		const doc = buildDoc({
+			appName: "Case Name Test",
 			modules: [
 				{
-					uuid: "module-46-uuid",
 					name: "M",
-					case_type: "patient",
+					caseType: "patient",
 					forms: [
 						{
-							uuid: "form-47-uuid",
 							name: "Register",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Patient Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
-								q({
+								f({
+									kind: "int",
 									id: "age",
-									type: "int",
 									label: "Age",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						},
 					],
 				},
 			],
-		};
-		const hq = expandBlueprint(bp);
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+		const hq = expandDoc(doc);
 		const actions = hq.modules[0].forms[0].actions;
 		expect(actions.open_case.condition.type).toBe("always");
 		expect(actions.open_case.name_update.question_path).toBe("/data/case_name");
 	});
 
 	it("uses question labels directly without case_types merge", () => {
-		const bp: AppBlueprint = {
-			app_name: "Complete Questions",
-			case_types: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: "WRONG" }],
-				},
-			],
+		const doc = buildDoc({
+			appName: "Complete Questions",
 			modules: [
 				{
-					uuid: "module-47-uuid",
 					name: "M",
-					case_type: "patient",
+					caseType: "patient",
 					forms: [
 						{
-							uuid: "form-48-uuid",
 							name: "F",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Patient Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						},
 					],
 				},
 			],
-		};
-		const hq = expandBlueprint(bp);
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "WRONG" }],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// Should use the question's own label, not the case_types label
 		expect(xform).toContain("Patient Name");
@@ -2033,8 +1846,7 @@ describe("expansion with complete questions", () => {
 describe("unquoted string literal detection", () => {
 	/**
 	 * Build a one-question survey doc with the caller's field overrides
-	 * merged onto a simple text field. Matches the shape the legacy
-	 * AppBlueprint helper produced — just domain-native.
+	 * merged onto a simple text field.
 	 *
 	 * `error.details.field` in the validator carries the domain key name
 	 * (`validate` instead of wire-format `validation`), so callers using
@@ -2066,7 +1878,7 @@ describe("unquoted string literal detection", () => {
 
 	it("catches bare string in default_value", () => {
 		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "no" }),
+			makeDoc({ kind: "hidden", default_value: "no", calculate: "1" }),
 		);
 		expect(
 			errors.some(
@@ -2103,7 +1915,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows quoted string literal", () => {
 		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "'no'" }),
+			makeDoc({ kind: "hidden", default_value: "'no'", calculate: "1" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2135,7 +1947,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows number literals", () => {
 		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "0" }),
+			makeDoc({ kind: "hidden", default_value: "0", calculate: "1" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2144,7 +1956,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows today() function", () => {
 		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "today()" }),
+			makeDoc({ kind: "hidden", default_value: "today()", calculate: "1" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2177,6 +1989,7 @@ describe("unquoted string literal detection", () => {
 										f({
 											kind: "hidden",
 											id: "status",
+											calculate: "1",
 											default_value: "active",
 										}),
 									],
@@ -2367,39 +2180,36 @@ describe("case_list_only validation", () => {
 
 describe("case_list_only expansion", () => {
 	it("sets case_list.show on case_list_only modules", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-56-uuid",
 					name: "Plans",
-					case_type: "plan",
+					caseType: "plan",
 					forms: [
 						{
-							uuid: "form-54-uuid",
 							name: "Create Plan",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Plan Name",
-									case_property_on: "plan",
+									case_property: "plan",
 								}),
 							],
 						},
 					],
 				},
 				{
-					uuid: "module-57-uuid",
 					name: "Services",
-					case_type: "service",
-					case_list_only: true,
+					caseType: "service",
+					caseListOnly: true,
 					forms: [],
-					case_list_columns: [{ field: "case_name", header: "Name" }],
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "plan",
 					properties: [{ name: "case_name", label: "Plan Name" }],
@@ -2410,68 +2220,64 @@ describe("case_list_only expansion", () => {
 					properties: [{ name: "case_name", label: "Service Name" }],
 				},
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		expect(hq.modules[1].case_list.show).toBe(true);
 		expect(hq.modules[1].case_list.label).toEqual({ en: "Services" });
 		expect(hq.modules[0].case_list.show).toBe(false);
 	});
 
 	it("sets case_type on case_list_only modules", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-58-uuid",
 					name: "Services",
-					case_type: "service",
-					case_list_only: true,
+					caseType: "service",
+					caseListOnly: true,
 					forms: [],
-					case_list_columns: [{ field: "case_name", header: "Name" }],
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "service", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		expect(hq.modules[0].case_type).toBe("service");
 	});
 
 	it("sets parent_select on child case type modules", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-59-uuid",
 					name: "Plans",
-					case_type: "plan",
+					caseType: "plan",
 					forms: [
 						{
-							uuid: "form-55-uuid",
 							name: "Create Plan",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Plan Name",
-									case_property_on: "plan",
+									case_property: "plan",
 								}),
 							],
 						},
 					],
 				},
 				{
-					uuid: "module-60-uuid",
 					name: "Services",
-					case_type: "service",
-					case_list_only: true,
+					caseType: "service",
+					caseListOnly: true,
 					forms: [],
-					case_list_columns: [{ field: "case_name", header: "Name" }],
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "plan",
 					properties: [{ name: "case_name", label: "Plan Name" }],
@@ -2482,8 +2288,8 @@ describe("case_list_only expansion", () => {
 					properties: [{ name: "case_name", label: "Service Name" }],
 				},
 			],
-		};
-		const hq = expandBlueprint(bp);
+		});
+		const hq = expandDoc(doc);
 		expect(hq.modules[1].parent_select.active).toBe(true);
 		expect(hq.modules[1].parent_select.module_id).toBe(hq.modules[0].unique_id);
 	});

@@ -1,18 +1,32 @@
 import { describe, expect, it } from "vitest";
+import {
+	buildDoc,
+	type FieldSpec,
+	type FormSpec,
+	f,
+} from "@/lib/__tests__/docHelpers";
+import { expandDoc } from "@/lib/commcare";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import type { AppBlueprint, BlueprintForm } from "@/lib/doc/legacyTypes";
+import type { BlueprintForm, Question } from "@/lib/doc/legacyTypes";
 import type {
 	ConnectConfig,
 	ConnectLearnModule,
 	ConnectType,
 	ConnectType as DomainConnectType,
 } from "@/lib/domain";
-import { buildDoc, type FormSpec, f } from "../../__tests__/docHelpers";
 import { deriveConnectDefaults } from "../connectConfig";
-import { expandBlueprint } from "../hqJsonExpander";
-import { q } from "./wireFixtures";
 
 // ── Helpers ──────────────────────────────────────────────────────────
+//
+// `deriveConnectDefaults` reads the legacy `BlueprintForm` wire shape,
+// so the direct-call tests use a local `Question` factory. The
+// `expandDoc`-facing tests below build domain fixtures via `buildDoc` /
+// `f` from the shared DSL.
+
+let counter = 0;
+function q(overrides: Omit<Question, "uuid"> & { uuid?: string }): Question {
+	return { uuid: `connect-test-q-${++counter}`, ...overrides };
+}
 
 function makeLearnForm(
 	connect?: ConnectConfig,
@@ -81,16 +95,35 @@ function makeDeliverForm(connect?: ConnectConfig): BlueprintForm {
 	};
 }
 
-function makeConnectBlueprint(
+/**
+ * Minimal domain doc carrying one survey form with the supplied Connect
+ * config + optional fields. Used exclusively for `expandDoc` assertions
+ * — the XForm export tests only care about the emitted Connect blocks,
+ * so the field content is irrelevant beyond what each sub-test names.
+ */
+function makeConnectExpandDoc(
 	connectType: ConnectType,
-	form: BlueprintForm,
-): AppBlueprint {
-	return {
-		app_name: "Connect Test App",
-		connect_type: connectType,
-		modules: [{ uuid: "module-1-uuid", name: "Main", forms: [form] }],
-		case_types: null,
-	};
+	connect: ConnectConfig | undefined,
+	formName: string,
+	fields: FieldSpec[] = [],
+) {
+	return buildDoc({
+		appName: "Connect Test App",
+		connectType,
+		modules: [
+			{
+				name: "Main",
+				forms: [
+					{
+						name: formName,
+						type: "survey",
+						connect,
+						fields,
+					},
+				],
+			},
+		],
+	});
 }
 
 // ── deriveConnectDefaults ────────────────────────────────────────────
@@ -200,15 +233,18 @@ describe("deriveConnectDefaults", () => {
 
 describe("Connect XForm export", () => {
 	it("generates correct learn module data block", () => {
-		const form = makeLearnForm({
-			learn_module: {
-				name: "ILC Module",
-				description: "Training for ILC",
-				time_estimate: 5,
+		const doc = makeConnectExpandDoc(
+			"learn",
+			{
+				learn_module: {
+					name: "ILC Module",
+					description: "Training for ILC",
+					time_estimate: 5,
+				},
 			},
-		});
-		const bp = makeConnectBlueprint("learn", form);
-		const hq = expandBlueprint(bp);
+			"ILC Training",
+		);
+		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).toContain('<connect_learn vellum:role="ConnectLearnModule">');
@@ -220,12 +256,15 @@ describe("Connect XForm export", () => {
 	});
 
 	it("generates correct assessment block with calculate bind", () => {
-		const form = makeLearnForm({
-			learn_module: { name: "Test", description: "Test", time_estimate: 1 },
-			assessment: { user_score: "100" },
-		});
-		const bp = makeConnectBlueprint("learn", form);
-		const hq = expandBlueprint(bp);
+		const doc = makeConnectExpandDoc(
+			"learn",
+			{
+				learn_module: { name: "Test", description: "Test", time_estimate: 1 },
+				assessment: { user_score: "100" },
+			},
+			"ILC Training",
+		);
+		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).toContain(
@@ -238,15 +277,18 @@ describe("Connect XForm export", () => {
 	});
 
 	it("generates correct deliver unit block with XPath binds", () => {
-		const form = makeDeliverForm({
-			deliver_unit: {
-				name: "Weekly Report",
-				entity_id: "concat('user', '-', today())",
-				entity_name: "'test_user'",
+		const doc = makeConnectExpandDoc(
+			"deliver",
+			{
+				deliver_unit: {
+					name: "Weekly Report",
+					entity_id: "concat('user', '-', today())",
+					entity_name: "'test_user'",
+				},
 			},
-		});
-		const bp = makeConnectBlueprint("deliver", form);
-		const hq = expandBlueprint(bp);
+			"Weekly Report",
+		);
+		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).toContain('<connect_deliver vellum:role="ConnectDeliverUnit">');
@@ -263,12 +305,19 @@ describe("Connect XForm export", () => {
 	});
 
 	it("generates task block", () => {
-		const form = makeDeliverForm({
-			deliver_unit: { name: "Unit", entity_id: "'id'", entity_name: "'name'" },
-			task: { name: "Delivery Task", description: "Complete the delivery" },
-		});
-		const bp = makeConnectBlueprint("deliver", form);
-		const hq = expandBlueprint(bp);
+		const doc = makeConnectExpandDoc(
+			"deliver",
+			{
+				deliver_unit: {
+					name: "Unit",
+					entity_id: "'id'",
+					entity_name: "'name'",
+				},
+				task: { name: "Delivery Task", description: "Complete the delivery" },
+			},
+			"Weekly Report",
+		);
+		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).toContain('<connect_task vellum:role="ConnectTask">');
@@ -277,24 +326,26 @@ describe("Connect XForm export", () => {
 	});
 
 	it("includes secondary instances when Connect XPaths reference session data", () => {
-		const form = makeDeliverForm({
-			deliver_unit: {
-				name: "Unit",
-				entity_id: "concat(#user/username, '-', today())",
-				entity_name: "#user/username",
+		const doc = makeConnectExpandDoc(
+			"deliver",
+			{
+				deliver_unit: {
+					name: "Unit",
+					entity_id: "concat(#user/username, '-', today())",
+					entity_name: "#user/username",
+				},
 			},
-		});
-		const bp = makeConnectBlueprint("deliver", form);
-		const hq = expandBlueprint(bp);
+			"Weekly Report",
+		);
+		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).toContain('id="commcaresession"');
 	});
 
 	it("does not emit Connect blocks when connect is absent", () => {
-		const form = makeLearnForm();
-		const bp = makeConnectBlueprint("learn", form);
-		const hq = expandBlueprint(bp);
+		const doc = makeConnectExpandDoc("learn", undefined, "ILC Training");
+		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).not.toContain("commcareconnect.com");
@@ -306,14 +357,11 @@ describe("Connect XForm export", () => {
 
 /**
  * Build a one-module, one-form BlueprintDoc carrying the supplied Connect
- * config. Mirrors `makeConnectBlueprint` above but emits a normalized
- * doc for validator consumption. Different fixture bodies match the
- * shapes the learn / deliver assertions expect — we inline minimal
- * field sets rather than reusing `makeLearnForm` since the validator
- * only cares about the form's metadata and connect block, not the
- * question content.
+ * config. Mirrors `makeConnectExpandDoc` but sized for the validator:
+ * the validator reads the form's metadata + connect block, not the
+ * question content, so tests inline minimal field sets where needed.
  */
-function makeConnectDoc(
+function makeConnectValidationDoc(
 	connectType: DomainConnectType,
 	connect: ConnectConfig | undefined,
 	formName = "Form",
@@ -340,25 +388,27 @@ function makeConnectDoc(
 
 describe("Connect validation", () => {
 	it("validates learn form with neither learn_module nor assessment", () => {
-		const doc = makeConnectDoc("learn", {});
+		const doc = makeConnectValidationDoc("learn", {});
 		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
 	});
 
 	it("passes validation for learn form with only assessment", () => {
-		const doc = makeConnectDoc("learn", { assessment: { user_score: "100" } });
+		const doc = makeConnectValidationDoc("learn", {
+			assessment: { user_score: "100" },
+		});
 		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
 	});
 
 	it("validates deliver form missing both deliver_unit and task", () => {
-		const doc = makeConnectDoc("deliver", {});
+		const doc = makeConnectValidationDoc("deliver", {});
 		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(true);
 	});
 
 	it("passes validation for deliver form with only task", () => {
-		const doc = makeConnectDoc("deliver", {
+		const doc = makeConnectValidationDoc("deliver", {
 			task: { name: "Delivery Task", description: "Complete the delivery" },
 		});
 		const errors = runValidation(doc);
@@ -368,7 +418,7 @@ describe("Connect validation", () => {
 	});
 
 	it("passes validation for well-formed learn config", () => {
-		const doc = makeConnectDoc(
+		const doc = makeConnectValidationDoc(
 			"learn",
 			{
 				learn_module: { name: "Module", description: "Desc", time_estimate: 5 },
@@ -382,7 +432,7 @@ describe("Connect validation", () => {
 	});
 
 	it("passes validation for well-formed deliver config", () => {
-		const doc = makeConnectDoc(
+		const doc = makeConnectValidationDoc(
 			"deliver",
 			{
 				deliver_unit: {

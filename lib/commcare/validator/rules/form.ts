@@ -4,13 +4,8 @@
  * Each rule receives the normalized `BlueprintDoc`, the form entity, and its
  * `formUuid` (plus the owning module for rules that need sibling context).
  * Case configuration is derived once per form and threaded through to rules
- * that depend on it.
- *
- * Rules walk the doc's `fieldOrder` adjacency directly — no wire-format
- * `Question[]` trees. The `deriveCaseConfig` helper still lives on the wire
- * schema (it only reads duck-typed `{id, type, case_property_on, children}`
- * shapes); we adapt the domain field tree into that shape at the call site
- * and keep the derivation itself untouched.
+ * that depend on it — `deriveCaseConfig` operates directly on the doc, so
+ * there's no wire-shape adapter in this file.
  */
 
 import {
@@ -19,6 +14,10 @@ import {
 	MEDIA_FIELD_KINDS,
 	RESERVED_CASE_PROPERTIES,
 } from "@/lib/commcare";
+import {
+	type DerivedCaseConfig,
+	deriveCaseConfig,
+} from "@/lib/commcare/deriveCaseConfig";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
@@ -28,11 +27,6 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	type Uuid,
 } from "@/lib/domain";
-import {
-	type CaseConfigQuestion,
-	type DerivedCaseConfig,
-	deriveCaseConfig,
-} from "@/lib/services/deriveCaseConfig";
 import { type ValidationError, validationError } from "../errors";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -76,36 +70,6 @@ function findFieldById(
 		if (children) stack.push(...children);
 	}
 	return undefined;
-}
-
-/**
- * Adapt a domain field subtree into the duck-typed `CaseConfigQuestion[]`
- * shape `deriveCaseConfig` accepts. Only reads fields that config
- * derivation cares about: id, kind (as type), case_property, children.
- */
-function toCaseConfigQuestions(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-): CaseConfigQuestion[] {
-	const result: CaseConfigQuestion[] = [];
-	for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		// CaseConfigQuestion uses the wire-format key name `case_property_on`
-		// — translate here so the shared `deriveCaseConfig` helper stays
-		// on wire vocabulary. This adapter is the one place in this file
-		// where the CommCare dialect meets the domain dialect.
-		const node: CaseConfigQuestion = {
-			id: field.id,
-			type: field.kind,
-			case_property_on: (field as { case_property?: string }).case_property,
-		};
-		if (doc.fieldOrder[uuid] !== undefined) {
-			node.children = toCaseConfigQuestions(doc, uuid);
-		}
-		result.push(node);
-	}
-	return result;
 }
 
 interface FormContext {
@@ -781,12 +745,7 @@ export function runFormRules(
 		moduleName: mod.name,
 	};
 
-	const caseConfig = deriveCaseConfig(
-		toCaseConfigQuestions(doc, formUuid),
-		form.type,
-		mod.caseType,
-		doc.caseTypes,
-	);
+	const caseConfig = deriveCaseConfig(doc, formUuid, mod.caseType, form.type);
 
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));

@@ -1,56 +1,57 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import type { AppBlueprint } from "@/lib/doc/legacyTypes";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expandDoc } from "@/lib/commcare";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { CczCompiler } from "../cczCompiler";
-import { expandBlueprint } from "../hqJsonExpander";
-import { q } from "./wireFixtures";
 
-const blueprint: AppBlueprint = {
-	app_name: "CHW App",
+// CczCompiler reads the legacy `AppBlueprint` shape for its form-type
+// lookup. Tests build a domain doc via the shared DSL, call
+// `expandDoc(doc)` directly for the HQ JSON, and materialize the legacy
+// shape via `toBlueprint(doc)` only for the compiler's input.
+const doc = buildDoc({
+	appName: "CHW App",
 	modules: [
 		{
-			uuid: "module-1-uuid",
 			name: "Patients",
-			case_type: "patient",
+			caseType: "patient",
+			caseListColumns: [{ field: "age", header: "Age" }],
 			forms: [
 				{
-					uuid: "form-1-uuid",
 					name: "Register",
 					type: "registration",
-					questions: [
-						q({
+					fields: [
+						f({
+							kind: "text",
 							id: "case_name",
-							type: "text",
 							label: "Name",
-							case_property_on: "patient",
+							case_property: "patient",
 						}),
-						q({
+						f({
+							kind: "int",
 							id: "age",
-							type: "int",
 							label: "Age",
-							case_property_on: "patient",
+							case_property: "patient",
 						}),
 					],
 				},
 				{
-					uuid: "form-2-uuid",
 					name: "Visit",
 					type: "followup",
-					questions: [
-						q({
+					fields: [
+						f({
+							kind: "hidden",
 							id: "total_visits",
-							type: "hidden",
 							calculate: "#case/total_visits + 1",
-							case_property_on: "patient",
+							case_property: "patient",
 						}),
-						q({ id: "notes", type: "text", label: "Notes" }),
+						f({ kind: "text", id: "notes", label: "Notes" }),
 					],
 				},
 			],
-			case_list_columns: [{ field: "age", header: "Age" }],
 		},
 	],
-	case_types: [
+	caseTypes: [
 		{
 			name: "patient",
 			properties: [
@@ -60,11 +61,12 @@ const blueprint: AppBlueprint = {
 			],
 		},
 	],
-};
+});
+const blueprint = toBlueprint(doc);
 
 describe("CczCompiler", () => {
 	it("produces a valid zip with expected files", async () => {
-		const hq = expandBlueprint(blueprint);
+		const hq = expandDoc(doc);
 		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const entries = zip
@@ -82,7 +84,7 @@ describe("CczCompiler", () => {
 	});
 
 	it("injects case create block into registration XForms", async () => {
-		const hq = expandBlueprint(blueprint);
+		const hq = expandDoc(doc);
 		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const regXform = zip.readAsText("modules-0/forms-0.xml");
@@ -94,7 +96,7 @@ describe("CczCompiler", () => {
 	});
 
 	it("injects case update block into followup XForms", async () => {
-		const hq = expandBlueprint(blueprint);
+		const hq = expandDoc(doc);
 		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const followupXform = zip.readAsText("modules-0/forms-1.xml");
@@ -105,9 +107,9 @@ describe("CczCompiler", () => {
 	});
 
 	it("post-injection validation catches orphaned binds", async () => {
-		const hq = expandBlueprint(blueprint);
+		const hq = expandDoc(doc);
 
-		// Sabotage: inject a bind that points to a node we never create
+		// Sabotage: inject a bind that points to a node we never create.
 		const formId = hq.modules[0].forms[0].unique_id;
 		hq._attachments[`${formId}.xml`] += ""; // ensure it exists
 		const xml = hq._attachments[`${formId}.xml`] as string;
@@ -125,7 +127,7 @@ describe("CczCompiler", () => {
 	});
 
 	it("generates suite.xml with case detail and menu entries", async () => {
-		const hq = expandBlueprint(blueprint);
+		const hq = expandDoc(doc);
 		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const suite = zip.readAsText("suite.xml");

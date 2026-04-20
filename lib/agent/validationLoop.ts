@@ -2,21 +2,23 @@
  * Validation and fix loop for CommCare app blueprints.
  *
  * Two-phase validation:
- *   1. Domain validation — structural/semantic rules + XPath deep validation
- *      run directly on `BlueprintDoc`.
- *   2. Post-expansion validation — parse generated XForm XML and verify
- *      internal references. Expansion itself is the legitimate XForm
- *      wire-boundary emission; the doc is translated to `AppBlueprint`
- *      exactly once at that emit site and never travels back.
+ *   1. Domain validation — structural/semantic rules + XPath deep
+ *      validation run directly on `BlueprintDoc`.
+ *   2. Post-expansion validation — `expandDoc` produces the HQ import
+ *      JSON + XForm attachments; the XForm XML is parsed and its
+ *      internal references verified.
  *
  * Auto-fixes from the fix registry produce domain `Mutation`s, which are
  * applied to the working doc between validation attempts via the same
- * reducer the builder and SA use for manual edits. No wire-format round-
- * trip of the doc itself remains.
+ * reducer the builder and SA use for manual edits. Connect-config
+ * defaults are derived on the legacy `BlueprintForm` wire shape by
+ * `deriveConnectDefaults`; `applyConnectDefaults` below is where the
+ * doc is materialized into that shape, run through the helper, and
+ * folded back via `updateForm` mutations.
  */
 
 import { produce } from "immer";
-import type { HqApplication } from "@/lib/commcare";
+import { expandDoc, type HqApplication } from "@/lib/commcare";
 import {
 	errorToString,
 	type ValidationError,
@@ -29,7 +31,6 @@ import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { deriveConnectDefaults } from "@/lib/services/connectConfig";
-import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import type { GenerationContext } from "./generationContext";
 
 // ── Post-expansion validation ────────────────────────────────────────
@@ -126,7 +127,7 @@ export async function validateAndFix(
 		const errors = runValidation(workingDoc);
 
 		if (errors.length === 0) {
-			const hqJson = expandBlueprint(toBlueprint(workingDoc));
+			const hqJson = expandDoc(workingDoc);
 			const postErrors = validateExpansion(hqJson, workingDoc);
 			if (postErrors.length > 0) {
 				return {
@@ -155,7 +156,7 @@ export async function validateAndFix(
 			recentSignatures.every((s) => s === sig)
 		) {
 			try {
-				const hqJson = expandBlueprint(toBlueprint(workingDoc));
+				const hqJson = expandDoc(workingDoc);
 				return { success: false, doc: workingDoc, hqJson, errors };
 			} catch {
 				return { success: false, doc: workingDoc, errors };
@@ -191,7 +192,7 @@ export async function validateAndFix(
 		if (allMutations.length === 0) {
 			// No fixes available for any error — surface the remainder.
 			try {
-				const hqJson = expandBlueprint(toBlueprint(workingDoc));
+				const hqJson = expandDoc(workingDoc);
 				return { success: false, doc: workingDoc, hqJson, errors };
 			} catch {
 				return { success: false, doc: workingDoc, errors };

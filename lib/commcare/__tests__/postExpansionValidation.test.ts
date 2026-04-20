@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expandDoc } from "@/lib/commcare";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
-import type { AppBlueprint } from "@/lib/doc/legacyTypes";
-import { buildDoc, f } from "../../__tests__/docHelpers";
-import { expandBlueprint } from "../hqJsonExpander";
-import { q } from "./wireFixtures";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 
@@ -297,35 +295,33 @@ describe("case list column validation", () => {
 
 describe("expanded XForm validation", () => {
 	it("our generator produces valid XForms for a standard blueprint", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-4-uuid",
 					name: "Patients",
-					case_type: "patient",
-					case_list_columns: [{ field: "case_name", header: "Name" }],
+					caseType: "patient",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-4-uuid",
 							name: "Register",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Full Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
-								q({
+								f({
+									kind: "int",
 									id: "age",
-									type: "int",
 									label: "Age",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
-								q({
+								f({
+									kind: "hidden",
 									id: "risk",
-									type: "hidden",
 									calculate: "if(/data/age > 65, 'high', 'low')",
 								}),
 							],
@@ -333,12 +329,12 @@ describe("expanded XForm validation", () => {
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
+		});
 
-		const hqJson = expandBlueprint(bp);
+		const hqJson = expandDoc(doc);
 		const xmlKey = Object.keys(hqJson._attachments).find((k) =>
 			k.endsWith(".xml"),
 		);
@@ -349,32 +345,30 @@ describe("expanded XForm validation", () => {
 	});
 
 	it("our generator produces valid XForms with groups and repeats", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-5-uuid",
 					name: "Surveys",
 					forms: [
 						{
-							uuid: "form-5-uuid",
 							name: "Survey",
 							type: "survey",
-							questions: [
-								q({ id: "intro", type: "text", label: "Intro" }),
-								q({
+							fields: [
+								f({ kind: "text", id: "intro", label: "Intro" }),
+								f({
+									kind: "group",
 									id: "details",
-									type: "group",
 									label: "Details",
-									children: [q({ id: "item", type: "text", label: "Item" })],
+									children: [f({ kind: "text", id: "item", label: "Item" })],
 								}),
-								q({
+								f({
+									kind: "repeat",
 									id: "visits",
-									type: "repeat",
 									label: "Visits",
 									children: [
-										q({ id: "visit_date", type: "date", label: "Date" }),
-										q({ id: "notes", type: "text", label: "Notes" }),
+										f({ kind: "date", id: "visit_date", label: "Date" }),
+										f({ kind: "text", id: "notes", label: "Notes" }),
 									],
 								}),
 							],
@@ -382,10 +376,9 @@ describe("expanded XForm validation", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 
-		const hqJson = expandBlueprint(bp);
+		const hqJson = expandDoc(doc);
 		const xmlKey = Object.keys(hqJson._attachments).find((k) =>
 			k.endsWith(".xml"),
 		);
@@ -396,30 +389,28 @@ describe("expanded XForm validation", () => {
 	});
 
 	it("our generator produces valid XForms with select questions", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-6-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-6-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "single_select",
 									id: "color",
-									type: "single_select",
 									label: "Color",
 									options: [
 										{ value: "red", label: "Red" },
 										{ value: "blue", label: "Blue" },
 									],
 								}),
-								q({
+								f({
+									kind: "multi_select",
 									id: "tags",
-									type: "multi_select",
 									label: "Tags",
 									options: [
 										{ value: "a", label: "A" },
@@ -431,10 +422,9 @@ describe("expanded XForm validation", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
+		});
 
-		const hqJson = expandBlueprint(bp);
+		const hqJson = expandDoc(doc);
 		const xmlKey = Object.keys(hqJson._attachments).find((k) =>
 			k.endsWith(".xml"),
 		);

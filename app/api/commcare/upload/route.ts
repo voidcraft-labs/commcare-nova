@@ -11,12 +11,12 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { expandDoc } from "@/lib/commcare";
 import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -53,9 +53,10 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Domain → wire at the CommCare emission boundary. `fieldParent`
-		// is derived on load; seed an empty index to satisfy the type.
-		const blueprint = toBlueprint({ ...parsedDoc.data, fieldParent: {} });
+		// `fieldParent` is derived on load and not persisted; rebuild it
+		// so the expander sees a fully populated reverse index.
+		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
+		rebuildFieldParent(docWithParent);
 
 		/* ── Resolve credentials + verify domain authorization ──────── */
 		const settings = await getDecryptedCredentialsWithDomain(session.user.id);
@@ -73,8 +74,8 @@ export async function POST(req: NextRequest) {
 		}
 		const { creds } = settings;
 
-		/* ── Expand blueprint to HQ JSON ────────────────────────────── */
-		const hqJson = expandBlueprint(blueprint);
+		/* ── Expand domain doc to HQ JSON ────────────────────────────── */
+		const hqJson = expandDoc(docWithParent);
 
 		/* ── Upload to CommCare HQ ──────────────────────────────────── */
 		const result = await importApp(

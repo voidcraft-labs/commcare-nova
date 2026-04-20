@@ -2,21 +2,23 @@ import { type NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { AutoFixer } from "@/lib/agent";
 import { requireSession } from "@/lib/auth-utils";
+import { expandDoc } from "@/lib/commcare";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { CczCompiler } from "@/lib/services/cczCompiler";
-import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import { saveCcz } from "@/lib/store";
 
 /**
  * CCZ compile endpoint.
  *
- * Accepts the normalized `BlueprintDoc` (the domain shape) in the body,
- * converts to CommCare's wire `AppBlueprint` server-side via
- * `legacyBridge.toBlueprint`, then runs the HQ JSON expander → auto-fixer
- * → CCZ packager. This is an external boundary: input is domain, output
- * is CommCare's expected binary format. The translation is legitimate.
+ * Accepts the normalized `BlueprintDoc` in the body, expands it to HQ
+ * JSON via `expandDoc`, runs the auto-fixer over the XForm attachments,
+ * and hands the result to the CCZ compiler for packaging. The compiler
+ * currently reads per-form type from the nested `AppBlueprint` shape,
+ * so this route materializes one via `toBlueprint` at that single
+ * boundary and passes the domain doc to `expandDoc` directly.
  */
 export async function POST(req: NextRequest) {
 	try {
@@ -42,15 +44,16 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Domain → wire at the CommCare boundary. `fieldParent` is transient
-		// (not persisted, not needed by the expander) — seed an empty index
-		// to satisfy the type contract without rebuilding the reverse map.
-		const blueprint = toBlueprint({ ...parsedDoc.data, fieldParent: {} });
+		// `fieldParent` is derived on load (not persisted); rebuild here so
+		// the doc is fully usable by the expander even when the payload
+		// arrived from a plain JSON body.
+		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
+		rebuildFieldParent(docWithParent);
 
-		// Expand blueprint to HQ JSON
-		const hqJson = expandBlueprint(blueprint);
+		// Expand domain doc to HQ JSON.
+		const hqJson = expandDoc(docWithParent);
 
-		// Auto-fix
+		// Auto-fix the emitted XForm XML attachments in place.
 		const autoFixer = new AutoFixer();
 		const attachments = hqJson._attachments || {};
 		const files: Record<string, string> = {};
@@ -62,15 +65,14 @@ export async function POST(req: NextRequest) {
 			hqJson._attachments[key] = value;
 		}
 
-		// Compile to CCZ
+		// `CczCompiler` reads per-form type off the nested `AppBlueprint`
+		// shape, so materialize one here for that single call. Expansion
+		// above consumed the domain doc directly.
+		const blueprint = toBlueprint(docWithParent);
 		const compiler = new CczCompiler();
-		const buffer = await compiler.compile(
-			hqJson,
-			blueprint.app_name,
-			blueprint,
-		);
+		const buffer = await compiler.compile(hqJson, doc.appName, blueprint);
 
-		// Store buffer for download
+		// Store buffer for download.
 		const compileId = uuidv4();
 		await saveCcz(compileId, buffer);
 
@@ -78,7 +80,7 @@ export async function POST(req: NextRequest) {
 			success: true,
 			compileId,
 			downloadUrl: `/api/compile/${compileId}/download`,
-			appName: blueprint.app_name,
+			appName: doc.appName,
 		});
 	} catch (err) {
 		// Log the real error server-side but return a generic message to avoid

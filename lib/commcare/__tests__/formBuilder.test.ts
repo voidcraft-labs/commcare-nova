@@ -1,30 +1,26 @@
 /**
- * Tests for the form builder agent's tool integration with blueprint helpers.
+ * Tests for the form builder agent's mutation-builder helpers + the
+ * doc-native `deriveCaseConfig` helper.
  *
- * After Task 15, the helpers operate on the normalized `BlueprintDoc` shape
- * and return `Mutation[]`. These tests build a minimal doc fixture, invoke
- * a helper, apply the returned mutations to the doc store, and assert on
- * the resulting doc state.
- *
- * The case-derivation tests at the bottom exercise `deriveCaseConfig`, a
- * pure wire-shape helper on the blueprint schema. Those assertions build
- * blueprint-shape `Question` arrays directly because `deriveCaseConfig`
- * is called at the wire boundary (the validator adapts the domain field
- * tree into that shape at its call site).
+ * The mutation-builder tests build a minimal `BlueprintDoc` shell,
+ * invoke a helper, apply the returned mutations to the doc, and assert
+ * on the resulting doc state. The case-derivation tests at the bottom
+ * exercise `deriveCaseConfig` end-to-end through the same doc shape
+ * that the expander + validator feed it in production.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	addFieldMutations,
 	findFieldByBareId,
 	updateFormMutations,
 } from "@/lib/agent/blueprintHelpers";
+import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, FormType } from "@/lib/domain";
-import type { AppBlueprint } from "../../doc/legacyTypes";
-import { deriveCaseConfig } from "../deriveCaseConfig";
 
 // ── Fixture builders ──────────────────────────────────────────────────
 
@@ -313,73 +309,59 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 	});
 });
 
-// ── deriveCaseConfig tests (wire-shape helper) ───────────────────────
+// ── deriveCaseConfig tests (doc-native helper) ───────────────────────
 //
-// `deriveCaseConfig` is a pure derivation over duck-typed
-// `{id, type, case_property_on, children}` shapes. The validator adapts
-// the domain field tree into that shape at the call site and invokes the
-// derivation; these tests exercise it directly with wire-shape input.
+// `deriveCaseConfig` walks `doc.fieldOrder[formUuid]` and reads domain
+// field keys (kind, id, case_property). The tests feed it the same
+// normalized doc shape that the expander + validator use in production.
 
-describe("child case derivation via case_property_on (blueprint-shape)", () => {
-	/** Helper that builds a nested AppBlueprint form directly — no helpers. */
-	function blueprintWithQuestions(
-		questions: AppBlueprint["modules"][number]["forms"][number]["questions"],
-	): AppBlueprint {
-		return {
-			app_name: "Test App",
+describe("child case derivation via case_property annotations", () => {
+	const caseTypes = [
+		{
+			name: "patient",
+			properties: [{ name: "case_name", label: "Full Name" }],
+		},
+		{
+			name: "referral",
+			properties: [{ name: "case_name", label: "Referral Name" }],
+		},
+	];
+
+	it("derives a child case from case_property annotations", () => {
+		const doc = buildDoc({
+			appName: "Test App",
 			modules: [
 				{
-					uuid: "module-1-uuid",
 					name: "Test Module",
-					case_type: "patient",
+					caseType: "patient",
 					forms: [
 						{
-							uuid: "form-1-uuid",
 							name: "Test Form",
 							type: "registration",
-							questions,
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Referral Name",
+									case_property: "referral",
+								}),
+								f({
+									kind: "text",
+									id: "referral_reason",
+									label: "Referral Reason",
+									case_property: "referral",
+								}),
+							],
 						},
 					],
 				},
 			],
-			case_types: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: "Full Name" }],
-				},
-				{
-					name: "referral",
-					properties: [{ name: "case_name", label: "Referral Name" }],
-				},
-			],
-		};
-	}
+			caseTypes,
+		});
 
-	it("derives a child case from case_property_on annotations", () => {
-		const bp = blueprintWithQuestions([
-			{
-				uuid: "q1",
-				id: "case_name",
-				type: "text",
-				label: "Referral Name",
-				case_property_on: "referral",
-			},
-			{
-				uuid: "q2",
-				id: "referral_reason",
-				type: "text",
-				label: "Referral Reason",
-				case_property_on: "referral",
-			},
-		]);
-
-		const form = bp.modules[0].forms[0];
-		const config = deriveCaseConfig(
-			form.questions,
-			form.type,
-			"patient",
-			bp.case_types ?? [],
-		);
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const config = deriveCaseConfig(doc, formUuid, "patient", "registration");
 
 		expect(config.child_cases).toHaveLength(1);
 		expect(config.child_cases?.[0].case_type).toBe("referral");
@@ -387,37 +369,46 @@ describe("child case derivation via case_property_on (blueprint-shape)", () => {
 	});
 
 	it("separates primary and child case properties", () => {
-		const bp = blueprintWithQuestions([
-			{
-				uuid: "q1",
-				id: "case_name",
-				type: "text",
-				label: "Patient Name",
-				case_property_on: "patient",
-			},
-			{
-				uuid: "q2",
-				id: "case_name",
-				type: "text",
-				label: "Referral Name",
-				case_property_on: "referral",
-			},
-			{
-				uuid: "q3",
-				id: "referral_reason",
-				type: "text",
-				label: "Reason",
-				case_property_on: "referral",
-			},
-		]);
+		const doc = buildDoc({
+			appName: "Test App",
+			modules: [
+				{
+					name: "Test Module",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Test Form",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Patient Name",
+									case_property: "patient",
+								}),
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Referral Name",
+									case_property: "referral",
+								}),
+								f({
+									kind: "text",
+									id: "referral_reason",
+									label: "Reason",
+									case_property: "referral",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes,
+		});
 
-		const form = bp.modules[0].forms[0];
-		const config = deriveCaseConfig(
-			form.questions,
-			form.type,
-			"patient",
-			bp.case_types ?? [],
-		);
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const config = deriveCaseConfig(doc, formUuid, "patient", "registration");
 
 		expect(config.case_name_field).toBe("case_name");
 		expect(config.child_cases).toHaveLength(1);

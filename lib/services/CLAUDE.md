@@ -1,38 +1,19 @@
 # Services Layer
 
-Utility surfaces that cut across the builder: the CommCare compile pipeline (`cczCompiler`, `hqJsonExpander`, `xformBuilder`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `fieldPath`), and UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`). The CommCare wire-format primitives (constants, HQ JSON types, shell factories, hashtag expansion, ids, session, identifier validation, xml helpers) and the deep validator live at `lib/commcare/` (imported via `@/lib/commcare` + `@/lib/commcare/validator`); generation logging lives at `lib/log/`.
+A grab-bag of shared helpers that don't yet have a domain-specific home:
 
-The Solutions Architect and its generation loop live at `lib/agent/` — see `lib/agent/CLAUDE.md` for the SA tool-loop rules, prompt caching, mutation-emission surface, and provider-options shape.
+- `cczCompiler.ts` — CCZ packager. Reads the nested `AppBlueprint` wire shape for per-form metadata lookups; callers materialize one via `toBlueprint` at this single boundary.
+- `connectConfig.ts` — Connect-config defaults derivation. Operates on the nested wire form and is called from the validation loop before any domain rules run.
+- `fieldPath.ts`, `resetBuilder.ts`, `builder.ts` — doc-facing helpers the builder UI leans on.
+- `toastStore.ts`, `keyboardManager.ts` — UI singletons (toast queue + keyboard shortcut registry).
 
-## Expander decisions
+The expander, XForm emitter, form-action / case-reference builders, and case-config derivation live at `lib/commcare/` — the CommCare compile pipeline is not owned here.
 
-### Vellum dual-attribute pattern
+The Solutions Architect and its generation loop live at `lib/agent/`; the CommCare wire-format primitives + validator live at `lib/commcare/`; generation logging lives at `lib/log/`.
 
-CommCare's Vellum editor requires both expanded XPath AND the original shorthand on every bind. Real attributes (`calculate`, `relevant`, `constraint`) get the expanded instance XPath; `vellum:` attributes preserve the original `#case/` and `#user/` shorthand. Every bind also gets `vellum:nodeset="#form/..."`. Without the Vellum attributes, reopening a form in Vellum shows raw instance paths instead of readable hashtag references.
+## Session & navigation invariants
 
-### Bare hashtags in prose
-
-Hashtag wrapping in label/hint text uses regex, NOT the Lezer XPath parser. Labels are prose, not XPath — surrounding characters like `**` (markdown bold) parse as XPath multiplication operators by Lezer, which swallows the `#` and produces a garbled tree.
-
-### Markdown itext
-
-All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. CommCare only renders markdown when the markdown form is present — without it, `**bold**` renders as literal asterisks. Safe for plain text: identical rendering when no markdown syntax is present.
-
-### Secondary instances
-
-Required instances (`casedb`, `commcaresession`) are accumulated at the point of use during the build: XPath field + label scans during field-part generation, Connect expression scans during connect-block generation. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
-
-## Error flow
-
-Three catch points cover the full surface:
-
-1. Route outer catch — errors from agent creation
-2. Route inner catch — errors during stream consumption via the manual reader loop
-3. Generation-context wrap — errors from any LLM call (emits + re-throws)
-
-Both route-level catches delegate to a shared error handler that classifies, emits an error data part, and calls the fail-app function fire-and-forget (Firestore failure must not block the error response).
-
-## Session & navigation quirks
+Emission-side behavior that the compile pipeline depends on. These rules live on the emitter + session modules inside `lib/commcare/` and are restated here for the utilities in this directory that care about them:
 
 ### `post_submit` defaults
 
