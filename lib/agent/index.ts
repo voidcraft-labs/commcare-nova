@@ -18,5 +18,11 @@ export {
 } from "./generationContext";
 // solutionsArchitect — the one ToolLoopAgent factory. `validateAndFix` is
 // re-exported because `app/api/compile/route.ts` runs validation outside the
-// SA run for the standalone fix endpoint.
-export { createSolutionsArchitect, validateAndFix } from "./solutionsArchitect";
+// SA run for the standalone fix endpoint. `BUILD_ONLY_TOOL_NAMES` is the
+// shared allowlist used by `app/api/chat/route.ts` to strip build-only
+// tool-use parts from edit-mode message history.
+export {
+	BUILD_ONLY_TOOL_NAMES,
+	createSolutionsArchitect,
+	validateAndFix,
+} from "./solutionsArchitect";

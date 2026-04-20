@@ -99,6 +99,20 @@ import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
 
+/**
+ * Names of SA tools exposed only in build mode. Kept here next to the
+ * `generationTools` definition so the two don't drift. The chat route
+ * uses this list to strip build-only tool-use parts from message history
+ * on edit-mode requests — Anthropic rejects any tool reference whose
+ * name isn't in the current tools array, and a mid-session edit right
+ * after a build would otherwise carry these references in its history.
+ */
+export const BUILD_ONLY_TOOL_NAMES = [
+	"generateSchema",
+	"generateScaffold",
+	"addModule",
+] as const;
+
 // ── Doc helpers ───────────────────────────────────────────────────────
 
 /**
