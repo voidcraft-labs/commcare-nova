@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
-import { deriveReplayChapters } from "@/lib/log/replay";
+import { deriveReplayChapters } from "@/lib/log/replayChapters";
 import type { Event } from "@/lib/log/types";
 import type { ReplayInit } from "@/lib/session/types";
 
