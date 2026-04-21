@@ -11,16 +11,17 @@
  *
  * CommCare Core defines three stack-operation kinds — `<create>`,
  * `<push>`, `<clear>`. All three are typed for completeness; only
- * `<create>` is currently emitted. Conditional / form-link stacks (one
- * `<create>` per link with a fallback whose condition negates every
- * link condition) belong here too once the SA + UI surface them; the
- * derivation logic will land alongside `derivePostSubmitStack` when
- * called for, with the index resolution done by the compiler.
+ * `<create>` is emitted. Simple post-submit destinations produce one
+ * unconditional `<create>`; form-link-enabled forms produce one
+ * `<create if="...">` per link plus a fallback `<create if="not(c1) and
+ * not(c2)...">` that runs the `postSubmit` destination when no link
+ * condition matches.
  */
 
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import { validateCaseType } from "./identifierValidation";
+import type { HqFormLink } from "./types";
 
 // ── Session Datums ─────────────────────────────────────────────────────
 
@@ -189,11 +190,113 @@ export function derivePostSubmitStack(
 }
 
 /**
+ * Derive stack operations for a form whose `formLinks` array is populated.
+ *
+ * Each link becomes one `<create>` — conditional when the link carries an
+ * XPath condition, unconditional when it doesn't. For `form` targets the
+ * create pushes the module command followed by the form command (CommCare
+ * requires the module frame on the stack before the form frame). For
+ * `module` targets it pushes only the module command, landing the user on
+ * the module's form list. Link-level `datums` are appended verbatim —
+ * they override auto-derived session variables when the defaults don't
+ * fit (e.g. conditionally passing a different case_id).
+ *
+ * When at least one link has a condition, an additional fallback create
+ * is appended whose `if` negates every link condition (`not(c1) and
+ * not(c2) and …`). The fallback's body is the same operation
+ * `derivePostSubmitStack` would emit for the form's `postSubmit`
+ * destination, so the form still navigates somewhere sensible when none
+ * of the conditions matches. No fallback is emitted when every link is
+ * unconditional — one of them is guaranteed to fire.
+ *
+ * Indices are resolved by the caller before this function runs; link
+ * targets here speak HQ's 0-based module/form index vocabulary, not
+ * domain uuids.
+ */
+export function deriveFormLinkStack(
+	links: HqFormLink[],
+	fallback: PostSubmitDestination,
+	sourceModuleIndex: number,
+	sourceFormType: FormType,
+	sourceCaseType?: string,
+): StackOperation[] {
+	const ops: StackOperation[] = [];
+	const conditions: string[] = [];
+
+	for (const link of links) {
+		if (link.condition) conditions.push(link.condition);
+
+		const children: StackChild[] = [];
+
+		// Form targets need the module frame AND the form frame; module
+		// targets need only the module. CommCare's session resolver walks
+		// the stack top-down, so the order here (module before form)
+		// matches the enclosing-context semantics the mobile runtime
+		// expects.
+		if (link.target.type === "form") {
+			children.push({
+				type: "command",
+				value: `'m${link.target.moduleIndex}'`,
+			});
+			children.push({
+				type: "command",
+				value: `'m${link.target.moduleIndex}-f${link.target.formIndex}'`,
+			});
+		} else {
+			children.push({
+				type: "command",
+				value: `'m${link.target.moduleIndex}'`,
+			});
+		}
+
+		// Link-level datum overrides. When CommCare's auto-derivation
+		// would install the wrong session variable (e.g. the target form
+		// expects a different case than the source form just submitted),
+		// the authoring surface lets users supply the datum explicitly.
+		if (link.datums) {
+			for (const d of link.datums) {
+				children.push({ type: "datum", id: d.name, value: d.xpath });
+			}
+		}
+
+		ops.push({
+			op: "create",
+			...(link.condition && { ifClause: link.condition }),
+			children,
+		});
+	}
+
+	// Fallback frame: only needed when at least one link is conditional.
+	// If every link is unconditional, the first one always fires and
+	// appending a fallback would produce unreachable XML.
+	if (conditions.length > 0) {
+		const negated = conditions.map((c) => `not(${c})`).join(" and ");
+		const fallbackOps = derivePostSubmitStack(
+			fallback,
+			sourceModuleIndex,
+			sourceFormType,
+			sourceCaseType,
+		);
+		for (const op of fallbackOps) {
+			ops.push({ ...op, ifClause: negated });
+		}
+	}
+
+	return ops;
+}
+
+/**
  * Build a complete EntryDefinition for a form.
  *
- * The compiler resolves the form's module/form indices + case type from
- * its uuid before calling this — `deriveEntryDefinition` only deals with
- * the suite-level index world and never touches the doc.
+ * The compiler resolves the form's module/form indices + case type +
+ * indexed form_links from their uuids before calling this —
+ * `deriveEntryDefinition` only deals with the suite-level index world
+ * and never touches the doc.
+ *
+ * `formLinks` takes priority over `postSubmit` when non-empty: the stack
+ * becomes one conditional `<create>` per link plus a fallback that fires
+ * the `postSubmit` destination when no condition matches. An empty (or
+ * omitted) `formLinks` falls back to the simple `postSubmit` derivation.
  */
 export function deriveEntryDefinition(
 	formXmlns: string,
@@ -202,6 +305,7 @@ export function deriveEntryDefinition(
 	formType: FormType,
 	postSubmit: PostSubmitDestination,
 	caseType?: string,
+	formLinks?: HqFormLink[],
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -219,14 +323,32 @@ export function deriveEntryDefinition(
 		}
 	}
 
-	// Determine stack operations. When postSubmit === 'app_home' we omit
-	// the <stack> entirely — CommCare's default (no stack ops) pops the
-	// form frame, which produces the same home-navigation result as an
-	// empty <create/> with cleaner XML.
-	const operations: StackOperation[] | undefined =
-		postSubmit !== "app_home"
-			? derivePostSubmitStack(postSubmit, moduleIndex, formType, caseType)
-			: undefined;
+	// Determine stack operations. Three cases:
+	//   1. Form has form_links → emit one <create> per link plus a
+	//      negated-conditions fallback (when any link is conditional).
+	//   2. No form_links, postSubmit !== 'app_home' → emit the simple
+	//      post-submit stack.
+	//   3. No form_links, postSubmit === 'app_home' → omit <stack>
+	//      entirely; CommCare's default (no stack ops) pops the form
+	//      frame, producing the same home-navigation result as an empty
+	//      <create/> with cleaner XML.
+	let operations: StackOperation[] | undefined;
+	if (formLinks && formLinks.length > 0) {
+		operations = deriveFormLinkStack(
+			formLinks,
+			postSubmit,
+			moduleIndex,
+			formType,
+			caseType,
+		);
+	} else if (postSubmit !== "app_home") {
+		operations = derivePostSubmitStack(
+			postSubmit,
+			moduleIndex,
+			formType,
+			caseType,
+		);
+	}
 
 	return {
 		formXmlns,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { HqFormLink } from "@/lib/commcare";
 import {
 	deriveEntryDefinition,
+	deriveFormLinkStack,
 	derivePostSubmitStack,
 	deriveSessionDatums,
 	fromHqWorkflow,
@@ -123,6 +125,88 @@ describe("derivePostSubmitStack", () => {
 	});
 });
 
+// ── deriveFormLinkStack ────────────────────────────────────────────
+
+describe("deriveFormLinkStack", () => {
+	it("emits module + form commands for conditional form targets", () => {
+		const links: HqFormLink[] = [
+			{
+				condition: "/data/refer = 'yes'",
+				target: { type: "form", moduleIndex: 2, formIndex: 3 },
+			},
+		];
+		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
+		// One conditional link + one fallback (negated condition).
+		expect(ops).toHaveLength(2);
+		expect(ops[0]).toEqual({
+			op: "create",
+			ifClause: "/data/refer = 'yes'",
+			children: [
+				{ type: "command", value: "'m2'" },
+				{ type: "command", value: "'m2-f3'" },
+			],
+		});
+		expect(ops[1].ifClause).toBe("not(/data/refer = 'yes')");
+	});
+
+	it("emits only module command for module targets", () => {
+		const links: HqFormLink[] = [
+			{ target: { type: "module", moduleIndex: 4 } },
+		];
+		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
+		// Unconditional link, no fallback needed.
+		expect(ops).toHaveLength(1);
+		expect(ops[0]).toEqual({
+			op: "create",
+			children: [{ type: "command", value: "'m4'" }],
+		});
+	});
+
+	it("appends datum overrides after the command children", () => {
+		const links: HqFormLink[] = [
+			{
+				target: { type: "form", moduleIndex: 1, formIndex: 0 },
+				datums: [{ name: "case_id", xpath: "/data/patient_id" }],
+			},
+		];
+		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
+		expect(ops[0].children).toEqual([
+			{ type: "command", value: "'m1'" },
+			{ type: "command", value: "'m1-f0'" },
+			{ type: "datum", id: "case_id", value: "/data/patient_id" },
+		]);
+	});
+
+	it("skips the fallback when every link is unconditional", () => {
+		const links: HqFormLink[] = [
+			{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
+			{ target: { type: "module", moduleIndex: 2 } },
+		];
+		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
+		expect(ops).toHaveLength(2);
+		expect(ops.every((op) => op.ifClause === undefined)).toBe(true);
+	});
+
+	it("ANDs negated conditions into the fallback", () => {
+		const links: HqFormLink[] = [
+			{
+				condition: "/data/a = 1",
+				target: { type: "form", moduleIndex: 0, formIndex: 0 },
+			},
+			{
+				condition: "/data/b = 2",
+				target: { type: "module", moduleIndex: 1 },
+			},
+		];
+		const ops = deriveFormLinkStack(links, "module", 3, "followup", "patient");
+		// Two conditional links + one fallback.
+		expect(ops).toHaveLength(3);
+		expect(ops[2].ifClause).toBe("not(/data/a = 1) and not(/data/b = 2)");
+		// Fallback body mirrors the simple post-submit derivation for "module".
+		expect(ops[2].children).toEqual([{ type: "command", value: "'m3'" }]);
+	});
+});
+
 // ── deriveEntryDefinition ──────────────────────────────────────────
 
 describe("deriveEntryDefinition", () => {
@@ -151,6 +235,30 @@ describe("deriveEntryDefinition", () => {
 			"app_home",
 		);
 		expect(entry.stack).toBeUndefined();
+	});
+
+	it("prioritizes formLinks over simple post_submit", () => {
+		// When formLinks is present, the stack is derived from the links
+		// (with the post_submit value used only as the negated-conditions
+		// fallback) rather than from post_submit directly.
+		const links: HqFormLink[] = [
+			{
+				condition: "/data/go = 'yes'",
+				target: { type: "form", moduleIndex: 1, formIndex: 0 },
+			},
+		];
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/xyz",
+			0,
+			0,
+			"survey",
+			"app_home",
+			undefined,
+			links,
+		);
+		const ops = entry.stack?.operations;
+		expect(ops).toBeDefined();
+		expect(ops?.[0].ifClause).toBe("/data/go = 'yes'");
 	});
 });
 

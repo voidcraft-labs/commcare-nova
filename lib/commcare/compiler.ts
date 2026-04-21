@@ -168,8 +168,11 @@ export function compileCcz(
 			);
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
-			// stack from the form's type, its post-form-workflow, and the
-			// module's case type.
+			// stack from the form's type, its post-form-workflow, the
+			// module's case type, and any form-level link overrides.
+			// The expander already resolved form-link uuids into indexed
+			// HQ shape, so the compiler forwards `hqForm.form_links`
+			// verbatim — no second resolution pass needed here.
 			const postSubmit = fromHqWorkflow(hqForm.post_form_workflow);
 			const entryDef = deriveEntryDefinition(
 				xmlns,
@@ -178,6 +181,7 @@ export function compileCcz(
 				formType,
 				postSubmit,
 				caseType || undefined,
+				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);
