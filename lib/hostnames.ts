@@ -65,23 +65,22 @@ export function normalizeHost(raw: string | null): string {
 }
 
 /**
- * Membership set derived from `HOSTNAMES` so `classifyHost` cannot silently
- * drift when a new hostname is added — the only place to register one is the
- * `HOSTNAMES` map itself.
+ * All hostnames this service knows about, built from `HOSTNAMES` so the set
+ * cannot drift from the typed source of truth. Declared as `Set<string>` —
+ * `Set.prototype.has` requires its argument to match the element type, so a
+ * narrow `Set<Hostname>` would refuse arbitrary string input from the wire.
+ * The narrowing happens one level up, inside `isKnownHostname`.
  */
-const KNOWN_HOSTNAMES: ReadonlySet<Hostname> = new Set(
-	Object.values(HOSTNAMES),
-);
+const KNOWN_HOSTNAMES: ReadonlySet<string> = new Set(Object.values(HOSTNAMES));
+
+/** Type predicate: true iff `host` is one of the known hostnames. */
+function isKnownHostname(host: string): host is Hostname {
+	return KNOWN_HOSTNAMES.has(host);
+}
 
 /** Classify a normalized host to a known hostname, or `null` if unknown. */
 export function classifyHost(host: string): Hostname | null {
-	// `Set.prototype.has` is not a type predicate, and the set's element type
-	// is `Hostname` so its `.has` signature won't accept arbitrary strings —
-	// widen the receiver to probe with unknown input. The result cast is then
-	// sound because membership is gated by a set built from `HOSTNAMES`.
-	return (KNOWN_HOSTNAMES as ReadonlySet<string>).has(host)
-		? (host as Hostname)
-		: null;
+	return isKnownHostname(host) ? host : null;
 }
 
 /**
