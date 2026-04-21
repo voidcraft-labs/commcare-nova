@@ -2751,6 +2751,52 @@ describe("form_links emission", () => {
 		});
 		expect(expandDoc(doc).modules[0].forms[0].form_links).toEqual([]);
 	});
+
+	// Defense-in-depth: the validator (FORM_LINK_TARGET_NOT_FOUND) blocks
+	// dangling targets before they ever reach the expander in production,
+	// but `translateFormLinks` drops them anyway so an unchecked caller
+	// (e.g. a test bypass or a future codepath) never produces HQ JSON
+	// with an unresolvable index. Pinning the drop prevents a future
+	// refactor from silently switching to "throw" — every current
+	// assertion would still pass, but an upload path would suddenly
+	// start 500-ing on a formerly-tolerable input.
+	it("drops form-link entries whose target uuid isn't registered", () => {
+		const moduleUuid = "mod-dangling";
+		const formUuid = "frm-dangling";
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "M",
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Intake",
+							type: "survey",
+							formLinks: [
+								{
+									// Target points at a module that doesn't exist in
+									// `doc.moduleOrder`. Construct the uuid via
+									// `asUuid` so it satisfies the branded type; the
+									// validator would flag this in production, but
+									// the expander must still render it harmless.
+									target: {
+										type: "module",
+										moduleUuid: asUuid("mod-never-registered"),
+									},
+								},
+							],
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(doc);
+		expect(hq.modules[0].forms[0].form_links).toEqual([]);
+	});
 });
 
 // ── Connect mode gate ──────────────────────────────────────────────────
