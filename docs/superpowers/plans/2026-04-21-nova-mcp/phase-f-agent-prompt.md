@@ -1,12 +1,12 @@
-# Phase E — Agent prompt renderer + `get_agent_prompt` tool
+# Phase F — Agent prompt renderer + `get_agent_prompt` tool
 
-**Goal:** Server-side source of truth for the `nova-architect` agent definition. The plugin skills fetch `{ frontmatter, system_prompt }` at invoke time and materialize `~/.claude/agents/nova-architect.md` before spawning the subagent. Iterating prompt / model / effort / tool restrictions on the server is picked up by the next skill invocation without a plugin release.
+**Goal:** Server-side source of truth for the `nova-architect` agent definition. The plugin skills fetch `{ frontmatter, system_prompt }` at invoke time and materialize `~/.claude/agents/nova-architect-{runId}.md` before spawning the subagent. Iterating prompt / model / effort / tool restrictions on the server is picked up by the next skill invocation without a plugin release.
 
-**Dependencies:** Phase C (types, scopes, errors, rate limiting). Phase D is not a prerequisite — these tools are independent.
+**Dependencies:** Phase C (types, errors). Phases D + E aren't prerequisites for rendering — these tools are independent.
 
 ---
 
-## Task E1: Server-side prompt + frontmatter renderer
+## Task F1: Server-side prompt + frontmatter renderer
 
 **Files:**
 - Create: `lib/mcp/prompts.ts`
@@ -229,7 +229,7 @@ git commit -m "feat(mcp): server-side agent prompt + frontmatter renderer"
 
 ---
 
-## Task E2: `get_agent_prompt` tool
+## Task F2: `get_agent_prompt` tool
 
 **Files:**
 - Create: `lib/mcp/tools/getAgentPrompt.ts`
@@ -250,10 +250,9 @@ git commit -m "feat(mcp): server-side agent prompt + frontmatter renderer"
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { toMcpErrorResult } from "../errors";
 import { renderAgentPrompt, type PromptMode } from "../prompts";
-import { checkRateLimit } from "../rateLimit";
-import { requireScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 export function registerGetAgentPrompt(
@@ -262,20 +261,14 @@ export function registerGetAgentPrompt(
 ): void {
 	server.tool(
 		"get_agent_prompt",
-		"Get the current nova-architect agent definition for the given mode. Used by the nova plugin skills to materialize the subagent at invoke time. Returns { frontmatter, system_prompt } — the plugin writes these to ~/.claude/agents/nova-architect.md before spawning.",
+		"Get the current nova-architect agent definition for the given mode. Used by the nova plugin skills to materialize the subagent at invoke time. Returns { frontmatter, system_prompt } — the plugin writes these to ~/.claude/agents/nova-architect-{runId}.md before spawning.",
+		/* Zod raw shape (mcp-handler composes an object validator around it). */
 		{
-			type: "object",
-			properties: {
-				mode: { type: "string", enum: ["build", "edit"] },
-				interactive: { type: "boolean" },
-			},
-			required: ["mode", "interactive"],
-			additionalProperties: false,
+			mode: z.enum(["build", "edit"]),
+			interactive: z.boolean(),
 		},
 		async (args: { mode: PromptMode; interactive: boolean }) => {
 			try {
-				requireScope(ctx, SCOPES.read);
-				await checkRateLimit(ctx.userId, "get_agent_prompt");
 				const payload = renderAgentPrompt(args.mode, args.interactive);
 				return {
 					content: [{ type: "text", text: JSON.stringify(payload) }],
@@ -291,8 +284,7 @@ export function registerGetAgentPrompt(
 - [ ] **Step 2: Test**
 
 ```ts
-import { describe, expect, it, vi } from "vitest";
-vi.mock("../rateLimit", () => ({ checkRateLimit: vi.fn() }));
+import { describe, expect, it } from "vitest";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 
 describe("get_agent_prompt", () => {
@@ -315,24 +307,10 @@ describe("get_agent_prompt", () => {
 			}
 		}
 	});
-
-	it("returns insufficient_scope without nova.read", async () => {
-		let handler!: (a: unknown) => Promise<unknown>;
-		const server = {
-			tool: (_n: string, _d: string, _s: unknown, h: typeof handler) => {
-				handler = h;
-			},
-		} as unknown as import("@modelcontextprotocol/sdk/server/mcp.js").McpServer;
-		registerGetAgentPrompt(server, { userId: "u", scopes: [] });
-		const res = (await handler({ mode: "build", interactive: true })) as {
-			isError?: boolean;
-			_meta?: { error_type?: string };
-		};
-		expect(res.isError).toBe(true);
-		expect(res._meta?.error_type).toBe("insufficient_scope");
-	});
 });
 ```
+
+Scope enforcement for `get_agent_prompt` lives at the verify layer (Phase G route handler declares the tool-mount with `scopes: ["nova.read"]`). No per-handler scope check in this tool.
 
 - [ ] **Step 3: Run + commit**
 

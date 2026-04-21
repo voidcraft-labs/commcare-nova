@@ -158,6 +158,8 @@ import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 ```
 
+Add `disabledPaths: ["/token"]` at the TOP LEVEL of the `betterAuth({...})` call (sibling of `plugins`, not inside them) — required when pairing with `oauth-provider` so the legacy `/token` endpoint doesn't collide with `/oauth2/token`. Per Better Auth's own docs, this is MANDATORY when running OAuth/OIDC/MCP mode.
+
 Replace the `plugins: [admin({ ... })]` block with:
 
 ```ts
@@ -171,8 +173,13 @@ plugins: [
 	 * JWT plugin — exposes /api/auth/jwks. The oauth-provider plugin
 	 * signs access tokens with these keys; the MCP handler verifies
 	 * bearer tokens against the same JWKS.
+	 *
+	 * `disableSettingJwtHeader: true` is REQUIRED when running in
+	 * OAuth/OIDC/MCP mode per Better Auth docs — without it the JWT
+	 * middleware tries to attach bearer tokens to every request,
+	 * breaking session-cookie flows.
 	 */
-	jwt(),
+	jwt({ disableSettingJwtHeader: true }),
 
 	/**
 	 * OAuth 2.1 authorization server. Turns Better Auth into a full
@@ -181,6 +188,11 @@ plugins: [
 	 * — this plugin adds NEW endpoints under /api/auth and /oauth2, and
 	 * emits new .well-known metadata, without touching the existing
 	 * login flow.
+	 *
+	 * Per-endpoint rate limiting is handled by the plugin's defaults —
+	 * keep them. This is the only rate-limiting surface the MCP feature
+	 * introduces; tool calls inherit Nova's existing convention of
+	 * authenticated-only, no app-level limits.
 	 */
 	oauthProvider({
 		loginPage: "/sign-in",
@@ -277,7 +289,7 @@ With dev running:
 curl -s http://localhost:3000/.well-known/oauth-authorization-server | jq .jwks_uri
 ```
 
-The plan hardcodes `https://commcare.app/api/auth/jwks` in Phase F. If the actual `jwks_uri` differs, record the real value in `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md` and update Phase F's `jwksUrl` accordingly BEFORE implementing the route handler.
+The plan hardcodes `https://commcare.app/api/auth/jwks` in Phase G. If the actual `jwks_uri` differs, record the real value in `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md` and update Phase G's `jwksUrl` accordingly BEFORE implementing the route handler.
 
 - [ ] **Step 4: Commit**
 
@@ -300,11 +312,20 @@ git commit -m "feat(mcp): publish OAuth-AS + OIDC discovery metadata"
 /**
  * Resource-server client — consumed by the protected-resource-metadata
  * handler to produce the RFC 9728 document that MCP clients fetch first.
+ *
+ * `oauthProviderResourceClient` is a PLUGIN FACTORY for createAuthClient,
+ * not a client constructor. Imported from the `/resource-client` subpath,
+ * not the main package entry. It takes the Better Auth instance as its
+ * argument so it can pull issuer + JWKS URLs at call time.
  */
 
-import { oauthProviderResourceClient } from "@better-auth/oauth-provider";
+import { createAuthClient } from "better-auth/client";
+import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
+import { getAuth } from "./auth";
 
-export const serverClient = oauthProviderResourceClient();
+export const serverClient = createAuthClient({
+	plugins: [oauthProviderResourceClient(getAuth())],
+});
 ```
 
 - [ ] **Step 2: Write `oauth-protected-resource/route.ts`**
@@ -532,7 +553,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 Run: `npx tsc --noEmit && echo "✓"`
 Expected: `✓`. If Better Auth's `auth.api.oauth2.getPendingAuthorization` signature differs from what this page assumes, adjust per the actual plugin API (context7 for the current signature).
 
-End-to-end consent verification lands in Phase F Task F2 (requires a deployed staging target to run the full OAuth handshake from a real client).
+End-to-end consent verification lands in Phase G Task G3 (requires a deployed staging target to run the full OAuth handshake from a real client).
 
 - [ ] **Step 5: Commit**
 

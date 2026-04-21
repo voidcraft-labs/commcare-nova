@@ -1,12 +1,12 @@
-# Phase J — Final end-to-end smoke
+# Phase K — Final end-to-end smoke
 
-**Goal:** Build, edit, compile, upload a non-trivial app via the plugin. Verify the web UI continues to work unchanged. Verify per-surface event tagging.
+**Goal:** Build, edit, compile, upload a non-trivial app via the plugin. Verify the web UI continues to work unchanged. Verify per-surface event tagging and run_id grouping.
 
-**Dependencies:** Phases A–I complete; plugin published.
+**Dependencies:** Phases A–J complete; plugin published.
 
 ---
 
-## Task J1: Full flow from published marketplace
+## Task K1: Full flow from published marketplace
 
 **Files:** None.
 
@@ -59,7 +59,7 @@ In the Firestore console, open the event log for the smoke-test app at `apps/<ap
 - Events from Steps 2 + 3 (built + edited via plugin) carry `source: "mcp"`.
 - Events from Step 5 (edited via web UI) carry `source: "chat"`.
 
-If any event lacks a `source` field, it's a missed call site from Phase C Task C1 — `grep -rn "new LogWriter(" app/ lib/` and fix the construction site, add a regression test that asserts `source` is stamped.
+If any event lacks a `source` field, it's either (a) a missed call site from Phase C Task C1 — grep `new LogWriter(` and fix the construction — or (b) a historical event the Phase C Task C1 migration missed. Run the migration dry-run again to confirm no backlog remains; if any does, investigate before shipping.
 
 - [ ] **Step 7: Record outcome**
 
@@ -74,6 +74,7 @@ Append to `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md`:
 - /nova:upload to HQ: <pass/fail, hq_app_id>
 - Web UI regression: <pass/fail>
 - Per-surface event tagging (chat vs mcp): <pass/fail>
+- Run_id grouping across multi-tool plugin build: <pass/fail>
 ```
 
 - [ ] **Step 8: Final commit**
@@ -86,7 +87,7 @@ git commit --allow-empty -m "test(mcp): end-to-end smoke passed from published m
 
 ---
 
-## Task J2: Ready-to-merge checklist
+## Task K2: Ready-to-merge checklist
 
 Before opening a PR from `feature/mcp` → `main`:
 
@@ -97,6 +98,8 @@ Before opening a PR from `feature/mcp` → `main`:
 - [ ] `npm run build` succeeds.
 - [ ] The infra notes at `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md` reflect the real values discovered during execution (JWKS URL, adapter audit results, probe outcomes, smoke test results).
 - [ ] The plan spec at `docs/superpowers/specs/2026-04-21-nova-mcp-design.md` and the plan files in this directory match the shipped behavior (if implementation diverged from the plan, update both — do not merge with drifted docs).
-- [ ] No TODOs, FIXMEs, or dead code in `lib/mcp/` or `app/api/mcp/`.
+- [ ] No TODOs, FIXMEs, or dead code in `lib/mcp/`, `app/api/[transport]/`, or `lib/agent/tools/`.
 - [ ] No `console.log` debugging statements shipped.
-- [ ] `lib/mcp/server.ts` registers all 25 tools (grep `registerNova` calls should count 25 functions invoked in `registerNovaTools`).
+- [ ] `lib/mcp/server.ts` registers every MCP-only tool + wraps every shared `lib/agent/tools/*` tool via `registerSharedTool` — total surface ≥ 25 tools.
+- [ ] The event-source backfill migration (Phase C Task C1 Step 4) has been run against production Firestore and the full run (not just --dry-run) completed successfully.
+- [ ] SA chat-surface regression check from Phase D Task D22 documented — 1442+ tests green, manual web-build smoke produces the same result as pre-refactor main.

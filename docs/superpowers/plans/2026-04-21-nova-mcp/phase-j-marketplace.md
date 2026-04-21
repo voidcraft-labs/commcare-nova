@@ -1,14 +1,14 @@
-# Phase I — Marketplace
+# Phase J — Marketplace
 
 **Goal:** A Nova-owned Claude Code marketplace that points at the plugin repo, so users can install with `/plugin marketplace add dimagi/nova-marketplace` followed by `/plugin install nova@nova-marketplace`.
 
-**Dependencies:** Phase H — plugin must be published to GitHub first.
+**Dependencies:** Phase I — plugin must be published to GitHub first.
 
 **Where this work lives:** Separate repo at `github.com/dimagi/nova-marketplace`.
 
 ---
 
-## Task I1: Marketplace repo
+## Task J1: Marketplace repo
 
 **Files:**
 - Create: `.claude-plugin/marketplace.json`
@@ -75,7 +75,7 @@ git commit -m "chore: initial marketplace with nova plugin"
 
 ---
 
-## Task I2: Publish both repos to GitHub
+## Task J2: Publish both repos to GitHub
 
 - [ ] **Step 1: Push plugin repo**
 
