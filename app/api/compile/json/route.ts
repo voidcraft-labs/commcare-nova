@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { expandDoc } from "@/lib/commcare";
+import { expandDoc } from "@/lib/commcare/expander";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { sanitizeFilename } from "@/lib/utils/sanitize";

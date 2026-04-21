@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { expandDoc } from "@/lib/commcare";
+import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 

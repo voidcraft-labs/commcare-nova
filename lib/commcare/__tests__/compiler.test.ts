@@ -1,7 +1,8 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { compileCcz, expandDoc } from "@/lib/commcare";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
 
 // The compiler consumes the domain doc directly — we build the fixture
 // via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed

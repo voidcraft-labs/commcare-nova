@@ -10,7 +10,7 @@ One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, 
 - `runValidation(doc)` → `ValidationError[]` (`@/lib/commcare/validator`).
 - `parser`, `transpile`, term constants, `detectUnquotedStringLiteral` (`@/lib/commcare/xpath`).
 - `listDomains`, `importApp` (`./client`); `encrypt`, `decrypt` (`./encryption`).
-- Shared primitives re-exported from `./index.ts`: `constants`, `types`, `hqShells`, `hashtags`, `ids`, `identifierValidation`, `session`, `formActions`, `deriveCaseConfig`, `xml`.
+- Shared primitives re-exported from `./index.ts`: `constants`, `types`, `hqShells`, `hashtags`, `identifierValidation`, `session`, `formActions`, `deriveCaseConfig`, `xml`. The barrel stays client-safe: Node-only modules (`./compiler` via `adm-zip`; `./ids` via `node:crypto`) and the heavy emission pipeline (`./expander`, `./xform`) are imported from their explicit sub-paths so Turbopack can tree-shake them out of client bundles. The XPath engine, validator, encryption, and HQ HTTP client follow the same sub-path rule for the same reason.
 
 ## Allowlist
 

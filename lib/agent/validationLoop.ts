@@ -18,7 +18,8 @@
  */
 
 import { produce } from "immer";
-import { expandDoc, type HqApplication } from "@/lib/commcare";
+import type { HqApplication } from "@/lib/commcare";
+import { expandDoc } from "@/lib/commcare/expander";
 import {
 	errorToString,
 	type ValidationError,

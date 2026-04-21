@@ -21,10 +21,9 @@ import {
 	detailColumn,
 	detailPair,
 	formShell,
-	genHexId,
-	genShortId,
 	moduleShell,
 } from "@/lib/commcare";
+import { genHexId, genShortId } from "@/lib/commcare/ids";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import {
 	type BlueprintDoc,
