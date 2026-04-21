@@ -130,7 +130,7 @@ function hashtagSource(
 		const node = tree.resolveInner(pos, -1);
 
 		let from: number;
-		let namespace: string | undefined; // undefined = Phase 1 (show prefixes)
+		let namespace: string | undefined; // undefined = namespace stage (show prefixes)
 
 		// Find HashtagRef — cursor may resolve to the node itself or a child
 		// (HashtagType, HashtagSegment, or the localName token inside them)
@@ -173,12 +173,12 @@ function hashtagSource(
 			namespace = readHashtagNamespace(left.firstChild, state.doc);
 		}
 
-		// Phase 1: inside HashtagRef but no "/" typed yet — show namespace prefixes
+		// Namespace stage: inside HashtagRef but no "/" typed yet — show namespace prefixes
 		if (namespace === undefined) {
 			return { from, options: NAMESPACE_OPTIONS };
 		}
 
-		// Phase 2: namespace known — show properties/fields. The lint
+		// Reference stage: namespace known — show properties/fields. The lint
 		// context is pre-collected at the call site: `caseProperties` is a
 		// name→{label?} map, and `formEntries` already carries only the
 		// value-producing fields (callers filter before handing it in).

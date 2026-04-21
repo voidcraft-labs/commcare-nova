@@ -7,11 +7,10 @@
  * initialise data instance entries — a rose-tree shape fits that access
  * pattern better than ad-hoc map lookups at every step.
  *
- * `FieldTreeNode` wraps a domain `Field` with optional `children`. `buildFieldTree`
- * turns a (parentUuid, fields, fieldOrder) triple into this tree shape in one
- * walk. The engine builds the tree once at construction / schema refresh and
- * then uses it for all internal traversal — no second indirection through
- * the flat maps during evaluation.
+ * `FieldTreeNode` wraps a domain `Field` with optional `children`.
+ * `buildFieldTree` turns a (parentUuid, fields, fieldOrder) triple into
+ * this tree in one walk. The engine builds the tree once at construction
+ * / schema refresh and uses it for every internal traversal.
  */
 import type { Field, Uuid } from "@/lib/domain";
 

@@ -2,11 +2,10 @@
  * Composite builder actions that combine URL state with doc mutations
  * and imperative DOM side effects.
  *
- * Before Phase 2, these lived as methods on `BuilderEngine`. In the new
- * architecture, each is a small React hook that reads `useLocation()`,
+ * Each action is a small React hook that reads `useLocation()`,
  * dispatches through the doc store via `useBlueprintMutations()` (or
- * directly via the doc's temporal), and triggers DOM side effects
- * through surviving engine utilities (scroll, flash).
+ * directly via the doc's temporal), and triggers DOM side effects via
+ * the scroll registry + flash helpers in `domQueries.ts`.
  */
 
 "use client";
@@ -40,9 +39,10 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  *   to navigate across forms mid-undo. The state is still restored
  *   correctly; only the animated affordance is suppressed.
  *
- *   This is an accepted trade-off until the doc's temporal middleware
- *   carries location metadata alongside each patch (planned for Phase 3
- *   or Phase 4, depending on temporal-store scope).
+ *   This is an accepted trade-off: the doc's temporal middleware doesn't
+ *   carry location metadata alongside each patch, so there's no way to
+ *   know whether the undone change belongs to the current form without
+ *   an extra lookup. Correctness (state) is preserved either way.
  */
 export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const docStore = useContext(BlueprintDocContext);

@@ -6,9 +6,7 @@
  * working on), this function returns a normalized `{ start, end }` range
  * (0–1) that the `SignalGridController` uses to highlight the active zone.
  *
- * Extracted from `BuilderEngine.computeEditFocus()` during Phase 3 engine
- * dissolution. The function is now pure — it takes data as parameters
- * instead of reading engine instance fields.
+ * Pure in both senses: takes all inputs as parameters, no hidden state.
  */
 
 import type { EditScope } from "@/lib/session/builderTypes";
@@ -22,9 +20,9 @@ import type { EditFocus } from "@/lib/signalGridController";
 const MIN_EDIT_ZONE = 0.15;
 
 /**
- * Data required to compute the edit focus zone. This matches the ordering
- * shape shared by both the legacy `BuilderState` and the normalized
- * `BlueprintDoc` — allowing callers to pass either source.
+ * Data required to compute the edit focus zone. Mirrors the ordering
+ * slices of `BlueprintDoc` (moduleOrder / formOrder / fieldOrder) so
+ * callers can pass a narrowed view without cloning the whole doc.
  */
 export interface EditFocusData {
 	moduleOrder: readonly string[];

@@ -6,25 +6,17 @@
  * generation tools are excluded — the SA only gets shared tools and an editing prompt
  * with a blueprint summary. In build mode (new app), all tools are available.
  *
- * ## Vocabulary
+ * Vocabulary is domain-native: tool arguments, return shapes, and the
+ * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
+ * `case_property`. Tool args flow straight into the reducer helpers in
+ * `blueprintHelpers.ts`. `validateAndFix` (in `validationLoop.ts`) reads
+ * the normalized doc directly, runs XForm validation via
+ * `lib/commcare/`, and returns a normalized doc with any auto-fixes
+ * applied.
  *
- * The SA speaks domain vocabulary end-to-end: `field`, `kind`, `validate`,
- * `validate_msg`, `case_property`. Tool arguments, tool return shapes, and
- * the system prompt all use these names. Tool args flow directly into the
- * reducer helpers in `blueprintHelpers.ts`.
- *
- * CommCare wire terms live at one genuine boundary: `lib/commcare/` owns
- * XForm emission, HQ JSON expansion, and the validator. `validateAndFix`
- * reads the normalized doc directly, runs XForm validation, and hands back
- * a normalized doc with any auto-fixes applied. Callers stay on the
- * domain side.
- *
- * ## Event stream
- *
- * Stream-event payloads carry fine-grained `data-mutations` events emitted
- * via `ctx.emitMutations` for every tool-level change; the final
- * `data-done` from `validateApp` carries a normalized doc snapshot as the
- * one remaining full-doc emission.
+ * Stream-event payloads carry fine-grained `data-mutations` events
+ * emitted via `ctx.emitMutations` for every tool-level change; the
+ * final `data-done` from `validateApp` carries a normalized doc snapshot.
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";

@@ -1,16 +1,13 @@
 /**
  * Flat row model for the virtualized form editor.
  *
- * The edit-mode form editor used to render a recursive `FormRenderer` — a
- * group/repeat rendered its own nested `FormRenderer`, creating an arbitrarily
- * deep React tree. A single form-open commit mounted hundreds of components at
- * once; see the Phase 5 motivation in
- * `docs/superpowers/specs/2026-04-12-builder-state-rearchitecture-design.md`.
- *
- * The row model replaces the recursive tree with a flat, positional list of
- * typed rows. `buildFormRows` walks the blueprint exactly once and returns a
- * sequence that a virtualizer (see `VirtualFormList`) can mount piecewise:
- * only visible rows enter the React tree.
+ * `buildFormRows` walks the blueprint exactly once and returns a
+ * positional sequence of typed rows that a virtualizer (see
+ * `VirtualFormList`) can mount piecewise: only visible rows enter the
+ * React tree. This replaces a recursive `FormRenderer` whose
+ * group/repeat children mounted their own nested renderers — an
+ * arbitrarily deep tree where a single form-open commit could mount
+ * hundreds of components at once.
  *
  * Row semantics:
  *

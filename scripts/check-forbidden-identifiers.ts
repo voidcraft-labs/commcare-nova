@@ -1,25 +1,25 @@
 /**
  * CI gate: fail if forbidden identifiers creep back into the repo.
  *
- * Phase 7 erased the pre-Phase-7 wire-format vocabulary from the production
- * tree. This script is the regression shield — if any of these tokens reappear
- * in a real source file, someone is reintroducing a boundary violation and the
- * commit must be blocked.
+ * The wire-format vocabulary listed below is banned from production
+ * source. If any of these tokens reappears in a real source file, a
+ * boundary violation is being reintroduced and the commit must fail.
  *
- * Scope: `lib/`, `app/`, `components/`, `scripts/`. Markdown, test fixtures,
- * and the `lib/commcare/` package itself are excluded because those tokens
- * have legitimate uses there (documentation / wire-format emission / deliberate
- * regression harnesses).
+ * Scope: `lib/`, `app/`, `components/`, `scripts/`. Markdown, test
+ * fixtures, and the `lib/commcare/` package itself are excluded because
+ * those tokens have legitimate uses there (documentation, wire-format
+ * emission, deliberate regression harnesses).
  *
  * Two passes:
- *   1. Wire-format identifiers (`AppBlueprint`, `toBlueprint`, …) — blanket-banned
- *      everywhere outside the exclusion set.
- *   2. The bare word `Question` — banned too, but with a wider exclusion set
- *      that preserves chat-feature files and the agent prompt/schema surfaces
- *      where the CommCare term legitimately surfaces to users.
+ *   1. Wire-format identifiers (`AppBlueprint`, `toBlueprint`, …) —
+ *      blanket-banned everywhere outside the exclusion set.
+ *   2. The bare word `Question` — banned too, but with a wider exclusion
+ *      set that preserves chat-feature files and the agent prompt /
+ *      schema surfaces where the CommCare term legitimately surfaces to
+ *      users.
  *
- * Uses `rg` (ripgrep) via `execSync`. `rg` exits 1 when there are no matches —
- * we treat that as success and only fail on exit 0 with stdout.
+ * Uses `rg` (ripgrep) via `execSync`. `rg` exits 1 when there are no
+ * matches — we treat that as success and only fail on exit 0 with stdout.
  */
 
 import { execSync } from "node:child_process";

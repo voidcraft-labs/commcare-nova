@@ -4,8 +4,9 @@
  * and doc-backed undo/redo. No callback props from BuilderLayout needed
  * for any interactive behavior.
  *
- * Navigation state comes from `useLocation` / `useNavigate` / `useBreadcrumbs`
- * (Phase 2 URL hooks). Undo/redo from `useUndoRedo` (doc temporal).
+ * Navigation state comes from `useLocation` / `useNavigate` /
+ * `useBreadcrumbs` (URL-driven). Undo/redo from `useUndoRedo` (doc
+ * temporal).
  */
 "use client";
 import { Icon } from "@iconify/react/offline";

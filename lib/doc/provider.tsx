@@ -1,14 +1,10 @@
 /**
  * BlueprintDoc React context + provider.
  *
- * Creates a new store instance per mount (matching the existing
- * `useBuilder.tsx` pattern — the builder is a singleton per route, but
- * the store itself is not a module-level global). Consumers access the
- * store via the hooks under `lib/doc/hooks/**`.
- *
- * Phase 0 added the Phase 0 types; Phase 1a builds the store and hooks
- * behind this provider; Phase 1b wires the provider into the builder
- * route layout.
+ * Creates a new store instance per mount — the builder is a singleton
+ * per route, but the store is not a module-level global. Consumers
+ * access the store via the named hooks under `lib/doc/hooks/**`; the
+ * raw context is exported only so those hooks can read it.
  */
 
 "use client";
