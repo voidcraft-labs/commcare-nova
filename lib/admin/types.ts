@@ -2,7 +2,7 @@
  * Admin dashboard types — shared between API routes and client components.
  * All dates are ISO 8601 strings — consistent from Firestore through JSON to client.
  */
-import type { AppSummary } from "../db/apps";
+import type { AppSummary } from "@/lib/db/apps";
 
 /** A single row in the admin user table. */
 export interface AdminUserRow {
