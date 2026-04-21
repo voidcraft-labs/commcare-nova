@@ -164,8 +164,8 @@ export function useAutoSave(): SaveState {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					// Send under the `blueprint` key so the API route's body parsing
-					// stays consistent. The value is now a normalized BlueprintDoc
-					// (minus fieldParent) rather than the legacy nested AppBlueprint.
+					// stays consistent. The value is a normalized BlueprintDoc
+					// (minus fieldParent — rebuilt on load).
 					body: JSON.stringify({ blueprint: persistable }),
 				});
 				if (!stillCurrent()) return;

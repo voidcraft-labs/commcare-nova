@@ -285,7 +285,7 @@ export function CasePropertyEditor<F extends Field>(
 	if (!isCaseName && writableCaseTypes.length === 0) return null;
 
 	return (
-		<div data-field-id="case_property_on">
+		<div data-field-id="case_property">
 			<CasePropertyDropdown
 				value={typeof value === "string" ? value : undefined}
 				isCaseName={isCaseName}

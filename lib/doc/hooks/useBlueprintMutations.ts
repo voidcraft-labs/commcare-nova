@@ -4,9 +4,7 @@
  * Every consumer that edits a module, form, or field calls this hook
  * and dispatches via the returned action object. All signatures take
  * uuid-first parameters and domain types (`Field`, `Form`, `Module`,
- * `FieldPatch`). No legacy `Question` wire type / `BlueprintForm` / `AppBlueprint`
- * shape crosses this boundary — tool handlers that speak to the LLM
- * translate at their own wire boundary before calling here.
+ * `FieldPatch`).
  *
  * Internally, each method:
  *   1. Reads the CURRENT doc snapshot via `store.getState()` (not the

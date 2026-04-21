@@ -157,19 +157,19 @@ describe("computeEditFocus", () => {
 	});
 
 	it("field index is clamped to the form's field count", () => {
-		/* Question index 99 exceeds the form's 5 fields — treated as last (index 4). */
+		/* Field index 99 exceeds the form's 5 fields — treated as last (index 4). */
 		const data = fixture([[5]]);
 		const overflowed = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
 			fieldIndex: 99,
 		});
-		const lastQuestion = computeEditFocus(data, {
+		const lastField = computeEditFocus(data, {
 			moduleIndex: 0,
 			formIndex: 0,
 			fieldIndex: 4,
 		});
-		expect(overflowed).toEqual(lastQuestion);
+		expect(overflowed).toEqual(lastField);
 	});
 
 	// ── MIN_EDIT_ZONE enforcement ───────────────────────────────────────

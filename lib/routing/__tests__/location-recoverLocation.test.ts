@@ -211,8 +211,8 @@ describe("recoverLocation — identity guarantee", () => {
 /*
  * A tiny sanity check that the fixture `as never` casts don't let
  * untyped properties sneak in — the doc only needs `modules`/`forms`/
- * `fields` record keys to exist. This exists as a reference for
- * future contributors: if you need richer fixtures, build via `toDoc`.
+ * `fields` record keys to exist. Richer fixtures should be built with
+ * the `buildDoc` / `f` DSL in `lib/__tests__/docHelpers.ts`.
  */
 describe("recoverLocation — fixture shape sanity", () => {
 	it("doc only exposes keyed presence checks", () => {

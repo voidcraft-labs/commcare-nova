@@ -2,9 +2,9 @@
 //
 // The one-way bridge from our normalized domain to CommCare's wire
 // formats. This package owns every CommCare-specific vocabulary item
-// (question, case_property_on, doc_type, HQ JSON shapes, XForm XML,
-// session datums, identifier rules) — everything else in lib/ talks
-// to CommCare only through this barrel.
+// (HQ JSON shapes, XForm XML, doc_type strings, session datums,
+// identifier rules) — everything else in lib/ talks to CommCare only
+// through this barrel.
 //
 // The barrel re-exports primitives that upstream layers legitimately
 // need: constants, HQ JSON types, boilerplate shell factories,

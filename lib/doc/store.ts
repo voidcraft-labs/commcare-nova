@@ -62,9 +62,8 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
 	 * shape that omits `fieldParent`).
 	 *
-	 * Accepts the normalized doc shape directly — no conversion from the
-	 * legacy nested `AppBlueprint` format. `fieldParent` is always rebuilt
-	 * from `fieldOrder`, so callers never need to supply it.
+	 * Accepts the normalized doc shape directly. `fieldParent` is always
+	 * rebuilt from `fieldOrder`, so callers never need to supply it.
 	 *
 	 * Does NOT create an undo entry — loads are session hydration, not
 	 * user edits. Clears any prior history and keeps temporal paused.
@@ -172,9 +171,8 @@ export function createBlueprintDocStore() {
 						/**
 						 * Hydrate the store from a normalized `BlueprintDoc`.
 						 *
-						 * Accepts the doc shape that Firestore stores directly — no
-						 * `toDoc` conversion from the legacy nested `AppBlueprint` format.
-						 * The incoming doc may omit `fieldParent` (Firestore does not
+						 * Accepts the doc shape that Firestore stores directly. The
+						 * incoming doc may omit `fieldParent` (Firestore does not
 						 * persist it); this method always rebuilds it from `fieldOrder`
 						 * so every downstream consumer can rely on it being present.
 						 *

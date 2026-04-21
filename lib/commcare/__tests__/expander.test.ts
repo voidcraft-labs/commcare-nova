@@ -766,7 +766,7 @@ describe("markdown itext for all question types", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		// Question label
+		// Field label
 		const label = extractItext(xform, "status-label");
 		expect(label).toContain(
 			'<value form="markdown">Current **status**</value>',

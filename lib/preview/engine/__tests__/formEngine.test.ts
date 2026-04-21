@@ -3,8 +3,7 @@
  *
  * The engine consumes a `FormEngineInput` (form + fields map + fieldOrder) —
  * the same domain shape produced by the normalized doc store. These tests
- * build fixtures directly in that shape via the `dTree` helper so no legacy
- * `Question`/`BlueprintForm` wire types appear.
+ * build fixtures directly in that shape via the `dTree` helper.
  */
 import { describe, expect, it } from "vitest";
 import type {

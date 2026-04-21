@@ -9,8 +9,7 @@ import type { BlueprintDoc } from "@/lib/doc/types";
  * that only care about store mechanics (undo, loading flag) rather than
  * blueprint content.
  *
- * `load()` now accepts the normalized shape directly — no `AppBlueprint`
- * conversion is performed by the store.
+ * `load()` accepts the normalized shape directly.
  */
 function makeEmptyDoc(
 	opts: { appId?: string; appName?: string } = {},

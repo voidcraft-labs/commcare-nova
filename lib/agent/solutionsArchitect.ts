@@ -10,27 +10,21 @@
  *
  * The SA speaks domain vocabulary end-to-end: `field`, `kind`, `validate`,
  * `validate_msg`, `case_property`. Tool arguments, tool return shapes, and
- * the system prompt all use these names. There is no CommCare→domain
- * translation layer anywhere in this file — tool args flow directly into
- * the reducer helpers in `blueprintHelpers.ts`.
+ * the system prompt all use these names. Tool args flow directly into the
+ * reducer helpers in `blueprintHelpers.ts`.
  *
- * CommCare wire terms live only at two genuine boundaries:
- *   - `lib/commcare/` (XForm emission, HQ JSON expander).
- *   - `lib/doc/legacyBridge.ts` (one-way conversion used by the compile
- *     / HQ-upload path).
- *
- * The CommCare validator is one such boundary: `validateAndFix` converts
- * our doc to the legacy nested shape internally, runs XForm validation,
- * and hands back a normalized doc with any auto-fixes applied. Callers
- * stay on the domain side.
+ * CommCare wire terms live at one genuine boundary: `lib/commcare/` owns
+ * XForm emission, HQ JSON expansion, and the validator. `validateAndFix`
+ * reads the normalized doc directly, runs XForm validation, and hands back
+ * a normalized doc with any auto-fixes applied. Callers stay on the
+ * domain side.
  *
  * ## Event stream
  *
  * Stream-event payloads carry fine-grained `data-mutations` events emitted
  * via `ctx.emitMutations` for every tool-level change; the final
  * `data-done` from `validateApp` carries a normalized doc snapshot as the
- * one remaining full-doc emission. No wire-format blueprint crosses the
- * agent → client boundary.
+ * one remaining full-doc emission.
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
@@ -1412,7 +1406,7 @@ export function createSolutionsArchitect(
 		// The prompt summary is rendered from the current normalized doc
 		// when the app already exists. `buildSolutionsArchitectPrompt`
 		// walks the normalized doc directly and produces a domain-vocab
-		// summary — no `toBlueprint` round-trip.
+		// summary.
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
 		prepareStep: ({ steps: _steps }) => {

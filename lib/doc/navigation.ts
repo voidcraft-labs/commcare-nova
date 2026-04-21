@@ -10,9 +10,8 @@
  *     a user edits a field id.
  *   - The mutation surface (`moveField`, `removeField`, etc.) already takes
  *     uuids, so path↔uuid translation adds a round-trip with no upside.
- *   - The wire-format `Question` / `BlueprintForm` types exist only at
- *     the SA / CommCare-HQ boundary; every internal consumer should walk
- *     the normalized doc instead of assembling a nested tree first.
+ *   - Walking the normalized doc directly avoids the need to reassemble a
+ *     nested tree as an intermediate shape.
  *
  * Three operations cover the full keyboard / header surface:
  *   - `flattenFieldRefs(doc, formUuid)` — depth-first visual order,

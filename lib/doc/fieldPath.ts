@@ -23,8 +23,8 @@
  * code — uuids are the stable identity across renames.
  *
  * These helpers are string primitives only: they don't know about the
- * wire `Question` shape or the domain `Field` shape. The path format is
- * the same on both sides of the boundary.
+ * domain `Field` shape. The path format is the same across every
+ * consumer.
  */
 export type FieldPath = string & { readonly __brand: "FieldPath" };
 

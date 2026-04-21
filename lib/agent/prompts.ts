@@ -327,8 +327,7 @@ function summarizeModule(
 
 /**
  * Produce the compact text summary of the app that lands in the SA's
- * edit-mode prompt. Reads from the normalized doc — no intermediate
- * legacy shape, no `toBlueprint` call.
+ * edit-mode prompt. Reads from the normalized doc directly.
  */
 function summarizeBlueprint(doc: BlueprintDoc): string {
 	const lines: string[] = [];
