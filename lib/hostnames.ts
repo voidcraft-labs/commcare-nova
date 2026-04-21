@@ -19,11 +19,15 @@ export const HOSTNAMES = {
 export type Hostname = (typeof HOSTNAMES)[keyof typeof HOSTNAMES];
 
 /**
- * Path prefixes each hostname is allowed to serve. Matching is prefix-based
- * via `startsWith`; `/` exactly matches the root page for hostnames that
- * expose one.
+ * Path prefixes each hostname is allowed to serve. Matching is segment-anchored
+ * (see `isPathAllowedOnHost`); `/` matches only the root page exactly so it
+ * doesn't act as a wildcard for an entire host.
+ *
+ * Declared with `satisfies` so each host's prefix tuple keeps its literal-string
+ * element types — the `Record<Hostname, readonly string[]>` constraint is
+ * enforced without widening the value type.
  */
-export const HOSTNAME_ALLOWLIST: Record<Hostname, readonly string[]> = {
+export const HOSTNAME_ALLOWLIST = {
 	[HOSTNAMES.main]: [
 		"/",
 		"/api/auth",
@@ -45,9 +49,9 @@ export const HOSTNAME_ALLOWLIST: Record<Hostname, readonly string[]> = {
 	],
 	[HOSTNAMES.mcp]: ["/mcp", "/.well-known/oauth-protected-resource"],
 	[HOSTNAMES.docs]: ["/", "/_next", "/favicon"],
-} as const;
+} as const satisfies Record<Hostname, readonly string[]>;
 
-/** Normalize the Host header: strip trailing dot, strip explicit :443 / :80. */
+/** Normalize the Host header: lowercase, strip trailing dot, strip :80 / :443. */
 export function normalizeHost(raw: string | null): string {
 	if (!raw) return "";
 	let host = raw.toLowerCase().trim();
@@ -56,19 +60,30 @@ export function normalizeHost(raw: string | null): string {
 	return host;
 }
 
+/**
+ * Membership set derived from `HOSTNAMES` so `classifyHost` cannot silently
+ * drift when a new hostname is added — the only place to register one is the
+ * `HOSTNAMES` map itself.
+ */
+const KNOWN_HOSTNAMES = new Set<string>(Object.values(HOSTNAMES));
+
 /** Classify a normalized host to a known hostname, or `null` if unknown. */
 export function classifyHost(host: string): Hostname | null {
-	if (host === HOSTNAMES.main) return HOSTNAMES.main;
-	if (host === HOSTNAMES.mcp) return HOSTNAMES.mcp;
-	if (host === HOSTNAMES.docs) return HOSTNAMES.docs;
-	return null;
+	// The cast is sound: membership is gated by a set built from `HOSTNAMES`,
+	// so any string in the set is, by construction, a `Hostname`.
+	return KNOWN_HOSTNAMES.has(host) ? (host as Hostname) : null;
 }
 
-/** True if `path` is allowed on `host`. */
+/**
+ * True if `path` is allowed on `host`. Matching is anchored at path-segment
+ * boundaries — `/admin` allows `/admin` and `/admin/users` but NOT `/admins`,
+ * because the allowlist is a security boundary and substring matches would
+ * leak future routes that happen to share a prefix.
+ */
 export function isPathAllowedOnHost(host: Hostname, path: string): boolean {
-	const allow = HOSTNAME_ALLOWLIST[host];
-	for (const prefix of allow) {
-		if (prefix === "/" ? path === "/" : path.startsWith(prefix)) return true;
-	}
-	return false;
+	return HOSTNAME_ALLOWLIST[host].some((prefix) =>
+		prefix === "/"
+			? path === "/"
+			: path === prefix || path.startsWith(`${prefix}/`),
+	);
 }

@@ -23,6 +23,9 @@ describe("normalizeHost", () => {
 	it("returns empty string for null", () => {
 		expect(normalizeHost(null)).toBe("");
 	});
+	it("trims whitespace", () => {
+		expect(normalizeHost("  commcare.app  ")).toBe("commcare.app");
+	});
 });
 
 describe("classifyHost", () => {
@@ -34,6 +37,9 @@ describe("classifyHost", () => {
 	it("returns null for unknown hostnames", () => {
 		expect(classifyHost("foo-uc.a.run.app")).toBeNull();
 		expect(classifyHost("localhost:3000")).toBeNull();
+	});
+	it("returns null for empty string (missing Host header)", () => {
+		expect(classifyHost("")).toBeNull();
 	});
 });
 
@@ -73,5 +79,17 @@ describe("isPathAllowedOnHost", () => {
 				"/.well-known/oauth-protected-resource",
 			),
 		).toBe(false);
+	});
+	it("does not match across path-segment boundary", () => {
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/admins")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/authority")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/buildings")).toBe(false);
+	});
+	it("matches exact prefix and deeper subpaths", () => {
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/admin")).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/admin/users")).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/auth/callback")).toBe(
+			true,
+		);
 	});
 });
