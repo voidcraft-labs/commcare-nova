@@ -112,8 +112,8 @@ export async function incrementUsage(
  * flow into `FieldValue.increment` and corrupt the monthly spend counter
  * (and misreport the run summary). Clamp here rather than trust the source.
  *
- * Exported so admin inspect scripts (Task 18) can recompute costs from
- * stored run summaries without depending on the accumulator class.
+ * Exported so admin inspect scripts can recompute costs from stored run
+ * summaries without depending on the accumulator class.
  */
 export function estimateCost(
 	model: string,

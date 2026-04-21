@@ -539,11 +539,12 @@ describe("solutionsArchitect — validateApp", () => {
 
 // ── validationLoop fix pass — emits data-mutations, not data-form-fixed ──
 //
-// Shortcut (per Task 17d plan): we stub `runValidation`, `FIX_REGISTRY`,
-// and `expandDoc` at the module level so the loop walks exactly
-// one fix iteration. Building a real error that a real fix repairs
-// would require plumbing the field-registry rule + fix pair, which is
-// far more invasive than the call-site change being tested.
+// The loop is exercised with `runValidation`, `FIX_REGISTRY`, and
+// `expandDoc` stubbed at the module level so exactly one fix iteration
+// runs. The assertion under test is that the fix pass emits
+// `data-mutations` events (not the legacy `data-form-fixed` shape);
+// stubbing lets us verify that wiring without constructing a real
+// field-registry rule + fix pair that produces the error.
 
 vi.mock("@/lib/commcare/validator/runner", () => ({
 	runValidation: vi.fn(),

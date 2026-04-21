@@ -14,10 +14,10 @@
  * Nothing here mutates state directly; the mutation-first convention
  * keeps agent-side call sites and the store-side reducer decoupled.
  *
- * Kept in `lib/agent/` because every consumer lives here. The one shared
- * query (`searchBlueprint`) that used to live alongside these helpers was
- * moved to `lib/doc/searchBlueprint.ts` so the client `useSearchBlueprint`
- * hook doesn't have to reach across the server/client boundary.
+ * Kept in `lib/agent/` because every consumer lives here. The shared
+ * `searchBlueprint` query lives at `lib/doc/searchBlueprint.ts` so the
+ * client `useSearchBlueprint` hook stays on its side of the
+ * server/client boundary.
  */
 
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
