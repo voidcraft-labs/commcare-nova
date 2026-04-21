@@ -191,16 +191,6 @@ export function computeFieldPath(
 }
 
 /**
- * `never` assertion for exhaustive switch defaults. TypeScript flags
- * any missing mutation kinds as unassignable to `never` at compile time.
- */
-export function assertNever(x: never): never {
-	throw new Error(
-		`unreachable: unexpected mutation kind: ${JSON.stringify(x)}`,
-	);
-}
-
-/**
  * Deep-clone a field subtree with fresh UUIDs for every entity. The
  * returned object contains the new entities to insert into `fields`
  * and the `fieldOrder` entries for the cloned subtree (keyed by the

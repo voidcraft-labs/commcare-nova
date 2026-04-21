@@ -1,6 +1,7 @@
 "use client";
 import type { Field } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { assertNever } from "@/lib/utils/assertNever";
 import { DateField } from "./fields/DateField";
 import { LabelField } from "./fields/LabelField";
 import { MediaField } from "./fields/MediaField";
@@ -15,17 +16,6 @@ interface FieldRendererProps {
 	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
-}
-
-/**
- * Exhaustiveness helper. The final `default` branch of `FieldRenderer`
- * narrows to `never` once every `FieldKind` is handled; if a future kind
- * is added to `fieldKinds` without a matching `case` below, TypeScript
- * fails to assign the still-live field value to `never` and `tsc` errors
- * here — turning "new kind renders blank" into a compile-time gate.
- */
-function assertNever(x: never): never {
-	throw new Error(`FieldRenderer: unhandled field kind ${JSON.stringify(x)}`);
 }
 
 /**
@@ -119,6 +109,6 @@ export function FieldRenderer({
 		case "hidden":
 			return null;
 		default:
-			return assertNever(field);
+			return assertNever(field, "FieldRenderer");
 	}
 }
