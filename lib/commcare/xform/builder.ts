@@ -36,7 +36,13 @@ import {
 	VELLUM_HASHTAG_TRANSFORMS,
 } from "@/lib/commcare";
 import { readFieldString } from "@/lib/commcare/fieldProps";
-import type { BlueprintDoc, ConnectConfig, Field, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	ConnectConfig,
+	Field,
+	FieldKind,
+	Uuid,
+} from "@/lib/domain";
 
 const PARSE_OPTS = { xmlMode: true } as const;
 const RENDER_OPTS = {
@@ -660,50 +666,48 @@ function buildFieldParts(
 }
 
 /**
- * Map a domain `FieldKind` to its XSD bind type. Structural kinds
- * (group/repeat/label) have no type; everything else carries a concrete
- * xsd:* type on the bind so CommCare applies the right input parsing
- * and validation on device.
+ * XForm bind `type` attribute per domain `FieldKind`.
+ *
+ * Structural kinds (`group`, `repeat`, `label`) have no `type` on the
+ * bind — CommCare treats them as grouping nodes. Every other kind
+ * carries a concrete `xsd:*` type so the mobile client applies the
+ * correct input parsing + validation on device.
+ *
+ * This deliberately diverges from `fieldRegistry[kind].dataType`: the
+ * registry's `dataType` is the detail-column format descriptor
+ * (`"binary"` for media, `"geopoint"` for geopoint, etc.), which is
+ * consumed by the case-list + case-detail emitters. Bind types for the
+ * XForm body answer a different question ("how does the XForm runtime
+ * parse the value?"), and media/geopoint / binary answers all flatten
+ * to `xsd:string` at that layer.
+ *
+ * Declaring this as a `Record<FieldKind, ...>` keyed off the domain
+ * tuple makes TypeScript a gate on adding a new kind: a missing entry
+ * here fails `tsc`, so the compile pipeline cannot silently emit an
+ * XForm without a decided bind type for a new kind.
  */
-function getXsdType(kind: Field["kind"]): string | null {
-	switch (kind) {
-		case "text":
-			return "xsd:string";
-		case "int":
-			return "xsd:int";
-		case "decimal":
-			return "xsd:decimal";
-		case "date":
-			return "xsd:date";
-		case "time":
-			return "xsd:time";
-		case "datetime":
-			return "xsd:dateTime";
-		case "geopoint":
-			return "xsd:string";
-		case "barcode":
-			return "xsd:string";
-		case "image":
-			return "xsd:string";
-		case "audio":
-			return "xsd:string";
-		case "video":
-			return "xsd:string";
-		case "signature":
-			return "xsd:string";
-		case "hidden":
-			return "xsd:string";
-		case "secret":
-			return "xsd:string";
-		case "single_select":
-			return "xsd:string";
-		case "multi_select":
-			return "xsd:string";
-		case "label":
-			return null;
-		case "group":
-			return null;
-		case "repeat":
-			return null;
-	}
+const XSD_TYPE_BY_KIND: Record<FieldKind, string | null> = {
+	text: "xsd:string",
+	int: "xsd:int",
+	decimal: "xsd:decimal",
+	date: "xsd:date",
+	time: "xsd:time",
+	datetime: "xsd:dateTime",
+	geopoint: "xsd:string",
+	barcode: "xsd:string",
+	image: "xsd:string",
+	audio: "xsd:string",
+	video: "xsd:string",
+	signature: "xsd:string",
+	hidden: "xsd:string",
+	secret: "xsd:string",
+	single_select: "xsd:string",
+	multi_select: "xsd:string",
+	label: null,
+	group: null,
+	repeat: null,
+};
+
+function getXsdType(kind: FieldKind): string | null {
+	return XSD_TYPE_BY_KIND[kind];
 }
