@@ -36,6 +36,10 @@ One chat route runs everything. A single `ToolLoopAgent` (the Solutions Architec
 
 **Edit vs build mode.** Two orthogonal decisions: (1) whether the app already exists picks the prompt + tool set — existing apps get editing prompt + blueprint summary + shared tools only; generation tools are never exposed in edit mode. (2) Prompt-cache window (5-min TTL) picks message strategy — within window: full history; after expiry: last-user-message only. App-exists stays false during initial generation even after modules land, so gen tools aren't stripped mid-build.
 
+### CommCare boundary
+
+`lib/commcare/` is the single package that owns CommCare's wire vocabulary — `HqApplication` JSON, XForm XML, `.ccz` archive, the XPath dialect, identifier rules, HQ REST client, KMS encryption for stored HQ credentials. Everything else in `lib/` speaks the domain shape (`BlueprintDoc` + `Field`) and only crosses into CommCare through the `@/lib/commcare` barrel. A Biome `noRestrictedImports` rule limits direct-into-internals imports to a small allowlist (`app/api/compile/*`, `app/api/commcare/*`, `lib/agent/validationLoop`, `lib/codemirror/*`, `lib/preview/engine/*`). See `lib/commcare/CLAUDE.md`.
+
 ### Root route
 
 `/` branches between landing / get-started / app list with no redirects. A cheap app-existence check runs before the Suspense boundary so new users skip the skeleton flash. No `/apps` route — the domain *is* the namespace.
@@ -62,15 +66,15 @@ The chat route reads the model stream manually (not `writer.merge()`) so stream 
 
 ## Data model
 
-**Questions are self-contained.** All metadata lives on the question. Case-type metadata is a generation-time artifact — defaults are baked into questions at add time and the case-type record is never consulted at runtime.
+**Fields are self-contained.** All metadata lives on the field. Case-type metadata is a generation-time artifact — defaults are baked into fields at add time and the case-type record is never consulted at runtime.
 
-**Question id = case property name.** A question saves to the case type named by its `case_property_on` field — matching the module's type is a normal property; naming a different type auto-derives child case creation.
+**Field id = case property name.** A field saves to the case type named by its `case_property` value — matching the module's type is a normal property; naming a different type auto-derives child case creation.
 
-**Form-level case wiring is derived, not stored** — expander + validator scan questions on demand.
+**Form-level case wiring is derived, not stored** — expander + validator scan fields on demand.
 
 **Four form types.** Registration (creates case), followup (updates), close (loads + closes), survey (no case). Close is a superset of followup. Centralized form-type sets exist — use them rather than ad-hoc string comparisons.
 
-**Two identity fields per question.** Semantic id (mutable, used as XForm node name / CommCare property key) vs stable uuid (assigned at creation, never changed on rename). Use uuid for UI identity (React keys, DOM selectors, dnd-kit IDs); use id / path for blueprint mutations + expander/compiler calls.
+**Two identities per field.** Semantic id (mutable, used as XForm node name / CommCare property key) vs stable uuid (assigned at creation, never changed on rename). Use uuid for UI identity (React keys, DOM selectors, dnd-kit IDs); use id / path for blueprint mutations + expander/compiler calls.
 
 **Sibling ids must be unique** (CommCare requirement; cousins can share). Enforced on cross-level moves (auto-suffix + XPath rewrite) and on rename.
 
@@ -144,7 +148,7 @@ Z-index is a semantic scale of named tokens (not hardcoded numbers) — use the 
 
 ## Structured output constraint
 
-The Anthropic schema compiler times out with more than ~8 optional fields per array item. Use sentinel values (empty string, false) for required-but-sparse fields and post-process to strip them. Question-field schemas come from one shared source — never inline new ones in tool defs. Test with the schema script.
+The Anthropic schema compiler times out with more than ~8 optional fields per array item. Use sentinel values (empty string, false) for required-but-sparse fields and post-process to strip them. Field schemas come from one shared source — never inline new ones in tool defs. Test with the schema script.
 
 ## Model configuration
 
