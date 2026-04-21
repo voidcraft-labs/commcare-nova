@@ -1,5 +1,5 @@
 /**
- * InsertionPoint — hover-reveal gap between questions for inserting new fields.
+ * InsertionPoint — hover-reveal gap between fields for inserting new fields.
  *
  * Two-phase rendering for performance:
  *

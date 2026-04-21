@@ -133,11 +133,11 @@ export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
 		}
 	}
 
-	const system = `You are reorganizing a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language. The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA also writes expressions — relevant conditions, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface. It does not touch XML, does not use CommCare HQ's web interface, does not make API calls, does not manage users/locations/infrastructure, does not do data import/export, does not configure servers or integrations.
+	const system = `You are reorganizing a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare apps from natural language. The SA generates app blueprints: modules, forms, fields (with kinds, labels, case properties, logic), case types, and case list columns. The SA also writes expressions — relevant conditions, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface. It does not touch XML, does not use CommCare HQ's web interface, does not make API calls, does not manage users/locations/infrastructure, does not do data import/export, does not configure servers or integrations.
 
 The SA's output is an app blueprint that gets deterministically converted into a working CommCare app by a separate pipeline. The SA never sees or writes XML, never interacts with submission endpoints, never configures case import spreadsheets, never sets up cross-domain data sharing, never manages user accounts. If a human couldn't do it while sitting in the CommCare app builder designing forms and modules, the SA can't do it either.
 
-**The strict test for inclusion: Would this knowledge help the SA decide what question type to use, how to structure a module, how to wire case properties, or how to write an expression (relevant/calculate/validation/default_value/itemset)?** If no, cut it entirely. Don't keep it "for context" or "for debugging" — the SA doesn't debug.
+**The strict test for inclusion: Would this knowledge help the SA decide what field kind to use, how to structure a module, how to wire case properties, or how to write an expression (relevant/calculate/validation/default_value/itemset)?** If no, cut it entirely. Don't keep it "for context" or "for debugging" — the SA doesn't debug.
 
 Given all source files, produce a reorganization plan that:
 
@@ -153,21 +153,21 @@ Given all source files, produce a reorganization plan that:
    - ALL SMS/messaging configuration
    - Do NOT keep any of the above "for reference" or "for understanding" — if the SA cannot act on it in a blueprint, it does not belong.
 
-2. **Reframes HQ-centric content into blueprint-centric content where possible**: If source material says "in the app builder, add a select question and choose the lookup table as the data source," the useful kernel is "a select question can use an itemset with instance('item-list:tablename') as its data source." Extract the concept, discard the UI instructions.
+2. **Reframes HQ-centric content into blueprint-centric content where possible**: If source material says "in the app builder, add a select field and choose the lookup table as the data source," the useful kernel is "a select field can use an itemset with instance('item-list:tablename') as its data source." Extract the concept, discard the UI instructions.
 
 3. **Produces many small, focused files — aim for 25-40 files**: Each file should cover one specific topic narrow enough to be loaded on demand. "Case management" is too broad — split into "case-types-and-properties", "parent-child-cases", "case-sharing-and-ownership", "case-list-columns", etc. A file should be loadable when the SA needs help with one specific design decision, without pulling in unrelated content.
 
 4. **Preserves ALL expression-level depth**: Instance URIs, XPath patterns, function references, nodeset syntax, filter predicates, common expression recipes — this is the SA's "coding" reference and must be preserved in full. This is the most important content in the entire knowledge base.
 
-5. **Preserves design-level guidance at the blueprint abstraction**: When to use subcases vs parent cases, when to use repeat groups, how to structure modules, when to denormalize case properties, what question types are appropriate for different data collection needs. Express this in terms of blueprint concepts (question types, case properties, expressions), never in terms of HQ UI steps or XML structure.
+5. **Preserves design-level guidance at the blueprint abstraction**: When to use subcases vs parent cases, when to use repeat groups, how to structure modules, when to denormalize case properties, what field kinds are appropriate for different data collection needs. Express this in terms of blueprint concepts (field kinds, case properties, expressions), never in terms of HQ UI steps or XML structure.
 
 Calibration examples:
 
 CUT — Raw XML/XForm structure:
-"A repeat group is an XForm <repeatelement containing child questions. Each iteration creates a new XML node under the repeat path."
+"A repeat group is an XForm <repeatelement containing child fields. Each iteration creates a new XML node under the repeat path."
 
 CUT — CommCare HQ UI instructions:
-"The fixture [locations] is automatically available in forms that contain at least one select question using locations as choices. If no such question exists, add a hidden dummy select question with false() as its display condition to force the fixture to load."
+"The fixture [locations] is automatically available in forms that contain at least one select field using locations as choices. If no such field exists, add a hidden dummy select field with false() as its display condition to force the fixture to load."
 
 CUT — API and external systems:
 "CommCare's integration architecture has three distinct layers: 1. Data in/out via REST APIs 2. MOTECH repeaters (push) 3. External app callouts (mobile)"
@@ -185,7 +185,7 @@ KEEP — Instance declarations:
 "Instance ID: locations, Instance URI: jr://fixture/locations"
 
 KEEP — XPath expression patterns:
-"#form/question_id → shorthand for /data/question_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current question's value."
+"#form/field_id → shorthand for /data/field_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current field's value."
 
 KEEP — Blueprint-level design guidance:
 "A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."`;
@@ -341,7 +341,7 @@ export async function reorgExecute(config: PipelineConfig): Promise<void> {
 
 	const system = `You are writing one file of a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language.
 
-The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA's "coding" surface is expressions — relevant, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface.
+The SA generates app blueprints: modules, forms, fields (with kinds, labels, case properties, logic), case types, and case list columns. The SA's "coding" surface is expressions — relevant, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface.
 
 The SA does NOT:
 - See, write, or reason about XML/XForm structure
@@ -356,7 +356,7 @@ A deterministic pipeline converts the SA's blueprint into a working CommCare app
 
 ## Strict Test for Inclusion
 
-Would this knowledge help the SA decide what question type to use, how to structure a module, how to wire case properties, or how to write an expression? If no, cut it. Don't keep it "for context" or "for understanding."
+Would this knowledge help the SA decide what field kind to use, how to structure a module, how to wire case properties, or how to write an expression? If no, cut it. Don't keep it "for context" or "for understanding."
 
 ## Rules
 
@@ -366,17 +366,17 @@ Would this knowledge help the SA decide what question type to use, how to struct
 - **Cut all case import/export** — no Excel import, no bulk operations, no data downloads
 - **Cut all cross-domain operations** — no data registries, no cross-project case transfer
 - **Cut all reporting/SMS/device management content**
-- **When source material describes HQ UI steps, extract the underlying concept** — "add a lookup table question in the builder" becomes "use a select with itemset from instance('item-list:tablename')"
+- **When source material describes HQ UI steps, extract the underlying concept** — "add a lookup table field in the builder" becomes "use a select with itemset from instance('item-list:tablename')"
 - **Preserve ALL expression-level detail** — instance URIs, XPath patterns, nodeset syntax, filter predicates, function references, common expression recipes. This is the most important content.
-- **Express everything at the blueprint level** — question types, case properties, case types, modules, forms, columns, and expressions. Not XML elements, not HQ settings pages.
+- **Express everything at the blueprint level** — field kinds, case properties, case types, modules, forms, columns, and expressions. Not XML elements, not HQ settings pages.
 
 ## Calibration Examples
 
 CUT:
-"A repeat group is an XForm <repeat> element containing child questions. Each iteration creates a new XML node under the repeat path."
+"A repeat group is an XForm <repeat> element containing child fields. Each iteration creates a new XML node under the repeat path."
 
 CUT:
-"The fixture [locations] is automatically available in forms that contain at least one select question using locations as choices. If no such question exists, add a hidden dummy select question with false() as its display condition to force the fixture to load."
+"The fixture [locations] is automatically available in forms that contain at least one select field using locations as choices. If no such field exists, add a hidden dummy select field with false() as its display condition to force the fixture to load."
 
 CUT:
 "Excel case import column semantics, matching logic (case_id vs external_id), parent-child import patterns"
@@ -385,7 +385,7 @@ KEEP:
 "Instance ID: locations, Instance URI: jr://fixture/locations"
 
 KEEP:
-"#form/question_id → shorthand for /data/question_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current question's value."
+"#form/field_id → shorthand for /data/field_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current field's value."
 
 KEEP:
 "A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."

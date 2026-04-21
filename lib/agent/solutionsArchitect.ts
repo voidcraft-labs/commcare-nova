@@ -375,7 +375,7 @@ export function createSolutionsArchitect(
 	};
 
 	// ── Generation tools (build mode only) ────────────────────────────
-	// These drive the initial build sequence: schema → scaffold → columns → questions.
+	// These drive the initial build sequence: schema → scaffold → columns → fields.
 	// Excluded in edit mode — the SA uses mutation tools instead.
 
 	const generationTools = {

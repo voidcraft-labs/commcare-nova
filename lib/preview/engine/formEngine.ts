@@ -429,7 +429,7 @@ export class FormEngine {
 			}
 		}
 
-		/* Cascade — the value change may affect dependent questions */
+		/* Cascade — the value change may affect dependent fields */
 		const affected = this.dag.getAffected(path);
 		if (affected.length > 0) {
 			this.evaluatePathsInto(affected);

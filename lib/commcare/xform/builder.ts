@@ -161,9 +161,9 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
  *
  * Each Connect entity uses a two-level wrapper Vellum recognizes via the
  * `vellum:role` attribute: without it, HQ treats the wrapper as a plain
- * hidden question and the child binds (user_score, entity_id, etc.) fail
- * at runtime. Each wrapper gets its own `vellum:nodeset` bind plus a
- * bind per declared sub-node so CommCare has paths to write to.
+ * hidden XForm node and the child binds (user_score, entity_id, etc.)
+ * fail at runtime. Each wrapper gets its own `vellum:nodeset` bind plus
+ * a bind per declared sub-node so CommCare has paths to write to.
  */
 function buildConnectBlocks(
 	connect: ConnectConfig | undefined,

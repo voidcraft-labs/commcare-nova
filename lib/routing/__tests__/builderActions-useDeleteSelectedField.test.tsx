@@ -234,7 +234,7 @@ describe("useDeleteSelectedField", () => {
 		});
 		act(() => result.current());
 
-		/* No questions removed — hook no-ops when selectedUuid is undefined. */
+		/* No fields removed — hook no-ops when selectedUuid is undefined. */
 		expect(Object.keys(store.getState().fields).length).toBe(3);
 		/* No URL change — the parser already degraded the stale UUID. */
 		expect(replaceStateSpy).not.toHaveBeenCalled();

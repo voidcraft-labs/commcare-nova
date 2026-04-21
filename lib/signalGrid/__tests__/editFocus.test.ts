@@ -50,7 +50,7 @@ describe("computeEditFocus", () => {
 		expect(computeEditFocus(data, null)).toBeNull();
 	});
 
-	it("returns null when all forms have zero questions", () => {
+	it("returns null when all forms have zero fields", () => {
 		const data = fixture([[0, 0]]);
 		expect(computeEditFocus(data, { moduleIndex: 0 })).toBeNull();
 	});
@@ -61,7 +61,7 @@ describe("computeEditFocus", () => {
 		expect(computeEditFocus(data, { moduleIndex: 1 })).toBeNull();
 	});
 
-	it("returns null when targeted form has zero questions", () => {
+	it("returns null when targeted form has zero fields", () => {
 		const data = fixture([[0]]);
 		expect(computeEditFocus(data, { moduleIndex: 0, formIndex: 0 })).toBeNull();
 	});
@@ -69,12 +69,12 @@ describe("computeEditFocus", () => {
 	// ── Module-level scope ──────────────────────────────────────────────
 
 	it("module-level scope spans all of the module's forms", () => {
-		/* 2 modules: m0 has 3+5=8 questions, m1 has 2 questions. Total=10. */
+		/* 2 modules: m0 has 3+5=8 fields, m1 has 2 fields. Total=10. */
 		const data = fixture([[3, 5], [2]]);
 		const focus = computeEditFocus(data, { moduleIndex: 0 });
 		assert(focus);
 
-		/* m0 spans questions 0-7 out of 10 → start=0, end=0.8.
+		/* m0 spans fields 0-7 out of 10 → start=0, end=0.8.
 		 * 0.8 > MIN_EDIT_ZONE, so clamping doesn't widen. */
 		expect(focus.start).toBeCloseTo(0, 5);
 		expect(focus.end).toBeCloseTo(0.8, 5);
@@ -85,7 +85,7 @@ describe("computeEditFocus", () => {
 		const focus = computeEditFocus(data, { moduleIndex: 1 });
 		assert(focus);
 
-		/* m1 spans questions 8-9 out of 10 → start=0.8, end=1.0.
+		/* m1 spans fields 8-9 out of 10 → start=0.8, end=1.0.
 		 * width=0.2 > MIN_EDIT_ZONE(0.15), so no clamping. */
 		expect(focus.start).toBeCloseTo(0.8, 5);
 		expect(focus.end).toBeCloseTo(1.0, 5);
@@ -117,7 +117,7 @@ describe("computeEditFocus", () => {
 		});
 		assert(focus);
 
-		/* qPos = (0 + 2) / 5 = 0.4.
+		/* fieldPos = (0 + 2) / 5 = 0.4.
 		 * halfZone = max(0.075, (5/5) * 0.3) = max(0.075, 0.3) = 0.3.
 		 * raw: [0.1, 0.7] → width=0.6 > MIN. */
 		expect(focus.start).toBeCloseTo(0.1, 5);
@@ -134,7 +134,7 @@ describe("computeEditFocus", () => {
 		});
 		assert(focus);
 
-		/* qPos = 0 / 5 = 0. halfZone = 0.3. raw: [-0.3, 0.3].
+		/* fieldPos = 0 / 5 = 0. halfZone = 0.3. raw: [-0.3, 0.3].
 		 * After clamping start<0: start=0, end=0.6. */
 		expect(focus.start).toBeCloseTo(0, 5);
 		expect(focus.end).toBeCloseTo(0.6, 5);
@@ -150,7 +150,7 @@ describe("computeEditFocus", () => {
 		});
 		assert(focus);
 
-		/* qPos = 4 / 5 = 0.8. halfZone = 0.3. raw: [0.5, 1.1].
+		/* fieldPos = 4 / 5 = 0.8. halfZone = 0.3. raw: [0.5, 1.1].
 		 * After clamping end>1: start=0.4, end=1. */
 		expect(focus.start).toBeCloseTo(0.4, 5);
 		expect(focus.end).toBeCloseTo(1.0, 5);
@@ -186,10 +186,10 @@ describe("computeEditFocus", () => {
 		expect(focus.end).toBeLessThanOrEqual(1);
 	});
 
-	// ── Nested questions (groups/repeats) ───────────────────────────────
+	// ── Nested fields (groups/repeats) ───────────────────────────────────
 
-	it("counts nested questions (group children) toward total", () => {
-		/* Build a fixture with groups manually: form has 2 top-level questions,
+	it("counts nested fields (group children) toward total", () => {
+		/* Build a fixture with groups manually: form has 2 top-level fields,
 		 * one of which is a group with 3 children → total = 5 (2 top + 3 nested). */
 		const data: EditFocusData = {
 			moduleOrder: ["m0"],

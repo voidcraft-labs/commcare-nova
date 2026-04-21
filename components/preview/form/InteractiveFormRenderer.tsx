@@ -9,11 +9,11 @@
  *
  * Interactive semantics that distinguish it from the edit view:
  *
- *   - **Answer-driven visibility.** Questions whose engine state is
+ *   - **Answer-driven visibility.** Fields whose engine state is
  *     `visible: false` are removed from the render entirely (relevance
  *     expressions drive visibility). The edit view always shows every
  *     field so the author can edit structure regardless of relevance.
- *   - **Hidden-type questions disappear.** The edit view renders them as
+ *   - **Hidden-kind fields disappear.** The edit view renders them as
  *     a compact card so authors can edit them; the live / preview view
  *     must not expose them to the data-entering user.
  *   - **Real repeat instances.** `RepeatField` renders `count` instances,
@@ -79,7 +79,7 @@ interface InteractiveFormRendererProps {
 /**
  * Subscribes to the ordered UUID list at this nesting level only. Per-
  * field data and engine state are read inside `InteractiveField`
- * so unrelated questions don't cause siblings to re-render.
+ * so unrelated fields don't cause siblings to re-render.
  */
 export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	parentEntityId,
@@ -115,7 +115,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 
 // ── InteractiveField ───────────────────────────────────────────────
 
-interface InteractiveQuestionProps {
+interface InteractiveFieldProps {
 	readonly uuid: Uuid;
 	readonly prefix: string;
 	readonly parentPath?: FieldPath;
@@ -127,7 +127,7 @@ interface InteractiveQuestionProps {
  * subscription, engine state subscription, and visibility gating; does
  * NOT own edit-mode affordances (selection, dnd, insertion).
  *
- * Leaf questions are wrapped in a single depth-padded block; groups and
+ * Leaf fields are wrapped in a single depth-padded block; groups and
  * repeats emit multiple sibling blocks (header, rail-wrapped children,
  * close cap) so the nesting rails can span the full height of the group
  * while each block still aligns to the same `depthPadding(depth)` gutter.
@@ -139,7 +139,7 @@ const InteractiveField = memo(function InteractiveField({
 	prefix,
 	parentPath,
 	depth,
-}: InteractiveQuestionProps) {
+}: InteractiveFieldProps) {
 	const field = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
@@ -184,7 +184,7 @@ const InteractiveField = memo(function InteractiveField({
 		);
 	} else if (field.kind === "label") {
 		// Label fields are standalone presentation; wrap them in the same
-		// depth-padded block so they align with sibling questions.
+		// depth-padded block so they align with sibling fields.
 		content = (
 			<div
 				style={{

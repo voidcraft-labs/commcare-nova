@@ -46,7 +46,7 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  *
  * Handles:
  * - Absolute paths: /data/old_id → /data/new_id (and /data/group/old_id → /data/group/new_id)
- * - Hashtag refs: #form/old_id → #form/new_id (top-level questions only)
+ * - Hashtag refs: #form/old_id → #form/new_id (top-level fields only)
  *
  * @param expr       The XPath expression to rewrite
  * @param oldPath    The old field path segments (e.g. 'old_id' or 'group/old_id')
@@ -68,7 +68,7 @@ export function rewriteXPathRefs(
 	// Walk for absolute paths (/data/...)
 	walkForPaths(tree.topNode, expr, targetAbsSegments, newId, edits);
 
-	// Walk for hashtag refs (#form/old_id) — only for top-level questions
+	// Walk for hashtag refs (#form/old_id) — only for top-level fields
 	if (oldSegments.length === 1) {
 		walkForHashtags(tree.topNode, expr, "#form/", oldSegments[0], newId, edits);
 	}

@@ -6,6 +6,8 @@ export interface LocalizedString {
 
 export interface FormActionCondition {
 	type: "never" | "always" | "if";
+	/** HQ wire field — XForm path of the field whose answer the condition
+	 *  compares. Named `question` in HQ's JSON and preserved verbatim. */
 	question: string | null;
 	answer: string | null;
 	operator: string | null;

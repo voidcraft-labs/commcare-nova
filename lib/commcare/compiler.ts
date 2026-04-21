@@ -290,7 +290,7 @@ function generateDetail(
  *   - A `<case>` element (with `<create>`, `<update>`, `<close>` as
  *     applicable) just before `</data>`.
  *   - One `<subcase_{n}>` element per child-case subcase.
- *   - `<bind>` rules wiring each case field to its question path.
+ *   - `<bind>` rules wiring each case field to its XForm data path.
  *   - A `commcaresession` instance declaration (owner_id binds read
  *     from it) if one isn't already present.
  */

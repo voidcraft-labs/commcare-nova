@@ -111,7 +111,7 @@ describe("expandDoc", () => {
 		const load = form.case_references_data.load;
 
 		expect(load["/data/total_visits"]).toEqual(["#case/total_visits"]);
-		// Questions without hashtags should not appear in load
+		// Fields without hashtags should not appear in load
 		expect(load["/data/notes"]).toBeUndefined();
 	});
 
@@ -122,7 +122,7 @@ describe("expandDoc", () => {
 		expect(form.case_references_data.load).toEqual({});
 	});
 
-	it("resolves nested question paths in case_references_data", () => {
+	it("resolves nested field paths in case_references_data", () => {
 		const doc = buildDoc({
 			appName: "Nested",
 			modules: [
@@ -198,7 +198,7 @@ describe("expandDoc", () => {
 		expect(actions.case_preload.preload["/data/total_visits"]).toBe(
 			"total_visits",
 		);
-		// Nested question paths should be resolved
+		// Nested field paths should be resolved
 		expect(actions.case_preload.preload["/data/client_info/full_name"]).toBe(
 			"full_name",
 		);
@@ -275,12 +275,12 @@ describe("expandDoc", () => {
 		expect(xform).toContain('vellum:value="#case/full_name"');
 	});
 
-	it("omits itext label for hidden questions without a label", () => {
+	it("omits itext label for hidden fields without a label", () => {
 		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Hidden question 'total_visits' has no label — should not get an itext entry
+		// Hidden field 'total_visits' has no label — should not get an itext entry
 		expect(xform).not.toContain('id="total_visits-label"');
-		// Visible question 'notes' should still get one
+		// Visible field 'notes' should still get one
 		expect(xform).toContain('id="notes-label"');
 	});
 
@@ -443,7 +443,7 @@ describe("runValidation", () => {
 		expect(errors.some((e) => e.code === "RESERVED_CASE_PROPERTY")).toBe(true);
 	});
 
-	it("catches registration form without case_name question", () => {
+	it("catches registration form without case_name field", () => {
 		const doc = buildDoc({
 			appName: "Bad",
 			modules: [
@@ -695,14 +695,14 @@ describe("output references in labels", () => {
 	});
 });
 
-// ── Markdown itext for all question types ────────────────────────────────
+// ── Markdown itext for all field kinds ───────────────────────────────────
 
-describe("markdown itext for all question types", () => {
+describe("markdown itext for all field kinds", () => {
 	/** Extract a single itext entry by ID from XForm XML. */
 	const extractItext = (xform: string, id: string): string =>
 		xform.match(new RegExp(`<text id="${id}">.*?</text>`, "s"))?.[0] ?? "";
 
-	it("emits markdown form for regular text question labels", () => {
+	it("emits markdown form for regular text field labels", () => {
 		const doc = buildDoc({
 			appName: "MD",
 			modules: [
@@ -734,7 +734,7 @@ describe("markdown itext for all question types", () => {
 		);
 	});
 
-	it("emits markdown form for select question labels and option labels", () => {
+	it("emits markdown form for select field labels and option labels", () => {
 		const doc = buildDoc({
 			appName: "MD",
 			modules: [
@@ -877,7 +877,7 @@ describe("markdown itext for all question types", () => {
 		);
 	});
 
-	it("emits markdown form for date, decimal, and media question labels", () => {
+	it("emits markdown form for date, decimal, and media field labels", () => {
 		const doc = buildDoc({
 			appName: "MD",
 			modules: [
@@ -1077,7 +1077,7 @@ describe("#form/ hashtag expansion", () => {
 		);
 	});
 
-	// Regression: validation is only legal on input question types.
+	// Regression: validation is only legal on input field kinds.
 	//
 	// Hidden fields are computed from `calculate`/`default_value`, so the
 	// user can never see or correct a failing constraint — a `validate_msg`
@@ -1085,7 +1085,7 @@ describe("#form/ hashtag expansion", () => {
 	// display-only labels similarly can't surface an error. The XForm
 	// emitter drops both the bind attributes and the itext entry for these
 	// kinds so a stale `validate_msg` can't leak into HQ.
-	it("drops validate and validate_msg on hidden questions", () => {
+	it("drops validate and validate_msg on hidden fields", () => {
 		// The hidden-field schema doesn't declare `validate` / `validate_msg`,
 		// but the emitter must defensively strip them if they ever appear on
 		// a field value (e.g. via a stale migration). Use a looser field spec.
@@ -1122,7 +1122,7 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).not.toContain("Risk must resolve");
 	});
 
-	it("drops validate_msg on label and group questions", () => {
+	it("drops validate_msg on label and group fields", () => {
 		const doc = buildDoc({
 			appName: "StructuralVal",
 			modules: [
@@ -1291,7 +1291,7 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).toContain('vellum:nodeset="#form/age" nodeset="/data/age"');
 	});
 
-	it("generates vellum:nodeset for nested questions in groups", () => {
+	it("generates vellum:nodeset for nested fields in groups", () => {
 		const doc = buildDoc({
 			appName: "VN",
 			modules: [
@@ -1761,10 +1761,10 @@ describe("jr-insert for repeat defaults", () => {
 	});
 });
 
-// ── Expansion with complete questions (no merge from case_types) ──────────
+// ── Expansion with complete fields (no merge from case_types) ────────────
 
-describe("expansion with complete questions", () => {
-	it('derives case name from question with id "case_name"', () => {
+describe("expansion with complete fields", () => {
+	it('derives case name from field with id "case_name"', () => {
 		const doc = buildDoc({
 			appName: "Case Name Test",
 			modules: [
@@ -1803,9 +1803,9 @@ describe("expansion with complete questions", () => {
 		expect(actions.open_case.name_update.question_path).toBe("/data/case_name");
 	});
 
-	it("uses question labels directly without case_types merge", () => {
+	it("uses field labels directly without case_types merge", () => {
 		const doc = buildDoc({
-			appName: "Complete Questions",
+			appName: "Complete Fields",
 			modules: [
 				{
 					name: "M",
@@ -1835,7 +1835,7 @@ describe("expansion with complete questions", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Should use the question's own label, not the case_types label
+		// Should use the field's own label, not the case_types label
 		expect(xform).toContain("Patient Name");
 		expect(xform).not.toContain("WRONG");
 	});
@@ -1845,7 +1845,7 @@ describe("expansion with complete questions", () => {
 
 describe("unquoted string literal detection", () => {
 	/**
-	 * Build a one-question survey doc with the caller's field overrides
+	 * Build a one-field survey doc with the caller's field overrides
 	 * merged onto a simple text field.
 	 *
 	 * `error.details.field` in the validator carries the domain key name

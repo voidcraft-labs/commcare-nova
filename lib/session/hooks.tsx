@@ -138,7 +138,7 @@ export function useClearFocusHint(): () => void {
 /** Whether the given uuid is the just-added field. Drives auto-focus
  *  and select-all on the ID input in FieldHeader. */
 export function useIsNewField(uuid: string): boolean {
-	return useBuilderSession((s) => s.newQuestionUuid === uuid);
+	return useBuilderSession((s) => s.newFieldUuid === uuid);
 }
 
 /** Mark a uuid as newly added. Called by FieldTypePicker after insert. */

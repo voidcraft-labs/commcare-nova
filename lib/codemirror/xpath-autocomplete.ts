@@ -3,7 +3,7 @@
  *
  * Three completion sources:
  * 1. XPath functions — from FUNCTION_REGISTRY (~65 functions)
- * 2. Hashtag references — #case/property, #form/question, #user/property
+ * 2. Hashtag references — #case/property, #form/field, #user/property
  * 3. Data paths — /data/... paths from the current form
  *
  * All context detection uses Lezer syntax tree node types (HashtagRef, Child,
@@ -178,7 +178,7 @@ function hashtagSource(
 			return { from, options: NAMESPACE_OPTIONS };
 		}
 
-		// Phase 2: namespace known — show properties/questions. The lint
+		// Phase 2: namespace known — show properties/fields. The lint
 		// context is pre-collected at the call site: `caseProperties` is a
 		// name→{label?} map, and `formEntries` already carries only the
 		// value-producing fields (callers filter before handing it in).

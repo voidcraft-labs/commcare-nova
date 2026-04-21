@@ -330,7 +330,7 @@ export class AutoFixer {
 		// Replace <label>Text</label> that directly follows ref="/data/fieldId"
 		// We need to be careful not to replace item labels
 		const escapedText = escapeRegex(text);
-		// Match the question opening tag and its label
+		// Match the field's opening tag and its label
 		const pattern = new RegExp(
 			`((?:input|select1?|trigger|upload)\\s+ref="/data/${escapeRegex(fieldId)}"[^>]*>[\\s\\S]*?)<label>${escapedText}</label>`,
 		);
@@ -340,7 +340,7 @@ export class AutoFixer {
 		);
 		if (replaced !== body) return replaced;
 
-		// Fallback: simple replacement of the first occurrence in question context
+		// Fallback: simple replacement of the first occurrence in field context
 		return body.replace(
 			`<label>${text}</label>`,
 			`<label ref="jr:itext('${itextId}')"/>`,
@@ -443,13 +443,13 @@ export class AutoFixer {
 
 		// Check for missing case_name bind
 		if (!/nodeset="\/data\/case\/create\/case_name"\s+calculate=/.test(xml)) {
-			// Use the first question as case name
-			const firstQuestion = this.findFirstQuestion(xml);
-			if (firstQuestion && XML_ELEMENT_NAME_REGEX.test(firstQuestion)) {
-				const bind = `\n      <bind nodeset="/data/case/create/case_name" calculate="/data/${firstQuestion}"/>`;
+			// Use the first field as case name
+			const firstField = this.findFirstField(xml);
+			if (firstField && XML_ELEMENT_NAME_REGEX.test(firstField)) {
+				const bind = `\n      <bind nodeset="/data/case/create/case_name" calculate="/data/${firstField}"/>`;
 				result = this.insertBindBefore(result, bind);
 				applied.push(
-					`${path}: Added missing case_name calculate bind (using /data/${firstQuestion})`,
+					`${path}: Added missing case_name calculate bind (using /data/${firstField})`,
 				);
 				changed = true;
 			}
@@ -492,10 +492,10 @@ export class AutoFixer {
 					`nodeset="/data/case/update/${prop}"\\s+calculate=`,
 				);
 				if (!bindPattern.test(result)) {
-					// Try to find a matching question in the instance data
-					const questionExists =
+					// Try to find a matching field in the instance data
+					const fieldExists =
 						result.includes(`<${prop}/>`) || result.includes(`<${prop}>`);
-					const calcValue = questionExists ? `/data/${prop}` : `''`;
+					const calcValue = fieldExists ? `/data/${prop}` : `''`;
 					const bind = `\n      <bind nodeset="/data/case/update/${prop}" calculate="${calcValue}"/>`;
 					result = this.insertBindBefore(result, bind);
 					applied.push(
@@ -577,8 +577,8 @@ export class AutoFixer {
 		return xml.replace("</model>", `${bind}\n    </model>`);
 	}
 
-	/** Find the first question element in the instance data */
-	private findFirstQuestion(xml: string): string | null {
+	/** Find the first field element in the instance data */
+	private findFirstField(xml: string): string | null {
 		const instanceMatch = xml.match(
 			/<instance>\s*<data[^>]*>([\s\S]*?)<\/data>\s*<\/instance>/,
 		);

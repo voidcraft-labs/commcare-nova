@@ -42,7 +42,7 @@ import type { Field, Uuid } from "@/lib/domain";
  *
  * `id` is the React key + virtualizer measurement cache key. Each kind
  * produces a stable, unique id; that stability survives reorder
- * (questions keep their uuid-derived id regardless of position) so
+ * (fields keep their uuid-derived id regardless of position) so
  * measured heights and scroll offsets are preserved across edits.
  */
 export type FormRow =
@@ -141,7 +141,7 @@ export interface RowSource {
 
 export interface BuildFormRowsOptions {
 	/**
-	 * Include `insertion` rows between/before/after questions. Edit mode
+	 * Include `insertion` rows between/before/after fields. Edit mode
 	 * sets this to `true`; pointer/interactive mode never calls the walker.
 	 */
 	readonly includeInsertionPoints: boolean;
@@ -204,7 +204,7 @@ function walk(
 	// An empty container (depth > 0 means we're inside a group/repeat, not
 	// at the form root) gets a single placeholder row that owns the drop
 	// target. The form root is allowed to be empty without a placeholder —
-	// there's nothing to render if the form has no questions.
+	// there's nothing to render if the form has no fields.
 	if (childUuids.length === 0) {
 		if (depth > 0) {
 			rows.push({

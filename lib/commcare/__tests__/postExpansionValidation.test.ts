@@ -388,7 +388,7 @@ describe("expanded XForm validation", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("our generator produces valid XForms with select questions", () => {
+	it("our generator produces valid XForms with select fields", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [

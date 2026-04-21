@@ -3,7 +3,7 @@
  *
  * Renders the form header (type icon, name, optional Connect marker,
  * field count) plus — when expanded — the nested list of top-level
- * FieldRows for the form's questions. Subscribes by UUID to exactly
+ * FieldRows for the form's fields. Subscribes by UUID to exactly
  * this form's entity, its field-order array, and its field-count
  * derivation, so unrelated form edits do not re-render this card.
  *
@@ -70,7 +70,7 @@ export const FormCard = memo(function FormCard({
 	const fieldUuids = useOrderedFields(formId);
 
 	/** Recursive descendant count — drives the "N q" badge. Walks every
-	 *  nested group so grouped questions are counted the same as top-level
+	 *  nested group so grouped fields are counted the same as top-level
 	 *  ones. */
 	const count = useFormDescendantCount(formId);
 

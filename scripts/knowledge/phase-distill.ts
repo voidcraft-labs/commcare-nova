@@ -348,7 +348,7 @@ Guidelines:
 			`  [${i + 1}/${tagClusters.length}] ${cluster.name} — ${sourcePages.length} pages in ${batches.length} batch${batches.length > 1 ? "es" : ""}`,
 		);
 
-		const distillSystem = `You are creating a technical reference for an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, questions with various types, case configuration, form logic) from natural language descriptions. It knows the schema of what it can produce but lacks deep platform knowledge.
+		const distillSystem = `You are creating a technical reference for an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields with various kinds, case configuration, form logic) from natural language descriptions. It knows the schema of what it can produce but lacks deep platform knowledge.
 
 Given these source pages about "${cluster.name}", distill the knowledge into a concise reference covering:
 - Core concepts and mental models (how does this feature/system actually work under the hood?)

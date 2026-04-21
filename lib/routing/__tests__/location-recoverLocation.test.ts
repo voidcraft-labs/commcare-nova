@@ -39,7 +39,7 @@ const MISSING_Q = asUuid("missing-q");
 /**
  * Minimal fixture with two modules, two forms (one per module), and one
  * field. The entity values themselves are irrelevant to recovery —
- * only the presence of a key in `modules`, `forms`, or `questions`
+ * only the presence of a key in `modules`, `forms`, or `fields`
  * matters — so we cast ad-hoc objects through `as never`.
  */
 const doc: LocationDoc = {

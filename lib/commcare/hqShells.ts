@@ -33,6 +33,11 @@ export function alwaysCondition(): FormActionCondition {
 	};
 }
 
+/**
+ * Build an HQ `FormActionCondition` with `type: "if"`. Parameter names
+ * mirror the HQ wire fields verbatim (`question`, `answer`, `operator`)
+ * — this is the emission boundary where CommCare's JSON vocabulary wins.
+ */
 export function ifCondition(
 	question: string,
 	answer: string,

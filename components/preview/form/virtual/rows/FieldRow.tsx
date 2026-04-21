@@ -10,7 +10,7 @@
  * The placeholder is `position: absolute` inside the 24px insertion gap
  * and never changes row height, so the virtualizer stays stable.
  *
- * Does NOT handle group or repeat questions — those are bracket rows in
+ * Does NOT handle group or repeat fields — those are bracket rows in
  * the flat row model. FieldRow is a leaf-only renderer.
  */
 

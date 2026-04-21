@@ -14,9 +14,9 @@
  * **Instances within the shell.** `count` instances render inside the
  * rails as sibling blocks. Each instance starts with a tight divider
  * (index + optional remove) and then dispatches back into
- * `InteractiveFormRenderer` for the template's template questions at
- * `depth + 1` — same depth as a group's children, so leaf questions
- * inside a repeat line up with leaf questions inside a group at the
+ * `InteractiveFormRenderer` for the template's template fields at
+ * `depth + 1` — same depth as a group's children, so leaf fields
+ * inside a repeat line up with leaf fields inside a group at the
  * same nesting level. An "Add …" button trails the last instance.
  *
  * The inner renderer is called with `leadingGap={false}`: the instance
@@ -64,7 +64,7 @@ interface InstanceDividerProps {
 }
 
 /**
- * Thin header above each repeat instance's template questions. Aligns to
+ * Thin header above each repeat instance's template fields. Aligns to
  * `depthPadding(depth)` so it sits in the same column as the instance's
  * first field. `mb-6` gives the 24px gap to the first field — the
  * caller passes `leadingGap={false}` to the instance's renderer to

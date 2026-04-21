@@ -64,7 +64,7 @@ describe("rewriteXPathRefs", () => {
 	});
 
 	describe("hashtag refs", () => {
-		it("rewrites #form/ hashtag for top-level questions", () => {
+		it("rewrites #form/ hashtag for top-level fields", () => {
 			expect(rewriteXPathRefs("#form/old_id > 5", "old_id", "new_id")).toBe(
 				"#form/new_id > 5",
 			);
@@ -76,8 +76,8 @@ describe("rewriteXPathRefs", () => {
 			);
 		});
 
-		it("does not rewrite #form/ hashtag for nested questions", () => {
-			// Nested questions use full paths, not #form/ shorthand
+		it("does not rewrite #form/ hashtag for nested fields", () => {
+			// Nested fields use full paths, not #form/ shorthand
 			expect(
 				rewriteXPathRefs("#form/old_id > 5", "group/old_id", "new_id"),
 			).toBe("#form/old_id > 5");

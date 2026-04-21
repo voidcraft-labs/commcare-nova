@@ -77,7 +77,7 @@ expr {
   | OrExpr { expr !or Keyword<"or"> expr }
 }
 
-// CommCare hashtag references: #form/question, #case/property, #user/property
+// CommCare hashtag references: #form/field, #case/property, #user/property
 // Structured as type + path segments so consumers get named child nodes.
 // !hashtag on "/" ensures the parser continues consuming path segments
 // rather than reducing early and treating "/" as a child-step operator.

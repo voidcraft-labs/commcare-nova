@@ -17,7 +17,7 @@
  *
  * All entity UUIDs are globally unique in the doc store. A single UUID
  * segment identifies the entity type by checking `doc.modules[uuid]`,
- * `doc.forms[uuid]`, `doc.questions[uuid]`. For questions, the parent
+ * `doc.forms[uuid]`, `doc.fields[uuid]`. For fields, the parent
  * form is derived from the doc's ordering maps.
  */
 

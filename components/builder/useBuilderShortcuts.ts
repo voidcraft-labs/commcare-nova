@@ -23,7 +23,7 @@ import type { Shortcut } from "@/lib/ui/keyboardManager";
  *
  * Returns an empty array when the builder is not in Ready/Completed phase.
  * When active, includes: Escape (deselect/exit pointer), V/E (switch cursor
- * mode), Tab/Shift+Tab (navigate questions in edit mode), Delete/Backspace
+ * mode), Tab/Shift+Tab (navigate fields in edit mode), Delete/Backspace
  * (delete field), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
  * Cmd+Z/Cmd+Shift+Z (undo/redo).

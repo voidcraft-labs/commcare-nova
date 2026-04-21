@@ -111,7 +111,7 @@ export const CASE_TYPE_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 /** Valid XML element name for XForm property elements (no hyphens — XML spec). */
 export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-/** Valid XForm data path (e.g. /data/name, /data/group/question). */
+/** Valid XForm data path (e.g. /data/name, /data/group/age). */
 export const XFORM_PATH_REGEX = /^\/data\/[a-zA-Z0-9_/]+$/;
 
 /** Maximum length for case type names (CommCare Core CaseXmlParser constraint). */

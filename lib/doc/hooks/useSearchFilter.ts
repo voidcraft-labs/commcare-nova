@@ -147,7 +147,7 @@ export function useSearchFilter(query: string): SearchResult | null {
 				const formIndices = findMatchIndices(form.name, q);
 				if (formIndices) matchMap.set(formKey, formIndices);
 
-				/* Check questions recursively */
+				/* Check fields recursively */
 				let formHasMatch = !!formIndices;
 				const checkFields = (parentId: Uuid, parentPath?: FieldPath) => {
 					const uuids = fieldOrder[parentId] ?? [];

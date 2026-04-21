@@ -9,7 +9,7 @@
  * All rules operate on the domain shape — `field.kind`, `field.validate`,
  * `field.case_property` — never on the legacy wire shape. The only wire
  * tokens appearing here are the `kind` string literals themselves, which
- * match CommCare's question-type taxonomy and stay stable.
+ * match CommCare's field-kind taxonomy and stay stable.
  */
 
 import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";

@@ -105,7 +105,7 @@ describe("validation regex patterns", () => {
 
 	it("XFORM_PATH_REGEX accepts valid paths", () => {
 		expect(XFORM_PATH_REGEX.test("/data/name")).toBe(true);
-		expect(XFORM_PATH_REGEX.test("/data/group/question")).toBe(true);
+		expect(XFORM_PATH_REGEX.test("/data/group/age")).toBe(true);
 	});
 
 	it("XFORM_PATH_REGEX rejects invalid paths", () => {
@@ -135,7 +135,7 @@ describe("hashtag expansion", () => {
 	});
 
 	it("expandHashtags handles nested #form/ paths", () => {
-		expect(expandHashtags("#form/group/question")).toBe("/data/group/question");
+		expect(expandHashtags("#form/group/age")).toBe("/data/group/age");
 		expect(expandHashtags("#form/a/b/c")).toBe("/data/a/b/c");
 	});
 

@@ -103,7 +103,7 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 								else (e.target as HTMLInputElement).blur();
 							}
 						}}
-						placeholder="Filter questions..."
+						placeholder="Filter fields..."
 						autoComplete="off"
 						data-1p-ignore
 						className="w-full pl-8 pr-7 py-1.5 text-xs bg-nova-surface border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors"

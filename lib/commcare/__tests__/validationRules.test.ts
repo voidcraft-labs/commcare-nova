@@ -194,7 +194,7 @@ describe("module rules", () => {
 // ── Form-level rules ───────────────────────────────────────────────
 
 describe("form rules", () => {
-	it("allows different questions saving to different case properties", () => {
+	it("allows different fields saving to different case properties", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -428,7 +428,7 @@ describe("field rules", () => {
 	// setting `validate` or `validate_msg` on them is a category error,
 	// not a no-op. The rule catches it before the XForm emitter silently
 	// drops it.
-	it("flags validate_msg on hidden questions", () => {
+	it("flags validate_msg on hidden fields", () => {
 		const errors = runValidation(
 			surveyDoc([
 				f({
@@ -444,7 +444,7 @@ describe("field rules", () => {
 		);
 	});
 
-	it("flags validate on label questions", () => {
+	it("flags validate on label fields", () => {
 		const errors = runValidation(
 			surveyDoc([
 				f({
@@ -460,7 +460,7 @@ describe("field rules", () => {
 		);
 	});
 
-	it("flags validate on group questions", () => {
+	it("flags validate on group fields", () => {
 		const errors = runValidation(
 			surveyDoc([
 				f({
