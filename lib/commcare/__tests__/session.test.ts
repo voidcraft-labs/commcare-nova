@@ -205,6 +205,30 @@ describe("deriveFormLinkStack", () => {
 		// Fallback body mirrors the simple post-submit derivation for "module".
 		expect(ops[2].children).toEqual([{ type: "command", value: "'m3'" }]);
 	});
+
+	it("wraps `or`-joined operands inside each not() without splitting them", () => {
+		// XPath's `and` binds tighter than `or`, so a naive fallback like
+		// `not(a) or b and not(c) or d` would silently change truth-table
+		// semantics. `not(a or b) and not(c or d)` is the correct form
+		// and depends on `not()` enclosing the entire condition verbatim.
+		// This test pins that wrapping against a future refactor that
+		// forgets the parenthesization.
+		const links: HqFormLink[] = [
+			{
+				condition: "#form/q = 'a' or #form/q = 'b'",
+				target: { type: "form", moduleIndex: 0, formIndex: 0 },
+			},
+			{
+				condition: "#form/r = 1 or #form/r = 2",
+				target: { type: "module", moduleIndex: 1 },
+			},
+		];
+		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
+		expect(ops).toHaveLength(3);
+		expect(ops[2].ifClause).toBe(
+			"not(#form/q = 'a' or #form/q = 'b') and not(#form/r = 1 or #form/r = 2)",
+		);
+	});
 });
 
 // ── deriveEntryDefinition ──────────────────────────────────────────
