@@ -42,10 +42,8 @@ import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { asUuid, type Uuid } from "@/lib/domain";
-import {
-	useEngineController,
-	useEngineState,
-} from "@/lib/preview/hooks/useFormEngine";
+import { useEngineController } from "@/lib/preview/hooks/useEngineController";
+import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";

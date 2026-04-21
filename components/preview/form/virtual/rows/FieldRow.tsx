@@ -28,10 +28,8 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import type { FieldPatch, Uuid } from "@/lib/domain";
-import {
-	useEngineController,
-	useEngineState,
-} from "@/lib/preview/hooks/useFormEngine";
+import { useEngineController } from "@/lib/preview/hooks/useEngineController";
+import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
