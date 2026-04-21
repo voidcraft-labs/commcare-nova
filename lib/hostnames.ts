@@ -19,9 +19,13 @@ export const HOSTNAMES = {
 export type Hostname = (typeof HOSTNAMES)[keyof typeof HOSTNAMES];
 
 /**
- * Path prefixes each hostname is allowed to serve. Matching is segment-anchored
- * (see `isPathAllowedOnHost`); `/` matches only the root page exactly so it
+ * Path prefixes each hostname is allowed to serve. Matching is segment-anchored:
+ * an entry `/foo` grants `/foo` exactly and any `/foo/...` subpath, but never
+ * `/foobar`. The exception is `/`, which matches only the root page so it
  * doesn't act as a wildcard for an entire host.
+ *
+ * This is a security boundary — every entry widens the externally reachable
+ * surface area on its host. Add with care.
  *
  * Declared with `satisfies` so each host's prefix tuple keeps its literal-string
  * element types — the `Record<Hostname, readonly string[]>` constraint is
@@ -65,13 +69,19 @@ export function normalizeHost(raw: string | null): string {
  * drift when a new hostname is added — the only place to register one is the
  * `HOSTNAMES` map itself.
  */
-const KNOWN_HOSTNAMES = new Set<string>(Object.values(HOSTNAMES));
+const KNOWN_HOSTNAMES: ReadonlySet<Hostname> = new Set(
+	Object.values(HOSTNAMES),
+);
 
 /** Classify a normalized host to a known hostname, or `null` if unknown. */
 export function classifyHost(host: string): Hostname | null {
-	// The cast is sound: membership is gated by a set built from `HOSTNAMES`,
-	// so any string in the set is, by construction, a `Hostname`.
-	return KNOWN_HOSTNAMES.has(host) ? (host as Hostname) : null;
+	// `Set.prototype.has` is not a type predicate, and the set's element type
+	// is `Hostname` so its `.has` signature won't accept arbitrary strings —
+	// widen the receiver to probe with unknown input. The result cast is then
+	// sound because membership is gated by a set built from `HOSTNAMES`.
+	return (KNOWN_HOSTNAMES as ReadonlySet<string>).has(host)
+		? (host as Hostname)
+		: null;
 }
 
 /**
