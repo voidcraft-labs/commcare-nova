@@ -2,7 +2,7 @@
 
 ## Edit vs preview mode
 
-**Edit** is a frozen, stateless view: inputs appear empty, validation is suppressed, the submit bar is hidden. **All questions render regardless of relevant conditions** — hidden questions appear as compact cards so the full structure is always visible for editing. Engine state is preserved internally; only the display layer is suppressed.
+**Edit** is a frozen, stateless view: inputs appear empty, validation is suppressed, the submit bar is hidden. **All fields render regardless of relevant conditions** — hidden fields appear as compact cards so the full structure is always visible for editing. Engine state is preserved internally; only the display layer is suppressed.
 
 **Preview** is a persistent testing sandbox. Values survive round-trips through edit. Validation state resets on exit so fields start clean on re-entry; on switch back, rules re-evaluate against the persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults, so editing a default expression is immediately reflected.
 

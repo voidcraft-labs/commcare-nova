@@ -16,7 +16,7 @@ import { asUuid } from "@/lib/doc/types";
 
 /**
  * Build a small deterministic blueprint for filter testing: one module,
- * one form, two questions. Identifiers differ so we can disambiguate
+ * one form, two fields. Identifiers differ so we can disambiguate
  * module/form/field matches.
  */
 function buildFixture(): BlueprintDoc {

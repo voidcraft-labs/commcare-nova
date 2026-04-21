@@ -27,11 +27,11 @@ export const novaXPathTheme = createTheme({
 		fontFamily: "var(--font-nova-mono)",
 	},
 	styles: [
-		// CommCare hashtag refs (#case/prop, #form/question) — periwinkle, nudged toward nova-violet
+		// CommCare hashtag refs (#case/prop, #form/field) — periwinkle, nudged toward nova-violet
 		{ tag: t.special(t.variableName), color: "#b6b2e6" }, // deep-navy-200 (closer to brand violet)
 		// $variable references — cool periwinkle
 		{ tag: t.variableName, color: "#928fd6" }, // periwinkle-300
-		// Path segment names (data, items, question) — brightest, the "nouns" of XPath
+		// Path segment names (data, items, field) — brightest, the "nouns" of XPath
 		{ tag: t.propertyName, color: "#dfdeed" }, // lavender-100
 		{ tag: t.special(t.propertyName), color: "#dfdeed" },
 		// Functions — brighter, anchored toward nova-violet-bright for brand tie-in

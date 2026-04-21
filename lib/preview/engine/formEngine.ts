@@ -20,9 +20,7 @@
  *
  * The engine consumes domain `Form` + `Field[]` entities (via the normalized
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
- * `FieldTreeNode` rose tree built at construction / schema refresh. No
- * legacy wire types (`Question` / `BlueprintForm`) live in this file or
- * its helpers.
+ * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
@@ -431,7 +429,7 @@ export class FormEngine {
 			}
 		}
 
-		/* Cascade — the value change may affect dependent questions */
+		/* Cascade — the value change may affect dependent fields */
 		const affected = this.dag.getAffected(path);
 		if (affected.length > 0) {
 			this.evaluatePathsInto(affected);

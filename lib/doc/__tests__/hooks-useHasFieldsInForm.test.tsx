@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 //
 // Tests for `useHasFieldsInForm` — boolean "does this form have any
-// questions?" selector used by form cards to toggle empty-state UI.
+// fields?" selector used by form cards to toggle empty-state UI.
 
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";

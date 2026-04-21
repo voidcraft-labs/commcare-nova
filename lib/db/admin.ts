@@ -14,7 +14,7 @@ import type {
 	AdminUserRow,
 	AdminUsersResponse,
 	UsagePeriod,
-} from "../types/admin";
+} from "@/lib/admin/types";
 import { listApps } from "./apps";
 import { collections, docs, getDb } from "./firestore";
 import { getCurrentPeriod } from "./usage";

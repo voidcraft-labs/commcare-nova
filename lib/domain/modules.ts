@@ -2,10 +2,6 @@
 import { z } from "zod";
 import { uuidSchema } from "./uuid";
 
-// CaseType currently lives in lib/schemas/blueprint.ts; re-export its shape
-// here so consumers can stop importing from schemas/. The schemas/blueprint.ts
-// file is deleted later in this phase (Task 22).
-
 const caseListColumnSchema = z.object({
 	field: z.string(),
 	header: z.string(),

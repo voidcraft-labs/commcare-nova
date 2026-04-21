@@ -14,16 +14,16 @@ import {
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
-import type { Shortcut } from "@/lib/services/keyboardManager";
 import { useBuilderIsReady, useCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
+import type { Shortcut } from "@/lib/ui/keyboardManager";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
  *
  * Returns an empty array when the builder is not in Ready/Completed phase.
  * When active, includes: Escape (deselect/exit pointer), V/E (switch cursor
- * mode), Tab/Shift+Tab (navigate questions in edit mode), Delete/Backspace
+ * mode), Tab/Shift+Tab (navigate fields in edit mode), Delete/Backspace
  * (delete field), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
  * Cmd+Z/Cmd+Shift+Z (undo/redo).

@@ -7,10 +7,9 @@
  * property count, quality flags). This is a deliberate departure from
  * the first draft which made six independent walks per form.
  *
- * Field discriminator is `kind` (not `type`); validation key is
- * `validate` (not `validation`); case linkage is `case_property` (not
- * `case_property_on`). Children live in `fieldOrder[parentUuid]`, not
- * on the field itself.
+ * Field discriminator is `kind`; validation key is `validate`; case
+ * linkage is `case_property`. Children live in `fieldOrder[parentUuid]`,
+ * not on the field itself.
  */
 
 import { isContainer } from "../../lib/domain";

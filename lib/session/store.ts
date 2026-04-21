@@ -146,10 +146,10 @@ export interface BuilderSessionState {
 	 *  is called explicitly. */
 	focusHint: string | undefined;
 
-	/** UUID of a just-added question — activates auto-focus and select-all
+	/** UUID of a just-added field — activates auto-focus and select-all
 	 *  on the ID input in FieldHeader. One-shot: set by FieldTypePicker on
 	 *  add, consumed once by the header on mount. */
-	newQuestionUuid: string | undefined;
+	newFieldUuid: string | undefined;
 
 	// ── Actions ───────────────────────────────────────────────────────────
 
@@ -292,15 +292,15 @@ export interface BuilderSessionState {
 	 *  still see their own hints on the same render. */
 	clearFocusHint: () => void;
 
-	/** Mark a question uuid as newly added — triggers auto-focus and
+	/** Mark a field uuid as newly added — triggers auto-focus and
 	 *  select-all on the ID input in FieldHeader. */
 	markNewField: (uuid: string) => void;
 
-	/** Check whether a uuid matches the current new-question marker.
+	/** Check whether a uuid matches the current new-field marker.
 	 *  Imperative reader — usable outside of selectors. */
 	isNewField: (uuid: string) => boolean;
 
-	/** Clear the new-question marker. Called after the first rename or
+	/** Clear the new-field marker. Called after the first rename or
 	 *  when the component unmounts, so subsequent selections behave normally. */
 	clearNewField: () => void;
 
@@ -386,7 +386,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* UI hints */
 				focusHint: undefined as string | undefined,
-				newQuestionUuid: undefined as string | undefined,
+				newFieldUuid: undefined as string | undefined,
 
 				// ── Reducer-shaped actions ───────────────────────────────
 
@@ -667,16 +667,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markNewField(uuid: string) {
-					set({ newQuestionUuid: uuid });
+					set({ newFieldUuid: uuid });
 				},
 
 				isNewField(uuid: string): boolean {
-					return get().newQuestionUuid === uuid;
+					return get().newFieldUuid === uuid;
 				},
 
 				clearNewField() {
-					if (get().newQuestionUuid === undefined) return;
-					set({ newQuestionUuid: undefined });
+					if (get().newFieldUuid === undefined) return;
+					set({ newFieldUuid: undefined });
 				},
 
 				reset() {
@@ -711,7 +711,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,
-						newQuestionUuid: undefined as string | undefined,
+						newFieldUuid: undefined as string | undefined,
 					});
 				},
 			})),

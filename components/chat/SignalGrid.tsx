@@ -1,14 +1,14 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
+import { type FieldPath, fpathId } from "@/lib/doc/fieldPath";
 import { docHasData } from "@/lib/doc/predicates";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import type { EditScope } from "@/lib/services/builder";
-import { type FieldPath, fpathId } from "@/lib/services/fieldPath";
+import type { EditScope } from "@/lib/session/builderTypes";
 import { derivePostBuildEdit } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";

@@ -5,12 +5,12 @@
 // These are the single sanctioned write surface for server-side emission
 // — if their shape changes, every SA tool handler changes with it.
 //
-// Phase 4: the context fans out to TWO surfaces — the `UIMessageStreamWriter`
-// (live SSE, unchanged wire format) and the `LogWriter` (Firestore event
-// log, one doc per event). `emit()` is a pure SSE pass-through;
-// `emitMutations` writes SSE + triggers the intermediate blueprint save +
-// one `MutationEvent` per mutation to the log; `emitConversation` writes
-// log only; `emitError` writes both; `handleAgentStep` is the shared fan-in
+// The context fans out to TWO surfaces — the `UIMessageStreamWriter`
+// (live SSE wire format) and the `LogWriter` (Firestore event log, one
+// doc per event). `emit()` is a pure SSE pass-through; `emitMutations`
+// writes SSE + triggers the intermediate blueprint save + one
+// `MutationEvent` per mutation to the log; `emitConversation` writes log
+// only; `emitError` writes both; `handleAgentStep` is the shared fan-in
 // for every `ToolLoopAgent`'s `onStepFinish`.
 
 import type { LanguageModelUsage } from "ai";

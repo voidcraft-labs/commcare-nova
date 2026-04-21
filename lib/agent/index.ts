@@ -8,9 +8,8 @@ export { AutoFixer } from "./autoFixer";
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
-// generationContext — shared LLM wrapper. `DocProvider` is an internal wiring
-// type (accepted by `registerDocProvider`) and not re-exported because no
-// external consumer constructs one.
+// generationContext — shared LLM wrapper around the Anthropic client, SSE
+// writer, event log, and usage accumulator.
 export {
 	GenerationContext,
 	logWarnings,

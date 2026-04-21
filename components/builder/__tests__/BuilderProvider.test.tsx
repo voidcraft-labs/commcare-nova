@@ -24,7 +24,7 @@ import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderPhase,
 	useInReplayMode,

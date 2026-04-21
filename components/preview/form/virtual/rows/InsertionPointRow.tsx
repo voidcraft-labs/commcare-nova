@@ -2,7 +2,7 @@
  * InsertionPointRow — flat-row wrapper around the existing `InsertionPoint`.
  *
  * In the legacy recursive renderer, insertion points were emitted as
- * sibling JSX between questions. The virtual list emits them as typed
+ * sibling JSX between fields. The virtual list emits them as typed
  * row records, but the interactive behavior (lazy shell, hover reveal,
  * menu trigger) is the same — so this row is a thin delegation wrapper
  * that positions the existing component at the correct depth.

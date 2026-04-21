@@ -5,7 +5,7 @@ import { cascadeDeleteForm } from "./helpers";
 /**
  * Module mutations operate on the `modules`, `moduleOrder`, and `formOrder`
  * maps. Removal cascades: dropping a module drops its forms (which drop
- * their questions via `cascadeDeleteForm`).
+ * their fields via `cascadeDeleteForm`).
  *
  * `renameModule` maps to the module's `name` field — modules have no
  * dedicated slug in the blueprint schema; `name` is the user-visible

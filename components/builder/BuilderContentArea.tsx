@@ -28,7 +28,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useNavigate } from "@/lib/routing/hooks";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderIsReady,
 	useBuilderPhase,

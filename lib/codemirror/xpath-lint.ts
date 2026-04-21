@@ -3,13 +3,13 @@
  *
  * Takes a getter that returns pre-collected context slices (valid paths,
  * case properties, form field entries). The builder's XPath editors derive
- * these directly from the normalized doc — no wire-format `AppBlueprint`
- * or `BlueprintForm` appears in the lint/autocomplete surface.
+ * these directly from the normalized doc so the lint/autocomplete surface
+ * stays decoupled from the domain model.
  */
 
 import { type Diagnostic, linter } from "@codemirror/lint";
+import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
 import type { FieldKind } from "@/lib/domain";
-import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 
 /**
  * Context snapshot used by the XPath linter and autocomplete sources.

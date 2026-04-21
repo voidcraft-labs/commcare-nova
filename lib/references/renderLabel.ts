@@ -10,7 +10,7 @@
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
-import type { FieldPath } from "@/lib/services/fieldPath";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import { HASHTAG_REF_PATTERN } from "./config";
 import { ReferenceProvider } from "./provider";
 import type { Reference } from "./types";
@@ -29,7 +29,7 @@ export type LabelSegment =
  * to avoid shared mutable `lastIndex` state. `extractValue` maps each regex
  * match to the string stored in the ref segment.
  */
-export function splitOnPattern(
+function splitOnPattern(
 	text: string,
 	pattern: RegExp,
 	extractValue: (match: RegExpExecArray) => string,

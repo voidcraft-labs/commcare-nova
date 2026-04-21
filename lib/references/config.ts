@@ -11,7 +11,7 @@
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerFileText from "@iconify-icons/tabler/file-text";
 import tablerUser from "@iconify-icons/tabler/user";
-import { fpathId } from "@/lib/services/fieldPath";
+import { fpathId } from "@/lib/doc/fieldPath";
 import type { Reference, ReferenceType, ReferenceTypeConfig } from "./types";
 
 /**

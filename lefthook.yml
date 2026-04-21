@@ -4,8 +4,15 @@ pre-commit:
       glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}"
       run: npx @biomejs/biome check --write --error-on-warnings --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
       stage_fixed: true
+    forbidden-identifiers:
+      # Repo-wide scan; no file filter because the token set is global and the
+      # check is fast. Blocks pre-Phase-7 wire-format identifiers from creeping
+      # back in outside lib/commcare/.
+      run: npx tsx scripts/check-forbidden-identifiers.ts
 pre-push:
   commands:
     check:
       glob: "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}"
       run: npx @biomejs/biome check --error-on-warnings --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {push_files}
+    forbidden-identifiers:
+      run: npx tsx scripts/check-forbidden-identifiers.ts

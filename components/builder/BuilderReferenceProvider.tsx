@@ -2,23 +2,20 @@
  * BuilderReferenceProvider — isolates the `useLocation()` subscription
  * needed to resolve the in-scope form for reference autocomplete/lint.
  *
- * Phase 2's URL-state migration moved the "current form" signal from the
- * legacy builder store onto the URL, which means `getRefContext` now needs
- * a `useLocation()` read. Placing that read directly in `BuilderLayout`
- * would break the layout's "re-renders only on app lifecycle transitions
- * and replay toggle" invariant — every selection change issues a
- * `router.replace`, which would cascade into a layout re-render.
+ * The in-scope form lives on the URL, so `getRefContext` needs a
+ * `useLocation()` read. Keeping that read here — rather than in
+ * `BuilderLayout` — preserves the layout's "re-render only on app
+ * lifecycle transitions and replay toggle" invariant: every selection
+ * change issues a navigation, and a layout-level `useLocation()` would
+ * cascade those into layout re-renders.
  *
- * Solution: split the reference provider wiring into this tiny child.
- * It owns the `useLocation()` subscription, constructs `getRefContext`
- * via the builder engine's imperative store (no reactive subscription),
- * and renders `ReferenceProviderWrapper`. Re-renders of this component
- * are cheap — the child tree is just the wrapper, whose `ReferenceProvider`
- * instance is memoized and whose cache invalidation is driven by the
- * `subscribeMutation` handle, not the React render cycle.
- *
- * BuilderLayout now subscribes to exactly `phase` + `inReplayMode` again,
- * matching the invariant documented at the top of that file.
+ * This component owns the `useLocation()` subscription, constructs
+ * `getRefContext` via the doc store imperatively (no reactive
+ * subscription), and renders `ReferenceProviderWrapper`. Re-renders here
+ * are cheap — the child tree is just the wrapper, whose
+ * `ReferenceProvider` instance is memoized and whose cache invalidation
+ * is driven by the `subscribeMutation` handle, not the React render
+ * cycle.
  */
 
 "use client";

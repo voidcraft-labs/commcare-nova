@@ -1,7 +1,6 @@
 /**
  * PreviewHeader — breadcrumb bar with back/up navigation for the preview pane.
- * Navigation state is read from URL-driven hooks (Phase 2) — no legacy store
- * reads for nav/selection.
+ * Navigation state is read from URL-driven hooks.
  */
 "use client";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";

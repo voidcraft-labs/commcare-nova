@@ -1,20 +1,17 @@
 /**
  * Domain-native navigation primitives for the builder's canvas layer.
  *
- * These are the replacement for the wire-shape `FieldPath` navigation
- * helpers in `lib/services/questionNavigation.ts`. Everything here operates
- * directly on the normalized `BlueprintDoc` (the `fields` map + `fieldOrder`
- * adjacency list) and identifies positions by `Uuid` rather than
- * slash-delimited id paths.
+ * Everything here operates directly on the normalized `BlueprintDoc`
+ * (the `fields` map + `fieldOrder` adjacency list) and identifies
+ * positions by `Uuid` rather than slash-delimited id paths.
  *
  * Why uuid-first:
  *   - Uuids are stable across renames — a path-based identity breaks when
  *     a user edits a field id.
  *   - The mutation surface (`moveField`, `removeField`, etc.) already takes
  *     uuids, so path↔uuid translation adds a round-trip with no upside.
- *   - The wire-format `Question` / `BlueprintForm` legacy types only exists at the SA /
- *     CommCare-HQ boundary; every internal consumer should walk the
- *     normalized doc instead of assembling a nested tree first.
+ *   - Walking the normalized doc directly avoids the need to reassemble a
+ *     nested tree as an intermediate shape.
  *
  * Three operations cover the full keyboard / header surface:
  *   - `flattenFieldRefs(doc, formUuid)` — depth-first visual order,

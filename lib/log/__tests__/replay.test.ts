@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain/uuid";
-import {
-	deriveReplayChapters,
-	replayEvents,
-	replayEventsSync,
-} from "../replay";
+import { replayEvents, replayEventsSync } from "../replay";
+import { deriveReplayChapters } from "../replayChapters";
 import type { ConversationEvent, Event, MutationEvent } from "../types";
 
 function mut(seq: number, stage?: string): MutationEvent {

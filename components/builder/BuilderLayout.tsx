@@ -48,7 +48,7 @@ import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderPhase,
 	useCursorMode,
@@ -134,16 +134,16 @@ export function BuilderLayout({
 			) as HTMLElement | null;
 			if (scrollContainer) {
 				const containerRect = scrollContainer.getBoundingClientRect();
-				const questionEls = Array.from(
+				const fieldEls = Array.from(
 					scrollContainer.querySelectorAll("[data-field-uuid]"),
 				);
-				for (let i = 0; i < questionEls.length; i++) {
-					const rect = questionEls[i].getBoundingClientRect();
+				for (let i = 0; i < fieldEls.length; i++) {
+					const rect = fieldEls[i].getBoundingClientRect();
 					if (rect.bottom > containerRect.top) {
 						setScrollAnchor({
-							fieldUuid: questionEls[i].getAttribute("data-field-uuid") ?? "",
+							fieldUuid: fieldEls[i].getAttribute("data-field-uuid") ?? "",
 							offsetTop: rect.top - containerRect.top,
-							allUuids: questionEls.map(
+							allUuids: fieldEls.map(
 								(el) => el.getAttribute("data-field-uuid") ?? "",
 							),
 						});
@@ -249,7 +249,7 @@ export function BuilderLayout({
 	// ── Scroll-to-field callback ─────────────────────────────────────
 
 	const scrollAnimationRef = useRef<number | null>(null);
-	const scrollToQuestion = useCallback(
+	const scrollToField = useCallback(
 		(
 			fieldUuid: string,
 			overrideTarget?: HTMLElement,
@@ -261,15 +261,15 @@ export function BuilderLayout({
 				scrollAnimationRef.current = null;
 			}
 
-			const questionEl = document.querySelector(
+			const fieldEl = document.querySelector(
 				`[data-field-uuid="${fieldUuid}"]`,
 			) as HTMLElement | null;
-			const scrollContainer = questionEl?.closest(
+			const scrollContainer = fieldEl?.closest(
 				"[data-preview-scroll-container]",
 			) as HTMLElement | null;
-			if (!questionEl || !scrollContainer) return;
+			if (!fieldEl || !scrollContainer) return;
 
-			const el = overrideTarget ?? questionEl;
+			const el = overrideTarget ?? fieldEl;
 			const paddingTop = scrollContainer.style.paddingTop
 				? Number.parseInt(scrollContainer.style.paddingTop, 10)
 				: 0;
@@ -309,7 +309,7 @@ export function BuilderLayout({
 		[],
 	);
 
-	useRegisterScrollCallback(scrollToQuestion);
+	useRegisterScrollCallback(scrollToField);
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 

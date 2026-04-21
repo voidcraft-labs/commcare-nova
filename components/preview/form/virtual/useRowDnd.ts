@@ -6,19 +6,19 @@
  *
  *   - **Draggable + drop target** (`FieldRow`, `GroupOpenRow`) — the
  *     row's own DOM element is the drag source AND a drop target for
- *     other rows. Questions + groups can be picked up, and other items
+ *     other rows. Fields + groups can be picked up, and other items
  *     can be dropped onto them.
  *   - **Drop-only** (`EmptyContainerRow`) — not draggable, only a drop
  *     target for the empty group/repeat's "sole child" landing zone.
  *
  * The rules are identical across both flavors:
  *   - Only accept sources whose data matches our own `draggable-field`
- *     tag (`isDraggableQuestionData`).
+ *     tag (`isDraggableFieldData`).
  *   - Reject a self-drop — a draggable row can't be a drop target for
  *     itself.
  *   - Reject cycle-creating drops — dragging a group onto its own
  *     descendant would reparent the group under itself. We read the
- *     doc's `questionOrder` imperatively in `canDrop` and consult
+ *     doc's `fieldOrder` imperatively in `canDrop` and consult
  *     `isUuidInSubtree`.
  *   - Track `isDraggingSelf`, `isDragOver`, and (optionally) the closest
  *     edge so each row can render its own visual feedback.
@@ -56,9 +56,9 @@ import { createPortal } from "react-dom";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import {
-	isDraggableQuestionData,
+	isDraggableFieldData,
 	isUuidInSubtree,
-	makeDraggableQuestionData,
+	makeDraggableFieldData,
 } from "./dragData";
 
 /** Signature the pragmatic-dnd adapter expects for `getData`. Derived
@@ -183,7 +183,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 			cleanups.push(
 				draggable({
 					element: el,
-					getInitialData: () => makeDraggableQuestionData(draggableUuid),
+					getInitialData: () => makeDraggableFieldData(draggableUuid),
 					onGenerateDragPreview: ({ nativeSetDragImage }) => {
 						// If the caller provided a preview renderer, hand the
 						// browser an offscreen container to snapshot; React
@@ -217,7 +217,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 			dropTargetForElements({
 				element: el,
 				canDrop: ({ source }) => {
-					if (!isDraggableQuestionData(source.data)) return false;
+					if (!isDraggableFieldData(source.data)) return false;
 					// Self-drop rejection: a draggable row can't be a target
 					// for itself. (Drop-only rows have `draggableUuid: null`
 					// and skip this check.)

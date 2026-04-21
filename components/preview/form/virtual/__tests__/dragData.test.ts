@@ -11,9 +11,9 @@
 import { describe, expect, it } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import {
-	isDraggableQuestionData,
+	isDraggableFieldData,
 	isUuidInSubtree,
-	makeDraggableQuestionData,
+	makeDraggableFieldData,
 	makeDropEmptyContainerData,
 	makeDropFieldData,
 	makeDropGroupHeaderData,
@@ -25,15 +25,15 @@ const F = asUuid("form-0000-0000-0000-000000000000");
 const G = (n: number) => asUuid(`grp${n}-0000-0000-0000-000000000000`);
 const Q = (n: number) => asUuid(`qst${n}-0000-0000-0000-000000000000`);
 
-describe("isDraggableQuestionData", () => {
+describe("isDraggableFieldData", () => {
 	it("accepts payloads produced by the factory", () => {
-		const data = makeDraggableQuestionData(Q(1));
-		expect(isDraggableQuestionData(data)).toBe(true);
+		const data = makeDraggableFieldData(Q(1));
+		expect(isDraggableFieldData(data)).toBe(true);
 	});
 
 	it("rejects arbitrary unrelated payloads", () => {
-		expect(isDraggableQuestionData({ kind: "other" })).toBe(false);
-		expect(isDraggableQuestionData({})).toBe(false);
+		expect(isDraggableFieldData({ kind: "other" })).toBe(false);
+		expect(isDraggableFieldData({})).toBe(false);
 	});
 });
 
@@ -130,7 +130,7 @@ describe("isUuidInSubtree", () => {
 		expect(isUuidInSubtree(order, G(1), Q(1))).toBe(false);
 	});
 
-	it("returns false when the ancestor has no entry in questionOrder", () => {
+	it("returns false when the ancestor has no entry in fieldOrder", () => {
 		// A leaf field has no order entry — everything outside its own
 		// uuid should register as non-descendant.
 		expect(isUuidInSubtree(order, Q(1), G(1))).toBe(false);

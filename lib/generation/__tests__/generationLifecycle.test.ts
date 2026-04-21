@@ -27,7 +27,7 @@ import type {
 	ConversationPayload,
 	MutationEvent,
 } from "@/lib/log/types";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "@/lib/session/hooks";
 import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";

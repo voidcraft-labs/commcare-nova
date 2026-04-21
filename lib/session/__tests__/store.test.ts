@@ -168,9 +168,9 @@ describe("BuilderSession focus hint", () => {
 	});
 });
 
-// ── New question marker ──────────────────────────────────────────────────
+// ── New field marker ─────────────────────────────────────────────────────
 
-describe("BuilderSession new-question marker", () => {
+describe("BuilderSession new-field marker", () => {
 	it("markNewField + isNewField: matches uuid, rejects others", () => {
 		const store = createBuilderSessionStore();
 		store.getState().markNewField("q-uuid");
@@ -818,7 +818,7 @@ describe("reset", () => {
 
 		/* UI hints */
 		expect(s.focusHint).toBeUndefined();
-		expect(s.newQuestionUuid).toBeUndefined();
+		expect(s.newFieldUuid).toBeUndefined();
 	});
 });
 

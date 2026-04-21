@@ -1,5 +1,5 @@
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 // Pre-resolve node types for zero string comparisons at runtime
 const T = (() => {

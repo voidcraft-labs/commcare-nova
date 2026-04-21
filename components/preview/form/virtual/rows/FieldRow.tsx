@@ -10,7 +10,7 @@
  * The placeholder is `position: absolute` inside the 24px insertion gap
  * and never changes row height, so the virtualizer stays stable.
  *
- * Does NOT handle group or repeat questions — those are bracket rows in
+ * Does NOT handle group or repeat fields — those are bracket rows in
  * the flat row model. FieldRow is a leaf-only renderer.
  */
 
@@ -28,10 +28,8 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import type { FieldPatch, Uuid } from "@/lib/domain";
-import {
-	useEngineController,
-	useEngineState,
-} from "@/lib/preview/hooks/useFormEngine";
+import { useEngineController } from "@/lib/preview/hooks/useEngineController";
+import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";

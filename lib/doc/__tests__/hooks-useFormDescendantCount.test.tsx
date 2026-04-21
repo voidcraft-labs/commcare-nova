@@ -143,7 +143,7 @@ describe("useFormDescendantCount", () => {
 	});
 
 	it("counts leaf-only forms without descending into nested containers", () => {
-		// A form with only leaf questions (no groups/repeats) exercises the
+		// A form with only leaf fields (no groups/repeats) exercises the
 		// base-case branch of the walker in isolation: each direct child
 		// contributes 1 and the recursion into `fieldOrder[leaf]` hits an
 		// empty array immediately.

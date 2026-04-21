@@ -41,7 +41,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useSelect } from "@/lib/routing/hooks";
 import {
-	isDraggableQuestionData,
+	isDraggableFieldData,
 	isUuidInSubtree,
 	readDropTargetData,
 	targetContainerUuidFor,
@@ -158,7 +158,7 @@ export function useDragIntent({
 		const docs = docStore;
 		if (!docs) return;
 		return monitorForElements({
-			canMonitor: ({ source }) => isDraggableQuestionData(source.data),
+			canMonitor: ({ source }) => isDraggableFieldData(source.data),
 
 			onDragStart: ({ source }) => {
 				setDragActive(true);
@@ -167,14 +167,14 @@ export function useDragIntent({
 				document.body.style.cursor = "grabbing";
 				// Stash the source uuid so onDrop can detect no-op drops
 				// (dropped at the same position).
-				if (isDraggableQuestionData(source.data)) {
+				if (isDraggableFieldData(source.data)) {
 					dragSourceUuidRef.current = source.data.uuid;
 				}
 				select(undefined);
 			},
 
 			onDrag: ({ source, location }) => {
-				if (!isDraggableQuestionData(source.data)) return;
+				if (!isDraggableFieldData(source.data)) return;
 				const dragUuid = source.data.uuid;
 
 				const innermost = location.current.dropTargets[0];
@@ -371,7 +371,7 @@ export function useDragIntent({
 				pendingDropRef.current = null;
 				if (!pending?.drop) return;
 
-				if (!isDraggableQuestionData(source.data)) return;
+				if (!isDraggableFieldData(source.data)) return;
 				const dragUuid = source.data.uuid;
 				const { drop, edge } = pending;
 

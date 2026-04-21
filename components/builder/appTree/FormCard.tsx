@@ -3,7 +3,7 @@
  *
  * Renders the form header (type icon, name, optional Connect marker,
  * field count) plus — when expanded — the nested list of top-level
- * FieldRows for the form's questions. Subscribes by UUID to exactly
+ * FieldRows for the form's fields. Subscribes by UUID to exactly
  * this form's entity, its field-order array, and its field-count
  * derivation, so unrelated form edits do not re-render this card.
  *
@@ -69,8 +69,8 @@ export const FormCard = memo(function FormCard({
 	 *  checks work without an existence guard. */
 	const fieldUuids = useOrderedFields(formId);
 
-	/** Recursive descendant count — drives the "N q" badge. Walks every
-	 *  nested group so grouped questions are counted the same as top-level
+	/** Recursive descendant count — drives the "N fields" badge. Walks every
+	 *  nested group so grouped fields are counted the same as top-level
 	 *  ones. */
 	const count = useFormDescendantCount(formId);
 
@@ -148,7 +148,7 @@ export const FormCard = memo(function FormCard({
 				</div>
 				{hasFields && (
 					<span className="text-xs text-nova-text-muted shrink-0">
-						{count} q
+						{count} {count === 1 ? "field" : "fields"}
 					</span>
 				)}
 			</TreeItemRow>
@@ -157,7 +157,7 @@ export const FormCard = memo(function FormCard({
 				<FormIconContext value={fieldIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
-							{fieldUuids.map((uuid, qIdx) => {
+							{fieldUuids.map((uuid, fieldIdx) => {
 								if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
 									return null;
 								return (
@@ -168,7 +168,7 @@ export const FormCard = memo(function FormCard({
 										formUuid={formId}
 										onSelect={onSelect}
 										depth={0}
-										delay={delay + qIdx * 0.02}
+										delay={delay + fieldIdx * 0.02}
 										collapsed={collapsed}
 										toggle={toggle}
 										searchResult={searchResult}

@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	fieldRegistry,
@@ -10,7 +11,6 @@ import {
 	rewriteHashtagRefs,
 	rewriteXPathRefs,
 } from "@/lib/preview/xpath/rewrite";
-import type { FieldPath } from "@/lib/services/fieldPath";
 import {
 	cascadeDeleteField,
 	cloneFieldSubtree,
@@ -577,7 +577,7 @@ function extractCaseProperty(field: { kind: string }): string | undefined {
  *   - `XPATH_FIELDS` (relevant / calculate / default_value / validate)
  *     run through `rewriteXPathRefs`, which surgically edits matching
  *     absolute paths (`/data/…/old_id` → `/data/…/new_id`) and `#form/old_id`
- *     hashtags (top-level questions only — hashtag syntax cannot encode
+ *     hashtags (top-level fields only — hashtag syntax cannot encode
  *     nested paths).
  *   - `DISPLAY_FIELDS` (label / hint) run through `transformBareHashtags`
  *     so only embedded hashtag refs are rewritten while the surrounding

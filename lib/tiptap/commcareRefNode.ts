@@ -4,7 +4,7 @@
  * Renders #form/, #case/, #user/ references as inline atom chips within
  * TipTap editors. The node stores three attributes:
  *   - refType: 'form' | 'case' | 'user' — determines color and icon
- *   - path: the property/question path (e.g. "patient_name", "group1/age")
+ *   - path: the property/field path (e.g. "patient_name", "group1/age")
  *   - label: human-readable display text (falls back to path)
  *
  * Round-trips through HTML via <span data-commcare-ref data-ref-type data-path data-label>.
@@ -178,7 +178,7 @@ export const CommcareRef = Node.create({
 		return {
 			/** Reference namespace: 'form' | 'case' | 'user'. */
 			refType: { default: "form" },
-			/** Property/question path within the namespace. */
+			/** Property/field path within the namespace. */
 			path: { default: "" },
 			/** Human-readable label (used for accessibility, falls back to path). */
 			label: { default: "" },

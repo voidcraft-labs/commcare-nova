@@ -7,9 +7,9 @@
  * allow-list — the two stores have disjoint responsibilities.
  *
  * Types are organized by concern:
- *   - Cursor/sidebar primitives (Phase 3)
- *   - Generation lifecycle (Phase 4) — stages, errors, partial scaffold
- *   - Replay (Phase 4) — raw event log + derived chapter metadata
+ *   - Cursor/sidebar primitives
+ *   - Generation lifecycle — stages, errors, partial scaffold
+ *   - Replay — raw event log + derived chapter metadata
  */
 
 import type { Event } from "@/lib/log/types";

@@ -4,10 +4,10 @@
  * `useFieldIconMap` walks a form's field subtree once and memoizes a
  * `FieldPath → IconifyIcon` map keyed by path. FormCard passes the
  * map down the tree via `FormIconContext` so FieldRow can render
- * reference chips (e.g. `#form/question_id`) with the correct
+ * reference chips (e.g. `#form/field_id`) with the correct
  * field-kind icon without prop-drilling.
  *
- * `useFormDescendantCount` + the underlying pure `countQuestionsFromOrder`
+ * `useFormDescendantCount` + the underlying pure `countFieldsFromOrder`
  * helper live here because they walk the same subtree shape. Keeping the
  * pure walker as a primitive-returning function lets Zustand's equality
  * check skip re-renders when unrelated forms' field lists change.
@@ -23,13 +23,13 @@
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import { useMemo } from "react";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { fieldRegistry } from "@/lib/domain";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 /**
  * Build a `FieldPath → field-kind icon` map for a form's fields.
@@ -68,11 +68,11 @@ export function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
 }
 
 /**
- * Count questions recursively under a form or group. Pure, primitive
+ * Count fields recursively under a form or group. Pure, primitive
  * result — safe to call inside a Zustand selector so the caller re-renders
  * only when its own count actually changes.
  */
-export function countQuestionsFromOrder(
+export function countFieldsFromOrder(
 	parentId: Uuid,
 	fieldOrder: Record<Uuid, Uuid[]>,
 ): number {
@@ -91,7 +91,7 @@ export function countQuestionsFromOrder(
 /**
  * Recursive descendant count for a form or container. Subscribes to the
  * whole `fieldOrder` map (Immer-stable reference) and walks the subtree
- * via `countQuestionsFromOrder`. Returns a number primitive, so the
+ * via `countFieldsFromOrder`. Returns a number primitive, so the
  * default `Object.is` comparison inside `useBlueprintDoc` re-renders
  * the caller only when the count actually changes.
  *
@@ -101,6 +101,6 @@ export function countQuestionsFromOrder(
  */
 export function useFormDescendantCount(parentUuid: Uuid | undefined): number {
 	return useBlueprintDoc((s) =>
-		parentUuid ? countQuestionsFromOrder(parentUuid, s.fieldOrder) : 0,
+		parentUuid ? countFieldsFromOrder(parentUuid, s.fieldOrder) : 0,
 	);
 }

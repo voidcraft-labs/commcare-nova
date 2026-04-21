@@ -30,31 +30,30 @@ type DropRecord<T> = T & Record<string | symbol, unknown>;
 
 /** Tag on a draggable row's `source.data`. The dragged thing is ALWAYS a
  *  field (leaf) or a group/repeat (container) — identified by uuid. */
-export interface DraggableQuestionData {
+export interface DraggableFieldData {
 	readonly kind: "draggable-field";
 	readonly uuid: Uuid;
 }
 
-const DRAGGABLE_QUESTION_KIND: DraggableQuestionData["kind"] =
-	"draggable-field";
+const DRAGGABLE_FIELD_KIND: DraggableFieldData["kind"] = "draggable-field";
 
-export function makeDraggableQuestionData(
+export function makeDraggableFieldData(
 	uuid: Uuid,
-): DraggableRecord<DraggableQuestionData> {
-	return { kind: DRAGGABLE_QUESTION_KIND, uuid };
+): DraggableRecord<DraggableFieldData> {
+	return { kind: DRAGGABLE_FIELD_KIND, uuid };
 }
 
-export function isDraggableQuestionData(
+export function isDraggableFieldData(
 	data: Record<string, unknown>,
-): data is Record<string, unknown> & DraggableQuestionData {
-	return data.kind === DRAGGABLE_QUESTION_KIND;
+): data is Record<string, unknown> & DraggableFieldData {
+	return data.kind === DRAGGABLE_FIELD_KIND;
 }
 
 // ── Drop target payloads ──────────────────────────────────────────────
 
 /** A field row drop target — drop here with a top/bottom edge to place
  *  the dragged item before or after this field. */
-export interface DropQuestionData {
+export interface DropFieldData {
 	readonly kind: "drop-field";
 	readonly uuid: Uuid;
 	readonly parentUuid: Uuid;
@@ -79,7 +78,7 @@ export interface DropEmptyContainerData {
 }
 
 export type DropTargetData =
-	| DropQuestionData
+	| DropFieldData
 	| DropGroupHeaderData
 	| DropEmptyContainerData;
 
@@ -88,7 +87,7 @@ export function makeDropFieldData(
 	uuid: Uuid,
 	parentUuid: Uuid,
 	siblingIndex: number,
-): DropRecord<DropQuestionData> {
+): DropRecord<DropFieldData> {
 	return { kind: "drop-field", uuid, parentUuid, siblingIndex };
 }
 
@@ -163,7 +162,7 @@ export function isUuidInSubtree(
  * Derive the parent uuid under which the dragged source would land if
  * dropped on the given target. Used with `isUuidInSubtree` to detect
  * cycle-creating drops without the drop-target rows needing to know the
- * full moveQuestion arg shape.
+ * full moveField arg shape.
  *
  *   - `drop-field`                   → target's parent (source becomes sibling)
  *   - `drop-group-header` + edge "top"  → target's parent (source becomes sibling
