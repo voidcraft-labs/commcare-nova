@@ -27,8 +27,8 @@
 
 "use client";
 import { memo } from "react";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import { asUuid } from "@/lib/doc/types";
-import type { FieldPath } from "@/lib/services/fieldPath";
 import { useCursorMode, useEditMode } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "./InteractiveFormRenderer";
 import { VirtualFormList } from "./virtual/VirtualFormList";

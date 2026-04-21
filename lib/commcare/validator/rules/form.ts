@@ -387,9 +387,7 @@ export function closeConditionValidation(
 /**
  * Comprehensive post-submit navigation validation.
  *
- * Validates every post_submit destination against the form's context. See
- * `lib/services/CLAUDE.md` for the full HQ compatibility matrix; we mirror
- * those checks here (with stubs for features Nova doesn't model yet).
+ * Validates every post_submit destination against the form's context.
  */
 export function postSubmitValidation(
 	form: Form,

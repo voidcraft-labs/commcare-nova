@@ -10,7 +10,7 @@
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
-import type { FieldPath } from "@/lib/services/fieldPath";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import { HASHTAG_REF_PATTERN } from "./config";
 import { ReferenceProvider } from "./provider";
 import type { Reference } from "./types";

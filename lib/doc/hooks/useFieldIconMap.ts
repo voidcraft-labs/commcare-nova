@@ -23,13 +23,13 @@
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import { useMemo } from "react";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { fieldRegistry } from "@/lib/domain";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 /**
  * Build a `FieldPath → field-kind icon` map for a form's fields.

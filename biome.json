@@ -45,8 +45,7 @@
 										"message": "Use useExternalNavigate from @/lib/routing/hooks for router.push/replace/refresh. notFound, redirect, usePathname stay allowed.",
 										"importNames": ["useRouter"]
 									},
-									"@/hooks/useBuilder": "Deleted in Phase 6. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state.",
-									"@/lib/services/builderStore": "Deleted in Phase 6. The legacy builder store no longer exists."
+									"@/hooks/useBuilder": "Deleted. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state."
 								}
 							}
 						}

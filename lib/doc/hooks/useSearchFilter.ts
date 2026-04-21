@@ -22,10 +22,10 @@
 "use client";
 
 import { useMemo } from "react";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
 import type { MatchIndices } from "@/lib/filterTree";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 /**
  * Locate the substring-match range for a fuzzy filter. Returns a

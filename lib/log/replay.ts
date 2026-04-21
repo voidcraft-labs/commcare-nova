@@ -159,9 +159,9 @@ function headerForStage(stage: string | undefined): string {
  *
  * Inlined (not extracted) because this is the only consumer in this file
  * and the shape is small + stable — hoisting it into a shared helper
- * would trade minor deduplication (`resetBuilder.ts` has a near-identical
- * constant) for a cross-layer coupling that would force `lib/log` to
- * depend on `lib/services`.
+ * would trade minor deduplication (`lib/doc/resetBuilder.ts` has a
+ * near-identical constant) for a cross-layer coupling that would force
+ * `lib/log` to depend on `lib/doc`.
  */
 function emptyBlueprintDoc(): BlueprintDoc {
 	return {

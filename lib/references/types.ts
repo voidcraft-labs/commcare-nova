@@ -10,7 +10,7 @@
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
-import type { FieldPath } from "@/lib/services/fieldPath";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 
 /** The three hashtag reference namespaces in CommCare XPath. */
 export type ReferenceType = "form" | "case" | "user";

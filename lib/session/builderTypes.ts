@@ -1,20 +1,14 @@
 /**
- * builder.ts — Shared type definitions for the builder UI.
+ * UI-shared structural types consumed across the builder surface.
  *
- * `applyDataPart` and the generation-stream dispatcher have been replaced
- * by `applyStreamEvent` in `lib/generation/streamDispatcher.ts`. Generation
- * lifecycle types (`GenerationStage`, `GenerationError`, `STAGE_LABELS`)
- * now live exclusively in `lib/session/types.ts`.
- *
- * What remains here: structural types consumed across the builder surface
- * that don't belong to any single store.
+ * These types don't belong to any single store. `BuilderPhase` is derived
+ * from session + doc state in `hooks.tsx::derivePhase`; `SelectedElement`
+ * models the URL-owned selection; `EditScope` drives the signal grid's
+ * focus zone during agent edits.
  */
-import type { FieldPath } from "./fieldPath";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 
-/** Builder lifecycle phases — what mode the builder is in right now.
- *  Phase is now derived from session + doc state via `derivePhase` in
- *  `lib/session/hooks.tsx`. The enum still lives here because it's
- *  imported by layout, content area, sidebar, and tree components. */
+/** Builder lifecycle phases — what mode the builder is in right now. */
 export enum BuilderPhase {
 	Idle = "idle",
 	Loading = "loading",

@@ -15,9 +15,8 @@
  * of the pipeline makes composition explicit instead of introducing
  * parallel variants.
  *
- * Lives in `lib/services/` (not in the React layer) so the replay
- * controller can call it imperatively from a click handler without
- * routing through an effect.
+ * Lives outside the React layer so the replay controller can call it
+ * imperatively from a click handler without routing through an effect.
  */
 
 import type { BlueprintDocStore } from "@/lib/doc/provider";

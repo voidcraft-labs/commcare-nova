@@ -12,8 +12,8 @@
  */
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";
 

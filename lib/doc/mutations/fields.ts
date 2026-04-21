@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	fieldRegistry,
@@ -10,7 +11,6 @@ import {
 	rewriteHashtagRefs,
 	rewriteXPathRefs,
 } from "@/lib/preview/xpath/rewrite";
-import type { FieldPath } from "@/lib/services/fieldPath";
 import {
 	cascadeDeleteField,
 	cloneFieldSubtree,

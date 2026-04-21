@@ -25,13 +25,13 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import { fieldRegistry, type Uuid } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 export const FieldRow = memo(function FieldRow({
 	uuid,

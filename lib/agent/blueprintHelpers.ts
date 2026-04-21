@@ -20,6 +20,7 @@
  * hook doesn't have to reach across the server/client boundary.
  */
 
+import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -36,7 +37,6 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
-import { normalizeConnectConfig } from "@/lib/services/connectConfig";
 import type { Scaffold } from "./scaffoldSchemas";
 
 // ── Positional lookup helpers ───────────────────────────────────────────

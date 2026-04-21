@@ -25,7 +25,7 @@ import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSele
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
 
 interface AppTreeProps {

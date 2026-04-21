@@ -26,11 +26,11 @@ import {
 import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { deriveConnectDefaults } from "@/lib/doc/connectConfig";
 import { iterForms } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { deriveConnectDefaults } from "@/lib/services/connectConfig";
 import type { GenerationContext } from "./generationContext";
 
 // ── Post-expansion validation ────────────────────────────────────────

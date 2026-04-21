@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Event } from "@/lib/log/types";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "../hooks";
 
 function mut(stage: string | undefined, seq = 0): Event {

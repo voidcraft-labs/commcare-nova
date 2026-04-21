@@ -32,7 +32,7 @@ Google Cloud Run via Docker (`next.config.ts` → `output: "standalone"`).
 
 ### Single agent, single endpoint
 
-One chat route runs everything. A single `ToolLoopAgent` (the Solutions Architect) converses, generates, and edits. One conversation = one prompt-cache window, so the SA keeps full memory of every design decision. No orchestration, no sub-agents. See `lib/services/CLAUDE.md`.
+One chat route runs everything. A single `ToolLoopAgent` (the Solutions Architect) converses, generates, and edits. One conversation = one prompt-cache window, so the SA keeps full memory of every design decision. No orchestration, no sub-agents. See `lib/agent/CLAUDE.md`.
 
 **Edit vs build mode.** Two orthogonal decisions: (1) whether the app already exists picks the prompt + tool set — existing apps get editing prompt + blueprint summary + shared tools only; generation tools are never exposed in edit mode. (2) Prompt-cache window (5-min TTL) picks message strategy — within window: full history; after expiry: last-user-message only. App-exists stays false during initial generation even after modules land, so gen tools aren't stripped mid-build.
 

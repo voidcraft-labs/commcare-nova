@@ -77,7 +77,7 @@ vi.mock("@/lib/preview/engine/provider", () => ({
  * independently from the doc-store `load()` + signal-grid side effects,
  * which aren't relevant to the controller contract under test. */
 const resetBuilderMock = vi.fn();
-vi.mock("@/lib/services/resetBuilder", () => ({
+vi.mock("@/lib/doc/resetBuilder", () => ({
 	resetBuilder: (...args: unknown[]) => resetBuilderMock(...args),
 }));
 

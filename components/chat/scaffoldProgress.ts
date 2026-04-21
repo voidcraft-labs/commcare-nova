@@ -11,7 +11,7 @@
  */
 
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	type GenerationStage,
 	GenerationStage as Stage,

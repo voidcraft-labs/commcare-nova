@@ -30,6 +30,7 @@
 "use client";
 
 import { useContext, useMemo } from "react";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type {
 	BlueprintDoc,
@@ -50,7 +51,6 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import type { FieldPath } from "@/lib/services/fieldPath";
 
 /**
  * Result of a `renameField` dispatch.

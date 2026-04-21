@@ -11,7 +11,7 @@
  * instead of reading engine instance fields.
  */
 
-import type { EditScope } from "@/lib/services/builder";
+import type { EditScope } from "@/lib/session/builderTypes";
 import type { EditFocus } from "@/lib/signalGridController";
 
 /**

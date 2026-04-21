@@ -38,6 +38,7 @@
 
 "use client";
 import { memo } from "react";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { asUuid, type Uuid } from "@/lib/domain";
@@ -46,7 +47,6 @@ import {
 	useEngineState,
 } from "@/lib/preview/hooks/useFormEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
