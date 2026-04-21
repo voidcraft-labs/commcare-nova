@@ -123,7 +123,7 @@ export function EditableFieldWrapper({
 			 * TipTap label toolbar that will render above the field.
 			 *
 			 * If the field is already selected, the URL `sel=` won't change,
-			 * so fulfillPendingScroll never fires. Call scrollToQuestion directly
+			 * so fulfillPendingScroll never fires. Call scrollTo directly
 			 * to ensure the toolbar gets clearance when activating a text editor
 			 * on the current field. */
 			if (target.closest("[data-text-editable]")) {

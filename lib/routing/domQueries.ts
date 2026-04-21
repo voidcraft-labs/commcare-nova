@@ -18,10 +18,10 @@
  * Find a specific field element within a field's InlineSettingsPanel.
  *
  * The panel renders as the next-sibling of the field wrapper (see
- * `EditableFieldWrapper` + `SortableQuestion` in `FormRenderer.tsx`).
- * We locate the panel by its stable `data-field-uuid` attribute — not
- * by field `id`, so the lookup survives renames — then match the
- * requested field by `data-field-id`.
+ * `EditableFieldWrapper` on the virtualized `FieldRow`). We locate the
+ * panel by its stable `data-field-uuid` attribute — not by field `id`,
+ * so the lookup survives renames — then match the requested field by
+ * `data-field-id`.
  *
  * Returns `null` when the panel is not mounted (no current selection) or
  * when the requested field doesn't exist in the current settings view.
@@ -32,10 +32,10 @@ export function findFieldElement(
 	fieldId?: string,
 ): HTMLElement | null {
 	if (!fieldId) return null;
-	const questionEl = document.querySelector(
+	const fieldEl = document.querySelector(
 		`[data-field-uuid="${fieldUuid}"]`,
 	) as HTMLElement | null;
-	const panel = questionEl?.nextElementSibling as HTMLElement | null;
+	const panel = fieldEl?.nextElementSibling as HTMLElement | null;
 	if (!panel?.hasAttribute("data-settings-panel")) return null;
 	return panel.querySelector(`[data-field-id="${fieldId}"]`);
 }

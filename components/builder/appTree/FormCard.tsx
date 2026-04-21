@@ -69,7 +69,7 @@ export const FormCard = memo(function FormCard({
 	 *  checks work without an existence guard. */
 	const fieldUuids = useOrderedFields(formId);
 
-	/** Recursive descendant count — drives the "N q" badge. Walks every
+	/** Recursive descendant count — drives the "N fields" badge. Walks every
 	 *  nested group so grouped fields are counted the same as top-level
 	 *  ones. */
 	const count = useFormDescendantCount(formId);
@@ -148,7 +148,7 @@ export const FormCard = memo(function FormCard({
 				</div>
 				{hasFields && (
 					<span className="text-xs text-nova-text-muted shrink-0">
-						{count} q
+						{count} {count === 1 ? "field" : "fields"}
 					</span>
 				)}
 			</TreeItemRow>
@@ -157,7 +157,7 @@ export const FormCard = memo(function FormCard({
 				<FormIconContext value={fieldIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
-							{fieldUuids.map((uuid, qIdx) => {
+							{fieldUuids.map((uuid, fieldIdx) => {
 								if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
 									return null;
 								return (
@@ -168,7 +168,7 @@ export const FormCard = memo(function FormCard({
 										formUuid={formId}
 										onSelect={onSelect}
 										depth={0}
-										delay={delay + qIdx * 0.02}
+										delay={delay + fieldIdx * 0.02}
 										collapsed={collapsed}
 										toggle={toggle}
 										searchResult={searchResult}
