@@ -14,9 +14,9 @@ import {
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
-import type { Shortcut } from "@/lib/services/keyboardManager";
 import { useBuilderIsReady, useCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
+import type { Shortcut } from "@/lib/ui/keyboardManager";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.

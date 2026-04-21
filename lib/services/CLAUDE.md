@@ -4,7 +4,6 @@ A grab-bag of shared helpers that don't yet have a domain-specific home:
 
 - `connectConfig.ts` — Connect-config defaults derivation. Takes `BlueprintDoc` + a form uuid and returns a defaulted `ConnectConfig`; called from the validation loop before any domain rules run, with the resulting `updateForm` mutations emitted through `ctx.emitMutations` so the live builder applies them too.
 - `fieldPath.ts`, `resetBuilder.ts`, `builder.ts` — doc-facing helpers the builder UI leans on.
-- `toastStore.ts`, `keyboardManager.ts` — UI singletons (toast queue + keyboard shortcut registry).
 
 The expander, CCZ compiler, XForm emitter, form-action / case-reference builders, and case-config derivation all live at `lib/commcare/` — the CommCare compile pipeline is not owned here.
 

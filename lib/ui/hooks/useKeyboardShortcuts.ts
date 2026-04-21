@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useSyncExternalStore } from "react";
-import { keyboardManager, type Shortcut } from "@/lib/services/keyboardManager";
+import { keyboardManager, type Shortcut } from "../keyboardManager";
 
 /**
  * Register keyboard shortcuts with the global KeyboardManager.

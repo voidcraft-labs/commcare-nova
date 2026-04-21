@@ -1,4 +1,4 @@
-import { showToast } from "@/lib/services/toastStore";
+import { showToast } from "@/lib/ui/toastStore";
 import type { MoveFieldResult } from "./fields";
 
 /**
