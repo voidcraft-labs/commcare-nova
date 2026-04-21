@@ -18,7 +18,7 @@
 Edit `biome.json`. Find the second `overrides` entry. Add to its `includes`:
 
 ```
-"!app/api/[transport]/**",
+"!app/api/mcp/**",
 "!lib/mcp/**",
 "!lib/agent/tools/**"
 ```
@@ -35,7 +35,7 @@ npm run lint
 
 ```bash
 git add biome.json
-git commit -m "chore(mcp): allow @/lib/commcare imports from app/api/[transport] + lib/mcp + lib/agent/tools"
+git commit -m "chore(mcp): allow @/lib/commcare imports from app/api/mcp + lib/mcp + lib/agent/tools"
 ```
 
 ---

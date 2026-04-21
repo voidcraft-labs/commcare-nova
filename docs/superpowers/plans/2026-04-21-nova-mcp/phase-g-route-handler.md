@@ -122,10 +122,12 @@ git commit -m "feat(mcp): registerNovaTools wires up MCP-only tools + shared SA 
 
 ## Task G2: `/api/mcp` route with OAuth scope enforcement at the verify layer
 
-`mcp-handler` uses a Next.js dynamic segment convention: the route file lives at `app/api/[transport]/route.ts` and handles `/api/mcp`, `/api/sse`, and `/api/http`. The `.mcp.json` URL we declare in Phase I must be `https://mcp.commcare.app/api/mcp` to match. Phase A's middleware allowlist already permits `/api/mcp` on `mcp.commcare.app`.
+Next.js convention puts the file at `app/api/mcp/route.ts`. `mcp-handler`'s default `basePath: "/api"` composes with the `/mcp` segment to match `url.pathname === "/api/mcp"` internally — so the handler dispatches correctly with no config changes from the library default.
+
+**External URL stays `https://mcp.commcare.app/mcp`** — Phase A's middleware rewrites `/mcp` → `/api/mcp` on the MCP host. The external URL is clean; internals follow Next.js convention.
 
 **Files:**
-- Create: `app/api/[transport]/route.ts`
+- Create: `app/api/mcp/route.ts`
 
 - [ ] **Step 1: Write the route**
 
@@ -133,9 +135,10 @@ git commit -m "feat(mcp): registerNovaTools wires up MCP-only tools + shared SA 
 /**
  * Streamable HTTP MCP endpoint.
  *
- * File lives at the mcp-handler convention path (app/api/[transport]/route.ts)
- * so it handles /api/mcp on the mcp.commcare.app host. Middleware (Phase A)
- * enforces hostname allowlisting; this handler enforces OAuth.
+ * File path follows Next.js convention (app/api/mcp/route.ts). External
+ * URL is /mcp on mcp.commcare.app — middleware rewrites /mcp → /api/mcp.
+ * mcp-handler's default basePath: "/api" composes with the /mcp segment
+ * to produce the pathname it matches against internally.
  *
  * Request flow:
  *   1. mcpHandler verifies the bearer against local JWKS and the declared
@@ -182,8 +185,7 @@ const handler = mcpHandler(
 				registerNovaPrompts(server);
 			},
 			{ serverInfo: { name: "nova", version: "1.0.0" } },
-			/* basePath matches the Next.js route location; mcp-handler
-			 * composes this with the [transport] segment to serve /api/mcp. */
+			/* Default basePath: "/api" composes with /mcp internally. */
 			{ basePath: "/api", maxDuration: 300 },
 		)(req),
 );
@@ -195,21 +197,21 @@ export const maxDuration = 300;
 
 - [ ] **Step 2: Local auth-wall smoke**
 
-Dev server running. With middleware from Phase A:
+Dev server running. Middleware rewrite from Phase A in place:
 
 ```bash
-curl -i -H "Host: mcp.commcare.app" -X POST http://localhost:3000/api/mcp \
+curl -i -H "Host: mcp.commcare.app" -X POST http://localhost:3000/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 ```
 
-Expected: 401 with `WWW-Authenticate` header referencing the authorization server. 404 means middleware is blocking — fix the allowlist. 200 without auth means verify is broken — check the mcpHandler wiring.
+Expected: 401 with `WWW-Authenticate` header referencing the authorization server. 404 means the middleware rewrite isn't firing — check Phase A. 200 without auth means verify is broken — check the mcpHandler wiring.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add app/api/[transport]/route.ts
-git commit -m "feat(mcp): /api/[transport] streamable HTTP endpoint with scope-enforced OAuth"
+git add app/api/mcp/route.ts
+git commit -m "feat(mcp): /api/mcp route (external URL /mcp via middleware rewrite)"
 ```
 
 ---
@@ -227,7 +229,7 @@ This is the first point the full OAuth + MCP + tool stack can run.
 - [ ] **Step 1: Register the server with Claude Code**
 
 ```bash
-claude mcp add --transport http nova https://mcp.commcare.app/api/mcp
+claude mcp add --transport http nova https://mcp.commcare.app/mcp
 ```
 
 Expected: Claude Code fetches `/.well-known/oauth-protected-resource`, discovers the AS, prompts for auth in the browser, shows the consent page with `nova.read` + `nova.write` scopes, user clicks Allow, token lands in Claude Code's credential store.
@@ -271,7 +273,7 @@ Append to `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md`:
 ```markdown
 ## End-to-end OAuth + MCP smoke (YYYY-MM-DD)
 
-- Target: https://mcp.commcare.app/api/mcp (staging)
+- Target: https://mcp.commcare.app/mcp (staging)
 - Tool discovery: <pass/fail>
 - read tool (list_apps): <pass/fail>
 - write tool (create_app): <pass/fail>

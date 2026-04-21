@@ -1,6 +1,6 @@
 # Phase F — Agent prompt renderer + `get_agent_prompt` tool
 
-**Goal:** Server-side source of truth for the `nova-architect` agent definition. The plugin skills fetch `{ frontmatter, system_prompt }` at invoke time and materialize `~/.claude/agents/nova-architect-{runId}.md` before spawning the subagent. Iterating prompt / model / effort / tool restrictions on the server is picked up by the next skill invocation without a plugin release.
+**Goal:** Server-side source of truth for the `nova-architect` agent definition. The plugin skills fetch `{ frontmatter, system_prompt }` at invoke time and materialize `<plugin-root>/agents/nova-architect-{runId}.md` (resolved via `$CLAUDE_SKILL_DIR/../..`) before spawning the subagent. Iterating prompt / model / effort / tool restrictions on the server is picked up by the next skill invocation without a plugin release.
 
 **Dependencies:** Phase C (types, errors). Phases D + E aren't prerequisites for rendering — these tools are independent.
 
@@ -242,9 +242,9 @@ git commit -m "feat(mcp): server-side agent prompt + frontmatter renderer"
  * nova.get_agent_prompt — dynamic-agent bootstrap.
  *
  * Called by the plugin skills at the start of every build/edit. The
- * returned payload is materialized at ~/.claude/agents/nova-architect.md
+ * returned payload is materialized at <plugin-root>/agents/nova-architect-{runId}.md
  * by the skill, then a subagent is spawned via the Agent tool with
- * subagent_type: nova-architect.
+ * subagent_type: "nova:nova-architect-{runId}".
  *
  * Scope: nova.read — read-only metadata, no mutation.
  */
@@ -261,7 +261,7 @@ export function registerGetAgentPrompt(
 ): void {
 	server.tool(
 		"get_agent_prompt",
-		"Get the current nova-architect agent definition for the given mode. Used by the nova plugin skills to materialize the subagent at invoke time. Returns { frontmatter, system_prompt } — the plugin writes these to ~/.claude/agents/nova-architect-{runId}.md before spawning.",
+		"Get the current nova-architect agent definition for the given mode. Used by the nova plugin skills to materialize the subagent at invoke time. Returns { frontmatter, system_prompt } — the plugin writes these to <plugin-root>/agents/nova-architect-{runId}.md before spawning.",
 		/* Zod raw shape (mcp-handler composes an object validator around it). */
 		{
 			mode: z.enum(["build", "edit"]),

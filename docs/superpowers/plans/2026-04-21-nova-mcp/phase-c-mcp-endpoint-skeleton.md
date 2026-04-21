@@ -34,7 +34,7 @@ const envelopeSchema = z.object({
 	/**
 	 * Which entrypoint produced this event. "chat" = web chat route
 	 * (/api/chat, SSE + session cookie); "mcp" = MCP endpoint
-	 * (/api/mcp, HTTP JSON-RPC + OAuth bearer). Required on every
+	 * (/mcp, HTTP JSON-RPC + OAuth bearer). Required on every
 	 * envelope; historical events backfilled via
 	 * scripts/migrate-event-source.ts.
 	 */

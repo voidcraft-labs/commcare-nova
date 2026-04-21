@@ -24,7 +24,7 @@ Phases are strictly ordered — later phases depend on earlier ones. Within a ph
 | D | [phase-d-tool-extraction.md](phase-d-tool-extraction.md) | Extract each SA tool into `lib/agent/tools/<name>.ts` behind a narrow `ToolExecutionContext` interface. Refactor `solutionsArchitect.ts` to consume. Zero behavior change to chat. |
 | E | [phase-e-mcp-adapters.md](phase-e-mcp-adapters.md) | Register shared tools on the MCP server via thin adapters. Add the 6 MCP-only tools (list, get, create, delete, compile, upload). |
 | F | [phase-f-agent-prompt.md](phase-f-agent-prompt.md) | Server-side agent prompt renderer + `get_agent_prompt` tool. |
-| G | [phase-g-route-handler.md](phase-g-route-handler.md) | `app/api/[transport]/route.ts` + `lib/mcp/server.ts` registration + end-to-end OAuth smoke. |
+| G | [phase-g-route-handler.md](phase-g-route-handler.md) | `app/api/mcp/route.ts` + middleware rewrite `/mcp` → `/api/mcp` on the MCP host + `lib/mcp/server.ts` registration + end-to-end OAuth smoke. |
 | H | [phase-h-dynamic-agent-smoke.md](phase-h-dynamic-agent-smoke.md) | Load-bearing verification that Claude Code picks up agent files written mid-session. |
 | I | [phase-i-plugin.md](phase-i-plugin.md) | `nova-plugin` repo — six skills + manifest + MCP declaration. Skills mint `run_id` per invocation and use per-runId agent filenames. |
 | J | [phase-j-marketplace.md](phase-j-marketplace.md) | `nova-marketplace` repo — GitHub-source marketplace pointer. |
@@ -45,8 +45,7 @@ Phases are strictly ordered — later phases depend on earlier ones. Within a ph
 **OAuth wiring (Phase B):**
 - `app/.well-known/oauth-authorization-server/route.ts`
 - `app/.well-known/openid-configuration/route.ts`
-- `app/.well-known/oauth-protected-resource/route.ts`
-- `lib/server-client.ts`
+- `app/.well-known/oauth-protected-resource/route.ts` — one-liner via `oAuthProtectedResourceMetadata(auth)` helper from `better-auth/plugins`.
 - `lib/auth-client.ts`
 - `app/consent/page.tsx`
 - `app/consent/ConsentForm.tsx`
@@ -84,7 +83,8 @@ Phases are strictly ordered — later phases depend on earlier ones. Within a ph
 - `lib/mcp/__tests__/getAgentPrompt.test.ts`
 
 **Route (Phase G):**
-- `app/api/[transport]/route.ts` — dynamic segment per `mcp-handler`'s convention.
+- `app/api/mcp/route.ts` — Next.js convention file path. `mcp-handler` uses `basePath: "/api"`.
+- External URL is `https://mcp.commcare.app/mcp`. Middleware on the MCP host rewrites `/mcp` → `/api/mcp` (internal) so the external URL stays clean while internals follow convention.
 - `lib/mcp/server.ts` — `registerNovaTools` + `registerNovaPrompts`.
 
 ### Modified files in `commcare-nova`
@@ -97,7 +97,7 @@ Phases are strictly ordered — later phases depend on earlier ones. Within a ph
 - `lib/agent/solutionsArchitect.ts` — pull tool definitions out into `lib/agent/tools/*`; factory just wires them up via the AI SDK `tool()` wrapper.
 - `lib/agent/prompts.ts` — delegate blueprint-summary rendering to `lib/agent/summarizeBlueprint.ts`.
 - `lib/db/apps.ts` — add `softDeleteApp(appId)`; filter `status: "deleted"` from `listApps`.
-- `biome.json` — allowlist `app/api/[transport]/**` + `lib/mcp/**` + `lib/agent/tools/**` for `@/lib/commcare` imports.
+- `biome.json` — allowlist `app/api/mcp/**` + `lib/mcp/**` + `lib/agent/tools/**` for `@/lib/commcare` imports.
 - `package.json` — add `@better-auth/oauth-provider`, `mcp-handler`, `@modelcontextprotocol/sdk`.
 
 ### New repos (Phases I + J)

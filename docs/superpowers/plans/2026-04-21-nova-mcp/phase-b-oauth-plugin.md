@@ -300,35 +300,14 @@ git commit -m "feat(mcp): publish OAuth-AS + OIDC discovery metadata"
 
 ---
 
-## Task B4: Protected-resource metadata route
+## Task B4: Protected-resource metadata route (one-line helper)
 
 **Files:**
-- Create: `lib/server-client.ts`
 - Create: `app/.well-known/oauth-protected-resource/route.ts`
 
-- [ ] **Step 1: Write `lib/server-client.ts`**
+Better Auth ships `oAuthProtectedResourceMetadata(auth)` from `better-auth/plugins` — a one-liner that emits the RFC 9728 document. The heavier `oauthProviderResourceClient` + `createAuthClient` path is for separate-process resource servers that can't import the auth instance directly; we have an in-process Next.js app, so the one-liner is the canonical path. No `lib/server-client.ts` needed.
 
-```ts
-/**
- * Resource-server client — consumed by the protected-resource-metadata
- * handler to produce the RFC 9728 document that MCP clients fetch first.
- *
- * `oauthProviderResourceClient` is a PLUGIN FACTORY for createAuthClient,
- * not a client constructor. Imported from the `/resource-client` subpath,
- * not the main package entry. It takes the Better Auth instance as its
- * argument so it can pull issuer + JWKS URLs at call time.
- */
-
-import { createAuthClient } from "better-auth/client";
-import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
-import { getAuth } from "./auth";
-
-export const serverClient = createAuthClient({
-	plugins: [oauthProviderResourceClient(getAuth())],
-});
-```
-
-- [ ] **Step 2: Write `oauth-protected-resource/route.ts`**
+- [ ] **Step 1: Write `app/.well-known/oauth-protected-resource/route.ts`**
 
 ```ts
 /**
@@ -340,36 +319,31 @@ export const serverClient = createAuthClient({
  * discovers via /.well-known/oauth-authorization-server.
  */
 
-import { serverClient } from "@/lib/server-client";
+import { oAuthProtectedResourceMetadata } from "better-auth/plugins";
+import { getAuth } from "@/lib/auth";
 
-export const GET = async () =>
-	Response.json(
-		await serverClient.getProtectedResourceMetadata({
-			resource: "https://mcp.commcare.app",
-			authorization_servers: ["https://commcare.app"],
-		}),
-	);
+export const GET = oAuthProtectedResourceMetadata(getAuth());
 ```
 
-- [ ] **Step 3: Smoke**
+- [ ] **Step 2: Smoke**
 
 With dev running:
 
 ```bash
 curl -s -H "Host: mcp.commcare.app" http://localhost:3000/.well-known/oauth-protected-resource | jq .
 ```
-Expected: JSON with `resource: "https://mcp.commcare.app"` and `authorization_servers: ["https://commcare.app"]`.
+Expected: JSON with `resource` and `authorization_servers` fields pointing at `https://mcp.commcare.app` and `https://commcare.app` respectively. If the default helper output doesn't match those values, check the plugin docs for a config object arg — some versions take `{ resource, authorization_servers }`.
 
 ```bash
 curl -s -H "Host: commcare.app" -w "%{http_code}\n" http://localhost:3000/.well-known/oauth-protected-resource
 ```
 Expected: `404` (middleware blocks — path not on main-app allowlist).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add lib/server-client.ts app/.well-known/oauth-protected-resource/route.ts
-git commit -m "feat(mcp): publish protected-resource metadata on mcp.commcare.app"
+git add app/.well-known/oauth-protected-resource/route.ts
+git commit -m "feat(mcp): publish protected-resource metadata via oAuthProtectedResourceMetadata helper"
 ```
 
 ---

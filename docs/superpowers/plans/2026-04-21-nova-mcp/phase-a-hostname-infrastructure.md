@@ -61,7 +61,7 @@ export const HOSTNAME_ALLOWLIST: Record<Hostname, readonly string[]> = {
 		"/favicon",
 	],
 	[HOSTNAMES.mcp]: [
-		"/api/mcp",
+		"/mcp",
 		"/.well-known/oauth-protected-resource",
 	],
 	[HOSTNAMES.docs]: [
@@ -142,8 +142,8 @@ describe("classifyHost", () => {
 
 describe("isPathAllowedOnHost", () => {
 	it("allows MCP paths only on mcp.commcare.app", () => {
-		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/api/mcp")).toBe(true);
-		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/mcp")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/mcp")).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/mcp")).toBe(false);
 	});
 	it("blocks /admin on mcp.commcare.app", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/admin")).toBe(false);
@@ -201,8 +201,13 @@ git commit -m "feat(mcp): hostname allowlist utilities"
  *
  * Splits a single Cloud Run service into three virtual hosts:
  *   - commcare.app     → web app + /api/auth + OAuth-AS metadata
- *   - mcp.commcare.app → /api/mcp + OAuth-protected-resource metadata
+ *   - mcp.commcare.app → /mcp (rewritten to /api/mcp) + OAuth-protected-resource metadata
  *   - docs.commcare.app → documentation only
+ *
+ * The `/mcp` → `/api/mcp` rewrite lets the external URL stay clean
+ * (`https://mcp.commcare.app/mcp`) while the Next.js route file lives at
+ * the convention path `app/api/mcp/route.ts` and `mcp-handler`'s
+ * `basePath: "/api"` default stays unchanged.
  *
  * Unknown hostnames (Cloud Run's generated *.run.app host used by health
  * checks, or the user's localhost in dev) default to main-app behavior so
@@ -212,6 +217,7 @@ git commit -m "feat(mcp): hostname allowlist utilities"
 import { NextResponse, type NextRequest } from "next/server";
 import {
 	classifyHost,
+	HOSTNAMES,
 	isPathAllowedOnHost,
 	normalizeHost,
 } from "@/lib/hostnames";
@@ -235,6 +241,13 @@ export function middleware(req: NextRequest) {
 	if (!classified) return NextResponse.next();
 
 	const path = req.nextUrl.pathname;
+
+	/* External /mcp on the MCP host rewrites to the internal route path
+	 * /api/mcp. Allowlist still gates on the external path name. */
+	if (classified === HOSTNAMES.mcp && path === "/mcp") {
+		return NextResponse.rewrite(new URL("/api/mcp", req.url));
+	}
+
 	if (isPathAllowedOnHost(classified, path)) return NextResponse.next();
 
 	return new NextResponse("Not Found", { status: 404 });
@@ -254,16 +267,23 @@ function req(host: string, path: string): NextRequest {
 }
 
 describe("middleware hostname routing", () => {
-	it("passes /api/mcp on mcp.commcare.app", () => {
-		const res = middleware(req("mcp.commcare.app", "/api/mcp"));
+	it("rewrites /mcp → /api/mcp on mcp.commcare.app", () => {
+		const res = middleware(req("mcp.commcare.app", "/mcp"));
 		expect(res.status).not.toBe(404);
+		/* NextResponse.rewrite puts the internal destination in the
+		 * `x-middleware-rewrite` response header. */
+		expect(res.headers.get("x-middleware-rewrite")).toContain("/api/mcp");
+	});
+	it("does NOT rewrite /api/mcp on mcp.commcare.app (internal path not externally reachable)", () => {
+		const res = middleware(req("mcp.commcare.app", "/api/mcp"));
+		expect(res.status).toBe(404);
 	});
 	it("404s /admin on mcp.commcare.app", () => {
 		const res = middleware(req("mcp.commcare.app", "/admin"));
 		expect(res.status).toBe(404);
 	});
-	it("404s /api/mcp on commcare.app", () => {
-		const res = middleware(req("commcare.app", "/api/mcp"));
+	it("404s /mcp on commcare.app", () => {
+		const res = middleware(req("commcare.app", "/mcp"));
 		expect(res.status).toBe(404);
 	});
 	it("allows OAuth-AS metadata on commcare.app", () => {
@@ -279,7 +299,7 @@ describe("middleware hostname routing", () => {
 		expect(res.status).toBe(404);
 	});
 	it("handles trailing-dot host", () => {
-		const res = middleware(req("mcp.commcare.app.", "/api/mcp"));
+		const res = middleware(req("mcp.commcare.app.", "/mcp"));
 		expect(res.status).not.toBe(404);
 	});
 	it("passes unknown Cloud Run host through as main app", () => {
@@ -339,7 +359,7 @@ DNS: add CNAMEs on commcare.app pointing both subdomains at
 `ghs.googlehosted.com.` (GCP's managed cert host). Cert provisioning takes
 a few minutes. Verify with:
 
-    curl -I https://mcp.commcare.app/api/mcp
+    curl -I https://mcp.commcare.app/mcp
     curl -I https://docs.commcare.app/
 
 Both should return a valid TLS handshake and a Cloud Run response.

@@ -40,14 +40,14 @@ git init
 
 - [ ] **Step 3: Write `.mcp.json`**
 
-URL must match the hosted route — `/api/mcp` per `mcp-handler`'s `[transport]` convention (Phase G):
+URL matches the hosted route at `/mcp` (Phase G):
 
 ```json
 {
   "mcpServers": {
     "nova": {
       "type": "http",
-      "url": "https://mcp.commcare.app/api/mcp"
+      "url": "https://mcp.commcare.app/mcp"
     }
   }
 }
@@ -98,21 +98,21 @@ git commit -m "chore: initial plugin scaffold"
 
 ## Orchestration pattern — read before any /nova:build | /nova:ship | /nova:edit skill
 
-All three mutating skills follow the same four-step pattern:
+All three mutating skills follow the same four-step pattern. The agent file is Written to the PLUGIN's own `agents/` directory — not the user's `~/.claude/agents/` — so the user's personal agent namespace stays clean and every dynamic agent lives with the plugin that owns it.
 
-1. **Mint a run_id** — `run_id = crypto.randomUUID()`. Used for two purposes: (a) groups every MCP tool call this subagent makes under one run in the admin surface; (b) keys the agent filename so parallel skill invocations can't clobber each other.
+1. **Mint a run_id** — generated via Bash (`uuidgen | tr A-Z a-z`), stored as `RUN_ID` in the skill's working state. Used for two purposes: (a) groups every MCP tool call this subagent makes under one run in the admin surface; (b) keys the agent filename so parallel skill invocations can't clobber each other.
 
-2. **Fetch** — call `mcp__nova__get_agent_prompt(mode, interactive)`. Parse the returned JSON `{ frontmatter, system_prompt }`.
+2. **Resolve plugin root** — The skill body is at `<plugin-root>/skills/<skill-name>/SKILL.md`. Claude Code sets `$CLAUDE_SKILL_DIR` in the skill's execution env pointing at that directory. The plugin root is therefore `$CLAUDE_SKILL_DIR/../..`. Skills resolve it via `PLUGIN_ROOT="$(cd "$CLAUDE_SKILL_DIR/../.." && pwd)"` before the Write.
 
-3. **Write** — Write `~/.claude/agents/nova-architect-{run_id}.md` with the fetched frontmatter as YAML + system_prompt as markdown body. Each invocation gets its own file.
+3. **Fetch** — call `mcp__nova__get_agent_prompt(mode, interactive)`. Parse the returned JSON `{ frontmatter, system_prompt }`.
 
-4. **Spawn** — invoke the Agent tool with `subagent_type: nova-architect-{run_id}` and a task prompt that (a) instructs the subagent to pass `_meta: { run_id: "<run_id>" }` on every MCP tool call so the server groups the build coherently, and (b) carries the user's spec / app_id / instruction.
+4. **Write** — Write `${PLUGIN_ROOT}/agents/nova-architect-${RUN_ID}.md` with the fetched frontmatter as YAML + system_prompt as markdown body. Before writing, override the `name` field to `nova-architect-${RUN_ID}` so the subagent_type string matches the filename stem.
 
-Filename and subagent_type match because Claude Code derives the subagent type from the agent file's frontmatter `name` field; each per-runId agent file declares `name: nova-architect-{run_id}` (the server renders the frontmatter accordingly when it sees `_meta.run_id` on the get_agent_prompt call — skill passes the run_id through).
+5. **Spawn** — invoke the Agent tool with `subagent_type: "nova:nova-architect-${RUN_ID}"` (plugin agents are namespaced `<plugin-name>:<agent-name>`) and a task prompt that (a) instructs the subagent to pass `_meta: { run_id: "<run_id>" }` on every MCP tool call, (b) carries the user's spec / app_id / instruction.
 
-Actually — simpler — the skill body overrides the `name` field in the written YAML to `nova-architect-{run_id}` regardless of what the server returned. Phase F's `get_agent_prompt` tool returns `name: "nova-architect"` as a default; the skill body overrides before writing.
+**Dynamic discovery assumption.** For this pattern to work, Claude Code must discover agent files Written into `<plugin-root>/agents/` mid-session without a plugin reload. This is the same dynamic-discovery assumption as the previous `~/.claude/agents/` target — just in a different directory. Phase H's probe covers it.
 
-**No cleanup step in v1.** Files accumulate in `~/.claude/agents/`; if the directory gets busy, users can `rm ~/.claude/agents/nova-architect-*.md`. A scheduled `/cleanup` skill is additive later.
+**Cleanup.** Files accumulate under `<plugin-root>/agents/nova-architect-*.md`. A follow-up `/nova:cleanup` skill can `rm` matching files on demand; not load-bearing for v1.
 
 ---
 
@@ -128,20 +128,22 @@ Actually — simpler — the skill body overrides the `name` field in the writte
 name: build
 description: Generate a CommCare app from a natural-language spec, asking the user clarifying questions when the intent is ambiguous. Use when the user wants a collaborative build.
 argument-hint: <spec describing the app>
-allowed-tools: mcp__nova__get_agent_prompt Write Agent(nova-architect-*)
+allowed-tools: mcp__nova__get_agent_prompt Bash Write Agent(nova:nova-architect-*)
 ---
 
 # Task
 
-You are orchestrating a Nova build. Execute these four steps in order; do not improvise.
+You are orchestrating a Nova build. Execute these five steps in order; do not improvise.
 
-1. Mint a run_id by generating a UUID v4 (you can ask for one via the Bash tool: `uuidgen | tr A-Z a-z`). Keep it in a variable as `RUN_ID`.
+1. Mint a run_id via Bash: `uuidgen | tr A-Z a-z`. Keep it as `RUN_ID`.
 
-2. Call `mcp__nova__get_agent_prompt` with `mode: "build"` and `interactive: true`. Parse the JSON from the returned text content.
+2. Resolve the plugin root via Bash: `PLUGIN_ROOT="$(cd "$CLAUDE_SKILL_DIR/../.." && pwd)"`. Every plugin skill lives at `<plugin-root>/skills/<skill-name>/SKILL.md`; `$CLAUDE_SKILL_DIR` points at that subdirectory.
 
-3. Override the `name` field in the returned frontmatter to `nova-architect-${RUN_ID}`. Write `~/.claude/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and the system_prompt as the markdown body. YAML serialization: each top-level key on its own line; arrays as YAML sequences; omit keys the frontmatter doesn't carry.
+3. Call `mcp__nova__get_agent_prompt` with `mode: "build"` and `interactive: true`. Parse the JSON from the returned text content.
 
-4. Invoke the Agent tool with `subagent_type: nova-architect-${RUN_ID}` and prompt:
+4. Override the `name` field in the returned frontmatter to `nova-architect-${RUN_ID}`. Write `${PLUGIN_ROOT}/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and the system_prompt as the markdown body. YAML serialization: each top-level key on its own line; arrays as YAML sequences; omit keys the frontmatter doesn't carry.
+
+5. Invoke the Agent tool with `subagent_type: "nova:nova-architect-${RUN_ID}"` and prompt:
 
    ```
    Build a CommCare app matching this spec: $ARGUMENTS.
@@ -175,20 +177,22 @@ git commit -m "feat: /nova:build interactive build skill"
 name: ship
 description: Generate a CommCare app from a natural-language spec, autonomously, without asking the user clarifying questions. Use when the user wants a one-shot build.
 argument-hint: <spec describing the app>
-allowed-tools: mcp__nova__get_agent_prompt Write Agent(nova-architect-*)
+allowed-tools: mcp__nova__get_agent_prompt Bash Write Agent(nova:nova-architect-*)
 ---
 
 # Task
 
-You are orchestrating an autonomous Nova build. Four steps in order; do not improvise.
+You are orchestrating an autonomous Nova build. Five steps in order; do not improvise.
 
-1. Mint a run_id (UUID v4).
+1. Mint a run_id via Bash: `uuidgen | tr A-Z a-z`. Store as `RUN_ID`.
 
-2. Call `mcp__nova__get_agent_prompt` with `mode: "build"` and `interactive: false`. Parse the JSON. The autonomous-mode frontmatter carries `disallowedTools: [AskUserQuestion]` — preserve it in the written file.
+2. Resolve the plugin root: `PLUGIN_ROOT="$(cd "$CLAUDE_SKILL_DIR/../.." && pwd)"`.
 
-3. Override the `name` field to `nova-architect-${RUN_ID}`. Write `~/.claude/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and system_prompt as markdown body.
+3. Call `mcp__nova__get_agent_prompt` with `mode: "build"` and `interactive: false`. Parse the JSON. The autonomous-mode frontmatter carries `disallowedTools: [AskUserQuestion]` — preserve it in the written file.
 
-4. Invoke the Agent tool with `subagent_type: nova-architect-${RUN_ID}` and prompt:
+4. Override the `name` field to `nova-architect-${RUN_ID}`. Write `${PLUGIN_ROOT}/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and system_prompt as markdown body.
+
+5. Invoke the Agent tool with `subagent_type: "nova:nova-architect-${RUN_ID}"` and prompt:
 
    ```
    Build a CommCare app matching this spec, autonomously. Make every design decision yourself.
@@ -224,20 +228,22 @@ git commit -m "feat: /nova:ship autonomous build skill"
 name: edit
 description: Edit an existing CommCare app with a natural-language instruction. Asks clarifying questions when needed. Usage — quote the instruction: /nova:edit <app_id> "<instruction>"
 argument-hint: <app_id> "<instruction>"
-allowed-tools: mcp__nova__get_agent_prompt Write Agent(nova-architect-*)
+allowed-tools: mcp__nova__get_agent_prompt Bash Write Agent(nova:nova-architect-*)
 ---
 
 # Task
 
-You are orchestrating a Nova edit. Four steps in order; do not improvise.
+You are orchestrating a Nova edit. Five steps in order; do not improvise.
 
-1. Mint a run_id (UUID v4).
+1. Mint a run_id via Bash: `uuidgen | tr A-Z a-z`. Store as `RUN_ID`.
 
-2. Call `mcp__nova__get_agent_prompt` with `mode: "edit"` and `interactive: true`. Parse the JSON.
+2. Resolve the plugin root: `PLUGIN_ROOT="$(cd "$CLAUDE_SKILL_DIR/../.." && pwd)"`.
 
-3. Override the `name` field to `nova-architect-${RUN_ID}`. Write `~/.claude/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and system_prompt as markdown body.
+3. Call `mcp__nova__get_agent_prompt` with `mode: "edit"` and `interactive: true`. Parse the JSON.
 
-4. Invoke the Agent tool with `subagent_type: nova-architect-${RUN_ID}` and prompt:
+4. Override the `name` field to `nova-architect-${RUN_ID}`. Write `${PLUGIN_ROOT}/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and system_prompt as markdown body.
+
+5. Invoke the Agent tool with `subagent_type: "nova:nova-architect-${RUN_ID}"` and prompt:
 
    ```
    Edit the existing CommCare app. App ID: $0. Instruction: $1.
@@ -335,13 +341,14 @@ Expected: table of apps (or empty-state message).
 - [ ] **Step 3: `/nova:ship "a simple vaccine tracking app"`**
 
 Expected:
-- Skill mints a run_id + fetches autonomous-mode agent prompt.
-- Skill writes `~/.claude/agents/nova-architect-<runId>.md`; confirm it contains `disallowedTools: [AskUserQuestion]`.
-- Skill spawns the subagent using `subagent_type: nova-architect-<runId>`.
+- Skill mints a run_id + resolves `$CLAUDE_SKILL_DIR/../..` → plugin root + fetches autonomous-mode agent prompt.
+- Skill writes `<plugin-root>/agents/nova-architect-<runId>.md`; confirm it contains `disallowedTools: [AskUserQuestion]` and `name: nova-architect-<runId>`.
+- Skill spawns the subagent using `subagent_type: "nova:nova-architect-<runId>"`.
 - Subagent calls `create_app`, `generate_schema`, `generate_scaffold`, `add_module` (one or more), `validate_app` — every call carries `_meta: { run_id: "<runId>" }`.
 - Subagent reports `app_id` + summary.
 - `/nova:show <app_id>` renders the produced blueprint.
 - Firestore event log for the app shows every MCP event tagged with the same `run_id`.
+- `~/.claude/agents/` is UNTOUCHED — no Nova files there.
 
 - [ ] **Step 4: `/nova:build "a more complex household survey with eligibility rules"`**
 

@@ -98,7 +98,7 @@ Before opening a PR from `feature/mcp` → `main`:
 - [ ] `npm run build` succeeds.
 - [ ] The infra notes at `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md` reflect the real values discovered during execution (JWKS URL, adapter audit results, probe outcomes, smoke test results).
 - [ ] The plan spec at `docs/superpowers/specs/2026-04-21-nova-mcp-design.md` and the plan files in this directory match the shipped behavior (if implementation diverged from the plan, update both — do not merge with drifted docs).
-- [ ] No TODOs, FIXMEs, or dead code in `lib/mcp/`, `app/api/[transport]/`, or `lib/agent/tools/`.
+- [ ] No TODOs, FIXMEs, or dead code in `lib/mcp/`, `app/api/mcp/`, or `lib/agent/tools/`.
 - [ ] No `console.log` debugging statements shipped.
 - [ ] `lib/mcp/server.ts` registers every MCP-only tool + wraps every shared `lib/agent/tools/*` tool via `registerSharedTool` — total surface ≥ 25 tools.
 - [ ] The event-source backfill migration (Phase C Task C1 Step 4) has been run against production Firestore and the full run (not just --dry-run) completed successfully.
