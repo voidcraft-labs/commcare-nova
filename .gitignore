@@ -4,7 +4,6 @@
 /node_modules
 /.pnp
 .pnp.*
-.yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
@@ -14,7 +13,6 @@
 /coverage
 
 # next.js
-/.next/
 /out/
 
 # production
@@ -23,8 +21,9 @@
 # misc
 .DS_Store
 *.pem
-.claude/
-.agents/
+
+# exlude any dir starting with dot
+.*/
 
 # debug
 npm-debug.log*
@@ -36,17 +35,11 @@ yarn-error.log*
 .env*
 !.env.example
 
-# build data
-/.data/
-
 # generated knowledge-sync output
 /scripts/knowledge/output/
 
 # vercel
 .vercel
-
-# git worktrees (isolated workspaces)
-.worktrees/
 
 # typescript
 *.tsbuildinfo
