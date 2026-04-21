@@ -79,7 +79,13 @@ const formLinkTargetSchema = z.discriminatedUnion("type", [
 ]);
 
 const formLinkSchema = z.object({
-	condition: z.string().optional(),
+	// Empty string is semantically meaningless — the session emitter's
+	// truthy check (`if (link.condition)`) treats "" as "unconditional"
+	// while the expander's presence check (`!== undefined`) treats it as
+	// "set" and emits `condition: ""` to HQ. Rejecting "" at the schema
+	// keeps those two views trivially in agreement: the field is either
+	// absent or a non-empty XPath expression.
+	condition: z.string().min(1).optional(),
 	target: formLinkTargetSchema,
 	datums: z.array(formLinkDatumSchema).optional(),
 });

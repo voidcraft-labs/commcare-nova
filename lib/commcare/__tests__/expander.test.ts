@@ -2561,12 +2561,15 @@ describe("case-property rename cascade — pipeline regression", () => {
 
 // ── Form links ─────────────────────────────────────────────────────────
 //
-// The expander does not consult `doc.forms[*].formLinks`; post-submit
-// navigation is emitted through the session stack. `HqForm.form_links`
-// is the `formShell` default — `[]` — on every form.
+// The expander emits `doc.forms[*].formLinks` into `HqForm.form_links`,
+// translating uuid-based targets into HQ's 0-based module/form indices.
+// Links with dangling target uuids are dropped at the boundary (the
+// validator catches these first in production, but the expander stays
+// defense-in-depth so an unchecked call never produces HQ JSON with
+// null targets).
 
-describe("form_links pipeline behavior", () => {
-	it("ignores doc.formLinks; HQ form_links stays empty", () => {
+describe("form_links emission", () => {
+	it("emits HQ form_links with indexed form targets", () => {
 		// Pre-assign UUIDs so the DSL-level `formLinks` target can reference
 		// the sibling form without post-construction mutation.
 		const moduleUuid = "mod-fl";
@@ -2623,7 +2626,174 @@ describe("form_links pipeline behavior", () => {
 			runValidation(doc).filter((e) => e.code.startsWith("FORM_LINK")),
 		).toEqual([]);
 
-		// `hq.modules[0].forms[0].form_links` is the `formShell` default `[]`.
+		const hq = expandDoc(doc);
+		// Expander resolves uuid target → indexed target:
+		// followup form is index 1 within module 0.
+		expect(hq.modules[0].forms[0].form_links).toEqual([
+			{
+				condition: "/data/outcome = 'yes'",
+				target: { type: "form", moduleIndex: 0, formIndex: 1 },
+			},
+		]);
+	});
+
+	it("emits module-target links with module index only", () => {
+		const modA = "mod-a";
+		const modB = "mod-b";
+		const formAUuid = "frm-a";
+
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					uuid: modA,
+					name: "A",
+					forms: [
+						{
+							uuid: formAUuid,
+							name: "FA",
+							type: "survey",
+							formLinks: [
+								{
+									target: { type: "module", moduleUuid: asUuid(modB) },
+								},
+							],
+							fields: [f({ kind: "text", id: "x", label: "X" })],
+						},
+					],
+				},
+				{
+					uuid: modB,
+					name: "B",
+					forms: [
+						{
+							name: "FB",
+							type: "survey",
+							fields: [f({ kind: "text", id: "y", label: "Y" })],
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(doc);
+		expect(hq.modules[0].forms[0].form_links).toEqual([
+			{ target: { type: "module", moduleIndex: 1 } },
+		]);
+	});
+
+	it("forwards condition + datum overrides verbatim", () => {
+		const moduleUuid = "mod-d";
+		const intakeUuid = "frm-i";
+		const triageUuid = "frm-t";
+
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "M",
+					forms: [
+						{
+							uuid: intakeUuid,
+							name: "Intake",
+							type: "survey",
+							postSubmit: "module",
+							formLinks: [
+								{
+									condition: "/data/severity = 'high'",
+									target: {
+										type: "form",
+										moduleUuid: asUuid(moduleUuid),
+										formUuid: asUuid(triageUuid),
+									},
+									datums: [{ name: "case_id", xpath: "/data/patient_id" }],
+								},
+							],
+							fields: [f({ kind: "text", id: "severity", label: "Severity" })],
+						},
+						{
+							uuid: triageUuid,
+							name: "Triage",
+							type: "survey",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(doc);
+		expect(hq.modules[0].forms[0].form_links).toEqual([
+			{
+				condition: "/data/severity = 'high'",
+				target: { type: "form", moduleIndex: 0, formIndex: 1 },
+				datums: [{ name: "case_id", xpath: "/data/patient_id" }],
+			},
+		]);
+	});
+
+	it("defaults to [] when no formLinks are defined", () => {
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [f({ kind: "text", id: "x", label: "X" })],
+						},
+					],
+				},
+			],
+		});
+		expect(expandDoc(doc).modules[0].forms[0].form_links).toEqual([]);
+	});
+
+	// Defense-in-depth: the validator (FORM_LINK_TARGET_NOT_FOUND) blocks
+	// dangling targets before they ever reach the expander in production,
+	// but `translateFormLinks` drops them anyway so an unchecked caller
+	// (e.g. a test bypass or a future codepath) never produces HQ JSON
+	// with an unresolvable index. Pinning the drop prevents a future
+	// refactor from silently switching to "throw" — every current
+	// assertion would still pass, but an upload path would suddenly
+	// start 500-ing on a formerly-tolerable input.
+	it("drops form-link entries whose target uuid isn't registered", () => {
+		const moduleUuid = "mod-dangling";
+		const formUuid = "frm-dangling";
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "M",
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Intake",
+							type: "survey",
+							formLinks: [
+								{
+									// Target points at a module that doesn't exist in
+									// `doc.moduleOrder`. Construct the uuid via
+									// `asUuid` so it satisfies the branded type; the
+									// validator would flag this in production, but
+									// the expander must still render it harmless.
+									target: {
+										type: "module",
+										moduleUuid: asUuid("mod-never-registered"),
+									},
+								},
+							],
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+		});
+
 		const hq = expandDoc(doc);
 		expect(hq.modules[0].forms[0].form_links).toEqual([]);
 	});

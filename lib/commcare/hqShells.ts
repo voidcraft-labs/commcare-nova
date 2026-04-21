@@ -8,6 +8,7 @@ import type {
 	FormActions,
 	HqApplication,
 	HqForm,
+	HqFormLink,
 	HqModule,
 } from "./types";
 
@@ -282,6 +283,7 @@ export function formShell(
 	actions: FormActions,
 	caseRefsLoad: Record<string, string[]>,
 	postFormWorkflow: string = "default",
+	formLinks: HqFormLink[] = [],
 ): HqForm {
 	return {
 		doc_type: "Form",
@@ -305,7 +307,7 @@ export function formShell(
 		custom_icons: [],
 		custom_assertions: [],
 		custom_instances: [],
-		form_links: [],
+		form_links: formLinks,
 		comment: "",
 	};
 }

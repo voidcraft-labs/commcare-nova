@@ -129,6 +129,39 @@ export interface CaseReferencesData {
 	doc_type: "CaseReferences";
 }
 
+/**
+ * HQ `form_links[*].target` discriminant.
+ *
+ * HQ addresses forms + modules by 0-based index — the indices are stable
+ * across the wire payload because every other field (`modules[].forms[]`,
+ * suite-level `m{n}-f{k}` commands, app strings) shares the same
+ * ordering. Domain `FormLink.target` carries uuids; the expander resolves
+ * them to indices at the emission boundary before writing the HQ shape.
+ */
+export type HqFormLinkTarget =
+	| { type: "form"; moduleIndex: number; formIndex: number }
+	| { type: "module"; moduleIndex: number };
+
+/** A datum override on an HQ `form_link` (explicit session variable). */
+export interface HqFormLinkDatum {
+	name: string;
+	xpath: string;
+}
+
+/**
+ * HQ `form_links[*]` entry shape.
+ *
+ * `condition` is an XPath expression; `undefined` means the link matches
+ * unconditionally. `datums` overrides auto-derived session variables for
+ * the target. Matches CommCare HQ's form-link payload field-for-field —
+ * HQ validates the shape on upload.
+ */
+export interface HqFormLink {
+	condition?: string;
+	target: HqFormLinkTarget;
+	datums?: HqFormLinkDatum[];
+}
+
 export interface HqForm {
 	doc_type: "Form";
 	form_type: string;
@@ -147,7 +180,7 @@ export interface HqForm {
 	custom_icons: unknown[];
 	custom_assertions: unknown[];
 	custom_instances: unknown[];
-	form_links: unknown[];
+	form_links: HqFormLink[];
 	comment: string;
 }
 

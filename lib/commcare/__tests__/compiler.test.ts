@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { asUuid } from "@/lib/domain";
 
 // The compiler consumes the domain doc directly — we build the fixture
 // via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed
@@ -131,6 +132,67 @@ describe("compileCcz", () => {
 		expect(suite).toContain('<command id="m0-f1"/>');
 		expect(suite).toContain('<detail id="m0_case_short">');
 		expect(suite).toContain("@case_type='patient'");
+	});
+
+	// When a form declares formLinks, the expander emits them into
+	// HqForm.form_links and the compiler threads them into the suite-
+	// level `<stack>` block: one conditional `<create>` per link plus a
+	// fallback whose condition negates every link condition. This test
+	// asserts the end-to-end wiring — it doesn't re-assert the per-op
+	// shape (session.test covers that at the derivation boundary).
+	it("threads form_links into suite.xml as conditional stack frames", () => {
+		const moduleUuid = "mod-fl";
+		const intakeUuid = "frm-intake";
+		const followupUuid = "frm-followup";
+
+		const linkDoc = buildDoc({
+			appName: "FL App",
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "M",
+					forms: [
+						{
+							uuid: intakeUuid,
+							name: "Intake",
+							type: "survey",
+							postSubmit: "module",
+							formLinks: [
+								{
+									condition: "/data/refer = 'yes'",
+									target: {
+										type: "form",
+										moduleUuid: asUuid(moduleUuid),
+										formUuid: asUuid(followupUuid),
+									},
+								},
+							],
+							fields: [f({ kind: "text", id: "refer", label: "Refer?" })],
+						},
+						{
+							uuid: followupUuid,
+							name: "Followup",
+							type: "survey",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(linkDoc);
+		const buf = compileCcz(hq, "FL App", linkDoc);
+		const zip = new AdmZip(buf);
+		const suite = zip.readAsText("suite.xml");
+
+		// The intake form's <entry> has a <stack> with the conditional
+		// form-link frame targeting module 0, form 1 (followup).
+		expect(suite).toContain(`if="/data/refer = 'yes'"`);
+		expect(suite).toContain("<command value=\"'m0'\"/>");
+		expect(suite).toContain("<command value=\"'m0-f1'\"/>");
+		// And a fallback frame firing the 'module' destination when the
+		// condition is false.
+		expect(suite).toContain(`if="not(/data/refer = 'yes')"`);
 	});
 
 	// The compiler must still package a valid archive when a form carries
