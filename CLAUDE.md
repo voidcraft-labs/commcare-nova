@@ -74,7 +74,7 @@ The chat route reads the model stream manually (not `writer.merge()`) so stream 
 
 **Four form types.** Registration (creates case), followup (updates), close (loads + closes), survey (no case). Close is a superset of followup. Centralized form-type sets exist — use them rather than ad-hoc string comparisons.
 
-**Two identities per field.** Semantic id (mutable, used as XForm node name / CommCare property key) vs stable uuid (assigned at creation, never changed on rename). Use uuid for UI identity (React keys, DOM selectors, dnd-kit IDs); use id / path for blueprint mutations + expander/compiler calls.
+**Two identities per field.** Semantic id (mutable, used as XForm node name / CommCare property key) vs stable uuid (assigned at creation, never changed on rename). Use uuid for UI identity (React keys, DOM selectors, drag-and-drop IDs); use id / path for blueprint mutations + expander/compiler calls.
 
 **Sibling ids must be unique** (CommCare requirement; cousins can share). Enforced on cross-level moves (auto-suffix + XPath rewrite) and on rename.
 
