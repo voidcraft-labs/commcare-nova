@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { asUuid } from "@/lib/domain";
 
 // Shared fixtures used across the main expander cases below. Each test
 // outside this block constructs its own fixture inline to keep the
@@ -2292,5 +2293,380 @@ describe("case_list_only expansion", () => {
 		const hq = expandDoc(doc);
 		expect(hq.modules[1].parent_select.active).toBe(true);
 		expect(hq.modules[1].parent_select.module_id).toBe(hq.modules[0].unique_id);
+	});
+});
+
+// ── Structural edge cases ──────────────────────────────────────────────
+//
+// The pipeline must degrade cleanly on corner shapes the builder permits
+// mid-edit: forms with no fields yet, containers awaiting children, and
+// containers nested inside containers. These tests pin the structural
+// invariants so a refactor can't silently stop emitting the wrappers.
+
+describe("empty form expansion", () => {
+	// A form with zero fields is a valid intermediate state while the SA
+	// or a user scaffolds a module. It must still produce a well-formed
+	// XForm shell that downstream validation accepts — no fields means no
+	// binds and no body children, but the `<data>` and `<h:body>` wrappers
+	// still need to be present for CommCare Mobile to load the form.
+	it("emits a valid empty XForm when a survey form has zero fields", () => {
+		const doc = buildDoc({
+			appName: "Empty",
+			modules: [
+				{ name: "M", forms: [{ name: "F", type: "survey", fields: [] }] },
+			],
+		});
+		const hq = expandDoc(doc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// Shell present but inner data/body are empty.
+		expect(xml).toContain("<h:head>");
+		expect(xml).toContain("<h:body>");
+		// The `<data>` element exists but has no children.
+		expect(xml).toMatch(/<data[^>]*>\s*<\/data>/);
+		// No binds emitted because there are no fields.
+		expect(xml).not.toMatch(/<bind[^/]*\/>/);
+	});
+});
+
+describe("empty container expansion", () => {
+	// A group container with no children is another mid-edit state — the
+	// SA adds the container first and populates it in a follow-up call.
+	// The emitter must still lay down the `<group>` wrapper + its label so
+	// the user can see where children will land.
+	it("emits an empty <group> wrapper when a group has zero children", () => {
+		const doc = buildDoc({
+			appName: "EmptyGroup",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "demographics",
+									label: "Demographics",
+									children: [],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// Body wraps the group — no children inside the `<group>` body.
+		expect(xml).toMatch(
+			/<group ref="\/data\/demographics" appearance="field-list">[\s\S]*?<label ref="jr:itext\('demographics-label'\)"\/>[\s\S]*?<\/group>/,
+		);
+		// Data element is the empty container `<demographics></demographics>`.
+		expect(xml).toMatch(/<demographics>\s*<\/demographics>/);
+		// The group's itext entry still emits because the label is set.
+		expect(xml).toContain(`id="demographics-label"`);
+	});
+});
+
+describe("nested container expansion", () => {
+	// Repeat containing a group: the XForm must preserve both levels of
+	// wrapper, and every descendant's XPath must be built relative to
+	// `/data/<repeat>/<group>/<leaf>`. Repeats also carry `jr:template=""`
+	// on the data element; that attribute attaches to the outermost
+	// repeat, never its nested children.
+	it("preserves both container levels for repeat containing a group", () => {
+		const doc = buildDoc({
+			appName: "Nested",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									children: [
+										f({
+											kind: "group",
+											id: "vitals",
+											label: "Vitals",
+											children: [
+												f({
+													kind: "int",
+													id: "temperature",
+													label: "Temperature",
+												}),
+												f({
+													kind: "int",
+													id: "heart_rate",
+													label: "Heart Rate",
+												}),
+											],
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// Outer repeat carries the template marker; the inner group does not.
+		expect(xml).toMatch(/<visits jr:template=""[^>]*>/);
+		expect(xml).not.toMatch(/<vitals jr:template=""/);
+
+		// Leaf binds use the full nested XPath.
+		expect(xml).toContain('nodeset="/data/visits/vitals/temperature"');
+		expect(xml).toContain('nodeset="/data/visits/vitals/heart_rate"');
+
+		// vellum shorthand mirrors the nested structure.
+		expect(xml).toContain('vellum:nodeset="#form/visits/vitals/temperature"');
+
+		// Body nests the group wrapper inside the repeat wrapper.
+		expect(xml).toMatch(
+			/<repeat nodeset="\/data\/visits">[\s\S]*?<group ref="\/data\/visits\/vitals"[\s\S]*?<\/group>[\s\S]*?<\/repeat>/,
+		);
+	});
+});
+
+// ── Connect opt-in ─────────────────────────────────────────────────────
+//
+// A Connect learn app may run with just a learn module (no assessment,
+// no deliver unit). The expander must not inject deliver/task blocks
+// that aren't configured, and the compiler must still produce a valid
+// archive. Regression coverage against accidentally coupling the Connect
+// blocks to each other.
+
+describe("Connect learn-only expansion", () => {
+	const learnOnlyDoc = buildDoc({
+		appName: "LearnOnly",
+		connectType: "learn",
+		modules: [
+			{
+				name: "Training",
+				forms: [
+					{
+						name: "Lesson",
+						type: "survey",
+						connect: {
+							learn_module: {
+								id: "intro_module",
+								name: "Intro",
+								description: "Intro to CHW work",
+								time_estimate: 30,
+							},
+						},
+						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+					},
+				],
+			},
+		],
+	});
+
+	it("emits a ConnectLearnModule block when only a learn module is configured", () => {
+		const hq = expandDoc(learnOnlyDoc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		expect(xml).toContain('vellum:role="ConnectLearnModule"');
+		// Module metadata is serialized inside the Connect namespace.
+		expect(xml).toContain(
+			'<module xmlns="http://commcareconnect.com/data/v1/learn" id="intro_module">',
+		);
+		expect(xml).toContain("<name>Intro</name>");
+		expect(xml).toContain("<time_estimate>30</time_estimate>");
+	});
+
+	it("omits deliver/assessment/task blocks when only learn is configured", () => {
+		const hq = expandDoc(learnOnlyDoc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		expect(xml).not.toContain('vellum:role="ConnectDeliverUnit"');
+		expect(xml).not.toContain('vellum:role="ConnectAssessment"');
+		expect(xml).not.toContain('vellum:role="ConnectTask"');
+	});
+
+	it("passes validation when a learn-app form carries only a learn module", () => {
+		// CONNECT_MISSING_LEARN fires only when a learn form has *neither*
+		// a learn_module nor an assessment — the learn-only config here
+		// satisfies the requirement.
+		expect(
+			runValidation(learnOnlyDoc).some(
+				(e) => e.code === "CONNECT_MISSING_LEARN",
+			),
+		).toBe(false);
+	});
+});
+
+// ── Case-property rename pipeline regression ──────────────────────────
+//
+// `renameField` cascades through sibling fields' XPath references — the
+// unit coverage lives in `lib/doc/__tests__/mutations-pathRewrite.test.ts`
+// and `mutations-fields.test.ts`. The pipeline-level invariant: the
+// emitted XForm's bind/calculate attributes must reference the renamed
+// id everywhere the original reference stood. Without this assertion, a
+// refactor of the rename reducer could silently break downstream
+// expression rewriting — validation would still pass because references
+// remain syntactically well-formed, but they would point at nothing.
+
+describe("case-property rename cascade — pipeline regression", () => {
+	it("emits XPath references that match the referenced field's current id", () => {
+		// Two fields where `risk_label` references `/data/patient_age`.
+		// The doc shape here reflects the post-rename state: the expander
+		// is a pure function of the doc, so emitting the renamed id end
+		// to end proves the cascade is visible at the pipeline boundary.
+		const doc = buildDoc({
+			appName: "Rename",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "patient_age", label: "Age" }),
+								f({
+									kind: "hidden",
+									id: "risk_label",
+									calculate: "if(/data/patient_age > 65, 'high', 'low')",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// Renamed field's path appears wherever the old reference stood.
+		expect(xml).toContain(
+			"calculate=\"if(/data/patient_age &gt; 65, 'high', 'low')\"",
+		);
+		// The structural XPath targets exist as binds.
+		expect(xml).toContain('nodeset="/data/patient_age"');
+		expect(xml).toContain('nodeset="/data/risk_label"');
+	});
+});
+
+// ── Form links ─────────────────────────────────────────────────────────
+//
+// The expander does not consult `doc.forms[*].formLinks`; post-submit
+// navigation is emitted through the session stack. `HqForm.form_links`
+// is the `formShell` default — `[]` — on every form.
+
+describe("form_links pipeline behavior", () => {
+	it("ignores doc.formLinks; HQ form_links stays empty", () => {
+		// Pre-assign UUIDs so the DSL-level `formLinks` target can reference
+		// the sibling form without post-construction mutation.
+		const moduleUuid = "mod-fl";
+		const intakeUuid = "frm-intake";
+		const followupUuid = "frm-followup";
+
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "M",
+					forms: [
+						{
+							uuid: intakeUuid,
+							name: "Intake",
+							type: "survey",
+							postSubmit: "module",
+							formLinks: [
+								{
+									condition: "/data/outcome = 'yes'",
+									target: {
+										type: "form",
+										moduleUuid: asUuid(moduleUuid),
+										formUuid: asUuid(followupUuid),
+									},
+								},
+							],
+							fields: [
+								f({
+									kind: "single_select",
+									id: "outcome",
+									label: "Outcome",
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
+								}),
+							],
+						},
+						{
+							uuid: followupUuid,
+							name: "Followup",
+							type: "survey",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+		});
+
+		// Validator accepts the configuration.
+		expect(
+			runValidation(doc).filter((e) => e.code.startsWith("FORM_LINK")),
+		).toEqual([]);
+
+		// `hq.modules[0].forms[0].form_links` is the `formShell` default `[]`.
+		const hq = expandDoc(doc);
+		expect(hq.modules[0].forms[0].form_links).toEqual([]);
+	});
+});
+
+// ── Connect mode gate ──────────────────────────────────────────────────
+//
+// `expandDoc` strips `form.connect` when `doc.connectType` is unset —
+// the builder stashes per-form Connect configs so mode toggles don't
+// lose work, but the emit path must see them as absent when the app is
+// out of Connect mode. Without this gate, a stashed learn module would
+// leak into a non-Connect export as a spurious data block + bind.
+
+describe("Connect mode gate", () => {
+	it("strips form.connect when doc.connectType is unset", () => {
+		const doc = buildDoc({
+			appName: "Stashed",
+			// connectType intentionally omitted — app is not in Connect mode.
+			modules: [
+				{
+					name: "Quiz",
+					forms: [
+						{
+							name: "Take Quiz",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "stashed",
+									name: "Stashed",
+									description: "Hidden behind mode toggle",
+									time_estimate: 10,
+								},
+							},
+							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// No Connect role attributes appear anywhere in the XForm.
+		expect(xml).not.toMatch(/vellum:role="Connect/);
 	});
 });

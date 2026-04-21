@@ -131,4 +131,33 @@ describe("compileCcz", () => {
 		expect(suite).toContain('<detail id="m0_case_short">');
 		expect(suite).toContain("@case_type='patient'");
 	});
+
+	// The compiler must still package a valid archive when a form carries
+	// zero fields — this shape appears while the SA is mid-scaffold and a
+	// dropped archive would crash the preview + upload path. No case blocks
+	// are injected because the form is a survey; only the shell + suite
+	// references should appear.
+	it("compiles a survey module whose form has zero fields", () => {
+		const emptyDoc = buildDoc({
+			appName: "Stub",
+			modules: [
+				{ name: "M", forms: [{ name: "F", type: "survey", fields: [] }] },
+			],
+		});
+		const hq = expandDoc(emptyDoc);
+		const buf = compileCcz(hq, "Stub", emptyDoc);
+		const zip = new AdmZip(buf);
+
+		// Archive shell is present.
+		expect(zip.readAsText("profile.ccpr")).toContain("Stub");
+		// Single menu entry with one empty-form command — suite.xml still
+		// wires the form even though the XForm body is empty.
+		const suite = zip.readAsText("suite.xml");
+		expect(suite).toContain('<menu id="m0">');
+		expect(suite).toContain('<command id="m0-f0"/>');
+		// The form XML is present and structurally empty.
+		const xform = zip.readAsText("modules-0/forms-0.xml");
+		expect(xform).toContain("<h:body>");
+		expect(xform).not.toMatch(/<bind[^/]*\/>/);
+	});
 });
