@@ -15,7 +15,7 @@
  * consistent.
  */
 
-import type { HqApplication } from "@/lib/commcare";
+import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import {
 	applicationShell,
 	detailColumn,
@@ -29,9 +29,57 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
+	type FormLink,
+	type Uuid,
 } from "@/lib/domain";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { buildXForm } from "./xform/builder";
+
+/**
+ * Translate a domain form-link list into the HQ wire shape.
+ *
+ * Domain `FormLink.target` speaks uuids; HQ's JSON speaks 0-based
+ * module/form indices. The expander is the one place that has both
+ * pieces of information (it's walking `doc.moduleOrder` / `doc.formOrder`
+ * to generate the output), so index resolution happens here rather than
+ * being duplicated downstream. Links whose target uuid can't be resolved
+ * (dangling references) are dropped silently — the validator catches
+ * dangling targets with a specific error code before this runs in
+ * production, and dropping in emit is safer than emitting an HQ JSON
+ * that fails upload.
+ */
+function translateFormLinks(
+	links: FormLink[],
+	moduleOrder: Uuid[],
+	formOrder: Record<Uuid, Uuid[]>,
+): HqFormLink[] {
+	const out: HqFormLink[] = [];
+	for (const link of links) {
+		const target = link.target;
+		if (target.type === "form") {
+			const moduleIndex = moduleOrder.indexOf(target.moduleUuid);
+			if (moduleIndex < 0) continue;
+			const formIndex = (formOrder[target.moduleUuid] ?? []).indexOf(
+				target.formUuid,
+			);
+			if (formIndex < 0) continue;
+			out.push({
+				...(link.condition !== undefined && { condition: link.condition }),
+				target: { type: "form", moduleIndex, formIndex },
+				...(link.datums !== undefined && { datums: link.datums }),
+			});
+		} else {
+			const moduleIndex = moduleOrder.indexOf(target.moduleUuid);
+			if (moduleIndex < 0) continue;
+			out.push({
+				...(link.condition !== undefined && { condition: link.condition }),
+				target: { type: "module", moduleIndex },
+				...(link.datums !== undefined && { datums: link.datums }),
+			});
+		}
+	}
+	return out;
+}
 
 /**
  * Expand a `BlueprintDoc` into an `HqApplication`.
@@ -101,6 +149,14 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 				...(effectiveConnect && { connect: effectiveConnect }),
 			});
 
+			// Resolve form-link uuids to the 0-based indices HQ expects.
+			// Dangling targets are dropped (validator catches them with a
+			// `FORM_LINK_TARGET_NOT_FOUND` before production runs get
+			// here).
+			const hqFormLinks = form.formLinks?.length
+				? translateFormLinks(form.formLinks, doc.moduleOrder, doc.formOrder)
+				: [];
+
 			return formShell(
 				formUniqueId,
 				form.name,
@@ -109,6 +165,7 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 				buildFormActions(doc, formUuid, caseType),
 				buildCaseReferencesLoad(doc, formUuid, effectiveConnect ?? undefined),
 				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
+				hqFormLinks,
 			);
 		});
 

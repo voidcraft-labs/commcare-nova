@@ -1,6 +1,7 @@
 "use client";
 import type { Field } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { assertNever } from "@/lib/utils/assertNever";
 import { DateField } from "./fields/DateField";
 import { LabelField } from "./fields/LabelField";
 import { MediaField } from "./fields/MediaField";
@@ -18,25 +19,16 @@ interface FieldRendererProps {
 }
 
 /**
- * Kinds whose interactive rendering is a "press this button to capture
- * media / GPS / signature" experience — they all dispatch to
- * `MediaField`. `geopoint` is grouped here despite being a coordinate
- * pair because its UI affordance matches the media capture pattern.
- */
-const MEDIA_KINDS = new Set<Field["kind"]>([
-	"geopoint",
-	"image",
-	"audio",
-	"video",
-	"signature",
-	"barcode",
-]);
-
-/**
  * Interactive-mode field renderer. Dispatches on `kind` to the
- * kind-specific widget. Structural kinds (`group`, `repeat`, `hidden`)
- * don't reach this component — the caller renders them directly or
- * skips them.
+ * kind-specific widget.
+ *
+ * Structural kinds (`group`, `repeat`) and authoring-only kinds
+ * (`hidden`) never reach this component — the caller checks for them
+ * and renders its own affordance. They appear here as explicit cases
+ * returning `null` so the `default` branch stays an exhaustiveness
+ * check rather than a silent escape hatch: every `FieldKind` is
+ * consciously decided, and a new kind added to `fieldKinds` produces a
+ * `tsc` error on the `assertNever` call until it's wired.
  */
 export function FieldRenderer({
 	field,
@@ -44,10 +36,6 @@ export function FieldRenderer({
 	onChange,
 	onBlur,
 }: FieldRendererProps) {
-	if (MEDIA_KINDS.has(field.kind)) {
-		return <MediaField field={field} />;
-	}
-
 	switch (field.kind) {
 		case "text":
 		case "secret":
@@ -100,9 +88,27 @@ export function FieldRenderer({
 			);
 		case "label":
 			return <LabelField field={field} state={state} />;
-		default:
-			// Structural (group/repeat/hidden) kinds are rendered by callers;
-			// unknown kinds fall through silently.
+		// Media-capture kinds (including geopoint — coordinate pair whose
+		// UI affordance matches the media capture pattern). All dispatch
+		// to the same placeholder card; the icon + label come from the
+		// field registry, so adding another media kind doesn't need a new
+		// case here but DOES need the kind listed explicitly.
+		case "geopoint":
+		case "image":
+		case "audio":
+		case "video":
+		case "signature":
+		case "barcode":
+			return <MediaField field={field} />;
+		// Structural + authoring-only kinds — caller renders them directly
+		// (group/repeat via GroupField/RepeatField, hidden via HiddenField
+		// in edit mode or dropped entirely in interactive mode). Listed
+		// here so the exhaustiveness check below stays tight.
+		case "group":
+		case "repeat":
+		case "hidden":
 			return null;
+		default:
+			return assertNever(field, "FieldRenderer");
 	}
 }

@@ -33,14 +33,10 @@ import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare";
-import {
-	deriveEntryDefinition,
-	fromHqWorkflow,
-	renderEntryXml,
-} from "@/lib/commcare/session";
+import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
 /**
  * Compile an HQ application JSON (already expanded from a domain doc)
@@ -125,11 +121,16 @@ export function compileCcz(
 		for (let fIdx = 0; fIdx < hqForms.length; fIdx++) {
 			const hqForm = hqForms[fIdx];
 			const formUuid = formUuids[fIdx];
-			// Form type lives only on the domain doc — the HQ wire shape
-			// doesn't persist the (registration|followup|close|survey)
-			// discriminator, so we read it here to drive session-entry
-			// derivation.
-			const formType = doc.forms[formUuid].type;
+			// Form type + post-submit destination live only on the domain
+			// doc. The HQ wire shape stores a coerced `post_form_workflow`
+			// string whose mapping is lossy (e.g. "app_home" and an absent
+			// field both round-trip through "default"), so the compiler
+			// reads both fields straight from the doc to avoid losing
+			// fidelity. Defaulting follows the form-type rule the expander
+			// applies when emitting the wire payload.
+			const form = doc.forms[formUuid];
+			const formType = form.type;
+			const postSubmit = form.postSubmit ?? defaultPostSubmit(formType);
 
 			const formName = hqForm.name.en;
 			const xmlns = hqForm.xmlns;
@@ -168,9 +169,11 @@ export function compileCcz(
 			);
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
-			// stack from the form's type, its post-form-workflow, and the
-			// module's case type.
-			const postSubmit = fromHqWorkflow(hqForm.post_form_workflow);
+			// stack from the form's type, its post-submit destination, the
+			// module's case type, and any form-level link overrides.
+			// The expander already resolved form-link uuids into indexed
+			// HQ shape, so the compiler forwards `hqForm.form_links`
+			// verbatim — no second resolution pass needed here.
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -178,6 +181,7 @@ export function compileCcz(
 				formType,
 				postSubmit,
 				caseType || undefined,
+				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);

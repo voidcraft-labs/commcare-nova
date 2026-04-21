@@ -21,10 +21,10 @@
 import type { Draft } from "immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
+import { assertNever } from "@/lib/utils/assertNever";
 import { applyAppMutation } from "./app";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
-import { assertNever } from "./helpers";
 import { applyModuleMutation } from "./modules";
 
 /**
@@ -70,7 +70,7 @@ function dispatchMutation(
 		case "convertField":
 			return applyFieldMutation(draft, mut);
 		default:
-			assertNever(mut);
+			assertNever(mut, "applyMutation");
 	}
 }
 
