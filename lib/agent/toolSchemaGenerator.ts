@@ -29,9 +29,9 @@
 // The SA speaks domain vocabulary end-to-end: `kind`, `validate`,
 // `validate_msg`, `case_property`. There is no translation layer between
 // the LLM and the mutation reducer — tool args flow straight through.
-// CommCare wire terms live only at the emission boundary (`lib/commcare/`
-// for XForm output, `lib/doc/legacyBridge.ts` while the compile path
-// still round-trips the legacy nested shape).
+// CommCare wire terms live only at the emission boundary in
+// `lib/commcare/` (XForm output). The domain never round-trips
+// through a wire shape.
 //
 // ## Per-kind docs
 //
