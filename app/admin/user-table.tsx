@@ -15,8 +15,8 @@ import {
 import Image from "next/image";
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
+import type { AdminUserRow } from "@/lib/admin/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
-import type { AdminUserRow } from "@/lib/types/admin";
 import { formatCurrency, formatRelativeDate } from "@/lib/utils/format";
 
 // ── Column Definitions ───────────────────────────────────────────

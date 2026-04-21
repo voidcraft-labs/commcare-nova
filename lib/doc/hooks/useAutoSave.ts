@@ -28,7 +28,7 @@ import { reportClientError } from "@/lib/clientErrorReporter";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 
@@ -164,8 +164,8 @@ export function useAutoSave(): SaveState {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					// Send under the `blueprint` key so the API route's body parsing
-					// stays consistent. The value is now a normalized BlueprintDoc
-					// (minus fieldParent) rather than the legacy nested AppBlueprint.
+					// stays consistent. The value is a normalized BlueprintDoc
+					// (minus fieldParent — rebuilt on load).
 					body: JSON.stringify({ blueprint: persistable }),
 				});
 				if (!stillCurrent()) return;

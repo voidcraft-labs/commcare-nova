@@ -168,8 +168,8 @@ const scenarios: Scenario[] = [
 		},
 	},
 	{
-		name: "Editing — Question Focus (narrow)",
-		description: "Agent editing a single question. Tight defrag zone at ~20%.",
+		name: "Editing — Field Focus (narrow)",
+		description: "Agent editing a single field. Tight defrag zone at ~20%.",
 		run: ({ setMode, injectThink, setFocus }) => {
 			setMode("editing");
 			setFocus({ start: 0.12, end: 0.28 });

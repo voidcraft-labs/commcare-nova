@@ -4,15 +4,12 @@
  * Middleware stack (outer → inner):
  *   devtools               Redux-DevTools inspection, named "BlueprintDoc"
  *   temporal               zundo — undo/redo of every state change
- *   subscribeWithSelector  fine-grained subscriptions (used by domain hooks
- *                          in Phase 3+)
+ *   subscribeWithSelector  fine-grained subscriptions used by domain hooks
  *   immer                  structural-sharing mutable-syntax updates
  *
  * The store is created via a factory function so each builder mount gets
- * its own isolated store instance. This matches the existing pattern in
- * `lib/services/builderStore.ts`. Phase 1b's `<BlueprintDocProvider>`
- * calls this factory at mount time and exposes the instance via React
- * context.
+ * its own isolated store instance. `<BlueprintDocProvider>` calls this
+ * factory at mount time and exposes the instance via React context.
  *
  * Temporal lifecycle:
  *   - Created with tracking paused — a freshly created store has no history.
@@ -20,7 +17,7 @@
  *     the hydration from a blueprint never enters undo history.
  *   - Callers that want undo support (the live builder) must call
  *     `store.temporal.getState().resume()` after `load()` returns.
- *   - Agent writes (Phase 4) call `beginAgentWrite()` / `endAgentWrite()` to
+ *   - Agent writes call `beginAgentWrite()` / `endAgentWrite()` to
  *     bracket the stream: changes inside are invisible to undo, and the
  *     entire stream collapses to a single undoable snapshot on resume.
  */
@@ -65,9 +62,8 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
 	 * shape that omits `fieldParent`).
 	 *
-	 * Accepts the normalized doc shape directly — no conversion from the
-	 * legacy nested `AppBlueprint` format. `fieldParent` is always rebuilt
-	 * from `fieldOrder`, so callers never need to supply it.
+	 * Accepts the normalized doc shape directly. `fieldParent` is always
+	 * rebuilt from `fieldOrder`, so callers never need to supply it.
 	 *
 	 * Does NOT create an undo entry — loads are session hydration, not
 	 * user edits. Clears any prior history and keeps temporal paused.
@@ -175,9 +171,8 @@ export function createBlueprintDocStore() {
 						/**
 						 * Hydrate the store from a normalized `BlueprintDoc`.
 						 *
-						 * Accepts the doc shape that Firestore stores directly — no
-						 * `toDoc` conversion from the legacy nested `AppBlueprint` format.
-						 * The incoming doc may omit `fieldParent` (Firestore does not
+						 * Accepts the doc shape that Firestore stores directly. The
+						 * incoming doc may omit `fieldParent` (Firestore does not
 						 * persist it); this method always rebuilds it from `fieldOrder`
 						 * so every downstream consumer can rely on it being present.
 						 *

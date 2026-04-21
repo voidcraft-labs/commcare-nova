@@ -26,8 +26,7 @@ const Q_UUID = asUuid("q-111-0000-0000-0000-000000000000");
  * one form, and one text field. Returns the store + stable UUIDs so
  * tests can assert on entity access without re-deriving them.
  *
- * `load()` now accepts the normalized shape directly — no `toDoc` or
- * `AppBlueprint` conversion is needed.
+ * `load()` accepts the normalized shape directly.
  */
 function setup() {
 	const store = createBlueprintDocStore();

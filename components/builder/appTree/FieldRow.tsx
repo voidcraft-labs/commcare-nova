@@ -25,13 +25,13 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import { fieldRegistry, type Uuid } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
-import { type FieldPath, fpath } from "@/lib/services/fieldPath";
 
 export const FieldRow = memo(function FieldRow({
 	uuid,
@@ -59,7 +59,7 @@ export const FieldRow = memo(function FieldRow({
 	parentPath?: FieldPath;
 }) {
 	/** Subscribe to this field's entity by UUID from the doc store. */
-	const q = useField(uuid);
+	const field = useField(uuid);
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store.
 	 *  `useOrderedFields` returns the reference-stable empty-array sentinel
@@ -73,10 +73,10 @@ export const FieldRow = memo(function FieldRow({
 
 	const iconOverrides = use(FormIconContext);
 
-	if (!q) return null;
+	if (!field) return null;
 
-	const fieldPath = fpath(q.id, parentPath);
-	const iconData = fieldRegistry[q.kind].icon;
+	const fieldPath = fpath(field.id, parentPath);
+	const iconData = fieldRegistry[field.kind].icon;
 	const hasChildren = childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
@@ -86,12 +86,12 @@ export const FieldRow = memo(function FieldRow({
 	const labelIndices = searchResult?.matchMap?.get(fieldPath);
 	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
 	// `label` is absent from the `hidden` field kind — guard every access with
-	// a `"label" in q` narrowing so the tree row still renders for hidden
+	// a `"label" in field` narrowing so the tree row still renders for hidden
 	// fields (id-only display).
-	const qLabel = "label" in q ? q.label : "";
-	const showIdMatch = !!(idIndices && qLabel);
-	const textIndices = labelIndices ?? (!qLabel ? idIndices : undefined);
-	const displayText = qLabel || q.id;
+	const fieldLabel = "label" in field ? field.label : "";
+	const showIdMatch = !!(idIndices && fieldLabel);
+	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
+	const displayText = fieldLabel || field.id;
 	const chipContent = !textIndices
 		? textWithChips(displayText, null, iconOverrides)
 		: null;
@@ -153,7 +153,7 @@ export const FieldRow = memo(function FieldRow({
 						</span>
 						<span className="truncate shrink-0 max-w-[45%] font-mono text-[10px] text-nova-text-muted">
 							(
-							<HighlightedText text={q.id} indices={idIndices} />)
+							<HighlightedText text={field.id} indices={idIndices} />)
 						</span>
 					</span>
 				) : (

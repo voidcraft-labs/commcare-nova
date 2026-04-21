@@ -279,13 +279,13 @@ export function CasePropertyEditor<F extends Field>(
 	const isCaseName = field.id === "case_name";
 
 	// Hide entirely when the field has no case-writing affordance at
-	// all. Case-name questions always render because the module
+	// all. Case-name fields always render because the module
 	// guarantees a primary type; for every other field the section
 	// collapses when no writable types exist.
 	if (!isCaseName && writableCaseTypes.length === 0) return null;
 
 	return (
-		<div data-field-id="case_property_on">
+		<div data-field-id="case_property">
 			<CasePropertyDropdown
 				value={typeof value === "string" ? value : undefined}
 				isCaseName={isCaseName}

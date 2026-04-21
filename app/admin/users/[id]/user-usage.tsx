@@ -5,8 +5,8 @@
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the profile card and app list.
  */
+import type { UsagePeriod } from "@/lib/admin/types";
 import { getAdminUserUsage } from "@/lib/db/admin";
-import type { UsagePeriod } from "@/lib/types/admin";
 import {
 	formatCurrency,
 	formatPeriodLabel,

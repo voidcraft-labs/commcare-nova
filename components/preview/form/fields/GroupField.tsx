@@ -28,11 +28,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback } from "react";
+import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
-import { useEngineState } from "@/lib/preview/hooks/useFormEngine";
+import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { FieldPath } from "@/lib/services/fieldPath";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -60,8 +60,8 @@ interface GroupFieldProps {
  * Rendered only by `InteractiveFormRenderer` (pointer / test mode). The
  * edit-mode group representation is handled by the flat row model
  * (`GroupOpenRow` + nested rows + `GroupCloseRow`), so this file no
- * longer needs to participate in dnd-kit, inline-text editing, or any
- * other edit-only affordances.
+ * longer needs to participate in drag-and-drop, inline-text editing, or
+ * any other edit-only affordances.
  */
 export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we

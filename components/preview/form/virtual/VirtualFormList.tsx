@@ -3,7 +3,7 @@
  *
  * Performance model: only rows in the visible range (plus overscan +
  * the pinned selected row) are mounted, which turns the form-open mount
- * storm from `O(questions)` components into `O(viewport)` components.
+ * storm from `O(fields)` components into `O(viewport)` components.
  *
  * Drag-and-drop uses pragmatic-drag-and-drop (browser-native drag).
  * The row list stays completely stable during a drag — no array
@@ -51,7 +51,7 @@ import {
 } from "../FieldPickerContext";
 import { FieldTypePickerPopup } from "../FieldTypePicker";
 import { useFormLayout } from "../FormLayoutContext";
-import { isDraggableQuestionData } from "./dragData";
+import { isDraggableFieldData } from "./dragData";
 import type { FormRow } from "./rowModel";
 import {
 	depthPadding,
@@ -69,7 +69,7 @@ import { VirtualFormProvider } from "./VirtualFormContext";
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-const QUESTION_DEFAULT_HEIGHT_PX = 80;
+const FIELD_DEFAULT_HEIGHT_PX = 80;
 const OVERSCAN = 10;
 
 // ── Props ─────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const estimateSize = useCallback(
 		(index: number): number => {
 			const row = rows[index];
-			if (!row) return QUESTION_DEFAULT_HEIGHT_PX;
+			if (!row) return FIELD_DEFAULT_HEIGHT_PX;
 			switch (row.kind) {
 				case "insertion":
 					return INSERTION_REST_HEIGHT_PX;
@@ -170,7 +170,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				case "drop-placeholder":
 					return DROP_PLACEHOLDER_HEIGHT_PX;
 				case "field":
-					return QUESTION_DEFAULT_HEIGHT_PX;
+					return FIELD_DEFAULT_HEIGHT_PX;
 			}
 		},
 		[rows],
@@ -210,14 +210,14 @@ export const VirtualFormList = memo(function VirtualFormList({
 		if (!el) return;
 		return autoScrollForElements({
 			element: el,
-			canScroll: ({ source }) => isDraggableQuestionData(source.data),
+			canScroll: ({ source }) => isDraggableFieldData(source.data),
 			getAllowedAxis: () => "vertical",
 		});
 	}, []);
 
 	// ── Shared field-picker menu ──────────────────────────────────
 
-	const questionPickerHandle = useMemo(
+	const fieldPickerHandle = useMemo(
 		() => Menu.createHandle<FieldPickerPayload>(),
 		[],
 	);
@@ -234,8 +234,8 @@ export const VirtualFormList = memo(function VirtualFormList({
 		}
 	}, []);
 	const questionPickerCtx = useMemo(
-		() => ({ handle: questionPickerHandle, subscribeClose }),
-		[questionPickerHandle, subscribeClose],
+		() => ({ handle: fieldPickerHandle, subscribeClose }),
+		[fieldPickerHandle, subscribeClose],
 	);
 
 	// ── Render ───────────────────────────────────────────────────────
@@ -294,7 +294,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				</DragStateProvider>
 
 				<Menu.Root
-					handle={questionPickerHandle}
+					handle={fieldPickerHandle}
 					modal={false}
 					onOpenChange={onPickerOpenChange}
 				>

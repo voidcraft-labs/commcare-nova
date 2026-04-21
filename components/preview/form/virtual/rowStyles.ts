@@ -26,7 +26,7 @@ export const GROUP_BRACKET_HEIGHT_PX = 40;
 
 /**
  * Compute the inline left-padding (in px) for a row at the given depth.
- * Depth 0 (root-level questions) gets the base padding; each additional
+ * Depth 0 (root-level fields) gets the base padding; each additional
  * level adds `DEPTH_INDENT_PX`.
  */
 export function depthPadding(depth: number): number {

@@ -10,7 +10,7 @@
  *
  * Modes:
  * - **Pointer** (`V`): live form experience (no edit chrome)
- * - **Edit** (`E`): click-to-select questions + click-to-edit text inline
+ * - **Edit** (`E`): click-to-select fields + click-to-edit text inline
  */
 
 "use client";

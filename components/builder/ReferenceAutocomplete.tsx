@@ -5,9 +5,9 @@
  * results. Styled to match the CodeMirror autocomplete theme (dark bg,
  * violet selection highlight, type-colored icons per reference type).
  *
- * Supports two phases:
- *   1. Namespace picker — shows #form/, #case/, #user/ options
- *   2. Property picker — shows filtered references from ReferenceProvider
+ * Supports two stages:
+ *   1. Namespace stage — shows #form/, #case/, #user/ options
+ *   2. Reference stage — shows filtered references from ReferenceProvider
  */
 
 "use client";
@@ -16,7 +16,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { REF_TYPE_CONFIG } from "@/lib/references/config";
 import type { Reference, ReferenceType } from "@/lib/references/types";
 
-/** Namespace options shown in Phase 1 (before "/" is typed). */
+/** Namespace options shown in the namespace stage (before "/" is typed). */
 const NAMESPACE_OPTIONS: Array<{
 	type: ReferenceType;
 	label: string;
@@ -27,7 +27,7 @@ const NAMESPACE_OPTIONS: Array<{
 	{ type: "user", label: "#user/", description: "User property" },
 ];
 
-/** A namespace option for Phase 1 display. */
+/** A namespace option for the namespace stage display. */
 interface NamespaceItem {
 	kind: "namespace";
 	type: ReferenceType;
@@ -35,7 +35,7 @@ interface NamespaceItem {
 	description: string;
 }
 
-/** A reference option for Phase 2 display. */
+/** A reference option for the reference stage display. */
 interface ReferenceItem {
 	kind: "reference";
 	reference: Reference;
@@ -44,13 +44,14 @@ interface ReferenceItem {
 type AutocompleteItem = NamespaceItem | ReferenceItem;
 
 export interface ReferenceAutocompleteProps {
-	/** Phase 1: null shows namespace picker. Phase 2: items from provider.search(). */
+	/** Namespace stage: list is ignored (namespace options render instead).
+	 *  Reference stage: items from `provider.search()`. */
 	items: Reference[];
-	/** Whether we're in namespace-picker phase (no "/" typed yet). */
+	/** Whether we're in the namespace stage (no "/" typed yet). */
 	showNamespaces: boolean;
-	/** Callback when user selects a namespace (Phase 1). */
+	/** Callback when user selects a namespace (namespace stage). */
 	onSelectNamespace?: (type: ReferenceType) => void;
-	/** Callback when user selects a reference (Phase 2). */
+	/** Callback when user selects a reference (reference stage). */
 	onSelect?: (ref: Reference) => void;
 }
 

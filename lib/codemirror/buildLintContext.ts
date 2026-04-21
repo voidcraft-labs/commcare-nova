@@ -9,8 +9,7 @@
  * Both the field inspector's XPath editors and the form-settings
  * connect panel need the same walk, so it's extracted here. Reads
  * exclusively from the normalized `BlueprintDocState` (Uuid-indexed
- * maps + adjacency list) — no wire-format `AppBlueprint`,
- * `BlueprintForm`, or `Question` wire types cross the boundary.
+ * maps + adjacency list).
  */
 
 import type { BlueprintDocState } from "@/lib/doc/store";

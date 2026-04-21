@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { toastStore } from "@/lib/services/toastStore";
+import { toastStore } from "../toastStore";
 
 export function useToasts() {
 	useSyncExternalStore(

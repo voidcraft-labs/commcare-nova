@@ -64,7 +64,7 @@ Two-pass Opus reorganization. Cuts HQ UI content, combines related topics, restr
 
 1. **Plan.** Opus reads all distilled files and returns a structured plan: which files to create, which sources each draws from, what to cut. Plan saved to `.data/confluence-cache/reorg-plan.json`.
 2. **Confirmation gate.** Prints the plan and waits for approval. `--phase reorg-plan` stops here.
-3. **Execute.** For each planned file, Opus receives the relevant distilled sources with the plan entry as guidance and streams the output. Final knowledge files land in `lib/services/commcare/knowledge/`.
+3. **Execute.** For each planned file, Opus receives the relevant distilled sources with the plan entry as guidance and streams the output. Final knowledge files land in `scripts/knowledge/output/`.
 
 ## Cache is incremental-safe
 

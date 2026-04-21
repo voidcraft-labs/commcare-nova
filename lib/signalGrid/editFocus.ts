@@ -6,12 +6,10 @@
  * working on), this function returns a normalized `{ start, end }` range
  * (0–1) that the `SignalGridController` uses to highlight the active zone.
  *
- * Extracted from `BuilderEngine.computeEditFocus()` during Phase 3 engine
- * dissolution. The function is now pure — it takes data as parameters
- * instead of reading engine instance fields.
+ * Pure in both senses: takes all inputs as parameters, no hidden state.
  */
 
-import type { EditScope } from "@/lib/services/builder";
+import type { EditScope } from "@/lib/session/builderTypes";
 import type { EditFocus } from "@/lib/signalGridController";
 
 /**
@@ -22,9 +20,9 @@ import type { EditFocus } from "@/lib/signalGridController";
 const MIN_EDIT_ZONE = 0.15;
 
 /**
- * Data required to compute the edit focus zone. This matches the ordering
- * shape shared by both the legacy `BuilderState` and the normalized
- * `BlueprintDoc` — allowing callers to pass either source.
+ * Data required to compute the edit focus zone. Mirrors the ordering
+ * slices of `BlueprintDoc` (moduleOrder / formOrder / fieldOrder) so
+ * callers can pass a narrowed view without cloning the whole doc.
  */
 export interface EditFocusData {
 	moduleOrder: readonly string[];
@@ -36,8 +34,8 @@ export interface EditFocusData {
  * Compute the normalized focus zone for the signal grid's editing mode.
  *
  * Returns `null` when the scope is absent, the app has no modules, or the
- * targeted module/form has no questions. Otherwise returns a `{ start, end }`
- * range in [0, 1] that covers the scope's questions with a minimum width
+ * targeted module/form has no fields. Otherwise returns a `{ start, end }`
+ * range in [0, 1] that covers the scope's fields with a minimum width
  * of `MIN_EDIT_ZONE`.
  *
  * @param data  - The blueprint's ordering maps (module, form, field order).
@@ -49,7 +47,7 @@ export function computeEditFocus(
 ): EditFocus | null {
 	if (data.moduleOrder.length === 0 || !scope) return null;
 
-	/* Count total questions across all forms and build a positional map so
+	/* Count total fields across all forms and build a positional map so
 	 * we can convert index-based scope coordinates into a 0-1 range. */
 	let total = 0;
 	const formPositions: Array<{
@@ -100,10 +98,10 @@ export function computeEditFocus(
 
 	/* Field-level — center a zone around the specific field. */
 	if (scope.fieldIndex != null) {
-		const qPos =
+		const fieldPos =
 			(form.start + Math.min(scope.fieldIndex, form.count - 1)) / total;
 		const halfZone = Math.max(MIN_EDIT_ZONE / 2, (form.count / total) * 0.3);
-		return clampEditFocus(qPos - halfZone, qPos + halfZone);
+		return clampEditFocus(fieldPos - halfZone, fieldPos + halfZone);
 	}
 
 	/* Form-level — span the form's full field range. */
@@ -135,7 +133,7 @@ function clampEditFocus(start: number, end: number): EditFocus {
 }
 
 /**
- * Count all questions reachable from a parent in the fieldOrder tree.
+ * Count all fields reachable from a parent in the fieldOrder tree.
  * Recursively counts children of groups and repeats.
  */
 function countFieldsDeep(

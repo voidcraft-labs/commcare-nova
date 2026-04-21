@@ -25,8 +25,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
-import { BuilderPhase } from "@/lib/services/builder";
-import { showToast } from "@/lib/services/toastStore";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	derivePhase,
 	useInReplayMode,
@@ -34,6 +33,7 @@ import {
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { BuilderSessionContext } from "@/lib/session/provider";
+import { showToast } from "@/lib/ui/toastStore";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

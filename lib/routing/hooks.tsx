@@ -17,7 +17,7 @@
  *    move becomes a browser history entry. The back/forward buttons
  *    traverse this history for free.
  * 2. **Selection changes** (the field UUID segment flipping on clicks)
- *    use `replaceState` so rapid clicking through questions doesn't
+ *    use `replaceState` so rapid clicking through fields doesn't
  *    flood history. Back from a form goes to the module, not through
  *    every field the user happened to click in that form.
  */

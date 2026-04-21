@@ -37,10 +37,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ValidationError } from "@/lib/commcare/validator/errors";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
-import type { ValidationError } from "@/lib/services/commcare/validate/errors";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
@@ -539,28 +539,29 @@ describe("solutionsArchitect — validateApp", () => {
 
 // ── validationLoop fix pass — emits data-mutations, not data-form-fixed ──
 //
-// Shortcut (per Task 17d plan): we stub `runValidation`, `FIX_REGISTRY`,
-// and `expandBlueprint` at the module level so the loop walks exactly
-// one fix iteration. Building a real error that a real fix repairs
-// would require plumbing the field-registry rule + fix pair, which is
-// far more invasive than the call-site change being tested.
+// The loop is exercised with `runValidation`, `FIX_REGISTRY`, and
+// `expandDoc` stubbed at the module level so exactly one fix iteration
+// runs. The assertion under test is that the fix pass emits
+// `data-mutations` events (not the legacy `data-form-fixed` shape);
+// stubbing lets us verify that wiring without constructing a real
+// field-registry rule + fix pair that produces the error.
 
-vi.mock("@/lib/services/commcare/validate/runner", () => ({
+vi.mock("@/lib/commcare/validator/runner", () => ({
 	runValidation: vi.fn(),
 }));
 
-vi.mock("@/lib/services/commcare/validate/fixes", () => ({
+vi.mock("@/lib/commcare/validator/fixes", () => ({
 	FIX_REGISTRY: new Map<string, (...args: unknown[]) => Mutation[]>(),
 }));
 
-vi.mock("@/lib/services/hqJsonExpander", () => ({
-	expandBlueprint: vi.fn(() => ({
+vi.mock("@/lib/commcare/expander", () => ({
+	expandDoc: vi.fn(() => ({
 		modules: [],
 		_attachments: {},
 	})),
 }));
 
-vi.mock("@/lib/services/commcare/validate/xformValidator", () => ({
+vi.mock("@/lib/commcare/validator/xformValidator", () => ({
 	validateXFormXml: vi.fn(() => []),
 }));
 
@@ -570,8 +571,8 @@ describe("validationLoop — fix pass emission", () => {
 	});
 
 	it("emits a single data-mutations batch per fix attempt with stage fix:attempt-N", async () => {
-		const runnerMod = await import("@/lib/services/commcare/validate/runner");
-		const fixesMod = await import("@/lib/services/commcare/validate/fixes");
+		const runnerMod = await import("@/lib/commcare/validator/runner");
+		const fixesMod = await import("@/lib/commcare/validator/fixes");
 		// Load the real validationLoop. `importActual` bypasses the
 		// file-level mock regardless of cache state — the top-of-file
 		// `vi.mock("../validationLoop", ...)` only affects imports
@@ -619,6 +620,72 @@ describe("validationLoop — fix pass emission", () => {
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("fix:attempt-1");
 		expect(muts[0].mutations).toEqual(fixMutations);
+		expectNoLegacyEvents(writer);
+	});
+
+	it("emits a data-mutations batch with stage connect-defaults when applyConnectDefaults runs", async () => {
+		// applyConnectDefaults must flow through ctx.emitMutations so the
+		// in-browser doc receives the same `updateForm(connect)` patch the
+		// server's working doc carries into the validator. Before this test
+		// landed, the loop applied the mutations locally via Immer +
+		// `applyMutations` but never emitted — the live builder ended up
+		// with an empty/partial connect block while the validator saw a
+		// fully defaulted one.
+		const runnerMod = await import("@/lib/commcare/validator/runner");
+		const { validateAndFix } =
+			await vi.importActual<typeof import("../validationLoop")>(
+				"../validationLoop",
+			);
+
+		// Validator returns no errors so the loop exits straight after
+		// applyConnectDefaults runs — isolates the connect-defaults emit
+		// from the fix:attempt-N path.
+		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
+
+		const docWithConnect: BlueprintDoc = {
+			...makeFixtureDoc(),
+			connectType: "learn",
+			forms: {
+				[FORM_A]: {
+					uuid: FORM_A,
+					id: "enroll",
+					name: "Enroll Patient",
+					type: "registration",
+					connect: {
+						learn_module: {
+							name: "",
+							description: "",
+						} as unknown as {
+							name: string;
+							description: string;
+							time_estimate: number;
+						},
+					},
+				},
+			},
+		};
+
+		const { ctx, writer } = buildCtx();
+		await validateAndFix(ctx, docWithConnect);
+
+		const muts = mutationEvents(writer);
+		const connectMut = muts.find((m) => m.stage === "connect-defaults");
+		expect(connectMut).toBeDefined();
+		expect(connectMut?.mutations).toHaveLength(1);
+		expect(connectMut?.mutations[0]).toMatchObject({
+			kind: "updateForm",
+			uuid: FORM_A,
+		});
+		// The defaulted learn_module fills in id/name/description/time_estimate.
+		const patch = (
+			connectMut?.mutations[0] as Extract<Mutation, { kind: "updateForm" }>
+		).patch;
+		expect(patch.connect?.learn_module).toMatchObject({
+			id: "patient",
+			name: "Enroll Patient",
+			description: "Enroll Patient",
+			time_estimate: 1,
+		});
 		expectNoLegacyEvents(writer);
 	});
 });

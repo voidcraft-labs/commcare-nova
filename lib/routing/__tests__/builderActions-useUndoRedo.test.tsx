@@ -46,7 +46,7 @@ vi.mock("next/navigation", async () => {
 const findFieldElement = vi.fn<
 	(uuid: string, fieldId?: string) => HTMLElement | null
 >(() => null);
-const scrollToQuestion = vi.fn();
+const scrollToField = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
 const activeFieldIdRef = { current: undefined as string | undefined };
@@ -108,7 +108,7 @@ function makeStore() {
 }
 
 function ScrollCallbackInstaller({ children }: { children: ReactNode }) {
-	useRegisterScrollCallback(scrollToQuestion);
+	useRegisterScrollCallback(scrollToField);
 	return <>{children}</>;
 }
 
@@ -130,7 +130,7 @@ describe("useUndoRedo", () => {
 	beforeEach(() => {
 		findFieldElement.mockReset();
 		findFieldElement.mockImplementation(() => null);
-		scrollToQuestion.mockReset();
+		scrollToField.mockReset();
 		flashUndoHighlight.mockReset();
 		setFocusHint.mockReset();
 		activeFieldIdRef.current = undefined;
@@ -203,7 +203,7 @@ describe("useUndoRedo", () => {
 		});
 		act(() => result.current.undo());
 
-		expect(scrollToQuestion).not.toHaveBeenCalled();
+		expect(scrollToField).not.toHaveBeenCalled();
 		expect(flashUndoHighlight).not.toHaveBeenCalled();
 		expect(setFocusHint).not.toHaveBeenCalled();
 	});
@@ -237,7 +237,7 @@ describe("useUndoRedo", () => {
 			act(() => result.current.undo());
 		}).not.toThrow();
 
-		expect(scrollToQuestion).not.toHaveBeenCalled();
+		expect(scrollToField).not.toHaveBeenCalled();
 		expect(flashUndoHighlight).not.toHaveBeenCalled();
 
 		qsSpy.mockRestore();
@@ -275,7 +275,7 @@ describe("useUndoRedo", () => {
 			"q-a-0000-0000-0000-000000000000",
 			undefined,
 		);
-		expect(scrollToQuestion).toHaveBeenCalledWith(
+		expect(scrollToField).toHaveBeenCalledWith(
 			"q-a-0000-0000-0000-000000000000",
 			fakeEl,
 			"instant",

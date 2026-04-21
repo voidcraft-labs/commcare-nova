@@ -231,7 +231,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					<FormRenderer parentEntityId={formId} />
 				) : (
 					<div className="text-center text-nova-text-muted py-8">
-						This form has no questions.
+						This form has no fields.
 					</div>
 				)}
 			</div>

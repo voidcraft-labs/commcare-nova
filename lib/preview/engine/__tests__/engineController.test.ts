@@ -3,9 +3,9 @@
  * to the BlueprintDoc store for per-field reactivity, structural changes,
  * and form activation.
  *
- * Fixtures are built directly in the normalized `PersistableDoc` shape —
- * no legacy `AppBlueprint` tree. The doc store's `load()` accepts this
- * shape and rebuilds `fieldParent` on load.
+ * Fixtures are built directly in the normalized `PersistableDoc` shape.
+ * The doc store's `load()` accepts this shape and rebuilds `fieldParent`
+ * on load.
  */
 import { describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";

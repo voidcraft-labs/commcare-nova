@@ -20,7 +20,7 @@ import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import { showToast } from "@/lib/services/toastStore";
+import { showToast } from "@/lib/ui/toastStore";
 
 interface ExportPanelProps {
 	/** Whether CommCare HQ credentials are configured. */

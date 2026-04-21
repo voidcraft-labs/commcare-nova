@@ -1,14 +1,16 @@
-# CommCare XPath Language (CodeMirror 6)
+# lib/codemirror — XPath editor extensions
 
-XPath 1.0 language with CommCare hashtag references (`#case/prop`, `#form/field`, `#user/prop`), built on a Lezer grammar.
+CodeMirror 6 extensions for editing CommCare XPath inside the builder: language binding, autocomplete, linting, hashtag chips, source formatting, theme. The language grammar + parser itself lives in `lib/commcare/xpath/` (shared with the compile-time transpiler and deep validator); this package only consumes `parser` + the term constants it re-exports.
 
-## Grammar design decisions
+## Files
 
-- **Hashtag refs use `!hashtag` precedence on the inner `/`**. Without this, the parser reduces early and treats the `/` as a child-step operator, splitting `#case/property` into a hashtag followed by a path.
-- **Keyword operators (`and`, `or`, `div`, `mod`) use `@specialize` wrapped in uppercase `Keyword<w>`.** Lowercase inline rules make specialized tokens invisible in the parse tree, breaking consumers that need to identify operators.
-- **Standalone `/` has dynamic precedence `~-10`** so path interpretation (`/step`) wins over bare root — the correct behavior in virtually all CommCare XPath.
-- **Number literals beat `"."`** in token precedence so `.666` parses as a number, not a self-step followed by digits.
+- `xpath-language.ts` — wraps the Lezer parser as a CodeMirror `LanguageSupport`.
+- `xpath-autocomplete.ts` — hashtag + function completions, scoped to the current form.
+- `xpath-lint.ts` / `buildLintContext.ts` — surface validator diagnostics inline; the context object shuttles the doc + target field + function registry into the linter without pulling the validator into every editor mount.
+- `xpath-chips.ts` — replaces hashtag tokens with a pill widget backed by the parser's node positions.
+- `xpath-format.ts` — canonical-form whitespace normalizer used when committing an edit.
+- `xpath-theme.ts` — token colors + decoration styles, driven by `globals.css` custom properties.
 
 ## Node type comparisons
 
-Always use pre-resolved `NodeType` objects from `parser.nodeSet.types` (the `T` lookup), never string name comparisons. Applies to operators, delimiters, keywords, and composite node types.
+Always use pre-resolved `NodeType` objects from `parser.nodeSet.types` (the `T` lookup re-exported alongside `parser`), never string name comparisons. Applies to operators, delimiters, keywords, and composite node types.

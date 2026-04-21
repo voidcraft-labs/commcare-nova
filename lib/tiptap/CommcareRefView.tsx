@@ -4,7 +4,7 @@
  * Renders the shared ReferenceChip component inside a NodeViewWrapper,
  * keeping chip appearance consistent between CodeMirror and TipTap surfaces.
  * Uses the ReferenceProvider from context to resolve the full reference
- * (including the question type icon for #form/ refs).
+ * (including the field kind icon for #form/ refs).
  */
 
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";

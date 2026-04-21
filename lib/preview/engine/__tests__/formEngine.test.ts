@@ -3,8 +3,7 @@
  *
  * The engine consumes a `FormEngineInput` (form + fields map + fieldOrder) —
  * the same domain shape produced by the normalized doc store. These tests
- * build fixtures directly in that shape via the `dTree` helper so no legacy
- * `Question`/`BlueprintForm` wire types appear.
+ * build fixtures directly in that shape via the `dTree` helper.
  */
 import { describe, expect, it } from "vitest";
 import type {
@@ -127,7 +126,7 @@ describe("FormEngine", () => {
 	});
 
 	describe("relevant (visibility)", () => {
-		it("hides questions when relevant evaluates to false", () => {
+		it("hides fields when relevant evaluates to false", () => {
 			const input = dTree([
 				{
 					id: "has_children",
@@ -202,7 +201,7 @@ describe("FormEngine", () => {
 	});
 
 	describe("required", () => {
-		it("marks statically required questions", () => {
+		it("marks statically required fields", () => {
 			const input = dTree([
 				{ id: "name", kind: "text", label: "Name", required: "true()" },
 				{ id: "notes", kind: "text", label: "Notes" },
@@ -389,7 +388,7 @@ describe("FormEngine", () => {
 	});
 
 	describe("groups", () => {
-		it("handles nested group questions", () => {
+		it("handles nested group fields", () => {
 			const input = dTree([
 				{
 					id: "demographics",

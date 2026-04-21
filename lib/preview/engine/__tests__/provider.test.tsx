@@ -9,8 +9,8 @@
  * inside `BuilderFormEngineProvider` can read the doc store — mirroring
  * the real provider stack in `components/builder/BuilderProvider.tsx`.
  *
- * Fixtures are built in the normalized doc shape directly — no legacy
- * `AppBlueprint` tree. The doc store's `load()` takes a `PersistableDoc`.
+ * Fixtures are built in the normalized doc shape directly. The doc store's
+ * `load()` takes a `PersistableDoc`.
  */
 
 import { render, renderHook } from "@testing-library/react";

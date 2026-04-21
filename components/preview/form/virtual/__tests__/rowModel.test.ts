@@ -4,7 +4,7 @@
  * These tests pin down the shape of the flattened row list for every case the
  * walker must cover:
  *
- * - A flat form (only leaf questions).
+ * - A flat form (only leaf fields).
  * - A form with a single group + children.
  * - A form with a repeat + children.
  * - Nested groups (depth > 1).
@@ -108,7 +108,7 @@ describe("buildFormRows — flat form", () => {
 		expect(rows[0].kind).toBe("insertion");
 	});
 
-	it("missing questionOrder entry yields just the leading insertion", () => {
+	it("missing fieldOrder entry yields just the leading insertion", () => {
 		const rows = buildFormRows(src({}, {}), F, {
 			includeInsertionPoints: true,
 			collapsed: EMPTY,
@@ -276,7 +276,7 @@ describe("buildFormRows — insertion point layout", () => {
 // ── Defensive: dangling refs ──────────────────────────────────────────
 
 describe("buildFormRows — defensive", () => {
-	it("skips uuids in questionOrder that have no entity", () => {
+	it("skips uuids in fieldOrder that have no entity", () => {
 		const rows = buildFormRows(
 			src({ [Q(1)]: text(Q(1), "present") }, { [F]: [Q(1), Q(2)] }),
 			F,
@@ -307,16 +307,16 @@ describe("buildFormRows — row id stability", () => {
 	});
 
 	it("field row id reflects the field uuid, not its position", () => {
-		// Reorder the same questions — their row ids must not change.
-		const questions = {
+		// Reorder the same fields — their row ids must not change.
+		const fields = {
 			[Q(1)]: text(Q(1), "a"),
 			[Q(2)]: text(Q(2), "b"),
 		};
-		const before = buildFormRows(src(questions, { [F]: [Q(1), Q(2)] }), F, {
+		const before = buildFormRows(src(fields, { [F]: [Q(1), Q(2)] }), F, {
 			includeInsertionPoints: false,
 			collapsed: EMPTY,
 		});
-		const after = buildFormRows(src(questions, { [F]: [Q(2), Q(1)] }), F, {
+		const after = buildFormRows(src(fields, { [F]: [Q(2), Q(1)] }), F, {
 			includeInsertionPoints: false,
 			collapsed: EMPTY,
 		});

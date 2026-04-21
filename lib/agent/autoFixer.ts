@@ -11,7 +11,7 @@ import {
 	RESERVED_CASE_PROPERTIES,
 	RESERVED_RENAME_MAP,
 	XML_ELEMENT_NAME_REGEX,
-} from "@/lib/services/commcare";
+} from "@/lib/commcare";
 
 export class AutoFixer {
 	/**

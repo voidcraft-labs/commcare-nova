@@ -8,16 +8,12 @@ External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `compon
 
 **The SA speaks domain vocabulary end-to-end.** Tool names, tool arguments, tool return shapes, and the system prompt all use domain names (`field`, `kind`, `validate`, `validate_msg`, `case_property`). There is no CommCare→domain translation layer anywhere in this directory — SA tool args feed directly into `blueprintHelpers.ts` reducers.
 
-CommCare wire terms live only at two genuine boundaries, both outside `lib/agent/`:
-- `lib/commcare/` (XForm emission, HQ JSON expander).
-- `lib/doc/legacyBridge.ts` (one-way conversion for the live compile / HQ-upload path).
-
-`validateAndFix` internally converts the doc to the legacy nested shape to run XForm validation, then hands back a normalized doc — the CommCare boundary is contained inside that helper.
+CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). `validateAndFix` feeds `BlueprintDoc` through the validator + `expandDoc` directly — no wire-format round-trip inside the agent layer.
 
 ## What lives here
 
 - `solutionsArchitect.ts` — the one `ToolLoopAgent` factory. Owns the SA's internal `BlueprintDoc` for the lifetime of a request and emits fine-grained mutations for every tool call.
-- `prompts.ts` — system prompt + blueprint summary renderer. Summary walks the normalized doc directly (no `toBlueprint`) and emits field vocabulary. CommCare XForm terms (e.g. `jr:`, `#form/`, XPath function names) still appear where the SA genuinely needs them.
+- `prompts.ts` — system prompt + blueprint summary renderer. The summary walks the normalized doc directly and emits field vocabulary. CommCare XForm terms (e.g. `jr:`, `#form/`, XPath function names) still appear where the SA genuinely needs them.
 - `toolSchemaGenerator.ts` — generates the three field-mutation tool schemas (`addFieldsItemSchema`, `addFieldSchema`, `editFieldUpdatesSchema`) from `fieldRegistry` + `fieldKinds`. Per-kind `saDocs` flows through into the `kind` enum description. The 8-optional sentinel strategy (promoting `label`/`required` to required-with-sentinel) stays inside this file.
 - `toolSchemas.ts` — materializes the generator output once and exposes the stable Zod nodes the SA + `scripts/test-schema.ts` reuse.
 - `scaffoldSchemas.ts` — describe-rich input schemas for the initial-build generation tools (`generateSchema`, `generateScaffold`, `addModule`). Separate from `toolSchemas.ts` because these describe whole-app structure, not per-field edits.

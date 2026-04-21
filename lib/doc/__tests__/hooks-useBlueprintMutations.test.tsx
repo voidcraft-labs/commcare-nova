@@ -365,9 +365,9 @@ describe("useBlueprintMutations", () => {
 		]);
 	});
 
-	// ── moveQuestion ──────────────────────────────────────────────────────
+	// ── moveField ─────────────────────────────────────────────────────────
 
-	it("moveQuestion with afterUuid reorders within the same parent", () => {
+	it("moveField with afterUuid reorders within the same parent", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -380,7 +380,7 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
 	});
 
-	it("moveQuestion with toParentUuid crosses parents", () => {
+	it("moveField with toParentUuid crosses parents", () => {
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
@@ -958,9 +958,9 @@ describe("useBlueprintMutations", () => {
 		expect(captured.value?.xpathFieldsRewritten).toBeGreaterThan(0);
 	});
 
-	// ── moveQuestion — extra options ──────────────────────────────────────
+	// ── moveField — extra options ─────────────────────────────────────────
 
-	it("moveQuestion with beforeUuid reorders within the same parent", () => {
+	it("moveField with beforeUuid reorders within the same parent", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -973,7 +973,7 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
 	});
 
-	it("moveQuestion with toIndex reorders to the specified slot", () => {
+	it("moveField with toIndex reorders to the specified slot", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});

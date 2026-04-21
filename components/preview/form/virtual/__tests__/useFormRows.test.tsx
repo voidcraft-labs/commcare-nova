@@ -8,8 +8,7 @@
  * creating the store directly, so the test respects the store-boundary
  * rule enforced by Biome's `noRestrictedImports`.
  *
- * Fixtures are built in the normalized `BlueprintDoc` shape directly — no
- * legacy `AppBlueprint` / `Question` wire types cross the test boundary.
+ * Fixtures are built in the normalized `BlueprintDoc` shape directly.
  */
 
 import { act, renderHook } from "@testing-library/react";

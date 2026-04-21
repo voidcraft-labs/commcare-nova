@@ -35,9 +35,9 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import type { ConversationEvent, MutationEvent } from "@/lib/log/types";
-import { showToast } from "@/lib/services/toastStore";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
+import { showToast } from "@/lib/ui/toastStore";
 
 // ── Signal grid energy table ────────────────────────────────────────────
 

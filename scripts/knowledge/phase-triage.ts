@@ -157,12 +157,12 @@ export async function triage(
 			const result = await generateObject({
 				model: anthropic(HAIKU_MODEL),
 				schema: triageBatchSchema,
-				system: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, questions, case configuration, form logic) from natural language.
+				system: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields, case configuration, form logic) from natural language.
 
 Rate each page:
 - **relevance** (0-10): How useful for an AI building CommCare apps? 0 = irrelevant (HR, sales, internal process). 10 = directly teaches CommCare app-building concepts.
 - **knowledgeType**: conceptual, how-to, reference, troubleshooting, best-practices, example, api-docs
-- **topicTags**: Specific CommCare concepts (e.g., "case management", "lookup tables", "itemsets", "XPath", "form actions", "mobile workers", "case sharing", "repeat groups", "fixtures", "instances", "multimedia", "form logic", "case list configuration", "detail screens", "user roles", "locations", "stock management", "scheduling", "integrations", "data forwarding", "question types", "form design", "case properties")
+- **topicTags**: Specific CommCare concepts (e.g., "case management", "lookup tables", "itemsets", "XPath", "form actions", "mobile workers", "case sharing", "repeat groups", "fixtures", "instances", "multimedia", "form logic", "case list configuration", "detail screens", "user roles", "locations", "stock management", "scheduling", "integrations", "data forwarding", "field kinds", "form design", "case properties")
 - **quality**: "rich" = substantial, detailed content. "moderate" = useful but brief. "stub" = skeleton/placeholder/very short.
 - **reasoning**: 1 sentence explaining the score.`,
 				prompt: batch

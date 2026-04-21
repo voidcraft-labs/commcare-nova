@@ -3,7 +3,7 @@ import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { parseBareHashtags } from "./labelRefs";
 
-export type ExpressionType =
+type ExpressionType =
 	| "relevant"
 	| "calculate"
 	| "required"

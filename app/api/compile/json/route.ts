@@ -1,19 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { expandDoc } from "@/lib/commcare/expander";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
-import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 
 /**
  * HQ-JSON export endpoint.
  *
- * Accepts the normalized `BlueprintDoc` domain shape and converts to
- * CommCare's `AppBlueprint` wire format server-side at the boundary.
- * The output is the HQ-expected JSON file for upload to CommCare HQ —
- * this is an external emission boundary, analogous to the XForm XML
- * emitter. Domain→wire translation is legitimate here.
+ * Accepts the normalized `BlueprintDoc` and emits the HQ import JSON
+ * directly via `expandDoc`. The output is the HQ-expected JSON file for
+ * upload to CommCare HQ — an external emission boundary analogous to
+ * the XForm XML emitter.
  */
 export async function POST(req: NextRequest) {
 	try {
@@ -30,24 +29,22 @@ export async function POST(req: NextRequest) {
 			throw new ApiError(
 				"Invalid doc",
 				400,
-				parsedDoc.error.issues.map(
-					(e: { path: PropertyKey[]; message: string }) =>
-						`${e.path.join(".")}: ${e.message}`,
-				),
+				parsedDoc.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
 		}
 
-		// Domain → wire at the CommCare emission boundary. `fieldParent`
-		// is derived on load and not persisted; seed empty to satisfy the
-		// BlueprintDoc type without rebuilding the reverse index.
-		const blueprint = toBlueprint({ ...parsedDoc.data, fieldParent: {} });
-		const hqJson = expandBlueprint(blueprint);
+		// `fieldParent` is derived on load and not persisted; rebuild it
+		// here so the expander sees a fully usable doc.
+		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
+		rebuildFieldParent(docWithParent);
+
+		const hqJson = expandDoc(docWithParent);
 		const jsonStr = JSON.stringify(hqJson, null, 2);
 
 		return new NextResponse(jsonStr, {
 			headers: {
 				"Content-Type": "application/json",
-				"Content-Disposition": `attachment; filename="${sanitizeFilename(blueprint.app_name)}.json"`,
+				"Content-Disposition": `attachment; filename="${sanitizeFilename(docWithParent.appName)}.json"`,
 			},
 		});
 	} catch (err) {

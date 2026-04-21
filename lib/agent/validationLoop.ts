@@ -2,34 +2,36 @@
  * Validation and fix loop for CommCare app blueprints.
  *
  * Two-phase validation:
- *   1. Domain validation — structural/semantic rules + XPath deep validation
- *      run directly on `BlueprintDoc`.
- *   2. Post-expansion validation — parse generated XForm XML and verify
- *      internal references. Expansion itself is the legitimate XForm
- *      wire-boundary emission; the doc is translated to `AppBlueprint`
- *      exactly once at that emit site and never travels back.
+ *   1. Domain validation — structural/semantic rules + XPath deep
+ *      validation run directly on `BlueprintDoc`.
+ *   2. Post-expansion validation — `expandDoc` produces the HQ import
+ *      JSON + XForm attachments; the XForm XML is parsed and its
+ *      internal references verified.
  *
  * Auto-fixes from the fix registry produce domain `Mutation`s, which are
  * applied to the working doc between validation attempts via the same
- * reducer the builder and SA use for manual edits. No wire-format round-
- * trip of the doc itself remains.
+ * reducer the builder and SA use for manual edits. Connect-config
+ * defaults are filled in by `deriveConnectDefaults`, which operates on
+ * `BlueprintDoc` directly and returns the defaulted `ConnectConfig`;
+ * `applyConnectDefaults` below folds that into an `updateForm` mutation
+ * per affected form.
  */
 
 import { produce } from "immer";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
-import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
-import type { HqApplication } from "@/lib/services/commcare";
+import type { HqApplication } from "@/lib/commcare";
+import { expandDoc } from "@/lib/commcare/expander";
 import {
 	errorToString,
 	type ValidationError,
-} from "@/lib/services/commcare/validate/errors";
-import { FIX_REGISTRY } from "@/lib/services/commcare/validate/fixes";
-import { runValidation } from "@/lib/services/commcare/validate/runner";
-import { validateXFormXml } from "@/lib/services/commcare/validate/xformValidator";
-import { deriveConnectDefaults } from "@/lib/services/connectConfig";
-import { expandBlueprint } from "@/lib/services/hqJsonExpander";
+} from "@/lib/commcare/validator/errors";
+import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { deriveConnectDefaults } from "@/lib/doc/connectConfig";
+import { iterForms } from "@/lib/doc/fieldWalk";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { GenerationContext } from "./generationContext";
 
 // ── Post-expansion validation ────────────────────────────────────────
@@ -109,13 +111,12 @@ export async function validateAndFix(
 ): Promise<ValidateAndFixResult> {
 	let workingDoc = doc;
 
-	// Auto-populate Connect config defaults before validation. This mutates
-	// the form.connect struct in place — we re-wire by materializing the
-	// wire form, running the existing helper, then folding the result back
-	// via a set of `updateForm` mutations. In practice the helper rarely
-	// changes anything (it only fills in id/name/description defaults), so
-	// the cost is negligible.
-	workingDoc = applyConnectDefaults(workingDoc);
+	// Auto-populate Connect config defaults before validation. The helper
+	// produces a defaulted `ConnectConfig` per affected form; we apply the
+	// resulting `updateForm` batch locally AND emit it through `ctx` so the
+	// live builder sees the same defaults the server's working doc carries
+	// into the validator.
+	workingDoc = applyConnectDefaults(ctx, workingDoc);
 
 	const recentSignatures: string[] = [];
 	const MAX_STUCK_REPEATS = 3;
@@ -126,7 +127,7 @@ export async function validateAndFix(
 		const errors = runValidation(workingDoc);
 
 		if (errors.length === 0) {
-			const hqJson = expandBlueprint(toBlueprint(workingDoc));
+			const hqJson = expandDoc(workingDoc);
 			const postErrors = validateExpansion(hqJson, workingDoc);
 			if (postErrors.length > 0) {
 				return {
@@ -155,7 +156,7 @@ export async function validateAndFix(
 			recentSignatures.every((s) => s === sig)
 		) {
 			try {
-				const hqJson = expandBlueprint(toBlueprint(workingDoc));
+				const hqJson = expandDoc(workingDoc);
 				return { success: false, doc: workingDoc, hqJson, errors };
 			} catch {
 				return { success: false, doc: workingDoc, errors };
@@ -191,7 +192,7 @@ export async function validateAndFix(
 		if (allMutations.length === 0) {
 			// No fixes available for any error — surface the remainder.
 			try {
-				const hqJson = expandBlueprint(toBlueprint(workingDoc));
+				const hqJson = expandDoc(workingDoc);
 				return { success: false, doc: workingDoc, hqJson, errors };
 			} catch {
 				return { success: false, doc: workingDoc, errors };
@@ -211,47 +212,42 @@ export async function validateAndFix(
 
 /**
  * Apply `deriveConnectDefaults` to every form's connect block (if present).
- * The helper operates on the wire `BlueprintForm` shape; we round-trip the
- * whole doc through the wire format, let the helper fill in defaults in
- * place, then fold any resulting changes back via `updateForm` mutations.
+ * The helper produces a defaulted `ConnectConfig` per form; we batch one
+ * `updateForm` mutation per affected form, apply locally on an Immer draft
+ * (so the validator sees the defaults), AND emit through `ctx.emitMutations`
+ * (so the live builder applies the identical batch via `docStore.applyMany`).
  *
- * Nothing here changes semantics — it mirrors the previous loop's behavior
- * — but keeping it off to the side prevents it from hiding inside the
- * main validate/fix flow.
+ * The `connect-defaults` stage tag is stamped on every envelope so the log
+ * UI can render the defaults pass distinctly from `fix:attempt-N` batches.
  */
-function applyConnectDefaults(doc: BlueprintDoc): BlueprintDoc {
+function applyConnectDefaults(
+	ctx: GenerationContext,
+	doc: BlueprintDoc,
+): BlueprintDoc {
 	if (!doc.connectType) return doc;
 
-	// Only forms that already have `form.connect` set receive defaults.
-	// We build the set of affected form uuids first; if none, skip.
-	const affected: string[] = [];
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			if (doc.forms[formUuid].connect) affected.push(formUuid);
-		}
-	}
-	if (affected.length === 0) return doc;
-
-	const wire = toBlueprint(doc);
 	const mutations: Mutation[] = [];
-	for (let mIdx = 0; mIdx < wire.modules.length; mIdx++) {
-		const mod = wire.modules[mIdx];
-		for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
-			const form = mod.forms[fIdx];
-			if (!form.connect) continue;
-			deriveConnectDefaults(doc.connectType, form, mod.name);
-			const formUuid = doc.formOrder[doc.moduleOrder[mIdx]]?.[fIdx];
-			if (!formUuid) continue;
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: { connect: form.connect },
-			});
-		}
+	for (const { moduleName, formUuid } of iterForms(doc)) {
+		const form = doc.forms[formUuid];
+		if (!form?.connect) continue;
+		const next = deriveConnectDefaults({
+			connectType: doc.connectType,
+			doc,
+			formUuid,
+			moduleName,
+		});
+		if (!next) continue;
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: { connect: next },
+		});
 	}
 
 	if (mutations.length === 0) return doc;
-	return produce(doc, (draft) => {
+	const nextDoc = produce(doc, (draft) => {
 		applyMutations(draft, mutations);
 	});
+	ctx.emitMutations(mutations, "connect-defaults");
+	return nextDoc;
 }

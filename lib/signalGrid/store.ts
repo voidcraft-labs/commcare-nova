@@ -1,7 +1,7 @@
 /**
  * signalGrid store -- module-level nanostore for the signal grid's non-reactive state.
  *
- * Pattern mirrors `lib/services/toastStore.ts`: plain class, module singleton,
+ * Pattern mirrors `lib/ui/toastStore.ts`: plain class, module singleton,
  * callable from anywhere (route handlers, agent stream consumers, React). The
  * store holds energy counters; the `SignalGridController` drains accumulated
  * energy into frame-scoped animation state from its own rAF loop.

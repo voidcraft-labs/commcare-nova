@@ -2,12 +2,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { Toggle } from "@/components/ui/Toggle";
+import { toSnakeId } from "@/lib/commcare";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
-import { toSnakeId } from "@/lib/services/commcare/validate";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
 import { DEFAULT_LEARN_TIME_ESTIMATE, LearnConfig } from "./LearnConfig";

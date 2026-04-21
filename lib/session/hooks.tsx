@@ -15,7 +15,7 @@ import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
-import { BuilderPhase } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	bufferHasBuildFoundation,
 	deriveAgentError,
@@ -138,7 +138,7 @@ export function useClearFocusHint(): () => void {
 /** Whether the given uuid is the just-added field. Drives auto-focus
  *  and select-all on the ID input in FieldHeader. */
 export function useIsNewField(uuid: string): boolean {
-	return useBuilderSession((s) => s.newQuestionUuid === uuid);
+	return useBuilderSession((s) => s.newFieldUuid === uuid);
 }
 
 /** Mark a uuid as newly added. Called by FieldTypePicker after insert. */

@@ -6,7 +6,7 @@
  * serves the same RSC page for all intra-builder paths:
  *   /build/{id}              → home
  *   /build/{id}/{uuid}       → module or form
- *   /build/{id}/{uuid}/{uuid} → form + selected question
+ *   /build/{id}/{uuid}/{uuid} → form + selected field
  *   /build/{id}/{uuid}/cases  → case list
  *
  * The `path` param is NOT read here — all path resolution happens

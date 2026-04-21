@@ -54,10 +54,9 @@ doc IDs are minted by Firestore per write.
 
 ## Replay
 
-`replayEvents(events, onMutation, onConversation, delayPerEvent?, signal?)`
-walks the log in order. Mutations go to `docStore.applyMany`; conversation
-events feed `useReplayMessages` (a pure derivation). No state
-reconstruction — mutations are the state delta and conversation events are
-stored directly. `deriveReplayChapters(events)` segments the stream into
-UI chapters (Conversation, Data Model, Scaffold, Module, Form, Validation,
-Done).
+Two files split by concern:
+
+- `replay.ts` — the dispatcher loop. `replayEvents(events, onMutation, onConversation, delayPerEvent?, signal?)` is async + abortable for live-playback demo modes; `replayEventsSync` is the scrub / hydrate path used by `ReplayController` + `BuilderProvider` where the cursor commit runs immediately after dispatch and every mutation must be landed by then. Kept tight (≤50 lines) so the "no await between events" invariant stays readable.
+- `replayChapters.ts` — `deriveReplayChapters(events)` is pure data shaping. Segments the event stream into UI chapters (Conversation, Data Model, Scaffold, Module, Form, Validation Fix, Edit) by grouping contiguous mutations by `stage` tag. Subtitle resolution walks a running `BlueprintDoc` chapter-by-chapter via `applyMutations` so `module:N` / `form:M-F` tags resolve to display names using the state the live SA observed at chapter start.
+
+Mutations go to `docStore.applyMany`; conversation events feed `useReplayMessages` (a pure derivation). No state reconstruction — mutations are the state delta and conversation events are stored directly.

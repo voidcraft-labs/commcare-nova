@@ -1,10 +1,11 @@
 /**
  * ScrollRegistryContext — imperative scroll plumbing for the builder.
  *
- * Replaces the `_scrollCallback`, `_pendingScroll`, `scrollToQuestion`, and
- * `setPendingScroll` members previously on `BuilderEngine`. All state lives
+ * Owns the "scroll the selected field into view" protocol. All state lives
  * in refs (never triggers React re-renders) because scroll is a DOM-level
- * concern that belongs outside the render path.
+ * concern that belongs outside the render path: a registered callback owns
+ * the actual DOM scroll, and a pending-request slot bridges "select a
+ * field" to "scroll when that field's panel mounts".
  *
  * Three public hooks expose the API to consumers:
  *  - `useRegisterScrollCallback` — BuilderLayout registers the DOM scroll impl

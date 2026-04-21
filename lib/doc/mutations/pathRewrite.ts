@@ -18,7 +18,7 @@
  */
 
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/codemirror/xpath-parser";
+import { parser } from "@/lib/commcare/xpath";
 
 /**
  * Pre-resolved Lezer node types — cached at module load so the walker
@@ -69,7 +69,7 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  * name). Those refs are now dangling; the caller can surface the count
  * so users know something broke silently.
  */
-export interface RewriteOnMoveResult {
+interface RewriteOnMoveResult {
 	expr: string;
 	droppedHashtagRefs: number;
 }

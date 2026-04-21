@@ -39,6 +39,9 @@ yarn-error.log*
 # build data
 /.data/
 
+# generated knowledge-sync output
+/scripts/knowledge/output/
+
 # vercel
 .vercel
 

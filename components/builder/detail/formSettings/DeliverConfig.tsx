@@ -2,10 +2,10 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { Toggle } from "@/components/ui/Toggle";
+import { toSnakeId } from "@/lib/commcare";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
-import { toSnakeId } from "@/lib/services/commcare/validate";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { useConnectLintContext } from "./useConnectLintContext";

@@ -189,7 +189,7 @@ describe("LocationRecoveryEffect", () => {
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 
 		// Delete the entire module. The reducer cascade drops all forms
-		// and questions with it.
+		// and fields with it.
 		act(() => {
 			store
 				.getState()

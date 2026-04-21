@@ -93,14 +93,14 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
  * each intermediate save. Undefined until the SA registers — no-op saves
  * before that.
  */
-export type DocProvider = () => BlueprintDoc | undefined;
+type DocProvider = () => BlueprintDoc | undefined;
 
 /**
  * Constructor options. Two orthogonal collaborators: `LogWriter` owns
  * durable event persistence (fire-and-forget); `UsageAccumulator` owns
  * cost aggregation and exposes the `runId` used on every event envelope.
  */
-export interface GenerationContextOptions {
+interface GenerationContextOptions {
 	apiKey: string;
 	/** SSE writer for the live builder. Unchanged wire format. */
 	writer: UIMessageStreamWriter;

@@ -1,9 +1,8 @@
 /**
- * Shared test helpers for `lib/generation/` test files. Extracted when a
- * third consumer (Task 17d's SA emission integration test) was about to
- * duplicate the same wiring a third time. Any fresh `{ docStore,
- * sessionStore }` pair in this tree should come from here — there must
- * be exactly one wiring helper, not one per file.
+ * Shared test helpers for `lib/generation/` test files. Any fresh
+ * `{ docStore, sessionStore }` pair in this tree comes from here so the
+ * wiring between the doc + session stores stays consistent — there is
+ * exactly one wiring helper, not one per file.
  */
 
 import {

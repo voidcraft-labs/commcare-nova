@@ -9,8 +9,8 @@
  * A Biome `noRestrictedImports` lint rule enforces this boundary: imports
  * of `@/lib/doc/store` from `components/` or `app/` code fail the build.
  *
- * The store instance comes from `BlueprintDocContext` (Phase 1b). Calling
- * any of these hooks outside a `<BlueprintDocProvider>` throws.
+ * The store instance comes from `BlueprintDocContext`. Calling any of
+ * these hooks outside a `<BlueprintDocProvider>` throws.
  */
 
 "use client";

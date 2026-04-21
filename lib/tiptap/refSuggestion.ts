@@ -26,7 +26,7 @@ import { REFERENCE_TYPES } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import type { Reference, ReferenceType } from "@/lib/references/types";
 
-/** A namespace option for Phase 1 (before "/" is typed). */
+/** A namespace option for the namespace stage (before "/" is typed). */
 interface NamespaceItem {
 	kind: "namespace";
 	type: ReferenceType;
@@ -57,9 +57,11 @@ function parseQuery(query: string): {
 
 /**
  * Create a TipTap Suggestion config wired to a ReferenceProvider.
- * The suggestion triggers on "#", shows namespace options first, then filtered
- * references after a namespace is selected. On selection, inserts a commcareRef
- * node (Phase 2) or raw "#type/" text to re-trigger (Phase 1).
+ * The suggestion triggers on "#", shows namespace options first
+ * (namespace stage), then filtered references after a namespace is
+ * selected (reference stage). On selection, inserts a commcareRef node
+ * (reference stage) or raw "#type/" text to re-trigger the namespace
+ * stage.
  */
 export function createRefSuggestion(
 	provider: ReferenceProvider,
@@ -71,7 +73,7 @@ export function createRefSuggestion(
 		items: ({ query }: { query: string }): SuggestionItem[] => {
 			const { namespace, partial } = parseQuery(query);
 
-			/* Phase 1: no namespace yet — show namespace options filtered by partial. */
+			/* Namespace stage: no namespace yet — show namespace options filtered by partial. */
 			if (!namespace) {
 				return REFERENCE_TYPES.filter((ns) =>
 					ns.startsWith(partial.toLowerCase()),
@@ -82,7 +84,7 @@ export function createRefSuggestion(
 				}));
 			}
 
-			/* Phase 2: namespace known — search references. */
+			/* Reference stage: namespace known — search references. */
 			return provider.search(namespace, partial);
 		},
 
@@ -96,7 +98,7 @@ export function createRefSuggestion(
 			props: SuggestionItem;
 		}) => {
 			if ("kind" in props && props.kind === "namespace") {
-				/* Phase 1: replace the partial with "#type/" to re-trigger suggestion. */
+				/* Namespace stage: replace the partial with "#type/" to re-trigger suggestion. */
 				editor
 					.chain()
 					.focus()
@@ -106,7 +108,7 @@ export function createRefSuggestion(
 				return;
 			}
 
-			/* Phase 2: insert a commcareRef node with the selected reference's attributes. */
+			/* Reference stage: insert a commcareRef node with the selected reference's attributes. */
 			const ref = props as Reference;
 			editor
 				.chain()

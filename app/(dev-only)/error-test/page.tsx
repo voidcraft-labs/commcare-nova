@@ -1,8 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignalPanel } from "@/components/chat/SignalPanel";
-import { BuilderPhase } from "@/lib/services/builder";
-import { showToast } from "@/lib/services/toastStore";
+import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	type GenerationError,
 	GenerationStage,
@@ -13,6 +12,7 @@ import {
 	SignalGridController,
 	type SignalMode,
 } from "@/lib/signalGridController";
+import { showToast } from "@/lib/ui/toastStore";
 
 // ── Simulated error scenarios ──────────────────────────────────────────
 

@@ -16,7 +16,7 @@ import type { Uuid } from "@/lib/doc/types";
 
 interface VirtualFormContextValue {
 	/** The form's uuid — handed to drop-target `getData` builders so
-	 *  they can correctly compute the moveQuestion target parent when
+	 *  they can correctly compute the moveField target parent when
 	 *  the user drops onto the form root. */
 	readonly formUuid: Uuid;
 	/** Toggle a group's collapsed state. Rows call this from the
