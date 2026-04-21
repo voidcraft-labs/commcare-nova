@@ -3,13 +3,13 @@ import { parser } from "@/lib/commcare/xpath";
 
 // --------------- Types ---------------
 
-export enum Layout {
+enum Layout {
 	Space,
 	NewLine,
 	Tab,
 }
 
-export type FormatNode = {
+type FormatNode = {
 	type: NodeType | Layout;
 	text?: string;
 	children?: FormatNode[];

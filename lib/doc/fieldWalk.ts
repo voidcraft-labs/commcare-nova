@@ -25,7 +25,7 @@ import { isContainer } from "@/lib/domain";
  * second `doc.modules[moduleUuid]` lookup at every call site is
  * boilerplate.
  */
-export interface FormIterEntry {
+interface FormIterEntry {
 	moduleUuid: Uuid;
 	moduleName: string;
 	formUuid: Uuid;

@@ -69,7 +69,7 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  * name). Those refs are now dangling; the caller can surface the count
  * so users know something broke silently.
  */
-export interface RewriteOnMoveResult {
+interface RewriteOnMoveResult {
 	expr: string;
 	droppedHashtagRefs: number;
 }

@@ -90,7 +90,7 @@ function baseLocation(ctx: FormContext) {
 
 // ── Rules ──────────────────────────────────────────────────────────
 
-export function emptyForm(
+function emptyForm(
 	doc: BlueprintDoc,
 	_form: Form,
 	ctx: FormContext,
@@ -107,7 +107,7 @@ export function emptyForm(
 	];
 }
 
-export function noCaseNameField(
+function noCaseNameField(
 	form: Form,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -125,7 +125,7 @@ export function noCaseNameField(
 	return [];
 }
 
-export function caseNameFieldMissing(
+function caseNameFieldMissing(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
@@ -144,7 +144,7 @@ export function caseNameFieldMissing(
 	];
 }
 
-export function reservedCaseProperty(
+function reservedCaseProperty(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -166,7 +166,7 @@ export function reservedCaseProperty(
 	return errors;
 }
 
-export function casePropertyMissingField(
+function casePropertyMissingField(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -192,7 +192,7 @@ export function casePropertyMissingField(
 	return errors;
 }
 
-export function mediaCaseProperty(
+function mediaCaseProperty(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -219,7 +219,7 @@ export function mediaCaseProperty(
 	return errors;
 }
 
-export function casePreloadMissingField(
+function casePreloadMissingField(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -245,7 +245,7 @@ export function casePreloadMissingField(
 	return errors;
 }
 
-export function casePreloadReserved(
+function casePreloadReserved(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -266,7 +266,7 @@ export function casePreloadReserved(
 	return errors;
 }
 
-export function duplicateCasePropertyMapping(
+function duplicateCasePropertyMapping(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -295,7 +295,7 @@ export function duplicateCasePropertyMapping(
 	return errors;
 }
 
-export function registrationNoCaseProperties(
+function registrationNoCaseProperties(
 	form: Form,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -322,7 +322,7 @@ export function registrationNoCaseProperties(
  * both field and answer must be specified, and the referenced field must
  * exist in the form.
  */
-export function closeConditionValidation(
+function closeConditionValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
@@ -389,7 +389,7 @@ export function closeConditionValidation(
  *
  * Validates every post_submit destination against the form's context.
  */
-export function postSubmitValidation(
+function postSubmitValidation(
 	form: Form,
 	ctx: FormContext,
 	mod: Module,
@@ -462,7 +462,7 @@ export function postSubmitValidation(
  * existence, self-reference, and missing post_submit fallback. Cycle
  * detection across forms runs at app scope in `circularFormLinks`.
  */
-export function formLinkValidation(
+function formLinkValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
@@ -567,7 +567,7 @@ export function formLinkValidation(
 	return errors;
 }
 
-export function connectValidation(
+function connectValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
@@ -645,7 +645,7 @@ export function connectValidation(
  * scopes (e.g. /data/grp/name and /data/other/name) coexist — they have
  * different XML paths.
  */
-export function duplicateFieldIds(
+function duplicateFieldIds(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 ): ValidationError[] {
@@ -682,7 +682,7 @@ export function duplicateFieldIds(
 	return errors;
 }
 
-export function casePropertyBadFormat(
+function casePropertyBadFormat(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -705,7 +705,7 @@ export function casePropertyBadFormat(
 	return errors;
 }
 
-export function casePropertyTooLong(
+function casePropertyTooLong(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {

@@ -13,7 +13,7 @@ import type { NodeType, SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
 import { FUNCTION_REGISTRY, type XPathType } from "./functionRegistry";
 
-export interface TypeError {
+interface TypeError {
 	code: "TYPE_ERROR";
 	message: string;
 	position: number;

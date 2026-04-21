@@ -37,7 +37,7 @@ const xpathHighlighting = styleTags({
 	RootPath: t.separator,
 });
 
-export const xpathLanguage = LRLanguage.define({
+const xpathLanguage = LRLanguage.define({
 	name: "xpath",
 	parser: parser.configure({
 		props: [

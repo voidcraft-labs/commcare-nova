@@ -18,7 +18,7 @@ import {
 } from "./functionRegistry";
 import { checkTypes } from "./typeChecker";
 
-export interface XPathError {
+interface XPathError {
 	code:
 		| "XPATH_SYNTAX"
 		| "UNKNOWN_FUNCTION"

@@ -29,7 +29,7 @@ export type LabelSegment =
  * to avoid shared mutable `lastIndex` state. `extractValue` maps each regex
  * match to the string stored in the ref segment.
  */
-export function splitOnPattern(
+function splitOnPattern(
 	text: string,
 	pattern: RegExp,
 	extractValue: (match: RegExpExecArray) => string,

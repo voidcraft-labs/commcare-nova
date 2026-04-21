@@ -24,10 +24,8 @@ import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
-	CaseProperty,
 	CaseType,
 	ConnectConfig,
-	ConnectType,
 	Field,
 	FieldKind,
 	Form,
@@ -100,62 +98,12 @@ export function resolveFieldByIndex(
 
 // ── Mutation builders — app level ───────────────────────────────────────
 
-/** Single-field app-level patch. `app_name` and `connect_type` map
- *  directly to dedicated mutation kinds. */
-export function updateAppMutations(
-	_doc: BlueprintDoc,
-	patch: { appName?: string; connectType?: ConnectType | null },
-): Mutation[] {
-	const muts: Mutation[] = [];
-	if (patch.appName !== undefined) {
-		muts.push({ kind: "setAppName", name: patch.appName });
-	}
-	if (patch.connectType !== undefined) {
-		muts.push({ kind: "setConnectType", connectType: patch.connectType });
-	}
-	return muts;
-}
-
 /** Replace the app's case-type catalog wholesale. */
 export function setCaseTypesMutations(
 	_doc: BlueprintDoc,
 	caseTypes: CaseType[] | null,
 ): Mutation[] {
 	return [{ kind: "setCaseTypes", caseTypes }];
-}
-
-/**
- * Merge a partial patch into a single case property. Reads the current
- * catalog off the doc, builds the new array immutably, and emits a
- * single `setCaseTypes` mutation.
- *
- * No-op (returns empty array) when either the case type or the property
- * is missing — matches the legacy helper's fail-open behavior so the
- * UI doesn't throw on stale selections.
- */
-export function updateCasePropertyMutations(
-	doc: BlueprintDoc,
-	caseTypeName: string,
-	propertyName: string,
-	updates: Partial<Omit<CaseProperty, "name">>,
-): Mutation[] {
-	const current = doc.caseTypes;
-	if (!current) return [];
-	const ctIndex = current.findIndex((ct) => ct.name === caseTypeName);
-	if (ctIndex === -1) return [];
-	const ct = current[ctIndex];
-	const propIndex = ct.properties.findIndex((p) => p.name === propertyName);
-	if (propIndex === -1) return [];
-	const next = current.map((c, i) => {
-		if (i !== ctIndex) return c;
-		return {
-			...c,
-			properties: c.properties.map((p, j) =>
-				j === propIndex ? { ...p, ...updates } : p,
-			),
-		};
-	});
-	return [{ kind: "setCaseTypes", caseTypes: next }];
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────
@@ -223,27 +171,6 @@ export function removeModuleMutations(
 ): Mutation[] {
 	if (doc.modules[moduleUuid] === undefined) return [];
 	return [{ kind: "removeModule", uuid: moduleUuid }];
-}
-
-/** Move a module to a new position within `moduleOrder`. */
-export function moveModuleMutations(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-	toIndex: number,
-): Mutation[] {
-	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "moveModule", uuid: moduleUuid, toIndex }];
-}
-
-/** Rename a module's display slug. The `renameModule` reducer writes this
- *  into the `name` field — modules don't have a separate slug. */
-export function renameModuleMutations(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-	newId: string,
-): Mutation[] {
-	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "renameModule", uuid: moduleUuid, newId }];
 }
 
 /** Patch module fields. Keys mirror the domain Module shape (camelCase). */
@@ -323,28 +250,6 @@ export function removeFormMutations(
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
 	return [{ kind: "removeForm", uuid: formUuid }];
-}
-
-/** Move a form to a different module + index. Both uuids are validated. */
-export function moveFormMutations(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	toModuleUuid: Uuid,
-	toIndex: number,
-): Mutation[] {
-	if (doc.forms[formUuid] === undefined) return [];
-	if (doc.modules[toModuleUuid] === undefined) return [];
-	return [{ kind: "moveForm", uuid: formUuid, toModuleUuid, toIndex }];
-}
-
-/** Rename a form's display name. */
-export function renameFormMutations(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	newId: string,
-): Mutation[] {
-	if (doc.forms[formUuid] === undefined) return [];
-	return [{ kind: "renameForm", uuid: formUuid, newId }];
 }
 
 /**
@@ -435,31 +340,6 @@ export function removeFieldMutations(
 	return [{ kind: "removeField", uuid: fieldUuid }];
 }
 
-/** Move a field to a new parent + index. Destination parent must be
- *  either a form or a container field — the reducer validates this too,
- *  but we pre-filter to avoid emitting a mutation that will silently
- *  be ignored. */
-export function moveFieldMutations(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-	toParentUuid: Uuid,
-	toIndex: number,
-): Mutation[] {
-	if (doc.fields[fieldUuid] === undefined) return [];
-	const destIsForm = doc.forms[toParentUuid] !== undefined;
-	const destField = doc.fields[toParentUuid];
-	const destIsContainer = destField !== undefined && isContainer(destField);
-	if (!destIsForm && !destIsContainer) return [];
-	return [
-		{
-			kind: "moveField",
-			uuid: fieldUuid,
-			toParentUuid,
-			toIndex,
-		},
-	];
-}
-
 /** Rename a field's semantic id. The reducer rewrites XPath references
  *  to the old id across the entire doc atomically. */
 export function renameFieldMutations(
@@ -469,15 +349,6 @@ export function renameFieldMutations(
 ): Mutation[] {
 	if (doc.fields[fieldUuid] === undefined) return [];
 	return [{ kind: "renameField", uuid: fieldUuid, newId }];
-}
-
-/** Duplicate a field (+ subtree) with fresh uuids and a deduped id. */
-export function duplicateFieldMutations(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-): Mutation[] {
-	if (doc.fields[fieldUuid] === undefined) return [];
-	return [{ kind: "duplicateField", uuid: fieldUuid }];
 }
 
 /** Patch arbitrary fields on a field entity. The `Field` union is

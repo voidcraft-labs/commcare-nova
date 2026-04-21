@@ -9,7 +9,7 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 
-export function emptyAppName(doc: BlueprintDoc): ValidationError[] {
+function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	if (doc.appName?.trim()) return [];
 	return [
 		validationError(
@@ -21,7 +21,7 @@ export function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	];
 }
 
-export function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
+function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const seen = new Map<string, number>();
 
@@ -44,9 +44,7 @@ export function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
-export function childCaseTypeMissingModule(
-	doc: BlueprintDoc,
-): ValidationError[] {
+function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 	if (!doc.caseTypes) return [];
 	const errors: ValidationError[] = [];
 	const moduleCaseTypes = new Set(
@@ -79,7 +77,7 @@ export function childCaseTypeMissingModule(
  * runs DFS from every form that has outgoing edges. Returns each cycle
  * once, keyed by the form it started from.
  */
-export function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
+function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
 	const adj = new Map<Uuid, Set<Uuid>>();
 	for (const moduleUuid of doc.moduleOrder) {
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {

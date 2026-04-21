@@ -63,7 +63,7 @@ export async function getMonthlyUsage(
 // ── Write ─────────────────────────────────────────────────────────
 
 /** Deltas to increment on the usage document after a request completes. */
-export interface UsageIncrement {
+interface UsageIncrement {
 	input_tokens: number;
 	output_tokens: number;
 	cost_estimate: number;
@@ -139,7 +139,7 @@ export function estimateCost(
 // ── Per-request accumulator ───────────────────────────────────────
 
 /** Per-LLM-call token usage accepted by the accumulator. */
-export interface LLMCallUsage {
+interface LLMCallUsage {
 	inputTokens: number;
 	outputTokens: number;
 	cacheReadTokens?: number;
@@ -166,7 +166,7 @@ export interface AccumulatorSeed {
 }
 
 /** Fields that can be updated mid-request via `configureRun`. */
-export interface AccumulatorRunConfig {
+interface AccumulatorRunConfig {
 	promptMode: "build" | "edit";
 	freshEdit: boolean;
 	appReady: boolean;

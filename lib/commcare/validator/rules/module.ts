@@ -19,7 +19,7 @@ function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
 }
 
-export function caseFormsNoCaseType(
+function caseFormsNoCaseType(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
@@ -37,7 +37,7 @@ export function caseFormsNoCaseType(
 	];
 }
 
-export function caseListOnlyHasForms(
+function caseListOnlyHasForms(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
@@ -54,7 +54,7 @@ export function caseListOnlyHasForms(
 	];
 }
 
-export function caseListOnlyNoCaseType(
+function caseListOnlyNoCaseType(
 	mod: Module,
 	moduleUuid: Uuid,
 	_doc: BlueprintDoc,
@@ -70,7 +70,7 @@ export function caseListOnlyNoCaseType(
 	];
 }
 
-export function noFormsOrCaseList(
+function noFormsOrCaseList(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
@@ -87,7 +87,7 @@ export function noFormsOrCaseList(
 	];
 }
 
-export function invalidCaseTypeFormat(
+function invalidCaseTypeFormat(
 	mod: Module,
 	moduleUuid: Uuid,
 	_doc: BlueprintDoc,
@@ -104,7 +104,7 @@ export function invalidCaseTypeFormat(
 	];
 }
 
-export function caseTypeTooLong(
+function caseTypeTooLong(
 	mod: Module,
 	moduleUuid: Uuid,
 	_doc: BlueprintDoc,
@@ -121,7 +121,7 @@ export function caseTypeTooLong(
 	];
 }
 
-export function missingCaseListColumns(
+function missingCaseListColumns(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
@@ -144,7 +144,7 @@ export function missingCaseListColumns(
 }
 
 /** Case list column fields must reference known case properties or standard properties. */
-export function invalidColumnField(
+function invalidColumnField(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,

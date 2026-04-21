@@ -88,7 +88,7 @@ function supportsValidation(kind: FieldKind): boolean {
 }
 
 /** Context passed to each per-field rule so errors carry full provenance. */
-export interface FieldContext {
+interface FieldContext {
 	formName: string;
 	moduleName: string;
 	moduleUuid: Uuid;
@@ -97,10 +97,7 @@ export interface FieldContext {
 
 // ── Rules ──────────────────────────────────────────────────────────
 
-export function selectNoOptions(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
+function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
 	if (field.options && field.options.length > 0) return [];
@@ -123,10 +120,7 @@ export function selectNoOptions(
 	];
 }
 
-export function hiddenNoValue(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
+function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "hidden") return [];
 	if (field.calculate || field.default_value) return [];
 	return [
@@ -146,7 +140,7 @@ export function hiddenNoValue(
 	];
 }
 
-export function unquotedStringLiteral(
+function unquotedStringLiteral(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
@@ -184,7 +178,7 @@ export function unquotedStringLiteral(
  * key being set on a non-input kind so typos produce a clear message
  * instead of being silently dropped by the XForm emitter.
  */
-export function validationOnNonInputType(
+function validationOnNonInputType(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
@@ -212,10 +206,7 @@ export function validationOnNonInputType(
 	];
 }
 
-export function invalidFieldId(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
+function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 	if (XML_ELEMENT_NAME_REGEX.test(field.id)) return [];
 	return [
 		validationError(

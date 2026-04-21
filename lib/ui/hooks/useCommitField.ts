@@ -34,7 +34,7 @@ interface UseCommitFieldOptions {
 }
 
 /** Result returned by useCommitField. */
-export interface UseCommitFieldResult {
+interface UseCommitFieldResult {
 	/**
 	 * The value to display in the input: the in-progress draft while focused,
 	 * or the stable prop value when blurred. Prevents stale draft flicker after
