@@ -60,8 +60,8 @@ interface GroupFieldProps {
  * Rendered only by `InteractiveFormRenderer` (pointer / test mode). The
  * edit-mode group representation is handled by the flat row model
  * (`GroupOpenRow` + nested rows + `GroupCloseRow`), so this file no
- * longer needs to participate in dnd-kit, inline-text editing, or any
- * other edit-only affordances.
+ * longer needs to participate in drag-and-drop, inline-text editing, or
+ * any other edit-only affordances.
  */
 export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we

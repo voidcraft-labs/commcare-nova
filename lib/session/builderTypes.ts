@@ -25,7 +25,7 @@ export interface SelectedElement {
 	formIndex?: number;
 	fieldPath?: FieldPath;
 	/** Stable crypto UUID — the primary identity key for UI-layer concerns
-	 *  (React keys, DOM selectors, dnd-kit, scroll targeting). Unlike
+	 *  (React keys, DOM selectors, drag-and-drop, scroll targeting). Unlike
 	 *  `fieldPath` (which changes on rename), UUID never changes. */
 	fieldUuid?: string;
 }

@@ -818,3 +818,19 @@ Phases overlap heavily in practice — the rename pass (Phase 1) touches consume
 10. A full SA generation on fixture inputs produces a normalized doc that, when compiled, emits byte-identical XForm XML and HQ-upload JSON to today's system. (The in-memory shape changes; the CommCare output does not.)
 11. An existing production app, after running the one-time migration script, loads correctly and compiles to byte-identical CommCare output against a pre-migration diff.
 12. Adding a hypothetical new field kind is one new file in `lib/domain/fields/` and one new entry in `fieldKinds`. Nothing else changes.
+
+---
+
+## Shipped
+
+Phase 7 landed on 2026-04-20, closing the 7-phase re-architecture. The spec's original Phase 7 row described a 5-minute deletion pass; the actual Phase 7 delivered the compile-pipeline rewrite to consume `BlueprintDoc` directly, eliminated the `legacyBridge` compat layer and all migration scripts, populated `lib/commcare/` per §7, enforced the CommCare boundary + forbidden-identifier rules in Biome + Lefthook, and strengthened the compile-pipeline test suite. See `docs/superpowers/plans/2026-04-20-phase-7-cleanup.md` for the task list and `git log --grep "phase-7"` for the commit trail.
+
+Divergences from the original spec:
+
+- `lib/schemas/blueprint.ts` was never re-emitted as a public module — its content folded directly into `lib/domain/` in Phase 1, so a separate schemas package would have been redundant.
+- `lib/codemirror/` editor extensions stayed where they are; only the XPath grammar + parser + transpiler moved into `lib/commcare/xpath/` (the spec was ambiguous on editor-extension placement).
+- `detectUnquotedStringLiteral` was relocated from `hqJsonExpander` into `lib/commcare/xpath/` alongside the rest of the XPath surface (not called out in the original plan).
+- `useFormEngine` was not deleted (§11) — Phase 5 turned it into a real preview-engine surface rather than an index-based shim, so the abstraction earned its keep. Phase 7 split it into single-responsibility hook files but kept the public API.
+- Migration scripts were deleted entirely (T12 + T13 subsumed) rather than preserved; `git` is the system of record for historical one-time migrations.
+- The `lib/__tests__/docHelpers.ts` `buildDoc` / `f` fixture DSL (pre-existing, 15+ consumers) is the canonical test-fixture surface. T6 originally added a parallel `makeDoc` DSL but code review caught the duplication; T6 was reverted and the existing DSL adopted.
+- `detectFormLinkCycles` in `lib/commcare/session.ts` was deleted (T11) because `validator/rules/app.ts::circularFormLinks` covers the same behavior — a dead-code simplification that wasn't on the spec's radar.
