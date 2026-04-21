@@ -431,6 +431,14 @@ export function renderStackXml(operations: StackOperation[]): string {
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────
+//
+// One-way: domain `PostSubmitDestination` → HQ wire `post_form_workflow`
+// string. The reverse direction (parsing the wire value back to a
+// domain enum) isn't needed because the compile pipeline reads
+// post-submit straight from the doc; the wire shape is write-only from
+// Nova's perspective. Eliminating the reverse mapping also removes a
+// fidelity trap: `app_home` and an absent-destination both encode to
+// `"default"` on the wire, so the reverse lookup was lossy.
 
 const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
 	app_home: "default",
@@ -440,18 +448,6 @@ const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
 	previous: "previous_screen",
 };
 
-const HQ_TO_NOVA: Record<string, PostSubmitDestination> = {
-	default: "app_home",
-	root: "root",
-	module: "module",
-	parent_module: "parent_module",
-	previous_screen: "previous",
-};
-
 export function toHqWorkflow(postSubmit: PostSubmitDestination): string {
 	return NOVA_TO_HQ[postSubmit];
-}
-
-export function fromHqWorkflow(workflow: string): PostSubmitDestination {
-	return HQ_TO_NOVA[workflow] ?? "app_home";
 }

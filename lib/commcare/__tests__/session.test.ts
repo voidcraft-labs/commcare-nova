@@ -5,13 +5,11 @@ import {
 	deriveFormLinkStack,
 	derivePostSubmitStack,
 	deriveSessionDatums,
-	fromHqWorkflow,
 	renderEntryXml,
 	renderStackXml,
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
-import type { PostSubmitDestination } from "@/lib/domain";
 
 // ── deriveSessionDatums ────────────────────────────────────────────
 
@@ -394,34 +392,5 @@ describe("toHqWorkflow", () => {
 		expect(toHqWorkflow("module")).toBe("module");
 		expect(toHqWorkflow("parent_module")).toBe("parent_module");
 		expect(toHqWorkflow("previous")).toBe("previous_screen");
-	});
-});
-
-describe("fromHqWorkflow", () => {
-	it("maps all HQ values correctly", () => {
-		expect(fromHqWorkflow("default")).toBe("app_home");
-		expect(fromHqWorkflow("root")).toBe("root");
-		expect(fromHqWorkflow("module")).toBe("module");
-		expect(fromHqWorkflow("parent_module")).toBe("parent_module");
-		expect(fromHqWorkflow("previous_screen")).toBe("previous");
-	});
-
-	it("falls back to app_home for unknown values", () => {
-		expect(fromHqWorkflow("unknown")).toBe("app_home");
-		expect(fromHqWorkflow("")).toBe("app_home");
-		expect(fromHqWorkflow("form")).toBe("app_home");
-	});
-
-	it("round-trips with toHqWorkflow", () => {
-		const destinations: PostSubmitDestination[] = [
-			"app_home",
-			"root",
-			"module",
-			"parent_module",
-			"previous",
-		];
-		for (const dest of destinations) {
-			expect(fromHqWorkflow(toHqWorkflow(dest))).toBe(dest);
-		}
 	});
 });
