@@ -67,12 +67,12 @@ import {
 } from "./contentProcessing";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import { moduleContentSchema } from "./scaffoldSchemas";
 import {
 	addFieldSchema,
 	addFieldsItemSchema,
 	editFieldUpdatesSchema,
 } from "./toolSchemas";
+import { addModuleTool } from "./tools/addModule";
 import { applyToDoc } from "./tools/common";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
@@ -315,47 +315,16 @@ export function createSolutionsArchitect(
 		}),
 
 		addModule: tool({
-			description:
-				"Set case list columns for a module. Call after generateScaffold. Provide the columns directly. Survey-only modules (no case_type) should pass null for both.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				case_list_columns: moduleContentSchema.shape.case_list_columns,
-				case_detail_columns: moduleContentSchema.shape.case_detail_columns,
-			}),
-			execute: async ({
-				moduleIndex,
-				case_list_columns,
-				case_detail_columns,
-			}) => {
-				const moduleUuid = doc.moduleOrder[moduleIndex];
-				if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
-				const mod = doc.modules[moduleUuid];
-				if (!mod) return { error: `Module ${moduleIndex} not found` };
-
-				// Survey-only branch: the module already exists from scaffold
-				// and has no case type, so there are no column mutations to
-				// apply. Return a silent success — the client reads the module
-				// entity directly, so no stream event is needed here.
-				if (!mod.caseType || !case_list_columns) {
-					return { moduleIndex, name: mod.name, columns: null };
-				}
-
-				const muts = updateModuleMutations(doc, moduleUuid, {
-					caseListColumns: case_list_columns,
-					...(case_detail_columns && {
-						caseDetailColumns: case_detail_columns,
-					}),
-				});
-				// Stage tag encodes which module these mutations belong to —
-				// useful for replay attribution and server-side telemetry.
-				emit(muts, `module:${moduleIndex}`);
-
-				return {
-					moduleIndex,
-					name: mod.name,
-					case_list_columns,
-					case_detail_columns: case_detail_columns ?? null,
-				};
+			description: addModuleTool.description,
+			inputSchema: addModuleTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await addModuleTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 	};
