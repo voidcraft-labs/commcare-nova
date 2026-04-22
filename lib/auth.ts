@@ -27,6 +27,33 @@ import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
 
 /**
+ * OAuth scopes Nova's authorization server can grant.
+ *
+ * Referenced twice in the oauth-provider config below:
+ *   - `scopes` — the authoritative list the AS advertises + enforces.
+ *   - `clientRegistrationDefaultScopes` — what a newly registered client
+ *     gets when it doesn't send an explicit `scope` param during DCR.
+ *
+ * Both slots receive the same list because a client omitting `scope` on
+ * registration is signalling "give me everything you can grant"; narrowing
+ * the default would silently break clients that later request the full
+ * set at /authorize. Tool-level scope enforcement still happens at the
+ * MCP handler, so granting the full set here is safe.
+ *
+ * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
+ * standard set clients expect for refresh-token flows. `nova.read` /
+ * `nova.write` are Nova-specific scopes enforced per-tool.
+ */
+const NOVA_OAUTH_SCOPES = [
+	"openid",
+	"profile",
+	"email",
+	"offline_access",
+	"nova.read",
+	"nova.write",
+] as const;
+
+/**
  * Creates the Better Auth instance. Extracted as a named function so
  * `typeof createAuth` captures the full config-specific return type —
  * needed by the client's `inferAdditionalFields` plugin to pick up
@@ -38,15 +65,26 @@ function createAuth() {
 		baseURL: process.env.BETTER_AUTH_URL,
 
 		/**
-		 * Disable Better Auth's built-in `/token` endpoint.
+		 * Disable the jwt plugin's `/token` endpoint.
 		 *
-		 * The `@better-auth/oauth-provider` plugin serves its own
-		 * `/oauth2/token` endpoint, but Better Auth core also exposes a
-		 * legacy `/token` path that overlaps semantically. When both are
-		 * mounted, requests to the OAuth token endpoint can resolve to the
-		 * wrong handler and fail CSRF / content-type validation. Better
-		 * Auth's own docs list this as MANDATORY when running in
-		 * OAuth / OIDC / MCP mode, so we strip the legacy path unconditionally.
+		 * The `jwt()` plugin below mounts two endpoints: `/jwks` (public
+		 * key set, which we keep) and `/token`, which mints a JWT scoped
+		 * to the current session cookie. That's a second JWT-issuing
+		 * surface alongside `/oauth2/token` (OAuth 2.1 authorization code
+		 * exchange) — different credential lifecycle, different audience,
+		 * different intended relying parties.
+		 *
+		 * Exposing both is non-compliant for OIDC/MCP: discovery documents
+		 * advertise a single token endpoint, and clients seeing two
+		 * JWT-minting paths can legitimately pick the wrong one. Nova
+		 * only issues programmatic tokens through the OAuth code flow, so
+		 * the jwt plugin's `/token` has no role and is stripped. The
+		 * plugin stays enabled for its JWKS endpoint, which is exactly
+		 * what `oauth-provider` needs to publish its signing keys.
+		 *
+		 * Per Better Auth's own jwt + oidc-provider docs, this pairing
+		 * (disabled `/token` + `jwt({ disableSettingJwtHeader: true })`)
+		 * is the mandatory configuration for OAuth/OIDC/MCP deployments.
 		 */
 		disabledPaths: ["/token"],
 
@@ -60,7 +98,7 @@ function createAuth() {
 		user: {
 			additionalFields: {
 				lastActiveAt: {
-					type: "date" as const,
+					type: "date",
 					required: false,
 					input: false,
 					returned: true,
@@ -91,9 +129,14 @@ function createAuth() {
 		/**
 		 * Trusted origins for CSRF validation.
 		 *
-		 * The baseURL origin is automatically trusted, but we declare it
-		 * explicitly so CSRF validation doesn't silently break if
-		 * BETTER_AUTH_URL is misconfigured or unset in a deploy.
+		 * Better Auth auto-trusts the configured `baseURL` origin, so this
+		 * list is technically redundant when BETTER_AUTH_URL is set — and
+		 * a no-op when it isn't. We list it explicitly for two reasons:
+		 *   1. Visibility — the set of origins allowed to post to auth
+		 *      endpoints is grep-able in this file, not buried in framework
+		 *      inference.
+		 *   2. Easy extension — preview / staging / custom domains get
+		 *      appended here rather than requiring a config-shape refactor.
 		 */
 		trustedOrigins: process.env.BETTER_AUTH_URL
 			? [process.env.BETTER_AUTH_URL]
@@ -198,49 +241,40 @@ function createAuth() {
 			 * dynamically (RFC 7591) without code changes.
 			 *
 			 * Notable choices:
-			 *   - `loginPage` / `consentPage` point at Nova's own UI routes
+			 *   - `loginPage` / `consentPage` point at Nova-owned UI routes
 			 *     so the OAuth flow reuses Nova's branded sign-in + a custom
-			 *     consent screen (built in Phase B4/B5) rather than the
-			 *     plugin's minimal defaults.
+			 *     consent screen rather than the plugin's minimal defaults.
 			 *   - `validAudiences` pins the token `aud` claim to the MCP
 			 *     resource URL. Tokens minted for Nova cannot be replayed
 			 *     against any other audience.
-			 *   - `scopes` + `clientRegistrationDefaultScopes` both list the
-			 *     same set. `nova.read` / `nova.write` are Nova-specific
-			 *     scopes enforced by MCP tool handlers; the OIDC trio plus
-			 *     `offline_access` covers the standard set clients expect
-			 *     when requesting refresh tokens.
 			 *   - Dynamic client registration is enabled AND unauthenticated
 			 *     so Claude Code (which has no pre-shared credentials) can
-			 *     bootstrap itself. Abuse is bounded by the plugin's built-in
-			 *     per-endpoint rate limiting (kept at defaults — the only
-			 *     rate-limiting surface this feature introduces) and by the
-			 *     30-day client-secret expiration that forces periodic
-			 *     re-registration.
+			 *     bootstrap itself. Abuse is bounded by the plugin's own
+			 *     per-IP-per-endpoint rate limiter (see `rateLimit` below)
+			 *     and by the 30-day client-secret expiration that forces
+			 *     periodic re-registration.
+			 *
+			 * Rate limiting: `@better-auth/oauth-provider` ships its own
+			 * per-endpoint limiter (distinct from Better Auth's global
+			 * `rateLimit` above) with sensible production defaults. We
+			 * override `register` specifically because it's the one public,
+			 * unauthenticated endpoint that persists a Firestore doc on
+			 * success — tightening it to 5 req/min per IP caps storage
+			 * abuse without impacting legitimate clients (which register
+			 * once per install). Other endpoints stay on plugin defaults.
 			 */
 			oauthProvider({
 				loginPage: "/sign-in",
 				consentPage: "/consent",
 				validAudiences: ["https://mcp.commcare.app"],
-				scopes: [
-					"openid",
-					"profile",
-					"email",
-					"offline_access",
-					"nova.read",
-					"nova.write",
-				],
+				scopes: [...NOVA_OAUTH_SCOPES],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
-				clientRegistrationDefaultScopes: [
-					"openid",
-					"profile",
-					"email",
-					"offline_access",
-					"nova.read",
-					"nova.write",
-				],
+				clientRegistrationDefaultScopes: [...NOVA_OAUTH_SCOPES],
 				clientRegistrationClientSecretExpiration: "30d",
+				rateLimit: {
+					register: { window: 60, max: 5 },
+				},
 			}),
 		],
 
