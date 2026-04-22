@@ -28,7 +28,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
-import { addModuleMutations, removeModuleMutations } from "./blueprintHelpers";
+import { removeModuleMutations } from "./blueprintHelpers";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import { addFieldTool } from "./tools/addField";
@@ -37,6 +37,7 @@ import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
+import { createModuleTool } from "./tools/createModule";
 import { editFieldTool } from "./tools/editField";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
@@ -340,54 +341,16 @@ export function createSolutionsArchitect(
 		}),
 
 		createModule: tool({
-			description: "Add a new module to the app.",
-			inputSchema: z.object({
-				name: z.string().describe("Module display name"),
-				case_type: z
-					.string()
-					.optional()
-					.describe(
-						"Case type (required if module will have registration/followup forms)",
-					),
-				case_list_only: z
-					.boolean()
-					.optional()
-					.describe(
-						"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.",
-					),
-				case_list_columns: z
-					.array(
-						z.object({
-							field: z.string().describe("Case property name"),
-							header: z.string().describe("Column header text"),
-						}),
-					)
-					.optional()
-					.describe("Case list columns"),
-			}),
-			execute: async ({
-				name,
-				case_type,
-				case_list_only,
-				case_list_columns,
-			}) => {
-				try {
-					// `module:create` stage tag — no index yet because the new
-					// module's index only exists after the mutations apply.
-					const muts = addModuleMutations(doc, {
-						name,
-						...(case_type && { caseType: case_type }),
-						...(case_list_only && { caseListOnly: case_list_only }),
-						...(case_list_columns && {
-							caseListColumns: case_list_columns,
-						}),
-					});
-					emit(muts, "module:create");
-					const newModIndex = doc.moduleOrder.length - 1;
-					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: createModuleTool.description,
+			inputSchema: createModuleTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await createModuleTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
