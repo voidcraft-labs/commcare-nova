@@ -24,7 +24,6 @@ import { z } from "zod";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -38,10 +37,8 @@ import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import {
 	addFormMutations,
 	addModuleMutations,
-	removeFieldMutations,
 	removeFormMutations,
 	removeModuleMutations,
-	resolveFieldByIndex,
 	resolveFormUuid,
 	updateFormMutations,
 	updateModuleMutations,
@@ -59,6 +56,7 @@ import { generateSchemaTool } from "./tools/generateSchema";
 import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
+import { removeFieldTool } from "./tools/removeField";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { validateAndFix } from "./validationLoop";
 
@@ -322,34 +320,16 @@ export function createSolutionsArchitect(
 		}),
 
 		removeField: tool({
-			description: "Remove a field from a form.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-				fieldId: z.string().describe("Field id to remove"),
-			}),
-			execute: async ({ moduleIndex, formIndex, fieldId }) => {
-				try {
-					const resolved = resolveFieldByIndex(
-						doc,
-						moduleIndex,
-						formIndex,
-						fieldId,
-					);
-					if (!resolved)
-						return {
-							error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
-						};
-					const formUuid = resolved.formUuid;
-					const beforeCount = countFieldsUnder(doc, formUuid);
-					const muts = removeFieldMutations(doc, resolved.field.uuid);
-					emit(muts, `form:${moduleIndex}-${formIndex}`);
-					const formName = doc.forms[formUuid]?.name ?? "";
-					const afterCount = countFieldsUnder(doc, formUuid);
-					return `Successfully removed field "${fieldId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: removeFieldTool.description,
+			inputSchema: removeFieldTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await removeFieldTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
