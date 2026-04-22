@@ -22,32 +22,135 @@ interface ConsentFormProps {
 }
 
 /**
- * Human-readable descriptions for every scope Nova's authorization server
- * advertises. Keep this table in sync with `NOVA_OAUTH_SCOPES` in lib/auth.ts
- * — an unknown scope falls back to rendering its raw id, which is safe but
- * ugly, so anything added to the AS config should land here too.
+ * Capabilities the user is actually granting, in plain English. This is a
+ * derived view of `NOVA_OAUTH_SCOPES` from lib/auth.ts — several scopes
+ * collapse into one capability row (`profile` + `email` both grant "See
+ * your name and email"; showing them as separate rows implies granular
+ * control the flow doesn't actually offer), and a few are hidden because
+ * they're implied by merely being signed in (see `IMPLIED_SCOPES` below).
  *
- * Copy tone matches Nova's product voice: direct, second-person, no jargon.
- * The `nova.write` line keeps "on your behalf" intentionally — that phrase
- * is doing the trust-signalling work for the single most consequential
- * scope on the list.
+ * Copy tone: direct, second-person, no jargon. The `nova.write` line keeps
+ * "on your behalf" intentionally — that phrase is doing the trust-
+ * signalling work for the single most consequential capability on the list.
+ *
+ * Keep in sync with `NOVA_OAUTH_SCOPES`: any new scope that isn't an
+ * identity or persistence primitive should land here with its own row, OR
+ * be added to `IMPLIED_SCOPES` if it's plumbing the user shouldn't have
+ * to think about. Unmapped scopes fall through to the `Access to: ...`
+ * catch-all row (see `deriveCapabilities`) so a scope added to the AS
+ * without updating this file is still surfaced in the UI — a missed
+ * capability that silently granted permission would be a consent-flow bug.
  */
-const SCOPE_DESCRIPTIONS: Record<string, string> = {
-	openid: "Confirm it's you",
-	profile: "See your name",
-	email: "See your email",
-	offline_access: "Stay signed in between visits",
-	"nova.read": "Read your CommCare apps",
-	"nova.write": "Create, edit, and deploy CommCare apps on your behalf",
-};
+interface Capability {
+	key: string;
+	label: string;
+	write: boolean;
+	matches: (scopes: readonly string[]) => boolean;
+}
+
+const CAPABILITIES: readonly Capability[] = [
+	{
+		key: "identity",
+		label: "See your name and email",
+		write: false,
+		matches: (s) => s.includes("profile") || s.includes("email"),
+	},
+	{
+		key: "nova.read",
+		label: "Read your CommCare apps",
+		write: false,
+		matches: (s) => s.includes("nova.read"),
+	},
+	{
+		key: "nova.write",
+		label: "Create, edit, and deploy CommCare apps on your behalf",
+		write: true,
+		matches: (s) => s.includes("nova.write"),
+	},
+];
 
 /**
- * Write-scope predicate. Write scopes get a subtle violet accent in the
- * list so the two mutation-capable permissions don't hide among the OIDC
- * identity scopes. Kept as a suffix match rather than a hard-coded id list
- * so any future `nova.*.write` scope picks up the same treatment for free.
+ * Scopes that are implied by simply being signed in and don't deserve a row
+ * of their own — showing "Confirm it's you" next to "Read your CommCare
+ * apps" misleads the user into thinking those two grants are comparable.
+ * `openid` is the OIDC identity claim; `offline_access` is just persistence.
  */
-const isWriteScope = (scope: string): boolean => scope.endsWith(".write");
+const IMPLIED_SCOPES: ReadonlySet<string> = new Set([
+	"openid",
+	"offline_access",
+]);
+
+/**
+ * Scopes that a `CAPABILITIES` entry already covers. Used to identify
+ * "unknown" scopes in `deriveCapabilities` — anything not known + not
+ * implied falls through to a catch-all row so we never silently hide a
+ * scope the user is actually granting.
+ */
+const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
+	"profile",
+	"email",
+	"nova.read",
+	"nova.write",
+]);
+
+/**
+ * Collapse the requested scope list into the capability rows the form
+ * displays. Hides `IMPLIED_SCOPES`, merges overlapping capabilities (e.g.
+ * `profile`+`email` → one row), and emits a catch-all row for anything
+ * unrecognized so the user sees every grant they're making.
+ */
+function deriveCapabilities(scopes: readonly string[]): Capability[] {
+	const rows = CAPABILITIES.filter((c) => c.matches(scopes));
+	for (const s of scopes) {
+		if (IMPLIED_SCOPES.has(s) || KNOWN_CAPABILITY_SCOPES.has(s)) continue;
+		rows.push({
+			key: `unknown:${s}`,
+			label: `Access to ${s}`,
+			write: s.endsWith(".write"),
+			matches: () => true,
+		});
+	}
+	return rows;
+}
+
+/**
+ * Translate the opaque error object from `authClient.oauth2.consent` into
+ * a user-readable message. "Consent failed" — the default message on many
+ * Better Auth error paths — is meaningless to a non-technical user and
+ * leaves them with no recovery path; every branch here ends with an
+ * actionable instruction (retry, sign in again, go back to the app).
+ *
+ * The mapping is best-effort — Better Auth's error shape doesn't
+ * guarantee specific codes across versions, so we fall back on HTTP
+ * status first and an unknown-error string last.
+ */
+interface ConsentClientError {
+	status?: number;
+	code?: string;
+	message?: string;
+}
+
+function friendlyConsentError(err: ConsentClientError): string {
+	const status = err.status;
+	if (typeof status === "number") {
+		if (status === 401)
+			return "Your session expired. Please sign in again, then retry the connection from the app.";
+		if (status === 403)
+			return "You don't have permission to approve this request.";
+		if (status === 400)
+			return "This authorization link is no longer valid. Head back to the app that sent you here and start the connection again.";
+		if (status === 404)
+			return "The authorization request couldn't be found. Please start over from the app that sent you here.";
+		if (status >= 500)
+			return "Something went wrong on our end. Please try again in a moment.";
+	}
+	/* A missing status usually means the fetch never completed — offline,
+	 * DNS, CORS, etc. Prompt a retry rather than bouncing them back to the
+	 * client app, which won't help if their network is down. */
+	if (status === undefined)
+		return "We couldn't reach Nova. Check your connection and try again.";
+	return "We couldn't complete this request. Please head back to the app that sent you here and start over.";
+}
 
 export function ConsentForm({
 	clientName,
@@ -86,13 +189,15 @@ export function ConsentForm({
 		setError(null);
 		const { error: err } = await authClient.oauth2.consent({ accept });
 		if (err) {
-			setError(err.message ?? "Consent failed.");
+			setError(friendlyConsentError(err));
 			setPending(null);
 		}
 		/* Success: plugin redirects the user back to the client's
 		 * redirect_uri with an authorization_code — no client-side
 		 * navigation needed here. */
 	};
+
+	const capabilities = deriveCapabilities(scopes);
 
 	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1) —
 	 * gentle decelerating arrival. Timing is tight enough to feel instant on
@@ -135,8 +240,8 @@ export function ConsentForm({
 						It will be able to
 					</p>
 					<ul className="flex flex-col gap-1.5">
-						{scopes.map((scope) => (
-							<ScopeRow key={scope} scope={scope} />
+						{capabilities.map((c) => (
+							<CapabilityRow key={c.key} label={c.label} write={c.write} />
 						))}
 					</ul>
 				</motion.div>
@@ -283,17 +388,13 @@ function IconChip({
 }
 
 /**
- * Single scope row. Plain-English description is the primary line; the raw
- * scope identifier is a mono-font secondary so power users can still see
- * exactly what they're granting. Write scopes get a left violet marker +
- * subtle tint so the two mutation-capable permissions don't blend into the
- * OIDC identity scopes — which was the actual scannability problem in the
- * original flat list.
+ * Single capability row. Plain-English description is the only content —
+ * raw scope identifiers are intentionally omitted to keep the list
+ * scannable for non-technical users. Write capabilities get a left violet
+ * marker + subtle tint so the mutation-capable permissions don't blend
+ * into the read/identity ones.
  */
-function ScopeRow({ scope }: { scope: string }) {
-	const description = SCOPE_DESCRIPTIONS[scope] ?? scope;
-	const write = isWriteScope(scope);
-
+function CapabilityRow({ label, write }: { label: string; write: boolean }) {
 	return (
 		<li
 			className={`relative flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors ${
@@ -309,10 +410,7 @@ function ScopeRow({ scope }: { scope: string }) {
 				}`}
 			/>
 			<span className="flex-1 text-sm leading-snug text-nova-text">
-				{description}
-			</span>
-			<span className="shrink-0 font-mono text-[11px] tracking-tight text-nova-text-muted">
-				{scope}
+				{label}
 			</span>
 		</li>
 	);
