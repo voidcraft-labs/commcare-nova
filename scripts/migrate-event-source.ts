@@ -29,6 +29,22 @@
  * Must run BEFORE the app version that enforces the new schema on reads
  * is deployed — otherwise historical reads (replay, admin inspection)
  * will start failing.
+ *
+ * ──────────────────────────────────────────────────────────────────
+ * DEPLOY ORDER (load-bearing):
+ *   1. Run this script against production Firestore (live, not --dry-run).
+ *   2. THEN deploy the app version that enforces `source` on the schema.
+ *
+ * The reverse order breaks reads of historical events: `readEvents` and
+ * `readLatestRunId` parse each event via the Zod converter, which now
+ * rejects docs missing `source`. `/build/replay/[id]`,
+ * `/api/apps/[id]/logs`, and admin tooling go down for every pre-MCP
+ * app until the backfill completes.
+ *
+ * If you deployed first by accident: run this script with no flags; reads
+ * self-heal as soon as each app's events subcollection is backfilled.
+ *   Rollback option: redeploy the pre-source-enforcement app version.
+ * ──────────────────────────────────────────────────────────────────
  */
 
 import "dotenv/config";
@@ -36,6 +52,17 @@ import { getDb } from "@/lib/db/firestore";
 import { log } from "@/lib/logger";
 
 async function run(dryRun: boolean): Promise<void> {
+	/* Unconditional deploy-order warning — prints on every invocation
+	 * (dry-run AND live). The risk is operational, not technical: the
+	 * script itself is safe in any order, but the window between the
+	 * schema-enforcing deploy and the backfill is a live outage on
+	 * historical reads. Surface it before any Firestore traffic so
+	 * operators see it even when scrolling logs after the fact. */
+	console.warn(
+		"[migrate-event-source] DEPLOY ORDER: run this BEFORE deploying the\n" +
+			"  schema-enforcing app. Reverse order breaks reads of historical\n" +
+			"  events until backfill completes.",
+	);
 	const db = getDb();
 	/* `.select()` with no args fetches only doc references (no field data)
 	 * — the per-app loop doesn't need any app-doc fields, it just needs
@@ -57,7 +84,7 @@ async function run(dryRun: boolean): Promise<void> {
 		for (const ev of events.docs) {
 			scanned++;
 			const data = ev.data() as { source?: unknown };
-			// Idempotency: any truthy pre-existing value is respected.
+			// Idempotency: any defined value is respected — re-runs skip already-backfilled docs.
 			if (data.source !== undefined) continue;
 			if (!dryRun) {
 				batch.update(ev.ref, { source: "chat" });

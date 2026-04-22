@@ -110,6 +110,8 @@ export class LogWriter {
 	 * miswired call site cannot pollute the persisted stream.
 	 */
 	logEvent(event: Event): void {
+		// `as Event` — spread drops the `kind` discriminator narrowing; reasserting
+		// the union is safe because we only overwrote `source`, not `kind`.
 		const stamped = { ...event, source: this.source } as Event;
 		this.buffer.push(stamped);
 		if (this.buffer.length >= this.maxBatch) {
