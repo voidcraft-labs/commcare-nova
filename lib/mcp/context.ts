@@ -29,6 +29,13 @@
  * propagates the rejection to its caller. This class does not swallow
  * persistence errors — callers are responsible for mapping them to their
  * surface's error shape.
+ *
+ * The event log writer is fire-and-forget: `logWriter.logEvent(event)` queues
+ * events but does not await persistence. Callers MUST `await logWriter.flush()`
+ * in a `finally` block before returning from the MCP tool handler — otherwise
+ * conversation events and mutation event log entries may be lost when the
+ * request terminates. The blueprint save (via `recordMutations`) is awaited;
+ * the event log is not.
  */
 
 import { updateApp } from "@/lib/db/apps";
@@ -141,6 +148,9 @@ export class McpContext {
 	 * directly — the log writer's own batched flush handles persistence,
 	 * and conversation events don't carry blueprint state, so there's no
 	 * intermediate save to block on.
+	 *
+	 * Writes to the event log are fire-and-forget. The caller's `finally`
+	 * block is responsible for awaiting `logWriter.flush()` before returning.
 	 *
 	 * Returns the built envelope so adapters can pass it into response
 	 * metadata or correlate it with downstream tool calls.

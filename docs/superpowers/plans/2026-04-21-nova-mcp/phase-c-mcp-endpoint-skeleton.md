@@ -491,13 +491,19 @@ export function createProgressEmitter(
 	server: McpServer,
 	progressToken: string | number | undefined,
 ): ProgressEmitter {
+	/* MCP requires a monotonically increasing numeric `progress` on every
+	 * notification. The emitter owns this counter so adapters only supply
+	 * stage + message; there's no caller-side bookkeeping. */
+	let progress = 0;
 	return {
 		notify(stage, message, extra) {
 			if (progressToken === undefined) return;
-			server.server.notification({
+			progress += 1;
+			void server.server.notification({
 				method: "notifications/progress",
 				params: {
 					progressToken,
+					progress,
 					message,
 					_meta: { stage, ...extra },
 				},
@@ -722,7 +728,10 @@ export function register<Tool>(server: McpServer, ctx: ToolContext): void {
 					/* 5. Persist via the context (awaits Firestore save). */
 					/* await mcpCtx.recordMutations(mutations, nextDoc, "<stage>"); */
 
-					/* 6. Emit progress (no-op without client token). */
+					/* 6. Emit a stage transition via `progress.notify(...)` (no-op
+					 *    without a client token). The emitter allocates the
+					 *    monotonically increasing numeric `progress` counter
+					 *    internally — adapters only supply stage + message. */
 					/* progress.notify("<stage>", "<human message>", { app_id: args.app_id }); */
 
 					/* 7. Return human-readable success. */

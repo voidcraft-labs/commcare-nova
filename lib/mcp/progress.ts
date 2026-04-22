@@ -41,25 +41,37 @@ export interface ProgressEmitter {
 }
 
 /**
- * Build a per-request `ProgressEmitter` bound to the client's progress
- * token. The returned closure sends `notifications/progress` via the
- * underlying `Server` instance, which is the low-level transport the
- * high-level `McpServer` wraps.
+ * Build a per-request progress emitter bound to the client's progress
+ * token. Each `notify` call issues a `notifications/progress` message
+ * via the underlying `Server` instance's low-level notification API.
  *
- * If `progressToken` is `undefined`, the emitter returned by this
- * factory is a no-op. That keeps adapters branch-free.
+ * The MCP spec requires `progress` to be a monotonically increasing
+ * number so the client can order events and estimate throughput. The
+ * counter is owned by this closure; callers express intent through the
+ * stage + message arguments.
+ *
+ * When `progressToken` is `undefined`, the returned emitter is a no-op.
+ * That keeps adapter bodies branch-free.
  */
 export function createProgressEmitter(
 	server: McpServer,
 	progressToken: string | number | undefined,
 ): ProgressEmitter {
+	/* MCP progress notifications require a monotonically-increasing
+	 * `progress` number — compliant clients reject params missing it.
+	 * Each emitter owns its own counter, allocated at notify time, so the
+	 * sequence starts at 1 and advances per call regardless of how many
+	 * adapters share a server. */
+	let progress = 0;
 	return {
 		notify(stage, message, extra) {
 			if (progressToken === undefined) return;
+			progress += 1;
 			void server.server.notification({
 				method: "notifications/progress",
 				params: {
 					progressToken,
+					progress,
 					message,
 					_meta: { stage, ...extra },
 				},

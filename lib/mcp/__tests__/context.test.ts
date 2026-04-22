@@ -43,7 +43,7 @@ function mockLogWriter(): LogWriter {
 	} as unknown as LogWriter;
 }
 
-/** No-op progress emitter — progress is tested separately in C4. */
+/** No-op progress emitter — progress semantics are tested in progress.test.ts. */
 function mockProgress(): ProgressEmitter {
 	return { notify: vi.fn() };
 }

@@ -338,7 +338,9 @@ export class GenerationContext {
 			 * schema-valid. LogWriter re-stamps it on the way to
 			 * Firestore regardless; this is the client-facing value. */
 			source: "chat",
-			...(stage && { stage }),
+			/* Include `stage` whenever the caller explicitly passed a value —
+			 * empty-string is a valid stage. Mirrors McpContext.recordMutations. */
+			...(stage !== undefined && { stage }),
 			mutation,
 		}));
 
