@@ -1,15 +1,22 @@
 /**
  * OAuth consent page (server component).
  *
- * The oauth-provider plugin redirects authenticated users here with three
- * query parameters: consent_code, client_id, and scope. We render the
- * client name + scope list, then hand the accept/deny decision to a
- * client form that calls authClient.oauth2.consent({ accept }).
+ * The `oauth-provider` plugin redirects authenticated users here with the
+ * original OAuth authorization-request query (`client_id`, `scope`,
+ * `redirect_uri`, `state`, `response_type`, `code_challenge`, …) plus an
+ * `exp` timestamp and a `sig` HMAC covering the full query. The plugin
+ * uses the signature to prove the query passed through the authorize
+ * handler and hasn't been forged or tampered with; the signature is the
+ * real validity signal — raw `client_id` + `scope` on their own are
+ * trivially URL-forgeable.
  *
- * The form's `accept` POST carries the user's session cookie back to
- * /api/auth/oauth2/consent, which uses the consent_code stashed by the
- * plugin to complete the authorization-code flow and redirect the user
- * back to the OAuth client.
+ * We render the client name + scope list, then hand the accept/deny
+ * decision to a client form that calls `authClient.oauth2.consent(...)`.
+ * The `oauthProviderClient()` plugin reads `window.location.search`
+ * client-side and injects the signed query into the POST body as
+ * `oauth_query`, so the server can match the decision back to the
+ * in-flight authorization request. No `consent_code` is involved — that
+ * was an `oidc-provider` concept this plugin doesn't share.
  */
 
 import { headers } from "next/headers";
@@ -30,26 +37,49 @@ function parseScopes(raw: string | string[] | undefined): string[] {
 
 /**
  * Best-effort fetch of the OAuth client's public name. Returns `undefined`
- * if the client_id is unknown or the plugin endpoint shape changes —
- * the consent page falls back to a generic "An application" label.
+ * on any failure (unknown client_id, upstream shape drift, transient
+ * network issue, session-middleware rejection) so the consent page can
+ * fall back to a generic "An application" label.
  *
- * The plugin's `/oauth2/public-client` endpoint requires an active session;
- * that's fine here because the page redirects unauthenticated users away
- * before this helper ever runs.
+ * The plugin currently gates `/oauth2/public-client` with its session
+ * middleware — the upstream has an open issue discussing whether to drop
+ * that gate, so treat "auth required" as a current implementation detail
+ * rather than a stable contract. Either way is fine here: this helper
+ * runs AFTER the page-level session gate, so a session is always present.
+ *
+ * Failures are logged to the server console with enough context to
+ * diagnose — silently degrading to "An application" on a user-facing
+ * trust signal is worse than a loud log, because the user can't tell
+ * the difference between "Nova doesn't know this client" and "Nova is
+ * broken." The UI still degrades gracefully; the signal just isn't eaten.
  */
 async function fetchClientName(
 	auth: ReturnType<typeof getAuth>,
 	clientId: string,
 	hdrs: Headers,
 ): Promise<string | undefined> {
+	/* Better Auth's handler requires a parseable absolute URL. The origin
+	 * is discarded by the handler — only the pathname + search are read —
+	 * so any syntactically valid origin works. `http://internal` reads
+	 * clearer than `http://localhost`, which suggests a real target. */
+	const url = new URL("/api/auth/oauth2/public-client", "http://internal");
+	url.searchParams.set("client_id", clientId);
 	try {
-		const url = new URL("http://localhost/api/auth/oauth2/public-client");
-		url.searchParams.set("client_id", clientId);
 		const res = await auth.handler(new Request(url, { headers: hdrs }));
-		if (!res.ok) return undefined;
+		if (!res.ok) {
+			const body = await res.text();
+			console.warn(
+				`[consent] /oauth2/public-client returned ${res.status} for client_id=${clientId}: ${body.slice(0, 200)}`,
+			);
+			return undefined;
+		}
 		const body = (await res.json()) as { client_name?: string };
 		return body.client_name;
-	} catch {
+	} catch (err) {
+		console.warn(
+			`[consent] /oauth2/public-client threw for client_id=${clientId}:`,
+			err,
+		);
 		return undefined;
 	}
 }
@@ -66,16 +96,18 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const session = await auth.api.getSession({ headers: hdrs });
 	if (!session) redirect("/");
 
-	const consentCode =
-		typeof sp.consent_code === "string" ? sp.consent_code : undefined;
 	const clientId = typeof sp.client_id === "string" ? sp.client_id : undefined;
 	const scopes = parseScopes(sp.scope);
+	const sig = typeof sp.sig === "string" ? sp.sig : undefined;
 
-	/* The query params are required for a valid consent request. Missing or
-	 * tampered params mean the user landed here outside an OAuth flow —
-	 * surface that to the form so it can render a clear error instead of a
-	 * mystery accept button. */
-	const requestValid = Boolean(consentCode && clientId && scopes.length > 0);
+	/* `sig` is the HMAC the authorize handler appends to the full query
+	 * before redirecting here; its presence is the only trustworthy signal
+	 * that the user landed on the consent page via the plugin's own flow
+	 * rather than by typing the URL or following a forged link. `client_id`
+	 * and `scope` are load-bearing for display; the plugin itself rejects
+	 * stale or forged signatures at the POST, so surfacing an error branch
+	 * client-side is a UX concession, not a security boundary. */
+	const requestValid = Boolean(clientId && scopes.length > 0 && sig);
 	const clientName =
 		requestValid && clientId
 			? ((await fetchClientName(auth, clientId, hdrs)) ?? "An application")
