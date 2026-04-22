@@ -73,6 +73,7 @@ import {
 	editFieldUpdatesSchema,
 } from "./toolSchemas";
 import { addModuleTool } from "./tools/addModule";
+import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
@@ -207,23 +208,6 @@ function buildConnectConfig(
 	};
 }
 
-// ── askQuestions schema ──────────────────────────────────────────────
-
-const askQuestionsSchema = z.object({
-	header: z.string().describe("Short header for this group of questions"),
-	questions: z.array(
-		z.object({
-			question: z.string(),
-			options: z.array(
-				z.object({
-					label: z.string(),
-					description: z.string().optional(),
-				}),
-			),
-		}),
-	),
-});
-
 // ── Solutions Architect Agent ────────────────────────────────────────
 
 /**
@@ -334,9 +318,8 @@ export function createSolutionsArchitect(
 
 	const sharedTools = {
 		askQuestions: {
-			description:
-				"Ask the user clarifying questions about their app requirements. Up to 5 questions per call — call as many times as needed. Most requests need several rounds. Don't rush to generate; an app built on assumptions is worse than one that took extra questions to get right.",
-			inputSchema: askQuestionsSchema,
+			description: askQuestionsTool.description,
+			inputSchema: askQuestionsTool.inputSchema,
 			// No execute → client-side tool, agent stops for user input
 		},
 
