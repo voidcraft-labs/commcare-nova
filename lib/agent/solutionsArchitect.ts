@@ -20,7 +20,6 @@
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
-import { produce } from "immer";
 import { z } from "zod";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
@@ -30,7 +29,6 @@ import {
 	countFieldsUnder,
 	type FieldWithChildren,
 } from "@/lib/doc/fieldWalk";
-import { applyMutations } from "@/lib/doc/mutations";
 import { searchBlueprint } from "@/lib/doc/searchBlueprint";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -81,6 +79,7 @@ import {
 	addFieldsItemSchema,
 	editFieldUpdatesSchema,
 } from "./toolSchemas";
+import { applyToDoc } from "./tools/common";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -100,19 +99,6 @@ export const BUILD_ONLY_TOOL_NAMES = [
 ] as const;
 
 // ── Doc helpers ───────────────────────────────────────────────────────
-
-/**
- * Apply a mutation batch to a `BlueprintDoc` via Immer `produce`.
- * Mutations run on an Immer draft so the reducer's mutable-style
- * updates are structurally shared; no Zustand store is involved on the
- * SA side.
- */
-function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
-	if (muts.length === 0) return doc;
-	return produce(doc, (draft) => {
-		applyMutations(draft as unknown as BlueprintDoc, muts);
-	});
-}
 
 /**
  * Map a (moduleIndex, formIndex) pair to the doc's form uuid. Returns
