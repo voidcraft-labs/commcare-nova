@@ -76,6 +76,7 @@ import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
+import { getModuleTool } from "./tools/getModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { validateAndFix } from "./validationLoop";
 
@@ -433,33 +434,9 @@ export function createSolutionsArchitect(
 		}),
 
 		getModule: tool({
-			description:
-				"Get a module by index. Returns module metadata, case list columns, and a summary of its forms.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-			}),
-			execute: async ({ moduleIndex }) => {
-				const moduleUuid = doc.moduleOrder[moduleIndex];
-				if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
-				const mod = doc.modules[moduleUuid];
-				if (!mod) return { error: `Module ${moduleIndex} not found` };
-				const formUuids = doc.formOrder[moduleUuid] ?? [];
-				return {
-					moduleIndex,
-					name: mod.name,
-					case_type: mod.caseType ?? null,
-					case_list_columns: mod.caseListColumns ?? null,
-					forms: formUuids.map((fUuid, i) => {
-						const f = doc.forms[fUuid];
-						return {
-							formIndex: i,
-							name: f?.name ?? "",
-							type: f?.type ?? "survey",
-							fieldCount: countFieldsUnder(doc, fUuid),
-						};
-					}),
-				};
-			},
+			description: getModuleTool.description,
+			inputSchema: getModuleTool.inputSchema,
+			execute: async (input) => getModuleTool.execute(input, ctx, doc),
 		}),
 
 		getForm: tool({
