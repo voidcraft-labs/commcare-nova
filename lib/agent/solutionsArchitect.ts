@@ -41,7 +41,6 @@ import {
 	removeModuleMutations,
 	resolveFormUuid,
 	updateFormMutations,
-	updateModuleMutations,
 } from "./blueprintHelpers";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
@@ -58,6 +57,7 @@ import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
 import { removeFieldTool } from "./tools/removeField";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
+import { updateModuleTool } from "./tools/updateModule";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -336,71 +336,16 @@ export function createSolutionsArchitect(
 		// ── Structural mutations ──────────────────────────────────────
 
 		updateModule: tool({
-			description:
-				"Update module metadata: name, case list columns, or case detail columns.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				name: z.string().optional().describe("New module name"),
-				case_list_columns: z
-					.array(
-						z.object({
-							field: z.string().describe("Case property name"),
-							header: z.string().describe("Column header text"),
-						}),
-					)
-					.optional()
-					.describe("New case list columns"),
-				case_detail_columns: z
-					.array(
-						z.object({
-							field: z.string().describe("Case property name"),
-							header: z
-								.string()
-								.describe("Display label for this detail field"),
-						}),
-					)
-					.nullable()
-					.optional()
-					.describe("Columns for case detail view. null to remove."),
-			}),
-			execute: async ({
-				moduleIndex,
-				name,
-				case_list_columns,
-				case_detail_columns,
-			}) => {
-				try {
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
-					const patch: Parameters<typeof updateModuleMutations>[2] = {};
-					if (name !== undefined) patch.name = name;
-					if (case_list_columns !== undefined)
-						patch.caseListColumns = case_list_columns;
-					if (case_detail_columns !== undefined) {
-						patch.caseDetailColumns =
-							case_detail_columns === null ? null : case_detail_columns;
-					}
-					const muts = updateModuleMutations(doc, moduleUuid, patch);
-					emit(muts, `module:${moduleIndex}`);
-					const mod = doc.modules[moduleUuid];
-					if (!mod)
-						return { error: `Module ${moduleIndex} not found after update` };
-					const changes: string[] = [];
-					if (name !== undefined) changes.push(`name → "${mod.name}"`);
-					if (case_list_columns !== undefined)
-						changes.push(
-							`case list columns (${mod.caseListColumns?.length ?? 0})`,
-						);
-					if (case_detail_columns !== undefined)
-						changes.push(
-							case_detail_columns === null
-								? "case detail columns removed"
-								: `case detail columns (${mod.caseDetailColumns?.length ?? 0})`,
-						);
-					return `Successfully updated module "${mod.name}" (index ${moduleIndex}). Changed: ${changes.join(", ")}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: updateModuleTool.description,
+			inputSchema: updateModuleTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await updateModuleTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
