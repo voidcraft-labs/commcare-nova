@@ -2,14 +2,15 @@
  * Tests for the Next.js 16 proxy. The proxy layers three concerns:
  *
  *   1. hostname routing (per-host path allowlists, MCP /mcp → /api/mcp rewrite, off-allowlist 404s),
- *   2. main-host /api/* short-circuit (no CSP, no auth redirect on API routes),
- *   3. main-host page handling (CSP nonce + optimistic auth redirect).
+ *   2. /api/* + /.well-known/* short-circuit (no CSP, no auth redirect on JSON / discovery routes),
+ *   3. page handling (CSP nonce + optimistic auth redirect).
  *
  * Every assertion is affirmative: 404 responses are checked for the no-store
  * Cache-Control header (so a security boundary can't be silently cached);
  * rewrites are checked for `x-middleware-rewrite` containing the internal
  * target plus any expected query string; passthroughs are checked for the
- * absence of both.
+ * absence of both, and — where the branch is supposed to bypass page
+ * machinery — for the absence of CSP / x-nonce headers.
  *
  * `NextResponse.rewrite` encodes the destination on the response in the
  * `x-middleware-rewrite` header — that's the contract Next inspects when it
@@ -33,14 +34,45 @@ function req(host: string, path: string): NextRequest {
 }
 
 /**
+ * Build a `NextRequest` carrying a Better-Auth-shaped session cookie. The
+ * proxy's `getSessionCookie` only checks for cookie *presence* (full
+ * validation lives on the server), so a fake value is sufficient to drive
+ * the authenticated-page branch and exercise CSP assembly. The cookie name
+ * is the Better Auth default (`<prefix>.<name>` = `better-auth.session_token`)
+ * — Better Auth's getter checks both the unprefixed and `__Secure-`
+ * prefixed variants, so the unprefixed form works in tests.
+ */
+function reqWithSession(host: string, path: string): NextRequest {
+	const url = new URL(`http://example.test${path}`);
+	return new NextRequest(url, {
+		headers: {
+			host,
+			cookie: "better-auth.session_token=fake-cookie-presence-only",
+		},
+	});
+}
+
+/**
  * Assert that a response is a passthrough: not a 404, and no rewrite
- * header. The proxy may still attach CSP / nonce headers (that's the
- * point of the page branch); we only care here that nothing else
- * intercepted the request.
+ * header. Use `expectBypassPassthrough` for branches that must also skip
+ * CSP / nonce assembly.
  */
 function expectPassthrough(res: NextResponse): void {
 	expect(res.status).not.toBe(404);
 	expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+}
+
+/**
+ * Assert a passthrough that explicitly bypasses the page-handling branch:
+ * no rewrite, no 404, and no CSP / x-nonce headers attached. Used for the
+ * mcp / docs allowlist passes and the /api/* and /.well-known/* short-
+ * circuits — branches whose contract is "Next sees this exactly as the
+ * client sent it".
+ */
+function expectBypassPassthrough(res: NextResponse): void {
+	expectPassthrough(res);
+	expect(res.headers.get("content-security-policy")).toBeNull();
+	expect(res.headers.get("x-nonce")).toBeNull();
 }
 
 /**
@@ -85,6 +117,13 @@ describe("proxy: mcp.commcare.app routing", () => {
 		expectRewrite(res, "/api/mcp");
 	});
 
+	it("rewrites /mcp/ (trailing slash) → /api/mcp", () => {
+		/* Trailing-slash variants of the canonical MCP path are treated
+		 * identically — the route surface is exactly two paths. */
+		const res = proxy(req("mcp.commcare.app", "/mcp/"));
+		expectRewrite(res, "/api/mcp");
+	});
+
 	it("preserves the query string when rewriting /mcp", () => {
 		const res = proxy(req("mcp.commcare.app", "/mcp?session=abc&foo=bar"));
 		expectRewrite(res, "/api/mcp");
@@ -93,16 +132,25 @@ describe("proxy: mcp.commcare.app routing", () => {
 		expect(rewrite).toContain("foo=bar");
 	});
 
+	it("404s /mcp/foo (subpath; allowlist-prefix matching would let this leak)", () => {
+		/* `isPathAllowedOnHost(HOSTNAMES.mcp, "/mcp/foo")` returns true
+		 * because the allowlist matcher is segment-anchored and `/mcp` is
+		 * a prefix. The mcp branch deliberately bypasses the helper and
+		 * lists routes inline so this does not leak. */
+		const res = proxy(req("mcp.commcare.app", "/mcp/foo"));
+		expectNotFound(res);
+	});
+
 	it("404s the internal /api/mcp path (not externally reachable)", () => {
 		const res = proxy(req("mcp.commcare.app", "/api/mcp"));
 		expectNotFound(res);
 	});
 
-	it("passes through /.well-known/oauth-protected-resource (OAuth discovery)", () => {
+	it("passes through /.well-known/oauth-protected-resource (OAuth discovery, no CSP)", () => {
 		const res = proxy(
 			req("mcp.commcare.app", "/.well-known/oauth-protected-resource"),
 		);
-		expectPassthrough(res);
+		expectBypassPassthrough(res);
 	});
 
 	it("404s /admin (not in MCP allowlist)", () => {
@@ -129,9 +177,9 @@ describe("proxy: mcp.commcare.app routing", () => {
 });
 
 describe("proxy: docs.commcare.app routing", () => {
-	it("passes through the root path", () => {
+	it("passes through the root path (no CSP)", () => {
 		const res = proxy(req("docs.commcare.app", "/"));
-		expectPassthrough(res);
+		expectBypassPassthrough(res);
 	});
 
 	it("passes through /_next/* asset paths", () => {
@@ -149,14 +197,14 @@ describe("proxy: docs.commcare.app routing", () => {
 });
 
 describe("proxy: commcare.app (main) routing", () => {
-	it("passes through /.well-known/oauth-authorization-server (OAuth discovery, no auth gate)", () => {
-		/* The /.well-known/* exemption is critical: an OAuth client must
-		 * be able to read AS metadata before it has a session, so the
-		 * auth-redirect branch must skip these paths. */
+	it("passes through /.well-known/oauth-authorization-server (short-circuit, no CSP)", () => {
+		/* The /.well-known/* short-circuit is critical: an OAuth client
+		 * must be able to read AS metadata before it has a session, and
+		 * the document is JSON — no page-shaped CSP nonce should attach. */
 		const res = proxy(
 			req("commcare.app", "/.well-known/oauth-authorization-server"),
 		);
-		expectPassthrough(res);
+		expectBypassPassthrough(res);
 	});
 
 	it("404s /api/mcp on the main host (MCP belongs to its own subdomain)", () => {
@@ -166,22 +214,43 @@ describe("proxy: commcare.app (main) routing", () => {
 
 	it("redirects unauthenticated /admin to / (CSP+auth path)", () => {
 		/* /admin is on the main allowlist, so it passes the hostname
-		 * gate; it isn't /api/*, so the API short-circuit doesn't apply;
-		 * it has no session cookie, so the auth-redirect branch fires. */
+		 * gate; it isn't /api/* or /.well-known/*, so the short-circuit
+		 * doesn't apply; it has no session cookie, so the auth-redirect
+		 * branch fires. */
 		const res = proxy(req("commcare.app", "/admin"));
 		expectAuthRedirect(res);
 	});
 
-	it("passes through /api/chat (API short-circuit, no CSP/auth)", () => {
+	it("attaches CSP + x-nonce on allowlisted page requests with a session cookie", () => {
+		/* Authenticated, allowlisted, non-API, non-well-known path —
+		 * exercises the entire CSP construction block. The `x-nonce`
+		 * request header is forwarded to RSC so the layout can echo the
+		 * nonce onto inline <script> tags; we assert it was set on the
+		 * outgoing request via `request.headers`. */
+		const res = proxy(reqWithSession("commcare.app", "/build"));
+		expect(res.status).not.toBe(404);
+		expect(res.status).not.toBe(307);
+		const csp = res.headers.get("content-security-policy");
+		expect(csp).not.toBeNull();
+		/* The CSP must include a nonce-bearing script-src directive. */
+		expect(csp).toMatch(/script-src[^;]*'nonce-[^']+'/);
+	});
+
+	it("passes through /api/chat (short-circuit, no CSP)", () => {
 		const res = proxy(req("commcare.app", "/api/chat"));
-		expectPassthrough(res);
-		/* CSP must NOT have been applied — that branch is skipped for
-		 * API routes. */
-		expect(res.headers.get("content-security-policy")).toBeNull();
+		expectBypassPassthrough(res);
+	});
+
+	it("passes through /api/auth/sign-in (short-circuit, no CSP, no auth redirect)", () => {
+		/* Better Auth's own endpoints must not be redirected to / when
+		 * the user is unauthenticated — that would loop sign-in itself. */
+		const res = proxy(req("commcare.app", "/api/auth/sign-in"));
+		expectBypassPassthrough(res);
+		expect(res.status).not.toBe(307);
 	});
 });
 
-describe("proxy: unknown hosts (Cloud Run health checks, dev localhost)", () => {
+describe("proxy: unknown hosts (Cloud Run health checks, dev localhost, missing Host)", () => {
 	it("passes /api/* through without auth redirect", () => {
 		/* Unknown classification skips the allowlist entirely but still
 		 * runs through the API short-circuit. The previous round of
@@ -189,7 +258,18 @@ describe("proxy: unknown hosts (Cloud Run health checks, dev localhost)", () => 
 		 * redirect, since redirecting Cloud Run's health probe to / would
 		 * mark the instance unhealthy. */
 		const res = proxy(req("nova-abc-uc.a.run.app", "/api/chat"));
-		expectPassthrough(res);
+		expectBypassPassthrough(res);
 		expect(res.status).not.toBe(307);
+	});
+
+	it("treats an empty Host header as unknown and runs page handling", () => {
+		/* `normalizeHost("")` → `""`, `classifyHost("")` → `null`. The
+		 * request falls through hostname routing into page handling;
+		 * /build is not on the short-circuit, has no session cookie, so
+		 * it must land at the auth redirect — proving page-route
+		 * treatment, not a 404. */
+		const url = new URL("http://example.test/build");
+		const res = proxy(new NextRequest(url, { headers: { host: "" } }));
+		expectAuthRedirect(res);
 	});
 });

@@ -1,37 +1,35 @@
 /**
  * Next.js 16 proxy — hostname routing + CSP + optimistic auth redirect.
  *
- * The "proxy" file convention replaces `middleware.ts` in Next.js 16 (the
- * runtime is Node.js and cannot be configured). A single proxy file is the
- * one place every request flows through before it reaches a route handler
- * or page, so this file owns three independent concerns layered in order:
+ * The "proxy" file convention is the one place every request flows through
+ * before reaching a route handler or page. This file owns three concerns
+ * layered in order:
  *
  *   1. **Hostname routing.** A single Cloud Run service serves three
  *      virtual hosts (`commcare.app`, `mcp.commcare.app`,
  *      `docs.commcare.app`). Per-host path allowlists in `lib/hostnames.ts`
  *      enforce that the MCP subdomain only exposes MCP routes, the docs
- *      subdomain only exposes docs, and everything off-allowlist 404s with
- *      `Cache-Control: no-store` so the security boundary can't be cached.
- *      The MCP subdomain rewrites `/mcp` → `/api/mcp` so the externally
- *      visible URL stays clean while the file-system route lives at the
- *      Next conventional path.
+ *      subdomain only exposes docs, and everything off-allowlist 404s
+ *      with `Cache-Control: no-store` so the security boundary cannot be
+ *      cached. The MCP subdomain rewrites `/mcp` → `/api/mcp` so the
+ *      externally visible URL stays clean while the file-system route
+ *      lives at the Next conventional path.
  *
- *   2. **API short-circuit.** Once routing has decided this is a main-host
- *      request, `/api/*` paths skip CSP + auth entirely — those concerns
- *      apply to pages, not JSON endpoints. The matcher had to widen to
- *      include `/api` so the MCP host could intercept `/api/mcp`; this
- *      short-circuit is what keeps the widened matcher from breaking the
- *      main host's API surface.
+ *   2. **API + well-known short-circuit.** `/api/*` paths skip CSP + auth
+ *      entirely on every host that reaches this stage — those concerns
+ *      apply to pages, not JSON endpoints, and an HTML auth redirect
+ *      would silently break every API client. `/.well-known/*` joins the
+ *      same short-circuit because OAuth/OIDC discovery documents are
+ *      static metadata that must be reachable unauthenticated, with no
+ *      page-shaped CSP/nonce assembly. The matcher includes `/api` so
+ *      the MCP host can intercept `/api/mcp` in step 1.
  *
  *   3. **Pages: nonce-based CSP + optimistic auth.** Every page request
  *      gets a per-request nonce on `Content-Security-Policy` (response)
  *      and `x-nonce` (request, for RSC). Unauthenticated requests on
- *      protected pages are redirected to `/`. We only redirect TO `/`,
- *      never FROM it — the landing page does the reverse with full session
- *      validation, so a stale cookie can't loop. `/.well-known/*` is
- *      exempt from the auth redirect: those endpoints are OAuth/OIDC
- *      discovery metadata and must be reachable unauthenticated, otherwise
- *      OAuth clients cannot bootstrap.
+ *      protected pages are redirected to `/`. The redirect only goes
+ *      TO `/`, never FROM it — the landing page does the reverse with
+ *      full session validation, so a stale cookie cannot loop.
  */
 
 import { getSessionCookie } from "better-auth/cookies";
@@ -67,20 +65,23 @@ export function proxy(request: NextRequest): NextResponse {
 	/* ── 1. Hostname routing ─────────────────────────────────────────── */
 
 	if (classified === HOSTNAMES.mcp) {
-		/* External `/mcp` rewrites to internal `/api/mcp`. Use
-		 * `nextUrl.clone()` and mutate `pathname` so the search string
-		 * (e.g. `?session=…`, `?code=…`) survives the rewrite — the
-		 * `new URL("/api/mcp", request.url)` form would discard it. The
-		 * MCP endpoint is JSON-RPC; return immediately so it never picks
-		 * up CSP headers or the auth redirect. */
-		if (pathname === "/mcp") {
+		/* The MCP host has a fixed two-route surface, so list the routes
+		 * inline instead of leaning on `isPathAllowedOnHost`. The
+		 * allowlist helper is segment-anchored — `/mcp/foo` would pass
+		 * its `/mcp` prefix check and fall through to a non-existent
+		 * page, missing the security-boundary 404 contract. Enumerating
+		 * the two valid paths keeps the surface tight. */
+		if (pathname === "/mcp" || pathname === "/mcp/") {
+			/* Use `nextUrl.clone()` and mutate `pathname` so the search
+			 * string (e.g. `?session=…`, `?code=…`) survives the rewrite —
+			 * `new URL("/api/mcp", request.url)` would discard it. The
+			 * MCP endpoint is JSON-RPC; return immediately so it never
+			 * picks up CSP headers or the auth redirect. */
 			const target = request.nextUrl.clone();
 			target.pathname = "/api/mcp";
 			return NextResponse.rewrite(target);
 		}
-		/* OAuth-protected-resource metadata is the only other allowlist
-		 * entry on this host; pass it through with no CSP / auth. */
-		if (isPathAllowedOnHost(HOSTNAMES.mcp, pathname)) {
+		if (pathname === "/.well-known/oauth-protected-resource") {
 			return NextResponse.next();
 		}
 		return notFound();
@@ -99,28 +100,39 @@ export function proxy(request: NextRequest): NextResponse {
 		if (!isPathAllowedOnHost(HOSTNAMES.main, pathname)) {
 			return notFound();
 		}
-		/* Fall through to CSP + auth below. */
+		/* Fall through to the short-circuit + page handling below. */
 	}
 
 	/* Unknown classification (Cloud Run health checks on `*-uc.a.run.app`,
-	 * dev `localhost:3000`, preview deployments) skips the allowlist gate
-	 * but still gets the CSP + auth treatment. We don't want platform-
-	 * level requests to 404, but we also don't want them to bypass auth. */
+	 * dev `localhost:3000`, preview deployments, an empty/missing Host
+	 * header) skips the allowlist gate but still flows through the API
+	 * short-circuit and page handling. We do not want platform-level
+	 * requests to 404, but we also do not want them to bypass auth. */
 
-	/* ── 2. API short-circuit (main host + unknown hosts) ────────────── */
+	/* ── 2. API + well-known short-circuit ───────────────────────────── */
 
-	/* The matcher widened to include `/api/*` so MCP-host `/api/mcp`
-	 * could be intercepted above. CSP + auth do not apply to API routes —
-	 * they would set CSP headers on JSON responses (harmless but wrong)
-	 * and redirect unauthenticated API calls to `/` as HTML (which would
-	 * silently break every API client). */
-	if (pathname.startsWith("/api/")) {
+	/* `/api` is checked exactly because `startsWith("/api/")` would miss
+	 * a request to the bare `/api` path (which has no trailing slash).
+	 * `/.well-known/*` rides the same short-circuit because discovery
+	 * metadata is JSON, not a page — page-shaped CSP nonces and the
+	 * auth redirect would both be wrong for it. */
+	if (
+		pathname === "/api" ||
+		pathname.startsWith("/api/") ||
+		pathname.startsWith("/.well-known/")
+	) {
 		return NextResponse.next();
 	}
 
 	/* ── 3. Pages: nonce-based CSP + optimistic auth ─────────────────── */
 
-	const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+	/* 16 raw random bytes encoded as base64. `randomUUID()` would yield
+	 * an ASCII string with structurally fixed dashes and version nibbles —
+	 * base64-encoding that wastes the entropy that the CSP nonce relies on
+	 * to prevent attackers from guessing valid nonces. */
+	const nonceBytes = new Uint8Array(16);
+	crypto.getRandomValues(nonceBytes);
+	const nonce = Buffer.from(nonceBytes).toString("base64");
 	const isDev = process.env.NODE_ENV === "development";
 
 	const csp = [
@@ -138,12 +150,10 @@ export function proxy(request: NextRequest): NextResponse {
 	].join("; ");
 
 	/* Optimistic auth — cookie presence only, server does full validation.
-	 * `/.well-known/*` is exempt because it serves OAuth / OIDC discovery
-	 * metadata that unauthenticated clients MUST be able to read; a
-	 * redirect would break OAuth bootstrapping. The root path is exempt
-	 * so the unauthenticated landing page is reachable. */
-	const isWellKnown = pathname.startsWith("/.well-known/");
-	if (pathname !== "/" && !isWellKnown && !getSessionCookie(request)) {
+	 * The root path is exempt so the unauthenticated landing page is
+	 * reachable. `/.well-known/*` was already filtered out by the
+	 * short-circuit above, so it does not need a second exemption here. */
+	if (pathname !== "/" && !getSessionCookie(request)) {
 		return NextResponse.redirect(new URL("/", request.url));
 	}
 
@@ -159,10 +169,11 @@ export function proxy(request: NextRequest): NextResponse {
 }
 
 export const config = {
-	/* The matcher includes `/api` so the MCP host can intercept `/api/mcp`
-	 * above. Without `/api` in the matcher, the MCP-host `/mcp` rewrite
-	 * could not target it. The main-host `/api/*` short-circuit (step 2
-	 * above) keeps CSP + auth from running on API routes that would
-	 * previously have been excluded by the matcher entirely. */
+	/* `_next/static`, `_next/image`, and `favicon.ico` are static assets
+	 * that need none of the three concerns above (no hostname allowlist
+	 * check, no CSP, no auth) — exclude them from the matcher to skip the
+	 * proxy entirely. `/api` is intentionally NOT excluded so that the
+	 * MCP host can intercept `/api/mcp` in step 1; the API short-circuit
+	 * in step 2 handles the matched main-host API requests. */
 	matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
