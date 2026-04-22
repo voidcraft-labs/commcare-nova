@@ -254,14 +254,12 @@ export const editFieldTool = {
 			const changedFields = Object.keys(updates).join(", ");
 			const renameNote =
 				newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
+			// `afterRename` already carries the form's uuid — read the display
+			// name directly rather than re-traversing `moduleOrder` →
+			// `formOrder` to get back to the same uuid.
 			const formName =
-				(() => {
-					const moduleUuid = workingDoc.moduleOrder[moduleIndex];
-					const formUuid = moduleUuid
-						? workingDoc.formOrder[moduleUuid]?.[formIndex]
-						: undefined;
-					return formUuid ? workingDoc.forms[formUuid]?.name : undefined;
-				})() ?? `m${moduleIndex}-f${formIndex}`;
+				workingDoc.forms[afterRename.formUuid]?.name ??
+				`m${moduleIndex}-f${formIndex}`;
 			const label =
 				postField && "label" in postField
 					? (postField as { label: string }).label

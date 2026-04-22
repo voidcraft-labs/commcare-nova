@@ -15,11 +15,11 @@
  * applied.
  *
  * Stream-event payloads carry fine-grained `data-mutations` events
- * emitted via `ctx.emitMutations` for every tool-level change; the
+ * emitted via `ctx.recordMutations` for every tool-level change; the
  * final `data-done` from `validateApp` carries a normalized doc snapshot.
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { stepCountIs, ToolLoopAgent, tool } from "ai";
+import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -27,10 +27,12 @@ import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
+import type { ToolExecutionContext } from "./toolExecutionContext";
 import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
+import type { MutatingToolResult } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
 import { editFieldTool } from "./tools/editField";
@@ -99,257 +101,142 @@ export function createSolutionsArchitect(
 	/* Internal working doc — read + reassigned on every tool call.
 	 *
 	 * Mutation persistence (SSE + event log + Firestore) happens inside
-	 * each extracted tool module via `ctx.recordMutations`. Each wrapper
-	 * below simply reassigns `doc` when the extracted tool's `mutations`
+	 * each extracted tool module via `ctx.recordMutations`. The wrappers
+	 * below only reassign `doc` when the extracted tool's `mutations`
 	 * array is non-empty, so the next tool call in the same request sees
 	 * post-mutation state for its positional-index lookups. Wire-format
 	 * snapshots are generated on demand for LLM-facing outputs and for
 	 * the CommCare validator. */
 	let doc: BlueprintDoc = initialDoc;
 
+	/**
+	 * Wrap an extracted mutating-tool module into the AI SDK tool-shape
+	 * the `ToolLoopAgent` expects.
+	 *
+	 * Closes over the factory's `ctx` and mutable `doc` binding so each
+	 * wrapper entry in the tool sets below collapses to `wrapMutating(x)`.
+	 * The mutations are already persisted by the extracted tool's
+	 * `ctx.recordMutations(...)` call before it returns; this helper's only
+	 * job is to advance the SA's working-doc closure when the batch was
+	 * non-empty, so the next tool call sees updated index → uuid
+	 * resolution. Empty batches leave `doc` alone — matters for success
+	 * branches that don't change state (e.g. the survey-only module
+	 * branch in `addModule`).
+	 *
+	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
+	 * the returned `execute` callback hands the exact Zod-output type to
+	 * the shared tool module — no `unknown` fallback. `strict` is
+	 * forwarded only when the tool module declares it; omitting the key
+	 * leaves the AI SDK's own default in place.
+	 *
+	 * Returns a plain object literal rather than routing through `tool()`:
+	 * the AI SDK's `tool()` function is identity at runtime (`(t) => t`)
+	 * and exists only for type inference. Inside this generic helper the
+	 * `tool()` overload resolver can't bind its own `INPUT`/`OUTPUT` type
+	 * params because `R` stays abstract until each concrete call site —
+	 * `wrapMutating(addFieldsTool)`, etc. — lands on the agent's
+	 * `tools` record, at which point structural inference on the
+	 * `ToolSet` accepts the object without further annotation.
+	 */
+	function wrapMutating<I, R>(t: {
+		description: string;
+		inputSchema: FlexibleSchema<I>;
+		strict?: boolean;
+		execute(
+			input: I,
+			ctx: ToolExecutionContext,
+			doc: BlueprintDoc,
+		): Promise<MutatingToolResult<R>>;
+	}) {
+		return {
+			description: t.description,
+			inputSchema: t.inputSchema,
+			...(t.strict !== undefined && { strict: t.strict }),
+			execute: async (input: I) => {
+				const { mutations, newDoc, result } = await t.execute(input, ctx, doc);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
+			},
+		};
+	}
+
+	/**
+	 * Wrap an extracted read-only tool module into the AI SDK tool-shape.
+	 * Reads the working doc and returns the tool's result; the SA's
+	 * closure is never advanced (reads don't mutate state).
+	 *
+	 * Separate from `wrapMutating` because read tools don't return the
+	 * `MutatingToolResult` envelope — their execute method returns the
+	 * LLM-facing value directly, so there's nothing to destructure.
+	 */
+	function wrapRead<I, R>(t: {
+		description: string;
+		inputSchema: FlexibleSchema<I>;
+		execute(input: I, ctx: ToolExecutionContext, doc: BlueprintDoc): Promise<R>;
+	}) {
+		return {
+			description: t.description,
+			inputSchema: t.inputSchema,
+			execute: async (input: I) => t.execute(input, ctx, doc),
+		};
+	}
+
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → fields.
 	// Excluded in edit mode — the SA uses mutation tools instead.
-	//
-	// Every mutating-tool wrapper below delegates to a shared module in
-	// `./tools/`. The shared module computes mutations, emits them on SSE
-	// + log, and persists via `ctx.recordMutations`. Each wrapper advances
-	// the SA's working doc closure when the batch is non-empty so the next
-	// tool call in the same request sees updated state for index → uuid
-	// resolution.
 
 	const generationTools = {
-		generateSchema: tool({
-			description: generateSchemaTool.description,
-			inputSchema: generateSchemaTool.inputSchema,
-			strict: generateSchemaTool.strict,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await generateSchemaTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		generateScaffold: tool({
-			description: generateScaffoldTool.description,
-			inputSchema: generateScaffoldTool.inputSchema,
-			strict: generateScaffoldTool.strict,
-			execute: async (input) => {
-				const { mutations, newDoc, result } =
-					await generateScaffoldTool.execute(input, ctx, doc);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		addModule: tool({
-			description: addModuleTool.description,
-			inputSchema: addModuleTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await addModuleTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
+		generateSchema: wrapMutating(generateSchemaTool),
+		generateScaffold: wrapMutating(generateScaffoldTool),
+		addModule: wrapMutating(addModuleTool),
 	};
 
 	// ── Shared tools (all modes) ─────────────────────────────────────
 	// Conversation, batch add, read, mutation, and validation tools.
 
 	const sharedTools = {
+		// `askQuestions` is the one client-side tool — no `execute`, the
+		// agent stops for user input when the model calls it. Kept as a
+		// bare `{ description, inputSchema }` object so the AI SDK can
+		// still register the schema without wiring a server handler.
 		askQuestions: {
 			description: askQuestionsTool.description,
 			inputSchema: askQuestionsTool.inputSchema,
-			// No execute → client-side tool, agent stops for user input
 		},
 
-		addFields: tool({
-			description: addFieldsTool.description,
-			inputSchema: addFieldsTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await addFieldsTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
+		addFields: wrapMutating(addFieldsTool),
 
 		// ── Read ────────────────────────────────────────────────────────
 
-		searchBlueprint: tool({
-			description: searchBlueprintTool.description,
-			inputSchema: searchBlueprintTool.inputSchema,
-			execute: async (input) => searchBlueprintTool.execute(input, ctx, doc),
-		}),
-
-		getModule: tool({
-			description: getModuleTool.description,
-			inputSchema: getModuleTool.inputSchema,
-			execute: async (input) => getModuleTool.execute(input, ctx, doc),
-		}),
-
-		getForm: tool({
-			description: getFormTool.description,
-			inputSchema: getFormTool.inputSchema,
-			execute: async (input) => getFormTool.execute(input, ctx, doc),
-		}),
-
-		getField: tool({
-			description: getFieldTool.description,
-			inputSchema: getFieldTool.inputSchema,
-			execute: async (input) => getFieldTool.execute(input, ctx, doc),
-		}),
+		searchBlueprint: wrapRead(searchBlueprintTool),
+		getModule: wrapRead(getModuleTool),
+		getForm: wrapRead(getFormTool),
+		getField: wrapRead(getFieldTool),
 
 		// ── Field mutations ────────────────────────────────────────
 
-		editField: tool({
-			description: editFieldTool.description,
-			inputSchema: editFieldTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await editFieldTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		addField: tool({
-			description: addFieldTool.description,
-			inputSchema: addFieldTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await addFieldTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		removeField: tool({
-			description: removeFieldTool.description,
-			inputSchema: removeFieldTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await removeFieldTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
+		editField: wrapMutating(editFieldTool),
+		addField: wrapMutating(addFieldTool),
+		removeField: wrapMutating(removeFieldTool),
 
 		// ── Structural mutations ──────────────────────────────────────
 
-		updateModule: tool({
-			description: updateModuleTool.description,
-			inputSchema: updateModuleTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await updateModuleTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		updateForm: tool({
-			description: updateFormTool.description,
-			inputSchema: updateFormTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await updateFormTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		createForm: tool({
-			description: createFormTool.description,
-			inputSchema: createFormTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await createFormTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		removeForm: tool({
-			description: removeFormTool.description,
-			inputSchema: removeFormTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await removeFormTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		createModule: tool({
-			description: createModuleTool.description,
-			inputSchema: createModuleTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await createModuleTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
-
-		removeModule: tool({
-			description: removeModuleTool.description,
-			inputSchema: removeModuleTool.inputSchema,
-			execute: async (input) => {
-				const { mutations, newDoc, result } = await removeModuleTool.execute(
-					input,
-					ctx,
-					doc,
-				);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
-		}),
+		updateModule: wrapMutating(updateModuleTool),
+		updateForm: wrapMutating(updateFormTool),
+		createForm: wrapMutating(createFormTool),
+		removeForm: wrapMutating(removeFormTool),
+		createModule: wrapMutating(createModuleTool),
+		removeModule: wrapMutating(removeModuleTool),
 
 		// ── Validation ────────────────────────────────────────────────
 
-		/* `validateApp` runs the shared validation + fix loop and layers two
-		 * chat-only side effects on top of the flat result: the final
-		 * `data-done` SSE part carrying the full doc + HQ JSON, and the
-		 * `completeApp` Firestore update that flips the app record to its
-		 * final state. Both side effects depend on `ctx.usage.runId` and
-		 * `ctx.emit`, which only exist on `GenerationContext` — hence they
-		 * stay here rather than migrating into the shared tool module. */
+		/* `validateApp` stays bespoke because its wrapper layers two
+		 * chat-only side effects on top of the flat shared result: the
+		 * final `data-done` SSE part carrying the full doc + HQ JSON, and
+		 * the `completeApp` Firestore update that flips the app record to
+		 * its final state. Both side effects depend on `ctx.usage.runId`
+		 * and `ctx.emit`, which only exist on `GenerationContext` — so
+		 * they can't live inside the shared tool module. */
 		validateApp: tool({
 			description: validateAppTool.description,
 			inputSchema: validateAppTool.inputSchema,

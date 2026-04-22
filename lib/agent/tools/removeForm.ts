@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { removeFormMutations, resolveFormUuid } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -57,7 +58,7 @@ export const removeFormTool = {
 			// informational success message rather than erroring. This
 			// lenient contract matches `removeModule` — mutating tools that
 			// see "target already gone" shouldn't hard-fail the SA's loop.
-			let mutations: Parameters<typeof ctx.recordMutations>[0] = [];
+			let mutations: Mutation[] = [];
 			let newDoc = doc;
 			if (formUuid) {
 				mutations = removeFormMutations(doc, formUuid);

@@ -20,6 +20,7 @@
  */
 
 import { z } from "zod";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -56,7 +57,7 @@ export const removeModuleTool = {
 			// `undefined` and we fall through with a success message so the
 			// SA's loop keeps moving rather than hard-failing on a stale
 			// target.
-			let mutations: Parameters<typeof ctx.recordMutations>[0] = [];
+			let mutations: Mutation[] = [];
 			let newDoc = doc;
 			if (moduleUuid) {
 				mutations = removeModuleMutations(doc, moduleUuid);
