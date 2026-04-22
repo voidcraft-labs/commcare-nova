@@ -25,7 +25,6 @@ import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
-import { searchBlueprint } from "@/lib/doc/searchBlueprint";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -77,6 +76,7 @@ import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
+import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -427,19 +427,9 @@ export function createSolutionsArchitect(
 		// ── Read ────────────────────────────────────────────────────────
 
 		searchBlueprint: tool({
-			description:
-				"Search the blueprint for fields, forms, modules, or case properties matching a query.",
-			inputSchema: z.object({
-				query: z
-					.string()
-					.describe(
-						"Search term: case property name, field id, label text, case type, XPath fragment, or module/form name",
-					),
-			}),
-			execute: async ({ query }) => {
-				const results = searchBlueprint(doc, query);
-				return { query, results };
-			},
+			description: searchBlueprintTool.description,
+			inputSchema: searchBlueprintTool.inputSchema,
+			execute: async (input) => searchBlueprintTool.execute(input, ctx, doc),
 		}),
 
 		getModule: tool({
