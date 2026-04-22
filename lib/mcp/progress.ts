@@ -1,10 +1,11 @@
 /**
  * MCP progress emitter — interface only.
  *
- * The factory (`createProgressEmitter`) and the `ProgressStage` union
- * land with Task C4. Exposing the interface here lets `McpContext` and
- * adapters import a stable type today without circular dependencies or
- * forward-referenced locals.
+ * Exposes the emitter contract so tool adapters can type their progress
+ * dependency without pulling in a concrete implementation. A factory
+ * (`createProgressEmitter`) and a stage-taxonomy union will live in this
+ * same module once a runtime sender ships; consumers that only need the
+ * type are decoupled from that evolution.
  */
 
 export interface ProgressEmitter {
