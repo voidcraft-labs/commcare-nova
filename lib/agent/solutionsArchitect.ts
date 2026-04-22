@@ -55,7 +55,6 @@ import {
 	removeModuleMutations,
 	renameFieldMutations,
 	resolveFieldByIndex,
-	setScaffoldMutations,
 	updateFieldMutations,
 	updateFormMutations,
 	updateModuleMutations,
@@ -68,13 +67,14 @@ import {
 } from "./contentProcessing";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import { moduleContentSchema, scaffoldModulesSchema } from "./scaffoldSchemas";
+import { moduleContentSchema } from "./scaffoldSchemas";
 import {
 	addFieldSchema,
 	addFieldsItemSchema,
 	editFieldUpdatesSchema,
 } from "./toolSchemas";
 import { applyToDoc } from "./tools/common";
+import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
 import { validateAndFix } from "./validationLoop";
 
@@ -303,28 +303,14 @@ export function createSolutionsArchitect(
 		}),
 
 		generateScaffold: tool({
-			description:
-				"Set the module and form structure for the app. Call after generateScaffold. Provide the complete scaffold directly.",
-			inputSchema: scaffoldModulesSchema,
-			strict: true,
-			execute: async (scaffold) => {
-				const muts = setScaffoldMutations(doc, scaffold);
-				emit(muts, "scaffold");
-
-				return {
-					appName: scaffold.app_name,
-					modules: scaffold.modules.map((m, i) => ({
-						index: i,
-						name: m.name,
-						case_type: m.case_type,
-						formCount: m.forms.length,
-						forms: m.forms.map((f, j) => ({
-							index: j,
-							name: f.name,
-							type: f.type,
-						})),
-					})),
-				};
+			description: generateScaffoldTool.description,
+			inputSchema: generateScaffoldTool.inputSchema,
+			strict: generateScaffoldTool.strict,
+			execute: async (input) => {
+				const { mutations, newDoc, result } =
+					await generateScaffoldTool.execute(input, ctx, doc);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
