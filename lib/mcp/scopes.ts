@@ -33,10 +33,20 @@ export const SCOPES = {
 export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
 
 /**
- * Parse the JWT's space-separated `scope` claim into an array of
- * tokens. Missing or whitespace-only claims return `[]`. Per RFC 8693
- * the claim is space-delimited; splitting on any whitespace run is
- * defensive against the occasional CR/LF an upstream token server emits.
+ * Parse the JWT's `scope` claim into an array of tokens.
+ *
+ * Return type is `string[]`, not `Scope[]`, because a token's scope
+ * claim carries third-party scopes (`openid`, `profile`,
+ * `offline_access`) that Nova doesn't own but must preserve alongside
+ * its own (`nova.read`, `nova.write`). Consumers that check for
+ * Nova-specific scopes do `scopes.includes(SCOPES.write)` against the
+ * string array; those constants already carry the correct literal
+ * types.
+ *
+ * Missing or empty claims return `[]`. Whitespace tokens are filtered.
+ * Per RFC 8693 the claim is space-delimited; splitting on any
+ * whitespace run is defensive against the occasional CR/LF an upstream
+ * token server emits.
  */
 export function parseScopes(jwt: JwtClaims): string[] {
 	return (jwt.scope ?? "").split(/\s+/).filter(Boolean);

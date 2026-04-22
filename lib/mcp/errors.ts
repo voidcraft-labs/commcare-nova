@@ -23,7 +23,7 @@ import { McpForbiddenError } from "./ownership";
  */
 export interface McpToolErrorResult {
 	isError: true;
-	content: [{ type: "text"; text: string }];
+	content: Array<{ type: "text"; text: string }>;
 	_meta: {
 		error_type: string;
 		app_id?: string;

@@ -39,6 +39,8 @@ export async function requireOwnedApp(
 	appId: string,
 ): Promise<void> {
 	const owner = await loadAppOwner(appId);
+	// Empty string and null both count as "no owner" — a blank value would
+	// violate invariants even if Firestore permitted it.
 	if (!owner) throw new McpForbiddenError("not_found");
 	if (owner !== userId) throw new McpForbiddenError("not_owner");
 }
