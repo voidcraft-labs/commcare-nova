@@ -29,6 +29,15 @@ interface LogPayload {
 	"logging.googleapis.com/labels"?: Record<string, string>;
 }
 
+/**
+ * Arbitrary context attached to a log entry. Callers pass domain values
+ * (uuids, arrays, nested objects, Errors). In local dev these flow
+ * through to `console.*` which pretty-prints them; in production each
+ * value is coerced to a string so GCP's labels contract
+ * (string-only values) is satisfied.
+ */
+export type LogContext = Record<string, unknown>;
+
 // ── Internal ───────────────────────────────────────────────────────────
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -57,15 +66,20 @@ function emit(payload: LogPayload): void {
 }
 
 /**
- * Format a message with optional labels context for local dev output.
- * Reproduces the bracket-tag pattern used by existing console.error calls.
+ * Coerce arbitrary context values into GCP-compatible string labels.
+ * Strings pass through; everything else is JSON-serialized so array and
+ * object context survives the label boundary in a queryable form.
  */
-function formatLocal(message: string, labels?: Record<string, string>): string {
-	if (!labels || Object.keys(labels).length === 0) return message;
-	const pairs = Object.entries(labels)
-		.map(([k, v]) => `${k}=${v}`)
-		.join(" ");
-	return `${message} (${pairs})`;
+function stringifyLabels(
+	context: LogContext,
+): Record<string, string> | undefined {
+	const entries = Object.entries(context);
+	if (entries.length === 0) return undefined;
+	const result: Record<string, string> = {};
+	for (const [key, value] of entries) {
+		result[key] = typeof value === "string" ? value : JSON.stringify(value);
+	}
+	return result;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -75,16 +89,20 @@ export const log = {
 	 * Log an informational message. Useful for request lifecycle events,
 	 * startup diagnostics, or audit trail entries.
 	 */
-	info(message: string, labels?: Record<string, string>): void {
+	info(message: string, context?: LogContext): void {
 		if (!isProduction) {
-			console.log(formatLocal(message, labels));
+			if (context && Object.keys(context).length > 0)
+				console.log(message, context);
+			else console.log(message);
 			return;
 		}
 		emit({
 			severity: "INFO",
 			message,
 			time: new Date().toISOString(),
-			...(labels && { "logging.googleapis.com/labels": labels }),
+			...(context && {
+				"logging.googleapis.com/labels": stringifyLabels(context),
+			}),
 		});
 	},
 
@@ -92,16 +110,20 @@ export const log = {
 	 * Log a warning — something unexpected happened but the operation can
 	 * continue. Retryable failures, degraded functionality, fallback paths.
 	 */
-	warn(message: string, labels?: Record<string, string>): void {
+	warn(message: string, context?: LogContext): void {
 		if (!isProduction) {
-			console.warn(formatLocal(message, labels));
+			if (context && Object.keys(context).length > 0)
+				console.warn(message, context);
+			else console.warn(message);
 			return;
 		}
 		emit({
 			severity: "WARNING",
 			message,
 			time: new Date().toISOString(),
-			...(labels && { "logging.googleapis.com/labels": labels }),
+			...(context && {
+				"logging.googleapis.com/labels": stringifyLabels(context),
+			}),
 		});
 	},
 
@@ -112,18 +134,18 @@ export const log = {
 	 *
 	 * @param message - Human-readable description of what went wrong
 	 * @param error - The caught error/exception (stack extracted automatically)
-	 * @param labels - Key-value pairs for Cloud Logging filtering
+	 * @param context - Arbitrary labels for Cloud Logging filtering
 	 */
-	error(
-		message: string,
-		error?: unknown,
-		labels?: Record<string, string>,
-	): void {
+	error(message: string, error?: unknown, context?: LogContext): void {
 		if (!isProduction) {
-			if (error) {
-				console.error(formatLocal(message, labels), error);
+			if (error !== undefined) {
+				if (context && Object.keys(context).length > 0)
+					console.error(message, context, error);
+				else console.error(message, error);
 			} else {
-				console.error(formatLocal(message, labels));
+				if (context && Object.keys(context).length > 0)
+					console.error(message, context);
+				else console.error(message);
 			}
 			return;
 		}
@@ -132,7 +154,9 @@ export const log = {
 			message,
 			time: new Date().toISOString(),
 			stack_trace: extractStack(error),
-			...(labels && { "logging.googleapis.com/labels": labels }),
+			...(context && {
+				"logging.googleapis.com/labels": stringifyLabels(context),
+			}),
 		});
 	},
 
@@ -140,16 +164,17 @@ export const log = {
 	 * Log a critical/fatal error — the process or request is in an
 	 * unrecoverable state. Use sparingly; most errors should use `error()`.
 	 */
-	critical(
-		message: string,
-		error?: unknown,
-		labels?: Record<string, string>,
-	): void {
+	critical(message: string, error?: unknown, context?: LogContext): void {
 		if (!isProduction) {
-			if (error) {
-				console.error(`[CRITICAL] ${formatLocal(message, labels)}`, error);
+			const prefixed = `[CRITICAL] ${message}`;
+			if (error !== undefined) {
+				if (context && Object.keys(context).length > 0)
+					console.error(prefixed, context, error);
+				else console.error(prefixed, error);
 			} else {
-				console.error(`[CRITICAL] ${formatLocal(message, labels)}`);
+				if (context && Object.keys(context).length > 0)
+					console.error(prefixed, context);
+				else console.error(prefixed);
 			}
 			return;
 		}
@@ -158,7 +183,9 @@ export const log = {
 			message,
 			time: new Date().toISOString(),
 			stack_trace: extractStack(error),
-			...(labels && { "logging.googleapis.com/labels": labels }),
+			...(context && {
+				"logging.googleapis.com/labels": stringifyLabels(context),
+			}),
 		});
 	},
 };
