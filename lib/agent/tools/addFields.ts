@@ -11,8 +11,9 @@
  * Appends to existing fields; does not replace. The SA relies on that
  * contract when it splits a large add across multiple calls.
  *
- * Shared between the chat factory and future MCP adapters. Three legal
- * exit branches all land on the `MutatingToolResult` shape:
+ * Both the SA chat factory and the MCP adapter call this through the
+ * shared `ToolExecutionContext` interface. Three legal exit branches
+ * all land on the `MutatingToolResult` shape:
  *
  *   1. Index resolution miss (module / form) → `{ error }`, no
  *      mutations.
@@ -29,7 +30,6 @@ import { asUuid } from "@/lib/domain";
 import { findFieldByBareId } from "../blueprintHelpers";
 import {
 	applyDefaults,
-	type FlatField,
 	flatFieldToField,
 	stripEmpty,
 } from "../contentProcessing";
@@ -54,7 +54,7 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
 export type AddFieldsResult = string | { error: string };
 
 export const addFieldsTool = {
-	name: "addFields",
+	name: "addFields" as const,
 	description:
 		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
 	inputSchema: addFieldsInputSchema,
@@ -115,12 +115,16 @@ export const addFieldsTool = {
 			const skippedIds: string[] = [];
 
 			for (const raw of fields) {
+				// `stripEmpty` narrows the input to carry `parentId?: string | null`
+				// explicitly (sentinel-empty-string → null), and the generic
+				// `applyDefaults` preserves that narrowing on the way out, so
+				// the `parentId` read below is well-typed without a cast.
 				const processed = applyDefaults(
-					stripEmpty(raw as unknown as FlatField),
+					stripEmpty(raw),
 					doc.caseTypes,
 					form.type,
 					mod.caseType,
-				) as Partial<FlatField> & { parentId?: string | null };
+				);
 
 				// Resolve parentUuid: empty/undefined → form; otherwise find
 				// the uuid of a newly-added parent or an existing field.

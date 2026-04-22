@@ -5,8 +5,8 @@
  * Pure read — no mutations, no SSE emission. Resolves the field through
  * the positional `(moduleIndex, formIndex, fieldId)` triple so the SA
  * can read a field it knows only by name without threading a path
- * prefix through the call. Shared between the chat factory and future
- * MCP adapters.
+ * prefix through the call. Both the SA chat factory and the MCP
+ * adapter call this the same way.
  *
  * Container-vs-leaf branching lives here: group / repeat fields carry a
  * `children` key populated with the ordered subtree so the SA sees one
@@ -30,10 +30,13 @@ export const getFieldInputSchema = z.object({
 export type GetFieldInput = z.infer<typeof getFieldInputSchema>;
 
 /**
- * Field payload shape for container fields — the domain `Field` plus an
- * ordered `children` array. For leaf fields the tool returns the raw
- * `Field` with no `children` key, so downstream consumers can branch on
- * `isContainer` themselves.
+ * Field payload shape for container fields — the domain `Field` plus
+ * its ordered subtree. Narrower than `FieldWithChildren` (where
+ * `children` is optional to cover leaves too): the tool only constructs
+ * this shape when `isContainer(field)` is true, so `children` is
+ * guaranteed present. Leaf fields come back as raw `Field` with no
+ * `children` key so downstream consumers can branch on `isContainer`
+ * themselves.
  */
 export type ContainerFieldWithChildren = Field & {
 	children: FieldWithChildren[];
@@ -55,7 +58,7 @@ export type GetFieldResult =
 	  };
 
 export const getFieldTool = {
-	name: "getField",
+	name: "getField" as const,
 	description: "Get a single field by ID within a form.",
 	inputSchema: getFieldInputSchema,
 	async execute(

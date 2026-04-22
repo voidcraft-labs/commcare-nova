@@ -7,8 +7,9 @@
  * case type and therefore no column mutations — the tool returns a
  * silent success for those.
  *
- * Shared between the chat factory and future MCP adapters. Three exit
- * branches all land on the `MutatingToolResult` shape:
+ * Both the SA chat factory and the MCP adapter call this through the
+ * shared `ToolExecutionContext` interface. Three exit branches all land
+ * on the `MutatingToolResult` shape:
  *
  *   1. Module index out of range → `{ error }`, no mutations.
  *   2. Survey-only module or null columns → `{ columns: null }`, no
@@ -57,7 +58,7 @@ export type AddModuleResult =
 	  };
 
 export const addModuleTool = {
-	name: "addModule",
+	name: "addModule" as const,
 	description:
 		"Set case list columns for a module. Call after generateScaffold. Provide the columns directly. Survey-only modules (no case_type) should pass null for both.",
 	inputSchema: addModuleInputSchema,

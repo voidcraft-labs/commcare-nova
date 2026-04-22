@@ -3,8 +3,8 @@
  * properties matching a query.
  *
  * Pure read — no mutations, no SSE emission. The shared tool body here
- * is a thin wrapper over `lib/doc/searchBlueprint.ts`. Both the chat
- * factory and future MCP adapters call this the same way.
+ * is a thin wrapper over `lib/doc/searchBlueprint.ts`. Both the SA chat
+ * factory and the MCP adapter call this the same way.
  */
 
 import { z } from "zod";
@@ -33,7 +33,7 @@ export interface SearchBlueprintResult {
 }
 
 export const searchBlueprintTool = {
-	name: "searchBlueprint",
+	name: "searchBlueprint" as const,
 	description:
 		"Search the blueprint for fields, forms, modules, or case properties matching a query.",
 	inputSchema: searchBlueprintInputSchema,

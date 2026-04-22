@@ -4,7 +4,8 @@
  * Runs immediately after `generateSchema` during a new build. The SA
  * hands in a full scaffold (app name, every module and its forms) and
  * the tool computes the module + form creation mutations and persists
- * them. Shared between the chat factory and future MCP adapters.
+ * them. Both the SA chat factory and the MCP adapter call this through
+ * the shared `ToolExecutionContext` interface.
  *
  * The LLM-facing return condenses the scaffold input into a structured
  * index-plus-name summary so the SA can call `addModule` immediately
@@ -43,9 +44,9 @@ export interface GenerateScaffoldResult {
 }
 
 export const generateScaffoldTool = {
-	name: "generateScaffold",
+	name: "generateScaffold" as const,
 	description:
-		"Set the module and form structure for the app. Call after generateScaffold. Provide the complete scaffold directly.",
+		"Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.",
 	inputSchema: generateScaffoldInputSchema,
 	strict: true as const,
 	async execute(

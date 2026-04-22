@@ -76,17 +76,20 @@ import { validateAndFix } from "./validationLoop";
 export { validateAndFix } from "./validationLoop";
 
 /**
- * Names of SA tools exposed only in build mode. Kept here next to the
- * `generationTools` definition so the two don't drift. The chat route
- * uses this list to strip build-only tool-use parts from message history
- * on edit-mode requests — Anthropic rejects any tool reference whose
- * name isn't in the current tools array, and a mid-session edit right
- * after a build would otherwise carry these references in its history.
+ * Names of SA tools exposed only in build mode. Sourced from the tool
+ * modules themselves (each exports a literal-typed `name`) so a rename
+ * at the tool module is the only edit needed to keep this list in sync.
+ *
+ * The chat route uses this list to strip build-only tool-use parts from
+ * message history on edit-mode requests — Anthropic rejects any tool
+ * reference whose name isn't in the current tools array, and a
+ * mid-session edit right after a build would otherwise carry these
+ * references in its history.
  */
 export const BUILD_ONLY_TOOL_NAMES = [
-	"generateSchema",
-	"generateScaffold",
-	"addModule",
+	generateSchemaTool.name,
+	generateScaffoldTool.name,
+	addModuleTool.name,
 ] as const;
 
 // ── Doc helpers ───────────────────────────────────────────────────────
@@ -153,10 +156,11 @@ function editPatchToFieldPatch(
 }
 
 /**
- * Re-export the `FormSnapshot` type so existing `@/lib/agent/solutionsArchitect`
- * consumers can keep importing it from here. The type lives next to
- * `formSnapshot` in `blueprintHelpers.ts` — that's the single source of
- * truth; this re-export preserves the public surface.
+ * `FormSnapshot` is the domain-vocab form-plus-fields shape the SA's
+ * `getForm` tool returns. The type and its builder live in
+ * `blueprintHelpers.ts` alongside other positional `BlueprintDoc`
+ * readers; re-exporting here lets agent-layer consumers import the
+ * type from the same surface they import the SA factory.
  */
 export type { FormSnapshot } from "./blueprintHelpers";
 
@@ -258,6 +262,13 @@ export function createSolutionsArchitect(
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → fields.
 	// Excluded in edit mode — the SA uses mutation tools instead.
+	//
+	// Every mutating-tool wrapper below delegates to a shared module in
+	// `./tools/`. The shared module computes mutations, emits them on SSE
+	// + log, and persists via `ctx.recordMutations`. Each wrapper advances
+	// the SA's working doc closure when the batch is non-empty so the next
+	// tool call in the same request sees updated state for index → uuid
+	// resolution.
 
 	const generationTools = {
 		generateSchema: tool({
@@ -265,11 +276,6 @@ export function createSolutionsArchitect(
 			inputSchema: generateSchemaTool.inputSchema,
 			strict: generateSchemaTool.strict,
 			execute: async (input) => {
-				// The extracted module handles mutation computation, SSE + log
-				// emission, and Firestore persistence via `ctx.recordMutations`.
-				// The wrapper's job is to advance the SA's working doc when the
-				// batch was non-empty, so subsequent tool calls in the same
-				// request see the updated state for index → uuid resolution.
 				const { mutations, newDoc, result } = await generateSchemaTool.execute(
 					input,
 					ctx,
@@ -664,11 +670,6 @@ export function createSolutionsArchitect(
 						patch.caseDetailColumns =
 							case_detail_columns === null ? null : case_detail_columns;
 					}
-					// Compute the helper mutations once so both the emit +
-					// working-doc advance use the same batch. `emit` computes
-					// the post-mutation doc once and threads it through to the
-					// context (for Firestore) while reassigning the SA's
-					// working doc in the same step.
 					const muts = updateModuleMutations(doc, moduleUuid, patch);
 					emit(muts, `module:${moduleIndex}`);
 					const mod = doc.modules[moduleUuid];

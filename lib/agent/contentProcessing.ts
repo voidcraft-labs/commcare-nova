@@ -127,12 +127,12 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  *      writes to; the compiler emits a `<setvalue>` binding, and the
  *      UI renders the preloaded value as the field's initial state.
  */
-export function applyDefaults(
-	q: Partial<FlatField>,
+export function applyDefaults<E extends object = object>(
+	q: Partial<FlatField> & E,
 	caseTypes: CaseTypes,
 	formType?: FormType,
 	moduleCaseType?: string,
-): Partial<FlatField> {
+): Partial<FlatField> & E {
 	const result = { ...q };
 
 	for (const f of XPATH_FIELDS) {

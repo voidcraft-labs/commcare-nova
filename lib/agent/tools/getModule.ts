@@ -4,8 +4,8 @@
  *
  * Pure read — no mutations, no SSE emission. Useful to the SA mid-edit
  * when it needs to confirm a module's case type or enumerate its forms
- * without re-reading the whole doc. Shared between the chat factory and
- * future MCP adapters.
+ * without re-reading the whole doc. Both the SA chat factory and the
+ * MCP adapter call this the same way.
  */
 
 import { z } from "zod";
@@ -48,7 +48,7 @@ export type GetModuleResult =
 	  };
 
 export const getModuleTool = {
-	name: "getModule",
+	name: "getModule" as const,
 	description:
 		"Get a module by index. Returns module metadata, case list columns, and a summary of its forms.",
 	inputSchema: getModuleInputSchema,

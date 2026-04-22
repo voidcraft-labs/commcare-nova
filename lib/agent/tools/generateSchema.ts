@@ -2,11 +2,11 @@
  * SA tool: `generateSchema` — seed the app name + case-type catalog.
  *
  * First step of a new build. The SA calls this before `generateScaffold`
- * so downstream helpers can resolve case-property references. Shared
- * between the chat factory and future MCP adapters; both surfaces hand
- * in the current `BlueprintDoc` (empty on a fresh build) and receive the
- * computed mutations + post-mutation doc + a structured summary for the
- * LLM.
+ * so downstream helpers can resolve case-property references. Both the
+ * SA chat factory and the MCP adapter call this through the shared
+ * `ToolExecutionContext` interface; both surfaces hand in the current
+ * `BlueprintDoc` (empty on a fresh build) and receive the computed
+ * mutations + post-mutation doc + a structured summary for the LLM.
  */
 
 import { z } from "zod";
@@ -40,7 +40,7 @@ export interface GenerateSchemaResult {
 }
 
 export const generateSchemaTool = {
-	name: "generateSchema",
+	name: "generateSchema" as const,
 	description:
 		"Set the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the structured case types directly.",
 	inputSchema: generateSchemaInputSchema,

@@ -1,10 +1,10 @@
 /**
- * Shared building blocks for extracted SA tool modules.
+ * Shared building blocks for SA tool modules.
  *
- * Both surfaces (SA chat factory + future MCP adapter) compose tools out of
- * the helpers here. Keeping them in one file prevents the pattern from
- * drifting across the ~19 extractions and gives the MCP adapter a single
- * import surface for the scaffolding.
+ * The SA chat factory and the MCP adapter both compose tools out of
+ * these helpers. Centralizing them keeps the per-tool boilerplate
+ * identical across surfaces and gives adapters one import surface for
+ * the mutation scaffolding.
  */
 
 import { produce } from "immer";
