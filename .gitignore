@@ -22,8 +22,13 @@
 .DS_Store
 *.pem
 
-# exlude any dir starting with dot
+# exclude any dir starting with dot (e.g. .idea, .vscode-workspace files dropped by editors),
+# but keep the App Router's `.well-known` discovery routes — OAuth AS / OIDC /
+# protected-resource metadata must be tracked in-repo because Next.js emits them
+# from app/.well-known/*/route.ts at build time.
 .*/
+!.well-known/
+!app/.well-known/
 
 # debug
 npm-debug.log*
