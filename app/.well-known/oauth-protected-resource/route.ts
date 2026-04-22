@@ -6,22 +6,26 @@
  * `commcare.app` as the authorization server and pins `mcp.commcare.app`
  * as the expected audience on every access token the AS mints.
  *
- * The `resource` value here is the security tie to `validAudiences` in
- * `lib/auth.ts`: the AS mints tokens with an `aud` claim matching this
- * URL, the MCP handler rejects tokens whose `aud` doesn't match. Changing
- * one without the other breaks token verification at the MCP boundary.
+ * Both `resource` and `authorization_servers` are passed as overrides
+ * because they live on different subdomains than the AS's baseURL —
+ * defaults the helper derives from the wired `auth` would point at the
+ * main host for both, which isn't what this resource advertises. Every
+ * other field in the document — `scopes_supported`, `jwks_uri`,
+ * `resource_signing_alg_values_supported` — is filled in from the wired
+ * `oauthProvider` plugin via the auth bound on `getServerClient()`.
  *
- * Built via `@better-auth/oauth-provider`'s `oauthProviderResourceClient`
- * helper, which assembles the document from the AS's own config — scope
- * list, JWKS URL, and algorithms come from the wired plugin rather than
- * being duplicated here.
+ * The `resource` value is the security tie to `validAudiences` in
+ * `lib/auth.ts`: the AS mints tokens with an `aud` claim matching this
+ * URL, the MCP handler rejects tokens whose `aud` doesn't match. Both
+ * references resolve to `HOSTNAMES.mcp` so the link is enforced by
+ * construction — no hand-kept duplication.
  */
 
 import { HOSTNAMES } from "@/lib/hostnames";
-import { serverClient } from "@/lib/server-client";
+import { getServerClient } from "@/lib/server-client";
 
 export const GET = async (): Promise<Response> => {
-	const metadata = await serverClient.getProtectedResourceMetadata({
+	const metadata = await getServerClient().getProtectedResourceMetadata({
 		resource: `https://${HOSTNAMES.mcp}`,
 		authorization_servers: [`https://${HOSTNAMES.main}`],
 	});

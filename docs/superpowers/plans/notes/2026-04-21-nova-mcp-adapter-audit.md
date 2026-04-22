@@ -4,11 +4,12 @@ Result of running `scripts/verify-oauth-adapter.mts` against the real
 `commcare-nova` Firestore project using `gcloud auth application-default`
 credentials. See "Script output" at the bottom for raw stdout.
 
-## Environment notes (deviations from the Phase B1 plan body)
+## Environment notes
 
-Two small deviations from the script body specified in the plan. Both are
-toolchain/packaging artifacts, not design decisions. Flag to whoever reads
-this doc before wiring `oauthProvider()` into `lib/auth.ts`.
+Two toolchain/packaging workarounds in the verify script. Both are
+artifacts of how `tsx` loads the script vs how the production `lib/auth.ts`
+loads under Next — flagged here so a future re-runner doesn't waste time
+re-diagnosing them.
 
 - **Extension `.mts` instead of `.ts`.** `better-auth-firestore@1.1.4`
   declares `exports.require` at `./dist/index.cjs`, but that file is not
@@ -57,16 +58,16 @@ this doc before wiring `oauthProvider()` into `lib/auth.ts`.
 
 - **AS-metadata is served via RFC 8414 path insertion.** With an issuer
   path of `/api/auth` (from `baseURL: http://localhost:3000` + Better
-  Auth's default `/api/auth` prefix), the plugin registers the route at
-  `/.well-known/oauth-authorization-server/api/auth` — the issuer path is
-  inserted AFTER the well-known segment, not prefixed before it. That's
-  what Better Auth's warning prints verbatim in the captured output. The
-  script probes the bare path deliberately to confirm path insertion is
-  in effect; a 404 there is the expected signal. The standalone Next
-  route mounting `oauthProviderAuthServerMetadata(auth)` must live at the
-  path-insertion location (`/.well-known/oauth-authorization-server/api/auth`),
-  not at the bare `/.well-known/oauth-authorization-server`. Not an
-  adapter issue.
+  Auth's default `/api/auth` prefix), the plugin auto-registers the route
+  at `/.well-known/oauth-authorization-server/api/auth` — the issuer path
+  is inserted AFTER the well-known segment, not prefixed before it.
+  That's what Better Auth's warning prints verbatim in the captured
+  output. The script probes the bare path deliberately to confirm path
+  insertion is in effect; a 404 there is the expected signal. Nova
+  publishes an additional wrapper route at the bare
+  `/.well-known/oauth-authorization-server` path — real MCP clients
+  (Claude Code included) only probe the bare location, so both URLs
+  need to serve the same document. Not an adapter issue.
 
 ## Audit table
 

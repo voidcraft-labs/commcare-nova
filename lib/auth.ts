@@ -25,6 +25,7 @@ import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
+import { HOSTNAMES } from "./hostnames";
 
 /**
  * OAuth scopes Nova's authorization server can grant.
@@ -266,7 +267,7 @@ function createAuth() {
 			oauthProvider({
 				loginPage: "/sign-in",
 				consentPage: "/consent",
-				validAudiences: ["https://mcp.commcare.app"],
+				validAudiences: [`https://${HOSTNAMES.mcp}`],
 				scopes: [...NOVA_OAUTH_SCOPES],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,

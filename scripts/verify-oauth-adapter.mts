@@ -28,25 +28,29 @@
  *
  * Run with: npx tsx scripts/verify-oauth-adapter.mts
  *
- * FUTURE NOTE: once `oauthProvider()` is wired into `lib/auth.ts` for real,
- * future re-runs of this kind of verification should prefer importing the real
- * `auth` (via `getAuth()`) and driving it with `auth.handler(req)` rather than
- * re-constructing a parallel Better Auth instance here. The parallel instance
- * will drift from production config (scopes, valid audiences, trusted clients,
- * login/consent page paths, JWT signing strategy) the moment any of those move.
- * This script re-constructs the config only because B1 runs BEFORE `lib/auth.ts`
- * has the plugin wired — there's no production `auth` to import yet.
+ * The script builds its own Better Auth instance (not an import of
+ * `@/lib/auth`) because this parallel config is the narrow surface the
+ * audit wants to probe — the real auth drags in the admin plugin, the
+ * cookie cache, rate limiting, and other machinery that aren't load-
+ * bearing for "does the adapter accept the oauth-provider schema."
+ * Re-runners checking for regressions should note that this config can
+ * drift from `lib/auth.ts` (scopes, valid audiences, login/consent page
+ * paths, JWT signing strategy) — keep the two in sync when tuning the
+ * real AS, or extend the script to import `getAuth()` if drift becomes
+ * a risk.
  *
- * Deviations from the Phase B1 plan body (see the adapter-audit doc for detail):
- *   - File extension `.mts` (not `.ts`) — better-auth-firestore@1.1.4 declares
- *     an `exports.require` path at `./dist/index.cjs` that isn't shipped, and
- *     the project root lacks `"type":"module"`, so tsx loads a plain `.ts`
- *     script as CJS and the package resolver dies. `.mts` pins the entry to
- *     ESM, which routes through the `import` condition that actually resolves.
- *   - `getDb()` from `@/lib/db/firestore` is inlined — importing it from an
- *     ESM entry still fails because tsx compiles `.ts` dependencies as CJS,
- *     and ESM→CJS named imports crash on esbuild's cjs-module-lexer output.
- *     The inline construction is identical to the singleton in lib/db/firestore.ts.
+ * Why `.mts` (not `.ts`): `better-auth-firestore@1.1.4` declares
+ * `exports.require` at `./dist/index.cjs`, but only the ESM
+ * `dist/index.js` actually ships. With the project root missing
+ * `"type":"module"`, tsx loads a plain `.ts` script as CJS, Node walks
+ * the `require` condition, and the resolver dies on the missing file.
+ * `.mts` pins the entry to ESM so the `import` condition wins.
+ *
+ * Why `getDb()` is inlined: even with the entry as ESM, tsx compiles
+ * `.ts` dependencies as CJS (project root still lacks `"type":"module"`),
+ * and ESM named-imports of a CJS module fail on esbuild's
+ * cjs-module-lexer output. The inline `new GoogleFirestore({ … })` is
+ * byte-equivalent to the singleton in `lib/db/firestore.ts`.
  */
 
 import { oauthProvider } from "@better-auth/oauth-provider";
