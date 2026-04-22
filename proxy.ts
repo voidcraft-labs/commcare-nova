@@ -169,13 +169,24 @@ export function proxy(request: NextRequest): NextResponse {
 		return NextResponse.redirect(new URL("/", request.url));
 	}
 
-	/* Forward the nonce to RSC via the request header so the layout can
-	 * stamp it on inline <script> tags. CSP itself only belongs on the
-	 * response — setting `Content-Security-Policy` on the request would
-	 * be dead weight (no consumer reads it) and risks confusing future
-	 * readers about which side enforces the policy. */
+	/* CSP must be set on BOTH the request (forwarded to RSC) and the
+	 * response (enforced by the browser):
+	 *
+	 *   - Request side: Next.js parses the inbound `Content-Security-Policy`
+	 *     header during SSR and automatically stamps `nonce="..."` onto
+	 *     every framework-generated <script> tag (the `_next/static/*`
+	 *     bundles). Without this, `'strict-dynamic'` blocks every
+	 *     framework script and the app renders blank in production.
+	 *   - Response side: the browser enforces the policy.
+	 *
+	 * `x-nonce` is forwarded so any RSC that wants to render its own
+	 * nonced <Script> can read it via `headers().get('x-nonce')`. Today
+	 * no app code does — Next.js's auto-nonce on framework scripts is
+	 * sufficient — but keeping the header costs nothing and unlocks
+	 * future <Script> usage without a second proxy edit. */
 	const requestHeaders = new Headers(request.headers);
 	requestHeaders.set("x-nonce", nonce);
+	requestHeaders.set("Content-Security-Policy", csp);
 
 	const response = NextResponse.next({ request: { headers: requestHeaders } });
 	response.headers.set("Content-Security-Policy", csp);

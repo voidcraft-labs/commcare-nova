@@ -252,6 +252,36 @@ describe("proxy: commcare.app (main) routing", () => {
 		expect(csp).toMatch(/script-src[^;]*'nonce-[^']+'/);
 	});
 
+	it("forwards CSP and x-nonce on the request so Next.js can auto-nonce framework scripts", () => {
+		/* Load-bearing regression test for SSR framework-script nonce
+		 * propagation. `NextResponse.next({ request: { headers } })`
+		 * communicates the new request headers to the runtime via two
+		 * channels:
+		 *
+		 *   - `x-middleware-override-headers`: a comma-joined list of
+		 *     header names (lowercase) that the runtime should overwrite.
+		 *   - `x-middleware-request-<name>`: per-header values keyed by
+		 *     lowercase header name.
+		 *
+		 * Without `Content-Security-Policy` on the request, Next.js
+		 * cannot extract the nonce during SSR, `'strict-dynamic'` blocks
+		 * every `_next/static/*` framework bundle, and the page renders
+		 * blank. The `x-nonce` half is asserted in lockstep so a future
+		 * edit cannot drop the nonce while leaving CSP intact (or vice
+		 * versa) without the test going red. */
+		const res = proxy(reqWithSession("commcare.app", "/build"));
+		const overrides = res.headers.get("x-middleware-override-headers") ?? "";
+		const overrideNames = overrides.toLowerCase().split(",");
+		expect(overrideNames).toContain("content-security-policy");
+		expect(overrideNames).toContain("x-nonce");
+		/* And the per-header values landed where the runtime will look. */
+		const forwardedCsp = res.headers.get(
+			"x-middleware-request-content-security-policy",
+		);
+		expect(forwardedCsp).toMatch(/script-src[^;]*'nonce-[^']+'/);
+		expect(res.headers.get("x-middleware-request-x-nonce")).not.toBeNull();
+	});
+
 	it("passes through /api/chat (short-circuit, no CSP)", () => {
 		const res = proxy(req("commcare.app", "/api/chat"));
 		expectBypassPassthrough(res);
