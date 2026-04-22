@@ -9,7 +9,11 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
+import tablerEye from "@iconify-icons/tabler/eye";
+import tablerKey from "@iconify-icons/tabler/key";
+import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
+import tablerUser from "@iconify-icons/tabler/user";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -41,10 +45,17 @@ interface ConsentFormProps {
  * without updating this file is still surfaced in the UI — a missed
  * capability that silently granted permission would be a consent-flow bug.
  */
+/**
+ * Each capability carries a semantic icon so the row's meaning is legible
+ * at a glance without needing a color/fill difference to signal "read vs
+ * write" — the prior dot-and-tint treatment ended up reading like a
+ * selected item in a multi-select, which misrepresents what the user is
+ * actually doing (granting all listed capabilities, not picking one).
+ */
 interface Capability {
 	key: string;
 	label: string;
-	write: boolean;
+	icon: typeof tablerUser;
 	matches: (scopes: readonly string[]) => boolean;
 }
 
@@ -52,19 +63,19 @@ const CAPABILITIES: readonly Capability[] = [
 	{
 		key: "identity",
 		label: "See your name and email",
-		write: false,
+		icon: tablerUser,
 		matches: (s) => s.includes("profile") || s.includes("email"),
 	},
 	{
 		key: "nova.read",
 		label: "Read your CommCare apps",
-		write: false,
+		icon: tablerEye,
 		matches: (s) => s.includes("nova.read"),
 	},
 	{
 		key: "nova.write",
 		label: "Create, edit, and deploy CommCare apps on your behalf",
-		write: true,
+		icon: tablerPencil,
 		matches: (s) => s.includes("nova.write"),
 	},
 ];
@@ -106,7 +117,7 @@ function deriveCapabilities(scopes: readonly string[]): Capability[] {
 		rows.push({
 			key: `unknown:${s}`,
 			label: `Access to ${s}`,
-			write: s.endsWith(".write"),
+			icon: tablerKey,
 			matches: () => true,
 		});
 	}
@@ -220,11 +231,18 @@ export function ConsentForm({
 						<span className="text-[11px] font-medium uppercase tracking-[0.18em] text-nova-text-muted">
 							Authorization request
 						</span>
-						<h1 className="font-display text-[1.75rem] font-semibold leading-[1.15] text-nova-text">
+						{/* Weight contrast carries the emphasis: the surrounding copy
+						 *   drops to `font-medium` and the client name stays at
+						 *   `font-semibold`, wrapped in smart quotes to mark it
+						 *   typographically as a name. Deliberately NOT styled with
+						 *   Nova's brand gradient — the consent page is the one
+						 *   screen where applying Nova's signature treatment to a
+						 *   third-party name would suggest endorsement or brand
+						 *   overlap, exactly the confusion a consent flow has to
+						 *   prevent. */}
+						<h1 className="font-display text-[1.75rem] font-medium leading-[1.15] text-nova-text">
 							Allow{" "}
-							<span className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text text-transparent">
-								{clientName}
-							</span>{" "}
+							<span className="font-semibold">&ldquo;{clientName}&rdquo;</span>{" "}
 							to use your Nova account?
 						</h1>
 					</div>
@@ -241,7 +259,7 @@ export function ConsentForm({
 					</p>
 					<ul className="flex flex-col gap-1.5">
 						{capabilities.map((c) => (
-							<CapabilityRow key={c.key} label={c.label} write={c.write} />
+							<CapabilityRow key={c.key} label={c.label} icon={c.icon} />
 						))}
 					</ul>
 				</motion.div>
@@ -390,24 +408,26 @@ function IconChip({
 /**
  * Single capability row. Plain-English description is the only content —
  * raw scope identifiers are intentionally omitted to keep the list
- * scannable for non-technical users. Write capabilities get a left violet
- * marker + subtle tint so the mutation-capable permissions don't blend
- * into the read/identity ones.
+ * scannable for non-technical users. Every row uses the same surface
+ * treatment so the list doesn't read as a multi-select with a chosen
+ * item; the semantic icon (user / eye / pencil / key) carries the "what
+ * kind of grant this is" signal without needing color or fill.
  */
-function CapabilityRow({ label, write }: { label: string; write: boolean }) {
+function CapabilityRow({
+	label,
+	icon,
+}: {
+	label: string;
+	icon: Parameters<typeof Icon>[0]["icon"];
+}) {
 	return (
-		<li
-			className={`relative flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-colors ${
-				write
-					? "border-nova-violet/20 bg-nova-violet/[0.04]"
-					: "border-nova-border/60 bg-nova-surface/40"
-			}`}
-		>
-			<span
+		<li className="relative flex items-center gap-3 rounded-lg border border-nova-border/60 bg-nova-surface/40 px-3.5 py-2.5">
+			<Icon
+				icon={icon}
+				width="16"
+				height="16"
+				className="shrink-0 text-nova-text-muted"
 				aria-hidden
-				className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-					write ? "bg-nova-violet-bright" : "bg-nova-text-muted/60"
-				}`}
 			/>
 			<span className="flex-1 text-sm leading-snug text-nova-text">
 				{label}
