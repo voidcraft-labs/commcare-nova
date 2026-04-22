@@ -25,13 +25,10 @@
  * which intentionally fires the save and-forgets — the SA has retry + fix
  * discipline that can recover from a missed intermediate save. The MCP
  * surface has no agent loop to retry, so we block the tool return on the
- * Firestore write. If the write fails, the adapter's try/catch surfaces it
- * to the client as a tool error rather than returning "success" against a
- * stale on-disk blueprint.
- *
- * Phase D will retroactively declare `McpContext implements ToolExecutionContext`
- * — that interface is introduced in the same commit that adds it to the chat
- * side, so we do NOT predeclare it here.
+ * Firestore write. If the Firestore save rejects, `recordMutations`
+ * propagates the rejection to its caller. This class does not swallow
+ * persistence errors — callers are responsible for mapping them to their
+ * surface's error shape.
  */
 
 import { updateApp } from "@/lib/db/apps";
@@ -43,21 +40,7 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import type { LogWriter } from "@/lib/log/writer";
-
-/**
- * Temporary local definition of `ProgressEmitter`.
- *
- * TODO(Phase C4): `lib/mcp/progress.ts` will export this interface along
- * with `createProgressEmitter`. When C4 lands, DELETE this block and
- * replace with `import type { ProgressEmitter } from "./progress";`.
- * The shape below is intentionally a subset of the C4 interface so the
- * forward-compatibility story is: C4 widens `stage` to the
- * `ProgressStage` union; callers already typed against this narrower
- * `string` shape keep compiling because `ProgressStage extends string`.
- */
-export interface ProgressEmitter {
-	notify(stage: string, message: string, extra?: Record<string, unknown>): void;
-}
+import type { ProgressEmitter } from "./progress";
 
 /**
  * Constructor options for `McpContext`.
@@ -114,8 +97,10 @@ export class McpContext {
 	 *    Firestore write — see `LogWriter.flush` for drain semantics).
 	 * 3. Awaits the blueprint save so the tool cannot return success before
 	 *    Firestore acknowledges the write (fail-closed persistence
-	 *    guarantee). If the save rejects, the adapter's try/catch surfaces
-	 *    the failure to the client as a tool error.
+	 *    guarantee). If the Firestore save rejects, `recordMutations`
+	 *    propagates the rejection to its caller. This class does not
+	 *    swallow persistence errors — callers are responsible for mapping
+	 *    them to their surface's error shape.
 	 *
 	 * No-op on empty batches — callers may route an unconditional call
 	 * through here without an upstream length check.
@@ -141,7 +126,7 @@ export class McpContext {
 			 * with its constructor-provided source on the way to the
 			 * sink, so the persisted value can never drift. */
 			source: "mcp",
-			...(stage && { stage }),
+			...(stage !== undefined && { stage }),
 			mutation,
 		}));
 		for (const e of events) this.logWriter.logEvent(e);

@@ -15,10 +15,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { updateApp } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
-import { McpContext, type ProgressEmitter } from "../context";
+import { McpContext } from "../context";
+import type { ProgressEmitter } from "../progress";
 
 /* Mock the apps module wholesale so no Firestore client is ever needed.
  * `vi.mock` hoists above imports, so the mock is installed before
@@ -72,10 +74,9 @@ function mockDoc(): BlueprintDoc {
 
 /* Reset the hoisted `updateApp` mock between tests so `mockImplementationOnce`
  * chains in one test don't bleed into the next. */
-beforeEach(async () => {
-	const { updateApp } = await import("@/lib/db/apps");
-	(updateApp as ReturnType<typeof vi.fn>).mockReset();
-	(updateApp as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+beforeEach(() => {
+	vi.mocked(updateApp).mockReset();
+	vi.mocked(updateApp).mockResolvedValue(undefined);
 });
 
 describe("McpContext", () => {
@@ -106,9 +107,8 @@ describe("McpContext", () => {
 	it("awaits updateApp before resolving", async () => {
 		/* Arrange: stub updateApp with a deferred promise so we can assert
 		 * the caller's await chain blocks until we resolve it ourselves. */
-		const { updateApp } = await import("@/lib/db/apps");
 		let resolveSave: () => void = () => {};
-		(updateApp as ReturnType<typeof vi.fn>).mockImplementationOnce(
+		vi.mocked(updateApp).mockImplementationOnce(
 			() =>
 				new Promise<void>((r) => {
 					resolveSave = r;
@@ -128,9 +128,17 @@ describe("McpContext", () => {
 			.then(() => {
 				settled = true;
 			});
-		/* Yield the microtask queue — if `recordMutations` had skipped the
-		 * await, `settled` would flip here. */
-		await Promise.resolve();
+		/* Flush microtasks + one macrotask tick — `setImmediate` drains
+		 * more aggressively than `await Promise.resolve()`, which only
+		 * covers a single microtask. If `recordMutations` had fired the
+		 * save and-forgotten, the returned promise would have settled by
+		 * the time this tick completes. */
+		await new Promise((r) => setImmediate(r));
+		/* Assert both facts together: the save WAS dispatched (so the
+		 * writer isn't short-circuiting on some unrelated branch) AND the
+		 * outer promise is still pending on it. Together these prove the
+		 * fail-closed await is load-bearing. */
+		expect(updateApp).toHaveBeenCalledTimes(1);
 		expect(settled).toBe(false);
 		resolveSave();
 		await p;
@@ -150,7 +158,6 @@ describe("McpContext", () => {
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(0);
-		const { updateApp } = await import("@/lib/db/apps");
-		expect((updateApp as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+		expect(vi.mocked(updateApp)).not.toHaveBeenCalled();
 	});
 });
