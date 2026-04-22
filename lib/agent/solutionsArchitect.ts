@@ -28,12 +28,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
-import {
-	addModuleMutations,
-	removeFormMutations,
-	removeModuleMutations,
-	resolveFormUuid,
-} from "./blueprintHelpers";
+import { addModuleMutations, removeModuleMutations } from "./blueprintHelpers";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import { addFieldTool } from "./tools/addField";
@@ -49,6 +44,7 @@ import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
 import { removeFieldTool } from "./tools/removeField";
+import { removeFormTool } from "./tools/removeForm";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
@@ -330,32 +326,16 @@ export function createSolutionsArchitect(
 		}),
 
 		removeForm: tool({
-			description: "Remove a form from a module.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-			}),
-			execute: async ({ moduleIndex, formIndex }) => {
-				try {
-					const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-					const removedName = formUuid
-						? (doc.forms[formUuid]?.name ?? `form ${formIndex}`)
-						: `form ${formIndex}`;
-					// Only emit + apply when the form actually exists; a missing
-					// form resolves to `undefined` and we fall through with an
-					// informational success message instead of crashing.
-					if (formUuid) {
-						const muts = removeFormMutations(doc, formUuid);
-						emit(muts, `form:${moduleIndex}-${formIndex}`);
-					}
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
-					const remainingForms =
-						(moduleUuid && doc.formOrder[moduleUuid]) ?? [];
-					return `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: removeFormTool.description,
+			inputSchema: removeFormTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await removeFormTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
