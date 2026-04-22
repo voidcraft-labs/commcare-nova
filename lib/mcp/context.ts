@@ -38,6 +38,7 @@
  * the event log is not.
  */
 
+import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import { updateApp } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -69,7 +70,7 @@ export interface McpContextOptions {
 	progress: ProgressEmitter;
 }
 
-export class McpContext {
+export class McpContext implements ToolExecutionContext {
 	readonly appId: string;
 	readonly userId: string;
 	readonly runId: string;

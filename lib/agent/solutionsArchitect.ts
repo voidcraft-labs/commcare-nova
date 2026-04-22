@@ -351,19 +351,28 @@ export function createSolutionsArchitect(
 	// on demand for LLM-facing outputs and for the CommCare validator.
 	let doc: BlueprintDoc = initialDoc;
 
-	// Register with the context so intermediate `updated_at` saves pull the
-	// latest snapshot. The context captures a getter so every `emit` call
-	// reads through to the most recent `doc` reassignment.
-	ctx.registerDocProvider(() => doc);
-
 	/**
-	 * Apply a mutation batch to the SA's doc. Every tool handler that
-	 * mutates state routes through this so the timing of doc
-	 * reassignment stays in one place.
+	 * Apply a mutation batch to the SA's working doc AND emit it on the
+	 * context in one step. Every tool handler routes mutations through
+	 * this helper so both steps stay atomic at the call site:
+	 *
+	 *   1. Compute the post-mutation doc via `applyToDoc` (Immer).
+	 *   2. Emit the batch through `ctx.emitMutations(muts, newDoc, stage)`
+	 *      — the SSE write + log enqueue + fire-and-forget Firestore save
+	 *      all run against the SAME snapshot we're about to adopt.
+	 *   3. Reassign `doc` so the next tool call reads the new state.
+	 *
+	 * Ordering matters: emit BEFORE reassign so no race exists between
+	 * the SSE payload the client applies and the working doc we advance
+	 * to. Empty batches short-circuit before any emission happens, so
+	 * callers can invoke this unconditionally after a helper that may
+	 * return `[]`.
 	 */
-	const dispatch = (muts: Mutation[]): void => {
+	const emit = (muts: Mutation[], stage: string): void => {
 		if (muts.length === 0) return;
-		doc = applyToDoc(doc, muts);
+		const newDoc = applyToDoc(doc, muts);
+		ctx.emitMutations(muts, newDoc, stage);
+		doc = newDoc;
 	};
 
 	// ── Generation tools (build mode only) ────────────────────────────
@@ -380,16 +389,16 @@ export function createSolutionsArchitect(
 			}),
 			strict: true,
 			execute: async ({ appName, caseTypes }) => {
-				// Emit before dispatch so the client applies mutations in the same
-				// order the SA's internal doc advances. `dispatch` still runs
-				// because later tool calls in the same turn (scaffold, addModule)
-				// read `doc` for index → uuid resolution.
+				// `emit` computes the post-mutation doc, ships it on SSE +
+				// persists it, then advances the SA's working doc — atomic
+				// per call site. Later tool calls in the same turn (scaffold,
+				// addModule) read the advanced `doc` for index → uuid
+				// resolution.
 				const muts: Mutation[] = [
 					{ kind: "setAppName", name: appName },
 					...setCaseTypesMutations(doc, caseTypes),
 				];
-				ctx.emitMutations(muts, "schema");
-				dispatch(muts);
+				emit(muts, "schema");
 
 				return {
 					appName,
@@ -409,8 +418,7 @@ export function createSolutionsArchitect(
 			strict: true,
 			execute: async (scaffold) => {
 				const muts = setScaffoldMutations(doc, scaffold);
-				ctx.emitMutations(muts, "scaffold");
-				dispatch(muts);
+				emit(muts, "scaffold");
 
 				return {
 					appName: scaffold.app_name,
@@ -463,8 +471,7 @@ export function createSolutionsArchitect(
 				});
 				// Stage tag encodes which module these mutations belong to —
 				// useful for replay attribution and server-side telemetry.
-				ctx.emitMutations(muts, `module:${moduleIndex}`);
-				dispatch(muts);
+				emit(muts, `module:${moduleIndex}`);
 
 				return {
 					moduleIndex,
@@ -563,13 +570,11 @@ export function createSolutionsArchitect(
 						muts.push({ kind: "addField", parentUuid, field });
 					}
 
-					// Emit the mutation batch before dispatch so client application
-					// order matches the SA's internal doc advancement. The client
-					// applies via `applyMany` — no wire snapshot needed; the
-					// mutations ARE the update. The `form:M-F` stage tag drives
-					// lifecycle derivation on the client (forms phase).
-					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
-					dispatch(muts);
+					// Emit + advance in one atomic step. The client applies via
+					// `applyMany` — no wire snapshot needed; the mutations ARE
+					// the update. The `form:M-F` stage tag drives lifecycle
+					// derivation on the client (forms phase).
+					emit(muts, `form:${moduleIndex}-${formIndex}`);
 
 					const totalCount = countFieldsUnder(doc, formUuid);
 					const addedIds = muts
@@ -745,11 +750,7 @@ export function createSolutionsArchitect(
 								toKind: newKind,
 							},
 						];
-						ctx.emitMutations(
-							convertMuts,
-							`convert:${moduleIndex}-${formIndex}`,
-						);
-						dispatch(convertMuts);
+						emit(convertMuts, `convert:${moduleIndex}-${formIndex}`);
 
 						// The `convertField` reducer applies `reconcileFieldForKind`,
 						// which runs `fieldSchema.safeParse` on the reconciled shape.
@@ -774,16 +775,14 @@ export function createSolutionsArchitect(
 					// peer-field renames, and case list / detail column renames.
 					// The client runs the SAME reducer against `applyMany`, so the
 					// cascade reproduces on the client without needing a full
-					// blueprint snapshot. Emit THEN dispatch so client order
-					// matches server order.
+					// blueprint snapshot.
 					if (newId && newId !== fieldId) {
 						const renameMuts = renameFieldMutations(
 							doc,
 							resolved.field.uuid,
 							newId,
 						);
-						ctx.emitMutations(renameMuts, `rename:${moduleIndex}-${formIndex}`);
-						dispatch(renameMuts);
+						emit(renameMuts, `rename:${moduleIndex}-${formIndex}`);
 					}
 
 					// Re-resolve the field uuid after rename (the uuid is stable,
@@ -812,8 +811,7 @@ export function createSolutionsArchitect(
 								afterRename.field.uuid,
 								patch,
 							);
-							ctx.emitMutations(updateMuts, `edit:${moduleIndex}-${formIndex}`);
-							dispatch(updateMuts);
+							emit(updateMuts, `edit:${moduleIndex}-${formIndex}`);
 						}
 					}
 
@@ -914,8 +912,7 @@ export function createSolutionsArchitect(
 						field,
 						index: insertIndex,
 					});
-					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
-					dispatch(muts);
+					emit(muts, `form:${moduleIndex}-${formIndex}`);
 
 					const formName = doc.forms[formUuid]?.name ?? "";
 					const totalCount = countFieldsUnder(doc, formUuid);
@@ -954,8 +951,7 @@ export function createSolutionsArchitect(
 					const formUuid = resolved.formUuid;
 					const beforeCount = countFieldsUnder(doc, formUuid);
 					const muts = removeFieldMutations(doc, resolved.field.uuid);
-					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
-					dispatch(muts);
+					emit(muts, `form:${moduleIndex}-${formIndex}`);
 					const formName = doc.forms[formUuid]?.name ?? "";
 					const afterCount = countFieldsUnder(doc, formUuid);
 					return `Successfully removed field "${fieldId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`;
@@ -1012,13 +1008,13 @@ export function createSolutionsArchitect(
 						patch.caseDetailColumns =
 							case_detail_columns === null ? null : case_detail_columns;
 					}
-					// Compute the helper mutations once so we can both stream them
-					// over the wire and advance the SA's internal doc in lockstep.
-					// Emit before dispatch so the client's applied order matches
-					// the SA's — dispatch() is what the next tool call reads from.
+					// Compute the helper mutations once so both the emit +
+					// working-doc advance use the same batch. `emit` computes
+					// the post-mutation doc once and threads it through to the
+					// context (for Firestore) while reassigning the SA's
+					// working doc in the same step.
 					const muts = updateModuleMutations(doc, moduleUuid, patch);
-					ctx.emitMutations(muts, `module:${moduleIndex}`);
-					dispatch(muts);
+					emit(muts, `module:${moduleIndex}`);
 					const mod = doc.modules[moduleUuid];
 					if (!mod)
 						return { error: `Module ${moduleIndex} not found after update` };
@@ -1148,12 +1144,11 @@ export function createSolutionsArchitect(
 							existing.connect ?? undefined,
 						);
 					}
-					// Stream the form-metadata mutations the helper produced, then
-					// advance the SA's doc. Clients apply the same granular
-					// mutations via `applyMany` to stay in lockstep.
+					// Stream the form-metadata mutations the helper produced and
+					// advance the SA's doc atomically. Clients apply the same
+					// granular mutations via `applyMany` to stay in lockstep.
 					const muts = updateFormMutations(doc, formUuid, patch);
-					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
-					dispatch(muts);
+					emit(muts, `form:${moduleIndex}-${formIndex}`);
 
 					const formAfter = doc.forms[formUuid];
 					if (!formAfter)
@@ -1215,8 +1210,7 @@ export function createSolutionsArchitect(
 							postSubmit: post_submit as PostSubmitDestination,
 						}),
 					});
-					ctx.emitMutations(muts, `module:${moduleIndex}`);
-					dispatch(muts);
+					emit(muts, `module:${moduleIndex}`);
 					const mod = doc.modules[moduleUuid];
 					const forms = doc.formOrder[moduleUuid] ?? [];
 					const newFormIndex = forms.length - 1;
@@ -1244,8 +1238,7 @@ export function createSolutionsArchitect(
 					// informational success message instead of crashing.
 					if (formUuid) {
 						const muts = removeFormMutations(doc, formUuid);
-						ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
-						dispatch(muts);
+						emit(muts, `form:${moduleIndex}-${formIndex}`);
 					}
 					const moduleUuid = doc.moduleOrder[moduleIndex];
 					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
@@ -1301,8 +1294,7 @@ export function createSolutionsArchitect(
 							caseListColumns: case_list_columns,
 						}),
 					});
-					ctx.emitMutations(muts, "module:create");
-					dispatch(muts);
+					emit(muts, "module:create");
 					const newModIndex = doc.moduleOrder.length - 1;
 					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
@@ -1326,8 +1318,7 @@ export function createSolutionsArchitect(
 					// the removeForm guard for consistency.
 					if (moduleUuid) {
 						const muts = removeModuleMutations(doc, moduleUuid);
-						ctx.emitMutations(muts, `module:remove:${moduleIndex}`);
-						dispatch(muts);
+						emit(muts, `module:remove:${moduleIndex}`);
 					}
 					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
@@ -1362,15 +1353,14 @@ export function createSolutionsArchitect(
 
 					/* Update the app with the final validated doc (fire-and-forget).
 					 * The app document was created at the start of the request by
-					 * the route handler. We persist the normalized doc shape
-					 * directly — `completeApp` accepts `PersistableDoc`. The runId
-					 * is the same value the event log uses; `UsageAccumulator`
-					 * is the single source of truth. */
-					if (ctx.appId) {
-						completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
-							log.error("[validateApp] app update failed", err),
-						);
-					}
+					 * the route handler — `ctx.appId` is always present by
+					 * construction. We persist the normalized doc shape directly;
+					 * `completeApp` accepts `PersistableDoc`. The runId is the
+					 * same value the event log uses; `UsageAccumulator` is the
+					 * single source of truth. */
+					completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
+						log.error("[validateApp] app update failed", err),
+					);
 
 					return { success: true as const };
 				}

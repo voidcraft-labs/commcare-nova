@@ -17,6 +17,7 @@ import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
 import type { Session } from "@/lib/auth";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { GenerationContext } from "../generationContext";
 
@@ -39,7 +40,8 @@ const DEFAULT_SEED: AccumulatorSeed = {
 export interface MakeTestContextOptions {
 	/** Override specific accumulator seed fields (runId, promptMode, etc.). */
 	seed?: Partial<AccumulatorSeed>;
-	/** Override the appId passed into `GenerationContext`. Default undefined. */
+	/** Override the appId passed into `GenerationContext`. Defaults to
+	 * "test-app" (matches `DEFAULT_SEED.appId`) when not supplied. */
 	appId?: string;
 }
 
@@ -59,8 +61,16 @@ export interface TestContextHandles {
 /**
  * Build a `GenerationContext` wired to vi.fn stubs for both write surfaces
  * and a real `UsageAccumulator` seeded deterministically. Safe to call
- * once per test — nothing in the ctx reaches out to Firestore unless the
- * test explicitly installs a docProvider and calls `emitMutations`.
+ * once per test — nothing in the ctx reaches out to Firestore as long as
+ * the test mocks `@/lib/db/apps.updateApp` (or never calls
+ * `emitMutations`). Tests that exercise `emitMutations` MUST install a
+ * `vi.mock("@/lib/db/apps", ...)` at module scope so the fire-and-forget
+ * intermediate save has a stub to call.
+ *
+ * `appId` defaults to `"test-app"` (matching the seed), codifying the
+ * post-refactor invariant that every `GenerationContext` has a valid
+ * persistence target — the chat route creates the app doc before
+ * constructing the context in production.
  */
 export function makeTestContext(
 	opts: MakeTestContextOptions = {},
@@ -80,7 +90,7 @@ export function makeTestContext(
 		logWriter: logWriterStub,
 		usage,
 		session,
-		...(opts.appId !== undefined && { appId: opts.appId }),
+		appId: opts.appId ?? "test-app",
 	});
 	return {
 		ctx,
@@ -90,5 +100,31 @@ export function makeTestContext(
 			flush: ReturnType<typeof vi.fn>;
 		},
 		usage,
+	};
+}
+
+/**
+ * Minimal `BlueprintDoc` suitable as the `doc` argument to `emitMutations`
+ * in tests that don't care about the doc's content — they only need a
+ * value that type-checks against `BlueprintDoc` so the signature is
+ * satisfied. The assertion surfaces (writer.write mock, logWriter.logEvent
+ * mock) don't read from this doc.
+ *
+ * Kept here (not duplicated per test file) so any future `BlueprintDoc`
+ * shape change touches one place.
+ */
+export function makeMinimalDoc(): BlueprintDoc {
+	return {
+		appId: "test-app",
+		appName: "",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
 	};
 }
