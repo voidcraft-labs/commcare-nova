@@ -25,16 +25,10 @@ import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	FormType,
-	PostSubmitDestination,
-} from "@/lib/domain";
-import { FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import {
-	addFormMutations,
 	addModuleMutations,
 	removeFormMutations,
 	removeModuleMutations,
@@ -47,6 +41,7 @@ import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
+import { createFormTool } from "./tools/createForm";
 import { editFieldTool } from "./tools/editField";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
@@ -321,44 +316,16 @@ export function createSolutionsArchitect(
 		}),
 
 		createForm: tool({
-			description:
-				"Add a new empty form to a module. Use addFields to populate it.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				name: z.string().describe("Form display name"),
-				type: z
-					.enum(FORM_TYPES)
-					.describe(
-						'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
-					),
-				post_submit: z
-					.enum(USER_FACING_DESTINATIONS)
-					.optional()
-					.describe(
-						'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
-					),
-			}),
-			execute: async ({ moduleIndex, name, type, post_submit }) => {
-				try {
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
-					// Tag under the parent module so the event log groups this
-					// creation event with the rest of that module's activity.
-					const muts = addFormMutations(doc, moduleUuid, {
-						name,
-						type: type as FormType,
-						...(post_submit && {
-							postSubmit: post_submit as PostSubmitDestination,
-						}),
-					});
-					emit(muts, `module:${moduleIndex}`);
-					const mod = doc.modules[moduleUuid];
-					const forms = doc.formOrder[moduleUuid] ?? [];
-					const newFormIndex = forms.length - 1;
-					return `Successfully created form "${name}" (${type}) in module "${mod?.name ?? moduleIndex}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: createFormTool.description,
+			inputSchema: createFormTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await createFormTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
