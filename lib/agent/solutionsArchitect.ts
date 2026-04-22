@@ -20,8 +20,6 @@
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
-import { z } from "zod";
-import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -47,7 +45,7 @@ import { removeModuleTool } from "./tools/removeModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
-import { validateAndFix } from "./validationLoop";
+import { validateAppTool } from "./tools/validateApp";
 
 export { validateAndFix } from "./validationLoop";
 
@@ -345,49 +343,46 @@ export function createSolutionsArchitect(
 
 		// ── Validation ────────────────────────────────────────────────
 
+		/* `validateApp` runs the shared validation + fix loop and layers two
+		 * chat-only side effects on top of the flat result: the final
+		 * `data-done` SSE part carrying the full doc + HQ JSON, and the
+		 * `completeApp` Firestore update that flips the app record to its
+		 * final state. Both side effects depend on `ctx.usage.runId` and
+		 * `ctx.emit`, which only exist on `GenerationContext` — hence they
+		 * stay here rather than migrating into the shared tool module. */
 		validateApp: tool({
-			description:
-				"Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing. If validation fails with remaining errors, use your mutation tools (removeField, editField, etc.) to fix them, then call validateApp again.",
-			inputSchema: z.object({}),
-			execute: async () => {
-				// `validateAndFix` owns the XForm-compiler boundary: it takes
-				// our doc, runs CommCare-flavored validation + auto-fixes on a
-				// blueprint snapshot, and hands back a doc with any fix-registry
-				// mutations folded in. We replace our working doc with that
-				// result so subsequent tool calls see the patched state.
-				const result = await validateAndFix(ctx, doc);
+			description: validateAppTool.description,
+			inputSchema: validateAppTool.inputSchema,
+			execute: async (input) => {
+				const result = await validateAppTool.execute(input, ctx, doc);
+				// Advance the working doc unconditionally — `validateAndFix`
+				// returns the post-loop doc even on failure so later tool
+				// calls see whatever partial fixes the registry applied
+				// before stopping.
+				doc = result.doc;
+
 				if (result.success) {
-					doc = result.doc;
-
 					const persistable = toPersistableDoc(doc);
-
 					ctx.emit("data-done", {
 						doc: persistable,
 						hqJson: result.hqJson ?? {},
 						success: true,
 					});
-
-					/* Update the app with the final validated doc (fire-and-forget).
-					 * The app document was created at the start of the request by
-					 * the route handler — `ctx.appId` is always present by
-					 * construction. We persist the normalized doc shape directly;
-					 * `completeApp` accepts `PersistableDoc`. The runId is the
-					 * same value the event log uses; `UsageAccumulator` is the
-					 * single source of truth. */
+					/* Flip the app record to its final state (fire-and-forget).
+					 * The app doc was created at the start of the request by
+					 * the route handler; `ctx.appId` is always present by
+					 * construction. `completeApp` accepts `PersistableDoc`,
+					 * so we pass the already-computed persistable value.
+					 * `ctx.usage.runId` is the shared run id the event log
+					 * already carries. */
 					completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
 						log.error("[validateApp] app update failed", err),
 					);
-
 					return { success: true as const };
 				}
-				// Keep the SA's doc aligned with the fix loop's output even on
-				// failure — later tool calls should see any partial fixes the
-				// registry managed to apply before giving up.
-				doc = result.doc;
-				// Surface remaining errors as strings so the SA can read and fix them.
 				return {
 					success: false as const,
-					errors: (result.errors ?? []).map(errorToString),
+					errors: result.errors ?? [],
 				};
 			},
 		}),

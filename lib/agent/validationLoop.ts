@@ -15,6 +15,15 @@
  * `BlueprintDoc` directly and returns the defaulted `ConnectConfig`;
  * `applyConnectDefaults` below folds that into an `updateForm` mutation
  * per affected form.
+ *
+ * The loop takes a `ToolExecutionContext` rather than the chat-specific
+ * `GenerationContext`, so the same validation + fix pass runs on both
+ * the SA chat surface and the MCP adapter. Every persistence step goes
+ * through `ctx.recordMutations` (fix batches, connect defaults) and
+ * `ctx.recordConversation` (validation-attempt events). The chat
+ * surface's intermediate save is fire-and-forget by construction; the
+ * MCP surface awaits. This loop is agnostic to which — it just needs
+ * the interface.
  */
 
 import { produce } from "immer";
@@ -32,7 +41,7 @@ import { iterForms } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { GenerationContext } from "./generationContext";
+import type { ToolExecutionContext } from "./toolExecutionContext";
 
 // ── Post-expansion validation ────────────────────────────────────────
 
@@ -106,17 +115,18 @@ export interface ValidateAndFixResult {
  * exits early with the remaining errors.
  */
 export async function validateAndFix(
-	ctx: GenerationContext,
+	ctx: ToolExecutionContext,
 	doc: BlueprintDoc,
 ): Promise<ValidateAndFixResult> {
 	let workingDoc = doc;
 
 	// Auto-populate Connect config defaults before validation. The helper
 	// produces a defaulted `ConnectConfig` per affected form; we apply the
-	// resulting `updateForm` batch locally AND emit it through `ctx` so the
-	// live builder sees the same defaults the server's working doc carries
-	// into the validator.
-	workingDoc = applyConnectDefaults(ctx, workingDoc);
+	// resulting `updateForm` batch locally AND persist it through `ctx` so
+	// every live listener — the chat client, the MCP adapter's doc
+	// snapshot, the event log — sees the same defaults the server's
+	// working doc carries into the validator.
+	workingDoc = await applyConnectDefaults(ctx, workingDoc);
 
 	const recentSignatures: string[] = [];
 	const MAX_STUCK_REPEATS = 3;
@@ -166,11 +176,12 @@ export async function validateAndFix(
 		/* Log one validation-attempt conversation event per fix round. The
 		 * attempt number + human-readable error list land in both the
 		 * event log (debug artifact answering "which errors drove which
-		 * fix batch?") and the SSE stream (so the live UI's status pill
-		 * reads from the same derivation replay uses). Emitted BEFORE the
-		 * fix mutations so a buffer walker sees the validation context
-		 * ahead of the `fix:attempt-N` tagged mutations. */
-		ctx.emitConversation({
+		 * fix batch?") and — on the chat surface — the SSE stream (so the
+		 * live UI's status pill reads from the same derivation replay
+		 * uses). Recorded BEFORE the fix mutations so a buffer walker
+		 * sees the validation context ahead of the `fix:attempt-N`
+		 * tagged mutations. */
+		ctx.recordConversation({
 			type: "validation-attempt",
 			attempt,
 			errors: errors.map(errorToString),
@@ -203,12 +214,18 @@ export async function validateAndFix(
 			applyMutations(draft, allMutations);
 		});
 
-		// Emit the fix mutations as a single staged batch. The client
-		// applies them via `applyMany`. The `fix:attempt-N` stage tag
-		// lets the log UI render each fix pass as its own chapter.
-		// Pass the post-mutation `workingDoc` so the intermediate save
-		// persists the same snapshot the next validation pass will read.
-		ctx.emitMutations(allMutations, workingDoc, `fix:attempt-${attempt}`);
+		// Persist the fix mutations as a single staged batch. The chat
+		// client applies them via `applyMany`; the MCP adapter rebuilds
+		// its in-memory doc from the persisted log. The `fix:attempt-N`
+		// stage tag lets both the log UI and the replay derivation
+		// render each fix pass as its own chapter. Pass the post-mutation
+		// `workingDoc` so the intermediate save persists the same
+		// snapshot the next validation pass will read.
+		await ctx.recordMutations(
+			allMutations,
+			workingDoc,
+			`fix:attempt-${attempt}`,
+		);
 	}
 }
 
@@ -216,16 +233,24 @@ export async function validateAndFix(
  * Apply `deriveConnectDefaults` to every form's connect block (if present).
  * The helper produces a defaulted `ConnectConfig` per form; we batch one
  * `updateForm` mutation per affected form, apply locally on an Immer draft
- * (so the validator sees the defaults), AND emit through `ctx.emitMutations`
- * (so the live builder applies the identical batch via `docStore.applyMany`).
+ * (so the validator sees the defaults), AND persist through
+ * `ctx.recordMutations` (so both surfaces apply the identical batch via
+ * `docStore.applyMany` on the chat client and via the MCP adapter's
+ * rebuild-from-log on the other).
  *
  * The `connect-defaults` stage tag is stamped on every envelope so the log
  * UI can render the defaults pass distinctly from `fix:attempt-N` batches.
+ *
+ * Returns a `Promise<BlueprintDoc>` because `recordMutations` is async on
+ * the shared interface — the chat surface resolves synchronously (its
+ * fire-and-forget save returns before Firestore completes), the MCP
+ * surface awaits the persist. Either way the caller assigns the resolved
+ * doc to its working variable via `await`.
  */
-function applyConnectDefaults(
-	ctx: GenerationContext,
+async function applyConnectDefaults(
+	ctx: ToolExecutionContext,
 	doc: BlueprintDoc,
-): BlueprintDoc {
+): Promise<BlueprintDoc> {
 	if (!doc.connectType) return doc;
 
 	const mutations: Mutation[] = [];
@@ -252,6 +277,6 @@ function applyConnectDefaults(
 	});
 	// Pass `nextDoc` so the intermediate save persists the post-defaults
 	// snapshot the rest of the validation loop reads.
-	ctx.emitMutations(mutations, nextDoc, "connect-defaults");
+	await ctx.recordMutations(mutations, nextDoc, "connect-defaults");
 	return nextDoc;
 }
