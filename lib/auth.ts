@@ -19,8 +19,9 @@
  *   BETTER_AUTH_URL      — Base URL (e.g. http://localhost:3000 or production URL).
  *                          Optional in dev — Better Auth auto-detects from requests.
  */
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
-import { admin } from "better-auth/plugins";
+import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
@@ -35,6 +36,19 @@ function createAuth() {
 	return betterAuth({
 		secret: process.env.BETTER_AUTH_SECRET,
 		baseURL: process.env.BETTER_AUTH_URL,
+
+		/**
+		 * Disable Better Auth's built-in `/token` endpoint.
+		 *
+		 * The `@better-auth/oauth-provider` plugin serves its own
+		 * `/oauth2/token` endpoint, but Better Auth core also exposes a
+		 * legacy `/token` path that overlaps semantically. When both are
+		 * mounted, requests to the OAuth token endpoint can resolve to the
+		 * wrong handler and fail CSRF / content-type validation. Better
+		 * Auth's own docs list this as MANDATORY when running in
+		 * OAuth / OIDC / MCP mode, so we strip the legacy path unconditionally.
+		 */
+		disabledPaths: ["/token"],
 
 		/**
 		 * Extend the auth user model with app-level fields.
@@ -128,20 +142,105 @@ function createAuth() {
 		},
 
 		/**
-		 * Better Auth admin plugin — adds `role` to the auth user schema,
-		 * plus banning, impersonation, and user management APIs.
+		 * Better Auth plugin stack.
 		 *
-		 * `role` lives on `auth_users` (Better Auth's user table) and is
-		 * available as `session.user.role`. No custom session field needed.
+		 * Three concerns are layered here:
+		 *   1. `admin` — role + user-management APIs for the Nova admin dashboard.
+		 *   2. `jwt`  — exposes `/api/auth/jwks` so OAuth access tokens (signed
+		 *               by the oauth-provider plugin) can be verified by the
+		 *               MCP handler and any other relying party.
+		 *   3. `oauthProvider` — turns Better Auth into a full OAuth 2.1
+		 *               authorization server for programmatic MCP clients.
 		 *
-		 * `adminUserIds` bootstraps admin access from an env var so the first
-		 * admin doesn't need to manually edit Firestore. Users in this list
-		 * are always treated as admin regardless of their `role` field.
+		 * The session-cookie login flow on commcare.app is unaffected — the
+		 * OAuth plugin only adds NEW endpoints under `/api/auth` and
+		 * `/oauth2`, plus `.well-known` metadata. Nothing about existing
+		 * first-party auth changes.
 		 */
 		plugins: [
+			/**
+			 * Admin plugin — adds `role` to the auth user schema, plus
+			 * banning, impersonation, and user management APIs.
+			 *
+			 * `role` lives on `auth_users` (Better Auth's user table) and is
+			 * available as `session.user.role`. No custom session field needed.
+			 *
+			 * `adminUserIds` bootstraps admin access from an env var so the
+			 * first admin doesn't need to manually edit Firestore. Users in
+			 * this list are always treated as admin regardless of their
+			 * `role` field.
+			 */
 			admin({
 				adminUserIds:
 					process.env.ADMIN_USER_IDS?.split(",").filter(Boolean) ?? [],
+			}),
+
+			/**
+			 * JWT plugin — exposes `/api/auth/jwks`. The oauth-provider
+			 * plugin signs access tokens with these keys; the MCP handler
+			 * verifies bearer tokens against the same JWKS. One keypair,
+			 * one verification surface — no shared secrets to rotate.
+			 *
+			 * `disableSettingJwtHeader: true` is REQUIRED when running in
+			 * OAuth / OIDC / MCP mode per Better Auth's docs. Without it,
+			 * the JWT middleware attempts to attach bearer tokens to every
+			 * Better Auth response, which conflicts with the session-cookie
+			 * flow that the rest of Nova still uses for first-party login.
+			 */
+			jwt({ disableSettingJwtHeader: true }),
+
+			/**
+			 * OAuth 2.1 authorization server (`@better-auth/oauth-provider`).
+			 *
+			 * Turns Better Auth into a full OAuth-AS for programmatic clients
+			 * — primarily Claude Code and any other MCP consumer, but the
+			 * configuration is generic so additional clients can register
+			 * dynamically (RFC 7591) without code changes.
+			 *
+			 * Notable choices:
+			 *   - `loginPage` / `consentPage` point at Nova's own UI routes
+			 *     so the OAuth flow reuses Nova's branded sign-in + a custom
+			 *     consent screen (built in Phase B4/B5) rather than the
+			 *     plugin's minimal defaults.
+			 *   - `validAudiences` pins the token `aud` claim to the MCP
+			 *     resource URL. Tokens minted for Nova cannot be replayed
+			 *     against any other audience.
+			 *   - `scopes` + `clientRegistrationDefaultScopes` both list the
+			 *     same set. `nova.read` / `nova.write` are Nova-specific
+			 *     scopes enforced by MCP tool handlers; the OIDC trio plus
+			 *     `offline_access` covers the standard set clients expect
+			 *     when requesting refresh tokens.
+			 *   - Dynamic client registration is enabled AND unauthenticated
+			 *     so Claude Code (which has no pre-shared credentials) can
+			 *     bootstrap itself. Abuse is bounded by the plugin's built-in
+			 *     per-endpoint rate limiting (kept at defaults — the only
+			 *     rate-limiting surface this feature introduces) and by the
+			 *     30-day client-secret expiration that forces periodic
+			 *     re-registration.
+			 */
+			oauthProvider({
+				loginPage: "/sign-in",
+				consentPage: "/consent",
+				validAudiences: ["https://mcp.commcare.app"],
+				scopes: [
+					"openid",
+					"profile",
+					"email",
+					"offline_access",
+					"nova.read",
+					"nova.write",
+				],
+				allowDynamicClientRegistration: true,
+				allowUnauthenticatedClientRegistration: true,
+				clientRegistrationDefaultScopes: [
+					"openid",
+					"profile",
+					"email",
+					"offline_access",
+					"nova.read",
+					"nova.write",
+				],
+				clientRegistrationClientSecretExpiration: "30d",
 			}),
 		],
 
