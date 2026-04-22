@@ -1,63 +1,39 @@
 /**
- * OAuth 2.0 protected-resource metadata (RFC 9728).
+ * RFC 9728 protected-resource metadata.
  *
- * Served ONLY on `mcp.commcare.app` — `lib/hostnames.ts` allowlists the path
- * on the MCP host and `proxy.ts` enforces the split, so the main host 404s
- * this route. Claude Code (and any other MCP client) fetches this URL on its
- * first tool call attempt; the response points it at `commcare.app` as the
- * authorization server, which it then discovers via the main-host
- * `/.well-known/oauth-authorization-server` document.
+ * Served only on `mcp.commcare.app` — `proxy.ts` enforces the hostname
+ * allowlist so the main host 404s this path. Points MCP clients at
+ * `commcare.app` as the authorization server and pins `mcp.commcare.app`
+ * as the expected audience on every access token the AS mints.
  *
- * Why this is hand-rolled instead of using a Better Auth helper:
- * `@better-auth/oauth-provider` exposes helpers for the AS-metadata and
- * OIDC-discovery documents (used by the sibling routes in this directory),
- * but does NOT ship a protected-resource equivalent and does NOT auto-register
- * a `/.well-known/oauth-protected-resource` route. The `better-auth/plugins`
- * package has `oAuthProtectedResourceMetadata`, but it proxies to the `mcp()`
- * plugin's `auth.api.getMCPProtectedResource` endpoint — the MCP plugin is
- * not registered in `lib/auth.ts`, so that helper would 404 at runtime. The
- * `oauthProviderResourceClient` + `createAuthClient` pattern from the docs is
- * intended for out-of-process resource servers; we're in-process in Next.js,
- * so the network hop is gratuitous. Publishing a static JSON document here —
- * the values are constants driven by `HOSTNAMES` — is the minimum that
- * satisfies RFC 9728 and MCP clients.
+ * The `resource` value here is the security tie to `validAudiences` in
+ * `lib/auth.ts`: the AS mints tokens with an `aud` claim matching this
+ * URL, the MCP handler rejects tokens whose `aud` doesn't match. Changing
+ * one without the other breaks token verification at the MCP boundary.
  *
- * No lazy-bind needed: unlike the sibling AS/OIDC routes, this handler never
- * touches `getAuth()`, Firestore, or runtime env. The module is safe to
- * import during `next build` page collection.
- *
- * The `resource` value is intentionally identical to the `validAudiences`
- * entry in `lib/auth.ts` (line ~269) — that pin is the security tie between
- * tokens the AS mints and this resource's accepted `aud` claim. Changing one
- * without the other breaks token verification on the MCP handler.
+ * Built via `@better-auth/oauth-provider`'s `oauthProviderResourceClient`
+ * helper, which assembles the document from the AS's own config — scope
+ * list, JWKS URL, and algorithms come from the wired plugin rather than
+ * being duplicated here.
  */
 
-import type { ResourceServerMetadata } from "@better-auth/oauth-provider";
 import { HOSTNAMES } from "@/lib/hostnames";
+import { serverClient } from "@/lib/server-client";
 
-/**
- * RFC 9728 document. Minimal on purpose — only the fields MCP clients read
- * during discovery are populated. `scopes_supported` / `jwks_uri` are omitted
- * to avoid duplicating `lib/auth.ts`'s scope list here; a future task can
- * plumb those through without touching this module's shape.
- */
-const METADATA: ResourceServerMetadata = {
-	resource: `https://${HOSTNAMES.mcp}`,
-	authorization_servers: [`https://${HOSTNAMES.main}`],
-	bearer_methods_supported: ["header"],
+export const GET = async (): Promise<Response> => {
+	const metadata = await serverClient.getProtectedResourceMetadata({
+		resource: `https://${HOSTNAMES.mcp}`,
+		authorization_servers: [`https://${HOSTNAMES.main}`],
+	});
+	/* 15s fresh + 15s stale-while-revalidate keeps MCP-client cold-start
+	 * traffic from hammering this route without sacrificing deploy-time
+	 * coherence; `stale-if-error` keeps a stale doc serving for a day if
+	 * the AS is transiently unreachable. Matches the Cache-Control pattern
+	 * in Better Auth's own docs example for this endpoint. */
+	return Response.json(metadata, {
+		headers: {
+			"Cache-Control":
+				"public, max-age=15, stale-while-revalidate=15, stale-if-error=86400",
+		},
+	});
 };
-
-/**
- * Precomputed body + headers so every response is identical (no per-request
- * serialization work). The `Cache-Control` matches the pattern Better Auth's
- * own metadata helpers use — the document changes only on deploy, so CDN +
- * client caching for 15s with stale-while-revalidate is safe.
- */
-const BODY = JSON.stringify(METADATA);
-const HEADERS: HeadersInit = {
-	"Content-Type": "application/json",
-	"Cache-Control":
-		"public, max-age=15, stale-while-revalidate=15, stale-if-error=86400",
-};
-
-export const GET = (): Response => new Response(BODY, { headers: HEADERS });
