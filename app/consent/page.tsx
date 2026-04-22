@@ -82,12 +82,28 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 			: "An application";
 
 	return (
-		<main className="mx-auto max-w-xl p-8">
-			<ConsentForm
-				clientName={clientName}
-				scopes={scopes}
-				redirectMismatch={!requestValid}
-			/>
+		<main className="relative isolate flex min-h-full items-center justify-center overflow-hidden px-5 py-12 sm:py-16">
+			{/* Atmosphere — cosmic violet blurs that signal "you are still inside
+			 *   Nova, this is a real screen from us." Matches the landing page's
+			 *   unauthenticated sign-in surface so the OAuth flow reads as one
+			 *   continuous product experience across sign-in → consent → redirect.
+			 *   Rendered at the page level (not inside the form) so both the happy
+			 *   path and the invalid-link branch share the same atmosphere.
+			 *   `pointer-events-none` keeps the blurs out of click and tab paths;
+			 *   `-z-10` via isolate puts them behind content without escaping the
+			 *   stacking context established by `main`. */}
+			<div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+				<div className="absolute left-1/2 top-[15%] h-[620px] w-[620px] -translate-x-1/2 rounded-full bg-nova-violet/[0.06] blur-[120px]" />
+				<div className="absolute bottom-[-10%] left-[20%] h-[480px] w-[480px] rounded-full bg-nova-violet/[0.04] blur-[100px]" />
+			</div>
+
+			<div className="w-full max-w-[28rem]">
+				<ConsentForm
+					clientName={clientName}
+					scopes={scopes}
+					redirectMismatch={!requestValid}
+				/>
+			</div>
 		</main>
 	);
 }
