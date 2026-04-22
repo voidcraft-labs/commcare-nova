@@ -2,7 +2,15 @@
 
 **Goal:** Turn Nova's existing Better Auth instance into a full OAuth 2.1 authorization server. Add `jwt()` + `oauthProvider()`, publish well-known metadata, build the consent page. No custom AS code.
 
-**Dependencies:** Phase A (middleware must gate the well-known paths correctly).
+**Dependencies:** Phase A (the proxy.ts hostname allowlists already include `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, `/consent` on the main host and `/.well-known/oauth-protected-resource` on the MCP host — see `lib/hostnames.ts`).
+
+**Already done in commit `98accb5`** (the dep-prep work that used to be Step 1 of Task B1 below):
+- `better-auth` bumped to `^1.6.6` (which uses `better-call@1.3.5`).
+- `patches/better-call+1.3.2.patch`, the `patch-package` devDep, and the `postinstall` script all removed — the bug they patched is fixed natively in `better-call@1.3.5`.
+- `@better-auth/oauth-provider ^1.6.6`, `mcp-handler ^1.1.0`, and `@modelcontextprotocol/sdk ^1.26.0` added to `dependencies`. (mcp-handler peer-pins the SDK to exact `1.26.0`, so caret on the SDK is purely cosmetic — the resolver will keep them in lockstep.)
+- `"vite": "^8.0.0"` added to the `overrides` block. Required because `better-auth@1.6.x` declares `peerOptional @sveltejs/kit ^2.0.0` and npm 11 walks optional-peer chains eagerly: it tries to satisfy kit's transitive `vite-plugin-svelte` peer, which conflicts with the `vite` version `vitest` pulls in (8.0.9). The override forces the resolver to reuse our existing vite instead of speculating. We are not a Svelte project; the chain only exists because of the speculative walk.
+
+If a future better-auth bump removes the `peerOptional @sveltejs/kit` declaration, the vite override may become removable. Until then, leave it.
 
 ---
 
@@ -14,11 +22,9 @@ This is the single biggest unknown in the plan — if `better-auth-firestore` ca
 - Create: `scripts/verify-oauth-adapter.ts`
 - Create: `docs/superpowers/plans/notes/2026-04-21-nova-mcp-adapter-audit.md`
 
-- [ ] **Step 1: Install deps**
+- [ ] **Step 1: Confirm deps are installed**
 
-```bash
-npm install --save-exact @better-auth/oauth-provider@latest mcp-handler@latest @modelcontextprotocol/sdk@latest
-```
+`npm ls @better-auth/oauth-provider mcp-handler @modelcontextprotocol/sdk` should show all three resolved. If not, see commit `98accb5` for the install incantation (caret ranges, vite override, drop patch-package). Do NOT use `--save-exact` — pinning forces the resolver into corner cases like the `peerOptional @sveltejs/kit` chain that the override defuses.
 
 - [ ] **Step 2: Query context7 for plugin docs**
 
@@ -49,14 +55,23 @@ and document why.
 
 - [ ] **Step 4: Write the verification script**
 
+The plugin's surface area is mostly HTTP endpoints under `/api/auth/oauth2/*` — the named `auth.api.oauth2.*` methods that earlier drafts of this plan assumed do not exist as a stable programmatic API. Drive the plugin via `auth.handler(req)` with real `Request` objects so we hit whatever routes the plugin actually registered, regardless of method-name churn.
+
 ```ts
 /**
- * Smoke test: can better-auth-firestore run the four oauth-provider tables?
+ * Smoke test: can better-auth-firestore run the @better-auth/oauth-provider schema?
  *
- * Instantiates a Better Auth server with jwt() + oauthProvider(), points it
- * at a temporary collection prefix, and exercises: client registration via
- * DCR, authorization-server-metadata read, introspect on a bogus token.
- * Prints a pass/fail per step.
+ * Instantiates a Better Auth server with jwt() + oauthProvider() pointed at
+ * temp-prefixed Firestore collections, then drives it via in-process HTTP
+ * Requests. Exercises:
+ *   1. AS-metadata GET — proves the plugin booted and metadata renders.
+ *   2. POST /oauth2/register with public-client DCR body — proves the adapter
+ *      can write to oauthApplication and the plugin honors
+ *      allowDynamicClientRegistration + allowUnauthenticatedClientRegistration.
+ *   3. POST /oauth2/introspect with a bogus token — should 200 with active:false
+ *      or a clean 4xx; either is fine. Crash means oauthAccessToken read is broken.
+ *
+ * Logs status per step so the audit table can be filled in.
  *
  * Run with: npx tsx scripts/verify-oauth-adapter.ts
  */
@@ -69,8 +84,10 @@ import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "@/lib/db/firestore";
 
 const prefix = `verify_oauth_${Date.now()}_`;
+
 const auth = betterAuth({
-	secret: process.env.BETTER_AUTH_SECRET ?? "dev",
+	secret: process.env.BETTER_AUTH_SECRET ?? "dev-secret-min-32-chars-long-padding",
+	baseURL: "http://localhost:3000",
 	database: firestoreAdapter({
 		firestore: getDb() as unknown as Firestore,
 		collections: {
@@ -80,48 +97,72 @@ const auth = betterAuth({
 			verificationTokens: `${prefix}verifications`,
 		},
 	}),
+	disabledPaths: ["/token"],
 	plugins: [
-		jwt(),
+		jwt({ disableSettingJwtHeader: true }),
 		oauthProvider({
 			loginPage: "/sign-in",
 			consentPage: "/consent",
 			validAudiences: ["https://mcp.commcare.app"],
-			scopes: ["openid", "nova.read", "nova.write"],
+			scopes: ["openid", "profile", "email", "offline_access", "nova.read", "nova.write"],
 			allowDynamicClientRegistration: true,
 			allowUnauthenticatedClientRegistration: true,
 		}),
 	],
 });
 
-async function run() {
-	/* 1. DCR */
-	const dcr = await auth.api.oauth2.dynamicClientRegistration({
-		body: {
-			redirect_uris: ["http://localhost:9999/cb"],
-			client_name: "verify",
-			token_endpoint_auth_method: "none",
-			grant_types: ["authorization_code", "refresh_token"],
-		},
-	});
-	console.log("DCR ok:", !!dcr.client_id);
-
-	/* 2. Metadata endpoints respond */
-	const asMeta = await auth.api.oauth2.authServerMetadata();
-	console.log("AS metadata ok:", !!asMeta.issuer);
-
-	/* 3. Introspect / revoke on a fake token should 4xx cleanly */
+async function call(label: string, req: Request) {
 	try {
-		await auth.api.oauth2.introspect({ body: { token: "bogus" } });
-		console.log("introspect ok");
+		const res = await auth.handler(req);
+		const text = await res.clone().text();
+		console.log(`\n[${label}] HTTP ${res.status}`);
+		console.log(text.length > 400 ? `${text.slice(0, 400)}…` : text);
+		return res;
 	} catch (e) {
-		console.log("introspect error (expected for bogus token):", String(e));
+		console.log(`\n[${label}] THREW: ${String(e)}`);
+		return null;
 	}
+}
 
-	console.log("\nAll adapter hooks reachable. Review written docs for structure.");
+async function run() {
+	/* The metadata endpoint may be served at either /api/auth/.well-known/...
+	 * or /.well-known/... depending on how the plugin registers routes. The
+	 * Phase B3 implementation uses the standalone helper at the root path,
+	 * but the plugin also exposes one under /api/auth — try the root first. */
+	await call(
+		"AS metadata",
+		new Request("http://localhost:3000/.well-known/oauth-authorization-server"),
+	);
+
+	await call(
+		"DCR (public client)",
+		new Request("http://localhost:3000/api/auth/oauth2/register", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				redirect_uris: ["http://localhost:9999/cb"],
+				client_name: "verify",
+				token_endpoint_auth_method: "none",
+				grant_types: ["authorization_code", "refresh_token"],
+				scope: "openid nova.read nova.write",
+			}),
+		}),
+	);
+
+	await call(
+		"Introspect bogus token",
+		new Request("http://localhost:3000/api/auth/oauth2/introspect", {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: "token=bogus&token_type_hint=access_token",
+		}),
+	);
+
+	console.log("\nDone. Inspect output, then fill the audit table.");
 }
 
 run().catch((e) => {
-	console.error("FAIL:", e);
+	console.error("\nFAIL:", e);
 	process.exit(1);
 });
 ```
@@ -138,9 +179,11 @@ Based on what the verification exercised, mark each row pass/fail/unknown in the
 - [ ] **Step 7: Commit**
 
 ```bash
-git add package.json package-lock.json scripts/verify-oauth-adapter.ts docs/superpowers/plans/notes/2026-04-21-nova-mcp-adapter-audit.md
-git commit -m "chore(mcp): install oauth-provider + mcp deps; audit Firestore adapter"
+git add scripts/verify-oauth-adapter.ts docs/superpowers/plans/notes/2026-04-21-nova-mcp-adapter-audit.md
+git commit -m "chore(mcp): smoke-test Firestore adapter against oauth-provider"
 ```
+
+Deps are already installed in commit `98accb5`; this commit is just the script and the audit doc.
 
 ---
 
@@ -250,35 +293,44 @@ git commit -m "feat(mcp): enable oauth-provider + jwt plugins on Better Auth"
 - Create: `app/.well-known/oauth-authorization-server/route.ts`
 - Create: `app/.well-known/openid-configuration/route.ts`
 
+**Critical: lazy-bind `getAuth()`.** The plan as originally drafted called `getAuth()` at module load (`export const GET = oauthProviderAuthServerMetadata(getAuth())`). That breaks `next build`, which imports route modules during page collection — `lib/auth.ts` is intentionally lazy via `getAuth()` so the Firestore connection and env-var reads don't run at build time. Mirror the pattern from `app/api/auth/[...all]/route.ts`: wrap the helper in a request-time closure.
+
 - [ ] **Step 1: Write `oauth-authorization-server/route.ts`**
 
 ```ts
 /**
  * OAuth 2.1 authorization server metadata (RFC 8414).
  *
- * Served only on commcare.app (middleware enforces). Claude Code and other
- * MCP clients read this endpoint to discover token/authorization/
- * registration endpoints for the OAuth flow.
+ * Served only on commcare.app (proxy.ts allowlists this path on the main host).
+ * Claude Code and other MCP clients read this endpoint to discover the
+ * token / authorization / registration endpoints for the OAuth flow.
+ *
+ * The handler is wrapped in a request-time closure so `getAuth()` runs on
+ * first request, not at module-load. `next build` imports this route during
+ * page collection — eager `getAuth()` would force Firestore + secret-env
+ * reads at build time and fail. Same pattern as app/api/auth/[...all]/route.ts.
  */
 
 import { oauthProviderAuthServerMetadata } from "@better-auth/oauth-provider";
 import { getAuth } from "@/lib/auth";
 
-export const GET = oauthProviderAuthServerMetadata(getAuth());
+export const GET = (req: Request) =>
+	oauthProviderAuthServerMetadata(getAuth())(req);
 ```
 
 - [ ] **Step 2: Write `openid-configuration/route.ts`**
 
 ```ts
 /**
- * OpenID Connect discovery document. One-line handler from the plugin.
- * Published on commcare.app only.
+ * OpenID Connect discovery document. Lazy-bound for the same build-time
+ * reason as the AS-metadata route. Published on commcare.app only.
  */
 
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { getAuth } from "@/lib/auth";
 
-export const GET = oauthProviderOpenIdConfigMetadata(getAuth());
+export const GET = (req: Request) =>
+	oauthProviderOpenIdConfigMetadata(getAuth())(req);
 ```
 
 - [ ] **Step 3: Smoke + capture the actual JWKS URL**
@@ -313,16 +365,20 @@ Better Auth ships `oAuthProtectedResourceMetadata(auth)` from `better-auth/plugi
 /**
  * OAuth 2.0 protected-resource metadata (RFC 9728).
  *
- * Served ONLY on mcp.commcare.app (middleware enforces). Claude Code
- * fetches this URL on its first attempt to call an MCP tool; the response
- * points it at commcare.app as the authorization server, which it then
- * discovers via /.well-known/oauth-authorization-server.
+ * Served ONLY on mcp.commcare.app (proxy.ts allowlists this path on the MCP
+ * host; on the main host it falls through to a 404). Claude Code fetches
+ * this URL on its first attempt to call an MCP tool; the response points
+ * it at commcare.app as the authorization server, which it then discovers
+ * via /.well-known/oauth-authorization-server.
+ *
+ * Lazy-bound for the same build-time reason as the AS-metadata routes.
  */
 
 import { oAuthProtectedResourceMetadata } from "better-auth/plugins";
 import { getAuth } from "@/lib/auth";
 
-export const GET = oAuthProtectedResourceMetadata(getAuth());
+export const GET = (req: Request) =>
+	oAuthProtectedResourceMetadata(getAuth())(req);
 ```
 
 - [ ] **Step 2: Smoke**
@@ -351,28 +407,39 @@ git commit -m "feat(mcp): publish protected-resource metadata via oAuthProtected
 ## Task B5: Consent page
 
 **Files:**
-- Create: `lib/auth-client.ts`
+- **Modify:** `lib/auth-client.ts` (it already exists with `inferAdditionalFields<Auth>()` + `adminClient()` + `sessionOptions: { refetchOnWindowFocus: false }` — extend, don't overwrite)
 - Create: `app/consent/page.tsx`
 - Create: `app/consent/ConsentForm.tsx`
 
-- [ ] **Step 1: Write `lib/auth-client.ts`**
+- [ ] **Step 1: Extend `lib/auth-client.ts`**
+
+Add `oauthProviderClient()` to the existing plugins array. Preserve every other line.
 
 ```ts
 /**
  * Browser-side Better Auth client.
  *
- * Adds the oauth-provider client plugin so the consent page can POST the
- * accept/deny choice through authClient.oauth2.consent({...}) rather than
- * hand-rolling the fetch.
+ * `inferAdditionalFields<Auth>()` infers any custom session/user fields from
+ * the server config. `adminClient()` adds type definitions and methods for
+ * the admin plugin. `oauthProviderClient()` adds `authClient.oauth2.consent`
+ * so the consent page can POST the accept/deny choice through the typed
+ * client rather than hand-rolling the fetch.
+ *
+ * Session refetch on window focus is disabled — see lib/auth-client.ts for
+ * the reasoning (Better Auth's default briefly nulls session data on tab
+ * switch, which would race with client-side auth checks).
  */
 
-"use client";
-
-import { createAuthClient } from "better-auth/react";
+import { adminClient, inferAdditionalFields } from "better-auth/client/plugins";
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";
+import { createAuthClient } from "better-auth/react";
+import type { Auth } from "./auth";
 
 export const authClient = createAuthClient({
-	plugins: [oauthProviderClient()],
+	plugins: [inferAdditionalFields<Auth>(), adminClient(), oauthProviderClient()],
+	sessionOptions: {
+		refetchOnWindowFocus: false,
+	},
 });
 ```
 
@@ -475,14 +542,21 @@ export function ConsentForm({
 
 - [ ] **Step 3: Write `app/consent/page.tsx`**
 
+The plugin redirects users to the consent page with three query parameters: `consent_code`, `client_id`, and `scope` (space-separated). There is no `auth.api.oauth2.getPendingAuthorization` server method (an earlier draft of this plan invented one that doesn't exist). To enrich the display with the client's name we hit the plugin's own `GET /oauth2/public-client` endpoint server-side via `auth.handler`. Note: that endpoint requires an active session, which is fine here because we already gate-redirect to `/sign-in` above.
+
 ```tsx
 /**
  * OAuth consent page (server component).
  *
- * The oauth-provider plugin redirects authenticated users here with a
- * pending authorization request. We resolve the client + scopes
- * server-side and hand them to the client form for the accept/deny
- * decision.
+ * The oauth-provider plugin redirects authenticated users here with three
+ * query parameters: consent_code, client_id, and scope. We render the
+ * client name + scope list, then hand the accept/deny decision to a
+ * client form that calls authClient.oauth2.consent({ accept }).
+ *
+ * The form's `accept` POST carries the user's session cookie back to
+ * /api/auth/oauth2/consent, which uses the consent_code stashed by the
+ * plugin to complete the authorization-code flow and redirect the user
+ * back to the OAuth client.
  */
 
 import { redirect } from "next/navigation";
@@ -494,28 +568,64 @@ interface ConsentPageProps {
 	searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
+/** Parse the space-separated `scope` query param into a deduped list. */
+function parseScopes(raw: string | string[] | undefined): string[] {
+	if (!raw) return [];
+	const flat = Array.isArray(raw) ? raw.join(" ") : raw;
+	return Array.from(new Set(flat.split(/\s+/).filter(Boolean)));
+}
+
+/**
+ * Best-effort fetch of the OAuth client's public name. Returns `undefined`
+ * if the client_id is unknown or the plugin endpoint shape changes —
+ * the consent page falls back to a generic "An application" label.
+ */
+async function fetchClientName(
+	auth: ReturnType<typeof getAuth>,
+	clientId: string,
+	hdrs: Headers,
+): Promise<string | undefined> {
+	try {
+		const url = new URL("http://localhost/api/auth/oauth2/public-client");
+		url.searchParams.set("client_id", clientId);
+		const res = await auth.handler(new Request(url, { headers: hdrs }));
+		if (!res.ok) return undefined;
+		const body = (await res.json()) as { client_name?: string };
+		return body.client_name;
+	} catch {
+		return undefined;
+	}
+}
+
 export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const sp = await searchParams;
 	const auth = getAuth();
+	const hdrs = await headers();
 
-	const session = await auth.api.getSession({ headers: await headers() });
+	const session = await auth.api.getSession({ headers: hdrs });
 	if (!session) redirect("/sign-in");
 
-	const pending = await auth.api.oauth2.getPendingAuthorization({
-		headers: await headers(),
-		query: sp as Record<string, string>,
-	});
+	const consentCode =
+		typeof sp.consent_code === "string" ? sp.consent_code : undefined;
+	const clientId = typeof sp.client_id === "string" ? sp.client_id : undefined;
+	const scopes = parseScopes(sp.scope);
 
-	const clientName = pending?.client?.client_name ?? "An application";
-	const scopes = pending?.scopes ?? [];
-	const redirectMismatch = !pending;
+	/* The query params are required for a valid consent request. Missing or
+	 * tampered params mean the user landed here outside an OAuth flow —
+	 * surface that to the form so it can render a clear error instead of a
+	 * mystery accept button. */
+	const requestValid = Boolean(consentCode && clientId && scopes.length > 0);
+	const clientName =
+		requestValid && clientId
+			? (await fetchClientName(auth, clientId, hdrs)) ?? "An application"
+			: "An application";
 
 	return (
 		<main className="mx-auto max-w-xl p-8">
 			<ConsentForm
 				clientName={clientName}
 				scopes={scopes}
-				redirectMismatch={redirectMismatch}
+				redirectMismatch={!requestValid}
 			/>
 		</main>
 	);
@@ -525,9 +635,9 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 - [ ] **Step 4: Type-check**
 
 Run: `npx tsc --noEmit && echo "✓"`
-Expected: `✓`. If Better Auth's `auth.api.oauth2.getPendingAuthorization` signature differs from what this page assumes, adjust per the actual plugin API (context7 for the current signature).
+Expected: `✓`.
 
-End-to-end consent verification lands in Phase G Task G3 (requires a deployed staging target to run the full OAuth handshake from a real client).
+End-to-end consent verification lands in Phase G Task G3 (requires a deployed staging target to run the full OAuth handshake from a real client). The proxy.ts main-host allowlist already includes `/consent`, so no proxy edit is needed here.
 
 - [ ] **Step 5: Commit**
 
