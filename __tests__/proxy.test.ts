@@ -37,10 +37,15 @@ function req(host: string, path: string): NextRequest {
  * Build a `NextRequest` carrying a Better-Auth-shaped session cookie. The
  * proxy's `getSessionCookie` only checks for cookie *presence* (full
  * validation lives on the server), so a fake value is sufficient to drive
- * the authenticated-page branch and exercise CSP assembly. The cookie name
- * is the Better Auth default (`<prefix>.<name>` = `better-auth.session_token`)
- * — Better Auth's getter checks both the unprefixed and `__Secure-`
- * prefixed variants, so the unprefixed form works in tests.
+ * the authenticated-page branch and exercise CSP assembly.
+ *
+ * The cookie name `better-auth.session_token` is Better Auth's runtime
+ * default (`<cookiePrefix>.<cookieName>`); its getter accepts both the
+ * unprefixed and `__Secure-`-prefixed variants, so this form works in
+ * tests regardless of `NODE_ENV`. If a Better Auth upgrade renames the
+ * default cookie, this literal must move in lockstep — the regression is
+ * loud (the auth-redirect branch fires and the CSP-attach test below
+ * stops finding a CSP header) but the fix is here.
  */
 function reqWithSession(host: string, path: string): NextRequest {
 	const url = new URL(`http://example.test${path}`);
@@ -130,6 +135,17 @@ describe("proxy: mcp.commcare.app routing", () => {
 		const rewrite = res.headers.get("x-middleware-rewrite") ?? "";
 		expect(rewrite).toContain("session=abc");
 		expect(rewrite).toContain("foo=bar");
+	});
+
+	it("preserves the query string when rewriting /mcp/ (trailing slash)", () => {
+		/* Both `/mcp` and `/mcp/` normalize to the same internal target;
+		 * verify the trailing-slash variant does not regress query
+		 * preservation independently of the bare-path variant. */
+		const res = proxy(req("mcp.commcare.app", "/mcp/?session=abc"));
+		expectRewrite(res, "/api/mcp");
+		expect(res.headers.get("x-middleware-rewrite") ?? "").toContain(
+			"session=abc",
+		);
 	});
 
 	it("404s /mcp/foo (subpath; allowlist-prefix matching would let this leak)", () => {
@@ -268,8 +284,7 @@ describe("proxy: unknown hosts (Cloud Run health checks, dev localhost, missing 
 		 * /build is not on the short-circuit, has no session cookie, so
 		 * it must land at the auth redirect — proving page-route
 		 * treatment, not a 404. */
-		const url = new URL("http://example.test/build");
-		const res = proxy(new NextRequest(url, { headers: { host: "" } }));
+		const res = proxy(req("", "/build"));
 		expectAuthRedirect(res);
 	});
 });

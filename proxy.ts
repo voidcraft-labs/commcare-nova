@@ -36,6 +36,7 @@ import { getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
 import {
 	classifyHost,
+	HOSTNAME_ALLOWLIST,
 	HOSTNAMES,
 	isPathAllowedOnHost,
 	normalizeHost,
@@ -65,23 +66,34 @@ export function proxy(request: NextRequest): NextResponse {
 	/* ── 1. Hostname routing ─────────────────────────────────────────── */
 
 	if (classified === HOSTNAMES.mcp) {
-		/* The MCP host has a fixed two-route surface, so list the routes
-		 * inline instead of leaning on `isPathAllowedOnHost`. The
-		 * allowlist helper is segment-anchored — `/mcp/foo` would pass
-		 * its `/mcp` prefix check and fall through to a non-existent
-		 * page, missing the security-boundary 404 contract. Enumerating
-		 * the two valid paths keeps the surface tight. */
+		/* The MCP host's externally-reachable surface is enumerated by
+		 * `HOSTNAME_ALLOWLIST[HOSTNAMES.mcp]` — that array is the single
+		 * source of truth. We don't reuse `isPathAllowedOnHost` here
+		 * because its matcher is prefix-based, and `/mcp/foo` would pass
+		 * the `/mcp` prefix check and fall through to a non-existent
+		 * page, missing the security-boundary 404 contract. Instead we
+		 * exact-match `/mcp` (and its trailing-slash variant) for the
+		 * rewrite path and exact-match the rest of the allowlist for
+		 * passthrough. Adding or removing well-known entries on this
+		 * host is a one-line change in `lib/hostnames.ts`. */
 		if (pathname === "/mcp" || pathname === "/mcp/") {
-			/* Use `nextUrl.clone()` and mutate `pathname` so the search
-			 * string (e.g. `?session=…`, `?code=…`) survives the rewrite —
-			 * `new URL("/api/mcp", request.url)` would discard it. The
-			 * MCP endpoint is JSON-RPC; return immediately so it never
-			 * picks up CSP headers or the auth redirect. */
+			/* Both `/mcp` and `/mcp/` rewrite to the same internal target
+			 * `/api/mcp` (no trailing slash) — Next's route handler lives
+			 * at `app/api/mcp/route.ts`, so the canonical internal path
+			 * is dash-free. Use `nextUrl.clone()` and mutate `pathname`
+			 * so the search string (e.g. `?session=…`, `?code=…`) survives
+			 * the rewrite — `new URL("/api/mcp", request.url)` would
+			 * discard it. The MCP endpoint is JSON-RPC; return immediately
+			 * so it never picks up CSP headers or the auth redirect. */
 			const target = request.nextUrl.clone();
 			target.pathname = "/api/mcp";
 			return NextResponse.rewrite(target);
 		}
-		if (pathname === "/.well-known/oauth-protected-resource") {
+		/* Remaining mcp-host allowlist entries (currently just the
+		 * OAuth-protected-resource discovery doc) pass through to their
+		 * page route untouched — exact match only, never prefix. */
+		const mcpAllowed = HOSTNAME_ALLOWLIST[HOSTNAMES.mcp];
+		if (mcpAllowed.some((p) => p !== "/mcp" && p === pathname)) {
 			return NextResponse.next();
 		}
 		return notFound();
@@ -151,16 +163,19 @@ export function proxy(request: NextRequest): NextResponse {
 
 	/* Optimistic auth — cookie presence only, server does full validation.
 	 * The root path is exempt so the unauthenticated landing page is
-	 * reachable. `/.well-known/*` was already filtered out by the
-	 * short-circuit above, so it does not need a second exemption here. */
+	 * reachable. `/.well-known/*` requests cannot reach this branch — the
+	 * short-circuit above intercepts them. */
 	if (pathname !== "/" && !getSessionCookie(request)) {
 		return NextResponse.redirect(new URL("/", request.url));
 	}
 
-	/* Pass nonce to RSC via request header; set CSP on the response. */
+	/* Forward the nonce to RSC via the request header so the layout can
+	 * stamp it on inline <script> tags. CSP itself only belongs on the
+	 * response — setting `Content-Security-Policy` on the request would
+	 * be dead weight (no consumer reads it) and risks confusing future
+	 * readers about which side enforces the policy. */
 	const requestHeaders = new Headers(request.headers);
 	requestHeaders.set("x-nonce", nonce);
-	requestHeaders.set("Content-Security-Policy", csp);
 
 	const response = NextResponse.next({ request: { headers: requestHeaders } });
 	response.headers.set("Content-Security-Policy", csp);
