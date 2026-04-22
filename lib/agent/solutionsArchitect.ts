@@ -32,35 +32,31 @@ import type {
 	Field,
 	FormType,
 	PostSubmitDestination,
-	Uuid,
 } from "@/lib/domain";
 import {
-	asUuid,
 	FORM_TYPES,
 	fieldRegistry,
-	isContainer,
 	USER_FACING_DESTINATIONS,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import {
-	addFieldMutations,
 	addFormMutations,
 	addModuleMutations,
-	findFieldByBareId,
 	removeFieldMutations,
 	removeFormMutations,
 	removeModuleMutations,
 	renameFieldMutations,
 	resolveFieldByIndex,
+	resolveFormUuid,
 	updateFieldMutations,
 	updateFormMutations,
 	updateModuleMutations,
 } from "./blueprintHelpers";
-import { flatFieldToField } from "./contentProcessing";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import { addFieldSchema, editFieldUpdatesSchema } from "./toolSchemas";
+import { editFieldUpdatesSchema } from "./toolSchemas";
+import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
@@ -93,22 +89,6 @@ export const BUILD_ONLY_TOOL_NAMES = [
 ] as const;
 
 // ── Doc helpers ───────────────────────────────────────────────────────
-
-/**
- * Map a (moduleIndex, formIndex) pair to the doc's form uuid. Returns
- * `undefined` when either index is out of range — callers surface this
- * as an error message to the SA.
- */
-function resolveFormUuid(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-	formIndex: number,
-): Uuid | undefined {
-	const moduleUuid = doc.moduleOrder[moduleIndex];
-	if (!moduleUuid) return undefined;
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
-	return formUuids[formIndex];
-}
 
 /**
  * Coerce the scalar-patch portion of an `editField` call into the
@@ -502,92 +482,16 @@ export function createSolutionsArchitect(
 		}),
 
 		addField: tool({
-			description:
-				"Add a new field to an existing form. Use beforeFieldId or afterFieldId to control position; omit both to append at end.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-				field: addFieldSchema,
-				afterFieldId: z
-					.string()
-					.optional()
-					.describe("Insert after this field ID. Omit to append at end."),
-				beforeFieldId: z
-					.string()
-					.optional()
-					.describe(
-						"Insert before this field ID. Takes precedence over afterFieldId.",
-					),
-				parentId: z
-					.string()
-					.optional()
-					.describe("ID of a group/repeat to nest inside"),
-			}),
-			execute: async ({
-				moduleIndex,
-				formIndex,
-				field: fieldInput,
-				afterFieldId,
-				beforeFieldId,
-				parentId,
-			}) => {
-				try {
-					const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-					if (!formUuid)
-						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-
-					// Resolve parent uuid (form or an existing container field).
-					let parentUuid: Uuid = formUuid;
-					if (parentId) {
-						const resolvedParent = findFieldByBareId(doc, formUuid, parentId);
-						if (resolvedParent?.field && isContainer(resolvedParent.field)) {
-							parentUuid = resolvedParent.field.uuid;
-						}
-					}
-
-					// Resolve sibling anchors for ordered insert. Helpers insert
-					// at a numeric index — compute it from the sibling's current
-					// position in the parent's order array.
-					const order = doc.fieldOrder[parentUuid] ?? [];
-					let insertIndex = order.length; // default: append
-					if (beforeFieldId) {
-						const target = order.findIndex(
-							(u) => doc.fields[u]?.id === beforeFieldId,
-						);
-						if (target !== -1) insertIndex = target;
-					} else if (afterFieldId) {
-						const target = order.findIndex(
-							(u) => doc.fields[u]?.id === afterFieldId,
-						);
-						if (target !== -1) insertIndex = target + 1;
-					}
-
-					const uuid = asUuid(crypto.randomUUID());
-					const field = flatFieldToField(fieldInput, uuid);
-					if (!field) {
-						return {
-							error: `Field "${fieldInput.id}" (kind=${fieldInput.kind}) failed schema validation — likely a missing required property for the kind (e.g. options on a select, or a non-empty label on a visible kind).`,
-						};
-					}
-					const muts = addFieldMutations(doc, {
-						parentUuid,
-						field,
-						index: insertIndex,
-					});
-					emit(muts, `form:${moduleIndex}-${formIndex}`);
-
-					const formName = doc.forms[formUuid]?.name ?? "";
-					const totalCount = countFieldsUnder(doc, formUuid);
-					const posDesc = beforeFieldId
-						? `before "${beforeFieldId}"`
-						: afterFieldId
-							? `after "${afterFieldId}"`
-							: "at end";
-					const parentDesc = parentId ? ` inside group "${parentId}"` : "";
-					return `Successfully added field "${fieldInput.id}" (${fieldInput.label ?? ""}) to "${formName}" ${posDesc}${parentDesc}. Form now has ${totalCount} field${totalCount === 1 ? "" : "s"}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: addFieldTool.description,
+			inputSchema: addFieldTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await addFieldTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 

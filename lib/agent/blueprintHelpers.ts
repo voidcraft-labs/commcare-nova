@@ -97,6 +97,26 @@ export function resolveFieldByIndex(
 	return { ...resolved, formUuid };
 }
 
+/**
+ * Map a `(moduleIndex, formIndex)` pair to the doc's form uuid. Returns
+ * `undefined` when either index is out of range — tool bodies surface
+ * that as an error string to the SA.
+ *
+ * The lighter cousin of `resolveFieldByIndex`: callers that don't need a
+ * field lookup (per-form reads, structural edits) use this to skip the
+ * DFS walk over the form's field subtree.
+ */
+export function resolveFormUuid(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): Uuid | undefined {
+	const moduleUuid = doc.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	return formUuids[formIndex];
+}
+
 // ── Form-tree snapshot ──────────────────────────────────────────────────
 
 /**
