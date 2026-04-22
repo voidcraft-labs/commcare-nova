@@ -11,6 +11,7 @@
  * afterward with positional indices, without re-reading the doc.
  */
 
+import type { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { setScaffoldMutations } from "../blueprintHelpers";
 import { scaffoldModulesSchema } from "../scaffoldSchemas";
@@ -19,7 +20,7 @@ import { applyToDoc, type MutatingToolResult } from "./common";
 
 export const generateScaffoldInputSchema = scaffoldModulesSchema;
 
-export type GenerateScaffoldInput = typeof scaffoldModulesSchema._output;
+export type GenerateScaffoldInput = z.infer<typeof generateScaffoldInputSchema>;
 
 /**
  * Summary the LLM receives as tool output. Reflects the positional

@@ -48,7 +48,11 @@ export type AddModuleResult =
 	| {
 			moduleIndex: number;
 			name: string;
-			case_list_columns: AddModuleInput["case_list_columns"];
+			/* Non-null on this branch — the null / undefined-caseType path
+			 * short-circuits to the `{ columns: null }` shape above, so by
+			 * the time the tool assembles this payload we know both the
+			 * module has a caseType and the SA passed real columns. */
+			case_list_columns: NonNullable<AddModuleInput["case_list_columns"]>;
 			case_detail_columns: AddModuleInput["case_detail_columns"];
 	  };
 
