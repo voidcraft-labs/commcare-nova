@@ -27,7 +27,6 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
-	ConnectConfig,
 	FormType,
 	PostSubmitDestination,
 } from "@/lib/domain";
@@ -40,7 +39,6 @@ import {
 	removeFormMutations,
 	removeModuleMutations,
 	resolveFormUuid,
-	updateFormMutations,
 } from "./blueprintHelpers";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
@@ -57,6 +55,7 @@ import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
 import { removeFieldTool } from "./tools/removeField";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
+import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
 import { validateAndFix } from "./validationLoop";
 
@@ -89,48 +88,6 @@ export const BUILD_ONLY_TOOL_NAMES = [
  * type from the same surface they import the SA factory.
  */
 export type { FormSnapshot } from "./blueprintHelpers";
-
-// ── Helper: build a full ConnectConfig from SA's partial input ────────
-
-/**
- * Converts the SA's partial connect input into a proper ConnectConfig.
- * The SA only sets fields it should know about (learn_module, assessment,
- * deliver_unit.name, task). System-derived fields (entity_id, entity_name)
- * are preserved from the existing config or left empty for auto-derivation.
- */
-function buildConnectConfig(
-	input: {
-		learn_module?: {
-			id?: string;
-			name: string;
-			description: string;
-			time_estimate: number;
-		};
-		assessment?: { id?: string; user_score: string };
-		deliver_unit?: { name: string };
-		task?: { name: string; description: string };
-	} | null,
-	existing?: ConnectConfig,
-): ConnectConfig | null {
-	if (input === null) return null;
-	return {
-		learn_module: input.learn_module
-			? { ...existing?.learn_module, ...input.learn_module }
-			: input.learn_module,
-		assessment: input.assessment
-			? { ...existing?.assessment, ...input.assessment }
-			: input.assessment,
-		deliver_unit: input.deliver_unit
-			? {
-					...existing?.deliver_unit,
-					...input.deliver_unit,
-					entity_id: existing?.deliver_unit?.entity_id ?? "",
-					entity_name: existing?.deliver_unit?.entity_name ?? "",
-				}
-			: input.deliver_unit,
-		task: input.task ? { ...existing?.task, ...input.task } : input.task,
-	};
-}
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -350,144 +307,16 @@ export function createSolutionsArchitect(
 		}),
 
 		updateForm: tool({
-			description:
-				"Update form metadata: name, close condition (close forms only), Connect integration, or post-submit navigation.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-				name: z.string().optional().describe("New form name"),
-				close_condition: z
-					.object({
-						field: z.string().describe("Field id to check"),
-						answer: z.string().describe("Value that triggers closure"),
-						operator: z
-							.enum(["=", "selected"])
-							.optional()
-							.describe(
-								'"=" for exact match (default). "selected" for multi-select fields.',
-							),
-					})
-					.nullable()
-					.optional()
-					.describe(
-						'Close forms only. Set conditional close. Use operator "selected" for multi-select fields. null to make unconditional (default). Omit to leave unchanged.',
-					),
-				post_submit: z
-					.enum(USER_FACING_DESTINATIONS)
-					.nullable()
-					.optional()
-					.describe(
-						"Where the user goes after submitting this form. " +
-							'"app_home" = main menu. ' +
-							'"module" = this module\'s form list. ' +
-							'"previous" = back to where the user was (e.g. case list). ' +
-							'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
-							"null to reset to default. Omit to leave unchanged.",
-					),
-				connect: z
-					.object({
-						learn_module: z
-							.object({
-								id: z.string().optional(),
-								name: z.string(),
-								description: z.string(),
-								time_estimate: z.number(),
-							})
-							.optional()
-							.describe(
-								"Set for forms with educational/training content. Omit for quiz-only forms.",
-							),
-						assessment: z
-							.object({ id: z.string().optional(), user_score: z.string() })
-							.optional()
-							.describe(
-								"Set for forms with a quiz/test. Omit for content-only forms.",
-							),
-						deliver_unit: z.object({ name: z.string() }).optional(),
-						task: z
-							.object({ name: z.string(), description: z.string() })
-							.optional(),
-					})
-					.nullable()
-					.optional()
-					.describe(
-						"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
-					),
-			}),
-			execute: async ({
-				moduleIndex,
-				formIndex,
-				name,
-				close_condition,
-				post_submit,
-				connect,
-			}) => {
-				try {
-					const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-					if (!formUuid)
-						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-					const existing = doc.forms[formUuid];
-					if (!existing)
-						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-
-					// Build the helper's patch shape. The SA's tool arg uses
-					// `field` directly — no translation needed since the SA
-					// speaks domain vocabulary. `null` clears.
-					const patch: Parameters<typeof updateFormMutations>[2] = {};
-					if (name !== undefined) patch.name = name;
-					if (close_condition !== undefined) {
-						patch.closeCondition =
-							close_condition === null
-								? null
-								: {
-										field: close_condition.field,
-										answer: close_condition.answer,
-										...(close_condition.operator && {
-											operator: close_condition.operator,
-										}),
-									};
-					}
-					if (post_submit !== undefined) {
-						patch.postSubmit = post_submit as PostSubmitDestination | null;
-					}
-					if (connect !== undefined) {
-						patch.connect = buildConnectConfig(
-							connect,
-							existing.connect ?? undefined,
-						);
-					}
-					// Stream the form-metadata mutations the helper produced and
-					// advance the SA's doc atomically. Clients apply the same
-					// granular mutations via `applyMany` to stay in lockstep.
-					const muts = updateFormMutations(doc, formUuid, patch);
-					emit(muts, `form:${moduleIndex}-${formIndex}`);
-
-					const formAfter = doc.forms[formUuid];
-					if (!formAfter)
-						return {
-							error: `Form m${moduleIndex}-f${formIndex} not found after update`,
-						};
-					const formChanges: string[] = [];
-					if (name !== undefined)
-						formChanges.push(`name → "${formAfter.name}"`);
-					if (close_condition !== undefined)
-						formChanges.push(
-							close_condition === null
-								? "close_condition removed (unconditional close)"
-								: "close_condition updated",
-						);
-					if (post_submit !== undefined)
-						formChanges.push(
-							`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
-						);
-					if (connect !== undefined)
-						formChanges.push(
-							connect === null ? "connect removed" : "connect updated",
-						);
-					return `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: updateFormTool.description,
+			inputSchema: updateFormTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await updateFormTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
