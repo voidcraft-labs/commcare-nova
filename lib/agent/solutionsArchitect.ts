@@ -24,7 +24,7 @@ import { z } from "zod";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
+import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -75,6 +75,7 @@ import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
+import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
@@ -446,40 +447,9 @@ export function createSolutionsArchitect(
 		}),
 
 		getField: tool({
-			description: "Get a single field by ID within a form.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-				fieldId: z.string().describe("Field id"),
-			}),
-			execute: async ({ moduleIndex, formIndex, fieldId }) => {
-				const resolved = resolveFieldByIndex(
-					doc,
-					moduleIndex,
-					formIndex,
-					fieldId,
-				);
-				if (!resolved)
-					return {
-						error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
-					};
-				// If the resolved field is a container, include its children so
-				// the SA sees the subtree in one call. Leaf fields return a plain
-				// `Field` with no `children` key.
-				const field = isContainer(resolved.field)
-					? {
-							...resolved.field,
-							children: buildFieldTree(doc, resolved.field.uuid),
-						}
-					: resolved.field;
-				return {
-					moduleIndex,
-					formIndex,
-					fieldId,
-					path: resolved.path,
-					field,
-				};
-			},
+			description: getFieldTool.description,
+			inputSchema: getFieldTool.inputSchema,
+			execute: async (input) => getFieldTool.execute(input, ctx, doc),
 		}),
 
 		// ── Field mutations ────────────────────────────────────────
