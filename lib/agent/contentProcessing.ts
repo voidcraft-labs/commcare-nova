@@ -18,8 +18,9 @@
  * their domain equivalents when seeding a field's defaults.
  */
 import type { z } from "zod";
-import type { CaseType, FormType } from "@/lib/domain";
-import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import type { CaseType, Field, FormType, Uuid } from "@/lib/domain";
+import { CASE_LOADING_FORM_TYPES, fieldSchema } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import type { addFieldsItemSchema } from "./toolSchemas";
 
 type CaseTypes = CaseType[] | null;
@@ -174,4 +175,84 @@ export function applyDefaults(
 	}
 
 	return result;
+}
+
+// ── Flat → Field assembly ────────────────────────────────────────────
+
+/**
+ * Build a validated domain `Field` from the SA's flat batch-item payload.
+ *
+ * The SA can in principle emit any combination of optional keys for any
+ * `kind` — there's no per-kind Zod validation on the tool input because
+ * the flat schema is a union across all kinds. Per-kind validity is
+ * enforced HERE: the assembled candidate runs through `fieldSchema`
+ * (the discriminated union) so Zod strips keys the target kind doesn't
+ * declare (e.g. `label` on `hidden`, `case_property` on media kinds)
+ * and rejects invalid values. Returns `undefined` when the shape can't
+ * be salvaged into a valid `Field`; callers skip and log.
+ *
+ * `label`, `hint`, etc. are included only when they carry a non-empty
+ * value. The batch schema's sentinel-required `label`/`required` fields
+ * are already stripped to absent by `stripEmpty` before this runs, but
+ * the extra guard here is cheap and keeps the helper standalone.
+ *
+ * Lives alongside `stripEmpty` + `applyDefaults` because the three
+ * helpers form a pipeline — sentinels collapse, defaults merge, then
+ * assembly — that every SA field-add tool (`addFields`, `addField`)
+ * walks in order.
+ */
+export function flatFieldToField(
+	q: Partial<FlatField>,
+	uuid: Uuid,
+): Field | undefined {
+	const candidate: Record<string, unknown> = {
+		kind: q.kind,
+		uuid,
+		id: q.id,
+		...(typeof q.label === "string" &&
+			q.label.length > 0 && {
+				label: q.label,
+			}),
+		...(typeof q.hint === "string" && q.hint.length > 0 && { hint: q.hint }),
+		...(typeof q.required === "string" &&
+			q.required.length > 0 && {
+				required: q.required,
+			}),
+		...(typeof q.relevant === "string" &&
+			q.relevant.length > 0 && {
+				relevant: q.relevant,
+			}),
+		...(typeof q.validate === "string" &&
+			q.validate.length > 0 && {
+				validate: q.validate,
+			}),
+		...(typeof q.validate_msg === "string" &&
+			q.validate_msg.length > 0 && {
+				validate_msg: q.validate_msg,
+			}),
+		...(typeof q.calculate === "string" &&
+			q.calculate.length > 0 && {
+				calculate: q.calculate,
+			}),
+		...(typeof q.default_value === "string" &&
+			q.default_value.length > 0 && {
+				default_value: q.default_value,
+			}),
+		...(Array.isArray(q.options) &&
+			q.options.length > 0 && {
+				options: q.options,
+			}),
+		...(typeof q.case_property === "string" &&
+			q.case_property.length > 0 && {
+				case_property: q.case_property,
+			}),
+	};
+	const result = fieldSchema.safeParse(candidate);
+	if (!result.success) {
+		log.warn(
+			`[addFields] dropped invalid field candidate id=${q.id} kind=${q.kind}: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+		);
+		return undefined;
+	}
+	return result.data;
 }

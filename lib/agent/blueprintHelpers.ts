@@ -21,6 +21,7 @@
  */
 
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
+import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -94,6 +95,34 @@ export function resolveFieldByIndex(
 	const resolved = findFieldByBareId(doc, formUuid, bareId);
 	if (!resolved) return undefined;
 	return { ...resolved, formUuid };
+}
+
+// ── Form-tree snapshot ──────────────────────────────────────────────────
+
+/**
+ * Shape returned by `formSnapshot` — the form entity augmented with its
+ * ordered, nested field tree. Uses the domain `Form` type verbatim so
+ * downstream consumers (SA `getForm` tool, MCP adapter) read domain
+ * names (`closeCondition`, `postSubmit`, `formLinks`) and don't carry
+ * any CommCare wire-format translation.
+ *
+ * Lives alongside the positional lookup helpers because it's a
+ * `BlueprintDoc`-read derived shape — the same category of surface.
+ */
+export type FormSnapshot = Form & { fields: FieldWithChildren[] };
+
+/**
+ * Build a `FormSnapshot` for the given form uuid. Returns `undefined`
+ * when the form doesn't exist in the doc — callers surface that as a
+ * "form not found" error to the SA.
+ */
+export function formSnapshot(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): FormSnapshot | undefined {
+	const form = doc.forms[formUuid];
+	if (!form) return undefined;
+	return { ...form, fields: buildFieldTree(doc, formUuid) };
 }
 
 // ── Mutation builders — app level ───────────────────────────────────────

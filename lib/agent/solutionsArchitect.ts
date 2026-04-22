@@ -24,18 +24,13 @@ import { z } from "zod";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import {
-	buildFieldTree,
-	countFieldsUnder,
-	type FieldWithChildren,
-} from "@/lib/doc/fieldWalk";
+import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
 import { searchBlueprint } from "@/lib/doc/searchBlueprint";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
 	Field,
-	Form,
 	FormType,
 	PostSubmitDestination,
 	Uuid,
@@ -44,7 +39,6 @@ import {
 	asUuid,
 	FORM_TYPES,
 	fieldRegistry,
-	fieldSchema,
 	isContainer,
 	USER_FACING_DESTINATIONS,
 } from "@/lib/domain";
@@ -55,6 +49,7 @@ import {
 	addFormMutations,
 	addModuleMutations,
 	findFieldByBareId,
+	formSnapshot,
 	removeFieldMutations,
 	removeFormMutations,
 	removeModuleMutations,
@@ -66,7 +61,12 @@ import {
 	updateFormMutations,
 	updateModuleMutations,
 } from "./blueprintHelpers";
-import { applyDefaults, type FlatField, stripEmpty } from "./contentProcessing";
+import {
+	applyDefaults,
+	type FlatField,
+	flatFieldToField,
+	stripEmpty,
+} from "./contentProcessing";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import {
@@ -116,81 +116,6 @@ function resolveFormUuid(
 	return formUuids[formIndex];
 }
 
-// ── Flat → Field translation ─────────────────────────────────────────
-
-/**
- * Build a validated domain `Field` from the SA's flat batch-item payload.
- *
- * The SA can in principle emit any combination of optional keys for any
- * `kind` — there's no per-kind Zod validation on the tool input because
- * the flat schema is a union across all kinds. Per-kind validity is
- * enforced HERE: the assembled candidate is run through `fieldSchema`
- * (the discriminated union) so Zod strips keys the target kind doesn't
- * declare (e.g. `label` on `hidden`, `case_property` on media kinds)
- * and rejects invalid values. Returns `undefined` when the shape can't
- * be salvaged into a valid `Field`; callers skip and log.
- *
- * `label`, `hint`, etc. are included only when they carry a non-empty
- * value. The batch schema's sentinel-required `label`/`required` fields
- * are already stripped to absent by `stripEmpty` before this runs, but
- * the extra guard here is cheap and keeps the helper standalone.
- */
-function flatFieldToField(
-	q: Partial<FlatField>,
-	uuid: Uuid,
-): Field | undefined {
-	const candidate: Record<string, unknown> = {
-		kind: q.kind,
-		uuid,
-		id: q.id,
-		...(typeof q.label === "string" &&
-			q.label.length > 0 && {
-				label: q.label,
-			}),
-		...(typeof q.hint === "string" && q.hint.length > 0 && { hint: q.hint }),
-		...(typeof q.required === "string" &&
-			q.required.length > 0 && {
-				required: q.required,
-			}),
-		...(typeof q.relevant === "string" &&
-			q.relevant.length > 0 && {
-				relevant: q.relevant,
-			}),
-		...(typeof q.validate === "string" &&
-			q.validate.length > 0 && {
-				validate: q.validate,
-			}),
-		...(typeof q.validate_msg === "string" &&
-			q.validate_msg.length > 0 && {
-				validate_msg: q.validate_msg,
-			}),
-		...(typeof q.calculate === "string" &&
-			q.calculate.length > 0 && {
-				calculate: q.calculate,
-			}),
-		...(typeof q.default_value === "string" &&
-			q.default_value.length > 0 && {
-				default_value: q.default_value,
-			}),
-		...(Array.isArray(q.options) &&
-			q.options.length > 0 && {
-				options: q.options,
-			}),
-		...(typeof q.case_property === "string" &&
-			q.case_property.length > 0 && {
-				case_property: q.case_property,
-			}),
-	};
-	const result = fieldSchema.safeParse(candidate);
-	if (!result.success) {
-		log.warn(
-			`[addFields] dropped invalid field candidate id=${q.id} kind=${q.kind}: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
-		);
-		return undefined;
-	}
-	return result.data;
-}
-
 /**
  * Coerce the scalar-patch portion of an `editField` call into the
  * reducer's field-patch shape. `id` and `kind` changes are handled
@@ -236,23 +161,13 @@ function editPatchToFieldPatch(
 	return patch as Partial<Omit<Field, "uuid">>;
 }
 
-// ── Domain-native tree snapshots for SA read tools ────────────────────
-
 /**
- * Shape returned by `getForm` — the form entity augmented with its
- * ordered, nested field tree. Uses the domain `Form` type verbatim
- * (domain names like `closeCondition`, `postSubmit`, `formLinks`).
+ * Re-export the `FormSnapshot` type so existing `@/lib/agent/solutionsArchitect`
+ * consumers can keep importing it from here. The type lives next to
+ * `formSnapshot` in `blueprintHelpers.ts` — that's the single source of
+ * truth; this re-export preserves the public surface.
  */
-export type FormSnapshot = Form & { fields: FieldWithChildren[] };
-
-function formSnapshot(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): FormSnapshot | undefined {
-	const form = doc.forms[formUuid];
-	if (!form) return undefined;
-	return { ...form, fields: buildFieldTree(doc, formUuid) };
-}
+export type { FormSnapshot } from "./blueprintHelpers";
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────
 
