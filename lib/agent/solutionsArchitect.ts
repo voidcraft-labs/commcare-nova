@@ -48,7 +48,6 @@ import {
 	addFormMutations,
 	addModuleMutations,
 	findFieldByBareId,
-	formSnapshot,
 	removeFieldMutations,
 	removeFormMutations,
 	removeModuleMutations,
@@ -76,6 +75,7 @@ import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
+import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { validateAndFix } from "./validationLoop";
@@ -440,24 +440,9 @@ export function createSolutionsArchitect(
 		}),
 
 		getForm: tool({
-			description:
-				"Get a form by module and form index. Returns the full form including all fields (nested by group/repeat containers).",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-			}),
-			execute: async ({ moduleIndex, formIndex }) => {
-				const moduleUuid = doc.moduleOrder[moduleIndex];
-				if (!moduleUuid)
-					return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-				const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
-				if (!formUuid)
-					return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-				const snapshot = formSnapshot(doc, formUuid);
-				if (!snapshot)
-					return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-				return { moduleIndex, formIndex, form: snapshot };
-			},
+			description: getFormTool.description,
+			inputSchema: getFormTool.inputSchema,
+			execute: async (input) => getFormTool.execute(input, ctx, doc),
 		}),
 
 		getField: tool({
