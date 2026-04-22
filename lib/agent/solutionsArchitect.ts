@@ -24,18 +24,15 @@ import { z } from "zod";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { completeApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
-import { removeModuleMutations } from "./blueprintHelpers";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
-import { applyToDoc } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
 import { editFieldTool } from "./tools/editField";
@@ -46,6 +43,7 @@ import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
+import { removeModuleTool } from "./tools/removeModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
@@ -100,39 +98,16 @@ export function createSolutionsArchitect(
 	initialDoc: BlueprintDoc,
 	editing = false,
 ) {
-	// Internal doc state — the SA reads + mutates this on every tool call.
-	// It's the single source of truth; wire-format snapshots are generated
-	// on demand for LLM-facing outputs and for the CommCare validator.
+	/* Internal working doc — read + reassigned on every tool call.
+	 *
+	 * Mutation persistence (SSE + event log + Firestore) happens inside
+	 * each extracted tool module via `ctx.recordMutations`. Each wrapper
+	 * below simply reassigns `doc` when the extracted tool's `mutations`
+	 * array is non-empty, so the next tool call in the same request sees
+	 * post-mutation state for its positional-index lookups. Wire-format
+	 * snapshots are generated on demand for LLM-facing outputs and for
+	 * the CommCare validator. */
 	let doc: BlueprintDoc = initialDoc;
-
-	/**
-	 * Apply a mutation batch to the SA's working doc AND emit it on the
-	 * context in one step. Every tool handler routes mutations through
-	 * this helper so both steps stay atomic at the call site:
-	 *
-	 *   1. Compute the post-mutation doc via `applyToDoc` (Immer).
-	 *   2. Emit the batch through `ctx.emitMutations(muts, newDoc, stage)`
-	 *      — the SSE write + log enqueue + fire-and-forget Firestore save
-	 *      all run against the SAME snapshot we're about to adopt.
-	 *   3. Reassign `doc` so the next tool call reads the new state.
-	 *
-	 * Ordering matters: emit BEFORE reassign so no race exists between
-	 * the SSE payload the client applies and the working doc we advance
-	 * to. Empty batches short-circuit before any emission happens, so
-	 * callers can invoke this unconditionally after a helper that may
-	 * return `[]`.
-	 *
-	 * `stage` is required at this layer — every SA call site explicitly
-	 * tags its batch. The underlying `ctx.emitMutations` leaves stage
-	 * optional for callers outside the SA that don't have a meaningful
-	 * tag.
-	 */
-	const emit = (muts: Mutation[], stage: string): void => {
-		if (muts.length === 0) return;
-		const newDoc = applyToDoc(doc, muts);
-		ctx.emitMutations(muts, newDoc, stage);
-		doc = newDoc;
-	};
 
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → fields.
@@ -355,26 +330,16 @@ export function createSolutionsArchitect(
 		}),
 
 		removeModule: tool({
-			description: "Remove a module from the app.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-			}),
-			execute: async ({ moduleIndex }) => {
-				try {
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					const name = moduleUuid
-						? (doc.modules[moduleUuid]?.name ?? null)
-						: null;
-					// Only emit + apply when the module actually exists; mirror
-					// the removeForm guard for consistency.
-					if (moduleUuid) {
-						const muts = removeModuleMutations(doc, moduleUuid);
-						emit(muts, `module:remove:${moduleIndex}`);
-					}
-					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: removeModuleTool.description,
+			inputSchema: removeModuleTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await removeModuleTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
