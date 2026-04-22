@@ -57,19 +57,11 @@ import {
 	updateFormMutations,
 	updateModuleMutations,
 } from "./blueprintHelpers";
-import {
-	applyDefaults,
-	type FlatField,
-	flatFieldToField,
-	stripEmpty,
-} from "./contentProcessing";
+import { flatFieldToField } from "./contentProcessing";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import {
-	addFieldSchema,
-	addFieldsItemSchema,
-	editFieldUpdatesSchema,
-} from "./toolSchemas";
+import { addFieldSchema, editFieldUpdatesSchema } from "./toolSchemas";
+import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
@@ -326,103 +318,16 @@ export function createSolutionsArchitect(
 		},
 
 		addFields: tool({
-			description:
-				"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-				fields: z.array(addFieldsItemSchema),
-			}),
-			execute: async ({ moduleIndex, formIndex, fields }) => {
-				try {
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
-					const mod = doc.modules[moduleUuid];
-					if (!mod) return { error: `Module ${moduleIndex} not found` };
-					const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
-					if (!formUuid)
-						return {
-							error: `Form ${formIndex} not found in module ${moduleIndex}`,
-						};
-					const form = doc.forms[formUuid];
-					if (!form)
-						return {
-							error: `Form ${formIndex} not found in module ${moduleIndex}`,
-						};
-
-					// Process incoming flat SA-format fields: strip sentinels, apply
-					// case-property defaults from the data model, then mint a uuid
-					// and assemble the domain `Field` shape. The SA emits flat items
-					// with semantic `parentId` — resolve each to a uuid by id lookup
-					// within the form's existing + newly-added fields. If the SA
-					// refers to a parent added earlier in this same batch, we find
-					// it in `mintedByBareId` before falling back to the doc-wide
-					// lookup.
-					const mintedByBareId = new Map<string, Uuid>();
-					const muts: Mutation[] = [];
-					const skippedIds: string[] = [];
-
-					for (const raw of fields) {
-						const processed = applyDefaults(
-							stripEmpty(raw as unknown as FlatField),
-							doc.caseTypes,
-							form.type,
-							mod.caseType,
-						) as Partial<FlatField> & { parentId?: string | null };
-
-						// Resolve parentUuid: empty/undefined → form; otherwise find
-						// the uuid of a newly-added parent or an existing field.
-						let parentUuid: Uuid = formUuid;
-						const parentId = processed.parentId;
-						if (parentId && typeof parentId === "string") {
-							const minted = mintedByBareId.get(parentId);
-							if (minted) {
-								parentUuid = minted;
-							} else {
-								const existing = findFieldByBareId(doc, formUuid, parentId);
-								if (existing) parentUuid = existing.field.uuid;
-								// If we can't resolve, fall through to form-level
-								// insert — better to land somewhere than to fail.
-							}
-						}
-
-						const fieldUuid = asUuid(crypto.randomUUID());
-						const field = flatFieldToField(processed, fieldUuid);
-						if (!field) {
-							// The flat payload didn't assemble into a valid Field for its
-							// declared kind — e.g. a text field without label, or a
-							// multi_select without options. `flatFieldToField` logged the
-							// specific schema issues; surface a generic failure to the SA
-							// so it can diagnose via `validateApp` or retry.
-							skippedIds.push(processed.id ?? "<unknown>");
-							continue;
-						}
-						mintedByBareId.set(field.id, fieldUuid);
-						muts.push({ kind: "addField", parentUuid, field });
-					}
-
-					// Emit + advance in one atomic step. The client applies via
-					// `applyMany` — no wire snapshot needed; the mutations ARE
-					// the update. The `form:M-F` stage tag drives lifecycle
-					// derivation on the client (forms phase).
-					emit(muts, `form:${moduleIndex}-${formIndex}`);
-
-					const totalCount = countFieldsUnder(doc, formUuid);
-					const addedIds = muts
-						.filter(
-							(m): m is Extract<Mutation, { kind: "addField" }> =>
-								m.kind === "addField",
-						)
-						.map((m) => m.field.id)
-						.join(", ");
-					const skippedNote =
-						skippedIds.length > 0
-							? ` Skipped ${skippedIds.length} invalid field(s): ${skippedIds.join(", ")}.`
-							: "";
-					return `Successfully added ${muts.length} field${muts.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: addFieldsTool.description,
+			inputSchema: addFieldsTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await addFieldsTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
