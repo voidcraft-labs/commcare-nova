@@ -22,12 +22,12 @@ import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
-/* `emitMutations` now fires a fire-and-forget `updateApp` on every call
- * (post-refactor: the doc argument is the persistence target). Stub it
- * out at the module level so the test's no-op save doesn't try to reach
- * Firestore and flood the test output with errors. The mock is observable
- * via `vi.mocked(updateApp)` for tests that want to assert the save was
- * dispatched with the right (appId, post-mutation persistable doc) args. */
+/* `emitMutations` fires a fire-and-forget `updateApp` on every call
+ * (the doc argument is the persistence target). Stub it out at the
+ * module level so the no-op save doesn't reach Firestore. The mock is
+ * observable via `vi.mocked(updateApp)` for tests asserting that the
+ * save was dispatched with the right (appId, post-mutation persistable
+ * doc) args. */
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
 }));
@@ -205,25 +205,42 @@ describe("GenerationContext.emitMutations", () => {
 		);
 	});
 
-	it("dispatches a fire-and-forget Firestore save carrying the post-mutation doc (fieldParent stripped)", () => {
-		/* The heart of the refactor's contract: `emitMutations` persists the
-		 * `doc` argument, not a snapshot pulled from a registered getter. A
-		 * regression in any extracted tool module that fails to thread the
-		 * post-mutation doc would show up here as either the wrong appId or
-		 * the wrong `fieldParent`-stripped body. */
+	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", () => {
+		/* `emitMutations` persists the `doc` argument — every caller threads
+		 * a post-mutation snapshot through. A caller that forgets to advance
+		 * the doc would show up here as either the wrong appId or a body
+		 * shape that doesn't match what was handed in. */
 		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
 		expect(vi.mocked(updateApp)).toHaveBeenCalledTimes(1);
 		const [savedAppId, savedDoc] = vi.mocked(updateApp).mock.calls[0] ?? [];
 		expect(savedAppId).toBe("test-app");
-		// `fieldParent` is stripped before persistence (it's a derived
-		// reverse-index the client rebuilds from `fieldOrder` on load).
-		expect(savedDoc).not.toHaveProperty("fieldParent");
 		// The rest of the doc flows through verbatim.
 		expect(savedDoc).toMatchObject({
 			appId: "test-app",
 			appName: "",
 			moduleOrder: [],
 		});
+	});
+
+	it("strips fieldParent from the persisted payload even when populated", () => {
+		/* `fieldParent` is a derived reverse-index the client rebuilds from
+		 * `fieldOrder` in `docStore.load()`; it must never reach Firestore,
+		 * otherwise the persisted shape grows a second source of truth that
+		 * can drift from `fieldOrder`. The base `makeMinimalDoc()` has an
+		 * empty `fieldParent`, which would make `not.toHaveProperty` pass
+		 * vacuously — this test hands in a populated map so the strip is
+		 * exercised on real data. */
+		const docWithParent = {
+			...makeMinimalDoc(),
+			fieldParent: {
+				[asUuid("f1")]: asUuid("form-uuid"),
+				[asUuid("f2")]: asUuid("form-uuid"),
+			},
+		};
+		ctx.emitMutations([TEXT_FIELD_MUTATION], docWithParent);
+		expect(vi.mocked(updateApp)).toHaveBeenCalledTimes(1);
+		const savedDoc = vi.mocked(updateApp).mock.calls[0]?.[1];
+		expect(savedDoc).not.toHaveProperty("fieldParent");
 	});
 
 	it("skips the Firestore save on empty batches (no-op path)", () => {

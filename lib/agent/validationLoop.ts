@@ -206,9 +206,8 @@ export async function validateAndFix(
 		// Emit the fix mutations as a single staged batch. The client
 		// applies them via `applyMany`. The `fix:attempt-N` stage tag
 		// lets the log UI render each fix pass as its own chapter.
-		// Thread the post-mutation `workingDoc` directly so the context's
-		// intermediate save persists the same snapshot the validator
-		// will see on the next pass — no stale-provider window.
+		// Pass the post-mutation `workingDoc` so the intermediate save
+		// persists the same snapshot the next validation pass will read.
 		ctx.emitMutations(allMutations, workingDoc, `fix:attempt-${attempt}`);
 	}
 }
@@ -251,9 +250,8 @@ function applyConnectDefaults(
 	const nextDoc = produce(doc, (draft) => {
 		applyMutations(draft, mutations);
 	});
-	// Thread `nextDoc` directly so the context's intermediate save
-	// persists the post-defaults snapshot — exactly the doc the rest
-	// of the validation loop is about to read.
+	// Pass `nextDoc` so the intermediate save persists the post-defaults
+	// snapshot the rest of the validation loop reads.
 	ctx.emitMutations(mutations, nextDoc, "connect-defaults");
 	return nextDoc;
 }

@@ -99,10 +99,9 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
  *
  * `appId` is required — the chat route creates the app doc via `createApp`
  * before constructing the context (Firestore-down = 503, not an orphaned
- * build), so every `GenerationContext` instance has a target app to persist
- * against. This invariant is what allows `saveBlueprint` to take a doc arg
- * instead of relying on a getter registration dance: the caller threads the
- * post-mutation doc through explicitly, same shape as `McpContext`.
+ * build). Every `GenerationContext` instance has a target app to persist
+ * against, so `saveBlueprint` can persist the post-mutation doc threaded
+ * in by each caller — the same shape as `McpContext`.
  */
 interface GenerationContextOptions {
 	apiKey: string;
@@ -319,10 +318,9 @@ export class GenerationContext implements ToolExecutionContext {
 	 *
 	 * `doc` is the POST-mutation blueprint — callers apply the mutations
 	 * on their working doc FIRST, then thread the resulting value in
-	 * here. The persisted snapshot is exactly that value, with no
-	 * reliance on a registered getter. Matches the semantic on
-	 * `McpContext.recordMutations` so a shared tool body can invoke the
-	 * interface method uniformly on either surface.
+	 * here. The persisted snapshot is exactly that value. Matches the
+	 * semantic on `McpContext.recordMutations` so a shared tool body can
+	 * invoke the interface method uniformly on either surface.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
 	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix:attempt-N"`). It's

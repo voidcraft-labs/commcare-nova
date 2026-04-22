@@ -367,6 +367,11 @@ export function createSolutionsArchitect(
 	 * to. Empty batches short-circuit before any emission happens, so
 	 * callers can invoke this unconditionally after a helper that may
 	 * return `[]`.
+	 *
+	 * `stage` is required at this layer — every SA call site explicitly
+	 * tags its batch. The underlying `ctx.emitMutations` leaves stage
+	 * optional for callers outside the SA that don't have a meaningful
+	 * tag.
 	 */
 	const emit = (muts: Mutation[], stage: string): void => {
 		if (muts.length === 0) return;

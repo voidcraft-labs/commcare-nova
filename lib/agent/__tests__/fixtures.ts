@@ -67,10 +67,9 @@ export interface TestContextHandles {
  * `vi.mock("@/lib/db/apps", ...)` at module scope so the fire-and-forget
  * intermediate save has a stub to call.
  *
- * `appId` defaults to `"test-app"` (matching the seed), codifying the
- * post-refactor invariant that every `GenerationContext` has a valid
- * persistence target — the chat route creates the app doc before
- * constructing the context in production.
+ * `appId` defaults to `"test-app"` (matching the seed). Every
+ * `GenerationContext` has a valid persistence target — the chat route
+ * creates the app doc before constructing the context in production.
  */
 export function makeTestContext(
 	opts: MakeTestContextOptions = {},
