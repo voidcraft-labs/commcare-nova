@@ -55,7 +55,6 @@ import {
 	removeModuleMutations,
 	renameFieldMutations,
 	resolveFieldByIndex,
-	setCaseTypesMutations,
 	setScaffoldMutations,
 	updateFieldMutations,
 	updateFormMutations,
@@ -69,17 +68,14 @@ import {
 } from "./contentProcessing";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import {
-	caseTypesOutputSchema,
-	moduleContentSchema,
-	scaffoldModulesSchema,
-} from "./scaffoldSchemas";
+import { moduleContentSchema, scaffoldModulesSchema } from "./scaffoldSchemas";
 import {
 	addFieldSchema,
 	addFieldsItemSchema,
 	editFieldUpdatesSchema,
 } from "./toolSchemas";
 import { applyToDoc } from "./tools/common";
+import { generateSchemaTool } from "./tools/generateSchema";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -287,33 +283,22 @@ export function createSolutionsArchitect(
 
 	const generationTools = {
 		generateSchema: tool({
-			description:
-				"Set the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the structured case types directly.",
-			inputSchema: z.object({
-				appName: z.string().describe("Short app name (2-5 words)"),
-				caseTypes: caseTypesOutputSchema.shape.case_types,
-			}),
-			strict: true,
-			execute: async ({ appName, caseTypes }) => {
-				// `emit` computes the post-mutation doc, ships it on SSE +
-				// persists it, then advances the SA's working doc — atomic
-				// per call site. Later tool calls in the same turn (scaffold,
-				// addModule) read the advanced `doc` for index → uuid
-				// resolution.
-				const muts: Mutation[] = [
-					{ kind: "setAppName", name: appName },
-					...setCaseTypesMutations(doc, caseTypes),
-				];
-				emit(muts, "schema");
-
-				return {
-					appName,
-					caseTypes: caseTypes.map((ct) => ({
-						name: ct.name,
-						propertyCount: ct.properties.length,
-						properties: ct.properties.map((p) => p.name),
-					})),
-				};
+			description: generateSchemaTool.description,
+			inputSchema: generateSchemaTool.inputSchema,
+			strict: generateSchemaTool.strict,
+			execute: async (input) => {
+				// The extracted module handles mutation computation, SSE + log
+				// emission, and Firestore persistence via `ctx.recordMutations`.
+				// The wrapper's job is to advance the SA's working doc when the
+				// batch was non-empty, so subsequent tool calls in the same
+				// request see the updated state for index → uuid resolution.
+				const { mutations, newDoc, result } = await generateSchemaTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
