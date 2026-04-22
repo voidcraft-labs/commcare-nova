@@ -29,15 +29,10 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
-	Field,
 	FormType,
 	PostSubmitDestination,
 } from "@/lib/domain";
-import {
-	FORM_TYPES,
-	fieldRegistry,
-	USER_FACING_DESTINATIONS,
-} from "@/lib/domain";
+import { FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import {
@@ -46,21 +41,19 @@ import {
 	removeFieldMutations,
 	removeFormMutations,
 	removeModuleMutations,
-	renameFieldMutations,
 	resolveFieldByIndex,
 	resolveFormUuid,
-	updateFieldMutations,
 	updateFormMutations,
 	updateModuleMutations,
 } from "./blueprintHelpers";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
-import { editFieldUpdatesSchema } from "./toolSchemas";
 import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { applyToDoc } from "./tools/common";
+import { editFieldTool } from "./tools/editField";
 import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
 import { getFieldTool } from "./tools/getField";
@@ -89,51 +82,6 @@ export const BUILD_ONLY_TOOL_NAMES = [
 ] as const;
 
 // ── Doc helpers ───────────────────────────────────────────────────────
-
-/**
- * Coerce the scalar-patch portion of an `editField` call into the
- * reducer's field-patch shape. `id` and `kind` changes are handled
- * by the editField tool via separate mutations (`renameField` and
- * `convertField`) before this runs, so neither key appears on the
- * input here.
- *
- * Every clearable key in the edit schema is `.nullable().optional()`:
- *   - absent   → leave current value alone (key not in output patch)
- *   - `null`   → clear the property (key in output patch with
- *                `undefined`; Immer's Object.assign drops it)
- *   - a value  → set the property (key in output patch with the value)
- *
- * Uniform `?? undefined` coercion covers all three cases. Unlike the
- * add-path where empty string is a required-sentinel that means absent,
- * the edit path reserves `null` for "clear" so the SA has an
- * unambiguous way to remove a property the user explicitly asked to
- * unset.
- */
-function editPatchToFieldPatch(
-	updates: Omit<z.infer<typeof editFieldUpdatesSchema>, "id" | "kind">,
-): Partial<Omit<Field, "uuid">> {
-	const patch: Record<string, unknown> = {};
-	const scalarKeys = [
-		"label",
-		"hint",
-		"required",
-		"validate",
-		"validate_msg",
-		"relevant",
-		"calculate",
-		"default_value",
-		"case_property",
-	] as const;
-	for (const key of scalarKeys) {
-		const value = updates[key];
-		if (value === undefined) continue;
-		patch[key] = value ?? undefined;
-	}
-	if (updates.options !== undefined) {
-		patch.options = updates.options ?? undefined;
-	}
-	return patch as Partial<Omit<Field, "uuid">>;
-}
 
 /**
  * `FormSnapshot` is the domain-vocab form-plus-fields shape the SA's
@@ -346,138 +294,16 @@ export function createSolutionsArchitect(
 		// ── Field mutations ────────────────────────────────────────
 
 		editField: tool({
-			description:
-				"Update properties on an existing field. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
-			inputSchema: z.object({
-				moduleIndex: z.number().describe("0-based module index"),
-				formIndex: z.number().describe("0-based form index"),
-				fieldId: z.string().describe("Field id to update"),
-				updates: editFieldUpdatesSchema,
-			}),
-			execute: async ({ moduleIndex, formIndex, fieldId, updates }) => {
-				try {
-					const resolved = resolveFieldByIndex(
-						doc,
-						moduleIndex,
-						formIndex,
-						fieldId,
-					);
-					if (!resolved)
-						return {
-							error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
-						};
-
-					const { id: newId, kind: newKind, ...fieldUpdates } = updates;
-
-					// Kind change → convertField mutation (not updateField).
-					// The updateField reducer parses the merged patch against
-					// `fieldSchema` and silently no-ops when a kind change
-					// introduces required keys the target kind demands (e.g.
-					// `options` on single_select). Routing through convertField
-					// makes the intent explicit + surfaces a clear error when
-					// the conversion isn't allowed by the kind's convertTargets
-					// list.
-					if (newKind && newKind !== resolved.field.kind) {
-						const fromKind = resolved.field.kind;
-						const allowed = fieldRegistry[fromKind].convertTargets;
-						if (!allowed.includes(newKind)) {
-							return {
-								error: `Cannot convert ${fromKind} to ${newKind}. Valid targets: ${allowed.length > 0 ? allowed.join(", ") : "(none)"}.`,
-							};
-						}
-						const convertMuts: Mutation[] = [
-							{
-								kind: "convertField",
-								uuid: resolved.field.uuid,
-								toKind: newKind,
-							},
-						];
-						emit(convertMuts, `convert:${moduleIndex}-${formIndex}`);
-
-						// The `convertField` reducer applies `reconcileFieldForKind`,
-						// which runs `fieldSchema.safeParse` on the reconciled shape.
-						// If the target kind demands a key the source doesn't carry
-						// (edge cases beyond what `convertTargets` alone can catch),
-						// the reducer logs and no-ops, leaving the original kind in
-						// place. Verify the conversion actually landed so we don't
-						// tell the SA "kind: multi_select" when the field is still
-						// `single_select`.
-						const postConvertField = doc.fields[resolved.field.uuid];
-						if (!postConvertField || postConvertField.kind !== newKind) {
-							return {
-								error: `convertField ${fromKind} → ${newKind} for "${fieldId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry. Add the missing key first (e.g. \`options\` for select kinds), then retry.`,
-							};
-						}
-					}
-
-					// Handle id rename next as its own emitted batch. The
-					// `renameField` reducer handles the full cascade on its own —
-					// form-local path / hashtag rewrites, cross-form `#case/`
-					// hashtag rewrites scoped to modules with matching caseType,
-					// peer-field renames, and case list / detail column renames.
-					// The client runs the SAME reducer against `applyMany`, so the
-					// cascade reproduces on the client without needing a full
-					// blueprint snapshot.
-					if (newId && newId !== fieldId) {
-						const renameMuts = renameFieldMutations(
-							doc,
-							resolved.field.uuid,
-							newId,
-						);
-						emit(renameMuts, `rename:${moduleIndex}-${formIndex}`);
-					}
-
-					// Re-resolve the field uuid after rename (the uuid is stable,
-					// but we want the most recent `field` snapshot for egress).
-					const finalId = newId ?? fieldId;
-					const afterRename = resolveFieldByIndex(
-						doc,
-						moduleIndex,
-						formIndex,
-						finalId,
-					);
-					if (!afterRename)
-						return { error: `Field "${finalId}" not found after rename` };
-
-					// Apply remaining property updates as a final emitted batch.
-					// Convert + rename already landed in their own batches; this
-					// one covers the leftover scalar-patch keys. The reducer still
-					// gates against shape violations via `fieldSchema.safeParse`,
-					// so anything slipping through here that doesn't fit the
-					// (possibly just-converted) kind is logged and no-ops safely.
-					if (Object.keys(fieldUpdates).length > 0) {
-						const patch = editPatchToFieldPatch(fieldUpdates);
-						if (Object.keys(patch).length > 0) {
-							const updateMuts = updateFieldMutations(
-								doc,
-								afterRename.field.uuid,
-								patch,
-							);
-							emit(updateMuts, `edit:${moduleIndex}-${formIndex}`);
-						}
-					}
-
-					const postField = doc.fields[afterRename.field.uuid];
-					const changedFields = Object.keys(updates).join(", ");
-					const renameNote =
-						newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
-					const formName =
-						(() => {
-							const moduleUuid = doc.moduleOrder[moduleIndex];
-							const formUuid = moduleUuid
-								? doc.formOrder[moduleUuid]?.[formIndex]
-								: undefined;
-							return formUuid ? doc.forms[formUuid]?.name : undefined;
-						})() ?? `m${moduleIndex}-f${formIndex}`;
-					const label =
-						postField && "label" in postField
-							? (postField as { label: string }).label
-							: "";
-					const kind = postField?.kind ?? "unknown";
-					return `Successfully updated "${finalId}"${renameNote} in "${formName}". Changed: ${changedFields}. Current label: "${label}", kind: ${kind}.`;
-				} catch (err) {
-					return { error: err instanceof Error ? err.message : String(err) };
-				}
+			description: editFieldTool.description,
+			inputSchema: editFieldTool.inputSchema,
+			execute: async (input) => {
+				const { mutations, newDoc, result } = await editFieldTool.execute(
+					input,
+					ctx,
+					doc,
+				);
+				if (mutations.length > 0) doc = newDoc;
+				return result;
 			},
 		}),
 
