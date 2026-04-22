@@ -41,6 +41,10 @@ function makeEvent(seq: number, runId = "r"): Event {
 		runId,
 		ts: Date.now(),
 		seq,
+		/* Matches the writer's own source so most tests are exercising
+		 * the pass-through path; the authority test below deliberately
+		 * passes a conflicting value to verify overwrite behavior. */
+		source: "chat",
 		actor: "agent",
 		mutation: { kind: "setAppName", name: `app-${seq}` },
 	};
@@ -56,7 +60,7 @@ describe("LogWriter", () => {
 
 	it("does not write synchronously — buffers until the flush timer fires", async () => {
 		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", { sink });
+		const writer = new LogWriter("app-1", "chat", { sink });
 
 		writer.logEvent(makeEvent(0));
 		expect(sink).not.toHaveBeenCalled();
@@ -72,7 +76,7 @@ describe("LogWriter", () => {
 
 	it("coalesces bursts into a single batch", async () => {
 		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", { sink });
+		const writer = new LogWriter("app-1", "chat", { sink });
 
 		for (let i = 0; i < 5; i++) writer.logEvent(makeEvent(i));
 		expect(sink).not.toHaveBeenCalled();
@@ -84,7 +88,7 @@ describe("LogWriter", () => {
 
 	it("flushes immediately when buffer exceeds MAX_BATCH", async () => {
 		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", { sink, maxBatch: 3 });
+		const writer = new LogWriter("app-1", "chat", { sink, maxBatch: 3 });
 
 		writer.logEvent(makeEvent(0));
 		writer.logEvent(makeEvent(1));
@@ -100,7 +104,7 @@ describe("LogWriter", () => {
 
 	it("flush() drains the buffer immediately", async () => {
 		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", { sink });
+		const writer = new LogWriter("app-1", "chat", { sink });
 
 		writer.logEvent(makeEvent(0));
 		writer.logEvent(makeEvent(1));
@@ -115,7 +119,7 @@ describe("LogWriter", () => {
 			.fn()
 			.mockRejectedValueOnce(new Error("firestore down"))
 			.mockResolvedValueOnce(undefined);
-		const writer = new LogWriter("app-1", { sink });
+		const writer = new LogWriter("app-1", "chat", { sink });
 
 		writer.logEvent(makeEvent(0));
 		await writer.flush();
@@ -136,7 +140,7 @@ describe("LogWriter", () => {
 					}),
 			)
 			.mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", { sink: slowSink });
+		const writer = new LogWriter("app-1", "chat", { sink: slowSink });
 
 		writer.logEvent(makeEvent(0));
 		/* Advance through the 100ms timer — first sink starts, does not resolve. */
@@ -169,7 +173,7 @@ describe("LogWriter", () => {
 					resolveSlow = res;
 				}),
 		);
-		const writer = new LogWriter("app-1", { sink: slowSink });
+		const writer = new LogWriter("app-1", "chat", { sink: slowSink });
 
 		writer.logEvent(makeEvent(0));
 		await vi.advanceTimersByTimeAsync(100);
@@ -186,6 +190,43 @@ describe("LogWriter", () => {
 		resolveSlow?.();
 		await emptyFlush;
 		expect(resolved).toBe(true);
+	});
+
+	/**
+	 * Authority guarantee: the writer stamps its constructor-provided
+	 * `source` onto every event, overwriting whatever the caller set on
+	 * the envelope. This matters because tool adapters and
+	 * GenerationContext deliberately include `source` inline (for type
+	 * safety + SSE wire semantics) — if a caller ever built an envelope
+	 * with the wrong surface tag, the writer must overwrite it so the
+	 * persisted stream cannot lie about its origin. Regression here
+	 * would let a chat-surface miswire leak into MCP analytics (or
+	 * vice-versa).
+	 */
+	it("overwrites caller-provided source with the writer's own", async () => {
+		const sink = vi.fn().mockResolvedValue(undefined);
+		const writer = new LogWriter("app-1", "mcp", { sink });
+
+		// Caller lies and says "chat"; writer built with "mcp" must win.
+		const misstamped: Event = {
+			kind: "mutation",
+			runId: "r",
+			ts: Date.now(),
+			seq: 0,
+			source: "chat",
+			actor: "agent",
+			mutation: { kind: "setAppName", name: "x" },
+		};
+		writer.logEvent(misstamped);
+		await writer.flush();
+
+		expect(sink).toHaveBeenCalledTimes(1);
+		const flushed = sink.mock.calls[0][1] as readonly Event[];
+		expect(flushed).toHaveLength(1);
+		expect(flushed[0].source).toBe("mcp");
+		// Original envelope must not have been mutated — the writer
+		// spreads into a fresh object before stamping.
+		expect(misstamped.source).toBe("chat");
 	});
 });
 
@@ -218,7 +259,7 @@ describe("LogWriter default firestoreSink", () => {
 	});
 
 	it("mints one auto-ID per event and creates each in the batch", async () => {
-		const writer = new LogWriter("app-1");
+		const writer = new LogWriter("app-1", "chat");
 		writer.logEvent(makeEvent(0));
 		writer.logEvent(makeEvent(1));
 		writer.logEvent(makeEvent(2));

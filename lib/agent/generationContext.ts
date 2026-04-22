@@ -226,6 +226,11 @@ export class GenerationContext {
 			runId: this.usage.runId,
 			ts: Date.now(),
 			seq: this.seq++,
+			/* `source: "chat"` is stamped inline so the in-memory event we
+			 * hold is schema-valid and self-documenting. The writer re-stamps
+			 * it authoritatively on its way to Firestore (see LogWriter), so
+			 * this is defense-in-depth, not the canonical value. */
+			source: "chat",
 			payload,
 		};
 		this.logWriter.logEvent(event);
@@ -328,6 +333,11 @@ export class GenerationContext {
 			ts: Date.now(),
 			seq: this.seq++,
 			actor: "agent",
+			/* Inline `source: "chat"` so the envelope we ship on SSE
+			 * (via `data-mutations` → session events buffer) is
+			 * schema-valid. LogWriter re-stamps it on the way to
+			 * Firestore regardless; this is the client-facing value. */
+			source: "chat",
 			...(stage && { stage }),
 			mutation,
 		}));

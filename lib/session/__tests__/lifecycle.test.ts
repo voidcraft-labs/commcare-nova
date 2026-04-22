@@ -18,6 +18,7 @@ function mut(stage: string | undefined, seq = 0): Event {
 		runId: "r",
 		ts: 0,
 		seq,
+		source: "chat",
 		actor: "agent",
 		...(stage && { stage }),
 		mutation: { kind: "setAppName", name: "x" },
@@ -30,6 +31,7 @@ function err(message: string, fatal: boolean, seq = 0): Event {
 		runId: "r",
 		ts: 0,
 		seq,
+		source: "chat",
 		payload: {
 			type: "error",
 			error: { type: "internal", message, fatal },
@@ -43,6 +45,7 @@ function validationAttempt(attempt: number, errors: string[], seq = 0): Event {
 		runId: "r",
 		ts: 0,
 		seq,
+		source: "chat",
 		payload: { type: "validation-attempt", attempt, errors },
 	};
 }
@@ -136,6 +139,7 @@ describe("deriveAgentError", () => {
 				runId: "r",
 				ts: 0,
 				seq: 1,
+				source: "chat",
 				payload: { type: "assistant-text", text: "still going" },
 			},
 		];
@@ -221,6 +225,7 @@ describe("derivePostBuildEdit", () => {
 				runId: "r",
 				ts: 0,
 				seq: 0,
+				source: "chat",
 				payload: { type: "user-message", text: "rename form 1" },
 			},
 		];

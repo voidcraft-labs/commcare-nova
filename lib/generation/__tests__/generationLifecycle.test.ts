@@ -65,6 +65,7 @@ function envelopes(mutations: Mutation[], stage: string): MutationEvent[] {
 		runId: "test-run",
 		ts: 0,
 		seq: i,
+		source: "chat",
 		actor: "agent",
 		stage,
 		mutation,
@@ -73,7 +74,14 @@ function envelopes(mutations: Mutation[], stage: string): MutationEvent[] {
 
 /** Build a ConversationEvent envelope. */
 function convEvent(payload: ConversationPayload, seq = 0): ConversationEvent {
-	return { kind: "conversation", runId: "test-run", ts: 0, seq, payload };
+	return {
+		kind: "conversation",
+		runId: "test-run",
+		ts: 0,
+		seq,
+		source: "chat",
+		payload,
+	};
 }
 
 /** Emit a data-mutations batch via the dispatcher (includes the

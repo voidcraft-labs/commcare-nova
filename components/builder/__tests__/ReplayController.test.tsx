@@ -92,6 +92,7 @@ function mut(seq: number, stage: string): Event {
 		runId: "r",
 		ts: seq,
 		seq,
+		source: "chat",
 		actor: "agent",
 		stage,
 		mutation: { kind: "setAppName", name: `v${seq}` },
@@ -105,6 +106,7 @@ function userMsg(seq: number, text: string): Event {
 		runId: "r",
 		ts: seq,
 		seq,
+		source: "chat",
 		payload: { type: "user-message", text },
 	};
 }

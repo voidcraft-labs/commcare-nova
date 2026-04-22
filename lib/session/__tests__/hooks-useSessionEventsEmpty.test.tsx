@@ -26,6 +26,7 @@ function assistantText(seq: number, text: string): Event {
 		runId: "run-empty-test",
 		ts: seq * 1000,
 		seq,
+		source: "chat",
 		payload: { type: "assistant-text", text },
 	};
 }

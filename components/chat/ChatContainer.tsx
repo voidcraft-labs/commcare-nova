@@ -292,6 +292,11 @@ export function ChatContainer({
 			 * sentinel makes "injected, not from the wire" obvious to
 			 * any future log-ordering code. */
 			seq: Number.MAX_SAFE_INTEGER,
+			/* The chat route is the only surface that can produce this
+			 * synthetic event (client-side network-failure fallback on a
+			 * chat call), so `source: "chat"` is correct. Not persisted —
+			 * the schema just requires the field be present. */
+			source: "chat",
 			payload: {
 				type: "error",
 				error: { type: "network", message, fatal: true },

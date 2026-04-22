@@ -147,6 +147,7 @@ describe("BuilderProvider — replay terminal-frame phase", () => {
 				runId: "r",
 				ts: 0,
 				seq: 0,
+				source: "chat",
 				payload: { type: "user-message", text: "build me an app" },
 			},
 			{
@@ -154,6 +155,7 @@ describe("BuilderProvider — replay terminal-frame phase", () => {
 				runId: "r",
 				ts: 1,
 				seq: 1,
+				source: "chat",
 				actor: "agent",
 				stage: "schema",
 				mutation: {
@@ -171,6 +173,7 @@ describe("BuilderProvider — replay terminal-frame phase", () => {
 				runId: "r",
 				ts: 2,
 				seq: 2,
+				source: "chat",
 				actor: "agent",
 				stage: "scaffold",
 				/* addModule is the mutation that makes the doc

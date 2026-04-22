@@ -19,6 +19,7 @@ describe("eventSchema", () => {
 			runId: "run-1",
 			ts: 1_700_000_000_000,
 			seq: 0,
+			source: "chat",
 			actor: "agent",
 			stage: "scaffold",
 			mutation: { kind: "setAppName", name: "App" },
@@ -33,6 +34,7 @@ describe("eventSchema", () => {
 			runId: "run-1",
 			ts: 1,
 			seq: 1,
+			source: "chat",
 			actor: "user",
 			mutation: {
 				kind: "addField",
@@ -56,6 +58,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 0,
 				seq: 0,
+				source: "chat",
 				payload: { type: "user-message", text: "hi" },
 			},
 			{
@@ -63,6 +66,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 1,
 				seq: 1,
+				source: "chat",
 				payload: { type: "assistant-text", text: "hi back" },
 			},
 			{
@@ -70,6 +74,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 2,
 				seq: 2,
+				source: "chat",
 				payload: {
 					type: "assistant-reasoning",
 					text: "thinking …",
@@ -80,6 +85,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 3,
 				seq: 3,
+				source: "chat",
 				payload: {
 					type: "tool-call",
 					toolCallId: "tc-1",
@@ -92,6 +98,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 4,
 				seq: 4,
+				source: "chat",
 				payload: {
 					type: "tool-result",
 					toolCallId: "tc-1",
@@ -108,6 +115,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 5,
 				seq: 5,
+				source: "chat",
 				payload: {
 					type: "tool-result",
 					toolCallId: "tc-2",
@@ -120,6 +128,7 @@ describe("eventSchema", () => {
 				runId: "r",
 				ts: 6,
 				seq: 6,
+				source: "chat",
 				payload: {
 					type: "error",
 					error: {
