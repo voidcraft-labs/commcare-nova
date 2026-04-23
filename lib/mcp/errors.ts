@@ -20,6 +20,14 @@ import { McpForbiddenError } from "./ownership";
  * `CallToolResult` with `isError: true`. `_meta` carries the
  * machine-readable classification so clients can branch on
  * `error_type` rather than parsing `content[0].text`.
+ *
+ * The open `[extra: string]: unknown` index signature is required to
+ * satisfy the SDK's `CallToolResult` target when this envelope is
+ * returned from an `McpServer.tool` handler — the SDK keeps its
+ * result type open-shape so future minor versions can extend it.
+ * Without the index signature TypeScript rejects the assignment with
+ * an opaque "Index signature for type 'string' is missing" error at
+ * every registration site.
  */
 export interface McpToolErrorResult {
 	isError: true;
@@ -28,6 +36,7 @@ export interface McpToolErrorResult {
 		error_type: string;
 		app_id?: string;
 	};
+	[extra: string]: unknown;
 }
 
 /**
