@@ -1,9 +1,8 @@
 /**
- * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
- * emits domain-vocabulary text (`field`, `kind`, `case_property`) — no
- * CommCare wire terms. Lives in its own module so the SA edit-mode
- * prompt (`lib/agent/prompts.ts`) and forthcoming MCP read paths can
- * share one renderer instead of string-slicing the SA prompt.
+ * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and emits
+ * domain-vocabulary text (`field`, `kind`, `case_property`) — no CommCare wire
+ * terms. Extracted from the SA prompt composer so any consumer that needs this
+ * compact text can import it directly rather than slicing the prompt.
  */
 
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
