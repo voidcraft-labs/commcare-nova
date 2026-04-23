@@ -197,9 +197,9 @@ describe("registerSharedTool — mutating tools", () => {
 	it("extracts result.result and does NOT re-persist mutations", async () => {
 		/* The fake mutating tool records whether the adapter called
 		 * `ctx.recordMutations` after the tool itself did. The invariant
-		 * we're guarding against is double-persistence: every Phase D
-		 * tool already persists in its own body, so the adapter must not
-		 * call recordMutations again. */
+		 * we're guarding against is double-persistence: every shared
+		 * mutating tool already persists in its own body, so the adapter
+		 * must not call recordMutations again. */
 		const recordedByAdapter: Mutation[][] = [];
 		let toolSawRecordMutations = false;
 
@@ -209,7 +209,7 @@ describe("registerSharedTool — mutating tools", () => {
 			description: "mut",
 			inputSchema: z.object({ val: z.string() }),
 			async execute(_input, ctx: ToolExecutionContext, doc: BlueprintDoc) {
-				/* Simulate what every Phase D write tool does: call
+				/* Simulate what every shared mutating tool does: call
 				 * recordMutations inside its own body. */
 				await ctx.recordMutations([mut], doc, "stage:x");
 				toolSawRecordMutations = true;
@@ -442,5 +442,21 @@ describe("projectResult — direct", () => {
 		expect(projectResult("raw")).toBe("raw");
 		expect(projectResult(42)).toBe(42);
 		expect(projectResult(null)).toBe(null);
+	});
+
+	it("isMutatingToolResult rejects wrong-typed fields — falls through to read branch", () => {
+		/* Keys match but `newDoc` is a string, not an object. The
+		 * tightened predicate must reject this and fall through to the
+		 * pass-through read branch rather than unwrapping `result`. */
+		const raw = { mutations: [], newDoc: "str", result: {} };
+		expect(projectResult(raw)).toBe(raw);
+	});
+
+	it("isValidateAppResult rejects wrong-typed fields — falls through to read branch", () => {
+		/* `success` + `doc` present, but `doc` is a string. The
+		 * tightened predicate must reject this and fall through to the
+		 * pass-through read branch. */
+		const raw = { success: true, doc: "not-an-object" };
+		expect(projectResult(raw)).toBe(raw);
 	});
 });

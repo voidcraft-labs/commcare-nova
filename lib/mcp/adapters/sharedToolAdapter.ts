@@ -4,10 +4,11 @@
  *
  * Every module in `lib/agent/tools/<name>.ts` is a self-contained unit
  * of domain logic — it computes + (for writers) persists mutations
- * against a `BlueprintDoc`, then returns a typed result. Phase D
- * standardized the shape so that both the chat-side `ToolLoopAgent`
- * factory in `lib/agent/solutionsArchitect.ts` and this adapter can
- * consume the same module without duplicating the core behavior.
+ * against a `BlueprintDoc`, then returns a typed result. The shared
+ * tool contract standardizes the shape so that both the chat-side
+ * `ToolLoopAgent` factory in `lib/agent/solutionsArchitect.ts` and
+ * this adapter can consume the same module without duplicating the
+ * core behavior.
  *
  * What this adapter adds around each tool call:
  *
@@ -33,7 +34,7 @@
  *      LLM can reason over.
  *
  * **Hard invariant — the adapter MUST NOT re-persist mutations.**
- * Every Phase D write tool already calls
+ * Every shared mutating tool already calls
  * `ctx.recordMutations(mutations, newDoc, stage)` inside its own body
  * before returning its `MutatingToolResult`. Doing it again here would
  * double-write the blueprint to Firestore AND emit two copies of every
@@ -63,7 +64,7 @@ import { createProgressEmitter } from "../progress";
 import type { ToolContext } from "../types";
 
 /**
- * Structural contract the adapter accepts. Every Phase D tool module
+ * Structural contract the adapter accepts. Every shared tool module
  * satisfies this — `execute`'s return can be one of three shapes
  * (read result / `MutatingToolResult<R>` / `ValidateAppResult`) and we
  * intentionally leave it as `unknown` at the generic level.
@@ -202,7 +203,7 @@ export function registerSharedTool(
 				rebuildFieldParent(doc);
 
 				/* Strip `app_id` before forwarding — it's an MCP-boundary
-				 * field only, and Phase D tool inputs don't declare it.
+				 * field only, and shared tool input schemas don't declare it.
 				 * The underscore prefix signals intentional-discard for
 				 * Biome's `noUnusedVariables` rule. */
 				const { app_id: _discarded, ...toolInput } = args;
@@ -288,25 +289,32 @@ export function projectResult(raw: unknown): unknown {
 
 /**
  * Strict structural check for `MutatingToolResult<R>`. All three
- * fields must be present; `mutations` is an array; `newDoc` and
- * `result` are objects. Written this way so a read result that merely
- * has a `mutations: never[]` alias or an unrelated `result` field
- * doesn't false-positive.
+ * fields must be present AND typed correctly — `mutations` is an
+ * array and `newDoc` is a non-null object. Written this way so a
+ * read result that happens to key-match (e.g., carries a
+ * `newDoc: "some-string"` alias for unrelated reasons) doesn't
+ * false-positive.
  */
 function isMutatingToolResult(raw: object): raw is MutatingToolResult<unknown> {
+	if (!("mutations" in raw) || !("newDoc" in raw) || !("result" in raw)) {
+		return false;
+	}
+	const r = raw as { mutations: unknown; newDoc: unknown };
 	return (
-		"mutations" in raw &&
-		"newDoc" in raw &&
-		"result" in raw &&
-		Array.isArray((raw as { mutations: unknown }).mutations)
+		Array.isArray(r.mutations) &&
+		typeof r.newDoc === "object" &&
+		r.newDoc !== null
 	);
 }
 
 /**
- * Structural check for `ValidateAppResult`. `success` is a boolean,
- * `doc` is present (the `BlueprintDoc` object), and there is no
- * `result` key — the latter is what separates this shape from the
- * `MutatingToolResult`. Errors are optional.
+ * Structural check for `ValidateAppResult`. `success` is a boolean;
+ * `doc` is a non-null object (the full `BlueprintDoc`); there is no
+ * `result` key on the outer shape — the latter is what separates
+ * this from the `MutatingToolResult`, whose `.result` payload could
+ * hypothetically carry a `success` + `doc` pair of its own. We check
+ * the OUTER shape, so the presence of `result` on the outer object
+ * is a negative signal. Errors are optional.
  */
 function isValidateAppResult(raw: object): raw is {
 	success: boolean;
@@ -314,7 +322,11 @@ function isValidateAppResult(raw: object): raw is {
 	hqJson?: unknown;
 	errors?: string[];
 } {
-	if (!("success" in raw) || !("doc" in raw)) return false;
-	if ("result" in raw) return false;
-	return typeof (raw as { success: unknown }).success === "boolean";
+	if (!("success" in raw) || !("doc" in raw) || "result" in raw) return false;
+	const r = raw as { success: unknown; doc: unknown };
+	return (
+		typeof r.success === "boolean" &&
+		typeof r.doc === "object" &&
+		r.doc !== null
+	);
 }
