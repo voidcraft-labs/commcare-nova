@@ -141,22 +141,60 @@ export async function userHasApps(owner: string): Promise<boolean> {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
- * Create a new app document at the start of generation.
+ * Optional overrides for `createApp`. Both fields default to the
+ * chat-route behavior so existing call sites stay valid unchanged.
  *
- * Called by the route handler when a new build starts (no appId from
- * client). The document starts with `status: 'generating'` and an empty
- * normalized doc. `updateApp` writes intermediate snapshots during
- * generation (advancing `updated_at`); `completeApp` writes the final
- * validated doc. Returns the generated appId for immediate use (logging,
- * URL update).
+ * Split into its own exported interface because two surfaces now call
+ * `createApp` with different lifecycle assumptions:
+ *
+ *   - **Chat route** (`app/api/chat/route.ts`) — omits this object
+ *     entirely. A long-running build kicks off immediately and flips
+ *     the status to `"complete"` via `completeApp` once validation
+ *     passes. Starting in `"generating"` is correct: intermediate
+ *     `updateApp` calls advance `updated_at` so the timeout inference
+ *     in `listApps` stays quiet while the build is live.
+ *   - **MCP `create_app` tool** — passes `{ status: "complete" }`.
+ *     MCP has no long-running generation loop: each tool call is
+ *     atomic. An MCP-created app with `status: "generating"` would
+ *     trip the 10-min staleness inference in `listApps` and self-mark
+ *     as failed if the user never followed up with another tool call.
  */
-export async function createApp(owner: string, runId: string): Promise<string> {
+export interface CreateAppOptions {
+	/**
+	 * Initial app name. Defaults to `""` — matches chat-route behavior
+	 * where the SA sets the name later via `generateSchema`. MCP
+	 * callers can surface a name up front.
+	 */
+	appName?: string;
+	/**
+	 * Initial lifecycle status. Defaults to `"generating"` for the
+	 * chat path's long-running build. MCP writers pass `"complete"` so
+	 * the app isn't flagged stale by the timeout inference.
+	 */
+	status?: AppDoc["status"];
+}
+
+/**
+ * Create a new app document.
+ *
+ * The empty doc uses the normalized `BlueprintDoc` shape with the
+ * Firestore document id baked in as `appId` so the doc is
+ * self-identifying on load. Denormalized summary fields are derived
+ * eagerly from the empty doc + optional overrides so list queries
+ * never deserialize a blueprint.
+ *
+ * See `CreateAppOptions` for the rationale behind the two sites that
+ * call this (chat vs. MCP) and why their defaults differ.
+ */
+export async function createApp(
+	owner: string,
+	runId: string,
+	opts?: CreateAppOptions,
+): Promise<string> {
 	const ref = collections.apps().doc();
-	// The empty doc uses the new normalized shape. `appId` is the Firestore
-	// document ID — set here so the doc is self-identifying after load.
 	const emptyDoc: BlueprintDoc = {
 		appId: ref.id,
-		appName: "",
+		appName: opts?.appName ?? "",
 		connectType: null,
 		caseTypes: null,
 		modules: {},
@@ -172,7 +210,7 @@ export async function createApp(owner: string, runId: string): Promise<string> {
 		owner,
 		...denormalize(emptyDoc),
 		blueprint: persistable,
-		status: "generating",
+		status: opts?.status ?? "generating",
 		error_type: null,
 		run_id: runId,
 		created_at: FieldValue.serverTimestamp(),
