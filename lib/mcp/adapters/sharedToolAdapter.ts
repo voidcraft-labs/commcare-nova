@@ -183,22 +183,25 @@ export function registerSharedTool(
 			});
 
 			try {
-				/* `loadAppBlueprint` both fetches the doc and rebuilds
+				/* `loadAppBlueprint` both fetches the row and rebuilds
 				 * the derived `fieldParent` reverse index tools expect.
 				 * The load runs AFTER the ownership check; the race
 				 * between the two reads — ownership resolves, then a
 				 * concurrent hard-delete nulls the row — surfaces as
 				 * the same `not_found` an "app never existed" probe
-				 * would hit, so MCP clients see one consistent error. */
-				const doc = await loadAppBlueprint(appId);
-				if (!doc) throw new McpAccessError("not_found");
+				 * would hit, so MCP clients see one consistent error.
+				 * Only the blueprint flows downstream; the helper also
+				 * returns the full `AppDoc` for tools that want
+				 * denormalized columns. */
+				const loaded = await loadAppBlueprint(appId);
+				if (!loaded) throw new McpAccessError("not_found");
 
 				/* Strip `app_id` before forwarding — it's an MCP-boundary
 				 * field only, and shared tool input schemas don't declare it.
 				 * The underscore prefix signals intentional-discard for
 				 * Biome's `noUnusedVariables` rule. */
 				const { app_id: _discarded, ...toolInput } = args;
-				const outcome = await tool.execute(toolInput, mcpCtx, doc);
+				const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
 				const payload = projectResult(outcome);
 				return {
 					content: [{ type: "text", text: JSON.stringify(payload) }],

@@ -46,6 +46,16 @@ export interface AppSummary {
  */
 const MAX_GENERATION_MINUTES = 10;
 
+/**
+ * Display name for an app whose `appName` has never been set.
+ *
+ * The denormalize step writes this string into `app_name` for any row
+ * whose in-doc name is blank, so every persisted summary row carries a
+ * non-empty name. Exported so downstream callers reference the same
+ * literal rather than redeclaring it.
+ */
+export const UNTITLED_APP_NAME = "Untitled";
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 /**
@@ -65,7 +75,7 @@ function denormalize(doc: PersistableDoc) {
 		0,
 	);
 	return {
-		app_name: doc.appName || "Untitled",
+		app_name: doc.appName || UNTITLED_APP_NAME,
 		connect_type: doc.connectType ?? null,
 		module_count: doc.moduleOrder.length,
 		form_count: formCount,
@@ -196,11 +206,9 @@ export async function createApp(
 		blueprint: persistable,
 		status: opts?.status ?? "generating",
 		error_type: null,
-		/* Soft-delete fields default to null at creation so every row on
-		 * disk matches the full `appDocSchema` shape — the Zod converter
-		 * wouldn't reject absent fields (they have `.default(null)`) but
-		 * establishing them up front keeps merge-writes from having to
-		 * backfill them on first soft-delete. */
+		/* Initialize soft-delete fields to null so every row on disk
+		 * matches the full `appDocSchema` shape and first-soft-delete
+		 * writes update existing fields rather than materializing them. */
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: runId,
@@ -296,28 +304,27 @@ export async function updateApp(
  * support window for accidental-delete recovery.
  *
  * Returns the ISO-8601 `recoverable_until` timestamp so callers can
- * surface the deadline to users. Fail-fast: throws if the Firestore
- * write rejects (e.g., the row genuinely doesn't exist); callers
- * decide how to map the throw to their error surface. The write uses
- * `set({}, { merge: true })` like the other status-flip helpers
- * (`completeApp`, `failApp`, `updateApp`) so pre-existing fields are
- * preserved and only the three delete-related fields change.
+ * surface the deadline to users. Uses Firestore's `update()` so a
+ * missing document rejects with a `NOT_FOUND` error rather than
+ * materializing a partial ghost row — the write touches only the
+ * three soft-delete fields, and a merge-create on a non-existent id
+ * would land a row that fails the full `appDocSchema` parse (no
+ * owner, no blueprint) and quietly poison later reads. Callers decide
+ * how to map the thrown rejection to their error surface.
  */
 export async function softDeleteApp(appId: string): Promise<string> {
 	/* 30 days — matches the chat-side support window for accidental-delete
-	 * recovery. Expressed in ms to avoid a `* 1000` mismatch between the
-	 * `Date.now()` arithmetic and the `new Date(...)` conversion below. */
+	 * recovery. Expressed in ms so arithmetic + `new Date(...)` stay in
+	 * one unit. */
 	const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-	const deletedAt = Date.now();
-	const recoverableUntil = new Date(deletedAt + RETENTION_MS).toISOString();
-	await docs.app(appId).set(
-		{
-			status: "deleted",
-			deleted_at: deletedAt,
-			recoverable_until: recoverableUntil,
-		},
-		{ merge: true },
-	);
+	const now = new Date();
+	const deletedAt = now.toISOString();
+	const recoverableUntil = new Date(now.getTime() + RETENTION_MS).toISOString();
+	await docs.app(appId).update({
+		status: "deleted",
+		deleted_at: deletedAt,
+		recoverable_until: recoverableUntil,
+	});
 	return recoverableUntil;
 }
 

@@ -1,31 +1,22 @@
 /**
- * `nova.compile_app` — produce the CommCare HQ wire format for an
- * owned Nova app.
+ * `nova.compile_app` — produce the CommCare HQ wire format for an owned app.
  *
- * Scope: `nova.read`. Read-only — no mutations, no event-log writes.
+ * Scope: `nova.read`. Read-only.
  *
  * Two output formats:
+ *   - `"json"` — the `HqApplication` JSON as compact text. Use when piping
+ *     into tools that parse the HQ wire shape programmatically.
+ *   - `"ccz"` — the `.ccz` archive HQ mobile pulls down, base64-encoded in
+ *     the text payload with `_meta.encoding: "base64"` so the client decodes.
  *
- *   - `"json"` returns the `HqApplication` JSON inline as
- *     pretty-printed text. Ideal for debugging an app or piping into
- *     ad-hoc tools that parse the HQ wire shape.
- *
- *   - `"ccz"` returns the `.ccz` archive (the zipped bundle HQ mobile
- *     pulls down). MCP text content is UTF-8 only, so binary is
- *     base64-encoded in the text payload and `_meta.encoding: "base64"`
- *     tells the client to decode.
- *
- * The app is always expanded via `expandDoc` first. `compileCcz` takes
- * the HQ JSON + app name + source `BlueprintDoc` and produces the
- * archive buffer; `expandDoc` owns the domain→wire boundary so the
- * JSON-format path is just the same expansion without the zip step.
+ * Expands via `expandDoc` first; `compileCcz` then wraps the HQ JSON plus
+ * the app name and source blueprint into the zipped archive.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import { loadApp } from "@/lib/db/apps";
 import { toMcpErrorResult } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
@@ -34,15 +25,13 @@ import type { ToolContext } from "../types";
 /**
  * Register the `compile_app` tool on an `McpServer`.
  *
- * The tool performs two Firestore reads on the happy path: one via
- * `loadAppBlueprint` for the hydrated `BlueprintDoc` (the compile input)
- * and one direct `loadApp` for the denormalized `app_name` (passed to
- * `compileCcz` for the profile manifest). The second read is deliberate
- * — `loadAppBlueprint` intentionally narrows to the blueprint shape so
- * every caller that wants it doesn't have to destructure a larger
- * record. Rate is low (user-initiated compile) and Firestore hot-reads
- * are cheap, so the duplicate read is the simpler tradeoff over
- * widening the helper's contract.
+ * One Firestore read suffices: `loadAppBlueprint` returns `{ doc, app }`
+ * so both the hydrated blueprint (for `expandDoc`) and the denormalized
+ * `app_name` (for the ccz profile manifest) come from the same load.
+ * `app.app_name` is non-empty by invariant — `denormalize` writes
+ * `UNTITLED_APP_NAME` when the in-doc `appName` is blank — so this
+ * tool threads `app.app_name` straight into `compileCcz` without a
+ * defensive fallback.
  */
 export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 	server.tool(
@@ -57,7 +46,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			format: z
 				.enum(["json", "ccz"])
 				.describe(
-					'"json" for the pretty-printed HQ wire JSON, "ccz" for the binary archive (base64-encoded).',
+					'"json" for the HQ wire JSON, "ccz" for the binary archive (base64-encoded).',
 				),
 		},
 		async (args) => {
@@ -65,31 +54,20 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
-				/* `loadAppBlueprint` hydrates `fieldParent` from `fieldOrder`;
-				 * the compile pipeline's case-block injection walks that
-				 * reverse index, so the rebuild must happen before
-				 * `expandDoc` sees the doc. Null means the row vanished
-				 * between the ownership check and the load — map that
-				 * concurrent-hard-delete race to the same `not_found` a
-				 * missing-id probe surfaces. */
-				const doc = await loadAppBlueprint(appId);
-				if (!doc) throw new McpAccessError("not_found");
-
-				/* Second read for the denormalized `app_name` — the ccz
-				 * profile manifest needs it but `BlueprintDoc.appName` is
-				 * the normalized (possibly blank) in-doc value; the
-				 * denormalized `app_name` column carries the list-display
-				 * default. Empty string falls back to "Untitled" so the
-				 * emitted profile is always valid HQ XML. */
-				const app = await loadApp(appId);
-				if (!app) throw new McpAccessError("not_found");
-				const appName = app.app_name || "Untitled";
+				/* Single load covers both the compile input (blueprint with
+				 * rebuilt `fieldParent`) and the denormalized app name.
+				 * Null means the row vanished between the ownership check
+				 * and this read (concurrent hard-delete); map that race to
+				 * the same `not_found` a missing-id probe surfaces. */
+				const loaded = await loadAppBlueprint(appId);
+				if (!loaded) throw new McpAccessError("not_found");
+				const { doc, app } = loaded;
 
 				const hqJson = expandDoc(doc);
 
 				if (args.format === "json") {
 					return {
-						content: [{ type: "text", text: JSON.stringify(hqJson, null, 2) }],
+						content: [{ type: "text", text: JSON.stringify(hqJson) }],
 						_meta: { format: "json", app_id: appId },
 					};
 				}
@@ -98,7 +76,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * UTF-8 only, so base64 is the safest lossless escape.
 				 * `_meta.encoding: "base64"` tells MCP clients to decode
 				 * rather than treat the text as the archive directly. */
-				const cczBuf = compileCcz(hqJson, appName, doc);
+				const cczBuf = compileCcz(hqJson, app.app_name, doc);
 				return {
 					content: [{ type: "text", text: cczBuf.toString("base64") }],
 					_meta: { format: "ccz", encoding: "base64", app_id: appId },

@@ -71,10 +71,9 @@ function makeFakeServer(): FakeServer {
 
 const toolCtx: ToolContext = { userId: "u1", scopes: [] };
 
-/* Fixed recovery deadline — asserting on the literal ISO value keeps
- * the test independent of `Date.now()` and decouples it from the
- * 30-day constant in the helper (changing the window should change
- * the helper's output, not this test's expectation). */
+/* Mock softDeleteApp's return value directly — the ISO format is an
+ * implementation detail of the helper, exercised end-to-end in its
+ * own unit test. */
 const FIXED_RECOVERABLE_UNTIL = "2026-05-23T12:00:00.000Z";
 
 beforeEach(() => {

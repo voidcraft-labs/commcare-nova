@@ -47,16 +47,18 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
-				/* `loadAppBlueprint` both fetches the doc and rebuilds
-				 * the derived `fieldParent` index. Null means the row
-				 * vanished between the ownership check and this read
-				 * (concurrent hard-delete); collapse that race to the
-				 * same `not_found` a missing-app probe gets. */
-				const doc = await loadAppBlueprint(appId);
-				if (!doc) throw new McpAccessError("not_found");
+				/* `loadAppBlueprint` both fetches the row and rebuilds the
+				 * derived `fieldParent` index. Null means the row vanished
+				 * between the ownership check and this read (concurrent
+				 * hard-delete); collapse that race to the same `not_found`
+				 * a missing-app probe gets. Only `.doc` is needed here —
+				 * the full `AppDoc` is returned for callers that consume
+				 * denormalized columns (see `compile_app`). */
+				const loaded = await loadAppBlueprint(appId);
+				if (!loaded) throw new McpAccessError("not_found");
 
 				return {
-					content: [{ type: "text", text: summarizeBlueprint(doc) }],
+					content: [{ type: "text", text: summarizeBlueprint(loaded.doc) }],
 					_meta: { app_id: appId },
 				};
 			} catch (err) {
