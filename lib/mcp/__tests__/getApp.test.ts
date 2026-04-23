@@ -145,6 +145,9 @@ function mockAppDoc(
 		status: "complete",
 		error_type: null,
 		run_id: null,
+		// Tool doesn't read timestamps — any placeholder works; casting through
+		// `unknown` avoids pulling in the Firestore Admin SDK just to fabricate
+		// real `Timestamp` instances in a unit test.
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,

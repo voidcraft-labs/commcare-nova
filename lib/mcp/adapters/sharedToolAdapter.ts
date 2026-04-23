@@ -53,13 +53,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
-import { loadApp } from "@/lib/db/apps";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 import { toMcpErrorResult } from "../errors";
-import { McpForbiddenError, requireOwnedApp } from "../ownership";
+import { loadAppBlueprint } from "../loadApp";
+import { McpAccessError, requireOwnedApp } from "../ownership";
 import { createProgressEmitter } from "../progress";
 import type { ToolContext } from "../types";
 
@@ -184,23 +183,15 @@ export function registerSharedTool(
 			});
 
 			try {
-				/* Load the app AFTER the ownership check. The pair is not
-				 * atomic — `requireOwnedApp` can resolve cleanly and a
-				 * concurrent soft-delete / hard-delete can null out the
-				 * doc before this read. Surface that race as `not_found`
-				 * so MCP clients see one consistent error regardless of
-				 * which side they land on. */
-				const app = await loadApp(appId);
-				if (!app) throw new McpForbiddenError("not_found");
-
-				/* Rebuild the derived `fieldParent` reverse index before
-				 * handing the doc to the tool. Firestore stores the
-				 * `PersistableDoc` shape without it (see `toPersistableDoc`);
-				 * tools expect the full `BlueprintDoc` with `fieldParent`
-				 * populated so their mutation helpers can find parents in
-				 * O(1). */
-				const doc: BlueprintDoc = { ...app.blueprint, fieldParent: {} };
-				rebuildFieldParent(doc);
+				/* `loadAppBlueprint` both fetches the doc and rebuilds
+				 * the derived `fieldParent` reverse index tools expect.
+				 * The load runs AFTER the ownership check; the race
+				 * between the two reads — ownership resolves, then a
+				 * concurrent hard-delete nulls the row — surfaces as
+				 * the same `not_found` an "app never existed" probe
+				 * would hit, so MCP clients see one consistent error. */
+				const doc = await loadAppBlueprint(appId);
+				if (!doc) throw new McpAccessError("not_found");
 
 				/* Strip `app_id` before forwarding — it's an MCP-boundary
 				 * field only, and shared tool input schemas don't declare it.

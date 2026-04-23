@@ -17,11 +17,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
-import { loadApp } from "@/lib/db/apps";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
 import { toMcpErrorResult } from "../errors";
-import { McpForbiddenError, requireOwnedApp } from "../ownership";
+import { loadAppBlueprint } from "../loadApp";
+import { McpAccessError, requireOwnedApp } from "../ownership";
 import type { ToolContext } from "../types";
 
 /**
@@ -49,21 +47,13 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
-				const app = await loadApp(appId);
-				/* Ownership + load aren't atomic — a concurrent hard-delete
-				 * between the two reads lands here. Surface as `not_found`
-				 * for consistency with the ownership check's own `not_found`
-				 * path so MCP clients see one error regardless of which side
-				 * of the race they land on. */
-				if (!app) throw new McpForbiddenError("not_found");
-
-				/* Firestore persists the `PersistableDoc` shape without the
-				 * derived `fieldParent` reverse index (see `toPersistableDoc`).
-				 * `summarizeBlueprint` itself doesn't read `fieldParent`, but
-				 * the `BlueprintDoc` type requires it, so we rebuild once
-				 * here to hand the renderer a well-typed full doc. */
-				const doc: BlueprintDoc = { ...app.blueprint, fieldParent: {} };
-				rebuildFieldParent(doc);
+				/* `loadAppBlueprint` both fetches the doc and rebuilds
+				 * the derived `fieldParent` index. Null means the row
+				 * vanished between the ownership check and this read
+				 * (concurrent hard-delete); collapse that race to the
+				 * same `not_found` a missing-app probe gets. */
+				const doc = await loadAppBlueprint(appId);
+				if (!doc) throw new McpAccessError("not_found");
 
 				return {
 					content: [{ type: "text", text: summarizeBlueprint(doc) }],

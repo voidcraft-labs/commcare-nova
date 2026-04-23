@@ -6,14 +6,14 @@
  * taxonomy used by both the chat surface and this one; this module is
  * the bridge from that classification to the MCP result envelope.
  *
- * `McpForbiddenError` (from `./ownership`) short-circuits the classifier
- * because ownership failures are deterministic and carry a known reason
+ * `McpAccessError` (from `./ownership`) short-circuits the classifier
+ * because access failures are deterministic and carry a known reason
  * code — no need to route them through `classifyError`'s inference
  * heuristics, which key off status codes and message substrings.
  */
 
 import { classifyError } from "@/lib/agent/errorClassifier";
-import { McpForbiddenError } from "./ownership";
+import { McpAccessError } from "./ownership";
 
 /**
  * MCP tool-error result envelope. Matches the MCP SDK's
@@ -58,10 +58,19 @@ export function toMcpErrorResult(
 	const base: { app_id?: string } = {};
 	if (ctx?.appId !== undefined) base.app_id = ctx.appId;
 
-	if (err instanceof McpForbiddenError) {
+	if (err instanceof McpAccessError) {
+		/* Per-reason text: a `not_found` is not a forbidden access — the
+		 * row genuinely isn't there — while `not_owner` is a cross-tenant
+		 * probe and gets the access-denied phrasing. The shared "Forbidden:
+		 * reason" text used before was a misnomer for `not_found` and
+		 * blurred the distinction admins rely on in logs. */
+		const text =
+			err.reason === "not_found"
+				? "App not found."
+				: "Access denied — this app belongs to another user.";
 		return {
 			isError: true,
-			content: [{ type: "text", text: `Forbidden: ${err.reason}` }],
+			content: [{ type: "text", text }],
 			_meta: { error_type: err.reason, ...base },
 		};
 	}

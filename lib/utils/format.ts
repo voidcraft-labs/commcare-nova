@@ -47,9 +47,18 @@ export function formatPeriodLabel(period: string): string {
 	return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-/** Status badge colors and labels for app cards. */
+/**
+ * Status badge colors and labels for app cards.
+ *
+ * Keyed by every value of `AppDoc["status"]` so the card component can
+ * index directly without a runtime fallback. `deleted` rows are
+ * filtered out of user-facing lists at the persistence boundary (see
+ * `listApps`), but admin and historical surfaces may still render
+ * archived rows — the muted styling keeps them visually distinct from
+ * live errors without drawing attention.
+ */
 export const STATUS_STYLES: Record<
-	"complete" | "generating" | "error",
+	"complete" | "generating" | "error" | "deleted",
 	{ bg: string; text: string; label: string }
 > = {
 	complete: {
@@ -63,4 +72,9 @@ export const STATUS_STYLES: Record<
 		label: "Generating",
 	},
 	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },
+	deleted: {
+		bg: "bg-nova-surface",
+		text: "text-nova-text-muted",
+		label: "Deleted",
+	},
 };

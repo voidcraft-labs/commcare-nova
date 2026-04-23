@@ -155,8 +155,22 @@ export const appDocSchema = z.object({
 	module_count: z.number().default(0),
 	/** Number of forms across all modules — denormalized for list display. */
 	form_count: z.number().default(0),
-	/** Build lifecycle status. */
-	status: z.enum(["generating", "complete", "error"]).default("complete"),
+	/**
+	 * Build lifecycle status.
+	 *
+	 * - `generating` — a build is in progress. `updated_at` advances on
+	 *   every intermediate write; a 10-minute gap trips the staleness
+	 *   inference in `listApps` and self-converts the row to `error`.
+	 * - `complete` — build finished successfully (or was created
+	 *   atomically, e.g. via `create_app`).
+	 * - `error` — generation failed; see `error_type` for the bucket.
+	 * - `deleted` — soft-deleted. Rows in this state are filtered out of
+	 *   `listApps` and any public surface; a retention job is responsible
+	 *   for eventual hard-delete.
+	 */
+	status: z
+		.enum(["generating", "complete", "error", "deleted"])
+		.default("complete"),
 	/** Error classification — set when status is 'error'. Null for non-error apps. */
 	error_type: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */

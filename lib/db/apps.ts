@@ -141,35 +141,20 @@ export async function userHasApps(owner: string): Promise<boolean> {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
- * Optional overrides for `createApp`. Both fields default to the
- * chat-route behavior so existing call sites stay valid unchanged.
- *
- * Split into its own exported interface because two surfaces now call
- * `createApp` with different lifecycle assumptions:
- *
- *   - **Chat route** (`app/api/chat/route.ts`) — omits this object
- *     entirely. A long-running build kicks off immediately and flips
- *     the status to `"complete"` via `completeApp` once validation
- *     passes. Starting in `"generating"` is correct: intermediate
- *     `updateApp` calls advance `updated_at` so the timeout inference
- *     in `listApps` stays quiet while the build is live.
- *   - **MCP `create_app` tool** — passes `{ status: "complete" }`.
- *     MCP has no long-running generation loop: each tool call is
- *     atomic. An MCP-created app with `status: "generating"` would
- *     trip the 10-min staleness inference in `listApps` and self-mark
- *     as failed if the user never followed up with another tool call.
+ * Optional overrides for `createApp`. Both fields are optional and
+ * have defaults that match the most common shape of a new app row.
  */
 export interface CreateAppOptions {
 	/**
-	 * Initial app name. Defaults to `""` — matches chat-route behavior
-	 * where the SA sets the name later via `generateSchema`. MCP
-	 * callers can surface a name up front.
+	 * Initial app name. Empty string when unset — list display falls back
+	 * to "Untitled".
 	 */
 	appName?: string;
 	/**
-	 * Initial lifecycle status. Defaults to `"generating"` for the
-	 * chat path's long-running build. MCP writers pass `"complete"` so
-	 * the app isn't flagged stale by the timeout inference.
+	 * Initial lifecycle status. `"generating"` starts the staleness timer
+	 * in `listApps` (advanced on every write; a 10-minute gap self-marks
+	 * the app as `error`). `"complete"` opts out — use it when the
+	 * creation is atomic and no follow-up writes are expected.
 	 */
 	status?: AppDoc["status"];
 }
@@ -183,8 +168,7 @@ export interface CreateAppOptions {
  * eagerly from the empty doc + optional overrides so list queries
  * never deserialize a blueprint.
  *
- * See `CreateAppOptions` for the rationale behind the two sites that
- * call this (chat vs. MCP) and why their defaults differ.
+ * See `CreateAppOptions` for the two tunable fields and their defaults.
  */
 export async function createApp(
 	owner: string,
@@ -341,6 +325,13 @@ const SUMMARY_FIELDS = [
  * unnecessary here because data is validated on write (completeApp,
  * updateApp) and defaults are baked in at that time.
  *
+ * Soft-deleted rows (`status: "deleted"`) are filtered out in-memory
+ * after the fetch. The filter runs post-query rather than as an
+ * additional `.where("status", "!=", "deleted")` clause because
+ * Firestore's inequality filters consume an index slot and would
+ * require a second composite index; soft-deleted apps are rare, so the
+ * in-memory skip is strictly cheaper.
+ *
  * Requires composite index: `(owner ASC, updated_at DESC)`.
  */
 export async function listApps(
@@ -361,8 +352,18 @@ export async function listApps(
 	const now = Date.now();
 	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-	return snap.docs.map((doc) => {
+	/* `flatMap` lets the soft-delete filter drop rows without a prior
+	 * `filter` pass — returning `[]` from the callback skips the row and
+	 * returning a single-entry array keeps it. Cleaner than `.reduce`
+	 * for this shape. */
+	return snap.docs.flatMap((doc) => {
 		const data = doc.data();
+
+		/* Soft-deleted rows never surface through list surfaces. Compared
+		 * before any timestamp work to skip the row cheaply — a deleted
+		 * row's other fields are irrelevant here. */
+		if (data.status === "deleted") return [];
+
 		const createdAt = (data.created_at as Timestamp).toDate();
 		const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
 
@@ -378,18 +379,20 @@ export async function listApps(
 			failApp(doc.id, "internal");
 		}
 
-		return {
-			id: doc.id,
-			app_name: data.app_name as string,
-			connect_type: (data.connect_type as AppDoc["connect_type"]) ?? null,
-			module_count: (data.module_count as number) ?? 0,
-			form_count: (data.form_count as number) ?? 0,
-			status: isStale ? "error" : (data.status as AppDoc["status"]),
-			error_type: isStale
-				? "internal"
-				: ((data.error_type as string | null) ?? null),
-			created_at: createdAt.toISOString(),
-			updated_at: updatedAt.toISOString(),
-		};
+		return [
+			{
+				id: doc.id,
+				app_name: data.app_name as string,
+				connect_type: (data.connect_type as AppDoc["connect_type"]) ?? null,
+				module_count: (data.module_count as number) ?? 0,
+				form_count: (data.form_count as number) ?? 0,
+				status: isStale ? "error" : (data.status as AppDoc["status"]),
+				error_type: isStale
+					? "internal"
+					: ((data.error_type as string | null) ?? null),
+				created_at: createdAt.toISOString(),
+				updated_at: updatedAt.toISOString(),
+			},
+		];
 	});
 }

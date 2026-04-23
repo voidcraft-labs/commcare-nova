@@ -1,17 +1,18 @@
 /**
  * `registerListApps` unit tests.
  *
- * Verifies the four load-bearing behaviors of the MCP-only list tool:
+ * Verifies the three load-bearing behaviors of the MCP-only list tool:
  *   - Happy-path projection from `AppSummary` rows to the MCP wire
  *     shape (`{ app_id, name, status, updated_at }` per entry).
- *   - Soft-delete filtering — apps tagged `status: "deleted"` never
- *     appear in the visible output (forward-looking guard; the persistence
- *     layer gains its own filter later).
  *   - Empty-list projection — `apps: []` rather than a null or missing
  *     key, so MCP clients can branch on `apps.length` unconditionally.
  *   - Error classification — a `listApps` throw surfaces as an MCP
  *     `isError: true` envelope with a populated `error_type`, never as
  *     an unhandled rejection.
+ *
+ * Soft-delete filtering lives at the persistence boundary (`listApps`
+ * in `lib/db/apps.ts`), not here — this tool is a pure projection over
+ * the already-filtered list.
  *
  * The MCP SDK is mocked at the boundary through a fake server that
  * captures the handler callback. Tests drive the adapter directly, so
@@ -155,37 +156,6 @@ describe("registerListApps — happy path", () => {
 			},
 		]);
 		expect(listApps).toHaveBeenCalledWith("u1");
-	});
-});
-
-describe("registerListApps — filter", () => {
-	it("omits rows whose status is 'deleted'", async () => {
-		/* The persistence layer does not return `"deleted"` yet (the
-		 * enum doesn't include it). Cast through `unknown` to fabricate
-		 * the forward-looking fixture and confirm the defensive filter
-		 * still catches it once the enum widens. */
-		const rows = [
-			makeSummary({ id: "a1", app_name: "Visible", status: "complete" }),
-			{
-				...makeSummary({ id: "a2", app_name: "Gone" }),
-				status: "deleted",
-			},
-			makeSummary({ id: "a3", app_name: "AlsoVisible", status: "error" }),
-		] as unknown as AppSummary[];
-		vi.mocked(listApps).mockResolvedValueOnce(rows);
-
-		const { server, capture } = makeFakeServer();
-		registerListApps(server, toolCtx);
-
-		const out = (await capture()({}, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-
-		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
-			apps: Array<{ app_id: string }>;
-		};
-		const ids = parsed.apps.map((a) => a.app_id);
-		expect(ids).toEqual(["a1", "a3"]);
 	});
 });
 

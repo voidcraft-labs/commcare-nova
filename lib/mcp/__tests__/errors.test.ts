@@ -2,9 +2,10 @@
  * toMcpErrorResult unit tests.
  *
  * Two error-source paths to cover:
- *   - `McpForbiddenError` — short-circuits the classifier, carries its
- *     `reason` straight through to `_meta.error_type` with a "Forbidden:"
- *     prefix on the user-facing text.
+ *   - `McpAccessError` — short-circuits the classifier, carries its
+ *     `reason` straight through to `_meta.error_type` with a
+ *     reason-specific user-facing text (`not_found` → "App not
+ *     found.", `not_owner` → "Access denied..." wording).
  *   - Anything else — routes through `classifyError`; a bare `Error`
  *     lands in the `"internal"` bucket with the canned user message.
  *
@@ -19,22 +20,27 @@
 import { describe, expect, it } from "vitest";
 import { MESSAGES } from "@/lib/agent/errorClassifier";
 import { toMcpErrorResult } from "../errors";
-import { McpForbiddenError } from "../ownership";
+import { McpAccessError } from "../ownership";
 
 describe("toMcpErrorResult", () => {
-	it("serializes McpForbiddenError('not_found') with its reason as error_type", () => {
-		const result = toMcpErrorResult(new McpForbiddenError("not_found"));
+	it("serializes McpAccessError('not_found') with the not-found phrasing", () => {
+		const result = toMcpErrorResult(new McpAccessError("not_found"));
 		expect(result.isError).toBe(true);
 		expect(result._meta.error_type).toBe("not_found");
-		expect(result.content[0].text).toMatch(/^Forbidden:/);
-		expect(result.content[0].text).toContain("not_found");
+		/* Reason-specific text — the old shared "Forbidden: reason" was
+		 * a misnomer for `not_found` (the row genuinely isn't there,
+		 * it's not a permissions denial). */
+		expect(result.content[0].text).toBe("App not found.");
 	});
 
-	it("serializes McpForbiddenError('not_owner') with its reason as error_type", () => {
-		const result = toMcpErrorResult(new McpForbiddenError("not_owner"));
+	it("serializes McpAccessError('not_owner') with the access-denied phrasing", () => {
+		const result = toMcpErrorResult(new McpAccessError("not_owner"));
 		expect(result._meta.error_type).toBe("not_owner");
-		expect(result.content[0].text).toMatch(/^Forbidden:/);
-		expect(result.content[0].text).toContain("not_owner");
+		expect(result.content[0].text).toMatch(/^Access denied/);
+		/* The text must NOT reveal whether the row exists under another
+		 * owner vs. doesn't exist at all — that's the whole point of the
+		 * two-reason split staying hidden from the user-facing text. */
+		expect(result.content[0].text).toContain("another user");
 	});
 
 	it("routes generic errors through classifyError into the internal bucket", () => {
