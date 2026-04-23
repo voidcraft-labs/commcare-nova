@@ -33,12 +33,6 @@
  * whose shape it can go through the shared path, so the domain
  * definition lives in exactly one place (`lib/agent/tools`) and is
  * consumed identically by the chat-side agent and the MCP endpoint.
- *
- * The `registerNovaPrompts` hook exists for symmetry — v1 has no
- * standalone MCP prompts, but the call site stays stable if they're
- * ever added. See the function body for why the prompt surface
- * currently lives entirely inside the `get_agent_prompt` TOOL rather
- * than as top-level prompt resources.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
