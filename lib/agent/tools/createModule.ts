@@ -52,7 +52,6 @@ export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 export type CreateModuleResult = string | { error: string };
 
 export const createModuleTool = {
-	name: "createModule" as const,
 	description: "Add a new module to the app.",
 	inputSchema: createModuleInputSchema,
 	async execute(

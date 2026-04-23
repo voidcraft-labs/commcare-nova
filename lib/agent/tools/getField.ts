@@ -58,7 +58,6 @@ export type GetFieldResult =
 	  };
 
 export const getFieldTool = {
-	name: "getField" as const,
 	description: "Get a single field by ID within a form.",
 	inputSchema: getFieldInputSchema,
 	async execute(

@@ -58,7 +58,6 @@ export type AddModuleResult =
 	  };
 
 export const addModuleTool = {
-	name: "addModule" as const,
 	description:
 		"Set case list columns for a module. Call after generateScaffold. Provide the columns directly. Survey-only modules (no case_type) should pass null for both.",
 	inputSchema: addModuleInputSchema,

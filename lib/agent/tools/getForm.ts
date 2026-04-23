@@ -32,7 +32,6 @@ export type GetFormResult =
 	| { moduleIndex: number; formIndex: number; form: FormSnapshot };
 
 export const getFormTool = {
-	name: "getForm" as const,
 	description:
 		"Get a form by module and form index. Returns the full form including all fields (nested by group/repeat containers).",
 	inputSchema: getFormInputSchema,

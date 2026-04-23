@@ -48,7 +48,6 @@ export type GetModuleResult =
 	  };
 
 export const getModuleTool = {
-	name: "getModule" as const,
 	description:
 		"Get a module by index. Returns module metadata, case list columns, and a summary of its forms.",
 	inputSchema: getModuleInputSchema,

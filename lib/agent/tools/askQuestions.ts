@@ -41,7 +41,6 @@ export type AskQuestionsInput = z.infer<typeof askQuestionsInputSchema>;
  * rather than `tool({...})`.
  */
 export const askQuestionsTool = {
-	name: "askQuestions" as const,
 	description:
 		"Ask the user clarifying questions about their app requirements. Up to 5 questions per call — call as many times as needed. Most requests need several rounds. Don't rush to generate; an app built on assumptions is worse than one that took extra questions to get right.",
 	inputSchema: askQuestionsInputSchema,

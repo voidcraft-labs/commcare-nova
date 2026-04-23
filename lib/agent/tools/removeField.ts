@@ -32,7 +32,6 @@ export type RemoveFieldInput = z.infer<typeof removeFieldInputSchema>;
 export type RemoveFieldResult = string | { error: string };
 
 export const removeFieldTool = {
-	name: "removeField" as const,
 	description: "Remove a field from a form.",
 	inputSchema: removeFieldInputSchema,
 	async execute(

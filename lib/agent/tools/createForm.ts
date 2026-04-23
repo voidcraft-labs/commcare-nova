@@ -47,7 +47,6 @@ export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 export type CreateFormResult = string | { error: string };
 
 export const createFormTool = {
-	name: "createForm" as const,
 	description:
 		"Add a new empty form to a module. Use addFields to populate it.",
 	inputSchema: createFormInputSchema,

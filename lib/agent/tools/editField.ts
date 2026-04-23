@@ -101,7 +101,6 @@ function editPatchToFieldPatch(
 }
 
 export const editFieldTool = {
-	name: "editField" as const,
 	description:
 		"Update properties on an existing field. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
 	inputSchema: editFieldInputSchema,
@@ -160,23 +159,17 @@ export const editFieldTool = {
 				const convertMuts: Mutation[] = [
 					{ kind: "convertField", uuid: fieldUuid, toKind: newKind },
 				];
-				workingDoc = applyToDoc(workingDoc, convertMuts);
-				await ctx.recordMutations(
-					convertMuts,
-					workingDoc,
-					`convert:${moduleIndex}-${formIndex}`,
-				);
-				allMutations.push(...convertMuts);
 
-				// The `convertField` reducer runs `reconcileFieldForKind` and
-				// parses the reconciled shape against `fieldSchema`. If the
-				// target kind demands a key the source doesn't carry (edge
-				// cases `convertTargets` alone can't catch), the reducer logs
-				// and no-ops, leaving the original kind in place. Verify the
-				// conversion actually landed against `workingDoc` so we don't
-				// tell the SA "kind: multi_select" when the field is still a
-				// `single_select`.
-				const postConvertField = workingDoc.fields[fieldUuid];
+				// Apply locally first so we can verify the reducer accepted
+				// the conversion before persisting the event. A silent no-op
+				// from the reducer (reconcile produces a shape the target
+				// kind's schema rejects) would otherwise write a misleading
+				// `convert:M-F` event to the log and the SA wrapper would
+				// advance `doc = newDoc` against unchanged state. Mirrors
+				// the rename + scalar-patch sections' order: apply → verify
+				// → persist.
+				const afterConvert = applyToDoc(workingDoc, convertMuts);
+				const postConvertField = afterConvert.fields[fieldUuid];
 				if (!postConvertField || postConvertField.kind !== newKind) {
 					return {
 						mutations: allMutations,
@@ -186,6 +179,14 @@ export const editFieldTool = {
 						},
 					};
 				}
+
+				await ctx.recordMutations(
+					convertMuts,
+					afterConvert,
+					`convert:${moduleIndex}-${formIndex}`,
+				);
+				workingDoc = afterConvert;
+				allMutations.push(...convertMuts);
 			}
 
 			// Id rename next as its own emitted batch. The `renameField`
@@ -260,10 +261,7 @@ export const editFieldTool = {
 			const formName =
 				workingDoc.forms[afterRename.formUuid]?.name ??
 				`m${moduleIndex}-f${formIndex}`;
-			const label =
-				postField && "label" in postField
-					? (postField as { label: string }).label
-					: "";
+			const label = postField && "label" in postField ? postField.label : "";
 			const kind = postField?.kind ?? "unknown";
 			return {
 				mutations: allMutations,

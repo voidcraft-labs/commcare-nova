@@ -395,6 +395,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 * complete — matching the interface's asynchronous signature while
 	 * preserving the chat surface's "don't block the stream on
 	 * Firestore" invariant.
+	 *
+	 * The `async` keyword is load-bearing for the interface's
+	 * `Promise<MutationEvent[]>` return type; the body is synchronous
+	 * because `emitMutations` is synchronous and `saveBlueprint` is
+	 * fire-and-forget. No `await` appears inside this method by design.
 	 */
 	async recordMutations(
 		mutations: Mutation[],

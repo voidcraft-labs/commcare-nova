@@ -37,7 +37,6 @@ export type RemoveModuleInput = z.infer<typeof removeModuleInputSchema>;
 export type RemoveModuleResult = string | { error: string };
 
 export const removeModuleTool = {
-	name: "removeModule" as const,
 	description: "Remove a module from the app.",
 	inputSchema: removeModuleInputSchema,
 	async execute(

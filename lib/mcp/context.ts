@@ -173,16 +173,9 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Persist the current blueprint snapshot to Firestore.
-	 *
-	 * Awaited by `recordMutations` as part of the fail-closed contract —
-	 * the tool return does not resolve until Firestore has acknowledged
-	 * the write, so a Firestore rejection propagates to the adapter
-	 * rather than quietly losing the mutation. The shared
-	 * `toPersistableDoc` helper strips the derived `fieldParent` index so
-	 * the stored document stays in the Firestore-shaped
-	 * `PersistableDoc`; a client `docStore.load` rebuilds the index from
-	 * `fieldOrder`.
+	 * Persist the blueprint snapshot to Firestore via `updateApp`.
+	 * `toPersistableDoc` strips the derived `fieldParent` index; see the
+	 * class-level fail-closed contract for why this is awaited.
 	 */
 	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
 		await updateApp(this.appId, toPersistableDoc(doc));

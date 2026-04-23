@@ -25,7 +25,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
 	if (muts.length === 0) return doc;
 	return produce(doc, (draft) => {
-		applyMutations(draft as unknown as BlueprintDoc, muts);
+		applyMutations(draft, muts);
 	});
 }
 

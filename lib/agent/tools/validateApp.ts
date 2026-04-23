@@ -69,7 +69,6 @@ export interface ValidateAppResult {
 }
 
 export const validateAppTool = {
-	name: "validateApp" as const,
 	description:
 		"Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing. If validation fails with remaining errors, use your mutation tools (removeField, editField, etc.) to fix them, then call validateApp again.",
 	inputSchema: validateAppInputSchema,

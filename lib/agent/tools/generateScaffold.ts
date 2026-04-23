@@ -50,7 +50,6 @@ export interface GenerateScaffoldResult {
 export type GenerateScaffoldOutput = GenerateScaffoldResult | { error: string };
 
 export const generateScaffoldTool = {
-	name: "generateScaffold" as const,
 	description:
 		"Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.",
 	inputSchema: generateScaffoldInputSchema,

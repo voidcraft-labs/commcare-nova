@@ -141,7 +141,6 @@ function buildConnectConfig(
 }
 
 export const updateFormTool = {
-	name: "updateForm" as const,
 	description:
 		"Update form metadata: name, close condition (close forms only), Connect integration, or post-submit navigation.",
 	inputSchema: updateFormInputSchema,

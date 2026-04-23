@@ -264,6 +264,16 @@ async function applyConnectDefaults(
 			moduleName,
 		});
 		if (!next) continue;
+		// Skip when the defaults pass produces a structurally identical
+		// result. `deriveConnectDefaults` always returns a fresh object
+		// graph (`{ ...form.connect }` + sub-config clones), so reference
+		// equality never fires — without this value-equality check,
+		// repeated `validateApp` calls on an already-defaulted form
+		// re-emit the same `updateForm` mutation on every run, bloating
+		// the event log and spending a Firestore write on a no-op reducer
+		// patch. `JSON.stringify` is fine here because `ConnectConfig` is
+		// a small plain-data shape (no functions, no Date, no Map/Set).
+		if (JSON.stringify(next) === JSON.stringify(form.connect)) continue;
 		mutations.push({
 			kind: "updateForm",
 			uuid: formUuid,

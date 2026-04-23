@@ -117,6 +117,48 @@ export function resolveFormUuid(
 	return formUuids[formIndex];
 }
 
+/**
+ * The four handles shared tool modules need when resolving a positional
+ * `(moduleIndex, formIndex)` triple: the `moduleUuid` / `formUuid` for
+ * mutation emission and index → uuid resolution, plus the `mod` / `form`
+ * entities for the `form.type` + `mod.caseType` signals downstream
+ * helpers (e.g. `applyDefaults`) consume.
+ */
+export interface FormContext {
+	moduleUuid: Uuid;
+	mod: Module;
+	formUuid: Uuid;
+	form: Form;
+}
+
+/**
+ * Resolve the module + form entities for a positional
+ * `(moduleIndex, formIndex)` triple. Returns `undefined` when either
+ * index is out of range — callers map that to a tool-specific error
+ * string, so the message wording stays at the call site and the SA
+ * keeps its existing voice.
+ *
+ * Use this instead of `resolveFormUuid` when the tool body also needs
+ * the resolved `mod` / `form` entities (e.g. `form.type` for preload
+ * auto-defaults, `mod.caseType` for case-type lookup). The shared add-
+ * path pipeline in `contentProcessing.applyDefaults` consumes both.
+ */
+export function resolveFormContext(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): FormContext | undefined {
+	const moduleUuid = doc.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const mod = doc.modules[moduleUuid];
+	if (!mod) return undefined;
+	const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+	if (!formUuid) return undefined;
+	const form = doc.forms[formUuid];
+	if (!form) return undefined;
+	return { moduleUuid, mod, formUuid, form };
+}
+
 // ── Form-tree snapshot ──────────────────────────────────────────────────
 
 /**

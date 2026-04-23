@@ -33,7 +33,6 @@ export interface SearchBlueprintResult {
 }
 
 export const searchBlueprintTool = {
-	name: "searchBlueprint" as const,
 	description:
 		"Search the blueprint for fields, forms, modules, or case properties matching a query.",
 	inputSchema: searchBlueprintInputSchema,

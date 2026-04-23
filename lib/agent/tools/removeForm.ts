@@ -38,7 +38,6 @@ export type RemoveFormInput = z.infer<typeof removeFormInputSchema>;
 export type RemoveFormResult = string | { error: string };
 
 export const removeFormTool = {
-	name: "removeForm" as const,
 	description: "Remove a form from a module.",
 	inputSchema: removeFormInputSchema,
 	async execute(

@@ -22,6 +22,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { addFieldTool } from "../../tools/addField";
+import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeTestContext } from "../fixtures";
 
@@ -168,6 +169,87 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 		);
 		expect(chatResult.mutations).toHaveLength(1);
 		expect(chatResult.mutations[0]?.kind).toBe("addField");
+	});
+});
+
+// ── addField / addFields pipeline parity ────────────────────────────────
+
+describe("addField and addFields share the same add-path pipeline", () => {
+	it("both unescape XPath HTML entities in validate expressions", async () => {
+		/* Regression guard for the divergence where `addField` only ran
+		 * `flatFieldToField` and skipped `applyDefaults` — LLM-emitted
+		 * `&gt;` / `&lt;` sequences on XPath-valued keys survived into
+		 * the stored field and XForm validation rejected them at
+		 * generation time. Both tools must now run the same pipeline so a
+		 * given payload normalizes identically regardless of entry point.
+		 *
+		 * The mutation's `addField.field` is the assembled domain Field —
+		 * the final post-pipeline shape — so comparing `field.validate`
+		 * across both tools directly asserts pipeline parity. */
+		const doc = makeFixtureDoc();
+		const id = "age";
+		const escapedValidate = ". &gt; 0 and . &lt; 150";
+		const expectedValidate = ". > 0 and . < 150";
+
+		const singleCtx = makeTestContext().ctx;
+		const { mutations: singleMuts } = await addFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				field: {
+					id,
+					kind: "int",
+					label: "Age",
+					validate: escapedValidate,
+				},
+			},
+			singleCtx,
+			doc,
+		);
+		const addedSingle = singleMuts.find(
+			(m): m is Extract<Mutation, { kind: "addField" }> =>
+				m.kind === "addField",
+		);
+
+		const batchCtx = makeTestContext().ctx;
+		const { mutations: batchMuts } = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [
+					{
+						/* Full sentinel-padded shape — `addFieldsItemSchema`
+						 * makes `parentId`, `label`, `required` required-with-
+						 * sentinel, and eight other optionals fill the 8-slot
+						 * ceiling. `""` / `[]` are the absent sentinels the
+						 * batch-path `stripEmpty` collapses before
+						 * `applyDefaults` runs. */
+						id,
+						kind: "int",
+						parentId: "",
+						label: "Age",
+						required: "",
+						hint: "",
+						validate: escapedValidate,
+						validate_msg: "",
+						relevant: "",
+						calculate: "",
+						default_value: "",
+						options: [],
+						case_property: "",
+					},
+				],
+			},
+			batchCtx,
+			doc,
+		);
+		const addedBatch = batchMuts.find(
+			(m): m is Extract<Mutation, { kind: "addField" }> =>
+				m.kind === "addField",
+		);
+
+		expect(addedSingle?.field).toMatchObject({ validate: expectedValidate });
+		expect(addedBatch?.field).toMatchObject({ validate: expectedValidate });
 	});
 });
 

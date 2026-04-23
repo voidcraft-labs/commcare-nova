@@ -53,7 +53,6 @@ export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 export type UpdateModuleResult = string | { error: string };
 
 export const updateModuleTool = {
-	name: "updateModule" as const,
 	description:
 		"Update module metadata: name, case list columns, or case detail columns.",
 	inputSchema: updateModuleInputSchema,

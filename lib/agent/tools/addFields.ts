@@ -27,7 +27,7 @@ import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
-import { findFieldByBareId } from "../blueprintHelpers";
+import { findFieldByBareId, resolveFormContext } from "../blueprintHelpers";
 import {
 	applyDefaults,
 	flatFieldToField,
@@ -54,7 +54,6 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
 export type AddFieldsResult = string | { error: string };
 
 export const addFieldsTool = {
-	name: "addFields" as const,
 	description:
 		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
 	inputSchema: addFieldsInputSchema,
@@ -65,42 +64,21 @@ export const addFieldsTool = {
 	): Promise<MutatingToolResult<AddFieldsResult>> {
 		const { moduleIndex, formIndex, fields } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) {
-				return {
-					mutations: [],
-					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
-				};
-			}
-			const mod = doc.modules[moduleUuid];
-			if (!mod) {
-				return {
-					mutations: [],
-					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
-				};
-			}
-			const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
-			if (!formUuid) {
+			// Shared positional resolver — fails closed with a single error
+			// message when either index is out of range. Tool-specific
+			// wording stays at the call site so the SA sees "Form m0-f2 not
+			// found" rather than the helper's generic "form not found".
+			const resolved = resolveFormContext(doc, moduleIndex, formIndex);
+			if (!resolved) {
 				return {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Form ${formIndex} not found in module ${moduleIndex}`,
+						error: `Form m${moduleIndex}-f${formIndex} not found`,
 					},
 				};
 			}
-			const form = doc.forms[formUuid];
-			if (!form) {
-				return {
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Form ${formIndex} not found in module ${moduleIndex}`,
-					},
-				};
-			}
+			const { formUuid, form, mod } = resolved;
 
 			// Process incoming flat SA-format fields: strip sentinels, apply
 			// case-property defaults from the data model, then mint a uuid

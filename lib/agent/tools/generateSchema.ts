@@ -47,7 +47,6 @@ export interface GenerateSchemaResult {
 export type GenerateSchemaOutput = GenerateSchemaResult | { error: string };
 
 export const generateSchemaTool = {
-	name: "generateSchema" as const,
 	description:
 		"Set the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the structured case types directly.",
 	inputSchema: generateSchemaInputSchema,
