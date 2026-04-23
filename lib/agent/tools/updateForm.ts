@@ -105,31 +105,39 @@ export type UpdateFormResult = string | { error: string };
  * config; the SA only ever supplies the user-semantic fields
  * (`learn_module`, `assessment`, `deliver_unit.name`, `task`).
  *
- * Returns `null` only when the SA's input is explicitly `null` — the
- * caller uses that as the "clear Connect config" signal.
+ * **Partial-update contract.** Only keys the SA explicitly provided on
+ * `input` are touched on the output — every other sub-config is copied
+ * verbatim from `existing`. A call like
+ * `{ assessment: { user_score: "…" } }` leaves `learn_module`,
+ * `deliver_unit`, and `task` on the existing form untouched; the SA
+ * never has to round-trip the full connect config just to patch one
+ * sub-config. Returns `null` only when the SA's input is explicitly
+ * `null` — the caller uses that as the "clear Connect config" signal.
  */
 function buildConnectConfig(
 	input: NonNullable<UpdateFormInput["connect"]> | null,
 	existing?: ConnectConfig,
 ): ConnectConfig | null {
 	if (input === null) return null;
-	return {
-		learn_module: input.learn_module
-			? { ...existing?.learn_module, ...input.learn_module }
-			: input.learn_module,
-		assessment: input.assessment
-			? { ...existing?.assessment, ...input.assessment }
-			: input.assessment,
-		deliver_unit: input.deliver_unit
-			? {
-					...existing?.deliver_unit,
-					...input.deliver_unit,
-					entity_id: existing?.deliver_unit?.entity_id ?? "",
-					entity_name: existing?.deliver_unit?.entity_name ?? "",
-				}
-			: input.deliver_unit,
-		task: input.task ? { ...existing?.task, ...input.task } : input.task,
-	};
+	const out: ConnectConfig = { ...existing };
+	if (input.learn_module !== undefined) {
+		out.learn_module = { ...existing?.learn_module, ...input.learn_module };
+	}
+	if (input.assessment !== undefined) {
+		out.assessment = { ...existing?.assessment, ...input.assessment };
+	}
+	if (input.deliver_unit !== undefined) {
+		out.deliver_unit = {
+			...existing?.deliver_unit,
+			...input.deliver_unit,
+			entity_id: existing?.deliver_unit?.entity_id ?? "",
+			entity_name: existing?.deliver_unit?.entity_name ?? "",
+		};
+	}
+	if (input.task !== undefined) {
+		out.task = { ...existing?.task, ...input.task };
+	}
+	return out;
 }
 
 export const updateFormTool = {

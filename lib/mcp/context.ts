@@ -40,6 +40,7 @@
 
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import { updateApp } from "@/lib/db/apps";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -174,18 +175,16 @@ export class McpContext implements ToolExecutionContext {
 	/**
 	 * Persist the current blueprint snapshot to Firestore.
 	 *
-	 * Strips `fieldParent` before writing — that field is a reverse index
-	 * derived from `fieldOrder` on load (see `lib/doc/fieldParent.ts`);
-	 * persisting it would bloat the doc and create a second source of
-	 * truth that could drift from `fieldOrder`. Mirrors
-	 * `GenerationContext.saveBlueprint`'s strip.
+	 * Awaited by `recordMutations` as part of the fail-closed contract —
+	 * the tool return does not resolve until Firestore has acknowledged
+	 * the write, so a Firestore rejection propagates to the adapter
+	 * rather than quietly losing the mutation. The shared
+	 * `toPersistableDoc` helper strips the derived `fieldParent` index so
+	 * the stored document stays in the Firestore-shaped
+	 * `PersistableDoc`; a client `docStore.load` rebuilds the index from
+	 * `fieldOrder`.
 	 */
 	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
-		const { fieldParent, ...persistable } = doc;
-		/* `void fieldParent` acknowledges the discard explicitly —
-		 * cleaner than an underscore-prefixed ghost variable and mirrors
-		 * the pattern used in `GenerationContext.saveBlueprint`. */
-		void fieldParent;
-		await updateApp(this.appId, persistable);
+		await updateApp(this.appId, toPersistableDoc(doc));
 	}
 }

@@ -149,7 +149,6 @@ export function formSnapshot(
 
 /** Replace the app's case-type catalog wholesale. */
 export function setCaseTypesMutations(
-	_doc: BlueprintDoc,
 	caseTypes: CaseType[] | null,
 ): Mutation[] {
 	return [{ kind: "setCaseTypes", caseTypes }];
@@ -428,10 +427,7 @@ export function updateFieldMutations(
  * clean slate. This helper deliberately doesn't emit removeModule
  * mutations for existing modules to keep the intent explicit.
  */
-export function setScaffoldMutations(
-	doc: BlueprintDoc,
-	scaffold: Scaffold,
-): Mutation[] {
+export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
 	const muts: Mutation[] = [];
 	muts.push({ kind: "setAppName", name: scaffold.app_name });
 	const connectType = scaffold.connect_type;
@@ -465,10 +461,6 @@ export function setScaffoldMutations(
 			muts.push({ kind: "addForm", moduleUuid, form: formEntity });
 		}
 	}
-	// `doc` is read only for reference, not consulted — but keep the
-	// parameter for signature symmetry with other mutation builders
-	// (every helper takes the doc first).
-	void doc;
 	return muts;
 }
 

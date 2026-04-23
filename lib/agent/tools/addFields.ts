@@ -149,8 +149,11 @@ export const addFieldsTool = {
 					// declared kind — e.g. a text field without label, or a
 					// multi_select without options. `flatFieldToField` logged the
 					// specific schema issues; surface a generic failure to the SA
-					// so it can diagnose via `validateApp` or retry.
-					skippedIds.push(processed.id ?? "<unknown>");
+					// so it can diagnose via `validateApp` or retry. `raw.id` is
+					// the Zod-parsed original (always a string before
+					// `stripEmpty` might drop an empty sentinel), so no fallback
+					// is needed.
+					skippedIds.push(raw.id);
 					continue;
 				}
 				mintedByBareId.set(field.id, fieldUuid);

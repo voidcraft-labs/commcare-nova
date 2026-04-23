@@ -7,16 +7,17 @@
  * to every form under the module and every field under those forms —
  * the entire subtree is dropped atomically.
  *
- * Like `removeForm`, the tool tolerates a missing module index:
- * instead of erroring, it falls through with an informational success
- * message. The SA's loop keeps moving rather than rejecting on a target
- * that's already gone.
+ * Like `removeForm`, the tool tolerates a missing module index. Rather
+ * than returning an error (which would poison the SA's follow-up
+ * reasoning), it returns a clear "does not exist, no change" success
+ * message. The SA sees the target-already-gone state explicitly and
+ * keeps moving rather than assuming the removal just happened.
  *
- * One exit branch reached by every call:
+ * Two exit branches:
  *
- *   - Success (or silent no-op on a missing index) → human-readable
- *     summary; stage tagged `module:remove:M` whenever mutations
- *     actually apply.
+ *   - Missing index → no mutations, "does not exist, no change" message.
+ *   - Success → human-readable "Successfully removed" summary tagged
+ *     `module:remove:M`.
  */
 
 import { z } from "zod";
@@ -47,27 +48,33 @@ export const removeModuleTool = {
 		const { moduleIndex } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			// Snapshot the display name off the pre-mutation doc so the
-			// summary references the real module even after cascade deletion
-			// removes it from `modules`.
-			const name = moduleUuid ? (doc.modules[moduleUuid]?.name ?? null) : null;
 
-			// Only emit + apply when the module actually exists — mirror the
-			// `removeForm` lenient contract. A missing index resolves to
-			// `undefined` and we fall through with a success message so the
-			// SA's loop keeps moving rather than hard-failing on a stale
-			// target.
-			let mutations: Mutation[] = [];
-			let newDoc = doc;
-			if (moduleUuid) {
-				mutations = removeModuleMutations(doc, moduleUuid);
-				newDoc = applyToDoc(doc, mutations);
-				await ctx.recordMutations(
-					mutations,
-					newDoc,
-					`module:remove:${moduleIndex}`,
-				);
+			// Missing index → clear "no change" summary. A
+			// "Successfully removed" string on a missing target would
+			// poison the SA's follow-up reasoning; it would assume the
+			// module is gone and e.g. skip a subsequent recreate step.
+			// Reporting the state truthfully keeps the SA's plan
+			// synchronized with reality.
+			if (!moduleUuid) {
+				return {
+					mutations: [],
+					newDoc: doc,
+					result: `Module ${moduleIndex} does not exist — no change. App has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`,
+				};
 			}
+
+			// Snapshot the display name off the pre-mutation doc so the
+			// summary references the real module even after cascade
+			// deletion removes it from `modules`.
+			const name = doc.modules[moduleUuid]?.name ?? null;
+
+			const mutations: Mutation[] = removeModuleMutations(doc, moduleUuid);
+			const newDoc = applyToDoc(doc, mutations);
+			await ctx.recordMutations(
+				mutations,
+				newDoc,
+				`module:remove:${moduleIndex}`,
+			);
 
 			return {
 				mutations,

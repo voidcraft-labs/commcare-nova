@@ -7,15 +7,17 @@
  * deletion to the form's fields — the full subtree is dropped atomically.
  *
  * The tool tolerates a missing form index: instead of returning an
- * error, it falls through with an informational success message so the
- * SA can re-query without crashing the tool loop when it targets an
- * index that's already gone. This mirrors the `removeModule` contract.
+ * error (which would poison the SA's follow-up logic), it returns a
+ * clear "does not exist, no change" success message. The SA sees the
+ * target-already-gone state explicitly and keeps moving rather than
+ * reasoning as though the removal just happened. This mirrors the
+ * `removeModule` contract.
  *
- * One exit branch reached by every call:
+ * Two exit branches:
  *
- *   - Success (or silent no-op on a missing index) → human-readable
- *     summary; stage tagged `form:M-F` whenever mutations actually
- *     apply.
+ *   - Missing index → no mutations, "does not exist, no change" message.
+ *   - Success → human-readable "Successfully removed" summary tagged
+ *     `form:M-F`.
  */
 
 import { z } from "zod";
@@ -47,28 +49,36 @@ export const removeFormTool = {
 		const { moduleIndex, formIndex } = input;
 		try {
 			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-			// Snapshot the pre-mutation display name so we can surface it
-			// in the summary string even if the form existed only briefly.
-			const removedName = formUuid
-				? (doc.forms[formUuid]?.name ?? `form ${formIndex}`)
-				: `form ${formIndex}`;
 
-			// Only emit + apply when the form actually exists; a missing
-			// form resolves to `undefined` and we fall through with an
-			// informational success message rather than erroring. This
-			// lenient contract matches `removeModule` — mutating tools that
-			// see "target already gone" shouldn't hard-fail the SA's loop.
-			let mutations: Mutation[] = [];
-			let newDoc = doc;
-			if (formUuid) {
-				mutations = removeFormMutations(doc, formUuid);
-				newDoc = applyToDoc(doc, mutations);
-				await ctx.recordMutations(
-					mutations,
-					newDoc,
-					`form:${moduleIndex}-${formIndex}`,
-				);
+			// Missing index → return a clear "no change" summary. A
+			// "Successfully removed" string on a missing target would
+			// poison the SA's follow-up reasoning — it would assume the
+			// form was just deleted and e.g. skip a subsequent recreate
+			// step. Reporting the state truthfully (target not present,
+			// no mutation applied) keeps the SA aligned with reality.
+			if (!formUuid) {
+				const moduleUuid = doc.moduleOrder[moduleIndex];
+				const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
+				const remainingForms = (moduleUuid && doc.formOrder[moduleUuid]) ?? [];
+				return {
+					mutations: [],
+					newDoc: doc,
+					result: `Form m${moduleIndex}-f${formIndex} does not exist — no change. Module "${mod?.name ?? `module ${moduleIndex}`}" has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+				};
 			}
+
+			// Snapshot the pre-mutation display name so the summary can
+			// reference the real form even after cascade deletion removes
+			// it from `forms`.
+			const removedName = doc.forms[formUuid]?.name ?? `form ${formIndex}`;
+
+			const mutations: Mutation[] = removeFormMutations(doc, formUuid);
+			const newDoc = applyToDoc(doc, mutations);
+			await ctx.recordMutations(
+				mutations,
+				newDoc,
+				`form:${moduleIndex}-${formIndex}`,
+			);
 
 			const moduleUuid = newDoc.moduleOrder[moduleIndex];
 			const mod = moduleUuid ? newDoc.modules[moduleUuid] : undefined;

@@ -44,16 +44,14 @@ export interface ToolExecutionContext {
 	 * response metadata without rebuilding them.
 	 *
 	 * `doc` is the POST-mutation blueprint — the result of
-	 * `applyToDoc(preMutationDoc, mutations)`. Both implementations
-	 * persist the passed-in value; there is no "ignored on this surface"
-	 * semantic. Callers MUST apply the mutations to a new doc before
-	 * invoking this method.
+	 * `applyToDoc(preMutationDoc, mutations)`. Implementations persist the
+	 * passed-in value. Callers MUST apply the mutations to a new doc
+	 * before invoking this method.
 	 *
-	 * Async so implementations may `await` Firestore persistence. The
-	 * MCP surface awaits as part of its fail-closed contract; the chat
-	 * surface's intermediate save is fire-and-forget to keep SSE
-	 * streaming responsive, so its returned promise resolves as soon as
-	 * the SSE write and log enqueue finish.
+	 * Async to let implementations await durable persistence when that's
+	 * part of their contract. Callers must not infer durability from
+	 * promise resolution alone — consult the concrete surface's docstring
+	 * for the actual persistence semantics.
 	 */
 	recordMutations(
 		mutations: Mutation[],

@@ -50,6 +50,7 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { updateApp } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -200,21 +201,16 @@ export class GenerationContext implements ToolExecutionContext {
 	 * created_at` for the entire run.
 	 *
 	 * `doc` is the post-mutation blueprint, threaded in by the caller.
-	 * Mirrors `McpContext.saveBlueprint` exactly (minus the `await` —
-	 * chat stays fire-and-forget because SA fix-retry discipline covers
-	 * missed intermediate saves, and we don't want to block the SSE
-	 * stream on Firestore latency). Errors are logged; no rejection
-	 * ever propagates out of this method.
+	 * Chat stays fire-and-forget because the SA's fix-retry discipline
+	 * covers missed intermediate saves and we don't want to block the
+	 * SSE stream on Firestore latency. Errors are logged; no rejection
+	 * ever propagates out of this method. `McpContext.saveBlueprint`
+	 * mirrors the same strip via the shared `toPersistableDoc` helper
+	 * but awaits the write (its fail-closed contract has no agent loop
+	 * to retry).
 	 */
 	private saveBlueprint(doc: BlueprintDoc): void {
-		// `fieldParent` is a derived reverse-index rebuilt on the client from
-		// `fieldOrder` in `docStore.load()`; strip it before writing so the
-		// Firestore doc stays in the persistable shape the schema validates
-		// on read. `void fieldParent` acknowledges the discard explicitly —
-		// cleaner than an underscore-prefixed ghost variable.
-		const { fieldParent, ...persistable } = doc;
-		void fieldParent;
-		updateApp(this.appId, persistable).catch((err) =>
+		updateApp(this.appId, toPersistableDoc(doc)).catch((err) =>
 			log.error("[intermediate-save] failed", err),
 		);
 	}
@@ -500,17 +496,14 @@ export class GenerationContext implements ToolExecutionContext {
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	private trackSubGeneration(
-		_model: string,
-		usage: {
-			inputTokens?: number;
-			outputTokens?: number;
-			inputTokenDetails?: {
-				cacheReadTokens?: number;
-				cacheWriteTokens?: number;
-			};
-		},
-	): void {
+	private trackSubGeneration(usage: {
+		inputTokens?: number;
+		outputTokens?: number;
+		inputTokenDetails?: {
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		};
+	}): void {
 		this.usage.track({
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
@@ -536,7 +529,7 @@ export class GenerationContext implements ToolExecutionContext {
 				maxOutputTokens: opts.maxOutputTokens,
 			});
 			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(model, result.usage);
+			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.text;
 		} catch (error) {
 			this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
@@ -569,7 +562,7 @@ export class GenerationContext implements ToolExecutionContext {
 				}),
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(model, result.usage);
+			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.output ?? null;
 		} catch (error) {
 			this.emitError(classifyError(error), `generate:${opts.label}`);
@@ -613,7 +606,7 @@ export class GenerationContext implements ToolExecutionContext {
 
 		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
 		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(model, usage);
+		if (usage) this.trackSubGeneration(usage);
 		return last;
 	}
 }

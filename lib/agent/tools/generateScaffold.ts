@@ -43,6 +43,12 @@ export interface GenerateScaffoldResult {
 	}>;
 }
 
+/**
+ * LLM-facing tool output. Adds an `{ error }` branch so the error
+ * envelope the SA handles is identical across every mutating tool.
+ */
+export type GenerateScaffoldOutput = GenerateScaffoldResult | { error: string };
+
 export const generateScaffoldTool = {
 	name: "generateScaffold" as const,
 	description:
@@ -53,27 +59,39 @@ export const generateScaffoldTool = {
 		input: GenerateScaffoldInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<MutatingToolResult<GenerateScaffoldResult>> {
-		const mutations = setScaffoldMutations(doc, input);
-		const newDoc = applyToDoc(doc, mutations);
-		await ctx.recordMutations(mutations, newDoc, "scaffold");
-		return {
-			mutations,
-			newDoc,
-			result: {
-				appName: input.app_name,
-				modules: input.modules.map((m, i) => ({
-					index: i,
-					name: m.name,
-					case_type: m.case_type,
-					formCount: m.forms.length,
-					forms: m.forms.map((f, j) => ({
-						index: j,
-						name: f.name,
-						type: f.type,
+	): Promise<MutatingToolResult<GenerateScaffoldOutput>> {
+		try {
+			const mutations = setScaffoldMutations(input);
+			const newDoc = applyToDoc(doc, mutations);
+			await ctx.recordMutations(mutations, newDoc, "scaffold");
+			return {
+				mutations,
+				newDoc,
+				result: {
+					appName: input.app_name,
+					modules: input.modules.map((m, i) => ({
+						index: i,
+						name: m.name,
+						case_type: m.case_type,
+						formCount: m.forms.length,
+						forms: m.forms.map((f, j) => ({
+							index: j,
+							name: f.name,
+							type: f.type,
+						})),
 					})),
-				})),
-			},
-		};
+				},
+			};
+		} catch (err) {
+			// Catch to match the error envelope every other mutating tool
+			// surfaces so the SA's error handling stays uniform. A thrown
+			// exception here (Firestore down mid-recordMutations, etc.)
+			// would otherwise abort the entire tool loop.
+			return {
+				mutations: [],
+				newDoc: doc,
+				result: { error: err instanceof Error ? err.message : String(err) },
+			};
+		}
 	},
 };

@@ -8,17 +8,24 @@
 // use this helper so the construction shape stays in sync with the
 // production constructor.
 //
-// The helper returns both the `ctx` (for driving calls into the class
+// `makeMcpTestContext` is the sibling for the MCP surface: a stubbed
+// `McpContext` so shared tool modules can be driven through both
+// surfaces in cross-surface tests, exercising the same
+// `ToolExecutionContext` interface the production adapter uses.
+//
+// The helpers return both the `ctx` (for driving calls into the class
 // under test) and the stubs (for asserting what the class wrote). All
-// three are typed loosely on the stub side — `vi.fn()` erases the
-// production signature, and tests that care about argument shapes assert
-// on `mock.calls[i][j]` explicitly.
+// stubs are typed loosely — `vi.fn()` erases the production signature,
+// and tests that care about argument shapes assert on
+// `mock.calls[i][j]` explicitly.
 import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
 import type { Session } from "@/lib/auth";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
+import { McpContext } from "@/lib/mcp/context";
+import type { ProgressEmitter } from "@/lib/mcp/progress";
 import { GenerationContext } from "../generationContext";
 
 /**
@@ -125,5 +132,64 @@ export function makeMinimalDoc(): BlueprintDoc {
 		formOrder: {},
 		fieldOrder: {},
 		fieldParent: {},
+	};
+}
+
+/** Handles returned by `makeMcpTestContext` — the context plus the
+ *  vi.fn stubs on its log writer and progress emitter so tests can
+ *  assert on what the context wrote. */
+export interface MakeMcpTestContextHandles {
+	ctx: McpContext;
+	logWriter: {
+		logEvent: ReturnType<typeof vi.fn>;
+		flush: ReturnType<typeof vi.fn>;
+	};
+	progress: { notify: ReturnType<typeof vi.fn> };
+}
+
+/** Options for overriding the default ids on the produced `McpContext`. */
+export interface MakeMcpTestContextOptions {
+	/** Firestore app id. Defaults to `"test-app"`. */
+	appId?: string;
+	/** Better Auth user id. Defaults to `"user-1"`. */
+	userId?: string;
+	/** Per-run grouping id. Defaults to `"run-1"`. */
+	runId?: string;
+}
+
+/**
+ * Build an `McpContext` wired to vi.fn stubs for its log writer and
+ * progress emitter. Safe to call once per test — nothing in the ctx
+ * reaches Firestore as long as the test mocks `@/lib/db/apps.updateApp`
+ * (or never calls `recordMutations`).
+ *
+ * Mirrors `makeTestContext` for the chat surface: both helpers return a
+ * `ToolExecutionContext`-compatible value so shared tool modules can be
+ * driven through either without per-test boilerplate. Cross-surface
+ * tests use both helpers side by side to assert the same input produces
+ * the same mutation batch on both surfaces.
+ */
+export function makeMcpTestContext(
+	opts: MakeMcpTestContextOptions = {},
+): MakeMcpTestContextHandles {
+	const logWriterStub = {
+		logEvent: vi.fn(),
+		flush: vi.fn(),
+	} as unknown as LogWriter;
+	const progressStub: ProgressEmitter = { notify: vi.fn() };
+	const ctx = new McpContext({
+		appId: opts.appId ?? "test-app",
+		userId: opts.userId ?? "user-1",
+		runId: opts.runId ?? "run-1",
+		logWriter: logWriterStub,
+		progress: progressStub,
+	});
+	return {
+		ctx,
+		logWriter: logWriterStub as unknown as {
+			logEvent: ReturnType<typeof vi.fn>;
+			flush: ReturnType<typeof vi.fn>;
+		},
+		progress: progressStub as { notify: ReturnType<typeof vi.fn> },
 	};
 }

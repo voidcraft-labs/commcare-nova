@@ -39,6 +39,13 @@ export interface GenerateSchemaResult {
 	}>;
 }
 
+/**
+ * Structured summary the LLM sees as the tool output on the error branch —
+ * matches the same `{ error }` shape every mutating tool surfaces so the
+ * SA sees a uniform error envelope regardless of which tool failed.
+ */
+export type GenerateSchemaOutput = GenerateSchemaResult | { error: string };
+
 export const generateSchemaTool = {
 	name: "generateSchema" as const,
 	description:
@@ -49,24 +56,38 @@ export const generateSchemaTool = {
 		input: GenerateSchemaInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<MutatingToolResult<GenerateSchemaResult>> {
-		const mutations: Mutation[] = [
-			{ kind: "setAppName", name: input.appName },
-			...setCaseTypesMutations(doc, input.caseTypes),
-		];
-		const newDoc = applyToDoc(doc, mutations);
-		await ctx.recordMutations(mutations, newDoc, "schema");
-		return {
-			mutations,
-			newDoc,
-			result: {
-				appName: input.appName,
-				caseTypes: input.caseTypes.map((ct) => ({
-					name: ct.name,
-					propertyCount: ct.properties.length,
-					properties: ct.properties.map((p) => p.name),
-				})),
-			},
-		};
+	): Promise<MutatingToolResult<GenerateSchemaOutput>> {
+		try {
+			const mutations: Mutation[] = [
+				{ kind: "setAppName", name: input.appName },
+				...setCaseTypesMutations(input.caseTypes),
+			];
+			const newDoc = applyToDoc(doc, mutations);
+			await ctx.recordMutations(mutations, newDoc, "schema");
+			return {
+				mutations,
+				newDoc,
+				result: {
+					appName: input.appName,
+					caseTypes: input.caseTypes.map((ct) => ({
+						name: ct.name,
+						propertyCount: ct.properties.length,
+						properties: ct.properties.map((p) => p.name),
+					})),
+				},
+			};
+		} catch (err) {
+			// Match the error-envelope shape every other mutating tool
+			// returns so the SA handles a generation-phase failure the same
+			// way as an edit-phase failure. Without this, an unexpected
+			// throw (Firestore down mid-recordMutations, malformed input
+			// that escaped Zod, etc.) would propagate out of the tool loop
+			// as an unhandled exception and abort the entire run.
+			return {
+				mutations: [],
+				newDoc: doc,
+				result: { error: err instanceof Error ? err.message : String(err) },
+			};
+		}
 	},
 };

@@ -33,7 +33,7 @@ export const addModuleInputSchema = z.object({
 export type AddModuleInput = z.infer<typeof addModuleInputSchema>;
 
 /**
- * The LLM-facing result shape. Four legal combinations:
+ * The LLM-facing result shape. Three legal variants:
  *
  *   - `{ error }` when the moduleIndex is out of range.
  *   - `{ moduleIndex, name, columns: null }` when the target module is
@@ -68,54 +68,66 @@ export const addModuleTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddModuleResult>> {
 		const { moduleIndex, case_list_columns, case_detail_columns } = input;
-		const moduleUuid = doc.moduleOrder[moduleIndex];
-		if (!moduleUuid) {
-			return {
-				mutations: [],
-				newDoc: doc,
-				result: { error: `Module ${moduleIndex} not found` },
-			};
-		}
-		const mod = doc.modules[moduleUuid];
-		if (!mod) {
-			return {
-				mutations: [],
-				newDoc: doc,
-				result: { error: `Module ${moduleIndex} not found` },
-			};
-		}
+		try {
+			const moduleUuid = doc.moduleOrder[moduleIndex];
+			if (!moduleUuid) {
+				return {
+					mutations: [],
+					newDoc: doc,
+					result: { error: `Module ${moduleIndex} not found` },
+				};
+			}
+			const mod = doc.modules[moduleUuid];
+			if (!mod) {
+				return {
+					mutations: [],
+					newDoc: doc,
+					result: { error: `Module ${moduleIndex} not found` },
+				};
+			}
 
-		// Survey-only branch: the module already exists from scaffold and
-		// has no case type, so there are no column mutations to apply.
-		// Return a silent success — the client reads the module entity
-		// directly, so no stream event is needed here.
-		if (!mod.caseType || !case_list_columns) {
+			// Survey-only branch: the module already exists from scaffold and
+			// has no case type, so there are no column mutations to apply.
+			// Return a silent success — the client reads the module entity
+			// directly, so no stream event is needed here.
+			if (!mod.caseType || !case_list_columns) {
+				return {
+					mutations: [],
+					newDoc: doc,
+					result: { moduleIndex, name: mod.name, columns: null },
+				};
+			}
+
+			const mutations = updateModuleMutations(doc, moduleUuid, {
+				caseListColumns: case_list_columns,
+				...(case_detail_columns && {
+					caseDetailColumns: case_detail_columns,
+				}),
+			});
+			const newDoc = applyToDoc(doc, mutations);
+			// Stage tag encodes which module these mutations belong to —
+			// useful for replay attribution and server-side telemetry.
+			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
+			return {
+				mutations,
+				newDoc,
+				result: {
+					moduleIndex,
+					name: mod.name,
+					case_list_columns,
+					case_detail_columns: case_detail_columns ?? null,
+				},
+			};
+		} catch (err) {
+			// Match the error-envelope shape every other mutating tool
+			// returns so the SA's error handling stays uniform. An
+			// unexpected throw (Firestore down mid-recordMutations, etc.)
+			// would otherwise abort the entire tool loop.
 			return {
 				mutations: [],
 				newDoc: doc,
-				result: { moduleIndex, name: mod.name, columns: null },
+				result: { error: err instanceof Error ? err.message : String(err) },
 			};
 		}
-
-		const mutations = updateModuleMutations(doc, moduleUuid, {
-			caseListColumns: case_list_columns,
-			...(case_detail_columns && {
-				caseDetailColumns: case_detail_columns,
-			}),
-		});
-		const newDoc = applyToDoc(doc, mutations);
-		// Stage tag encodes which module these mutations belong to —
-		// useful for replay attribution and server-side telemetry.
-		await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
-		return {
-			mutations,
-			newDoc,
-			result: {
-				moduleIndex,
-				name: mod.name,
-				case_list_columns,
-				case_detail_columns: case_detail_columns ?? null,
-			},
-		};
 	},
 };

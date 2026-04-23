@@ -23,6 +23,17 @@
  * than `MutatingToolResult<ValidateAppResult>` — the wrapper should
  * unconditionally `doc = result.doc` regardless of success, to pick up
  * any partial fixes the loop managed before giving up.
+ *
+ * **Error handling divergence.** Every other mutating tool wraps its
+ * body in try/catch and returns an `{ error }` envelope. This one does
+ * not: validation failures are a semantic result (not a thrown
+ * exception), and the fix loop routes any real errors through its own
+ * classifier before returning them in `result.errors`. Letting thrown
+ * exceptions from `validateAndFix` propagate is deliberate — the chat
+ * route's catch-all converts them to `data-error` events, and the MCP
+ * adapter surfaces them as tool-error responses. Wrapping here would
+ * hide genuine validation infrastructure failures as opaque `{ error }`
+ * strings.
  */
 
 import { z } from "zod";

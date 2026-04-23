@@ -52,32 +52,28 @@ import { validateAppTool } from "./tools/validateApp";
 export { validateAndFix } from "./validationLoop";
 
 /**
- * Names of SA tools exposed only in build mode. Sourced from the tool
- * modules themselves (each exports a literal-typed `name`) so a rename
- * at the tool module is the only edit needed to keep this list in sync.
+ * Names of SA tools exposed only in build mode. Declared as string
+ * literals so the array is module-scope (the concrete tool record lives
+ * inside the factory closure, bound to `ctx` and `doc`).
  *
  * The chat route uses this list to strip build-only tool-use parts from
  * message history on edit-mode requests — Anthropic rejects any tool
  * reference whose name isn't in the current tools array, and a
  * mid-session edit right after a build would otherwise carry these
  * references in its history.
+ *
+ * `BuildOnlyToolName` pins the list to its literal values; the factory
+ * applies a matching `satisfies Record<BuildOnlyToolName, …>` to its
+ * generation-tool record so a rename on either side breaks compilation
+ * on the other.
  */
 export const BUILD_ONLY_TOOL_NAMES = [
-	generateSchemaTool.name,
-	generateScaffoldTool.name,
-	addModuleTool.name,
+	"generateSchema",
+	"generateScaffold",
+	"addModule",
 ] as const;
 
-// ── Doc helpers ───────────────────────────────────────────────────────
-
-/**
- * `FormSnapshot` is the domain-vocab form-plus-fields shape the SA's
- * `getForm` tool returns. The type and its builder live in
- * `blueprintHelpers.ts` alongside other positional `BlueprintDoc`
- * readers; re-exporting here lets agent-layer consumers import the
- * type from the same surface they import the SA factory.
- */
-export type { FormSnapshot } from "./blueprintHelpers";
+type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -184,12 +180,18 @@ export function createSolutionsArchitect(
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → fields.
 	// Excluded in edit mode — the SA uses mutation tools instead.
+	//
+	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
+	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key
+	// (without updating the module-scope list) is a compile error. That
+	// keeps the chat route's history-strip filter aligned with whatever
+	// the factory actually registers.
 
 	const generationTools = {
 		generateSchema: wrapMutating(generateSchemaTool),
 		generateScaffold: wrapMutating(generateScaffoldTool),
 		addModule: wrapMutating(addModuleTool),
-	};
+	} satisfies Record<BuildOnlyToolName, unknown>;
 
 	// ── Shared tools (all modes) ─────────────────────────────────────
 	// Conversation, batch add, read, mutation, and validation tools.
@@ -289,7 +291,7 @@ export function createSolutionsArchitect(
 		// summary.
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
-		prepareStep: ({ steps: _steps }) => {
+		prepareStep: () => {
 			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
 			// for human-readable thinking summaries to stream back. `effort` is a
 			// top-level provider option (sibling of `thinking`), not nested inside
@@ -318,11 +320,7 @@ export function createSolutionsArchitect(
 						toolName: tc.toolName,
 						input: tc.input,
 					})),
-					toolResults:
-						(step.toolResults as Array<{
-							toolCallId: string;
-							output: unknown;
-						}>) ?? undefined,
+					toolResults: step.toolResults,
 					warnings: step.warnings,
 				},
 				"Solutions Architect",
