@@ -1,8 +1,9 @@
 /**
- * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and emits
- * domain-vocabulary text (`field`, `kind`, `case_property`) — no CommCare wire
- * terms. Extracted from the SA prompt composer so any consumer that needs this
- * compact text can import it directly rather than slicing the prompt.
+ * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
+ * emits domain-vocabulary text (`field`, `kind`, `case_property`) — no
+ * CommCare wire terms. The SA prompt composer and the MCP `get_app`
+ * tool both consume this so the two surfaces show one canonical
+ * domain-vocabulary view of an app.
  */
 
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
@@ -22,9 +23,9 @@ function summarizeField(
 ): string | undefined {
 	const field = doc.fields[uuid];
 	if (!field) return undefined;
-	// Every field has `id` and `kind`; `label` is absent on hidden,
-	// `case_property` is absent on structural/media kinds and on
-	// non-case fields. We render each piece only when it's meaningful.
+	// `label` is absent on hidden, `case_property` is absent on
+	// structural/media kinds and on non-case fields — render each
+	// piece only when it's meaningful.
 	const pieces: string[] = [`${indent}- ${field.id} (${field.kind})`];
 	if ("label" in field && field.label) pieces[0] += `: "${field.label}"`;
 	if ("case_property" in field && field.case_property) {

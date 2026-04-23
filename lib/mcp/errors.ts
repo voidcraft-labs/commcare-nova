@@ -34,7 +34,7 @@ import { McpAccessError } from "./ownership";
 
 /**
  * Errors produced by `upload_app_to_hq`'s four-gate validation chain.
- * Exported so the tool's `UPLOAD_ERROR_TYPES` record can `satisfies`-
+ * Exported so the tool's `UPLOAD_ERROR_TAGS` record can `satisfies`-
  * check against the union — a new bucket without a corresponding entry
  * here becomes a compile error rather than a silent wire drift.
  */
@@ -119,15 +119,19 @@ export interface McpToolSuccessResult {
  * failure predates app resolution (e.g. a schema validation error on
  * arguments); `runId` is unset in exotic paths where a handler fails
  * before minting a run id — every regular handler resolves `runId` at
- * the top and threads it here. `userId` is threaded by the handlers
- * that already know it at throw time so the IDOR audit-log entry for
- * a `"not_owner"` rejection can identify the probing caller; absent
- * `userId` still produces the same wire envelope, just with a looser
- * log record.
+ * the top and threads it here.
  */
 export interface McpErrorContext {
 	appId?: string;
 	runId?: string;
+	/**
+	 * Authenticated user id. Handlers thread this unconditionally on
+	 * every error — it's only read by the `McpAccessError` branch's
+	 * cross-tenant audit log, but passing it every time keeps call
+	 * sites uniform and ready for future audit expansions. Absent
+	 * `userId` still produces the same wire envelope, just with a
+	 * looser log record.
+	 */
 	userId?: string;
 }
 

@@ -286,9 +286,10 @@ export function projectResult(raw: unknown): unknown {
 
 	/* 2. validateApp discrimination: `success` + `doc`, with `doc`
 	 * being object-typed (the full `BlueprintDoc`). Mutating tool
-	 * results also carry `result` so the mutating check above wins,
-	 * but we add a positive `!("result" in raw)` check here as
-	 * belt-and-suspenders against a future shape regression. */
+	 * results also carry `result`, which the mutating check above
+	 * already catches; `isValidateAppResult` additionally ensures
+	 * no `result` key on the outer shape as belt-and-suspenders
+	 * against a future shape regression. */
 	if (isValidateAppResult(raw)) {
 		if (raw.success) return { success: true };
 		/* On failure we include `errors` even when empty — clients

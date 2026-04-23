@@ -18,7 +18,18 @@
 export interface ToolContext {
 	/** Better Auth user id, from the JWT `sub` claim. */
 	userId: string;
-	/** Scopes granted on this token, post-verification. */
+	/**
+	 * Scopes granted on the caller's access token, post-verification.
+	 * Typed as `readonly string[]` not `Scope[]` because the claim
+	 * carries third-party scopes (`openid`, `profile`, `offline_access`)
+	 * Nova doesn't own but must preserve alongside its own. Tool bodies
+	 * that need to branch on a Nova scope check
+	 * `scopes.includes(SCOPES.write)` against the string array. No tool
+	 * reads this field today — scope enforcement happens at the route
+	 * layer's `verifyAccessToken` — but the field is threaded through
+	 * so future scope-conditional tool behavior doesn't need a context
+	 * refactor.
+	 */
 	scopes: readonly string[];
 }
 

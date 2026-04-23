@@ -240,12 +240,13 @@ describe("registerCompileApp — ownership failure", () => {
 		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out.content[0]?.text).toBe("App not found.");
 		expect(out._meta?.app_id).toBe("a1");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 		/* No blueprint load and no expand when ownership fails —
 		 * cross-tenant compile probes must short-circuit. */
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
@@ -263,11 +264,12 @@ describe("registerCompileApp — not found", () => {
 
 		const out = (await capture()({ app_id: "ghost", format: "json" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("ghost");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 	});
 
 	it("maps a hard-delete race on loadAppBlueprint to error_type = 'not_found'", async () => {
@@ -283,13 +285,45 @@ describe("registerCompileApp — not found", () => {
 
 		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("a1");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 		/* The expander never runs — the tool bails on the missing row
 		 * before reaching the emission pipeline. */
+		expect(expandDoc).not.toHaveBeenCalled();
+	});
+});
+
+describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
+	it("not_owner and not_found produce byte-identical envelopes modulo run_id", async () => {
+		/* Regression lock for the IDOR hardening: both access-failure
+		 * shapes must be byte-identical so a probing client has no
+		 * signal to distinguish them. Threads the same `run_id`
+		 * through both calls so even that dimension is pinned. */
+		const runId = "fixed-rid-for-compile-parity";
+
+		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		const { server: sA, capture: capA } = makeFakeServer();
+		registerCompileApp(sA, toolCtx);
+		const ownerMismatch = await capA()(
+			{ app_id: "probe-id", format: "json" },
+			{ _meta: { run_id: runId } },
+		);
+
+		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		const { server: sB, capture: capB } = makeFakeServer();
+		registerCompileApp(sB, toolCtx);
+		const notFound = await capB()(
+			{ app_id: "probe-id", format: "json" },
+			{ _meta: { run_id: runId } },
+		);
+
+		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
+		/* Neither branch reached the expander — both short-circuited at
+		 * the ownership gate with identical envelopes. */
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
 });
@@ -313,7 +347,7 @@ describe("registerCompileApp — compileCcz throws", () => {
 
 		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(typeof out._meta?.error_type).toBe("string");
@@ -322,5 +356,6 @@ describe("registerCompileApp — compileCcz throws", () => {
 		expect(out._meta?.error_type).not.toBe("not_owner");
 		expect(out._meta?.error_type).not.toBe("not_found");
 		expect(out._meta?.app_id).toBe("a1");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 	});
 });

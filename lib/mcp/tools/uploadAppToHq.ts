@@ -53,27 +53,28 @@ import type { ToolContext } from "../types";
 
 /**
  * Canonical `_meta.error_type` strings for each upload-gate failure
- * mode. `satisfies UploadErrorType` pins each value to the closed
- * taxonomy in `../errors.ts` — a handler-side rename or a new bucket
- * that skips the taxonomy surfaces as a compile error here before it
- * can drift onto the wire. Exported as a frozen record so tests can
- * reference the literals the handler emits without hardcoding raw
- * strings.
+ * mode. `satisfies Record<UploadErrorType, UploadErrorType>` forces
+ * every variant of `UploadErrorType` to appear as a key — adding a
+ * new variant to the union without a matching entry here is a
+ * compile error, so the wire taxonomy cannot silently drift.
+ *
+ * Exported as a frozen record so tests can reference the literals the
+ * handler emits without hardcoding raw strings.
  *
  * These tags are part of the MCP wire contract: any client branching
  * on an upload error expects exactly these four values. Treat them as
  * public API.
  */
-export const UPLOAD_ERROR_TYPES = {
+export const UPLOAD_ERROR_TAGS = {
 	/** Gate 1 — `args.domain` failed the HQ domain-slug regex. */
-	invalidDomain: "invalid_domain",
+	invalid_domain: "invalid_domain",
 	/** Gate 2 — the user has no stored HQ credentials. */
-	hqNotConfigured: "hq_not_configured",
+	hq_not_configured: "hq_not_configured",
 	/** Gate 3 — stored credentials authorize a different project space. */
-	domainMismatch: "domain_mismatch",
+	domain_mismatch: "domain_mismatch",
 	/** Gate 4 — HQ rejected the upload (HQ-side failure, post-validation). */
-	hqUploadFailed: "hq_upload_failed",
-} as const satisfies Record<string, UploadErrorType>;
+	hq_upload_failed: "hq_upload_failed",
+} as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
  * Build an MCP error envelope for a failed upload gate.
@@ -165,7 +166,7 @@ export function registerUploadAppToHq(
 				 * constructs against the hardcoded HQ base. */
 				if (!isValidDomainSlug(args.domain)) {
 					return makeGateError(
-						UPLOAD_ERROR_TYPES.invalidDomain,
+						UPLOAD_ERROR_TAGS.invalid_domain,
 						"Invalid CommCare HQ project slug. Use the project's URL slug (letters, numbers, dots, hyphens, underscores only).",
 						appId,
 						runId,
@@ -178,7 +179,7 @@ export function registerUploadAppToHq(
 				const settings = await getDecryptedCredentialsWithDomain(ctx.userId);
 				if (!settings) {
 					return makeGateError(
-						UPLOAD_ERROR_TYPES.hqNotConfigured,
+						UPLOAD_ERROR_TAGS.hq_not_configured,
 						"CommCare HQ is not configured. Add your HQ credentials in Settings before uploading.",
 						appId,
 						runId,
@@ -191,7 +192,7 @@ export function registerUploadAppToHq(
 				 * the Nova app and the slug is structurally valid. */
 				if (settings.domain.name !== args.domain) {
 					return makeGateError(
-						UPLOAD_ERROR_TYPES.domainMismatch,
+						UPLOAD_ERROR_TAGS.domain_mismatch,
 						`You can only upload to the project space authorized on your credentials (${settings.domain.name}).`,
 						appId,
 						runId,
@@ -248,7 +249,7 @@ export function registerUploadAppToHq(
 
 					if (!result.success) {
 						return makeGateError(
-							UPLOAD_ERROR_TYPES.hqUploadFailed,
+							UPLOAD_ERROR_TAGS.hq_upload_failed,
 							`CommCare HQ rejected the upload (status ${result.status}).`,
 							appId,
 							runId,
@@ -263,11 +264,9 @@ export function registerUploadAppToHq(
 
 					/* Record the upload success on the event log as a
 					 * `tool-result` conversation event. `toolCallId` is
-					 * minted fresh per call — `runId` is intentionally
-					 * NOT reused because clients can thread one runId
-					 * across multiple tool calls and that would break the
-					 * `tool-call` ↔ `tool-result` pairing contract
-					 * documented in `lib/log/types.ts`. */
+					 * a fresh uuid (not `runId`) to preserve the
+					 * `tool-call` ↔ `tool-result` pairing contract in
+					 * `lib/log/types.ts`. */
 					mcpCtx.recordConversation({
 						type: "tool-result",
 						toolCallId: crypto.randomUUID(),

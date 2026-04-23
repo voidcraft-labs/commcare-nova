@@ -107,12 +107,15 @@ describe("registerDeleteApp — ownership failure", () => {
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out.content[0]?.text).toBe("App not found.");
 		expect(out._meta?.app_id).toBe("a1");
+		/* Error path stamps `run_id` too — minted when no client id was
+		 * threaded. */
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 		/* Hard invariant: a cross-tenant probe must not leave soft-delete
 		 * state behind. `softDeleteApp` must not run at all. */
 		expect(softDeleteApp).not.toHaveBeenCalled();
@@ -128,15 +131,48 @@ describe("registerDeleteApp — not found", () => {
 
 		const out = (await capture()({ app_id: "ghost" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("ghost");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 		/* A probe against a nonexistent id must not reach softDeleteApp —
 		 * the helper's `update()` would reject with NOT_FOUND, which is
 		 * a correct signal for a real caller but wasteful noise when
 		 * the ownership gate can rule it out first. */
+		expect(softDeleteApp).not.toHaveBeenCalled();
+	});
+});
+
+describe("registerDeleteApp — wire parity (IDOR regression lock)", () => {
+	it("not_owner and not_found produce byte-identical envelopes modulo run_id", async () => {
+		/* Regression lock for the IDOR hardening: both access-failure
+		 * shapes must be byte-identical so a probing client has no
+		 * signal to distinguish them. Threads the same `run_id`
+		 * through both calls so even that dimension is pinned. */
+		const runId = "fixed-rid-for-delete-parity";
+
+		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		const { server: sA, capture: capA } = makeFakeServer();
+		registerDeleteApp(sA, toolCtx);
+		const ownerMismatch = await capA()(
+			{ app_id: "probe-id" },
+			{ _meta: { run_id: runId } },
+		);
+
+		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		const { server: sB, capture: capB } = makeFakeServer();
+		registerDeleteApp(sB, toolCtx);
+		const notFound = await capB()(
+			{ app_id: "probe-id" },
+			{ _meta: { run_id: runId } },
+		);
+
+		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
+		/* softDeleteApp was never invoked for either branch — probes
+		 * must not leave state behind regardless of which path they
+		 * hit. */
 		expect(softDeleteApp).not.toHaveBeenCalled();
 	});
 });
@@ -153,7 +189,7 @@ describe("registerDeleteApp — softDeleteApp throws", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		/* Not the `McpAccessError` fast path — the write rejection is
@@ -165,5 +201,6 @@ describe("registerDeleteApp — softDeleteApp throws", () => {
 		expect(out._meta?.error_type).not.toBe("not_owner");
 		expect(out._meta?.error_type).not.toBe("not_found");
 		expect(out._meta?.app_id).toBe("a1");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 	});
 });

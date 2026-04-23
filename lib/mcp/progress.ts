@@ -57,11 +57,10 @@ export function createProgressEmitter(
 	server: McpServer,
 	progressToken: string | number | undefined,
 ): ProgressEmitter {
-	/* MCP progress notifications require a monotonically-increasing
-	 * `progress` number — compliant clients reject params missing it.
-	 * Each emitter owns its own counter, allocated at notify time, so the
-	 * sequence starts at 1 and advances per call regardless of how many
-	 * adapters share a server. */
+	/* Counter owned by this closure. `progress += 1` runs BEFORE each
+	 * dispatch so the first `notify` sends `progress: 1` (MCP spec
+	 * requires a monotonically-increasing number — compliant clients
+	 * reject params missing it). */
 	let progress = 0;
 	return {
 		notify(stage, message, extra) {

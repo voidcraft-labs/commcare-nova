@@ -31,7 +31,8 @@ import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import { loadApp, loadAppOwner } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import {
 	projectResult,
 	registerSharedTool,
@@ -71,6 +72,10 @@ vi.mock("@/lib/log/writer", () => ({ LogWriter: LogWriterMock }));
 
 /* --- Helpers --------------------------------------------------------- */
 
+/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Build a minimal valid `BlueprintDoc` with the fields `loadApp` will
  * hydrate. `fieldParent` is deliberately absent on the persistable
@@ -89,6 +94,53 @@ function mockBlueprint(): Omit<BlueprintDoc, "fieldParent"> {
 		moduleOrder: [],
 		formOrder: {},
 		fieldOrder: {},
+	};
+}
+
+/**
+ * Build a blueprint with one module + one form so `addFieldTool` can
+ * reach its happy-path branch (resolveFormContext must find the form).
+ * `fieldOrder[formUuid] = []` makes the form empty so the fake
+ * `recordMutations` spy can observe a single successful insert without
+ * the test having to fabricate existing fields. Matches the
+ * `Omit<BlueprintDoc, "fieldParent">` shape `loadApp` returns on disk.
+ */
+function mockBlueprintWithForm(): {
+	blueprint: Omit<BlueprintDoc, "fieldParent">;
+	modUuid: Uuid;
+	formUuid: Uuid;
+} {
+	const modUuid = asUuid("44444444-4444-4444-4444-444444444444");
+	const formUuid = asUuid("55555555-5555-5555-5555-555555555555");
+	return {
+		blueprint: {
+			appId: "a1",
+			appName: "Test",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[modUuid]: {
+					uuid: modUuid,
+					id: "patients",
+					name: "Patients",
+					caseType: "patient",
+				},
+			},
+			forms: {
+				[formUuid]: {
+					uuid: formUuid,
+					id: "register",
+					name: "Register",
+					type: "registration",
+				},
+			},
+			fields: {},
+			moduleOrder: [modUuid],
+			formOrder: { [modUuid]: [formUuid] },
+			fieldOrder: { [formUuid]: [] },
+		},
+		modUuid,
+		formUuid,
 	};
 }
 
@@ -301,11 +353,15 @@ describe("registerSharedTool — ownership failure", () => {
 		const out = (await capture()({ app_id: "ghost" }, {})) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { error_type: string; app_id: string };
+			_meta: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta.error_type).toBe("not_found");
 		expect(out._meta.app_id).toBe("ghost");
+		/* Every error envelope stamps `run_id` — minted when the client
+		 * didn't thread one, so the per-call grouping invariant holds on
+		 * the error path too. */
+		expect(out._meta.run_id).toMatch(UUID_RE);
 	});
 });
 
@@ -322,12 +378,19 @@ describe("registerSharedTool — logWriter flush on error", () => {
 		const { server, capture } = makeFakeServer();
 		registerSharedTool(server, "boom_tool", throwingTool, toolCtx);
 
-		await capture()({ app_id: "a1" }, {});
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			_meta: { error_type: string; app_id: string; run_id?: string };
+		};
 
 		/* After the tool threw, the adapter must have still flushed the
 		 * writer buffer — otherwise queued events would be lost. */
 		const flush = latestFlushSpy();
 		expect(flush).toHaveBeenCalledTimes(1);
+		/* Mid-throw error envelope still stamps `run_id` + `app_id`. */
+		expect(out.isError).toBe(true);
+		expect(out._meta.app_id).toBe("a1");
+		expect(out._meta.run_id).toMatch(UUID_RE);
 	});
 });
 
@@ -491,22 +554,22 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 });
 
 describe("registerSharedTool — real mutating tool integration (addField)", () => {
-	it("invokes the tool's own ctx.recordMutations; the adapter does not re-persist", async () => {
-		/* Cross-check the no-double-persist invariant against a real
-		 * mutating tool. `addField` fails schema validation on an
-		 * empty-container payload (no module), returning `{ error }`
-		 * and an empty mutations array. That's the least-fragile way
-		 * to exercise the mutating-tool happy-code-path without
-		 * fabricating a full module + form blueprint fixture — the
-		 * projection logic is what we're guarding, not the tool's
-		 * success case. */
+	it("projects MutatingToolResult → result on the error branch and does not re-persist", async () => {
+		/* Covers the projection + error-shape contract on a real
+		 * mutating tool, not the double-persistence invariant per se:
+		 * the empty blueprint has no module at index 0, so
+		 * `resolveFormContext` returns null and `addFieldTool` emits
+		 * an empty mutations batch with a `{ error }` result. That
+		 * exercises projection (MutatingToolResult → `result`) without
+		 * needing a full module + form fixture. The happy-path sibling
+		 * test below covers the "adapter doesn't double-persist"
+		 * invariant against a real mutation that actually fires. */
 		const { addFieldTool } = await import("@/lib/agent/tools/addField");
 
-		/* Patch the context's recordMutations so the test can see any
-		 * adapter-side re-persist attempt. The tool itself resolves
-		 * its error path without touching ctx.recordMutations (no
-		 * mutations to record), which is exactly what we need — if
-		 * the adapter ever re-persisted it, this spy would fire. */
+		/* Spy on `ctx.recordMutations` so any adapter-side re-persist
+		 * would surface. The tool itself returns early with zero
+		 * mutations on this branch, so the tool body also never calls
+		 * it — the spy therefore must remain uncalled. */
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
 		const recordSpy = vi.fn().mockResolvedValue([]);
@@ -521,12 +584,6 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 					app_id: "a1",
 					moduleIndex: 0,
 					formIndex: 0,
-					/* Field payload is intentionally minimal — the empty
-					 * blueprint has no module at index 0, so the tool
-					 * returns `{ error }` with zero mutations. That's
-					 * the branch we want: projection unwraps
-					 * MutatingToolResult → `result`, which here is
-					 * `{ error: "Form m0-f0 not found" }`. */
 					field: { id: "q1", kind: "text", label: "Q1" },
 				},
 				{},
@@ -536,12 +593,122 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 				error?: string;
 			};
 			expect(typeof parsed.error).toBe("string");
-			/* Hard invariant: adapter must NEVER call recordMutations
-			 * itself. The tool did not call it either (empty mutation
-			 * batch), so zero total calls is the contract. */
+			/* Neither the tool (empty batch) nor the adapter (invariant)
+			 * called recordMutations. Zero total calls is the contract. */
 			expect(recordSpy).not.toHaveBeenCalled();
 		} finally {
 			McpContext.prototype.recordMutations = originalRecord;
 		}
+	});
+
+	it("happy path: fires the tool's own ctx.recordMutations exactly once; adapter stays hands-off", async () => {
+		/* Drives `addFieldTool` on a blueprint that has a module + form
+		 * so `resolveFormContext` succeeds and the tool reaches its
+		 * mutation-emitting branch. `ctx.recordMutations` must fire
+		 * exactly once (from inside the tool body) — a second call
+		 * would mean the adapter is double-persisting, which is the
+		 * invariant the no-re-persist contract guards. */
+		const { addFieldTool } = await import("@/lib/agent/tools/addField");
+
+		/* Override the default empty-blueprint `loadApp` mock with a
+		 * one-module-one-form fixture. `fieldParent` is deliberately
+		 * absent — the adapter's `loadAppBlueprint` rebuilds it on the
+		 * way in. */
+		const { blueprint } = mockBlueprintWithForm();
+		vi.mocked(loadApp).mockResolvedValueOnce({
+			owner: "u1",
+			app_name: blueprint.appName,
+			blueprint: blueprint as unknown as BlueprintDoc,
+			connect_type: null,
+			module_count: blueprint.moduleOrder.length,
+			form_count: Object.values(blueprint.formOrder).reduce(
+				(sum, ids) => sum + ids.length,
+				0,
+			),
+			status: "complete",
+			error_type: null,
+			deleted_at: null,
+			recoverable_until: null,
+			run_id: null,
+			created_at: new Date() as unknown as AppDoc["created_at"],
+			updated_at: new Date() as unknown as AppDoc["updated_at"],
+		});
+
+		const { McpContext } = await import("../context");
+		const originalRecord = McpContext.prototype.recordMutations;
+		const recordSpy = vi.fn().mockResolvedValue([]);
+		McpContext.prototype.recordMutations = recordSpy;
+
+		try {
+			const { server, capture } = makeFakeServer();
+			registerSharedTool(server, "add_field", addFieldTool, toolCtx);
+
+			const out = (await capture()(
+				{
+					app_id: "a1",
+					moduleIndex: 0,
+					formIndex: 0,
+					field: { id: "q1", kind: "text", label: "Q1" },
+				},
+				{},
+			)) as { content: Array<{ type: "text"; text: string }> };
+
+			/* Payload is the unwrapped `.result` — a human-readable
+			 * success string from the real tool. JSON.stringify of a
+			 * plain string round-trips to the quoted form. */
+			const text = out.content[0]?.text ?? "";
+			expect(text.startsWith('"Successfully added field')).toBe(true);
+
+			/* The core contract: exactly one `recordMutations` call,
+			 * made by the tool body. If the adapter ever re-persisted,
+			 * this count would be 2. */
+			expect(recordSpy).toHaveBeenCalledTimes(1);
+		} finally {
+			McpContext.prototype.recordMutations = originalRecord;
+		}
+	});
+});
+
+describe("registerSharedTool — IDOR byte-parity regression lock", () => {
+	it("not_owner and not_found produce byte-identical envelopes through the shared wrapper", async () => {
+		/* Regression lock for the IDOR hardening on the shared
+		 * surface. Every shared SA tool routes through this wrapper,
+		 * so proving the envelope is byte-identical here covers the
+		 * entire shared surface in one assertion. The two calls thread
+		 * the SAME client-supplied `run_id` so even that dimension is
+		 * pinned for byte-level comparison. */
+		const runId = "fixed-rid-for-adapter-parity";
+		const anyTool: SharedToolModule = {
+			description: "unused",
+			inputSchema: z.object({}),
+			async execute() {
+				throw new Error("should not be called");
+			},
+		};
+
+		/* Case 1: ownership returns a different user (not_owner).
+		 * `toMcpErrorResult` collapses to `"not_found"` on the wire. */
+		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		const { server: sA, capture: capA } = makeFakeServer();
+		registerSharedTool(sA, "any", anyTool, toolCtx);
+		const notOwnerResult = await capA()(
+			{ app_id: "probe-id" },
+			{ _meta: { run_id: runId } },
+		);
+
+		/* Case 2: ownership returns null (not_found). Envelope shape
+		 * must be identical — same text, same `error_type`, same
+		 * `_meta` layout. */
+		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		const { server: sB, capture: capB } = makeFakeServer();
+		registerSharedTool(sB, "any", anyTool, toolCtx);
+		const notFoundResult = await capB()(
+			{ app_id: "probe-id" },
+			{ _meta: { run_id: runId } },
+		);
+
+		/* Identical serialization proves there's no wire signal a
+		 * probing client could use to distinguish the two cases. */
+		expect(JSON.stringify(notOwnerResult)).toBe(JSON.stringify(notFoundResult));
 	});
 });

@@ -138,6 +138,33 @@ describe("registerCreateApp — run_id threading", () => {
 	});
 });
 
+/* --- Type-level tests ------------------------------------------------ */
+
+/**
+ * Compile-time regression lock for `CreateAppOptions.status`. The
+ * narrowed type rejects `"error"` and `"deleted"` — these calls must
+ * NOT compile. `@ts-expect-error` fails the test suite build if the
+ * assertion suddenly starts typechecking (e.g. a future widening of
+ * the union), catching the regression at compile time rather than
+ * waiting for a runtime surprise.
+ *
+ * Calls are wrapped in a `neverRun` guard so the references don't
+ * execute — the `@ts-expect-error` directives ARE the assertions, not
+ * any runtime behavior.
+ */
+function typeCheckCreateAppOptions(): void {
+	const neverRun = false;
+	if (neverRun) {
+		// @ts-expect-error — "error" is not a valid creation status
+		void createApp("u1", "rid", { status: "error" });
+		// @ts-expect-error — "deleted" is not a valid creation status
+		void createApp("u1", "rid", { status: "deleted" });
+	}
+}
+/* Reference the guard so lint doesn't flag it as unused — the
+ * directives inside are what the compiler enforces. */
+void typeCheckCreateAppOptions;
+
 describe("registerCreateApp — createApp throws", () => {
 	it("surfaces as an MCP error envelope with populated error_type and run_id", async () => {
 		vi.mocked(createApp).mockRejectedValueOnce(

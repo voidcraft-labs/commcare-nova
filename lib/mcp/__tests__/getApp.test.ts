@@ -216,6 +216,10 @@ describe("registerGetApp — ownership failure", () => {
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out.content[0]?.text).toBe("App not found.");
 		expect(out._meta?.app_id).toBe("a1");
+		/* Every error envelope stamps `run_id` — when the client didn't
+		 * thread one, the handler mints a uuid so the per-call grouping
+		 * invariant holds on the error path too. */
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 		/* The load must not run — an ownership mismatch short-circuits. */
 		expect(loadApp).not.toHaveBeenCalled();
 	});
@@ -230,11 +234,13 @@ describe("registerGetApp — not found", () => {
 
 		const out = (await capture()({ app_id: "ghost" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("ghost");
+		/* Minted run id on the error path — same invariant as success. */
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 	});
 
 	it("maps race (owner ok, load returns null) to error_type = 'not_found'", async () => {
@@ -250,11 +256,12 @@ describe("registerGetApp — not found", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("a1");
+		expect(out._meta?.run_id).toMatch(UUID_RE);
 	});
 });
 

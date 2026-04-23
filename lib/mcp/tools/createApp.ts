@@ -17,14 +17,13 @@
  * with whatever subagent follow-up calls share the id. Absent a
  * client-threaded value, a fresh uuid is minted per call.
  *
- * **No event-log write on success.** `create_app` is atomic and the
- * `run_id` stored on the app doc has no corresponding stream of
- * `MutationEvent` / `ConversationEvent` entries. Admin surfaces that
- * group event-log rows by `run_id` will show an empty group for
- * MCP-created apps until a subsequent tool call (`generate_schema`,
- * `add_module`, etc.) writes events under the same id. This is by
- * design — the creation itself is a single Firestore write the app
- * row records directly via its `created_at` + `owner` fields.
+ * **No event-log write on success.** `create_app` is atomic: the app
+ * row itself is the record of creation (via its `created_at` + `owner`
+ * fields), so duplicating that into the event log would add no
+ * information. Admin surfaces grouping event-log rows by `run_id`
+ * show an empty group for MCP-created apps until a subsequent tool
+ * call (`generate_schema`, `add_module`, etc.) writes events under
+ * the same id.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

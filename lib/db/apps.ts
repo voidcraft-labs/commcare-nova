@@ -157,16 +157,20 @@ export async function userHasApps(owner: string): Promise<boolean> {
 export interface CreateAppOptions {
 	/**
 	 * Initial app name. Empty string when unset — list display falls back
-	 * to "Untitled".
+	 * to `UNTITLED_APP_NAME`.
 	 */
 	appName?: string;
 	/**
-	 * Initial lifecycle status. `"generating"` starts the staleness timer
-	 * in `listApps` (advanced on every write; a 10-minute gap self-marks
-	 * the app as `error`). `"complete"` opts out — use it when the
-	 * creation is atomic and no follow-up writes are expected.
+	 * Initial lifecycle status. Limited to the two valid creation states:
+	 * `"generating"` arms the staleness timer in `listApps` (advanced on
+	 * every write; a 10-minute gap self-marks the app as `error`);
+	 * `"complete"` opts out for atomic creations with no follow-up writes.
+	 *
+	 * `"error"` is excluded — a fresh app has not failed at anything yet.
+	 * `"deleted"` is excluded — soft-delete is an out-of-band transition
+	 * via `softDeleteApp`, never a creation state.
 	 */
-	status?: AppDoc["status"];
+	status?: "generating" | "complete";
 }
 
 /**
