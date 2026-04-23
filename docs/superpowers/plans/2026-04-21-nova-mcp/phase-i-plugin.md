@@ -104,7 +104,7 @@ All three mutating skills follow the same four-step pattern. The agent file is W
 
 2. **Resolve plugin root** — The skill body is at `<plugin-root>/skills/<skill-name>/SKILL.md`. Claude Code sets `$CLAUDE_SKILL_DIR` in the skill's execution env pointing at that directory. The plugin root is therefore `$CLAUDE_SKILL_DIR/../..`. Skills resolve it via `PLUGIN_ROOT="$(cd "$CLAUDE_SKILL_DIR/../.." && pwd)"` before the Write.
 
-3. **Fetch** — call `mcp__nova__get_agent_prompt(mode, interactive)`. Parse the returned JSON `{ frontmatter, system_prompt }`.
+3. **Fetch** — call `mcp__nova__get_agent_prompt(mode, interactive, app_id?)`. Edit-mode skills pass `app_id` so the server ownership-gates, loads the blueprint, and inlines `summarizeBlueprint(doc)` into the returned `system_prompt` — the subagent boots with full edit context at turn 0 (no `get_app` round trip). Build-mode skills omit `app_id`. Parse the returned JSON `{ frontmatter, system_prompt }`.
 
 4. **Write** — Write `${PLUGIN_ROOT}/agents/nova-architect-${RUN_ID}.md` with the fetched frontmatter as YAML + system_prompt as markdown body. Before writing, override the `name` field to `nova-architect-${RUN_ID}` so the subagent_type string matches the filename stem.
 
@@ -239,7 +239,7 @@ You are orchestrating a Nova edit. Five steps in order; do not improvise.
 
 2. Resolve the plugin root: `PLUGIN_ROOT="$(cd "$CLAUDE_SKILL_DIR/../.." && pwd)"`.
 
-3. Call `mcp__nova__get_agent_prompt` with `mode: "edit"` and `interactive: true`. Parse the JSON.
+3. Call `mcp__nova__get_agent_prompt` with `mode: "edit"`, `interactive: true`, and `app_id: "$0"`. Parse the JSON. The server loads the app's blueprint server-side and inlines the summary into the returned `system_prompt`, so the spawned subagent boots with full edit context at turn 0 — no `get_app` round trip needed from the subagent.
 
 4. Override the `name` field to `nova-architect-${RUN_ID}`. Write `${PLUGIN_ROOT}/agents/nova-architect-${RUN_ID}.md` with the modified frontmatter as YAML and system_prompt as markdown body.
 
@@ -247,8 +247,6 @@ You are orchestrating a Nova edit. Five steps in order; do not improvise.
 
    ```
    Edit the existing CommCare app. App ID: $0. Instruction: $1.
-
-   Before making changes, call `nova.get_app` with `app_id: "$0"` to read the current blueprint summary.
 
    IMPORTANT: On every MCP tool call that accepts a run context, pass `_meta: { run_id: "${RUN_ID}" }`.
 
@@ -356,7 +354,7 @@ Expected: subagent uses `AskUserQuestion` for at least one genuine ambiguity; ma
 
 - [ ] **Step 5: `/nova:edit <app_id> "add a phone number field to every registration form"`**
 
-Expected: edit-mode frontmatter omits generation tools; subagent only calls field/form mutation tools; calls `nova.get_app` at the start to read the current blueprint.
+Expected: skill calls `get_agent_prompt` with `app_id: "$0"` and the server inlines the blueprint summary into the returned system prompt; edit-mode frontmatter omits generation tools; subagent only calls field/form mutation tools and does NOT call `nova.get_app` during the edit bootstrap — the summary is already in its system prompt at turn 0.
 
 - [ ] **Step 6: Record outcomes in main repo infra notes**
 
