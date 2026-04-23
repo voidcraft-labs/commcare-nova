@@ -22,7 +22,6 @@
  * `rebuildFieldParent` path.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -37,6 +36,7 @@ import {
 	UPLOAD_ERROR_TYPES,
 } from "../tools/uploadAppToHq";
 import type { ToolContext } from "../types";
+import { makeFakeServer } from "./fakeServer";
 
 /* --- Mocks ----------------------------------------------------------- */
 
@@ -84,42 +84,6 @@ const { LogWriterMock } = vi.hoisted(() => {
 vi.mock("@/lib/log/writer", () => ({ LogWriter: LogWriterMock }));
 
 /* --- Helpers --------------------------------------------------------- */
-
-type Handler = (
-	args: Record<string, unknown>,
-	extra: Record<string, unknown>,
-) => Promise<unknown>;
-
-interface FakeServer {
-	server: McpServer;
-	capture(): Handler;
-	notificationSpy: ReturnType<typeof vi.fn>;
-}
-
-/**
- * Capture the MCP handler `registerUploadAppToHq` registers via
- * `server.tool`, along with the low-level `server.notification` spy the
- * progress emitter drives. Tests that opt into progress inspection pass
- * a `progressToken` on `_meta`; otherwise the emitter no-ops.
- */
-function makeFakeServer(): FakeServer {
-	let captured: Handler | null = null;
-	const notificationSpy = vi.fn();
-	const server = {
-		tool: (_n: string, _d: string, _s: unknown, cb: Handler) => {
-			captured = cb;
-		},
-		server: { notification: notificationSpy },
-	} as unknown as McpServer;
-	return {
-		server,
-		capture: () => {
-			if (!captured) throw new Error("handler not captured");
-			return captured;
-		},
-		notificationSpy,
-	};
-}
 
 /** Minimal `BlueprintDoc` — the expander is mocked, so fields are unused. */
 function fixtureBlueprint(): BlueprintDoc {
@@ -262,20 +226,27 @@ describe("registerUploadAppToHq — happy path", () => {
 });
 
 describe("registerUploadAppToHq — gate 1: invalid domain", () => {
-	it("returns error_type 'invalid_domain' and never fetches creds or calls importApp", async () => {
+	it("returns error_type 'invalid_domain' with run_id and never fetches creds or calls importApp", async () => {
 		vi.mocked(isValidDomainSlug).mockReturnValueOnce(false);
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", domain: "bad/slug" }, {})) as {
+		const out = (await capture()(
+			{ app_id: "a1", domain: "bad/slug" },
+			{ _meta: { run_id: "rid-gate1" } },
+		)) as {
 			isError: true;
-			_meta: { error_type: string; app_id: string };
+			_meta: { error_type: string; app_id: string; run_id: string };
 		};
 
 		expect(out.isError).toBe(true);
 		expect(out._meta.error_type).toBe(UPLOAD_ERROR_TYPES.invalidDomain);
 		expect(out._meta.app_id).toBe("a1");
+		/* Every gate envelope carries the resolved `run_id` so admin
+		 * surfaces grouping by run id see gate failures under the same
+		 * id as the rest of the call. */
+		expect(out._meta.run_id).toBe("rid-gate1");
 		/* Gate 1 failure short-circuits before any downstream work. */
 		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
@@ -382,7 +353,11 @@ describe("registerUploadAppToHq — gate 4: HQ upload failed", () => {
 });
 
 describe("registerUploadAppToHq — ownership failure", () => {
-	it("returns error_type 'not_owner' and never fetches creds or calls importApp", async () => {
+	it("collapses not_owner to not_found on the wire (IDOR hardening) and never fetches creds or calls importApp", async () => {
+		/* IDOR hardening: an upload probe against an app owned by
+		 * another user must look indistinguishable from a probe against
+		 * a non-existent id. The wire collapses both to `"not_found"`
+		 * so a malicious client cannot enumerate existing app ids. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 
 		const { server, capture } = makeFakeServer();
@@ -393,11 +368,13 @@ describe("registerUploadAppToHq — ownership failure", () => {
 			{},
 		)) as {
 			isError: true;
+			content: Array<{ type: "text"; text: string }>;
 			_meta: { error_type: string; app_id: string };
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe("not_owner");
+		expect(out._meta.error_type).toBe("not_found");
+		expect(out.content[0]?.text).toBe("App not found.");
 		expect(out._meta.app_id).toBe("a1");
 		/* Ownership failure must short-circuit BEFORE any settings read,
 		 * blueprint load, or HQ call — the ownership pre-gate is the

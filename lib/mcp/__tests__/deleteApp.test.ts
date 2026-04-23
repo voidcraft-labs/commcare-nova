@@ -1,29 +1,28 @@
 /**
  * `registerDeleteApp` unit tests.
  *
- * Covers the four paths the route handler has to care about:
+ * Covers the five paths the route handler has to care about:
  *   - Happy path: an owned app soft-deletes, the returned envelope
- *     carries `{ deleted: true, recoverable_until }`, and the
- *     `_meta.stage: "app_deleted"` marker is populated for MCP
- *     progress clients.
- *   - Ownership failure (`not_owner`): a cross-tenant probe
- *     short-circuits before the write and never reaches `softDeleteApp`.
- *   - App not found (`not_found`): `loadAppOwner` returns null
- *     (missing row). `softDeleteApp` must not run — a probe for an
+ *     carries `{ deleted: true, recoverable_until }` + the
+ *     `_meta.stage: "app_deleted"` marker + `_meta.run_id`.
+ *   - Client-supplied `run_id` threads through from `extra._meta.run_id`.
+ *   - Ownership failure: the wire collapses `"not_owner"` to
+ *     `"not_found"` (IDOR hardening). `softDeleteApp` must not run.
+ *   - App not found: `loadAppOwner` returns null — a probe for an
  *     arbitrary id must not leave soft-delete state behind.
  *   - `softDeleteApp` throws: the Firestore write rejection surfaces
  *     as an `isError: true` MCP envelope classified through the shared
  *     taxonomy (not the `McpAccessError` fast path).
  *
- * Same fake-server stub + MCP-SDK-boundary-mock pattern used by
- * `createApp.test.ts` and `getApp.test.ts`.
+ * The MCP SDK is mocked at the boundary through the shared
+ * `makeFakeServer` helper that captures the handler callback.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAppOwner, softDeleteApp } from "@/lib/db/apps";
 import { registerDeleteApp } from "../tools/deleteApp";
 import type { ToolContext } from "../types";
+import { makeFakeServer } from "./fakeServer";
 
 /* Hoisted mock — installs before `../tools/deleteApp` resolves
  * `@/lib/db/apps`. Only the two functions the tool touches (one for
@@ -35,39 +34,9 @@ vi.mock("@/lib/db/apps", () => ({
 
 /* --- Helpers --------------------------------------------------------- */
 
-type Handler = (
-	args: Record<string, unknown>,
-	extra: Record<string, unknown>,
-) => Promise<unknown>;
-
-interface FakeServer {
-	server: McpServer;
-	capture(): Handler;
-}
-
-/**
- * Build a minimal stand-in for `McpServer` that captures the handler
- * the tool registers via `server.tool(...)`. `server.notification` is
- * a spy because the progress emitter in other tools dispatches on it;
- * `delete_app` doesn't use it, but keeping the spy present aligns
- * this fake with the shared shape.
- */
-function makeFakeServer(): FakeServer {
-	let captured: Handler | null = null;
-	const server = {
-		tool: (_n: string, _d: string, _s: unknown, cb: Handler) => {
-			captured = cb;
-		},
-		server: { notification: vi.fn() },
-	} as unknown as McpServer;
-	return {
-		server,
-		capture: () => {
-			if (!captured) throw new Error("handler not captured");
-			return captured;
-		},
-	};
-}
+/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const toolCtx: ToolContext = { userId: "u1", scopes: [] };
 
@@ -93,7 +62,7 @@ describe("registerDeleteApp — happy path", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { stage: string; app_id: string };
+			_meta: { stage: string; app_id: string; run_id: string };
 		};
 
 		expect(softDeleteApp).toHaveBeenCalledWith("a1");
@@ -103,11 +72,33 @@ describe("registerDeleteApp — happy path", () => {
 		});
 		expect(out._meta.stage).toBe("app_deleted");
 		expect(out._meta.app_id).toBe("a1");
+		/* Minted run id shape — uuid v4 when the client didn't thread one. */
+		expect(out._meta.run_id).toMatch(UUID_RE);
+	});
+
+	it("threads a client-supplied run_id from extra._meta.run_id onto the success envelope", async () => {
+		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
+		vi.mocked(softDeleteApp).mockResolvedValueOnce(FIXED_RECOVERABLE_UNTIL);
+
+		const { server, capture } = makeFakeServer();
+		registerDeleteApp(server, toolCtx);
+
+		const out = (await capture()(
+			{ app_id: "a1" },
+			{ _meta: { run_id: "client-rid-del" } },
+		)) as { _meta: { run_id: string } };
+
+		expect(out._meta.run_id).toBe("client-rid-del");
 	});
 });
 
 describe("registerDeleteApp — ownership failure", () => {
-	it("short-circuits with error_type = 'not_owner' and never writes", async () => {
+	it("collapses not_owner to not_found on the wire (IDOR hardening) and never writes", async () => {
+		/* IDOR hardening: a probing client must not be able to
+		 * enumerate existing app ids by submitting delete attempts and
+		 * watching for a `"not_owner"` signal. The wire collapses to
+		 * `"not_found"` with the same text a genuinely missing id
+		 * would produce. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 
 		const { server, capture } = makeFakeServer();
@@ -115,10 +106,12 @@ describe("registerDeleteApp — ownership failure", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
 			_meta?: { error_type: string; app_id: string };
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_owner");
+		expect(out._meta?.error_type).toBe("not_found");
+		expect(out.content[0]?.text).toBe("App not found.");
 		expect(out._meta?.app_id).toBe("a1");
 		/* Hard invariant: a cross-tenant probe must not leave soft-delete
 		 * state behind. `softDeleteApp` must not run at all. */

@@ -11,12 +11,31 @@
  * created in this call. Scope gating happens at the route layer via
  * `verifyAccessToken`, so by the time this handler runs the JWT
  * already proved `nova.write`.
+ *
+ * Run-id sourcing: honors `extra._meta.run_id` when the MCP client
+ * threads one so the `runs/{runId}` summary doc groups this creation
+ * with whatever subagent follow-up calls share the id. Absent a
+ * client-threaded value, a fresh uuid is minted per call.
+ *
+ * **No event-log write on success.** `create_app` is atomic and the
+ * `run_id` stored on the app doc has no corresponding stream of
+ * `MutationEvent` / `ConversationEvent` entries. Admin surfaces that
+ * group event-log rows by `run_id` will show an empty group for
+ * MCP-created apps until a subsequent tool call (`generate_schema`,
+ * `add_module`, etc.) writes events under the same id. This is by
+ * design — the creation itself is a single Firestore write the app
+ * row records directly via its `created_at` + `owner` fields.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createApp } from "@/lib/db/apps";
-import { toMcpErrorResult } from "../errors";
+import {
+	type McpToolErrorResult,
+	type McpToolSuccessResult,
+	toMcpErrorResult,
+} from "../errors";
+import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -26,22 +45,27 @@ import type { ToolContext } from "../types";
  * helper mints the Firestore document id.
  */
 export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
-	server.tool(
+	server.registerTool(
 		"create_app",
-		"Create an empty Nova app owned by you. Returns the new app_id for use in subsequent tool calls.",
 		{
-			app_name: z
-				.string()
-				.optional()
-				.describe(
-					"Optional initial name. If omitted, the app name starts blank and can be set later.",
-				),
+			description:
+				"Create an empty Nova app owned by you. Returns the new app_id for use in subsequent tool calls.",
+			inputSchema: {
+				app_name: z
+					.string()
+					.optional()
+					.describe(
+						"Optional initial name. If omitted, the app name starts blank and can be set later.",
+					),
+			},
 		},
-		async (args) => {
+		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+			/* Thread the client-supplied run id when present, mint a fresh
+			 * one otherwise. Every created doc persists this id so admin
+			 * surfaces can group any follow-up tool calls (`generate_schema`,
+			 * `add_module`) that ride on the same run id. */
+			const runId = resolveRunId(extra);
 			try {
-				// Run id is minted per call; every created doc carries one so admin surfaces can group events.
-				const runId = crypto.randomUUID();
-
 				/* Normalize the optional name: `trim()` collapses surrounding
 				 * whitespace, `|| undefined` maps the empty string (and the
 				 * original omitted case) to undefined so the DB helper's
@@ -60,7 +84,7 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 					_meta: { stage: "app_created", app_id: appId, run_id: runId },
 				};
 			} catch (err) {
-				return toMcpErrorResult(err);
+				return toMcpErrorResult(err, { runId, userId: ctx.userId });
 			}
 		},
 	);

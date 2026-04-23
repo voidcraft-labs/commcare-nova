@@ -20,21 +20,26 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/* Hoisted spy — `vi.hoisted` lifts the spy reference so the `vi.mock`
- * factory can capture it at hoist time. The factory returns an object
- * whose `docs.app` runs through to the same spy for every appId — we
- * inspect `appMock.mock.calls` to confirm the targeted id. */
-const { updateMock, appMock } = vi.hoisted(() => {
+/* Hoisted spies — `vi.hoisted` lifts the spy references so the
+ * `vi.mock` factory can capture them at hoist time. The factory returns
+ * an object whose `docs.app` runs through to the same `update` + `set`
+ * spies for every appId — we inspect `appMock.mock.calls` to confirm
+ * the targeted id AND assert `setMock` stays untouched (the contract is
+ * "soft-delete MUST use update()" — `set()` would materialize a ghost
+ * row lacking the `owner`/`blueprint` the converter requires). */
+const { updateMock, setMock, appMock } = vi.hoisted(() => {
 	const update = vi.fn();
-	const app = vi.fn((_appId: string) => ({ update }));
-	return { updateMock: update, appMock: app };
+	const set = vi.fn();
+	const app = vi.fn((_appId: string) => ({ update, set }));
+	return { updateMock: update, setMock: set, appMock: app };
 });
 
 vi.mock("../firestore", () => ({
-	/* `docs.app(appId)` returns a stub carrying only `update` — the
-	 * helper under test never touches `.get`, `.set`, or `.delete`, so
-	 * leaving them off catches any future drift where a caller adds an
-	 * unexpected call. */
+	/* `docs.app(appId)` returns a stub carrying `update` and `set`
+	 * spies. `set` is present only so the test can prove the helper
+	 * DOESN'T call it — leaving it off would mean a future regression
+	 * that switched to `set()` would throw "is not a function" at
+	 * runtime rather than producing a clean assertion failure. */
 	docs: { app: appMock },
 	/* `collections` and `getDb` aren't touched by `softDeleteApp`, but
 	 * `apps.ts` imports both at module scope; providing empty stand-ins
@@ -52,6 +57,7 @@ const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 describe("softDeleteApp", () => {
 	beforeEach(() => {
 		updateMock.mockReset();
+		setMock.mockReset();
 		appMock.mockClear();
 	});
 
@@ -103,5 +109,27 @@ describe("softDeleteApp", () => {
 
 		const { softDeleteApp } = await import("../apps");
 		await expect(softDeleteApp("missing")).rejects.toThrow(/NOT_FOUND/);
+	});
+
+	it("calls update(), not set() — guarantees NOT_FOUND on missing rows", async () => {
+		/* The load-bearing semantic difference: `set()` materializes a
+		 * new document when one doesn't exist; `update()` rejects with
+		 * NOT_FOUND. A ghost row with only the three soft-delete fields
+		 * would be invalid at every read — the converter requires
+		 * `owner` + `blueprint`. Pin the contract explicitly so a
+		 * future contributor "fixing" this by switching to `set()`
+		 * (which would paper over transient read lag) trips a test
+		 * rather than landing silently. */
+		updateMock.mockResolvedValueOnce(undefined);
+
+		const { softDeleteApp } = await import("../apps");
+		await softDeleteApp("app-1");
+
+		expect(updateMock).toHaveBeenCalledTimes(1);
+		/* Hard invariant: `set()` must never run on soft-delete, even
+		 * in some corner case. The stub is wired on the same ref
+		 * `update` lives on so a `.set({...})` call on the ref would
+		 * increment this spy's call count. */
+		expect(setMock).not.toHaveBeenCalled();
 	});
 });

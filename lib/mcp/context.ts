@@ -38,6 +38,7 @@
  * the event log is not.
  */
 
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import { updateApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -48,8 +49,9 @@ import type {
 	ConversationPayload,
 	MutationEvent,
 } from "@/lib/log/types";
-import type { LogWriter } from "@/lib/log/writer";
-import type { ProgressEmitter } from "./progress";
+import { LogWriter } from "@/lib/log/writer";
+import { createProgressEmitter, type ProgressEmitter } from "./progress";
+import type { ToolContext } from "./types";
 
 /**
  * Constructor options for `McpContext`.
@@ -180,4 +182,58 @@ export class McpContext implements ToolExecutionContext {
 	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
 		await updateApp(this.appId, toPersistableDoc(doc));
 	}
+}
+
+/**
+ * Bundle of the four per-call collaborators every MCP tool handler
+ * allocates the same way: an `McpContext`, its underlying `LogWriter`,
+ * the resolved `runId`, and a `ProgressEmitter` bound to the client's
+ * optional `progressToken`. Returned as a single record so each
+ * handler's collaborator wiring is one function call rather than a
+ * five-line preamble.
+ */
+export interface InitMcpCallResult {
+	mcpCtx: McpContext;
+	logWriter: LogWriter;
+	runId: string;
+	progress: ProgressEmitter;
+}
+
+/**
+ * Build the per-call collaborators for an MCP tool handler.
+ *
+ * Takes `runId` as an input rather than minting it internally: every
+ * handler resolves `runId` at the top (via `resolveRunId`) so it's in
+ * scope for the outer `catch` block's `toMcpErrorResult(err, { appId,
+ * runId })` envelope — which has to fire even when a failure predates
+ * the per-call collaborator allocation.
+ *
+ * The `LogWriter` is stamped `"mcp"` so every event lands with the
+ * authoritative source tag; the emitter no-ops when the client did
+ * not supply a `progressToken`.
+ *
+ * @see `sharedToolAdapter.ts` and `uploadAppToHq.ts` for the canonical
+ *   usage pattern — call with the pre-resolved `runId`, then wrap the
+ *   tool's work in a `try`/`finally` that awaits `logWriter.flush()`.
+ */
+export function initMcpCall(
+	server: McpServer,
+	ctx: ToolContext,
+	appId: string,
+	runId: string,
+	extra: { _meta?: unknown } | undefined,
+): InitMcpCallResult {
+	const progressToken = (
+		extra?._meta as { progressToken?: string | number } | undefined
+	)?.progressToken;
+	const logWriter = new LogWriter(appId, "mcp");
+	const progress = createProgressEmitter(server, progressToken);
+	const mcpCtx = new McpContext({
+		appId,
+		userId: ctx.userId,
+		runId,
+		logWriter,
+		progress,
+	});
+	return { mcpCtx, logWriter, runId, progress };
 }

@@ -54,13 +54,26 @@ import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import type { BlueprintDoc } from "@/lib/domain";
-import { LogWriter } from "@/lib/log/writer";
-import { McpContext } from "../context";
-import { toMcpErrorResult } from "../errors";
+import { initMcpCall } from "../context";
+import {
+	type McpToolErrorResult,
+	type McpToolSuccessResult,
+	toMcpErrorResult,
+} from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
-import { createProgressEmitter } from "../progress";
+import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
+
+/**
+ * Union of every envelope shape an MCP tool callback resolves to. The
+ * success branch shape is defined in `../errors.ts` (both
+ * `McpToolSuccessResult` and `McpToolErrorResult` carry the open
+ * `[extra: string]: unknown` index signature the SDK's internal
+ * `CallToolResult` target requires). Aliased here so the registered
+ * callback's return type is a single readable expression.
+ */
+type McpToolResult = McpToolSuccessResult | McpToolErrorResult;
 
 /**
  * Structural contract the adapter accepts. Every shared tool module
@@ -143,86 +156,92 @@ export function registerSharedTool(
 	 * `../errors.ts`. That avoids importing `CallToolResult` here (via
 	 * two paths `McpServer` + `types.js`, TS otherwise reports "Two
 	 * different types with this name exist" for the inferred alias). */
-	server.tool(toolName, tool.description, mcpSchema, async (args, extra) => {
-		/* `args` is typed by the SDK's overload resolution to the inferred
-		 * object output of `mcpSchema`. `app_id` is always a string by
-		 * schema, so we cache it before branching for both the ownership
-		 * check and the error envelope. */
-		const appId = args.app_id;
+	server.registerTool(
+		toolName,
+		{ description: tool.description, inputSchema: mcpSchema },
+		async (args, extra): Promise<McpToolResult> => {
+			/* `args` is typed by the SDK's overload resolution to the
+			 * inferred object output of `mcpSchema`. `app_id` is always a
+			 * string by schema, so we cache it before branching for both
+			 * the ownership check and the error envelope. */
+			const appId = args.app_id;
 
-		/* Outer try catches ownership failures (pre-logWriter) so a
-		 * forbidden call never allocates a writer it has nothing to
-		 * flush. Post-ownership we enter a nested try/finally so the
-		 * writer always drains. */
-		try {
-			await requireOwnedApp(ctx.userId, appId);
+			/* Resolve run id BEFORE the try so it's in scope for the outer
+			 * `catch` block's error-envelope `_meta` — even an ownership
+			 * rejection (which predates the `initMcpCall` helper) can carry
+			 * the client-threaded run id on the response, keeping the
+			 * invariant uniform across every exit path. */
+			const runId = resolveRunId(extra);
 
-			/* Run id: thread the client-supplied value from `_meta.run_id`
-			 * if present and string-typed; otherwise mint a fresh one.
-			 * `RequestMeta` is declared `$loose` in the SDK, so `run_id`
-			 * isn't on the typed shape — we narrow defensively. */
-			const metaRunId = (extra._meta as { run_id?: unknown } | undefined)
-				?.run_id;
-			const runId =
-				typeof metaRunId === "string" ? metaRunId : crypto.randomUUID();
-
-			/* One `LogWriter` per tool call, stamped `"mcp"` so the
-			 * writer authoritatively tags every event on its way to
-			 * Firestore regardless of what the context inlined. */
-			const logWriter = new LogWriter(appId, "mcp");
-			const progress = createProgressEmitter(
-				server,
-				extra._meta?.progressToken,
-			);
-			const mcpCtx = new McpContext({
-				appId,
-				userId: ctx.userId,
-				runId,
-				logWriter,
-				progress,
-			});
-
+			/* Outer try catches ownership failures (pre-logWriter) so a
+			 * forbidden call never allocates a writer it has nothing to
+			 * flush. Post-ownership we enter a nested try/finally so the
+			 * writer always drains. */
 			try {
-				/* `loadAppBlueprint` both fetches the row and rebuilds
-				 * the derived `fieldParent` reverse index tools expect.
-				 * The load runs AFTER the ownership check; the race
-				 * between the two reads — ownership resolves, then a
-				 * concurrent hard-delete nulls the row — surfaces as
-				 * the same `not_found` an "app never existed" probe
-				 * would hit, so MCP clients see one consistent error.
-				 * Only the blueprint flows downstream; the helper also
-				 * returns the full `AppDoc` for tools that want
-				 * denormalized columns. */
-				const loaded = await loadAppBlueprint(appId);
-				if (!loaded) throw new McpAccessError("not_found");
+				await requireOwnedApp(ctx.userId, appId);
 
-				/* Strip `app_id` before forwarding — it's an MCP-boundary
-				 * field only, and shared tool input schemas don't declare it.
-				 * The underscore prefix signals intentional-discard for
-				 * Biome's `noUnusedVariables` rule. */
-				const { app_id: _discarded, ...toolInput } = args;
-				const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
-				const payload = projectResult(outcome);
-				return {
-					content: [{ type: "text", text: JSON.stringify(payload) }],
-					_meta: { app_id: appId, run_id: runId },
-				};
-			} finally {
-				/* Drain the event-log buffer before returning OR throwing.
-				 * `LogWriter.flush` never throws; it resolves once every
-				 * inflight Firestore batch has acknowledged. A missed
-				 * flush silently drops any events that hadn't triggered
-				 * the batch-size flush threshold yet. */
-				await logWriter.flush();
+				/* `initMcpCall` bundles the per-call collaborators the
+				 * adapter needs (`LogWriter` + progress emitter +
+				 * `McpContext`) and binds them to the resolved `runId`.
+				 * Shared with `uploadAppToHq` so a single change to
+				 * collaborator wiring lands in one place rather than
+				 * across every tool handler. */
+				const { mcpCtx, logWriter } = initMcpCall(
+					server,
+					ctx,
+					appId,
+					runId,
+					extra,
+				);
+
+				try {
+					/* `loadAppBlueprint` both fetches the row and rebuilds
+					 * the derived `fieldParent` reverse index tools expect.
+					 * The load runs AFTER the ownership check; the race
+					 * between the two reads — ownership resolves, then a
+					 * concurrent hard-delete nulls the row — surfaces as
+					 * the same `not_found` an "app never existed" probe
+					 * would hit, so MCP clients see one consistent error.
+					 * Only the blueprint flows downstream; the helper also
+					 * returns the full `AppDoc` for tools that want
+					 * denormalized columns. */
+					const loaded = await loadAppBlueprint(appId);
+					if (!loaded) throw new McpAccessError("not_found");
+
+					/* Strip `app_id` before forwarding — it's an MCP-boundary
+					 * field only, and shared tool input schemas don't declare
+					 * it. The underscore prefix signals intentional-discard
+					 * for Biome's `noUnusedVariables` rule. */
+					const { app_id: _discarded, ...toolInput } = args;
+					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
+					const payload = projectResult(outcome);
+					return {
+						content: [{ type: "text", text: JSON.stringify(payload) }],
+						_meta: { app_id: appId, run_id: runId },
+					};
+				} finally {
+					/* Drain the event-log buffer before returning OR
+					 * throwing. `LogWriter.flush` never throws; it resolves
+					 * once every inflight Firestore batch has acknowledged.
+					 * A missed flush silently drops any events that hadn't
+					 * triggered the batch-size flush threshold yet. */
+					await logWriter.flush();
+				}
+			} catch (err) {
+				/* Both ownership failures (outer path) and mid-execute
+				 * throws (inner path, post-flush) land here.
+				 * `toMcpErrorResult` classifies via the shared taxonomy
+				 * and returns the MCP `isError: true` envelope with the
+				 * run id threaded onto `_meta` so admin surfaces grouping
+				 * by run id see error responses under the same id. */
+				return toMcpErrorResult(err, {
+					appId,
+					runId,
+					userId: ctx.userId,
+				});
 			}
-		} catch (err) {
-			/* Both ownership failures (outer path) and mid-execute throws
-			 * (inner path, post-flush) land here. `toMcpErrorResult`
-			 * classifies via the shared taxonomy and returns the MCP
-			 * `isError: true` envelope. */
-			return toMcpErrorResult(err, { appId });
-		}
-	});
+		},
+	);
 }
 
 /**

@@ -1,27 +1,30 @@
 /**
  * `registerGetApp` unit tests.
  *
- * Covers the three paths the route handler has to care about:
+ * Covers the four paths the route handler has to care about:
  *   - Happy path: the tool summarizes an owned app through the shared
  *     `summarizeBlueprint` renderer. The assertion checks for stable
  *     structural strings (app name, module name, the "Structure:"
  *     heading) rather than a full markdown byte comparison — a future
  *     renderer tweak (e.g. pluralization, whitespace) shouldn't break
- *     this contract.
+ *     this contract. `_meta.run_id` rides on the success envelope so
+ *     admin surfaces can group this call with sibling tool calls.
  *   - Ownership failure: a cross-tenant probe short-circuits before
- *     `loadApp` is called; the MCP envelope carries
- *     `_meta.error_type === "not_owner"`.
+ *     `loadApp` is called. The wire collapses `"not_owner"` to
+ *     `"not_found"` (IDOR hardening) so a probing client cannot
+ *     enumerate existing app ids.
  *   - App not found: either ownership returns null (app never existed)
  *     or `loadApp` returns null (concurrent hard-delete between the
  *     ownership check and the load); both collapse to
  *     `_meta.error_type === "not_found"`.
+ *   - Wire parity: cross-tenant and missing-id envelopes must be
+ *     byte-identical modulo `run_id` so a probing client has zero
+ *     signal to distinguish the two cases.
  *
- * The MCP SDK is mocked at the boundary through a fake server that
- * captures the handler callback — same pattern as
- * `sharedToolAdapter.test.ts` and `listApps.test.ts`.
+ * The MCP SDK is mocked at the boundary through the shared
+ * `makeFakeServer` helper that captures the handler callback.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadApp, loadAppOwner } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
@@ -29,6 +32,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { registerGetApp } from "../tools/getApp";
 import type { ToolContext } from "../types";
+import { makeFakeServer } from "./fakeServer";
 
 /* `vi.mock` hoists above imports so the mock installs before
  * `../tools/getApp` resolves `@/lib/db/apps`. Only the two functions
@@ -40,32 +44,9 @@ vi.mock("@/lib/db/apps", () => ({
 
 /* --- Helpers --------------------------------------------------------- */
 
-type Handler = (
-	args: Record<string, unknown>,
-	extra: Record<string, unknown>,
-) => Promise<unknown>;
-
-interface FakeServer {
-	server: McpServer;
-	capture(): Handler;
-}
-
-function makeFakeServer(): FakeServer {
-	let captured: Handler | null = null;
-	const server = {
-		tool: (_n: string, _d: string, _s: unknown, cb: Handler) => {
-			captured = cb;
-		},
-		server: { notification: vi.fn() },
-	} as unknown as McpServer;
-	return {
-		server,
-		capture: () => {
-			if (!captured) throw new Error("handler not captured");
-			return captured;
-		},
-	};
-}
+/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Build a minimal but renderer-complete blueprint: one module with one
@@ -179,7 +160,7 @@ describe("registerGetApp — happy path", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { app_id: string };
+			_meta: { app_id: string; run_id: string };
 		};
 
 		const text = out.content[0]?.text ?? "";
@@ -193,11 +174,34 @@ describe("registerGetApp — happy path", () => {
 		/* Field id should appear in the per-field bullet line. */
 		expect(text).toContain("patient_name");
 		expect(out._meta.app_id).toBe("a1");
+		/* Minted run id shape — uuid v4 when the client didn't thread one. */
+		expect(out._meta.run_id).toMatch(UUID_RE);
+	});
+
+	it("threads a client-supplied run_id from extra._meta.run_id onto the success envelope", async () => {
+		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
+		vi.mocked(loadApp).mockResolvedValueOnce(mockAppDoc(mockBlueprint()));
+
+		const { server, capture } = makeFakeServer();
+		registerGetApp(server, toolCtx);
+
+		const out = (await capture()(
+			{ app_id: "a1" },
+			{ _meta: { run_id: "client-rid-123" } },
+		)) as { _meta: { run_id: string } };
+
+		expect(out._meta.run_id).toBe("client-rid-123");
 	});
 });
 
 describe("registerGetApp — ownership failure", () => {
-	it("returns an MCP error envelope with error_type = 'not_owner'", async () => {
+	it("collapses not_owner to not_found on the wire (IDOR hardening)", async () => {
+		/* IDOR hardening: when the caller doesn't own the app, the wire
+		 * response must be indistinguishable from a missing-id probe so
+		 * a malicious client cannot enumerate existing app ids by
+		 * watching the response. The internal `McpAccessError.reason`
+		 * stays `"not_owner"` for the server-side audit log; on the
+		 * wire it collapses to `"not_found"`. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 
 		const { server, capture } = makeFakeServer();
@@ -205,10 +209,12 @@ describe("registerGetApp — ownership failure", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string };
+			content: Array<{ type: "text"; text: string }>;
+			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_owner");
+		expect(out._meta?.error_type).toBe("not_found");
+		expect(out.content[0]?.text).toBe("App not found.");
 		expect(out._meta?.app_id).toBe("a1");
 		/* The load must not run — an ownership mismatch short-circuits. */
 		expect(loadApp).not.toHaveBeenCalled();
@@ -249,5 +255,38 @@ describe("registerGetApp — not found", () => {
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("a1");
+	});
+});
+
+describe("registerGetApp — wire parity (IDOR regression lock)", () => {
+	it("not_owner and not_found produce byte-identical envelopes modulo run_id", async () => {
+		/* Regression lock for the IDOR hardening: a probing client
+		 * comparing two responses — one for an id they own (collapsed to
+		 * not_found) and one for a genuinely missing id — must see the
+		 * same text and error_type. Only `run_id` can differ (it's
+		 * per-call). We thread the same `run_id` through both calls so
+		 * even that dimension is pinned, leaving every other byte
+		 * available for byte-level comparison. */
+		const runId = "fixed-rid-for-parity";
+
+		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		const { server: sA, capture: capA } = makeFakeServer();
+		registerGetApp(sA, toolCtx);
+		const ownerMismatch = await capA()(
+			{ app_id: "owned-by-other" },
+			{ _meta: { run_id: runId } },
+		);
+
+		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		const { server: sB, capture: capB } = makeFakeServer();
+		registerGetApp(sB, toolCtx);
+		const notFound = await capB()(
+			{ app_id: "owned-by-other" },
+			{ _meta: { run_id: runId } },
+		);
+
+		/* Identical serialization proves there's no wire signal a
+		 * probing client could use to distinguish the two cases. */
+		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
 	});
 });

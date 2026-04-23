@@ -17,9 +17,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
-import { toMcpErrorResult } from "../errors";
+import {
+	type McpToolErrorResult,
+	type McpToolSuccessResult,
+	toMcpErrorResult,
+} from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
+import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -32,18 +37,25 @@ import type { ToolContext } from "../types";
  * to return anything more than an owner field.
  */
 export function registerGetApp(server: McpServer, ctx: ToolContext): void {
-	server.tool(
+	server.registerTool(
 		"get_app",
-		"Get a blueprint summary (human-readable markdown) for one of your apps.",
 		{
-			app_id: z
-				.string()
-				.describe(
-					"Firestore app id to summarize. Must be an app the authenticated user owns.",
-				),
+			description:
+				"Get a blueprint summary (human-readable markdown) for one of your apps.",
+			inputSchema: {
+				app_id: z
+					.string()
+					.describe(
+						"Firestore app id to summarize. Must be an app the authenticated user owns.",
+					),
+			},
 		},
-		async (args) => {
+		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
+			/* Resolve `run_id` at the top so both success and error envelopes
+			 * thread the same id onto `_meta` — admin surfaces grouping by
+			 * run id rely on every exit path stamping it consistently. */
+			const runId = resolveRunId(extra);
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
@@ -59,10 +71,14 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 
 				return {
 					content: [{ type: "text", text: summarizeBlueprint(loaded.doc) }],
-					_meta: { app_id: appId },
+					_meta: { app_id: appId, run_id: runId },
 				};
 			} catch (err) {
-				return toMcpErrorResult(err, { appId });
+				return toMcpErrorResult(err, {
+					appId,
+					runId,
+					userId: ctx.userId,
+				});
 			}
 		},
 	);

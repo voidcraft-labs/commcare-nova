@@ -3,16 +3,26 @@
  *
  * Every adapter that takes an `app_id` runs this before dispatching to
  * the shared tool's execute. The check distinguishes "no such app" from
- * "you aren't the owner" so the caller-side error serializer can choose
- * whether to expose the distinction.
- *
- * Why two reasons, not one boolean: the route handler logs access
- * failures with their reason so admins can tell accidental typos in an
- * app id (`not_found`) apart from genuine cross-tenant probes
- * (`not_owner`). Collapsing to a single bucket would hide that signal.
+ * "you aren't the owner" internally — both collapse to the same
+ * `"not_found"` envelope on the wire (see the IDOR-hardening note in
+ * `./errors.ts`) so a probing client cannot enumerate existing app
+ * ids; the internal distinction exists only so server-side logs can
+ * tell accidental typos (`not_found`) apart from cross-tenant probes
+ * (`not_owner`) that admins alert on.
  */
 
 import { loadAppOwner } from "@/lib/db/apps";
+
+/**
+ * Two-value union of INTERNAL ownership-gate rejection reasons. Kept
+ * internal-only: `"not_owner"` never appears on the wire — it collapses
+ * to `"not_found"` in `toMcpErrorResult` to close the IDOR enumeration
+ * channel, with the original reason landing in the server-side audit
+ * log for admin alerting. `McpAccessError.reason` narrows through this
+ * union so every server-internal switch on it (including the log-branch
+ * in the error serializer) gets exhaustiveness checking at compile time.
+ */
+export type AccessErrorReason = "not_found" | "not_owner";
 
 /**
  * Thrown when an MCP caller targets an app they cannot access.
@@ -29,7 +39,7 @@ import { loadAppOwner } from "@/lib/db/apps";
  * `_meta`.
  */
 export class McpAccessError extends Error {
-	constructor(public readonly reason: "not_found" | "not_owner") {
+	constructor(public readonly reason: AccessErrorReason) {
 		super(reason);
 		this.name = "McpAccessError";
 	}

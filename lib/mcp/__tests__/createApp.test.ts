@@ -1,26 +1,29 @@
 /**
  * `registerCreateApp` unit tests.
  *
- * Verifies the four load-bearing behaviors of the MCP-only create tool:
+ * Verifies the five load-bearing behaviors of the MCP-only create tool:
  *   - Happy path with a name: forwards `{ appName, status: "complete" }`
  *     to the DB helper, surfaces the returned `app_id`, and emits the
- *     `stage: "app_created"` marker MCP progress clients can latch on.
+ *     `stage: "app_created"` + `run_id` markers MCP clients latch on.
  *   - Happy path without a name: normalizes the omitted optional to
  *     `undefined` so the DB helper's `""` default kicks in.
  *   - Whitespace-only name: normalized to `undefined` for the same
  *     reason — a blank row is strictly worse than an empty one.
+ *   - Client-supplied `run_id` threads through from `extra._meta.run_id`
+ *     and is what gets persisted on the app doc — admin surfaces can
+ *     group subsequent tool calls under the same id.
  *   - `createApp` throws: surfaces as an MCP `isError: true` envelope
- *     classified through the shared taxonomy.
+ *     classified through the shared taxonomy (with `run_id` stamped).
  *
- * The MCP SDK is mocked at the boundary — same fake-server pattern
- * used throughout `lib/mcp/__tests__`.
+ * The MCP SDK is mocked at the boundary through the shared
+ * `makeFakeServer` helper that captures the handler callback.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "@/lib/db/apps";
 import { registerCreateApp } from "../tools/createApp";
 import type { ToolContext } from "../types";
+import { makeFakeServer } from "./fakeServer";
 
 /* Hoisted mock — installs before `../tools/createApp` resolves
  * `@/lib/db/apps`. Only `createApp` is replaced. */
@@ -29,33 +32,6 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 
 /* --- Helpers --------------------------------------------------------- */
-
-type Handler = (
-	args: Record<string, unknown>,
-	extra: Record<string, unknown>,
-) => Promise<unknown>;
-
-interface FakeServer {
-	server: McpServer;
-	capture(): Handler;
-}
-
-function makeFakeServer(): FakeServer {
-	let captured: Handler | null = null;
-	const server = {
-		tool: (_n: string, _d: string, _s: unknown, cb: Handler) => {
-			captured = cb;
-		},
-		server: { notification: vi.fn() },
-	} as unknown as McpServer;
-	return {
-		server,
-		capture: () => {
-			if (!captured) throw new Error("handler not captured");
-			return captured;
-		},
-	};
-}
 
 /**
  * Loose UUID-v4 regex. Asserting on shape (rather than pinning an
@@ -135,8 +111,35 @@ describe("registerCreateApp — whitespace-only name", () => {
 	});
 });
 
+describe("registerCreateApp — run_id threading", () => {
+	it("threads a client-supplied run_id through to the DB helper and the envelope", async () => {
+		vi.mocked(createApp).mockResolvedValueOnce("app-threaded");
+
+		const { server, capture } = makeFakeServer();
+		registerCreateApp(server, toolCtx);
+
+		const out = (await capture()(
+			{ app_name: "Threaded" },
+			{ _meta: { run_id: "client-rid-create" } },
+		)) as {
+			content: Array<{ type: "text"; text: string }>;
+			_meta: { run_id: string; app_id: string };
+		};
+
+		/* The run id the DB helper persists on the new app doc MUST be
+		 * the client-threaded one — otherwise admin surfaces grouping
+		 * subsequent tool calls under the same `_meta.run_id` would
+		 * point at a different runId than the persisted doc carries. */
+		const [, runId] = vi.mocked(createApp).mock.calls[0] ?? [];
+		expect(runId).toBe("client-rid-create");
+		/* And the envelope stamps the same id — client sees its own id
+		 * echoed back, confirming the round-trip. */
+		expect(out._meta.run_id).toBe("client-rid-create");
+	});
+});
+
 describe("registerCreateApp — createApp throws", () => {
-	it("surfaces as an MCP error envelope with populated error_type", async () => {
+	it("surfaces as an MCP error envelope with populated error_type and run_id", async () => {
 		vi.mocked(createApp).mockRejectedValueOnce(
 			new Error("firestore write failed"),
 		);
@@ -144,12 +147,19 @@ describe("registerCreateApp — createApp throws", () => {
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
 
-		const out = (await capture()({ app_name: "x" }, {})) as {
+		const out = (await capture()(
+			{ app_name: "x" },
+			{ _meta: { run_id: "client-rid-err" } },
+		)) as {
 			isError?: true;
-			_meta?: { error_type: string };
+			_meta?: { error_type: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
 		expect(typeof out._meta?.error_type).toBe("string");
 		expect(out._meta?.error_type.length ?? 0).toBeGreaterThan(0);
+		/* Error envelope must carry the same run_id the success envelope
+		 * would have — admin surfaces grouping by run id need to see
+		 * failures under the same id as the successful calls. */
+		expect(out._meta?.run_id).toBe("client-rid-err");
 	});
 });

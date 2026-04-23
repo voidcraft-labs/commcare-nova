@@ -1,7 +1,7 @@
 /**
  * `sharedToolAdapter` unit tests.
  *
- * Verifies the adapter's five load-bearing behaviors:
+ * Verifies the adapter's six load-bearing behaviors:
  *   - Read / mutating / validateApp result projection each produces the
  *     right MCP text payload. The mutating branch also proves the
  *     hard invariant that the adapter does NOT re-persist: the fake
@@ -14,13 +14,16 @@
  *     supplies it.
  *   - `app_id` is stripped from the payload before the shared tool's
  *     `execute` sees it.
+ *   - Real Phase-D tool modules round-trip cleanly through the adapter
+ *     — synthetic fakes cover the shape variance, but a read and a
+ *     mutating real tool smoke-test the full envelope contract against
+ *     the actual `lib/agent/tools/*` modules.
  *
  * The MCP SDK is mocked at the boundary — we never instantiate a real
  * `McpServer`. `capture()` returns the registered handler callback so
  * each test drives the adapter directly without stream wire-up.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
@@ -35,6 +38,7 @@ import {
 	type SharedToolModule,
 } from "../adapters/sharedToolAdapter";
 import type { ToolContext } from "../types";
+import { makeFakeServer } from "./fakeServer";
 
 /* `vi.mock` hoists above imports so the mocks are in place by the time
  * `../adapters/sharedToolAdapter` (and its transitive imports) resolve
@@ -85,38 +89,6 @@ function mockBlueprint(): Omit<BlueprintDoc, "fieldParent"> {
 		moduleOrder: [],
 		formOrder: {},
 		fieldOrder: {},
-	};
-}
-
-/**
- * Capture the MCP handler the adapter registers via `server.tool`.
- * `server.server.notification` is a no-op spy — the progress emitter
- * invokes it when the client passes a `progressToken`; tests here
- * don't pass one so it stays silent.
- */
-type Handler = (
-	args: Record<string, unknown>,
-	extra: Record<string, unknown>,
-) => Promise<unknown>;
-interface FakeServer {
-	server: McpServer;
-	capture(): Handler;
-}
-
-function makeFakeServer(): FakeServer {
-	let captured: Handler | null = null;
-	const server = {
-		tool: (_n: string, _d: string, _s: unknown, cb: Handler) => {
-			captured = cb;
-		},
-		server: { notification: vi.fn() },
-	} as unknown as McpServer;
-	return {
-		server,
-		capture: () => {
-			if (!captured) throw new Error("handler not captured");
-			return captured;
-		},
 	};
 }
 
@@ -463,5 +435,113 @@ describe("projectResult — direct", () => {
 		 * pass-through read branch. */
 		const raw = { success: true, doc: "not-an-object" };
 		expect(projectResult(raw)).toBe(raw);
+	});
+});
+
+/* --- Real Phase-D tool integration ---------------------------------- */
+
+/**
+ * These tests register genuine `lib/agent/tools/*` modules (not the
+ * synthetic fakes above) through the adapter and invoke the resulting
+ * handler end-to-end. They guard against regressions where the adapter
+ * loses alignment with the real `SharedToolModule` contract — a subtle
+ * projection drift (e.g., unwrapping `.result` wrong for a real
+ * mutating tool) that the synthetic fakes would miss.
+ */
+describe("registerSharedTool — real read tool integration (searchBlueprint)", () => {
+	it("returns { query, results } JSON through the adapter envelope", async () => {
+		/* `searchBlueprintTool` is a Phase-D shared read tool: pure,
+		 * no mutations, no persistence. A good integration smoke test
+		 * because it exercises the whole adapter path (ownership +
+		 * load + execute + project + envelope) against a real module
+		 * without any Firestore writes. */
+		const { searchBlueprintTool } = await import(
+			"@/lib/agent/tools/searchBlueprint"
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerSharedTool(
+			server,
+			"search_blueprint",
+			searchBlueprintTool,
+			toolCtx,
+		);
+
+		const out = (await capture()(
+			{ app_id: "a1", query: "any" },
+			{ _meta: { run_id: "rid-real-read" } },
+		)) as {
+			content: Array<{ type: "text"; text: string }>;
+			_meta: { app_id: string; run_id: string };
+		};
+
+		/* Payload must carry the `{ query, results }` shape the real
+		 * tool returns — empty blueprint yields no results, and the
+		 * tool echoes the query back. */
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			query: string;
+			results: unknown[];
+		};
+		expect(parsed.query).toBe("any");
+		expect(Array.isArray(parsed.results)).toBe(true);
+		expect(parsed.results).toHaveLength(0);
+		expect(out._meta.app_id).toBe("a1");
+		expect(out._meta.run_id).toBe("rid-real-read");
+	});
+});
+
+describe("registerSharedTool — real mutating tool integration (addField)", () => {
+	it("invokes the tool's own ctx.recordMutations; the adapter does not re-persist", async () => {
+		/* Cross-check the no-double-persist invariant against a real
+		 * mutating tool. `addField` fails schema validation on an
+		 * empty-container payload (no module), returning `{ error }`
+		 * and an empty mutations array. That's the least-fragile way
+		 * to exercise the mutating-tool happy-code-path without
+		 * fabricating a full module + form blueprint fixture — the
+		 * projection logic is what we're guarding, not the tool's
+		 * success case. */
+		const { addFieldTool } = await import("@/lib/agent/tools/addField");
+
+		/* Patch the context's recordMutations so the test can see any
+		 * adapter-side re-persist attempt. The tool itself resolves
+		 * its error path without touching ctx.recordMutations (no
+		 * mutations to record), which is exactly what we need — if
+		 * the adapter ever re-persisted it, this spy would fire. */
+		const { McpContext } = await import("../context");
+		const originalRecord = McpContext.prototype.recordMutations;
+		const recordSpy = vi.fn().mockResolvedValue([]);
+		McpContext.prototype.recordMutations = recordSpy;
+
+		try {
+			const { server, capture } = makeFakeServer();
+			registerSharedTool(server, "add_field", addFieldTool, toolCtx);
+
+			const out = (await capture()(
+				{
+					app_id: "a1",
+					moduleIndex: 0,
+					formIndex: 0,
+					/* Field payload is intentionally minimal — the empty
+					 * blueprint has no module at index 0, so the tool
+					 * returns `{ error }` with zero mutations. That's
+					 * the branch we want: projection unwraps
+					 * MutatingToolResult → `result`, which here is
+					 * `{ error: "Form m0-f0 not found" }`. */
+					field: { id: "q1", kind: "text", label: "Q1" },
+				},
+				{},
+			)) as { content: Array<{ type: "text"; text: string }> };
+
+			const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+				error?: string;
+			};
+			expect(typeof parsed.error).toBe("string");
+			/* Hard invariant: adapter must NEVER call recordMutations
+			 * itself. The tool did not call it either (empty mutation
+			 * batch), so zero total calls is the contract. */
+			expect(recordSpy).not.toHaveBeenCalled();
+		} finally {
+			McpContext.prototype.recordMutations = originalRecord;
+		}
 	});
 });
