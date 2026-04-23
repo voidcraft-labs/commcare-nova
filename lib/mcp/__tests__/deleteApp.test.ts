@@ -140,9 +140,10 @@ describe("registerDeleteApp — not found", () => {
 		expect(out.isError).toBe(true);
 		expect(out._meta?.error_type).toBe("not_found");
 		expect(out._meta?.app_id).toBe("ghost");
-		/* A probe against a nonexistent id must not create a soft-delete
-		 * row — the helper is merge-write, so a write against a missing
-		 * document would materialize the row from nothing. */
+		/* A probe against a nonexistent id must not reach softDeleteApp —
+		 * the helper's `update()` would reject with NOT_FOUND, which is
+		 * a correct signal for a real caller but wasteful noise when
+		 * the ownership gate can rule it out first. */
 		expect(softDeleteApp).not.toHaveBeenCalled();
 	});
 });
