@@ -352,10 +352,9 @@ export async function listApps(
 	const now = Date.now();
 	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-	/* `flatMap` lets the soft-delete filter drop rows without a prior
-	 * `filter` pass — returning `[]` from the callback skips the row and
-	 * returning a single-entry array keeps it. Cleaner than `.reduce`
-	 * for this shape. */
+	/* `flatMap` returns `[]` to drop a row and `[entry]` to keep it, so
+	 * the soft-delete skip + timeout inference + shape projection all
+	 * happen in a single pass over `snap.docs`. */
 	return snap.docs.flatMap((doc) => {
 		const data = doc.data();
 
