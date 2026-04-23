@@ -8,33 +8,51 @@
  * prompt, the model, the reasoning effort, or the tool allowlist is picked
  * up by the next skill invocation without a plugin release.
  *
- * Two flags drive the rendered output:
+ * Three flags drive the rendered output, each with a single concern:
  *
- * 1. **`mode`** (`"build"` | `"edit"`) selects the tool surface. Build
- *    mode exposes the generation tools (`generate_schema`,
+ * 1. **`mode`** (`"build"` | `"edit"`) selects the tool surface only —
+ *    build mode exposes the generation tools (`generate_schema`,
  *    `generate_scaffold`, `add_module`, `create_app`); edit mode hides
  *    them because they would either no-op against an existing app or
- *    catastrophically replace its structure. The deliberate design is to
- *    use the *build* SA system prompt as the base in both modes (calling
- *    `buildSolutionsArchitectPrompt(undefined)`) and append a small
- *    `## Edit Mode` header — the per-skill task prompt carries the actual
- *    blueprint summary, so we avoid pre-rendering one for an app the
- *    skill may not have read yet.
- * 2. **`interactive`** controls whether the spawned subagent can call the
- *    `AskUserQuestion` tool. When `false`, the frontmatter emits
+ *    catastrophically replace its structure. `mode` does **not** branch
+ *    the system prompt directly — the doc presence does that (see #3).
+ *    `mode` also picks the agent description shown in `/agents`.
+ * 2. **`interactive`** controls whether the spawned subagent can call
+ *    the `AskUserQuestion` tool. When `false`, the frontmatter emits
  *    `disallowedTools: ["AskUserQuestion"]` so Claude Code physically
  *    blocks the tool — a prompt-only "don't ask" instruction is weaker
  *    than a tool-allowlist gate. The interactivity *prompt block* is
  *    appended either way so the subagent understands the contract.
+ * 3. **`editDoc`** (optional `BlueprintDoc`) is what selects the
+ *    system-prompt flavor. Threading it through to
+ *    `buildSolutionsArchitectPrompt` is what gives the edit-mode
+ *    subagent its full edit framing (`EDIT_PREAMBLE`) plus the inlined
+ *    `summarizeBlueprint(doc)` at boot — exactly the same prompt the
+ *    web flow's `/api/chat` edit mode uses, single source of truth.
+ *    Build callers pass `undefined` (or omit it); edit callers pass the
+ *    loaded blueprint. Empty docs (`moduleOrder.length === 0`) fall
+ *    back to the build prompt because there's nothing to edit yet.
+ *
+ * **Tool-name vocabulary in the SA prompts.** `EDIT_PREAMBLE` and
+ * `SHARED_TAIL` from `lib/agent/prompts.ts` were authored for the web
+ * flow and reference the SA's camelCase tool names (`searchBlueprint`,
+ * `validateApp`). The MCP surface exposes the same tools under
+ * snake_case (`search_blueprint`, `validate_app`). The model bridges
+ * the two by name resolution in practice; the cosmetic drift is
+ * accepted for v1 and a unified prompt-vocabulary refactor is left for
+ * a future iteration when the web/MCP surfaces converge further.
  */
 
 import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
+import type { BlueprintDoc } from "@/lib/domain";
 import { type ReasoningEffort, SA_MODEL, SA_REASONING } from "@/lib/models";
 
 /**
  * Discriminator for the two agent flavors we emit. Build flavor exposes
  * the full generation toolset; edit flavor strips creators in favor of
- * fine-grained mutators.
+ * fine-grained mutators. Note this only controls the *tools* allowlist
+ * + the agent description; the *system prompt* branches on `editDoc`
+ * presence inside `buildSolutionsArchitectPrompt`.
  */
 export type PromptMode = "build" | "edit";
 
@@ -142,9 +160,10 @@ const ALLOWED_MCP_TOOLS_EDIT = ALLOWED_MCP_TOOLS_BUILD.filter(
  * model from spending a turn discovering the missing tool.
  *
  * Each block leads with `\n\n` so the `## Interaction Mode` heading
- * lands after a blank line (markdown idiom); the edit-mode header uses
- * the same convention, so the composed prompt reads as a sequence of
- * well-separated sections regardless of which pieces are present.
+ * lands after a blank line (markdown idiom); `buildSolutionsArchitectPrompt`'s
+ * trailing section already terminates without a blank, so this composes
+ * cleanly into a sequence of well-separated sections regardless of which
+ * prompt body precedes it.
  */
 const INTERACTIVITY_INSTRUCTIONS = {
 	interactive: `
@@ -171,42 +190,49 @@ tool is not available to you in this mode.`,
  * Compose the `{ frontmatter, system_prompt }` payload for the
  * `nova-architect` subagent.
  *
- * The system prompt body reuses `buildSolutionsArchitectPrompt`
- * (Nova's web-flow SA renderer) so both surfaces stay in sync — any
- * tweak to the SA's core prompt shows up in the spawned subagent on the
- * next render. Edit mode passes `undefined` for the doc; the per-skill
- * task prompt provides the blueprint summary instead, because the skill
- * may invoke this tool before it has fetched the app.
+ * The system prompt body delegates entirely to
+ * `buildSolutionsArchitectPrompt`, the same renderer the web flow's
+ * `/api/chat` route uses. Threading `editDoc` through means the
+ * MCP edit-mode subagent boots with exactly the prompt the web flow's
+ * SA gets in edit mode — `EDIT_PREAMBLE` framing ("you have full
+ * visibility, only ask about intent") plus an inlined
+ * `summarizeBlueprint(doc)` so the subagent knows the app's structure
+ * at turn 0 instead of having to spend a tool call to fetch it. Single
+ * source of truth, single rendering branch, no cross-surface drift.
+ *
+ * Build callers pass `undefined` (or omit `editDoc`); edit callers
+ * pass the loaded blueprint. Empty docs (`moduleOrder.length === 0`)
+ * intentionally fall back to the build prompt — there's nothing to
+ * edit yet, so `buildSolutionsArchitectPrompt`'s degenerate-edit branch
+ * delivers the build framing instead.
  */
 export function renderAgentPrompt(
 	mode: PromptMode,
 	interactive: boolean,
+	editDoc?: BlueprintDoc,
 ): AgentPromptPayload {
-	/* Use the build-mode rendering as the base for both modes. The edit
-	 * preamble Nova's web flow uses is replaced by a much shorter
-	 * `## Edit Mode` header below, because the skill's task prompt
-	 * already frames the edit and includes the live blueprint summary. */
-	const baseSystem = buildSolutionsArchitectPrompt(undefined);
+	/* Single delegation: `buildSolutionsArchitectPrompt` already branches
+	 * on `doc?.moduleOrder.length > 0`, so passing `editDoc` straight
+	 * through here lets one renderer cover both surfaces. Build mode +
+	 * empty-doc edit mode both land in the build branch; edit mode with a
+	 * populated doc lands in the edit branch with `summarizeBlueprint`
+	 * inlined. The MCP-specific concerns (interactivity policy, tool
+	 * allowlist, frontmatter shape) compose around the body, never inside
+	 * the body — that's what keeps the web/MCP surfaces in lockstep. */
+	const baseSystem = buildSolutionsArchitectPrompt(editDoc);
 
 	const interactivityBlock = interactive
 		? INTERACTIVITY_INSTRUCTIONS.interactive
 		: INTERACTIVITY_INSTRUCTIONS.autonomous;
 
-	/* Edit mode appends a tight directive: the subagent must read the
-	 * blueprint via `nova.get_app` before mutating, even if the task
-	 * prompt already includes a summary — the task prompt's summary may
-	 * be stale by the time the subagent acts on it. */
-	const modeHeader =
-		mode === "edit"
-			? "\n\n## Edit Mode\n\nThe user has asked you to modify an existing app. The task prompt carries the app_id and the user's instruction. Before making changes, call `nova.get_app` with the app_id to read the current blueprint summary."
-			: "";
-
-	const system_prompt = `${baseSystem}${modeHeader}${interactivityBlock}`;
+	const system_prompt = `${baseSystem}${interactivityBlock}`;
 
 	/* Description shows up in `/agents` listings and the Agent-tool
 	 * picker, so it should describe the *spawned* agent's capability
 	 * shape — the three combinations are meaningfully distinct from the
-	 * caller's perspective. */
+	 * caller's perspective. Note `mode` is the right discriminator here
+	 * (not `editDoc` presence): the description is about which tools the
+	 * subagent has, which `mode` controls. */
 	const description =
 		mode === "edit"
 			? "Edit an existing Nova CommCare app via the nova MCP tools."

@@ -14,6 +14,22 @@
  * effort, and tool allowlist without cutting a new plugin release —
  * the next skill invocation just picks up the fresh render.
  *
+ * **Edit mode loads the blueprint here.** When `mode === "edit"`, the
+ * tool requires `app_id`, ownership-gates on it, loads the blueprint,
+ * and passes the doc through to `renderAgentPrompt` so the spawned
+ * subagent boots with `EDIT_PREAMBLE` framing + an inlined
+ * `summarizeBlueprint(doc)` — exact parity with the web flow's edit
+ * mode (`/api/chat`). Without this round trip the edit subagent would
+ * have to spend its first tool call re-fetching what the server already
+ * has on hand.
+ *
+ * Build mode (`mode === "build"`) ignores `app_id` even when present.
+ * Skill simplicity wins here: `mode` is the authoritative flag, and a
+ * spurious id shouldn't cause a Firestore round-trip or skew the
+ * envelope. `_meta.app_id` is therefore only stamped on edit-mode
+ * success — a build response with `_meta.app_id` would mislead admin
+ * surfaces correlating runs to apps.
+ *
  * **Why a JSON-stringified text payload, not structured content.** MCP
  * defines `content` as a typed array — `text`, `image`, `resource`. There
  * is no first-class "JSON object" content kind on the wire, and Nova's
@@ -23,13 +39,6 @@
  * text. Keeping the on-the-wire shape uniform also means a single MCP
  * client deserializer can handle every tool's response — no per-tool
  * branching on content kind.
- *
- * **No ownership check.** Unlike `get_app` / `compile_app` /
- * `upload_app_to_hq`, the agent prompt is not scoped to a specific app —
- * it's a pure metadata read whose output is identical for every caller
- * with `nova.read`. Adding an ownership gate would require an `app_id`
- * argument that has no semantic meaning here. `requireOwnedApp` stays
- * out.
  *
  * **`_meta.run_id` is still threaded.** Same reason `list_apps` does
  * it: MCP clients bundle multi-call runs under one id so admin surfaces
@@ -43,30 +52,35 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { loadAppBlueprint } from "../loadApp";
+import { McpAccessError, requireOwnedApp } from "../ownership";
 import { type PromptMode, renderAgentPrompt } from "../prompts";
 import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
- * Register the two-argument `get_agent_prompt` tool on an `McpServer`.
+ * Register the three-argument `get_agent_prompt` tool on an `McpServer`.
  *
- * Inputs are the two render-time flags `renderAgentPrompt` accepts —
- * everything else (model, effort, tool allowlist) is server-controlled
- * and not exposed to the caller, by design. The skill picks `mode` based
- * on whether it's running the build or edit flow, and `interactive`
- * based on whether the parent session is human-attended.
+ * Inputs:
+ *   - `mode` and `interactive` are the two render-time flags every call
+ *     supplies. `mode` picks the agent description + tools allowlist;
+ *     `interactive` controls the `AskUserQuestion` allowlist.
+ *   - `app_id` is conditionally required: required in edit mode (so the
+ *     handler can ownership-gate + inline the blueprint summary into
+ *     the system prompt), ignored in build mode (skill convenience —
+ *     `mode` is the authoritative discriminator). The conditional is
+ *     not expressible in raw-shape Zod, so the handler enforces it via
+ *     a typed `McpInvalidInputError` throw at the top.
  *
- * `ctx.userId` rides the error envelope so cross-tenant audit logging
- * (in `toMcpErrorResult`'s `McpAccessError` branch — `errors.ts:171`)
- * stays uniform across every tool, even ones like this that don't gate
- * on ownership. The happy path doesn't read `ctx`; threading it on
- * errors keeps the registration shape uniform with `getApp`,
- * `compileApp`, etc., and leaves the door open for a scope-conditional
- * render without a context refactor.
+ * `ctx.userId` rides every error envelope so cross-tenant audit logging
+ * (in `toMcpErrorResult`'s `McpAccessError` branch) stays uniform across
+ * every tool. The build-mode happy path doesn't read `ctx.userId`; edit
+ * mode reads it for `requireOwnedApp` to gate the blueprint load.
  */
 export function registerGetAgentPrompt(
 	server: McpServer,
@@ -76,7 +90,7 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Get the current nova-architect agent definition (frontmatter + system prompt) for the given mode. Plugin skills call this to materialize the subagent file at invoke time so the server stays the source of truth for prompt, model, effort, and tool restrictions.",
+				"Get the current nova-architect agent definition (frontmatter + system prompt) for the given mode. Plugin skills call this to materialize the subagent file at invoke time so the server stays the source of truth for prompt, model, effort, and tool restrictions. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot.",
 			/* Raw-shape Zod object — `registerTool` composes the object
 			 * validator around it. Wrapping in `z.object(...)` would
 			 * register the wrong shape: `{ schema: z.object }` rather
@@ -100,6 +114,12 @@ export function registerGetAgentPrompt(
 					.describe(
 						"When true, the subagent may call AskUserQuestion (added to the `tools` allowlist). When false, the frontmatter emits `disallowedTools: ['AskUserQuestion']` so Claude Code physically blocks the call — a prompt-only 'don't ask' instruction would be weaker.",
 					),
+				app_id: z
+					.string()
+					.optional()
+					.describe(
+						"Required when `mode === 'edit'` — the Firestore app id whose blueprint summary should be inlined into the rendered system prompt. The user must own this app. Ignored when `mode === 'build'` (build mode has no app to read from).",
+					),
 			},
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -109,21 +129,60 @@ export function registerGetAgentPrompt(
 			 * the bootstrap call is usually the first in a run so it sets
 			 * the key the rest of the call chain inherits. */
 			const runId = resolveRunId(extra);
+			/* `appId` is captured here (rather than read inline in the
+			 * branches) so the `catch` can stamp it onto error `_meta`
+			 * when the failure originates from the edit branch. Build
+			 * mode leaves it `undefined`, which is what the spread in
+			 * `_meta` correctly omits — see `errors.ts`'s base merge. */
+			const appId = args.mode === "edit" ? args.app_id : undefined;
 			try {
-				/* `renderAgentPrompt` is pure — it builds two strings and an
-				 * object literal. The try/catch wrapper looks redundant
-				 * today but stays for future-proofing: any future renderer
-				 * change that adds I/O (e.g. fetching prompt-fragment from
-				 * Firestore) gets the standard error classifier path
-				 * automatically, with the right `_meta.run_id` already
-				 * stamped, by virtue of being inside this block. */
+				if (args.mode === "edit") {
+					/* Edit mode is strict on `app_id`: the whole point of
+					 * threading the doc through `renderAgentPrompt` is to
+					 * inline the blueprint summary at boot. Without an id
+					 * we can't ownership-gate or load, so refuse with a
+					 * deterministic `invalid_input` rather than rendering a
+					 * misleading build-mode prompt under an edit
+					 * description. */
+					if (!args.app_id) {
+						throw new McpInvalidInputError("edit mode requires app_id");
+					}
+					await requireOwnedApp(ctx.userId, args.app_id);
+					/* `loadAppBlueprint` returns null when a concurrent
+					 * hard-delete lands between the ownership check and
+					 * this read — collapse that race to the same
+					 * `not_found` shape a missing-app probe surfaces, the
+					 * way `getApp` does. */
+					const loaded = await loadAppBlueprint(args.app_id);
+					if (!loaded) throw new McpAccessError("not_found");
+					const payload = renderAgentPrompt(
+						args.mode,
+						args.interactive,
+						loaded.doc,
+					);
+					return {
+						content: [{ type: "text", text: JSON.stringify(payload) }],
+						_meta: { app_id: args.app_id, run_id: runId },
+					};
+				}
+
+				/* Build mode: `app_id` is intentionally ignored even when
+				 * supplied (sharp-edge #2 — skill convenience, `mode` is
+				 * the authoritative flag). `_meta.app_id` is therefore
+				 * not stamped on the build-mode envelope; an admin
+				 * surface seeing `app_id` here would falsely correlate a
+				 * build run to an unrelated app. */
 				const payload = renderAgentPrompt(args.mode, args.interactive);
 				return {
 					content: [{ type: "text", text: JSON.stringify(payload) }],
 					_meta: { run_id: runId },
 				};
 			} catch (err) {
-				return toMcpErrorResult(err, { runId, userId: ctx.userId });
+				return toMcpErrorResult(err, {
+					appId,
+					runId,
+					userId: ctx.userId,
+				});
 			}
 		},
 	);

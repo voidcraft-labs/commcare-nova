@@ -6,11 +6,18 @@
  * taxonomy used by both the chat surface and this one; this module is
  * the bridge from that classification to the MCP result envelope.
  *
- * `McpAccessError` (from `./ownership`) short-circuits the classifier
- * because access failures are deterministic and carry a known internal
- * reason code — no need to route them through `classifyError`'s
- * inference heuristics, which key off status codes and message
- * substrings.
+ * Two thrown-error classes short-circuit the classifier because their
+ * failure shapes are deterministic and don't benefit from
+ * `classifyError`'s status-code + substring heuristics:
+ *
+ * - `McpAccessError` (from `./ownership`) — ownership-gate rejection.
+ *   Carries an internal reason code (`"not_found"` vs `"not_owner"`)
+ *   for the audit log; the wire collapses both to `"not_found"` (see
+ *   IDOR hardening below).
+ * - `McpInvalidInputError` (declared below) — argument validation a
+ *   raw-shape Zod schema can't express (e.g. conditional-required
+ *   fields). The thrown `message` rides through to the wire `text`
+ *   verbatim so the client sees the precise failure reason.
  *
  * **IDOR hardening.** `McpAccessError.reason` carries two distinct
  * internal reasons (`"not_found"`, `"not_owner"`) so admins can
@@ -33,6 +40,28 @@ import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
 
 /**
+ * Thrown when an MCP tool's input arguments fail a contract check the
+ * Zod input schema cannot express on its own — typically a
+ * conditional-required field (e.g. `app_id` is required iff
+ * `mode === "edit"`). Mirrors the `McpAccessError` shape so the error
+ * serializer can short-circuit `classifyError` and surface a
+ * deterministic `error_type: "invalid_input"` envelope rather than the
+ * generic `"internal"` bucket a plain `Error` would land in.
+ *
+ * The thrown `message` is propagated to the wire `text` content so the
+ * client can show a precise failure reason (e.g. "edit mode requires
+ * app_id"). Conditional-required validation in raw-shape Zod is
+ * awkward enough that the cleaner pattern is a typed throw at the top
+ * of the handler — sibling tools follow the same model.
+ */
+export class McpInvalidInputError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "McpInvalidInputError";
+	}
+}
+
+/**
  * Errors produced by `upload_app_to_hq`'s four-gate validation chain.
  * Exported so the tool's `UPLOAD_ERROR_TAGS` record can `satisfies`-
  * check against the union — a new bucket without a corresponding entry
@@ -46,7 +75,7 @@ export type UploadErrorType =
 
 /**
  * Closed union of every `error_type` string an MCP tool envelope can
- * emit ON THE WIRE. Spans three independent failure sources:
+ * emit ON THE WIRE. Spans four independent failure sources:
  *
  *   - `"not_found"` — the single access-failure bucket the wire exposes.
  *     The internal `AccessErrorReason` union (`"not_found"` vs
@@ -54,6 +83,11 @@ export type UploadErrorType =
  *     the envelope boundary so a probing client cannot enumerate
  *     existing app ids by watching the response. The ownership-failure
  *     audit trail lives in server-side logs via `log.warn`.
+ *   - `"invalid_input"` — conditional-required argument validation that
+ *     a raw-shape Zod schema can't express on its own (e.g. `app_id`
+ *     required only in edit mode). Surfaces via `McpInvalidInputError`
+ *     and short-circuits the classifier the same way `McpAccessError`
+ *     does.
  *   - `UploadErrorType` — upload-tool-specific gate rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
@@ -61,7 +95,11 @@ export type UploadErrorType =
  * Exhaustively switching on this union catches a new error bucket at
  * compile time wherever it's consumed.
  */
-export type McpErrorType = "not_found" | UploadErrorType | AgentErrorType;
+export type McpErrorType =
+	| "not_found"
+	| "invalid_input"
+	| UploadErrorType
+	| AgentErrorType;
 
 /**
  * MCP tool-error result envelope. Matches the MCP SDK's
@@ -153,6 +191,21 @@ export function toMcpErrorResult(
 	const base: { app_id?: string; run_id?: string } = {};
 	if (ctx?.appId !== undefined) base.app_id = ctx.appId;
 	if (ctx?.runId !== undefined) base.run_id = ctx.runId;
+
+	if (err instanceof McpInvalidInputError) {
+		/* Argument-validation failures short-circuit the classifier
+		 * because the failure shape is deterministic — the thrown
+		 * `message` is the precise reason (e.g. "edit mode requires
+		 * app_id") and routing it through `classifyError`'s status-code
+		 * + substring heuristics would only succeed in losing that
+		 * precision. The wire surfaces both the `error_type` tag for
+		 * machine branching and the message text for human display. */
+		return {
+			isError: true,
+			content: [{ type: "text", text: err.message }],
+			_meta: { error_type: "invalid_input", ...base },
+		};
+	}
 
 	if (err instanceof McpAccessError) {
 		/* IDOR hardening: the wire sees exactly one access-failure shape
