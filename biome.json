@@ -59,17 +59,20 @@
 				"app/**",
 				"lib/**",
 				"!**/__tests__/**",
-				"!app/api/compile/**",
 				"!app/api/commcare/**",
+				"!app/api/compile/**",
+				"!app/api/mcp/**",
 				"!app/settings/**",
 				"!components/builder/XPathField.tsx",
 				"!components/builder/detail/formSettings/**",
 				"!lib/agent/**",
+				"!lib/agent/tools/**",
 				"!lib/codemirror/**",
 				"!lib/commcare/**",
 				"!lib/db/settings.ts",
 				"!lib/doc/connectConfig.ts",
 				"!lib/doc/mutations/pathRewrite.ts",
+				"!lib/mcp/**",
 				"!lib/preview/engine/**",
 				"!lib/preview/xpath/**"
 			],
@@ -80,12 +83,12 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/compile, app/api/commcare, app/settings, lib/agent, lib/codemirror, lib/db/settings, lib/doc/connectConfig, lib/doc/mutations/pathRewrite, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/connectConfig, lib/doc/mutations/pathRewrite, lib/mcp, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 								},
 								"patterns": [
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
-										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/compile, app/api/commcare, app/settings, lib/agent, lib/codemirror, lib/db/settings, lib/doc/connectConfig, lib/doc/mutations/pathRewrite, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/connectConfig, lib/doc/mutations/pathRewrite, lib/mcp, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 									}
 								]
 							}
