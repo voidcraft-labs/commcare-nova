@@ -164,15 +164,31 @@ export const appDocSchema = z.object({
 	 * - `complete` — build finished successfully (or was created
 	 *   atomically, e.g. via `create_app`).
 	 * - `error` — generation failed; see `error_type` for the bucket.
-	 * - `deleted` — soft-deleted. Rows in this state are filtered out of
-	 *   `listApps` and any public surface; a retention job is responsible
-	 *   for eventual hard-delete.
+	 * - `deleted` — soft-deleted. Rows in this state carry `deleted_at`
+	 *   and `recoverable_until` and are filtered out of `listApps` and
+	 *   any public surface; a retention job is responsible for eventual
+	 *   hard-delete once the recovery window expires.
 	 */
 	status: z
 		.enum(["generating", "complete", "error", "deleted"])
 		.default("complete"),
 	/** Error classification — set when status is 'error'. Null for non-error apps. */
 	error_type: z.string().nullable().default(null),
+	/**
+	 * Epoch-millisecond timestamp of soft-delete. Null for any row that
+	 * has not been soft-deleted. Paired with `recoverable_until` so the
+	 * delete moment and the recovery deadline can be surfaced
+	 * independently (e.g. "deleted 3 days ago, 27 days left to recover").
+	 */
+	deleted_at: z.number().nullable().default(null),
+	/**
+	 * ISO-8601 deadline past which a soft-deleted row is eligible for
+	 * hard-delete by the retention job. Null for any row that has not
+	 * been soft-deleted. Stored as ISO string — rather than a Firestore
+	 * Timestamp — because it's a relative-to-deletion deadline computed
+	 * client-side, not a server-set wall clock event.
+	 */
+	recoverable_until: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */

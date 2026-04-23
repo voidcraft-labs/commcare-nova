@@ -154,6 +154,11 @@ beforeEach(() => {
 		form_count: 0,
 		status: "complete",
 		error_type: null,
+		/* Soft-delete fields default to null on any row that hasn't been
+		 * soft-deleted. Adapter doesn't read them; they're here to keep
+		 * the fixture shape a full `AppDoc`. */
+		deleted_at: null,
+		recoverable_until: null,
 		run_id: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],

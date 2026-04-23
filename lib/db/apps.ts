@@ -196,6 +196,13 @@ export async function createApp(
 		blueprint: persistable,
 		status: opts?.status ?? "generating",
 		error_type: null,
+		/* Soft-delete fields default to null at creation so every row on
+		 * disk matches the full `appDocSchema` shape — the Zod converter
+		 * wouldn't reject absent fields (they have `.default(null)`) but
+		 * establishing them up front keeps merge-writes from having to
+		 * backfill them on first soft-delete. */
+		deleted_at: null,
+		recoverable_until: null,
 		run_id: runId,
 		created_at: FieldValue.serverTimestamp(),
 		updated_at: FieldValue.serverTimestamp(),
@@ -274,6 +281,44 @@ export async function updateApp(
 		},
 		{ merge: true },
 	);
+}
+
+/**
+ * Soft-delete an app by marking `status: "deleted"` with the delete
+ * timestamp and a recoverable-until deadline. The row is NOT removed
+ * from Firestore — `listApps` filters `"deleted"` rows out at the
+ * persistence boundary, but the blueprint, event log, and HQ
+ * credentials survive so support-initiated recovery within the window
+ * is a single status flip back to `"complete"`.
+ *
+ * A retention job (implemented outside this file) hard-deletes rows
+ * past their `recoverable_until` date. 30 days mirrors the chat-side
+ * support window for accidental-delete recovery.
+ *
+ * Returns the ISO-8601 `recoverable_until` timestamp so callers can
+ * surface the deadline to users. Fail-fast: throws if the Firestore
+ * write rejects (e.g., the row genuinely doesn't exist); callers
+ * decide how to map the throw to their error surface. The write uses
+ * `set({}, { merge: true })` like the other status-flip helpers
+ * (`completeApp`, `failApp`, `updateApp`) so pre-existing fields are
+ * preserved and only the three delete-related fields change.
+ */
+export async function softDeleteApp(appId: string): Promise<string> {
+	/* 30 days — matches the chat-side support window for accidental-delete
+	 * recovery. Expressed in ms to avoid a `* 1000` mismatch between the
+	 * `Date.now()` arithmetic and the `new Date(...)` conversion below. */
+	const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+	const deletedAt = Date.now();
+	const recoverableUntil = new Date(deletedAt + RETENTION_MS).toISOString();
+	await docs.app(appId).set(
+		{
+			status: "deleted",
+			deleted_at: deletedAt,
+			recoverable_until: recoverableUntil,
+		},
+		{ merge: true },
+	);
+	return recoverableUntil;
 }
 
 /**

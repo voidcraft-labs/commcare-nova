@@ -144,6 +144,11 @@ function mockAppDoc(
 		),
 		status: "complete",
 		error_type: null,
+		/* Soft-delete fields default to null for any row that hasn't been
+		 * soft-deleted. The tool under test never reads them; they're
+		 * only here to keep the fixture a complete `AppDoc` shape. */
+		deleted_at: null,
+		recoverable_until: null,
 		run_id: null,
 		// Tool doesn't read timestamps — any placeholder works; casting through
 		// `unknown` avoids pulling in the Firestore Admin SDK just to fabricate
