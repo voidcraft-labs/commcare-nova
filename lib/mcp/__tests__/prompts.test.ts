@@ -1,17 +1,23 @@
 /**
  * `renderAgentPrompt` unit tests.
  *
- * Covers the seven load-bearing behaviors of the agent-definition
+ * Covers the eight load-bearing behaviors of the agent-definition
  * renderer:
  *
- *   - Autonomous build strips `AskUserQuestion` from `allowedTools` AND
- *     lists it in `disallowedTools` (belt-and-suspenders: prompt-only
- *     instruction would be weaker than a Claude Code tool-allowlist gate).
- *   - Interactive build includes `AskUserQuestion` in `allowedTools` and
- *     omits `disallowedTools` entirely (no ambiguous deny signal).
- *   - Edit mode strips the four generation tools (`create_app`,
- *     `generate_schema`, `generate_scaffold`, `add_module`) so the
- *     subagent can't replace an existing app's structure mid-edit.
+ *   - Autonomous build strips `AskUserQuestion` from `tools` AND lists
+ *     it in `disallowedTools` (belt-and-suspenders: prompt-only
+ *     instruction would be weaker than a Claude Code tool-allowlist
+ *     gate). Note Claude Code's allowlist frontmatter field is
+ *     literally `tools` — `allowedTools` would be silently ignored.
+ *   - Interactive build includes `AskUserQuestion` in `tools` and omits
+ *     `disallowedTools` entirely (no ambiguous deny signal).
+ *   - Build mode's `tools` list *includes* the four generation tools
+ *     (`create_app`, `generate_schema`, `generate_scaffold`,
+ *     `add_module`). Pairs with the edit-mode absence assertion below so
+ *     a regression in the derivation filter can't hide behind a
+ *     superset that already excluded them.
+ *   - Edit mode strips those same four generation tools so the subagent
+ *     can't replace an existing app's structure mid-edit.
  *   - `frontmatter.name` is invariant across all four mode × interactive
  *     combinations — uniqueness across parallel runs is handled by the
  *     plugin's per-run filename suffix, not by varying this field.
@@ -31,25 +37,35 @@ describe("renderAgentPrompt", () => {
 	it("autonomous build disallows AskUserQuestion", () => {
 		const r = renderAgentPrompt("build", false);
 		expect(r.frontmatter.disallowedTools).toContain("AskUserQuestion");
-		expect(r.frontmatter.allowedTools).not.toContain("AskUserQuestion");
+		expect(r.frontmatter.tools).not.toContain("AskUserQuestion");
 	});
 
 	it("interactive build allows AskUserQuestion", () => {
 		const r = renderAgentPrompt("build", true);
-		expect(r.frontmatter.allowedTools).toContain("AskUserQuestion");
+		expect(r.frontmatter.tools).toContain("AskUserQuestion");
 		expect(r.frontmatter.disallowedTools).toBeUndefined();
+	});
+
+	it("build mode exposes all four generation tools", () => {
+		/* Positive complement to the edit-mode absence assertion below.
+		 * Without this, a derivation filter that accidentally stripped a
+		 * generator from the build list (or renamed one on the server
+		 * side) would pass the edit-mode test — the tool would be
+		 * absent from both lists, which is still "stripped in edit
+		 * mode". Pinning presence in build mode fences that regression. */
+		const r = renderAgentPrompt("build", true);
+		expect(r.frontmatter.tools).toContain("mcp__nova__create_app");
+		expect(r.frontmatter.tools).toContain("mcp__nova__generate_schema");
+		expect(r.frontmatter.tools).toContain("mcp__nova__generate_scaffold");
+		expect(r.frontmatter.tools).toContain("mcp__nova__add_module");
 	});
 
 	it("edit mode strips generation tools", () => {
 		const r = renderAgentPrompt("edit", true);
-		expect(r.frontmatter.allowedTools).not.toContain(
-			"mcp__nova__generate_schema",
-		);
-		expect(r.frontmatter.allowedTools).not.toContain(
-			"mcp__nova__generate_scaffold",
-		);
-		expect(r.frontmatter.allowedTools).not.toContain("mcp__nova__add_module");
-		expect(r.frontmatter.allowedTools).not.toContain("mcp__nova__create_app");
+		expect(r.frontmatter.tools).not.toContain("mcp__nova__generate_schema");
+		expect(r.frontmatter.tools).not.toContain("mcp__nova__generate_scaffold");
+		expect(r.frontmatter.tools).not.toContain("mcp__nova__add_module");
+		expect(r.frontmatter.tools).not.toContain("mcp__nova__create_app");
 	});
 
 	it("frontmatter name is always nova-architect", () => {

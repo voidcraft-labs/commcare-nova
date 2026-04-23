@@ -29,7 +29,7 @@
  */
 
 import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
-import { SA_MODEL, SA_REASONING } from "@/lib/models";
+import { type ReasoningEffort, SA_MODEL, SA_REASONING } from "@/lib/models";
 
 /**
  * Discriminator for the two agent flavors we emit. Build flavor exposes
@@ -40,29 +40,40 @@ export type PromptMode = "build" | "edit";
 
 /**
  * Wire shape for the YAML frontmatter the plugin skill writes above the
- * system prompt body. Mirrors Claude Code's `agents/*.md` schema:
+ * system prompt body. Mirrors Claude Code's `agents/*.md` schema
+ * (verified against https://code.claude.com/docs/en/sub-agents):
  *
  * - `name` — agent slug, used by the parent agent's `Agent` tool to
  *   reference this subagent. Always `"nova-architect"`; uniqueness across
  *   parallel runs is handled by the per-run filename suffix the skill
  *   appends, not by varying this field.
  * - `description` — one-line summary surfaced in `/agents` listings.
- * - `model` — short Claude Code slug (`opus` | `sonnet` | `haiku`) so
- *   the harness picks up the current version of that tier automatically.
- * - `effort` — Anthropic adaptive-thinking effort token, mirrors what the
- *   web SA uses so behavior matches across surfaces.
+ * - `model` — Claude Code model selector. Short aliases (`opus` |
+ *   `sonnet` | `haiku`) are preferred because the harness resolves them
+ *   to the current release of that tier automatically; the mapper falls
+ *   back to a full model ID when `SA_MODEL` isn't one of the three
+ *   tiers, so the type stays `string` rather than a strict literal union.
+ * - `effort` — Anthropic adaptive-thinking effort token. Typed against
+ *   the `ReasoningEffort` union so edits to the allowed values in
+ *   `lib/models.ts` ripple here automatically.
  * - `maxTurns` — safety bound on the subagent's tool-call loop.
- * - `allowedTools` / `disallowedTools` — Claude Code tool-allowlist
- *   discipline. Both fields are emitted as small string arrays; the
- *   subagent sees the union of (allowedTools − disallowedTools).
+ * - `tools` / `disallowedTools` — Claude Code tool-allowlist discipline.
+ *   `tools` is the *allowlist* field (Claude Code silently ignores
+ *   unknown frontmatter keys, so the name has to be exact);
+ *   `disallowedTools` is the deny overlay. The subagent sees the union
+ *   of (tools − disallowedTools). Both fields are optional because
+ *   omitting `tools` inherits the parent's tool surface and omitting
+ *   `disallowedTools` is a no-op.
  */
 export interface AgentPromptFrontmatter {
 	name: "nova-architect";
 	description: string;
+	/** Short alias preferred (`opus` | `sonnet` | `haiku`); a full model
+	 * ID is accepted as a fallback when no tier prefix matches. */
 	model: string;
-	effort: string;
+	effort: ReasoningEffort;
 	maxTurns: number;
-	allowedTools?: string[];
+	tools?: string[];
 	disallowedTools?: string[];
 }
 
@@ -129,9 +140,15 @@ const ALLOWED_MCP_TOOLS_EDIT = ALLOWED_MCP_TOOLS_BUILD.filter(
  * tells it that `AskUserQuestion` is unavailable — the frontmatter's
  * `disallowedTools` enforces it, but a prompt-level statement keeps the
  * model from spending a turn discovering the missing tool.
+ *
+ * Each block leads with `\n\n` so the `## Interaction Mode` heading
+ * lands after a blank line (markdown idiom); the edit-mode header uses
+ * the same convention, so the composed prompt reads as a sequence of
+ * well-separated sections regardless of which pieces are present.
  */
 const INTERACTIVITY_INSTRUCTIONS = {
 	interactive: `
+
 ## Interaction Mode
 
 You may use the AskUserQuestion tool when a design choice is genuinely
@@ -141,6 +158,7 @@ ask things you can reasonably default on. Ask at most a handful of
 questions per build. The user sees your question in their main session
 and answers it, then you resume.`,
 	autonomous: `
+
 ## Interaction Mode
 
 You run without user interaction. Commit to a reasonable default for
@@ -196,7 +214,7 @@ export function renderAgentPrompt(
 				? "Build a Nova CommCare app via the nova MCP tools, asking clarifying questions when needed."
 				: "Build a Nova CommCare app autonomously via the nova MCP tools.";
 
-	const allowedTools =
+	const baseTools =
 		mode === "edit" ? ALLOWED_MCP_TOOLS_EDIT : ALLOWED_MCP_TOOLS_BUILD;
 
 	const frontmatter: AgentPromptFrontmatter = {
@@ -205,15 +223,14 @@ export function renderAgentPrompt(
 		model: mapModelToClaudeCode(SA_MODEL),
 		effort: SA_REASONING.effort,
 		maxTurns: 100,
-		/* Interactive mode adds `AskUserQuestion` to `allowedTools`;
-		 * autonomous mode both omits it from `allowedTools` *and* lists
-		 * it in `disallowedTools` so Claude Code physically blocks the
-		 * call. Belt-and-suspenders: if a future schema change makes
-		 * `allowedTools` permissive-by-default, the deny list still
-		 * holds. */
-		allowedTools: interactive
-			? [...allowedTools, "AskUserQuestion"]
-			: allowedTools,
+		/* Interactive mode adds `AskUserQuestion` to `tools`; autonomous
+		 * mode both omits it from `tools` *and* lists it in
+		 * `disallowedTools` so Claude Code physically blocks the call.
+		 * Belt-and-suspenders: if a future schema change widens the
+		 * allowlist semantics, the deny list still holds. Note the
+		 * Claude Code frontmatter field is literally `tools` (the
+		 * allowlist) — `allowedTools` would be silently ignored. */
+		tools: interactive ? [...baseTools, "AskUserQuestion"] : baseTools,
 		...(interactive ? {} : { disallowedTools: ["AskUserQuestion"] }),
 	};
 
@@ -230,8 +247,16 @@ export function renderAgentPrompt(
  * Falls through to the raw model id when no tier prefix matches — this
  * preserves debuggability if `SA_MODEL` is changed to an exotic id, and
  * lets the test suite assert on the documented short-slug shape.
+ *
+ * The return type uses the `"opus" | "sonnet" | "haiku" | (string & {})`
+ * pattern so callers get IntelliSense on the three short slugs while
+ * the fallthrough branch keeps typing honest — TypeScript won't
+ * collapse the union to plain `string`, so the literals remain
+ * visible in autocomplete.
  */
-function mapModelToClaudeCode(modelId: string): string {
+function mapModelToClaudeCode(
+	modelId: string,
+): "opus" | "sonnet" | "haiku" | (string & {}) {
 	if (modelId.startsWith("claude-opus")) return "opus";
 	if (modelId.startsWith("claude-sonnet")) return "sonnet";
 	if (modelId.startsWith("claude-haiku")) return "haiku";
