@@ -35,9 +35,14 @@ export interface ToolContext {
 
 /**
  * JWT claim shape the route handler receives post-verification.
+ *
+ * Only the two claims Nova reads downstream are modeled — `sub` (the
+ * authenticated user id) and `scope` (space-delimited granted scopes).
+ * `aud` is pinned at the verify layer via `verifyOptions.audience` and
+ * has no consumer inside tool code, so it isn't part of this narrowed
+ * shape.
  */
 export interface JwtClaims {
 	sub: string;
 	scope?: string;
-	aud?: string | string[];
 }

@@ -13,17 +13,19 @@ import { parseScopes, SCOPES } from "../scopes";
 
 describe("parseScopes", () => {
 	it("splits a space-separated scope claim into tokens in order", () => {
-		expect(
-			parseScopes({ sub: "u", scope: "nova.read nova.write openid" }),
-		).toEqual(["nova.read", "nova.write", "openid"]);
+		expect(parseScopes("nova.read nova.write openid")).toEqual([
+			"nova.read",
+			"nova.write",
+			"openid",
+		]);
 	});
 
 	it("returns [] when the scope claim is absent", () => {
-		expect(parseScopes({ sub: "u" })).toEqual([]);
+		expect(parseScopes(undefined)).toEqual([]);
 	});
 
 	it("returns [] when the scope claim is whitespace-only", () => {
-		expect(parseScopes({ sub: "u", scope: "   " })).toEqual([]);
+		expect(parseScopes("   ")).toEqual([]);
 	});
 
 	it("collapses runs of internal whitespace without emitting empty tokens", () => {
@@ -31,9 +33,10 @@ describe("parseScopes", () => {
 		 * accidentally double-space them. The split regex handles any
 		 * whitespace run, and `filter(Boolean)` drops the empty strings
 		 * that leading/trailing whitespace would otherwise produce. */
-		expect(
-			parseScopes({ sub: "u", scope: "  nova.read\t nova.write  " }),
-		).toEqual(["nova.read", "nova.write"]);
+		expect(parseScopes("  nova.read\t nova.write  ")).toEqual([
+			"nova.read",
+			"nova.write",
+		]);
 	});
 });
 

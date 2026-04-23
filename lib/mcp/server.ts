@@ -92,8 +92,7 @@ import type { ToolContext } from "./types";
  * the MCP surface doesn't — Claude Code's `AskUserQuestion` covers that
  * interaction pattern client-side. Adding it here would give the MCP
  * agent a dead-end question path (it has no client-side panel to render
- * the result). If you're reading this because you "helpfully" tried to
- * add it back, the answer is still no.
+ * the result).
  */
 const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "add_field", tool: addFieldTool },
@@ -153,23 +152,14 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 }
 
 /**
- * Register MCP prompt resources. Deliberately empty in v1.
- *
- * The agent-prompt surface Nova exposes is served through the
- * `get_agent_prompt` TOOL, not as a top-level MCP prompt resource. That
- * choice is load-bearing: the prompt's content varies with build mode
- * (new vs edit) and embeds an app-scoped blueprint summary, which means
- * the caller must pass `app_id` to pick the right variant. MCP prompt
- * resources are discovered before any tool call (and before any
- * `app_id` context exists), so modeling it as a prompt resource would
- * force a static fallback that's strictly worse than the tool-routed
- * dynamic path.
- *
- * The hook stays exported as a no-op so the route handler's
- * `registerNovaPrompts(server)` call site remains stable: if a future
- * feature genuinely needs static prompts, the registration point is
- * already in place and adding them here won't force a route-handler
- * edit.
+ * Nova exposes no standalone MCP prompt resources. The agent-prompt
+ * surface is served through the `get_agent_prompt` TOOL instead,
+ * because the rendered prompt varies by build mode (new vs edit) and
+ * embeds an app-scoped blueprint summary. Those inputs need `app_id`,
+ * which MCP prompt resources can't receive — they're discovered before
+ * any tool-call context exists, so modeling the agent prompt as a
+ * prompt resource would force a static fallback that's strictly worse
+ * than the tool-routed dynamic path.
  *
  * The `_server` parameter name signals intentional non-use to Biome's
  * `noUnusedFunctionParameters` rule without disabling it on the file.

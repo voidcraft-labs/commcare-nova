@@ -118,9 +118,10 @@ const handler = mcpHandler(
 	async (req: Request, jwt: JWTPayload): Promise<Response> => {
 		/* Post-verify narrowing. `JWTPayload` from `jose` is intentionally
 		 * loose — the library's philosophy is that verification-layer
-		 * consumers know which claims they care about. We care about
-		 * `sub` (hard requirement — the downstream tools all key on
-		 * `userId`), plus `scope` and `aud` for informational threading.
+		 * consumers know which claims they care about. Nova cares about
+		 * two: `sub` (hard requirement — downstream tools all key on
+		 * `userId`) and `scope` (informational, threaded through to the
+		 * tool context for any future scope-conditional behavior).
 		 *
 		 * Missing `sub` at this point indicates the AS issued a token
 		 * without a subject claim — that's structurally broken and the
@@ -138,13 +139,6 @@ const handler = mcpHandler(
 			 * than coerced — a malformed claim is cleaner as "no scopes
 			 * reported" than as a `toString()`d object. */
 			scope: typeof jwt.scope === "string" ? jwt.scope : undefined,
-			/* `aud` can be a single string or an array per the JWT spec.
-			 * Anything else (number, null, object) is a malformed token
-			 * and we drop to undefined rather than forwarding garbage. */
-			aud:
-				typeof jwt.aud === "string" || Array.isArray(jwt.aud)
-					? jwt.aud
-					: undefined,
 		};
 
 		/* Fresh `McpServer` per request. Binding tools on every call is
@@ -155,7 +149,7 @@ const handler = mcpHandler(
 			(server) => {
 				registerNovaTools(server, {
 					userId: claims.sub,
-					scopes: parseScopes(claims),
+					scopes: parseScopes(claims.scope),
 				});
 				registerNovaPrompts(server);
 			},

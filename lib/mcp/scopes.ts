@@ -12,8 +12,6 @@
  * and any operation that creates, deletes, or uploads an app.
  */
 
-import type { JwtClaims } from "./types";
-
 /**
  * Canonical scope identifiers. Using `as const` locks the object shape
  * so `Scope` below resolves to the literal union
@@ -33,7 +31,12 @@ export const SCOPES = {
 export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
 
 /**
- * Parse the JWT's `scope` claim into an array of tokens.
+ * Parse a space-delimited OAuth `scope` claim into an array of tokens.
+ *
+ * Takes the raw string (or `undefined`) rather than the full claim
+ * object so the data dependency is explicit — the parser only needs
+ * one string, and coupling it to a composed claim type would hide
+ * that.
  *
  * Return type is `string[]`, not `Scope[]`, because a token's scope
  * claim carries third-party scopes (`openid`, `profile`,
@@ -43,11 +46,11 @@ export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
  * string array; those constants already carry the correct literal
  * types.
  *
- * Missing or empty claims return `[]`. Whitespace tokens are filtered.
- * Per RFC 8693 the claim is space-delimited; splitting on any
+ * Missing or empty input returns `[]`. Whitespace tokens are filtered.
+ * Per RFC 6749 the claim is space-delimited; splitting on any
  * whitespace run is defensive against the occasional CR/LF an upstream
  * token server emits.
  */
-export function parseScopes(jwt: JwtClaims): string[] {
-	return (jwt.scope ?? "").split(/\s+/).filter(Boolean);
+export function parseScopes(scope: string | undefined): string[] {
+	return (scope ?? "").split(/\s+/).filter(Boolean);
 }
