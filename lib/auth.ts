@@ -281,6 +281,28 @@ function createAuth() {
 				rateLimit: {
 					register: { window: 60, max: 5 },
 				},
+				/* `@better-auth/oauth-provider` nags on every cold start
+				 * asking us to ensure the RFC 8414 metadata document is
+				 * mounted, because its startup check fires unconditionally
+				 * whenever `basePath !== "/"` — it can't HEAD-probe its own
+				 * process to verify the route is actually there. The
+				 * warning's own text tells you to silence it once you've
+				 * verified the mount ("Upon completion, clear with
+				 * silenceWarnings.oauthAuthServerConfig").
+				 *
+				 * We serve the metadata at
+				 * `app/.well-known/oauth-authorization-server/route.ts`
+				 * on the main host (`proxy.ts` allowlists the path there).
+				 * Tokens are signed with `iss` defaulting to
+				 * `ctx.options.baseURL` — i.e. `BETTER_AUTH_URL` — which is
+				 * path-free, so spec-compliant clients probe the bare
+				 * `/.well-known/oauth-authorization-server` (exactly what
+				 * we serve). The warning text nominally points at a
+				 * path-inserted variant under `/api/auth` based on the
+				 * plugin's internal `ctx.baseURL` (which has `basePath`
+				 * appended), but no real client probes that path given
+				 * the actual signed `iss`. Silencing is the ack. */
+				silenceWarnings: { oauthAuthServerConfig: true },
 			}),
 		],
 
