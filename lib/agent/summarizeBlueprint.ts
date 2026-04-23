@@ -1,21 +1,9 @@
 /**
- * Canonical renderer for the compact blueprint-summary text.
- *
- * Two surfaces consume this output verbatim:
- * - `lib/agent/prompts.ts` — embeds the summary inside the SA's edit-mode
- *   system prompt so the agent has a full read of the current app on every
- *   request without having to call read tools first.
- * - `lib/mcp/tools/getApp.ts` — the `nova.get_app` MCP tool returns this
- *   same text so external MCP clients see exactly what the SA sees.
- *
- * Both surfaces share one renderer so the human-readable summary never
- * drifts across consumers — any format tweak lands in one place.
- *
- * The walker reads `BlueprintDoc` directly in domain vocabulary
- * (`field`, `kind`, `case_property`) and never crosses into CommCare
- * wire terminology — the SA operates on the same field shape its
- * mutation reducers consume, so what it reads matches what its next
- * tool call will mutate.
+ * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
+ * emits domain-vocabulary text (`field`, `kind`, `case_property`) — no
+ * CommCare wire terms. Lives in its own module so the SA edit-mode
+ * prompt (`lib/agent/prompts.ts`) and forthcoming MCP read paths can
+ * share one renderer instead of string-slicing the SA prompt.
  */
 
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";

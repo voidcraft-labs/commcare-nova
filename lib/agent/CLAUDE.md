@@ -13,7 +13,8 @@ CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/comm
 ## What lives here
 
 - `solutionsArchitect.ts` — the one `ToolLoopAgent` factory. Owns the SA's internal `BlueprintDoc` for the lifetime of a request and emits fine-grained mutations for every tool call.
-- `prompts.ts` — system prompt + blueprint summary renderer. The summary walks the normalized doc directly and emits field vocabulary. CommCare XForm terms (e.g. `jr:`, `#form/`, XPath function names) still appear where the SA genuinely needs them.
+- `prompts.ts` — composes the mode-specific (build vs. edit) SA system prompt. CommCare XForm terms (e.g. `jr:`, `#form/`, XPath function names) still appear where the SA genuinely needs them.
+- `summarizeBlueprint.ts` — compact blueprint walker in domain vocabulary (`field`, `kind`, `case_property`), imported by `prompts.ts` for the edit-mode summary and reused by MCP read paths so both surfaces share one renderer.
 - `toolSchemaGenerator.ts` — generates the three field-mutation tool schemas (`addFieldsItemSchema`, `addFieldSchema`, `editFieldUpdatesSchema`) from `fieldRegistry` + `fieldKinds`. Per-kind `saDocs` flows through into the `kind` enum description. The 8-optional sentinel strategy (promoting `label`/`required` to required-with-sentinel) stays inside this file.
 - `toolSchemas.ts` — materializes the generator output once and exposes the stable Zod nodes the SA + `scripts/test-schema.ts` reuse.
 - `scaffoldSchemas.ts` — describe-rich input schemas for the initial-build generation tools (`generateSchema`, `generateScaffold`, `addModule`). Separate from `toolSchemas.ts` because these describe whole-app structure, not per-field edits.
