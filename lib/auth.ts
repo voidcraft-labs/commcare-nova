@@ -23,8 +23,7 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
-import type { Firestore } from "firebase-admin/firestore";
-import { getDb } from "./db/firestore";
+import { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { MCP_RESOURCE_URL } from "./hostnames";
 
 /**
@@ -53,6 +52,19 @@ const NOVA_OAUTH_SCOPES = [
 	"nova.read",
 	"nova.write",
 ] as const;
+
+let _authDb: AdminFirestore | null = null;
+
+function getAuthDb(): AdminFirestore {
+	if (!_authDb) {
+		_authDb = new AdminFirestore({
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+			ignoreUndefinedProperties: true,
+			preferRest: true,
+		});
+	}
+	return _authDb;
+}
 
 /**
  * Creates the Better Auth instance. Extracted as a named function so
@@ -110,15 +122,16 @@ function createAuth() {
 		/**
 		 * Firestore database for auth state (users, sessions, accounts).
 		 *
-		 * Reuses the app's existing Firestore singleton — same project, same
-		 * credentials. Collections are prefixed with `auth_` to namespace them
-		 * away from application data collections (apps, usage, etc.).
-		 *
-		 * The type cast bridges `@google-cloud/firestore` → `firebase-admin/firestore`.
-		 * They're the same underlying class — firebase-admin re-exports it.
+		 * Uses the Firebase Admin Firestore export because
+		 * `better-auth-firestore` imports its `Timestamp` class from the same
+		 * module. Passing the app's `@google-cloud/firestore` singleton can
+		 * produce a different runtime `Timestamp` class when npm installs
+		 * separate Firestore versions, causing adapter date conversion to miss.
+		 * Collections are still in the same project/database and are prefixed
+		 * with `auth_` to namespace them away from application data.
 		 */
 		database: firestoreAdapter({
-			firestore: getDb() as unknown as Firestore,
+			firestore: getAuthDb(),
 			collections: {
 				users: "auth_users",
 				sessions: "auth_sessions",
