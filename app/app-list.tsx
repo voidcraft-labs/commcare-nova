@@ -20,8 +20,22 @@ interface AppListProps {
 	isAdmin: boolean;
 }
 
+/**
+ * First-page size for the web card grid.
+ *
+ * The web surface is non-paginated today — it renders a single card grid
+ * of up to this many apps. Picked to match the previous hard-coded default
+ * in `listApps` so behavior is unchanged after the signature refactor.
+ * When the web UI grows a "show more" affordance, consume `nextCursor`
+ * here too instead of widening this number.
+ */
+const WEB_LIST_PAGE_SIZE = 50;
+
 export async function AppList({ userId, isAdmin }: AppListProps) {
-	const apps = await listApps(userId);
+	const { apps } = await listApps(userId, {
+		limit: WEB_LIST_PAGE_SIZE,
+		sort: "updated_desc",
+	});
 
 	return (
 		<>

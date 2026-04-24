@@ -15,7 +15,7 @@ import type {
 	AdminUsersResponse,
 	UsagePeriod,
 } from "@/lib/admin/types";
-import { listApps } from "./apps";
+import { type AppSummary, listApps } from "./apps";
 import { collections, docs, getDb } from "./firestore";
 import { getCurrentPeriod } from "./usage";
 
@@ -160,12 +160,29 @@ export async function getAdminUserUsage(
 }
 
 /**
+ * First-page size for the admin-surface app list.
+ *
+ * Admin views render a single card grid with no "show more" affordance
+ * today. Matches the historical default `listApps` used before the
+ * options-object refactor so admin behavior is unchanged. When the
+ * admin UI grows pagination, consume `nextCursor` here too.
+ */
+const ADMIN_LIST_PAGE_SIZE = 50;
+
+/**
  * Fetch a user's apps — delegates to `listApps`.
  *
  * Separated so the app list can stream independently via Suspense.
+ * Returns the flattened `AppSummary[]` (not `ListAppsResult`) because
+ * the admin surface has no pagination UI and `AdminUserDetailResponse`
+ * exposes apps as a plain array.
  */
-export async function getAdminUserApps(userId: string) {
-	return listApps(userId);
+export async function getAdminUserApps(userId: string): Promise<AppSummary[]> {
+	const { apps } = await listApps(userId, {
+		limit: ADMIN_LIST_PAGE_SIZE,
+		sort: "updated_desc",
+	});
+	return apps;
 }
 
 /**

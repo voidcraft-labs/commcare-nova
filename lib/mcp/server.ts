@@ -64,6 +64,7 @@ import { registerDeleteApp } from "./tools/deleteApp";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
 import { registerListApps } from "./tools/listApps";
+import { registerSearchApps } from "./tools/searchApps";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
 import type { ToolContext } from "./types";
 
@@ -132,6 +133,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	 * templating). */
 	registerGetAgentPrompt(server, ctx);
 	registerListApps(server, ctx);
+	registerSearchApps(server, ctx);
 	registerGetApp(server, ctx);
 	registerCreateApp(server, ctx);
 	registerDeleteApp(server, ctx);

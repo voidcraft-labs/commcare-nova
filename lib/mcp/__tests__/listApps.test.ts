@@ -1,11 +1,18 @@
 /**
  * `registerListApps` unit tests.
  *
- * Verifies the three load-bearing behaviors of the MCP-only list tool:
+ * Verifies the load-bearing behaviors of the MCP enumerate tool:
  *   - Happy-path projection from `AppSummary` rows to the MCP wire
  *     shape (`{ app_id, name, status, updated_at }` per entry).
  *   - Empty-list projection — `apps: []` rather than a null or missing
  *     key, so MCP clients can branch on `apps.length` unconditionally.
+ *   - Pagination cursor pass-through — when `listApps` returns a
+ *     `nextCursor`, the wire response surfaces it as `next_cursor`;
+ *     when it does not, the field is omitted (never null) so clients
+ *     branch on key existence.
+ *   - Input forwarding — the tool's decoded args are passed verbatim
+ *     to the DB layer, so schema changes on either side surface as a
+ *     typed compile error plus a red test rather than silent drift.
  *   - Error classification — a `listApps` throw surfaces as an MCP
  *     `isError: true` envelope with a populated `error_type`, never as
  *     an unhandled rejection.
@@ -20,7 +27,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type AppSummary, listApps } from "@/lib/db/apps";
+import { type AppSummary, type ListAppsResult, listApps } from "@/lib/db/apps";
 import { registerListApps } from "../tools/listApps";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -48,6 +55,11 @@ function makeSummary(overrides: Partial<AppSummary>): AppSummary {
 		updated_at: "2026-04-01T00:00:00.000Z",
 		...overrides,
 	};
+}
+
+/** Build a `ListAppsResult` from a row list with no cursor by default. */
+function makeResult(apps: AppSummary[], nextCursor?: string): ListAppsResult {
+	return nextCursor ? { apps, nextCursor } : { apps };
 }
 
 /** Baseline tool context — one authenticated caller, no scopes inspected. */
@@ -85,19 +97,20 @@ describe("registerListApps — happy path", () => {
 				updated_at: "2026-04-18T00:00:00.000Z",
 			}),
 		];
-		vi.mocked(listApps).mockResolvedValueOnce(rows);
+		vi.mocked(listApps).mockResolvedValueOnce(makeResult(rows));
 
 		const { server, capture } = makeFakeServer();
 		registerListApps(server, toolCtx);
 
-		/* `list_apps` has no input schema, so the callback takes only
-		 * `extra` as its single argument. */
+		/* The Zod schema applies defaults, so an empty `args` object still
+		 * produces a populated options object downstream. */
 		const out = (await capture()({})) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
 			apps: Array<Record<string, unknown>>;
+			next_cursor?: string;
 		};
 		expect(parsed.apps).toEqual([
 			{
@@ -119,13 +132,36 @@ describe("registerListApps — happy path", () => {
 				updated_at: "2026-04-18T00:00:00.000Z",
 			},
 		]);
-		expect(listApps).toHaveBeenCalledWith("u1");
+		/* No cursor on this mock → key must be absent from the response,
+		 * not present-and-null. */
+		expect(parsed.next_cursor).toBeUndefined();
+	});
+
+	it("forwards decoded args to listApps so schema + DB stay in sync", async () => {
+		vi.mocked(listApps).mockResolvedValueOnce(makeResult([]));
+
+		const { server, capture } = makeFakeServer();
+		registerListApps(server, toolCtx);
+
+		await capture()({
+			limit: 25,
+			cursor: "opaque-cursor",
+			status: "complete",
+			sort: "name_asc",
+		});
+
+		expect(listApps).toHaveBeenCalledWith("u1", {
+			limit: 25,
+			cursor: "opaque-cursor",
+			status: "complete",
+			sort: "name_asc",
+		});
 	});
 });
 
-describe("registerListApps — empty", () => {
+describe("registerListApps — empty + pagination", () => {
 	it("returns an empty array rather than null or a missing key", async () => {
-		vi.mocked(listApps).mockResolvedValueOnce([]);
+		vi.mocked(listApps).mockResolvedValueOnce(makeResult([]));
 
 		const { server, capture } = makeFakeServer();
 		registerListApps(server, toolCtx);
@@ -134,6 +170,31 @@ describe("registerListApps — empty", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.content[0]?.text).toBe(JSON.stringify({ apps: [] }));
+	});
+
+	it("surfaces nextCursor from the DB layer as next_cursor on the wire", async () => {
+		const rows = [
+			makeSummary({
+				id: "a1",
+				app_name: "Full page",
+				updated_at: "2026-04-20T00:00:00.000Z",
+			}),
+		];
+		vi.mocked(listApps).mockResolvedValueOnce(
+			makeResult(rows, "encoded-cursor-v1"),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerListApps(server, toolCtx);
+
+		const out = (await capture()({})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			apps: Array<Record<string, unknown>>;
+			next_cursor?: string;
+		};
+		expect(parsed.next_cursor).toBe("encoded-cursor-v1");
 	});
 });
 

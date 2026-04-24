@@ -9,7 +9,8 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
-import { FieldValue, type Timestamp } from "@google-cloud/firestore";
+import { FieldValue, Timestamp } from "@google-cloud/firestore";
+import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
 import { toPersistableDoc } from "../doc/fieldParent";
@@ -33,6 +34,104 @@ export interface AppSummary {
 	created_at: string;
 	/** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
 	updated_at: string;
+}
+
+/**
+ * Narrowed status enum exposed on list/search surfaces.
+ *
+ * The on-disk `AppDoc["status"]` enum also includes `"deleted"`, but soft-
+ * deleted rows never surface through `listApps`/`searchApps` (see the in-
+ * memory strip inside `listApps`). Callers that want to filter by status
+ * therefore reference this narrower type — the `"deleted"` value is never a
+ * legitimate filter argument.
+ */
+export type AppStatus = Exclude<AppDoc["status"], "deleted">;
+
+/**
+ * Sort orders supported by `listApps`.
+ *
+ * - `"updated_desc"` — most recently modified first; the default and what
+ *   the web UI + the MCP default surface use. Covered by the existing
+ *   `(owner, updated_at DESC)` composite index.
+ * - `"name_asc"` — alphabetical by `app_name`, case-insensitive via the
+ *   denormalized `app_name_lower` field. Covered by the composite index
+ *   `(owner, app_name_lower ASC)`.
+ *
+ * `searchApps` does not accept a `sort` — Fuse ranks results by relevance,
+ * which is the only sensible ordering for a search.
+ */
+export type AppsSortOrder = "updated_desc" | "name_asc";
+
+/**
+ * Structured cursor used to resume enumeration in `listApps`.
+ *
+ * Discriminated by `kind`, which MUST equal the `sort` the caller is
+ * running with — mixing (e.g. paging a `name_asc` list with a cursor
+ * minted during an `updated_desc` call) scans the wrong index position
+ * and returns nonsense. The server enforces this match and throws rather
+ * than silently coerce.
+ *
+ * The `id` component is the document id — Firestore's implicit tiebreaker
+ * on `__name__` makes `(sort_field, id)` a stable composite sort key, so
+ * `startAfter(value, id)` resumes exactly where the prior page ended even
+ * when two docs share the same sort-field value.
+ *
+ * The on-the-wire form is produced by `encodeAppsCursor` (base64-encoded
+ * JSON); `decodeAppsCursor` is the inverse and validates the shape.
+ */
+export type ListAppsCursor =
+	| { kind: "updated_desc"; updated_at: string; id: string }
+	| { kind: "name_asc"; name_lower: string; id: string };
+
+/** Options consumed by `listApps`. */
+export interface ListAppsOptions {
+	/** Max rows to return. Callers declare — no implicit default at the DB layer. */
+	limit: number;
+	/** Sort order for the Firestore scan. Callers declare — no implicit default. */
+	sort: AppsSortOrder;
+	/** Optional status filter. Applied as a Firestore `where` clause. */
+	status?: AppStatus;
+	/** Opaque cursor from a prior response's `nextCursor`. */
+	cursor?: string;
+}
+
+/** Shape returned by `listApps`. Pagination cursor is opaque to callers. */
+export interface ListAppsResult {
+	apps: AppSummary[];
+	/**
+	 * Present iff Firestore indicated more rows beyond this page. Callers
+	 * pass it back as `options.cursor` to fetch the next page.
+	 *
+	 * Soft-deleted rows that fell on a page boundary may cause a page to
+	 * return fewer than `limit` rows while still setting `nextCursor` —
+	 * the cursor represents "resume from this Firestore position", not
+	 * "we returned a full page".
+	 */
+	nextCursor?: string;
+}
+
+/** Options consumed by `searchApps`. */
+export interface SearchAppsOptions {
+	/** The search phrase. Required; Fuse performs fuzzy substring matching on `app_name`. */
+	query: string;
+	/** Max matches to return per call. Callers declare. */
+	limit: number;
+	/** Optional status filter forwarded to the underlying `listApps` scan. */
+	status?: AppStatus;
+	/** Opaque cursor from a prior search response's `nextCursor`. */
+	cursor?: string;
+}
+
+/** Shape returned by `searchApps`. Mirrors `ListAppsResult`. */
+export interface SearchAppsResult {
+	apps: AppSummary[];
+	/**
+	 * Present iff the underlying Firestore scan had more pages to examine.
+	 * Following the cursor resumes the scan (newest-first) and runs Fuse
+	 * on the next batch. The total match count over multiple calls is
+	 * bounded by what the user actually has.
+	 */
+	nextCursor?: string;
 }
 
 /**
@@ -68,14 +167,24 @@ export const UNTITLED_APP_NAME = "Untitled";
  * `moduleOrder.length` gives the module count; summing each module's
  * `formOrder` entry gives the total form count. These are stored on the
  * Firestore document so list queries never need to deserialize a full doc.
+ *
+ * `app_name_lower` is a sort key, not a display field: Firestore orders
+ * fields byte-wise, so without a pre-lowercased copy `orderBy("app_name")`
+ * places "ZEbra" before "apple". Writing the lowercase form on every save
+ * lets the `name_asc` sort in `listApps` use an index on the denormalized
+ * field and get natural case-insensitive ordering for free. The display
+ * `app_name` field is preserved exactly so the UI can render the original
+ * casing.
  */
 function denormalize(doc: PersistableDoc) {
 	const formCount = doc.moduleOrder.reduce(
 		(sum, modUuid) => sum + (doc.formOrder[modUuid]?.length ?? 0),
 		0,
 	);
+	const appName = doc.appName || UNTITLED_APP_NAME;
 	return {
-		app_name: doc.appName || UNTITLED_APP_NAME,
+		app_name: appName,
+		app_name_lower: appName.toLowerCase(),
 		connect_type: doc.connectType ?? null,
 		module_count: doc.moduleOrder.length,
 		form_count: formCount,
@@ -392,7 +501,15 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
 	return (snap.data()?.owner as string) ?? null;
 }
 
-/** The denormalized fields fetched by `listApps` — no blueprint. */
+/**
+ * Denormalized fields fetched by `listApps`.
+ *
+ * Excludes `app_name_lower` — it is a sort key on the index side but
+ * never needs to be returned. `AppSummary` carries the display-cased
+ * `app_name`, and `searchApps`'s Fuse instance normalizes case per
+ * match. Firestore's `orderBy` on `app_name_lower` works whether the
+ * field is in the `select()` projection or not.
+ */
 const SUMMARY_FIELDS = [
 	"app_name",
 	"connect_type",
@@ -405,7 +522,158 @@ const SUMMARY_FIELDS = [
 ] as const;
 
 /**
- * List a user's apps sorted by last modified, without full blueprints.
+ * How many extra rows `searchApps` fetches beyond its caller-requested
+ * `limit`, to give Fuse enough candidates to score meaningfully.
+ *
+ * With the buffer, a user with a few hundred apps can get a full page
+ * of matches in one round trip. If the buffer exhausts without
+ * producing enough matches, `searchApps` falls back to returning
+ * whatever matched and emits the Firestore cursor so the caller can
+ * continue scanning the next batch.
+ */
+const SEARCH_FETCH_BUFFER = 90;
+
+/**
+ * Fuse.js threshold — how fuzzy is a match? 0 is exact; 1 matches
+ * anything. 0.4 strikes a balance that catches most typos + prefix
+ * matches + substring matches without turning up garbage on short
+ * queries. Tuned for app-name-length strings.
+ */
+const FUSE_THRESHOLD = 0.4;
+
+/**
+ * Encode a structured cursor as an opaque URL-safe string.
+ *
+ * The outer world only ever sees the base64url form — the JSON shape
+ * (including the discriminant and the sort-key value) is an
+ * implementation detail. If the shape needs to change later, bump a
+ * version field inside the JSON and let the decoder reject old forms.
+ */
+function encodeAppsCursor(cursor: ListAppsCursor): string {
+	return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+/**
+ * Decode an opaque cursor back into its structured form, validating
+ * the `kind` discriminant. Throws on malformed input or an unknown
+ * kind so callers surface the error to their client instead of
+ * silently resuming from the wrong index position.
+ */
+function decodeAppsCursor(encoded: string): ListAppsCursor {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+	} catch {
+		throw new Error("Invalid pagination cursor (malformed encoding).");
+	}
+	if (typeof parsed !== "object" || parsed === null) {
+		throw new Error("Invalid pagination cursor (not an object).");
+	}
+	/* Re-cast through `unknown` so the subsequent property reads don't
+	 * assume a shape — each field is explicitly runtime-checked. */
+	const obj = parsed as Record<string, unknown>;
+	const kind = obj.kind;
+	const id = obj.id;
+	if (typeof id !== "string") {
+		throw new Error("Invalid pagination cursor (missing id).");
+	}
+	if (kind === "updated_desc") {
+		const updatedAt = obj.updated_at;
+		if (typeof updatedAt !== "string") {
+			throw new Error("Invalid pagination cursor (updated_desc payload).");
+		}
+		return { kind: "updated_desc", updated_at: updatedAt, id };
+	}
+	if (kind === "name_asc") {
+		const nameLower = obj.name_lower;
+		if (typeof nameLower !== "string") {
+			throw new Error("Invalid pagination cursor (name_asc payload).");
+		}
+		return { kind: "name_asc", name_lower: nameLower, id };
+	}
+	throw new Error(`Invalid pagination cursor (unknown kind: ${String(kind)}).`);
+}
+
+/**
+ * Build a cursor that resumes scanning AFTER the given summary.
+ *
+ * The `sort` argument picks which sort key goes into the cursor — a
+ * cursor minted for one sort cannot be consumed by a subsequent call
+ * with a different sort (enforced at decode time inside `listApps`).
+ *
+ * For the `name_asc` branch we recompute `.toLowerCase()` from
+ * `app_name`; this matches what `denormalize` writes to Firestore
+ * byte-for-byte (both are JS `.toLowerCase()` on the same string), so
+ * the cursor value lines up exactly with the indexed field.
+ */
+function cursorFor(summary: AppSummary, sort: AppsSortOrder): string {
+	if (sort === "updated_desc") {
+		return encodeAppsCursor({
+			kind: "updated_desc",
+			updated_at: summary.updated_at,
+			id: summary.id,
+		});
+	}
+	return encodeAppsCursor({
+		kind: "name_asc",
+		name_lower: summary.app_name.toLowerCase(),
+		id: summary.id,
+	});
+}
+
+/**
+ * Project a Firestore document snapshot into the `AppSummary` shape
+ * returned by `listApps`, applying the stale-`generating` reaper on
+ * the way out.
+ *
+ * Returns `null` for soft-deleted rows so callers can strip them in a
+ * single pass. Consolidated here so `listApps` has one projection
+ * site; any schema drift between Firestore and `AppSummary` fails in
+ * one place.
+ */
+function projectAppSummary(
+	doc: FirebaseFirestore.QueryDocumentSnapshot,
+	now: number,
+	maxAgeMs: number,
+): AppSummary | null {
+	const data = doc.data();
+
+	/* Soft-deleted rows never surface. Compared before any timestamp
+	 * work to skip cheaply — a deleted row's other fields are irrelevant. */
+	if (data.status === "deleted") return null;
+
+	const createdAt = (data.created_at as Timestamp).toDate();
+	const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
+
+	/* Timeout inference — if an app's last Firestore write was longer ago
+	 * than the staleness window, the generation process is dead. Intermediate
+	 * saves advance `updated_at` during generation, so an actively-running
+	 * build always has a recent `updated_at`. The `failApp` write is fire-
+	 * and-forget; the projected row reflects the inferred state immediately
+	 * so the caller never sees stale data even if the write races. */
+	const isStale =
+		data.status === "generating" && now - updatedAt.getTime() > maxAgeMs;
+	if (isStale) {
+		failApp(doc.id, "internal");
+	}
+
+	return {
+		id: doc.id,
+		app_name: data.app_name as string,
+		connect_type: (data.connect_type as AppDoc["connect_type"]) ?? null,
+		module_count: (data.module_count as number) ?? 0,
+		form_count: (data.form_count as number) ?? 0,
+		status: isStale ? "error" : (data.status as AppDoc["status"]),
+		error_type: isStale
+			? "internal"
+			: ((data.error_type as string | null) ?? null),
+		created_at: createdAt.toISOString(),
+		updated_at: updatedAt.toISOString(),
+	};
+}
+
+/**
+ * Paginate a user's apps sorted by last modified or by name.
  *
  * Queries the root-level `apps` collection filtered by `owner`. Uses
  * Firestore `select()` to fetch only the denormalized summary fields —
@@ -420,66 +688,214 @@ const SUMMARY_FIELDS = [
  * require a second composite index; soft-deleted apps are rare, so the
  * in-memory skip is strictly cheaper.
  *
- * Requires composite index: `(owner ASC, updated_at DESC)`.
+ * A secondary `orderBy("__name__", "asc")` is appended to every query —
+ * it is Firestore's document id, implicitly the tiebreaker — so a
+ * cursor built from `(sort_field, id)` resumes deterministically even
+ * when two apps share the same sort-field value (common for
+ * `updated_at` when writes land in the same tick).
+ *
+ * Required composite indexes (all scoped to `collectionGroup: "apps"`):
+ *   - `(owner ASC, updated_at DESC)` — default sort, no status filter.
+ *   - `(owner ASC, app_name_lower ASC)` — name sort, no status filter.
+ *   - `(owner ASC, status ASC, updated_at DESC)` — default sort + status.
+ *   - `(owner ASC, status ASC, app_name_lower ASC)` — name sort + status.
+ *
+ * Pagination semantics: the returned `nextCursor` is present iff
+ * Firestore returned exactly `limit` rows (the "maybe more" signal).
+ * Soft-deleted rows that fall on a page boundary can cause the visible
+ * page to return fewer than `limit` rows while still setting
+ * `nextCursor` — the cursor represents "resume scanning from this
+ * Firestore position", not "we returned a full page". Callers that
+ * need a full page in that case re-call with the cursor.
+ *
+ * Stale-generating reaper behavior is per-page: only rows scanned by
+ * this call get reaped. An app that is stale but lives on a page the
+ * caller never fetches stays stale until someone paginates that far.
+ * Acceptable for the current scale (callers that walk the whole list —
+ * the web UI's fixed 50-row page — always reach every row a typical
+ * user has).
  */
 export async function listApps(
 	owner: string,
-	limit = 50,
-): Promise<AppSummary[]> {
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	const { limit, sort, status, cursor } = options;
+
 	/* Use the untyped collection — `select()` returns partial documents that
 	 * would fail the Zod converter's full-schema validation (missing owner,
-	 * blueprint). Raw DocumentData is fine here since we cast each field below. */
-	const snap = await getDb()
+	 * blueprint). Raw DocumentData is fine; `projectAppSummary` casts fields
+	 * on the way out. */
+	let query: FirebaseFirestore.Query = getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
-		.select(...SUMMARY_FIELDS)
-		.orderBy("updated_at", "desc")
-		.limit(limit)
-		.get();
+		.where("owner", "==", owner);
+
+	/* Status filter is a Firestore `where` clause, not an in-memory post-
+	 * filter. The composite indexes cover `(owner, status, sort_field)`
+	 * so filtered queries cost the same as unfiltered ones. */
+	if (status) {
+		query = query.where("status", "==", status);
+	}
+
+	query = query.select(...SUMMARY_FIELDS);
+
+	/* The primary sort matches the caller's `sort` argument; `__name__`
+	 * is the secondary so cursor resumption is deterministic. Firestore
+	 * automatically includes `__name__` as the last segment of every
+	 * composite index so no index-side tweak is needed for the tiebreaker. */
+	if (sort === "updated_desc") {
+		query = query.orderBy("updated_at", "desc").orderBy("__name__", "asc");
+	} else {
+		query = query.orderBy("app_name_lower", "asc").orderBy("__name__", "asc");
+	}
+
+	/* Cursor resumption: the cursor's `kind` must match the current `sort`.
+	 * A mismatch means a client mixed sort orders across pagination calls
+	 * and we cannot faithfully continue — throw so the error is visible
+	 * rather than silently skipping or misordering rows. */
+	if (cursor) {
+		const decoded = decodeAppsCursor(cursor);
+		if (decoded.kind !== sort) {
+			throw new Error(
+				`Cursor was minted for sort="${decoded.kind}" but this call uses sort="${sort}".`,
+			);
+		}
+		if (decoded.kind === "updated_desc") {
+			query = query.startAfter(
+				Timestamp.fromDate(new Date(decoded.updated_at)),
+				decoded.id,
+			);
+		} else {
+			query = query.startAfter(decoded.name_lower, decoded.id);
+		}
+	}
+
+	const snap = await query.limit(limit).get();
 
 	const now = Date.now();
 	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-	/* `flatMap` returns `[]` to drop a row and `[entry]` to keep it, so
-	 * the soft-delete skip + timeout inference + shape projection all
-	 * happen in a single pass over `snap.docs`. */
-	return snap.docs.flatMap((doc) => {
-		const data = doc.data();
+	/* Project + strip soft-deleted rows in a single pass. */
+	const apps: AppSummary[] = [];
+	for (const doc of snap.docs) {
+		const projected = projectAppSummary(
+			doc as FirebaseFirestore.QueryDocumentSnapshot,
+			now,
+			maxAgeMs,
+		);
+		if (projected) apps.push(projected);
+	}
 
-		/* Soft-deleted rows never surface through list surfaces. Compared
-		 * before any timestamp work to skip the row cheaply — a deleted
-		 * row's other fields are irrelevant here. */
-		if (data.status === "deleted") return [];
-
-		const createdAt = (data.created_at as Timestamp).toDate();
-		const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
-
-		/*
-		 * Timeout inference — if an app's last Firestore write was longer ago
-		 * than the staleness window, the generation process is dead. Intermediate
-		 * saves advance `updated_at` during generation, so an actively-running
-		 * build always has a recent `updated_at`.
-		 */
-		const isStale =
-			data.status === "generating" && now - updatedAt.getTime() > maxAgeMs;
-		if (isStale) {
-			failApp(doc.id, "internal");
-		}
-
-		return [
-			{
-				id: doc.id,
-				app_name: data.app_name as string,
-				connect_type: (data.connect_type as AppDoc["connect_type"]) ?? null,
-				module_count: (data.module_count as number) ?? 0,
-				form_count: (data.form_count as number) ?? 0,
-				status: isStale ? "error" : (data.status as AppDoc["status"]),
-				error_type: isStale
-					? "internal"
-					: ((data.error_type as string | null) ?? null),
-				created_at: createdAt.toISOString(),
+	/* "Maybe more" signal: if Firestore returned exactly `limit` rows,
+	 * emit a cursor keyed off the last Firestore doc we scanned (not
+	 * necessarily the last one we returned — they may differ when a
+	 * page-boundary row was soft-deleted). The cursor uses the post-
+	 * projection `AppSummary` shape, so the soft-deleted projection gap
+	 * is fine: the scan position is recorded by the last returned
+	 * summary because every non-deleted row is in `apps`, in order.
+	 * When the page boundary row was deleted, `apps.length < limit` yet
+	 * `snap.docs.length === limit` — we still emit a cursor (more may
+	 * follow on the next page) but pointed at the last visible summary. */
+	let nextCursor: string | undefined;
+	if (snap.size === limit && apps.length > 0) {
+		nextCursor = cursorFor(apps[apps.length - 1], sort);
+	} else if (snap.size === limit) {
+		/* Edge case: the whole page was soft-deleted. We must still emit
+		 * a cursor so the caller can keep scanning — decode the last
+		 * Firestore doc directly to build one, since we have no visible
+		 * summary to draw from. */
+		const lastDoc = snap.docs[snap.docs.length - 1];
+		const data = lastDoc.data();
+		if (sort === "updated_desc") {
+			const updatedAt =
+				(data.updated_at as Timestamp)?.toDate() ??
+				(data.created_at as Timestamp).toDate();
+			nextCursor = encodeAppsCursor({
+				kind: "updated_desc",
 				updated_at: updatedAt.toISOString(),
-			},
-		];
+				id: lastDoc.id,
+			});
+		} else {
+			nextCursor = encodeAppsCursor({
+				kind: "name_asc",
+				name_lower: (data.app_name as string).toLowerCase(),
+				id: lastDoc.id,
+			});
+		}
+	}
+
+	return { apps, nextCursor };
+}
+
+/**
+ * Search a user's apps by name with fuzzy matching.
+ *
+ * Composes on top of `listApps` rather than running its own Firestore
+ * query: `listApps` is the single canonical surface that owns soft-
+ * delete stripping, stale-`generating` reaping, index usage, and
+ * partial-field projection. Mirroring any of that here would be a
+ * drift risk. Fuse.js runs over the `listApps` page in memory, ranking
+ * results by relevance (edit-distance-based scoring via the Bitap
+ * algorithm) — which is also why `searchApps` has no `sort` option:
+ * relevance IS the ordering.
+ *
+ * Pagination semantics: one `listApps` call per `searchApps` call (no
+ * internal looping). `searchApps` over-fetches by `SEARCH_FETCH_BUFFER`
+ * rows so a typical query produces a full page in one round trip. When
+ * Fuse returns fewer than `limit` matches and `listApps` still has
+ * more to scan, the underlying `listApps.nextCursor` is passed through —
+ * the caller re-calls with it to search the next batch. Total matches
+ * across multiple calls are bounded by what the user actually has.
+ *
+ * The scan uses `sort: "updated_desc"` internally — searching the
+ * newest apps first gives the best average-case latency for "find my
+ * recent X" queries, which is the dominant search intent. A user who
+ * wants to find an old app by name will traverse more pages; they may,
+ * because the cursor works.
+ *
+ * When Nova's per-user app count grows beyond the buffer's reach, this
+ * function is the single site to swap the in-memory Fuse filter for a
+ * search index (Algolia / Typesense / trigram-denormalized storage).
+ * The tool schema + cursor contract on the outside remains the same.
+ */
+export async function searchApps(
+	owner: string,
+	options: SearchAppsOptions,
+): Promise<SearchAppsResult> {
+	const { query, limit, status, cursor } = options;
+
+	const page = await listApps(owner, {
+		limit: limit + SEARCH_FETCH_BUFFER,
+		sort: "updated_desc",
+		status,
+		cursor,
 	});
+
+	/* Fuse configured for anywhere-in-string fuzzy substring matching.
+	 * `ignoreLocation` disables the default preference for matches near
+	 * the start of the string — users search for "vaccine" expecting to
+	 * find "COVID Vaccine Tracker". `includeScore` is on so we could
+	 * threshold further if needed; `threshold` already does most of that
+	 * work up front. */
+	const fuse = new Fuse(page.apps, {
+		keys: ["app_name"],
+		threshold: FUSE_THRESHOLD,
+		ignoreLocation: true,
+		includeScore: true,
+	});
+
+	/* Fuse returns results sorted best-first by its relevance score.
+	 * Take the first `limit` — extras (beyond `limit`) are effectively
+	 * discarded for this call; the caller can follow the cursor to get
+	 * more matches from the next `listApps` page. */
+	const matches = fuse
+		.search(query)
+		.slice(0, limit)
+		.map((result) => result.item);
+
+	/* Cursor pass-through. A search call's "more available" signal is
+	 * identical to the underlying `listApps` page's — if Firestore had
+	 * more to enumerate, there may be more matches to find; if not, the
+	 * user has no more apps to search. Passing the cursor through
+	 * preserves that 1:1 semantic. */
+	return { apps: matches, nextCursor: page.nextCursor };
 }
