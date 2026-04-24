@@ -25,7 +25,7 @@ import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
-import { HOSTNAMES } from "./hostnames";
+import { MCP_RESOURCE_URL } from "./hostnames";
 
 /**
  * OAuth scopes Nova's authorization server can grant.
@@ -272,7 +272,7 @@ function createAuth() {
 				 * would 404 first-touch unauthenticated OAuth-flow users. */
 				loginPage: "/",
 				consentPage: "/consent",
-				validAudiences: [`https://${HOSTNAMES.mcp}`],
+				validAudiences: [MCP_RESOURCE_URL],
 				scopes: [...NOVA_OAUTH_SCOPES],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,

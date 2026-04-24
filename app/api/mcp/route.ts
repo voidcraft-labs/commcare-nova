@@ -63,7 +63,7 @@
 import { mcpHandler } from "@better-auth/oauth-provider";
 import type { JWTPayload } from "jose";
 import { createMcpHandler } from "mcp-handler";
-import { HOSTNAMES } from "@/lib/hostnames";
+import { AS_ISSUER, AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
 import { parseScopes, SCOPES } from "@/lib/mcp/scopes";
 import { registerNovaPrompts, registerNovaTools } from "@/lib/mcp/server";
 import type { JwtClaims } from "@/lib/mcp/types";
@@ -90,21 +90,20 @@ export const maxDuration = 300;
  */
 const handler = mcpHandler(
 	{
-		/* JWKS lives on the main app host — the `jwt` plugin in
-		 * `lib/auth.ts` exposes `/api/auth/jwks` there and that's the
-		 * signing keypair the `oauth-provider` plugin uses to mint access
-		 * tokens. Derived from `HOSTNAMES.main` so it can't drift from
-		 * the rest of the codebase's host constants. */
-		jwksUrl: `https://${HOSTNAMES.main}/api/auth/jwks`,
+		/* JWKS lives on the AS origin — the `jwt` plugin exposes
+		 * `/api/auth/jwks` there and that's the signing keypair
+		 * `oauth-provider` uses to mint access tokens. `AS_ORIGIN`
+		 * resolves to `https://commcare.app` in prod and `BETTER_AUTH_URL`
+		 * in dev (typically `http://localhost:3000`). */
+		jwksUrl: `${AS_ORIGIN}/api/auth/jwks`,
 		verifyOptions: {
-			/* `issuer` is what the AS stamps as `iss` in every token it
-			 * mints; `audience` is what the AS stamps as `aud` (pinned via
-			 * `validAudiences: [`https://${HOSTNAMES.mcp}`]` in
-			 * `lib/auth.ts`). Rejecting a mismatch here is the security
-			 * tie that stops a token minted for any other resource from
-			 * being replayed against Nova's MCP surface. */
-			issuer: `https://${HOSTNAMES.main}`,
-			audience: `https://${HOSTNAMES.mcp}`,
+			/* `issuer` is what the AS stamps as `iss` on every token it
+			 * mints. Better Auth's issuer includes its `/api/auth` base path
+			 * (see the AS metadata document's `issuer`). `audience` is what
+			 * the AS stamps as `aud` (pinned via
+			 * `validAudiences: [MCP_RESOURCE_URL]` in `lib/auth.ts`). */
+			issuer: AS_ISSUER,
+			audience: MCP_RESOURCE_URL,
 		},
 		/* Outer-level scopes — a sibling of `verifyOptions`, NOT nested
 		 * inside it. The verify helper's semantics are "token must carry

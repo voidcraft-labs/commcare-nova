@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+	AS_ISSUER,
 	classifyHost,
 	HOSTNAMES,
 	isPathAllowedOnHost,
+	MCP_RESOURCE_URL,
 	normalizeHost,
 } from "../hostnames";
 
@@ -91,5 +93,15 @@ describe("isPathAllowedOnHost", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/auth/callback")).toBe(
 			true,
 		);
+	});
+});
+
+describe("OAuth resource identifiers", () => {
+	it("uses the externally reachable MCP endpoint URL as the protected resource", () => {
+		expect(MCP_RESOURCE_URL).toBe("https://mcp.commcare.app/mcp");
+	});
+
+	it("uses Better Auth's /api/auth base path as the token issuer", () => {
+		expect(AS_ISSUER).toBe("https://commcare.app/api/auth");
 	});
 });

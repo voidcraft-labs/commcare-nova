@@ -19,6 +19,46 @@ export const HOSTNAMES = {
 export type Hostname = (typeof HOSTNAMES)[keyof typeof HOSTNAMES];
 
 /**
+ * The two origins OAuth + MCP URL construction care about:
+ *
+ *   - `AS_ORIGIN` — the authorization server. In prod this is the main
+ *     host (`https://commcare.app`); it's where the bare AS metadata
+ *     wrapper lives so Claude Code can discover the token endpoint.
+ *
+ *   - `AS_ISSUER` — Better Auth's canonical issuer. The auth handler
+ *     lives under `/api/auth`, and Better Auth signs OAuth access tokens
+ *     with that pathful base URL as `iss`.
+ *
+ *   - `MCP_RESOURCE_URL` — the actual MCP endpoint URL. In prod this is
+ *     `https://mcp.commcare.app/mcp`; in local dev it is the direct Next
+ *     route `http://localhost:3000/api/mcp`. This is what MCP clients
+ *     send as the OAuth `resource` value and what appears as `aud` on
+ *     MCP-minted tokens.
+ *
+ * In dev both collapse to `BETTER_AUTH_URL` (typically
+ * `http://localhost:3000`) for AS/resource origins, while the MCP
+ * resource path stays `/api/mcp` because local smoke tests hit the
+ * Next.js route directly rather than the production `/mcp` rewrite.
+ *
+ * These are derived from env + HOSTNAMES so every code path (the route
+ * handler's `verifyOptions`, `oauthProvider`'s `validAudiences`, the
+ * protected-resource metadata route) reads a single source of truth
+ * instead of constructing URL strings that drift from BETTER_AUTH_URL
+ * or the externally reachable MCP path.
+ */
+const isDev = process.env.NODE_ENV === "development";
+const devOrigin = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+
+export const AS_ORIGIN = isDev ? devOrigin : `https://${HOSTNAMES.main}`;
+export const AS_ISSUER = `${AS_ORIGIN}/api/auth`;
+export const MCP_RESOURCE_ORIGIN = isDev
+	? devOrigin
+	: `https://${HOSTNAMES.mcp}`;
+export const MCP_RESOURCE_URL = isDev
+	? `${MCP_RESOURCE_ORIGIN}/api/mcp`
+	: `${MCP_RESOURCE_ORIGIN}/mcp`;
+
+/**
  * Path prefixes each hostname is allowed to serve. Matching is segment-anchored:
  * an entry `/foo` grants `/foo` exactly and any `/foo/...` subpath, but never
  * `/foobar`. The exception is `/`, which matches only the root page so it
@@ -51,7 +91,11 @@ export const HOSTNAME_ALLOWLIST = {
 		"/_next",
 		"/favicon",
 	],
-	[HOSTNAMES.mcp]: ["/mcp", "/.well-known/oauth-protected-resource"],
+	[HOSTNAMES.mcp]: [
+		"/mcp",
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-protected-resource/mcp",
+	],
 	[HOSTNAMES.docs]: ["/", "/_next", "/favicon"],
 } as const satisfies Record<Hostname, readonly string[]>;
 

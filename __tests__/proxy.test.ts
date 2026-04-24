@@ -169,6 +169,13 @@ describe("proxy: mcp.commcare.app routing", () => {
 		expectBypassPassthrough(res);
 	});
 
+	it("passes through path-inserted protected-resource metadata for /mcp", () => {
+		const res = proxy(
+			req("mcp.commcare.app", "/.well-known/oauth-protected-resource/mcp"),
+		);
+		expectBypassPassthrough(res);
+	});
+
 	it("404s /admin (not in MCP allowlist)", () => {
 		const res = proxy(req("mcp.commcare.app", "/admin"));
 		expectNotFound(res);
