@@ -63,6 +63,7 @@ import { registerCreateApp } from "./tools/createApp";
 import { registerDeleteApp } from "./tools/deleteApp";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
+import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerListApps } from "./tools/listApps";
 import { registerSearchApps } from "./tools/searchApps";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
@@ -138,6 +139,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerCreateApp(server, ctx);
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);
+	registerGetHqConnection(server, ctx);
 	registerUploadAppToHq(server, ctx);
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth

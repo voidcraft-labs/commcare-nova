@@ -1,19 +1,23 @@
 /**
  * `registerUploadAppToHq` unit tests.
  *
- * Each test exercises one path through the handler's explicit four-gate
+ * Each test exercises one path through the handler's explicit two-gate
  * validation sequence, plus the ownership pre-gate, the app-name
  * fallback, progress emissions on the happy path, and log-writer drain
  * on a mid-upload throw.
  *
  * Hard invariants the suite encodes:
- *   - Gates 1-3 exit BEFORE a `LogWriter` is ever constructed — the
- *     writer allocation sits inside the post-gate block. This is what
- *     `LogWriterMock.instances` is asserted on.
- *   - `importApp` is only reached once all four pre-network gates pass.
+ *   - Gate 1 (hq_not_configured) exits BEFORE a `LogWriter` is ever
+ *     constructed — the writer allocation sits inside the post-gate
+ *     block. This is what `LogWriterMock.instances` is asserted on.
+ *   - `importApp` is only reached once both pre-network gates pass.
  *     Each gate's failure test asserts `importApp` was never called.
  *   - A mid-upload throw still flushes the writer via the `finally`
  *     block.
+ *   - The handler does NOT accept a `domain` argument — the target
+ *     domain is derived server-side from the user's stored creds.
+ *     This eliminates the prior `invalid_domain` + `domain_mismatch`
+ *     failure modes at the type level.
  *
  * The MCP SDK is mocked at the boundary via the `makeFakeServer` helper
  * (same pattern the sibling tests use). `@/lib/mcp/loadApp` is mocked
@@ -23,7 +27,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
+import { importApp } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
 import { loadAppOwner, updateAppForRun } from "@/lib/db/apps";
@@ -55,7 +59,6 @@ vi.mock("@/lib/db/settings", () => ({
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
-	isValidDomainSlug: vi.fn(),
 }));
 vi.mock("@/lib/commcare/expander", () => ({
 	expandDoc: vi.fn(),
@@ -151,7 +154,6 @@ beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(getDecryptedCredentialsWithDomain).mockReset();
 	vi.mocked(importApp).mockReset();
-	vi.mocked(isValidDomainSlug).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(updateAppForRun).mockReset();
 	vi.mocked(updateAppForRun).mockResolvedValue(undefined);
@@ -161,7 +163,6 @@ beforeEach(() => {
 	 * `mockReturnValueOnce` / `mockResolvedValueOnce` where needed. The
 	 * defaults mean tests only have to pin the deviation they care about. */
 	vi.mocked(loadAppOwner).mockResolvedValue("u1");
-	vi.mocked(isValidDomainSlug).mockReturnValue(true);
 	vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValue(
 		FIXTURE_SETTINGS,
 	);
@@ -172,7 +173,7 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
-	it("runs all four gates, uploads, and returns the HQ app id + URL", async () => {
+	it("runs both gates, uploads to the stored domain, and returns the HQ app id + URL", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-123",
@@ -184,21 +185,16 @@ describe("registerUploadAppToHq — happy path", () => {
 		registerUploadAppToHq(server, toolCtx);
 
 		const out = (await capture()(
-			{
-				app_id: "a1",
-				domain: "acme-research",
-				app_name: "Imported",
-			},
+			{ app_id: "a1", app_name: "Imported" },
 			{},
 		)) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
-		/* All four gates saw exactly one call each. `isValidDomainSlug`
-		 * is queried before creds are fetched — the order is load-bearing
-		 * for SSRF posture, so assert it here rather than trusting
-		 * mutation-order coincidence. */
-		expect(isValidDomainSlug).toHaveBeenCalledWith("acme-research");
+		/* The domain passed to `importApp` comes from the stored
+		 * credentials, NOT from the tool arguments — asserting the exact
+		 * value here is a regression lock against a future "accept domain
+		 * as an arg again" refactor. */
 		expect(getDecryptedCredentialsWithDomain).toHaveBeenCalledWith("u1");
 		expect(importApp).toHaveBeenCalledWith(
 			FIXTURE_SETTINGS.creds,
@@ -226,46 +222,14 @@ describe("registerUploadAppToHq — happy path", () => {
 	});
 });
 
-describe("registerUploadAppToHq — gate 1: invalid domain", () => {
-	it("returns error_type 'invalid_domain' and never fetches creds or calls importApp", async () => {
-		vi.mocked(isValidDomainSlug).mockReturnValueOnce(false);
-
-		const { server, capture } = makeFakeServer();
-		registerUploadAppToHq(server, toolCtx);
-
-		const out = (await capture()({ app_id: "a1", domain: "bad/slug" }, {})) as {
-			isError: true;
-			content: Array<{ type: "text"; text: string }>;
-		};
-
-		expect(out.isError).toBe(true);
-		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
-			error_type: string;
-			app_id: string;
-		};
-		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.invalid_domain);
-		expect(payload.app_id).toBe("a1");
-		/* Gate 1 failure short-circuits before any downstream work. */
-		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
-		expect(loadAppBlueprint).not.toHaveBeenCalled();
-		expect(importApp).not.toHaveBeenCalled();
-		/* And — critically — no `LogWriter` was allocated for a gate that
-		 * has nothing to flush. */
-		expect(LogWriterMock.instances).toHaveLength(0);
-	});
-});
-
-describe("registerUploadAppToHq — gate 2: HQ not configured", () => {
+describe("registerUploadAppToHq — gate 1: HQ not configured", () => {
 	it("returns error_type 'hq_not_configured' when no creds exist", async () => {
 		vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValueOnce(null);
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		const out = (await capture()(
-			{ app_id: "a1", domain: "acme-research" },
-			{},
-		)) as {
+		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -277,50 +241,16 @@ describe("registerUploadAppToHq — gate 2: HQ not configured", () => {
 		};
 		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_not_configured);
 		expect(payload.app_id).toBe("a1");
+		/* Gate 1 failure short-circuits before any downstream work. */
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
+		/* And — critically — no `LogWriter` was allocated for a gate that
+		 * has nothing to flush. */
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 });
 
-describe("registerUploadAppToHq — gate 3: domain mismatch", () => {
-	it("returns error_type 'domain_mismatch' when creds authorize a different project", async () => {
-		/* Creds authorize `acme-research`; caller targets `other-project`.
-		 * The Nova app is theirs and the slug is valid — only the
-		 * cross-domain mismatch trips this gate. */
-		vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValueOnce({
-			...FIXTURE_SETTINGS,
-		});
-
-		const { server, capture } = makeFakeServer();
-		registerUploadAppToHq(server, toolCtx);
-
-		const out = (await capture()(
-			{ app_id: "a1", domain: "other-project" },
-			{},
-		)) as {
-			isError: true;
-			content: Array<{ type: "text"; text: string }>;
-		};
-
-		expect(out.isError).toBe(true);
-		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
-			error_type: string;
-			app_id: string;
-			message: string;
-		};
-		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.domain_mismatch);
-		expect(payload.app_id).toBe("a1");
-		/* Message surfaces the authorized domain so the LLM can relay
-		 * actionable guidance to the user. */
-		expect(payload.message).toContain("acme-research");
-		expect(loadAppBlueprint).not.toHaveBeenCalled();
-		expect(importApp).not.toHaveBeenCalled();
-		expect(LogWriterMock.instances).toHaveLength(0);
-	});
-});
-
-describe("registerUploadAppToHq — gate 4: HQ upload failed", () => {
+describe("registerUploadAppToHq — gate 2: HQ upload failed", () => {
 	it("returns error_type 'hq_upload_failed' when importApp surfaces a non-success", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: false,
@@ -330,10 +260,7 @@ describe("registerUploadAppToHq — gate 4: HQ upload failed", () => {
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		const out = (await capture()(
-			{ app_id: "a1", domain: "acme-research" },
-			{},
-		)) as {
+		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -350,7 +277,7 @@ describe("registerUploadAppToHq — gate 4: HQ upload failed", () => {
 		 * the LLM can explain the failure category to the user. */
 		expect(payload.message).toContain("502");
 
-		/* LogWriter WAS allocated (gate 4 sits past the writer ctor) AND
+		/* LogWriter WAS allocated (gate 2 sits past the writer ctor) AND
 		 * flushed — the `finally` block drains even on non-success return. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
@@ -368,10 +295,7 @@ describe("registerUploadAppToHq — ownership failure", () => {
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		const out = (await capture()(
-			{ app_id: "a1", domain: "acme-research" },
-			{},
-		)) as {
+		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -403,18 +327,12 @@ describe("registerUploadAppToHq — wire parity (IDOR regression lock)", () => {
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerUploadAppToHq(sA, toolCtx);
-		const ownerMismatch = await capA()(
-			{ app_id: "probe-id", domain: "acme-research" },
-			{},
-		);
+		const ownerMismatch = await capA()({ app_id: "probe-id" }, {});
 
 		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerUploadAppToHq(sB, toolCtx);
-		const notFound = await capB()(
-			{ app_id: "probe-id", domain: "acme-research" },
-			{},
-		);
+		const notFound = await capB()({ app_id: "probe-id" }, {});
 
 		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
 		/* No settings fetch, no HQ call on either branch — both
@@ -437,7 +355,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		await capture()({ app_id: "a1", domain: "acme-research" }, {});
+		await capture()({ app_id: "a1" }, {});
 
 		expect(importApp).toHaveBeenCalledWith(
 			FIXTURE_SETTINGS.creds,
@@ -458,10 +376,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		await capture()(
-			{ app_id: "a1", domain: "acme-research", app_name: "   " },
-			{},
-		);
+		await capture()({ app_id: "a1", app_name: "   " }, {});
 
 		/* `?.trim() || app.app_name` must map whitespace-only to the
 		 * blueprint name — a blank `app_name` on HQ is strictly worse
@@ -487,10 +402,7 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		const { server, capture, notificationSpy } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		await capture()(
-			{ app_id: "a1", domain: "acme-research" },
-			{ _meta: { progressToken: "pt-1" } },
-		);
+		await capture()({ app_id: "a1" }, { _meta: { progressToken: "pt-1" } });
 
 		/* Each progress emission goes through `server.server.notification`
 		 * with the stage packed into the formatted `message` string as
@@ -516,7 +428,7 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		const { server, capture, notificationSpy } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		await capture()({ app_id: "a1", domain: "acme-research" }, {});
+		await capture()({ app_id: "a1" }, {});
 
 		/* `createProgressEmitter` branches on `progressToken === undefined`
 		 * and silently drops every `notify` call — no notification should
@@ -535,10 +447,7 @@ describe("registerUploadAppToHq — log writer drain on throw", () => {
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		const out = (await capture()(
-			{ app_id: "a1", domain: "acme-research" },
-			{},
-		)) as {
+		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
 		};

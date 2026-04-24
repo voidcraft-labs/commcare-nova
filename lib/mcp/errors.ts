@@ -62,16 +62,19 @@ export class McpInvalidInputError extends Error {
 }
 
 /**
- * Errors produced by `upload_app_to_hq`'s four-gate validation chain.
+ * Errors produced by `upload_app_to_hq`'s two-gate validation chain.
  * Exported so the tool's `UPLOAD_ERROR_TAGS` record can `satisfies`-
  * check against the union — a new bucket without a corresponding entry
  * here becomes a compile error rather than a silent wire drift.
+ *
+ * Two buckets, not four: the prior `invalid_domain` + `domain_mismatch`
+ * pair disappeared when `upload_app_to_hq` stopped accepting a
+ * client-supplied `domain` argument. The domain now comes from the
+ * user's stored credentials (validated at save time), so neither gate
+ * can fire anymore. Agents previewing the target domain before
+ * uploading use `get_hq_connection`.
  */
-export type UploadErrorType =
-	| "invalid_domain"
-	| "hq_not_configured"
-	| "domain_mismatch"
-	| "hq_upload_failed";
+export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

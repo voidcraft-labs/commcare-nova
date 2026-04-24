@@ -1,43 +1,44 @@
 /**
  * `nova.upload_app_to_hq` — upload an owned app's blueprint to CommCare
- * HQ as a new app in a specified project space.
+ * HQ as a new app in the authorized project space.
  *
  * Scope: `nova.write`.
  *
  * HQ has no atomic update API, so every call produces a brand-new app
  * in the target project — the returned `hq_app_id` is always fresh.
  *
- * The handler enforces an explicit four-gate validation sequence BEFORE
- * any network call leaves the server. Each gate produces a distinct
- * `error_type` in the returned content so MCP clients can surface
- * actionable guidance:
+ * The handler does NOT accept a `domain` argument. HQ API keys are
+ * scoped to exactly one project space per user, so the domain is a
+ * property of the user's stored credentials, not a client-supplied
+ * input. Callers that want to preview the target domain before
+ * confirming the upload should call `get_hq_connection` first. This
+ * closes three classes of failure that the prior (domain-argumented)
+ * tool had to gate for — invalid slug, unauthorized slug, missing
+ * arg — by the simple expedient of not accepting the arg.
  *
- *   1. `invalid_domain`    — the `domain` arg fails `isValidDomainSlug`.
- *                            Prevents path-traversal / SSRF via the
- *                            URL construction in `importApp`.
- *   2. `hq_not_configured` — the user has not stored CommCare HQ
+ * Two gates remain, each producing a distinct `error_type` in the
+ * returned content so MCP clients can surface actionable guidance:
+ *
+ *   1. `hq_not_configured` — the user has not stored CommCare HQ
  *                            credentials in Settings; there is nothing
  *                            to upload with.
- *   3. `domain_mismatch`   — the user's KMS-encrypted credentials
- *                            authorize a different project space than
- *                            the `domain` argument. A user with creds
- *                            for domain A cannot upload to domain B.
- *   4. `hq_upload_failed`  — `importApp` returned a non-success
+ *   2. `hq_upload_failed`  — `importApp` returned a non-success
  *                            response (HQ rejected the upload, network
  *                            fault, or 5xx from HQ).
  *
  * The hardcoded `COMMCARE_HQ_URL` inside `lib/commcare/client.ts` is
- * the one SSRF boundary; all four gates must pass before the client's
- * `fetch` is reached.
+ * the one SSRF boundary; since the domain now comes from the user's
+ * KMS-encrypted settings (written through a validated save path), it
+ * cannot smuggle path components into the URL `importApp` constructs.
  *
- * Ownership is checked BEFORE the four upload gates so a cross-tenant
+ * Ownership is checked BEFORE the upload gates so a cross-tenant
  * upload probe can never surface a settings-level failure reason for
  * an app the caller doesn't own.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
+import { importApp } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { initMcpCall } from "../context";
@@ -54,26 +55,22 @@ import type { ToolContext } from "../types";
 
 /**
  * Canonical `error_type` strings for each upload-gate failure mode.
- * `satisfies Record<UploadErrorType, UploadErrorType>` forces
- * every variant of `UploadErrorType` to appear as a key — adding a
- * new variant to the union without a matching entry here is a
- * compile error, so the wire taxonomy cannot silently drift.
+ * `satisfies Record<UploadErrorType, UploadErrorType>` forces every
+ * variant of `UploadErrorType` to appear as a key — adding a new
+ * variant to the union without a matching entry here is a compile
+ * error, so the wire taxonomy cannot silently drift.
  *
  * Exported as a frozen record so tests can reference the literals the
  * handler emits without hardcoding raw strings.
  *
  * These tags are part of the MCP wire contract: any client branching
- * on an upload error expects exactly these four values. Treat them as
+ * on an upload error expects exactly these two values. Treat them as
  * public API.
  */
 export const UPLOAD_ERROR_TAGS = {
-	/** Gate 1 — `args.domain` failed the HQ domain-slug regex. */
-	invalid_domain: "invalid_domain",
-	/** Gate 2 — the user has no stored HQ credentials. */
+	/** Gate 1 — the user has no stored HQ credentials. */
 	hq_not_configured: "hq_not_configured",
-	/** Gate 3 — stored credentials authorize a different project space. */
-	domain_mismatch: "domain_mismatch",
-	/** Gate 4 — HQ rejected the upload (HQ-side failure, post-validation). */
+	/** Gate 2 — HQ rejected the upload (HQ-side failure, post-validation). */
 	hq_upload_failed: "hq_upload_failed",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
@@ -111,9 +108,8 @@ function makeGateError(
 /**
  * Register the `upload_app_to_hq` tool on an `McpServer`.
  *
- * The handler allocates its `LogWriter` + `McpContext` AFTER all four
- * pre-network gates pass. Gate failures (1-3) therefore short-circuit
- * before any writer is constructed — a missing-creds call never
+ * The handler allocates its `LogWriter` + `McpContext` AFTER the
+ * pre-network gate passes. A missing-creds call therefore never
  * allocates a log writer it has nothing to flush. The blueprint load
  * + expand + `importApp` sit inside a `try`/`finally` so the writer
  * drains whether the HQ call succeeds, returns a non-success envelope,
@@ -127,17 +123,12 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app in the specified project space. Returns the HQ app id and URL on success. HQ has no atomic update API — each call creates a fresh HQ app.",
+				"Upload an owned app to CommCare HQ as a new app in the user's authorized project space. The target domain is read from the user's stored HQ credentials — callers don't supply it. Use `get_hq_connection` first if you need to preview the domain for a user confirmation. Returns the HQ app id and URL on success. HQ has no atomic update API — each call creates a fresh HQ app.",
 			inputSchema: {
 				app_id: z
 					.string()
 					.describe(
 						"Firestore app id to upload. Must be an app the authenticated user owns.",
-					),
-				domain: z
-					.string()
-					.describe(
-						"CommCare HQ project space slug. Must match the project space authorized on your stored credentials.",
 					),
 				app_name: z
 					.string()
@@ -151,25 +142,12 @@ export function registerUploadAppToHq(
 			const appId = args.app_id;
 
 			try {
-				/* Pre-gate: ownership. Runs BEFORE the four upload gates so
-				 * a cross-tenant upload probe never surfaces settings-level
+				/* Pre-gate: ownership. Runs BEFORE the upload gate so a
+				 * cross-tenant upload probe never surfaces settings-level
 				 * failure reasons for an app the caller doesn't own. */
 				await requireOwnedApp(ctx.userId, appId);
 
-				/* Gate 1 — domain-slug regex. Validates the project slug
-				 * against HQ's own `legacy_domain_re`, which rules out
-				 * anything outside `[\w.:-]+`. This prevents a caller from
-				 * injecting path components into the URL `importApp`
-				 * constructs against the hardcoded HQ base. */
-				if (!isValidDomainSlug(args.domain)) {
-					return makeGateError(
-						UPLOAD_ERROR_TAGS.invalid_domain,
-						"Invalid CommCare HQ project slug. Use the project's URL slug (letters, numbers, dots, hyphens, underscores only).",
-						appId,
-					);
-				}
-
-				/* Gate 2 — KMS credentials present. `null` means the user
+				/* Gate 1 — KMS credentials present. `null` means the user
 				 * hasn't configured CommCare HQ yet. User-actionable: they
 				 * need to visit Settings before the upload can proceed. */
 				const settings = await getDecryptedCredentialsWithDomain(ctx.userId);
@@ -181,19 +159,16 @@ export function registerUploadAppToHq(
 					);
 				}
 
-				/* Gate 3 — domain authorization match. Stored credentials
-				 * carry the single project space they authorize; cross-
-				 * domain uploads are forbidden even when the caller owns
-				 * the Nova app and the slug is structurally valid. */
-				if (settings.domain.name !== args.domain) {
-					return makeGateError(
-						UPLOAD_ERROR_TAGS.domain_mismatch,
-						`You can only upload to the project space authorized on your credentials (${settings.domain.name}).`,
-						appId,
-					);
-				}
+				/* The stored domain is the single source of truth for
+				 * which project space this upload targets. The save path
+				 * validates the slug before persisting, so the value
+				 * reaching `importApp` below is trusted — no runtime
+				 * re-validation needed (and no `invalid_domain` gate, no
+				 * `domain_mismatch` gate; those both existed only because
+				 * the prior version accepted user-supplied input). */
+				const targetDomain = settings.domain.name;
 
-				/* All pre-network gates passed — load the blueprint and
+				/* Ownership + settings cleared — load the blueprint and
 				 * proceed with the upload pipeline. The load runs AFTER
 				 * ownership: a concurrent hard-delete between the two
 				 * reads surfaces here as `null`, which we collapse to the
@@ -225,11 +200,11 @@ export function registerUploadAppToHq(
 				);
 
 				try {
-					progress.notify("upload_started", `Uploading to ${args.domain}`, {
+					progress.notify("upload_started", `Uploading to ${targetDomain}`, {
 						app_id: appId,
 					});
 
-					/* Gate 4 — the only network call. The SSRF boundary
+					/* Gate 2 — the only network call. The SSRF boundary
 					 * lives inside `importApp` via the hardcoded
 					 * `COMMCARE_HQ_URL`. `expandDoc` materializes the
 					 * `HqApplication` JSON HQ's `/api/import_app/`
@@ -244,7 +219,7 @@ export function registerUploadAppToHq(
 					const appName = args.app_name?.trim() || app.app_name;
 					const result = await importApp(
 						settings.creds,
-						args.domain,
+						targetDomain,
 						appName,
 						hqJson,
 					);
@@ -305,7 +280,7 @@ export function registerUploadAppToHq(
 				/* Ownership failures, missing-blueprint races, and any
 				 * throw from `importApp` (network fault, etc.) all land
 				 * here. `toMcpErrorResult` classifies via the shared
-				 * taxonomy. Gate 1-4 failures never reach this block —
+				 * taxonomy. Gate 1-2 failures never reach this block —
 				 * they return structured envelopes directly. */
 				return toMcpErrorResult(err, {
 					appId,
