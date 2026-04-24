@@ -104,6 +104,90 @@
 			"density": "SPARSE_ALL"
 		},
 		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "updated_at",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "updated_at",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "app_name_lower",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "app_name_lower",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
 			"collectionGroup": "events",
 			"queryScope": "COLLECTION",
 			"fields": [

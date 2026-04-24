@@ -92,11 +92,11 @@ export const listAppsInputSchema = {
 			"Filter to apps with a specific lifecycle status. Omit to return apps regardless of status. `generating` is an in-flight build; `complete` is ready to use; `error` is a failed build.",
 		),
 	sort: z
-		.enum(["updated_desc", "name_asc"])
+		.enum(["updated_desc", "updated_asc", "name_asc", "name_desc"])
 		.optional()
 		.default("updated_desc")
 		.describe(
-			"Sort order. `updated_desc` (default) surfaces the most recently updated apps first. `name_asc` sorts alphabetically by app name (case-insensitive).",
+			"Sort order. `updated_desc` (default) surfaces the most recently updated apps first; `updated_asc` is oldest-first. `name_asc` sorts alphabetically by app name A→Z (case-insensitive); `name_desc` is Z→A.",
 		),
 } as const;
 

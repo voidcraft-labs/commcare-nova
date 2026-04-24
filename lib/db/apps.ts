@@ -50,17 +50,25 @@ export type AppStatus = Exclude<AppDoc["status"], "deleted">;
 /**
  * Sort orders supported by `listApps`.
  *
- * - `"updated_desc"` — most recently modified first; the default and what
- *   the web UI + the MCP default surface use. Covered by the existing
- *   `(owner, updated_at DESC)` composite index.
- * - `"name_asc"` — alphabetical by `app_name`, case-insensitive via the
- *   denormalized `app_name_lower` field. Covered by the composite index
- *   `(owner, app_name_lower ASC)`.
+ * - `"updated_desc"` — most recently modified first; the default.
+ * - `"updated_asc"` — oldest first.
+ * - `"name_asc"` — alphabetical A→Z, case-insensitive via the
+ *   denormalized `app_name_lower` field.
+ * - `"name_desc"` — reverse alphabetical Z→A, same field.
+ *
+ * Pairs exist in both directions for each sort axis so callers never
+ * need to preface their request with "sorry, only X is available"
+ * caveats. Each sort is backed by one composite index (two when paired
+ * with a status filter) — see `firestore.indexes.json`.
  *
  * `searchApps` does not accept a `sort` — Fuse ranks results by relevance,
  * which is the only sensible ordering for a search.
  */
-export type AppsSortOrder = "updated_desc" | "name_asc";
+export type AppsSortOrder =
+	| "updated_desc"
+	| "updated_asc"
+	| "name_asc"
+	| "name_desc";
 
 /**
  * Structured cursor used to resume enumeration in `listApps`.
@@ -81,7 +89,9 @@ export type AppsSortOrder = "updated_desc" | "name_asc";
  */
 export type ListAppsCursor =
 	| { kind: "updated_desc"; updated_at: string; id: string }
-	| { kind: "name_asc"; name_lower: string; id: string };
+	| { kind: "updated_asc"; updated_at: string; id: string }
+	| { kind: "name_asc"; name_lower: string; id: string }
+	| { kind: "name_desc"; name_lower: string; id: string };
 
 /** Options consumed by `listApps`. */
 export interface ListAppsOptions {
@@ -577,19 +587,23 @@ function decodeAppsCursor(encoded: string): ListAppsCursor {
 	if (typeof id !== "string") {
 		throw new Error("Invalid pagination cursor (missing id).");
 	}
-	if (kind === "updated_desc") {
+	/* Two sort axes share the same cursor payload shape — only the
+	 * discriminant `kind` differs — so validate per-axis rather than
+	 * per-direction. That keeps the branch count from doubling as new
+	 * directions land on existing axes. */
+	if (kind === "updated_desc" || kind === "updated_asc") {
 		const updatedAt = obj.updated_at;
 		if (typeof updatedAt !== "string") {
-			throw new Error("Invalid pagination cursor (updated_desc payload).");
+			throw new Error(`Invalid pagination cursor (${kind} payload).`);
 		}
-		return { kind: "updated_desc", updated_at: updatedAt, id };
+		return { kind, updated_at: updatedAt, id };
 	}
-	if (kind === "name_asc") {
+	if (kind === "name_asc" || kind === "name_desc") {
 		const nameLower = obj.name_lower;
 		if (typeof nameLower !== "string") {
-			throw new Error("Invalid pagination cursor (name_asc payload).");
+			throw new Error(`Invalid pagination cursor (${kind} payload).`);
 		}
-		return { kind: "name_asc", name_lower: nameLower, id };
+		return { kind, name_lower: nameLower, id };
 	}
 	throw new Error(`Invalid pagination cursor (unknown kind: ${String(kind)}).`);
 }
@@ -600,25 +614,31 @@ function decodeAppsCursor(encoded: string): ListAppsCursor {
  * The `sort` argument picks which sort key goes into the cursor — a
  * cursor minted for one sort cannot be consumed by a subsequent call
  * with a different sort (enforced at decode time inside `listApps`).
+ * The cursor's `kind` is the sort's own string so the discriminant
+ * stays in lockstep with `AppsSortOrder`.
  *
- * For the `name_asc` branch we recompute `.toLowerCase()` from
+ * For the name-sort branches we recompute `.toLowerCase()` from
  * `app_name`; this matches what `denormalize` writes to Firestore
  * byte-for-byte (both are JS `.toLowerCase()` on the same string), so
  * the cursor value lines up exactly with the indexed field.
  */
 function cursorFor(summary: AppSummary, sort: AppsSortOrder): string {
-	if (sort === "updated_desc") {
-		return encodeAppsCursor({
-			kind: "updated_desc",
-			updated_at: summary.updated_at,
-			id: summary.id,
-		});
+	switch (sort) {
+		case "updated_desc":
+		case "updated_asc":
+			return encodeAppsCursor({
+				kind: sort,
+				updated_at: summary.updated_at,
+				id: summary.id,
+			});
+		case "name_asc":
+		case "name_desc":
+			return encodeAppsCursor({
+				kind: sort,
+				name_lower: summary.app_name.toLowerCase(),
+				id: summary.id,
+			});
 	}
-	return encodeAppsCursor({
-		kind: "name_asc",
-		name_lower: summary.app_name.toLowerCase(),
-		id: summary.id,
-	});
 }
 
 /**
@@ -739,19 +759,37 @@ export async function listApps(
 	query = query.select(...SUMMARY_FIELDS);
 
 	/* The primary sort matches the caller's `sort` argument; `__name__`
-	 * is the secondary so cursor resumption is deterministic. Firestore
-	 * automatically includes `__name__` as the last segment of every
-	 * composite index so no index-side tweak is needed for the tiebreaker. */
-	if (sort === "updated_desc") {
-		query = query.orderBy("updated_at", "desc").orderBy("__name__", "asc");
-	} else {
-		query = query.orderBy("app_name_lower", "asc").orderBy("__name__", "asc");
+	 * is the secondary so cursor resumption is deterministic (two apps
+	 * that share a sort-field value still resolve to a unique ordering).
+	 * Every branch uses `__name__ ASC` as the tiebreaker regardless of
+	 * the primary direction — a single, consistent rule across every
+	 * sort so reasoning about ordering never branches on the primary
+	 * axis. The `firestore.indexes.json` composites follow the same
+	 * convention. */
+	switch (sort) {
+		case "updated_desc":
+			query = query.orderBy("updated_at", "desc").orderBy("__name__", "asc");
+			break;
+		case "updated_asc":
+			query = query.orderBy("updated_at", "asc").orderBy("__name__", "asc");
+			break;
+		case "name_asc":
+			query = query.orderBy("app_name_lower", "asc").orderBy("__name__", "asc");
+			break;
+		case "name_desc":
+			query = query
+				.orderBy("app_name_lower", "desc")
+				.orderBy("__name__", "asc");
+			break;
 	}
 
 	/* Cursor resumption: the cursor's `kind` must match the current `sort`.
 	 * A mismatch means a client mixed sort orders across pagination calls
 	 * and we cannot faithfully continue — throw so the error is visible
-	 * rather than silently skipping or misordering rows. */
+	 * rather than silently skipping or misordering rows. Dispatch on the
+	 * sort *axis* (updated vs name) rather than direction — `startAfter`
+	 * takes the raw value and Firestore's orderBy direction handles which
+	 * side of that value comes next. */
 	if (cursor) {
 		const decoded = decodeAppsCursor(cursor);
 		if (decoded.kind !== sort) {
@@ -759,7 +797,7 @@ export async function listApps(
 				`Cursor was minted for sort="${decoded.kind}" but this call uses sort="${sort}".`,
 			);
 		}
-		if (decoded.kind === "updated_desc") {
+		if (decoded.kind === "updated_desc" || decoded.kind === "updated_asc") {
 			query = query.startAfter(
 				Timestamp.fromDate(new Date(decoded.updated_at)),
 				decoded.id,
@@ -800,27 +838,34 @@ export async function listApps(
 		nextCursor = cursorFor(apps[apps.length - 1], sort);
 	} else if (snap.size === limit) {
 		/* Edge case: the whole page was soft-deleted. We must still emit
-		 * a cursor so the caller can keep scanning — decode the last
-		 * Firestore doc directly to build one, since we have no visible
-		 * summary to draw from. */
+		 * a cursor so the caller can keep scanning — synthesize the
+		 * subset of `AppSummary` fields `cursorFor` actually reads from
+		 * the last Firestore doc and pass them through. Keeping cursor
+		 * construction in one place (`cursorFor`) means every new sort
+		 * axis lands in a single spot rather than drifting between two
+		 * parallel branches. */
 		const lastDoc = snap.docs[snap.docs.length - 1];
 		const data = lastDoc.data();
-		if (sort === "updated_desc") {
-			const updatedAt =
-				(data.updated_at as Timestamp)?.toDate() ??
-				(data.created_at as Timestamp).toDate();
-			nextCursor = encodeAppsCursor({
-				kind: "updated_desc",
+		const updatedAt =
+			(data.updated_at as Timestamp)?.toDate() ??
+			(data.created_at as Timestamp).toDate();
+		nextCursor = cursorFor(
+			{
+				id: lastDoc.id,
+				app_name: (data.app_name as string) ?? "",
 				updated_at: updatedAt.toISOString(),
-				id: lastDoc.id,
-			});
-		} else {
-			nextCursor = encodeAppsCursor({
-				kind: "name_asc",
-				name_lower: (data.app_name as string).toLowerCase(),
-				id: lastDoc.id,
-			});
-		}
+				/* The rest of the `AppSummary` shape is irrelevant to
+				 * `cursorFor`; fill with neutral defaults so the type
+				 * check passes without leaking bogus values anywhere. */
+				connect_type: null,
+				module_count: 0,
+				form_count: 0,
+				status: "complete",
+				error_type: null,
+				created_at: updatedAt.toISOString(),
+			},
+			sort,
+		);
 	}
 
 	return { apps, nextCursor };
