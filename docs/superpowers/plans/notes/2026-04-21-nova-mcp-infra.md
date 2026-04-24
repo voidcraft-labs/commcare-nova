@@ -144,6 +144,60 @@ OAuth completed against the plugin-scoped server `plugin:nova:nova`.
   bootstrap kept the frontmatter static and the body server-driven as
   designed.
 
+## Server-derived run id (2026-04-24)
+
+**Resolved:** Open follow-up #2 — the run grouping contract no longer
+depends on any client-side carrier. Clients never mint, pass, or see
+a run id; the server derives one from state it already observes.
+
+- `lib/mcp/runId.ts#deriveRunId({ currentRunId, lastActiveMs, now })`
+  is a pure function. 30-minute sliding window (`RUN_WINDOW_MS`): if
+  the app's existing `run_id` + `updated_at` fall within it, reuse;
+  otherwise mint a fresh UUID v4. Unit tests in
+  `lib/mcp/__tests__/runId.test.ts` pin the three branches (within
+  window, beyond window, no prior run) plus the boundary case.
+- `lib/db/apps.ts#updateAppForRun(appId, doc, runId)` — new helper
+  that merges the blueprint snapshot and writes `run_id` +
+  `updated_at` in one Firestore set. `McpContext.saveBlueprint` uses
+  it on every mutation so the next MCP tool call sees the fresh
+  `run_started_at` equivalent (the `updated_at` field) and either
+  continues the run or starts a new one.
+- `lib/mcp/adapters/sharedToolAdapter.ts` loads the app (for
+  ownership + blueprint), derives the run id from the loaded state,
+  and hands it to `McpContext`. `run_id` is no longer injected into
+  the tool schema and is never read off `args` or `_meta`.
+- Every MCP-only tool had its `run_id` input schema field removed.
+  `create_app` mints a fresh UUID internally (there's no prior app
+  state to derive from). `upload_app_to_hq` derives from the loaded
+  app. Read-only tools (`get_app`, `list_apps`, `compile_app`,
+  `get_agent_prompt`, `delete_app`) don't write event-log rows and
+  don't carry a run id at all.
+- Plugin static-agent bodies + skills: reverted to the single-step
+  "spawn the subagent with a JSON payload" shape. The payload carries
+  `mode`, `interactive`, optionally `app_id`, and `task` — no run id.
+  `list`, `show`, `upload` skills dropped their `allowed-tools: Bash`
+  line and their `uuidgen` step.
+- Response envelopes carry no sidecar metadata. Every structured
+  signal the model needs (stage markers, error_type, app_id,
+  encoding/format for compile_app) lives inside `content[0].text` as
+  JSON. Errors serialize to `{ error_type, message, app_id? }`;
+  successful tool calls pack their result shape (plus any lifecycle
+  markers) directly in content.
+- Progress notifications (`notifications/progress`) emit only the
+  MCP-spec-required fields. The stage tag is encoded in the message
+  as `"[<stage>] <text>[ | <key>=<val>...]"` so structured consumers
+  parse the prefix and human consumers render the whole string.
+- The one remaining `_meta` access on the server is reading
+  `progressToken` off incoming request metadata — that's MCP's
+  standard progress-notification opt-in channel and can't be avoided.
+
+The earlier investigation found that Claude Code passes response
+`_meta` through to the model verbatim (via `tool_use_result`), so
+sidecar metadata WOULD have reached the model. The decision to strip
+anyway: every signal can ride in `content` just as effectively, and
+keeping two channels (one opaque, one inspectable) for the same
+information bought us nothing except surface area.
+
 ## Open follow-ups
 
 1. **Plugin tool-name prefix.** Claude Code scopes plugin-sourced MCP
@@ -156,10 +210,15 @@ OAuth completed against the plugin-scoped server `plugin:nova:nova`.
    prefix uses plugin-scoped form` in the plugin repo; the design spec
    + Phase F plan still reference the old name and should be updated in
    a later pass.
-2. **`run_id` propagation.** Move `run_id` from `_meta` to a tool
-   argument on every mutation + read tool. Update
-   `lib/mcp/runId.ts#resolveRunId` to pull from `args.run_id` first,
-   fall back to `_meta.run_id` for direct-MCP-consumer compatibility,
-   then fall back to `crypto.randomUUID()`. Update each tool schema to
-   declare `run_id` and the plugin's agent files + skills to thread it
-   through.
+2. **End-to-end smoke test for server-derived run grouping.** Unit
+   coverage is strong (resolver branches, adapter derivation, every
+   MCP tool's response shape, the cross-surface `sharedToolsSmoke`
+   test covering the McpContext save path). End-to-end verification
+   still needs the user to restart Claude Code (to drop its memoized
+   agent definitions from the previous era) and run `/nova:ship`
+   against the localhost dev server, then `npx tsx
+   scripts/inspect-logs.ts <appId>` to confirm all events from that
+   run share one `run_id`. The Phase I smoke (which produced six
+   distinct run_ids for one run) is the reference failure mode; under
+   the server-derived contract the first `create_app` seeds the run
+   and every subsequent mutation within 30 minutes should reuse it.

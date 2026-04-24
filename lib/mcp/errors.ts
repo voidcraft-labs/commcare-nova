@@ -22,16 +22,16 @@
  * **IDOR hardening.** `McpAccessError.reason` carries two distinct
  * internal reasons (`"not_found"`, `"not_owner"`) so admins can
  * distinguish accidental typos from cross-tenant probes in server-side
- * logs. The wire envelope collapses both to `"not_found"` + the same
- * user-facing text so a probing client cannot enumerate existing app ids
- * by watching for the `"not_owner"` signal. The internal distinction
- * stays on the error class for logging; the wire never exposes it.
+ * logs. The wire collapses both to the same `"not_found"` + the same
+ * user-facing text so a probing client cannot enumerate existing app
+ * ids by watching for the `"not_owner"` signal. The internal
+ * distinction stays on the error class for logging; the wire never
+ * exposes it.
  *
- * Every tool's success + error envelope threads `_meta.run_id` through
- * so admin surfaces grouping by run id see a consistent story across
- * every MCP tool call. The open `[extra: string]: unknown` index on
- * `_meta` lets tool-specific keys (`stage`, `format`, `encoding`) layer
- * on top of the shared `{ app_id?, run_id? }` base.
+ * **All structured signals ride in `content`, not alongside it.** The
+ * wire envelope has no structured metadata — every field the model
+ * needs (error_type, app_id, human-readable message) is packed into
+ * `content[0].text` as a JSON object.
  */
 
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
@@ -74,13 +74,13 @@ export type UploadErrorType =
 	| "hq_upload_failed";
 
 /**
- * Closed union of every `error_type` string an MCP tool envelope can
- * emit ON THE WIRE. Spans four independent failure sources:
+ * Closed union of every `error_type` string an MCP tool response can
+ * emit. Spans four independent failure sources:
  *
- *   - `"not_found"` — the single access-failure bucket the wire exposes.
- *     The internal `AccessErrorReason` union (`"not_found"` vs
- *     `"not_owner"`) from `./ownership` collapses to this one value at
- *     the envelope boundary so a probing client cannot enumerate
+ *   - `"not_found"` — the single access-failure bucket the wire
+ *     exposes. The internal `AccessErrorReason` union (`"not_found"`
+ *     vs `"not_owner"`) from `./ownership` collapses to this one value
+ *     at the envelope boundary so a probing client cannot enumerate
  *     existing app ids by watching the response. The ownership-failure
  *     audit trail lives in server-side logs via `log.warn`.
  *   - `"invalid_input"` — conditional-required argument validation that
@@ -102,36 +102,41 @@ export type McpErrorType =
 	| AgentErrorType;
 
 /**
- * MCP tool-error result envelope. Matches the MCP SDK's
- * `CallToolResult` with `isError: true`. `_meta` carries the
- * machine-readable classification so clients can branch on
- * `error_type` rather than parsing `content[0].text`.
+ * Structured error payload the tool packs into `content[0].text` as
+ * JSON. Clients that want to branch on the error category parse
+ * `content[0].text` and read `error_type`; those that only render to a
+ * human read `message`.
  *
- * The open `[extra: string]: unknown` index signature on both the
- * outer result and the `_meta` block satisfies the SDK's open-shape
- * `CallToolResult` target AND lets tool-specific meta keys (e.g.
- * `format` on compile errors, `stage` on upload errors) layer on top
- * of the shared `app_id` + `run_id` base without widening the
- * strict-typed keys.
+ * `app_id` rides through when the handler knows the target app. Absent
+ * otherwise (pre-app-resolution failures).
+ */
+export interface McpErrorPayload {
+	error_type: McpErrorType;
+	message: string;
+	app_id?: string;
+}
+
+/**
+ * MCP tool-error result envelope. Matches the MCP SDK's
+ * `CallToolResult` with `isError: true`. The structured error body is
+ * JSON-encoded into `content[0].text` — see `McpErrorPayload` for the
+ * shape.
+ *
+ * The open `[extra: string]: unknown` index signature satisfies the
+ * SDK's open-shape `CallToolResult` target without letting any
+ * tool-specific keys leak onto the envelope.
  */
 export interface McpToolErrorResult {
 	isError: true;
 	content: Array<{ type: "text"; text: string }>;
-	_meta: {
-		error_type: McpErrorType;
-		app_id?: string;
-		run_id?: string;
-		[extra: string]: unknown;
-	};
 	[extra: string]: unknown;
 }
 
 /**
- * Shared success-result shape for every MCP tool envelope. The shared
- * base is `_meta.run_id` (always present — every tool mints or threads
- * one) + optional `app_id` (omitted on `list_apps`, which has no single
- * target app). Tool-specific meta (`stage`, `format`, `encoding`)
- * slots in through the open index signature.
+ * Shared success-result shape for every MCP tool envelope. Every
+ * structured field the model needs lives inside `content[0].text` —
+ * each tool owns the text shape (usually JSON, sometimes plain
+ * markdown for renderer passthrough).
  *
  * Exporting this lets individual tool handlers return
  * `Promise<McpToolSuccessResult | McpToolErrorResult>` for uniform
@@ -140,57 +145,46 @@ export interface McpToolErrorResult {
  */
 export interface McpToolSuccessResult {
 	content: Array<{ type: "text"; text: string }>;
-	_meta: {
-		run_id: string;
-		app_id?: string;
-		stage?: string;
-		format?: "json" | "ccz";
-		encoding?: "base64";
-		[extra: string]: unknown;
-	};
 	[extra: string]: unknown;
 }
 
 /**
- * Context the error serializer stamps onto `_meta` + uses for server-
- * side audit logging. Every key is optional: `appId` is unset when the
- * failure predates app resolution (e.g. a schema validation error on
- * arguments); `runId` is unset in exotic paths where a handler fails
- * before minting a run id — every regular handler resolves `runId` at
- * the top and threads it here.
+ * Context the error serializer stamps onto the response + uses for
+ * server-side audit logging. `appId` rides into the JSON content so
+ * the model can correlate an error to its target app. `userId` is
+ * read by the `McpAccessError` branch's cross-tenant audit log;
+ * passing it unconditionally keeps call sites uniform and ready for
+ * future audit expansions.
  */
 export interface McpErrorContext {
 	appId?: string;
-	runId?: string;
-	/**
-	 * Authenticated user id. Handlers thread this unconditionally on
-	 * every error — it's only read by the `McpAccessError` branch's
-	 * cross-tenant audit log, but passing it every time keeps call
-	 * sites uniform and ready for future audit expansions. Absent
-	 * `userId` still produces the same wire envelope, just with a
-	 * looser log record.
-	 */
 	userId?: string;
 }
 
 /**
  * Render any thrown value as an MCP tool-error result.
  *
- * Thread `ctx.appId` and `ctx.runId` onto `_meta` when the caller
- * knows them — this lets the MCP client correlate errors back to
- * specific apps and to the run-id-grouping used by admin surfaces
- * without re-deriving either from the original tool arguments.
+ * The envelope's `content[0].text` is a JSON-encoded `McpErrorPayload`
+ * so the model branches on the structured `error_type` while the
+ * human-readable `message` stays available for display. `ctx.appId`
+ * rides into the payload when known.
  */
 export function toMcpErrorResult(
 	err: unknown,
 	ctx?: McpErrorContext,
 ): McpToolErrorResult {
-	/* Build `_meta` additions as a mutable partial we spread at the end.
-	 * Reads cleaner than a ternary that creates a fresh object twice and
-	 * makes it obvious where future metadata fields would attach. */
-	const base: { app_id?: string; run_id?: string } = {};
-	if (ctx?.appId !== undefined) base.app_id = ctx.appId;
-	if (ctx?.runId !== undefined) base.run_id = ctx.runId;
+	/* Assemble the payload with conditional `app_id` — present only
+	 * when the handler knows the target app at the failure site.
+	 * `undefined` spreads into an absent key cleanly via
+	 * `...(cond && { ... })` below. */
+	const payload = (
+		errorType: McpErrorType,
+		message: string,
+	): McpErrorPayload => ({
+		error_type: errorType,
+		message,
+		...(ctx?.appId !== undefined && { app_id: ctx.appId }),
+	});
 
 	if (err instanceof McpInvalidInputError) {
 		/* Argument-validation failures short-circuit the classifier
@@ -198,12 +192,15 @@ export function toMcpErrorResult(
 		 * `message` is the precise reason (e.g. "edit mode requires
 		 * app_id") and routing it through `classifyError`'s status-code
 		 * + substring heuristics would only succeed in losing that
-		 * precision. The wire surfaces both the `error_type` tag for
-		 * machine branching and the message text for human display. */
+		 * precision. */
 		return {
 			isError: true,
-			content: [{ type: "text", text: err.message }],
-			_meta: { error_type: "invalid_input", ...base },
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
 		};
 	}
 
@@ -211,33 +208,40 @@ export function toMcpErrorResult(
 		/* IDOR hardening: the wire sees exactly one access-failure shape
 		 * regardless of whether the row is missing (`"not_found"`) or
 		 * owned by another user (`"not_owner"`). A probing caller must
-		 * not be able to distinguish "doesn't exist" from "exists but not
-		 * yours" by watching the response — collapsing both paths to the
-		 * same text + `error_type` closes that enumeration channel.
+		 * not be able to distinguish "doesn't exist" from "exists but
+		 * not yours" by watching the response — collapsing both paths
+		 * to the same payload closes that enumeration channel.
 		 *
-		 * The internal `reason` stays on the `McpAccessError` instance so
-		 * the ownership-probe audit log below can still distinguish the
-		 * two server-side: admins watch for `"not_owner"` to catch
+		 * The internal `reason` stays on the `McpAccessError` instance
+		 * so the ownership-probe audit log below can still distinguish
+		 * the two server-side: admins watch for `"not_owner"` to catch
 		 * cross-tenant scans that a pure "row not here" bucket would
 		 * otherwise drown out. */
 		if (err.reason === "not_owner") {
 			log.warn("[mcp] cross-tenant access attempt", {
 				userId: ctx?.userId ?? null,
 				appId: ctx?.appId ?? null,
-				runId: ctx?.runId ?? null,
 			});
 		}
 		return {
 			isError: true,
-			content: [{ type: "text", text: "App not found." }],
-			_meta: { error_type: "not_found", ...base },
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("not_found", "App not found.")),
+				},
+			],
 		};
 	}
 
 	const classified = classifyError(err);
 	return {
 		isError: true,
-		content: [{ type: "text", text: classified.message }],
-		_meta: { error_type: classified.type, ...base },
+		content: [
+			{
+				type: "text",
+				text: JSON.stringify(payload(classified.type, classified.message)),
+			},
+		],
 	};
 }

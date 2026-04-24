@@ -1,11 +1,10 @@
 /**
  * `registerDeleteApp` unit tests.
  *
- * Covers the five paths the route handler has to care about:
- *   - Happy path: an owned app soft-deletes, the returned envelope
- *     carries `{ deleted: true, recoverable_until }` + the
- *     `_meta.stage: "app_deleted"` marker + `_meta.run_id`.
- *   - Client-supplied `run_id` threads through from `extra._meta.run_id`.
+ * Covers the four paths the route handler has to care about:
+ *   - Happy path: an owned app soft-deletes, the returned content
+ *     JSON carries `stage: "app_deleted"` + `app_id` + `deleted: true`
+ *     + `recoverable_until`.
  *   - Ownership failure: the wire collapses `"not_owner"` to
  *     `"not_found"` (IDOR hardening). `softDeleteApp` must not run.
  *   - App not found: `loadAppOwner` returns null — a probe for an
@@ -34,10 +33,6 @@ vi.mock("@/lib/db/apps", () => ({
 
 /* --- Helpers --------------------------------------------------------- */
 
-/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
-const UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const toolCtx: ToolContext = { userId: "u1", scopes: [] };
 
 /* Mock softDeleteApp's return value directly — the ISO format is an
@@ -62,33 +57,15 @@ describe("registerDeleteApp — happy path", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { stage: string; app_id: string; run_id: string };
 		};
 
 		expect(softDeleteApp).toHaveBeenCalledWith("a1");
 		expect(JSON.parse(out.content[0]?.text ?? "{}")).toEqual({
+			stage: "app_deleted",
+			app_id: "a1",
 			deleted: true,
 			recoverable_until: FIXED_RECOVERABLE_UNTIL,
 		});
-		expect(out._meta.stage).toBe("app_deleted");
-		expect(out._meta.app_id).toBe("a1");
-		/* Minted run id shape — uuid v4 when the client didn't thread one. */
-		expect(out._meta.run_id).toMatch(UUID_RE);
-	});
-
-	it("threads a client-supplied run_id from extra._meta.run_id onto the success envelope", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
-		vi.mocked(softDeleteApp).mockResolvedValueOnce(FIXED_RECOVERABLE_UNTIL);
-
-		const { server, capture } = makeFakeServer();
-		registerDeleteApp(server, toolCtx);
-
-		const out = (await capture()(
-			{ app_id: "a1" },
-			{ _meta: { run_id: "client-rid-del" } },
-		)) as { _meta: { run_id: string } };
-
-		expect(out._meta.run_id).toBe("client-rid-del");
 	});
 });
 
@@ -107,15 +84,16 @@ describe("registerDeleteApp — ownership failure", () => {
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_found");
-		expect(out.content[0]?.text).toBe("App not found.");
-		expect(out._meta?.app_id).toBe("a1");
-		/* Error path stamps `run_id` too — minted when no client id was
-		 * threaded. */
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.message).toBe("App not found.");
+		expect(payload.app_id).toBe("a1");
 		/* Hard invariant: a cross-tenant probe must not leave soft-delete
 		 * state behind. `softDeleteApp` must not run at all. */
 		expect(softDeleteApp).not.toHaveBeenCalled();
@@ -131,12 +109,15 @@ describe("registerDeleteApp — not found", () => {
 
 		const out = (await capture()({ app_id: "ghost" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_found");
-		expect(out._meta?.app_id).toBe("ghost");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.app_id).toBe("ghost");
 		/* A probe against a nonexistent id must not reach softDeleteApp —
 		 * the helper's `update()` would reject with NOT_FOUND, which is
 		 * a correct signal for a real caller but wasteful noise when
@@ -146,28 +127,19 @@ describe("registerDeleteApp — not found", () => {
 });
 
 describe("registerDeleteApp — wire parity (IDOR regression lock)", () => {
-	it("not_owner and not_found produce byte-identical envelopes modulo run_id", async () => {
+	it("not_owner and not_found produce byte-identical envelopes", async () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client has no
-		 * signal to distinguish them. Threads the same `run_id`
-		 * through both calls so even that dimension is pinned. */
-		const runId = "fixed-rid-for-delete-parity";
-
+		 * signal to distinguish them. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerDeleteApp(sA, toolCtx);
-		const ownerMismatch = await capA()(
-			{ app_id: "probe-id" },
-			{ _meta: { run_id: runId } },
-		);
+		const ownerMismatch = await capA()({ app_id: "probe-id" }, {});
 
 		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerDeleteApp(sB, toolCtx);
-		const notFound = await capB()(
-			{ app_id: "probe-id" },
-			{ _meta: { run_id: runId } },
-		);
+		const notFound = await capB()({ app_id: "probe-id" }, {});
 
 		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
 		/* softDeleteApp was never invoked for either branch — probes
@@ -189,18 +161,21 @@ describe("registerDeleteApp — softDeleteApp throws", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
 		/* Not the `McpAccessError` fast path — the write rejection is
 		 * routed through `classifyError` and resolves to a generic
 		 * taxonomy bucket (e.g. `internal`). Assert shape rather than an
 		 * exact value so a future classifier refinement doesn't break
 		 * the test. */
-		expect(typeof out._meta?.error_type).toBe("string");
-		expect(out._meta?.error_type).not.toBe("not_owner");
-		expect(out._meta?.error_type).not.toBe("not_found");
-		expect(out._meta?.app_id).toBe("a1");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		expect(typeof payload.error_type).toBe("string");
+		expect(payload.error_type).not.toBe("not_owner");
+		expect(payload.error_type).not.toBe("not_found");
+		expect(payload.app_id).toBe("a1");
 	});
 });

@@ -22,17 +22,16 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { requireOwnedApp } from "../ownership";
-import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
  * Register the single-argument `delete_app` tool on an `McpServer`.
  *
  * The ownership gate runs first so a cross-tenant delete probe can
- * never reach the write. The `_meta.stage: "app_deleted"` marker lets
- * MCP progress clients latch on to the life-cycle event without having
- * to parse `content[0].text` — same pattern `create_app` uses for
- * `app_created`.
+ * never reach the write. The `stage: "app_deleted"` marker inside the
+ * content JSON lets the model latch on to the life-cycle event without
+ * having to infer it from the tool name alone — same pattern
+ * `create_app` uses for `app_created`.
  */
 export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
@@ -48,13 +47,8 @@ export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 					),
 			},
 		},
-		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
-			/* Resolve run id at the top so every exit path — ownership
-			 * rejection, successful soft-delete, write throw — stamps the
-			 * same id onto `_meta`. Client-supplied ids thread through;
-			 * absent ones get a freshly-minted uuid. */
-			const runId = resolveRunId(extra);
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 				const recoverableUntil = await softDeleteApp(appId);
@@ -63,21 +57,17 @@ export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 						{
 							type: "text",
 							text: JSON.stringify({
+								stage: "app_deleted",
+								app_id: appId,
 								deleted: true,
 								recoverable_until: recoverableUntil,
 							}),
 						},
 					],
-					_meta: {
-						stage: "app_deleted",
-						app_id: appId,
-						run_id: runId,
-					},
 				};
 			} catch (err) {
 				return toMcpErrorResult(err, {
 					appId,
-					runId,
 					userId: ctx.userId,
 				});
 			}

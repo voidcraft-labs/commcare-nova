@@ -9,13 +9,13 @@
  *     covered in `lib/log/__tests__`; here we only verify the in-memory
  *     shape adapters will see).
  *   - `recordMutations` is async specifically because it awaits the
- *     Firestore save; a pending `updateApp` must hold the returned
+ *     Firestore save; a pending `updateAppForRun` must hold the returned
  *     promise open.
  *   - Empty batches short-circuit without touching the writer or the DB.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { updateApp } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
@@ -27,7 +27,7 @@ import type { ProgressEmitter } from "../progress";
  * `../context` resolves `@/lib/db/apps`. Individual tests tweak the
  * implementation via `mockImplementationOnce` as needed. */
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn().mockResolvedValue(undefined),
+	updateAppForRun: vi.fn().mockResolvedValue(undefined),
 }));
 
 /**
@@ -72,11 +72,11 @@ function mockDoc(): BlueprintDoc {
 	};
 }
 
-/* Reset the hoisted `updateApp` mock between tests so `mockImplementationOnce`
+/* Reset the hoisted `updateAppForRun` mock between tests so `mockImplementationOnce`
  * chains in one test don't bleed into the next. */
 beforeEach(() => {
-	vi.mocked(updateApp).mockReset();
-	vi.mocked(updateApp).mockResolvedValue(undefined);
+	vi.mocked(updateAppForRun).mockReset();
+	vi.mocked(updateAppForRun).mockResolvedValue(undefined);
 });
 
 describe("McpContext", () => {
@@ -104,11 +104,11 @@ describe("McpContext", () => {
 		).toHaveLength(2);
 	});
 
-	it("awaits updateApp before resolving", async () => {
-		/* Arrange: stub updateApp with a deferred promise so we can assert
+	it("awaits updateAppForRun before resolving", async () => {
+		/* Arrange: stub updateAppForRun with a deferred promise so we can assert
 		 * the caller's await chain blocks until we resolve it ourselves. */
 		let resolveSave: () => void = () => {};
-		vi.mocked(updateApp).mockImplementationOnce(
+		vi.mocked(updateAppForRun).mockImplementationOnce(
 			() =>
 				new Promise<void>((r) => {
 					resolveSave = r;
@@ -138,7 +138,7 @@ describe("McpContext", () => {
 		 * writer isn't short-circuiting on some unrelated branch) AND the
 		 * outer promise is still pending on it. Together these prove the
 		 * fail-closed await is load-bearing. */
-		expect(updateApp).toHaveBeenCalledTimes(1);
+		expect(updateAppForRun).toHaveBeenCalledTimes(1);
 		expect(settled).toBe(false);
 		resolveSave();
 		await p;
@@ -158,6 +158,6 @@ describe("McpContext", () => {
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(0);
-		expect(vi.mocked(updateApp)).not.toHaveBeenCalled();
+		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
 	});
 });

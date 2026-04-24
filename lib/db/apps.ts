@@ -296,6 +296,38 @@ export async function updateApp(
 }
 
 /**
+ * Merge-update an app during an MCP tool call, overwriting the
+ * server-derived `run_id` along with the blueprint snapshot.
+ *
+ * The MCP surface groups event-log rows by a `run_id` that the server
+ * derives from the app's own state (see `lib/mcp/runId.ts`) — clients
+ * never supply one. Every event-writing MCP tool call persists the
+ * current run's id back onto the app doc so (a) the next tool call
+ * within the sliding window sees the same id and reuses it, and (b) the
+ * app doc carries an always-current pointer to the latest run for
+ * admin-surface display.
+ *
+ * Otherwise identical to `updateApp` — merges the blueprint,
+ * denormalized fields, and `updated_at`. Run-id persistence is the only
+ * addition.
+ */
+export async function updateAppForRun(
+	appId: string,
+	doc: PersistableDoc,
+	runId: string,
+): Promise<void> {
+	await docs.app(appId).set(
+		{
+			...denormalize(doc),
+			blueprint: doc,
+			run_id: runId,
+			updated_at: FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
+}
+
+/**
  * Soft-delete an app by marking `status: "deleted"` with the delete
  * timestamp and a recoverable-until deadline. The row is NOT removed
  * from Firestore — `listApps` filters `"deleted"` rows out at the

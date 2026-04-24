@@ -19,7 +19,7 @@ The underlying engine is already the right shape: `lib/agent/solutionsArchitect.
 
 1. **Primitives on the server, reasoning on the client.** `mcp.commcare.app/mcp` exposes the mutation, validation, compile, and HQ upload primitives as MCP tools. The agent reasoning loop runs on the client side — inside a Claude Code subagent for plugin consumers, inside the consumer's own LLM stack for headless consumers. Nova's server never calls Anthropic.
 2. **Single source of truth for the agent prompt.** The agent system prompt lives on the server and is fetched at skill-invoke time via dynamic context injection. Prompt iteration does not require a plugin release.
-3. **Native Claude Code primitives, no custom protocol.** Plugin skill mints a run_id and spawns one of two static `nova-architect-*` subagents via the Agent tool; the subagent self-fetches its real operating instructions from the server on its first tool call (`get_agent_prompt`). The plugin's `.mcp.json` declares the hosted server; OAuth handles auth. Every piece is documented Claude Code behavior.
+3. **Native Claude Code primitives, no custom protocol.** Plugin skill spawns one of two static `nova-architect-*` subagents via the Agent tool; the subagent self-fetches its real operating instructions from the server on its first tool call (`get_agent_prompt`). The plugin's `.mcp.json` declares the hosted server; OAuth handles auth. Every piece is documented Claude Code behavior.
 4. **OAuth 2.1 with Dynamic Client Registration** for authentication. What every remote MCP of record uses (GitHub, Sentry, Notion, Stripe, Linear). First-class Claude Code support via `/mcp`. No API key paste, no settings page for key management, token refresh and revocation are the client's problem.
 5. **Existing multi-tenant guards carry over.** Ownership, concurrency, fail-closed persistence, event log, HQ credential KMS encryption — reused without change. Spend cap is retired from this entrypoint because Nova no longer makes the LLM calls. Every event written from the MCP path tags `source: "mcp"` (vs `source: "chat"` from the web flow) so analytics can distinguish surfaces cleanly.
 6. **Parallel to the web UI.** The chat route and browser canvas keep working exactly as they do today. MCP is an additional entrypoint.
@@ -46,15 +46,11 @@ The underlying engine is already the right shape: `lib/agent/solutionsArchitect.
 │     │                                                                    │
 │     ▼                                                                    │
 │   Claude Code invokes the /nova:build skill INLINE in the main           │
-│   conversation. The skill body runs two steps:                           │
-│                                                                          │
-│     1. Mint a run_id via Bash (`uuidgen | tr A-Z a-z`).                 │
-│                                                                          │
-│     2. Invoke the Agent tool with                                        │
-│        subagent_type: "nova:nova-architect-interactive"                  │
-│        (or "nova:nova-architect-autonomous" for /nova:ship) and a        │
-│        JSON bootstrap payload carrying run_id, mode, interactive,        │
-│        and (for edits) app_id + task.                                    │
+│   conversation. The skill body invokes the Agent tool with               │
+│   subagent_type: "nova:nova-architect-interactive"                       │
+│   (or "nova:nova-architect-autonomous" for /nova:ship) and a             │
+│   JSON bootstrap payload carrying mode, interactive, and (for            │
+│   edits) app_id + task.                                                  │
 │     │                                                                    │
 │     ▼                                                                    │
 │   The Agent tool boots the STATIC subagent shipped with the plugin      │
@@ -163,10 +159,11 @@ On first use, Claude Code discovers the authorization server by fetching `https:
 
 ### Static bootstrap + self-fetch pattern
 
-All three skills that drive the agent loop (`/nova:build`, `/nova:ship`, `/nova:edit`) use the same two-step pattern in their skill body. The skill runs **inline in the main conversation** (no `context: fork`):
+All three skills that drive the agent loop (`/nova:build`, `/nova:ship`, `/nova:edit`) use the same single-step pattern in their skill body. The skill runs **inline in the main conversation** (no `context: fork`):
 
-1. **Mint** — generate a `run_id` via Bash (`uuidgen | tr A-Z a-z`).
-2. **Invoke** — call the `Agent` tool with `subagent_type: "nova:nova-architect-interactive"` (or `"nova:nova-architect-autonomous"` for `/nova:ship`) and a JSON bootstrap payload as the prompt. The payload carries `run_id`, `mode`, `interactive`, optionally `app_id` (edits), and the user's free-form `task`.
+1. **Invoke** — call the `Agent` tool with `subagent_type: "nova:nova-architect-interactive"` (or `"nova:nova-architect-autonomous"` for `/nova:ship`) and a JSON bootstrap payload as the prompt. The payload carries `mode`, `interactive`, optionally `app_id` (edits), and the user's free-form `task`.
+
+The inline read-only skills (`/nova:list`, `/nova:show`, `/nova:upload`) call their MCP tool directly from the main conversation with no subagent spawn. Run grouping for those calls is server-derived per the "Tools exposed" section above.
 
 The spawned subagent reads a **static agent file** shipped with the plugin (`agents/nova-architect-interactive.md` or `agents/nova-architect-autonomous.md`). Its frontmatter — `model: opus`, `effort: xhigh`, `maxTurns: 100`, the full `tools` allowlist, and the autonomous agent's `disallowedTools: [AskUserQuestion]` — is fixed at plugin-publish time. Its body is a short bootstrap stub instructing the subagent to parse the JSON payload and, on turn 0, call `mcp__plugin_nova_nova__get_agent_prompt(mode, interactive, app_id?)`. The server returns the real operating instructions as a plain text block; the subagent treats that text as its full system prompt for the rest of the run.
 
@@ -177,6 +174,7 @@ Why this shape (post-Phase H):
 - **Auth is native.** `get_agent_prompt` is an MCP tool, authenticated by Claude Code's OAuth bearer automatically. No token paste, no `apiKeyHelper`, no shell-layer auth.
 - **Autonomous mode enforcement is tool-level.** The autonomous agent file's frontmatter carries `disallowedTools: [AskUserQuestion]`, so the spawned subagent literally cannot call `AskUserQuestion`. Prompt-only guidance would be weaker.
 - **Plugin-scoped tool names.** Claude Code scopes plugin-sourced MCP tools as `mcp__plugin_<pluginName>_<serverName>__<toolName>` (`utils/plugins/mcpPluginIntegration.ts#addPluginScopeToServers`). For this plugin that's `mcp__plugin_nova_nova__*` — every reference to a Nova tool in skills + agent files uses that form.
+- **No run id on the wire.** Clients don't mint, supply, or observe a run id. The server derives grouping from app-doc state on every event-writing call — see the "Run grouping is server-derived" section above.
 
 ### Skill: `/nova:build` — interactive (`skills/build/SKILL.md`)
 
@@ -185,19 +183,15 @@ Why this shape (post-Phase H):
 name: build
 description: Generate a CommCare app from a natural-language spec, asking the user clarifying questions when the intent is ambiguous. Use when the user wants a collaborative build.
 argument-hint: <spec describing the app>
-allowed-tools: Bash Agent(nova:nova-architect-interactive)
+allowed-tools: Agent(nova:nova-architect-interactive)
 ---
 
 # Task
 
-You are orchestrating a Nova build. Execute these two steps in order; do not improvise.
-
-1. Mint a run_id via Bash: `uuidgen | tr A-Z a-z`. Keep it as `RUN_ID`.
-2. Invoke the Agent tool with `subagent_type: "nova:nova-architect-interactive"` and a JSON bootstrap payload (substituting `RUN_ID` for `<runId>`):
+Invoke the Agent tool with `subagent_type: "nova:nova-architect-interactive"` and this prompt:
 
    ```
    {
-     "run_id": "<runId>",
      "mode": "build",
      "interactive": true,
      "task": "$ARGUMENTS"
@@ -221,19 +215,15 @@ Return whatever the subagent reports, verbatim.
 name: ship
 description: Generate a CommCare app from a natural-language spec, autonomously, without asking the user clarifying questions. Use when the user wants a one-shot build.
 argument-hint: <spec describing the app>
-allowed-tools: Bash Agent(nova:nova-architect-autonomous)
+allowed-tools: Agent(nova:nova-architect-autonomous)
 ---
 
 # Task
 
-You are orchestrating an autonomous Nova build. Two steps in order; do not improvise.
-
-1. Mint a run_id via Bash: `uuidgen | tr A-Z a-z`. Store as `RUN_ID`.
-2. Invoke the Agent tool with `subagent_type: "nova:nova-architect-autonomous"` and a JSON bootstrap payload (substituting `RUN_ID` for `<runId>`):
+Invoke the Agent tool with `subagent_type: "nova:nova-architect-autonomous"` and this prompt:
 
    ```
    {
-     "run_id": "<runId>",
      "mode": "build",
      "interactive": false,
      "task": "$ARGUMENTS"
@@ -262,19 +252,15 @@ The instruction must be quoted when the skill is invoked (e.g., `/nova:edit abc1
 name: edit
 description: Edit an existing CommCare app with a natural-language instruction. Asks clarifying questions when needed.
 argument-hint: <app_id> "<instruction>"
-allowed-tools: Bash Agent(nova:nova-architect-interactive)
+allowed-tools: Agent(nova:nova-architect-interactive)
 ---
 
 # Task
 
-You are orchestrating a Nova edit. Two steps in order; do not improvise.
-
-1. Mint a run_id via Bash: `uuidgen | tr A-Z a-z`. Store as `RUN_ID`.
-2. Invoke the Agent tool with `subagent_type: "nova:nova-architect-interactive"` and a JSON bootstrap payload (substituting `RUN_ID` for `<runId>`):
+Invoke the Agent tool with `subagent_type: "nova:nova-architect-interactive"` and this prompt:
 
    ```
    {
-     "run_id": "<runId>",
      "mode": "edit",
      "interactive": true,
      "app_id": "$0",
@@ -406,7 +392,7 @@ Scopes split into `nova.read` and `nova.write`:
 
 The Nova plugin requests both scopes by default at DCR time — `/nova:build`, `/nova:edit`, `/nova:ship` all need write. Future narrowly-scoped clients (a reporting agent, a dashboard) can register with just `nova.read`. `openid`/`profile`/`email`/`offline_access` are standard OIDC/OAuth scopes that come with the plugin.
 
-Per-tool scope enforcement lives in the MCP handler: each tool declares its required scope, the handler checks the JWT's `scope` claim before dispatching. Tools called without the required scope return an MCP error with `_meta.error_type: "insufficient_scope"`.
+Per-tool scope enforcement lives in the MCP handler: each tool declares its required scope, the handler checks the JWT's `scope` claim before dispatching. Tools called without the required scope return an MCP error whose content JSON carries `error_type: "insufficient_scope"`.
 
 The plugin uses standard Better Auth schemas; running `npx @better-auth/cli generate` produces schema entries for four new tables (`oauthClient`, `oauthRefreshToken`, `oauthAccessToken`, `oauthConsent`) that the existing Firestore adapter (`better-auth-firestore`) reads via Better Auth's adapter-agnostic schema interface.
 
@@ -508,13 +494,21 @@ These mirror the agent's current tool set — the ones the agent calls during a 
 
 **Input schemas** for all tools are generated from the same Zod source used by the existing agent tool-schema generator (`lib/agent/toolSchemaGenerator.ts`). Field-level schemas continue to come from `lib/domain/fields/*.ts`. No duplicate schema definitions.
 
+### Run grouping is server-derived; the wire never carries a run id
+
+Admin surfaces group event-log rows by a `run_id` the server derives from state it already observes — the app doc's existing `run_id` field plus its `updated_at` timestamp. Clients never supply a run id, never see one on responses, and never declare it on any tool schema. Accepting a client-minted id would mean trusting or validating arbitrary strings the caller could collide, malform, or use to pollute another user's grouping; the derivation closes that whole attack surface by keeping the id a server-only concern.
+
+The derivation (`lib/mcp/deriveRunId` in `lib/mcp/runId.ts`) is a 30-minute sliding window: on every event-writing tool call, the server reads the app's current `run_id` + `updated_at`; if the app has been touched within the window, the call joins that run; otherwise the server mints a fresh UUID and persists it back onto the app doc (via `updateAppForRun` in `lib/db/apps.ts`), starting a new run. Read-only tools (`get_app`, `list_apps`, `compile_app`, `get_agent_prompt`, `delete_app`) don't write event-log rows and therefore don't derive — the grouping signal only matters where grouped rows exist.
+
+Server-derived grouping was chosen over any client-supplied carrier because Claude Code's MCP client (`services/mcp/client.ts`) overwrites the request metadata bag on every outbound call — anything the subagent tried to pass there would be silently stripped before leaving the client. Keeping the id off the wire entirely sidesteps that constraint, and keeping it off the tool arguments avoids trusting arbitrary client-supplied strings as Firestore-grouping keys.
+
 ### `get_agent_prompt` — the self-fetch bootstrap tool
 
 Special-purpose meta-tool called by the spawned subagent as its first tool use on every run. Scoped under `nova.read`.
 
 - **Signature:** `get_agent_prompt(mode: "build" | "edit", interactive: boolean, app_id?: string) → text`
 - **Return shape.** Plain MCP `text` content block — the rendered system-prompt body verbatim, to be treated as the subagent's full operating instructions for the rest of the run. No JSON wrapper, no frontmatter, no parse step on the hot path. (Frontmatter ships with the static agent file and cannot be server-driven because Claude Code memoizes agent definitions at session start — see the static-agent section above.)
-- **`app_id` contract.** Required when `mode === "edit"`: the tool ownership-gates + loads the blueprint server-side and inlines `summarizeBlueprint(doc)` into the returned text so the spawned subagent boots with full edit context at turn 0 (exact parity with `/api/chat`'s edit mode). Missing `app_id` in edit mode surfaces as `error_type: "invalid_input"` with message text "edit mode requires app_id". Ignored in build mode — `mode` is the authoritative flag and a spurious id never triggers a Firestore round-trip or gets echoed onto `_meta.app_id`. Ownership failures in edit mode collapse to `not_found` (IDOR hardening, same as every other app-scoped tool).
+- **`app_id` contract.** Required when `mode === "edit"`: the tool ownership-gates + loads the blueprint server-side and inlines `summarizeBlueprint(doc)` into the returned text so the spawned subagent boots with full edit context at turn 0 (exact parity with `/api/chat`'s edit mode). Missing `app_id` in edit mode surfaces as `error_type: "invalid_input"` with message text "edit mode requires app_id". Ignored in build mode — `mode` is the authoritative flag and a spurious id never triggers a Firestore round-trip. Ownership failures in edit mode collapse to `not_found` (IDOR hardening, same as every other app-scoped tool).
 - **Prompt body.** Rendered server-side from the canonical source in `lib/mcp/prompts.ts` via `buildSolutionsArchitectPrompt` — the same renderer `/api/chat` uses. Build mode produces the build-framing prompt; edit mode with a populated `app_id` produces the `EDIT_PREAMBLE` framing plus an inlined `summarizeBlueprint(doc)` so the subagent already knows the app's structure at turn 0 (no `get_app` round-trip). An empty-modules doc (degenerate edit case before any generation has run) intentionally falls back to the build prompt while keeping the edit tool surface — the renderer's `moduleOrder.length > 0` check is the single source of truth for "is there anything to edit?". Interactivity shapes the `## Interaction Mode` block (interactive: use `AskUserQuestion` for genuine ambiguities; autonomous: commit to defaults and report choices).
 - **Auth:** OAuth bearer, same as every other tool. `nova.read` scope is sufficient; this is a read, not a mutation.
 - **Plugin-scoped call name.** Subagents spawned from the plugin call this tool as `mcp__plugin_nova_nova__get_agent_prompt` — Claude Code's plugin MCP naming convention (`mcp__plugin_<pluginName>_<serverName>__<toolName>`). Direct MCP consumers connecting without the plugin use whatever server name they mount under.
@@ -540,11 +534,11 @@ Tools emit `notifications/progress` at meaningful events. The stage taxonomy pig
 
 - `app_created`, `schema_generated`, `scaffold_generated`, `module_added`, `form_added`, `validation_started`, `validation_fix_applied`, `validation_passed`, `upload_started`, `upload_complete`
 
-Each notification carries `_meta.stage` + identifiers. Clients that want structured event tracking parse `_meta`; Claude Code renders the human-readable `message` field as tool-progress text.
+Each notification carries a human-readable `message` string formatted as `"[<stage>] <text>[ | <key>=<val>...]"`. Clients render the whole `message` to users; those that want structured event tracking parse the `[<stage>]` prefix and optional inline `key=val` pairs. The MCP-spec-required `progress` counter increments monotonically.
 
 ### Error handling
 
-Classified errors via the existing `classifyError` helper, returned as MCP `isError: true` results with `_meta.error_type` + `_meta.app_id`. The existing fire-and-forget `failApp(appId, type)` path runs server-side on classified errors.
+Classified errors via the existing `classifyError` helper, returned as MCP `isError: true` results whose `content[0].text` is a JSON-encoded `McpErrorPayload` (`{ error_type, message, app_id? }`). The existing fire-and-forget `failApp(appId, type)` path runs server-side on classified errors.
 
 ---
 
@@ -591,7 +585,7 @@ The `UsageAccumulator` + monthly cap machinery is not invoked from the MCP endpo
 - `lib/mcp/tools/` — one file per tool. Thin handlers over `lib/agent/blueprintHelpers.ts` + `lib/commcare/*`.
 - `lib/mcp/prompts.ts` — canonical source of the agent system-prompt body. Exports a render function that takes `(interactive, editDoc?)` and returns the rendered prompt text for `get_agent_prompt`. Delegates to `buildSolutionsArchitectPrompt(editDoc)` (the same renderer `/api/chat` uses) so the MCP + web surfaces stay in lockstep, then appends the `## Interaction Mode` block per the `interactive` flag.
 - `lib/mcp/context.ts` — MCP-variant of `GenerationContext` (progress emitter + `LogWriter`, no `UsageAccumulator`).
-- `lib/mcp/progress.ts` — helpers for emitting `notifications/progress` with the `_meta.stage` taxonomy.
+- `lib/mcp/progress.ts` — helpers for emitting `notifications/progress` with the stage taxonomy encoded into the spec-required `message` field.
 - `lib/auth-client.ts` — Better Auth client with `oauthProviderClient` plugin; used by the consent page.
 - `lib/server-client.ts` — resource-server client built with `oauthProviderResourceClient`; used by the protected-resource-metadata route.
 
@@ -611,7 +605,7 @@ The `UsageAccumulator` + monthly cap machinery is not invoked from the MCP endpo
 - `nova-plugin/.mcp.json` — declares the `nova` MCP server at `https://mcp.commcare.app/mcp`
 - `nova-plugin/agents/nova-architect-interactive.md` — static bootstrap agent; frontmatter with full tool allowlist (incl. `AskUserQuestion`) + model/effort/maxTurns, body instructs self-fetch via `mcp__plugin_nova_nova__get_agent_prompt` on turn 0
 - `nova-plugin/agents/nova-architect-autonomous.md` — same body, frontmatter carries `disallowedTools: [AskUserQuestion]`
-- `nova-plugin/skills/build/SKILL.md` — interactive build; two-step orchestration (mint run_id via Bash, spawn `nova:nova-architect-interactive` via Agent)
+- `nova-plugin/skills/build/SKILL.md` — interactive build; single-step orchestration (spawn `nova:nova-architect-interactive` via Agent with a JSON bootstrap payload)
 - `nova-plugin/skills/ship/SKILL.md` — autonomous build; same shape, spawns `nova:nova-architect-autonomous`
 - `nova-plugin/skills/edit/SKILL.md` — interactive edit; two-step shape, spawns the interactive subagent with `mode: "edit"` + `app_id` in the bootstrap payload
 - `nova-plugin/skills/list/SKILL.md`

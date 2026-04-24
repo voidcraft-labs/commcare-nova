@@ -2,14 +2,21 @@
  * MCP progress emitter.
  *
  * Adapters emit fine-grained progress through this interface so clients
- * with a `_meta.progressToken` on their tool call can observe stage
+ * with a progress token on their tool call can observe stage
  * transitions in real time. The stage taxonomy aligns with
  * `deriveReplayChapters` so UIs consuming the replay vocabulary share
  * one parser across the live and replay paths.
  *
- * When the client did not opt into progress (no `progressToken`),
+ * When the client did not opt into progress (no progress token),
  * `notify()` is a no-op — adapters can call it unconditionally without
  * branching on whether the caller is interested.
+ *
+ * Notifications carry the MCP-spec-required fields only: monotonically
+ * increasing `progress`, and a human-readable `message` that encodes
+ * both the machine-parseable stage tag and optional structured context
+ * in a single string (format: `"[<stage>] <message>[ | <key>=<val>...]"`).
+ * Clients that want to branch on stage parse the prefix; clients that
+ * only render to a human use the whole message.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -38,6 +45,25 @@ export interface ProgressEmitter {
 		message: string,
 		extra?: Record<string, unknown>,
 	): void;
+}
+
+/**
+ * Format the notification message so both human and machine readers
+ * can extract what they need from a single string. Prefix `[<stage>]`
+ * lets clients branch on stage without needing structured metadata;
+ * `| key=val` pairs append optional context inline.
+ */
+function formatProgressMessage(
+	stage: ProgressStage,
+	message: string,
+	extra?: Record<string, unknown>,
+): string {
+	const prefix = `[${stage}]`;
+	const extraParts = extra
+		? Object.entries(extra).map(([k, v]) => `${k}=${String(v)}`)
+		: [];
+	const suffix = extraParts.length > 0 ? ` | ${extraParts.join(" ")}` : "";
+	return `${prefix} ${message}${suffix}`;
 }
 
 /**
@@ -71,8 +97,7 @@ export function createProgressEmitter(
 				params: {
 					progressToken,
 					progress,
-					message,
-					_meta: { stage, ...extra },
+					message: formatProgressMessage(stage, message, extra),
 				},
 			});
 		},

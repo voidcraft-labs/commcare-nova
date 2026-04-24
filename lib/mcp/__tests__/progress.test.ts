@@ -11,6 +11,11 @@
  *     params missing it (see SDK `ProgressSchema.progress` — `z.number()`).
  *   - Numeric token: `progressToken` is typed `string | number` per the
  *     SDK; a numeric token should not short-circuit the emitter.
+ *
+ * The emitter packs the stage tag + any structured `extra` into the
+ * MCP-spec-only `message` string (format: `"[<stage>] <text>[ | k=v...]"`)
+ * so consumers can branch on stage without needing any non-standard
+ * sidecar fields on the notification params.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -49,17 +54,16 @@ describe("createProgressEmitter", () => {
 			params: {
 				progressToken: "run-42",
 				progress: 1,
-				message: "created",
-				_meta: { stage: "app_created" },
+				message: "[app_created] created",
 			},
 		});
 		expect(calls[1]?.params.progress).toBe(2);
-		expect(calls[1]?.params._meta.stage).toBe("schema_generated");
+		expect(calls[1]?.params.message).toBe("[schema_generated] schema");
 		expect(calls[2]?.params.progress).toBe(3);
-		expect(calls[2]?.params._meta.stage).toBe("scaffold_generated");
+		expect(calls[2]?.params.message).toBe("[scaffold_generated] scaffold");
 	});
 
-	it("accepts a numeric progressToken", () => {
+	it("accepts a numeric progressToken and appends structured extras inline", () => {
 		const { server, notification } = mockServer();
 		const emitter = createProgressEmitter(server, 7);
 		emitter.notify("module_added", "mod", { app_id: "a1" });
@@ -69,8 +73,7 @@ describe("createProgressEmitter", () => {
 			params: {
 				progressToken: 7,
 				progress: 1,
-				message: "mod",
-				_meta: { stage: "module_added", app_id: "a1" },
+				message: "[module_added] mod | app_id=a1",
 			},
 		});
 	});

@@ -14,11 +14,10 @@
  *     (no SA-style step aggregation happens here).
  *   - Progress goes out as MCP `notifications/progress` events, not SSE.
  *
- * Run-id semantics: the adapter decides whether to thread a client-supplied
- * `_meta.run_id` or mint a fresh one per call. This class accepts whatever
- * runId the adapter hands it and stamps it onto every envelope, so a
- * multi-call subagent build groups coherently under one runId in the admin
- * run-summary surface when the client threads a runId consistently.
+ * Run-id semantics: the adapter derives a runId from app-doc state (see
+ * `lib/mcp/runId.ts`) and hands it to this class. Every event-log envelope
+ * carries the runId, so subsequent mutations within the sliding-window
+ * group under the same id on admin surfaces.
  *
  * Fail-closed persistence: `recordMutations` awaits `saveBlueprint` before
  * resolving. This is the key divergence from `GenerationContext.emitMutations`,
@@ -40,7 +39,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
-import { updateApp } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -65,7 +64,7 @@ export interface McpContextOptions {
 	appId: string;
 	/** Better Auth user id from the verified JWT's `sub` claim. */
 	userId: string;
-	/** Run id — threaded from the client via `_meta.run_id` or minted per call. */
+	/** Run id — derived by the adapter from the app doc's current state. */
 	runId: string;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
 	logWriter: LogWriter;
@@ -116,9 +115,8 @@ export class McpContext implements ToolExecutionContext {
 	 * No-op on empty batches — callers may route an unconditional call
 	 * through here without an upstream length check.
 	 *
-	 * @returns The envelopes that were enqueued, for callers that want to
-	 *   echo them in a tool-result's `_meta` or otherwise inspect the
-	 *   sequence that was just persisted.
+	 * @returns The envelopes that were enqueued, for callers that want
+	 *   to inspect the sequence that was just persisted.
 	 */
 	async recordMutations(
 		mutations: Mutation[],
@@ -175,12 +173,17 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Persist the blueprint snapshot to Firestore via `updateApp`.
-	 * `toPersistableDoc` strips the derived `fieldParent` index; see the
-	 * class-level fail-closed contract for why this is awaited.
+	 * Persist the blueprint snapshot to Firestore along with the current
+	 * run id. `toPersistableDoc` strips the derived `fieldParent` index;
+	 * see the class-level fail-closed contract for why this is awaited.
+	 *
+	 * Writing `run_id` on every mutation is load-bearing for the
+	 * sliding-window derivation in `lib/mcp/runId.ts` — the next MCP
+	 * tool call reads `app.run_id` + `app.updated_at` to decide whether
+	 * to continue this run or start a new one.
 	 */
 	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
-		await updateApp(this.appId, toPersistableDoc(doc));
+		await updateAppForRun(this.appId, toPersistableDoc(doc), this.runId);
 	}
 }
 

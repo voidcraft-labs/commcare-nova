@@ -9,7 +9,8 @@
  *
  * The handler enforces an explicit four-gate validation sequence BEFORE
  * any network call leaves the server. Each gate produces a distinct
- * `_meta.error_type` so MCP clients can surface actionable guidance:
+ * `error_type` in the returned content so MCP clients can surface
+ * actionable guidance:
  *
  *   1. `invalid_domain`    — the `domain` arg fails `isValidDomainSlug`.
  *                            Prevents path-traversal / SSRF via the
@@ -48,12 +49,12 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
-import { resolveRunId } from "../runId";
+import { deriveRunId, timestampToMillis } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
- * Canonical `_meta.error_type` strings for each upload-gate failure
- * mode. `satisfies Record<UploadErrorType, UploadErrorType>` forces
+ * Canonical `error_type` strings for each upload-gate failure mode.
+ * `satisfies Record<UploadErrorType, UploadErrorType>` forces
  * every variant of `UploadErrorType` to appear as a key — adding a
  * new variant to the union without a matching entry here is a
  * compile error, so the wire taxonomy cannot silently drift.
@@ -84,24 +85,26 @@ export const UPLOAD_ERROR_TAGS = {
  * gate's exit path has the same shape: `makeGateError` builds the full
  * MCP result in one place.
  *
- * The text message is user-actionable (surfaces to the LLM, which
- * surfaces to the end user); the structured `_meta.error_type` is the
- * machine-readable signal clients branch on. `runId` threads the
- * handler's resolved run id onto `_meta` so admin surfaces grouping
- * by run id see gate failures under the same id as the rest of the
- * call, matching the `{ app_id, run_id }` base contract every other
- * MCP tool emits.
+ * The JSON content carries both the machine-readable `error_type` (for
+ * model branching) and the user-actionable `message` (for display).
  */
 function makeGateError(
 	errorType: UploadErrorType,
 	message: string,
 	appId: string,
-	runId: string,
 ): McpToolErrorResult {
 	return {
 		isError: true,
-		content: [{ type: "text", text: message }],
-		_meta: { error_type: errorType, app_id: appId, run_id: runId },
+		content: [
+			{
+				type: "text",
+				text: JSON.stringify({
+					error_type: errorType,
+					message,
+					app_id: appId,
+				}),
+			},
+		],
 	};
 }
 
@@ -147,12 +150,6 @@ export function registerUploadAppToHq(
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
 
-			/* Resolve run id at the top so every exit path — gate failure,
-			 * ownership rejection, mid-upload throw, successful upload —
-			 * carries the same id on `_meta.run_id`. Client-supplied ids
-			 * thread through; absent ones get a freshly-minted uuid. */
-			const runId = resolveRunId(extra);
-
 			try {
 				/* Pre-gate: ownership. Runs BEFORE the four upload gates so
 				 * a cross-tenant upload probe never surfaces settings-level
@@ -169,7 +166,6 @@ export function registerUploadAppToHq(
 						UPLOAD_ERROR_TAGS.invalid_domain,
 						"Invalid CommCare HQ project slug. Use the project's URL slug (letters, numbers, dots, hyphens, underscores only).",
 						appId,
-						runId,
 					);
 				}
 
@@ -182,7 +178,6 @@ export function registerUploadAppToHq(
 						UPLOAD_ERROR_TAGS.hq_not_configured,
 						"CommCare HQ is not configured. Add your HQ credentials in Settings before uploading.",
 						appId,
-						runId,
 					);
 				}
 
@@ -195,7 +190,6 @@ export function registerUploadAppToHq(
 						UPLOAD_ERROR_TAGS.domain_mismatch,
 						`You can only upload to the project space authorized on your credentials (${settings.domain.name}).`,
 						appId,
-						runId,
 					);
 				}
 
@@ -208,12 +202,20 @@ export function registerUploadAppToHq(
 				if (!loaded) throw new McpAccessError("not_found");
 				const { doc, app } = loaded;
 
+				/* Derive the run id from the app's own state (see
+				 * `lib/mcp/runId.ts`). The upload typically comes at the
+				 * end of a generation run, so the sliding-window lookup
+				 * reuses the same id that the preceding mutations
+				 * grouped under. */
+				const runId = deriveRunId({
+					currentRunId: loaded.app.run_id,
+					lastActiveMs: timestampToMillis(loaded.app.updated_at),
+					now: new Date(),
+				});
+
 				/* `initMcpCall` packages the per-call collaborators
 				 * (LogWriter, progress emitter, McpContext) and binds them
-				 * to the pre-resolved `runId`. Extracted to a helper so
-				 * the adapter and every ad-hoc tool share one allocation
-				 * pattern; a future change to collaborator wiring lands
-				 * in one place. */
+				 * to the derived `runId`. */
 				const { mcpCtx, logWriter, progress } = initMcpCall(
 					server,
 					ctx,
@@ -252,7 +254,6 @@ export function registerUploadAppToHq(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
 							`CommCare HQ rejected the upload (status ${result.status}).`,
 							appId,
-							runId,
 						);
 					}
 
@@ -283,17 +284,14 @@ export function registerUploadAppToHq(
 							{
 								type: "text",
 								text: JSON.stringify({
+									stage: "upload_complete",
+									app_id: appId,
 									hq_app_id: result.appId,
 									url: result.appUrl,
 									warnings: result.warnings,
 								}),
 							},
 						],
-						_meta: {
-							stage: "upload_complete",
-							app_id: appId,
-							run_id: runId,
-						},
 					};
 				} finally {
 					/* Drain the event-log buffer before returning OR
@@ -307,13 +305,10 @@ export function registerUploadAppToHq(
 				/* Ownership failures, missing-blueprint races, and any
 				 * throw from `importApp` (network fault, etc.) all land
 				 * here. `toMcpErrorResult` classifies via the shared
-				 * taxonomy and threads `runId` + `userId` onto `_meta`
-				 * (runId) and the IDOR audit log (userId). Gate 1-4
-				 * failures never reach this block — they return structured
-				 * envelopes directly. */
+				 * taxonomy. Gate 1-4 failures never reach this block —
+				 * they return structured envelopes directly. */
 				return toMcpErrorResult(err, {
 					appId,
-					runId,
 					userId: ctx.userId,
 				});
 			}

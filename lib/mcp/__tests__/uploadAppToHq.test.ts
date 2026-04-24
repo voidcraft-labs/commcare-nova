@@ -26,7 +26,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
-import { loadAppOwner, updateApp } from "@/lib/db/apps";
+import { loadAppOwner, updateAppForRun } from "@/lib/db/apps";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -44,11 +44,11 @@ import { makeFakeServer } from "./fakeServer";
  * the handler file resolves its imports. */
 vi.mock("@/lib/db/apps", () => ({
 	loadAppOwner: vi.fn(),
-	/* `updateApp` is touched indirectly through `McpContext.recordConversation`'s
-	 * sibling `recordMutations` path — but only on mutating flows. Tests
-	 * here never invoke `recordMutations`, so this stays as a harmless
-	 * resolved stub. */
-	updateApp: vi.fn().mockResolvedValue(undefined),
+	/* `updateAppForRun` is touched indirectly through
+	 * `McpContext.recordMutations`'s save path — but only on mutating
+	 * flows. Tests here never invoke `recordMutations`, so this stays
+	 * as a harmless resolved stub. */
+	updateAppForRun: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/db/settings", () => ({
 	getDecryptedCredentialsWithDomain: vi.fn(),
@@ -84,10 +84,6 @@ const { LogWriterMock } = vi.hoisted(() => {
 vi.mock("@/lib/log/writer", () => ({ LogWriter: LogWriterMock }));
 
 /* --- Helpers --------------------------------------------------------- */
-
-/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
-const UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Minimal `BlueprintDoc` — the expander is mocked, so fields are unused. */
 function fixtureBlueprint(): BlueprintDoc {
@@ -157,8 +153,8 @@ beforeEach(() => {
 	vi.mocked(importApp).mockReset();
 	vi.mocked(isValidDomainSlug).mockReset();
 	vi.mocked(expandDoc).mockReset();
-	vi.mocked(updateApp).mockReset();
-	vi.mocked(updateApp).mockResolvedValue(undefined);
+	vi.mocked(updateAppForRun).mockReset();
+	vi.mocked(updateAppForRun).mockResolvedValue(undefined);
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via
@@ -188,11 +184,14 @@ describe("registerUploadAppToHq — happy path", () => {
 		registerUploadAppToHq(server, toolCtx);
 
 		const out = (await capture()(
-			{ app_id: "a1", domain: "acme-research", app_name: "Imported" },
+			{
+				app_id: "a1",
+				domain: "acme-research",
+				app_name: "Imported",
+			},
 			{},
 		)) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { stage: string; app_id: string; run_id: string };
 		};
 
 		/* All four gates saw exactly one call each. `isValidDomainSlug`
@@ -208,19 +207,17 @@ describe("registerUploadAppToHq — happy path", () => {
 			FAKE_HQ_JSON,
 		);
 
-		/* Payload round-trips through JSON — the full structured result
-		 * (including warnings, even when empty) is emitted. */
+		/* Content JSON carries both the stage marker + app_id alongside
+		 * the upload result — everything the model needs to branch on
+		 * sits inside `content[0].text`. */
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}");
 		expect(parsed).toEqual({
+			stage: "upload_complete",
+			app_id: "a1",
 			hq_app_id: "hq-123",
 			url: "https://hq.example/app",
 			warnings: [],
 		});
-
-		expect(out._meta.stage).toBe("upload_complete");
-		expect(out._meta.app_id).toBe("a1");
-		expect(typeof out._meta.run_id).toBe("string");
-		expect(out._meta.run_id.length).toBeGreaterThan(0);
 
 		/* LogWriter allocated + flushed exactly once — the finally block
 		 * runs regardless of outcome. */
@@ -230,27 +227,24 @@ describe("registerUploadAppToHq — happy path", () => {
 });
 
 describe("registerUploadAppToHq — gate 1: invalid domain", () => {
-	it("returns error_type 'invalid_domain' with run_id and never fetches creds or calls importApp", async () => {
+	it("returns error_type 'invalid_domain' and never fetches creds or calls importApp", async () => {
 		vi.mocked(isValidDomainSlug).mockReturnValueOnce(false);
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		const out = (await capture()(
-			{ app_id: "a1", domain: "bad/slug" },
-			{ _meta: { run_id: "rid-gate1" } },
-		)) as {
+		const out = (await capture()({ app_id: "a1", domain: "bad/slug" }, {})) as {
 			isError: true;
-			_meta: { error_type: string; app_id: string; run_id: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe(UPLOAD_ERROR_TAGS.invalid_domain);
-		expect(out._meta.app_id).toBe("a1");
-		/* Every gate envelope carries the resolved `run_id` so admin
-		 * surfaces grouping by run id see gate failures under the same
-		 * id as the rest of the call. */
-		expect(out._meta.run_id).toBe("rid-gate1");
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.invalid_domain);
+		expect(payload.app_id).toBe("a1");
 		/* Gate 1 failure short-circuits before any downstream work. */
 		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
@@ -273,14 +267,16 @@ describe("registerUploadAppToHq — gate 2: HQ not configured", () => {
 			{},
 		)) as {
 			isError: true;
-			_meta: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe(UPLOAD_ERROR_TAGS.hq_not_configured);
-		expect(out._meta.app_id).toBe("a1");
-		/* Minted run id on the error path — same invariant as success. */
-		expect(out._meta.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_not_configured);
+		expect(payload.app_id).toBe("a1");
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(LogWriterMock.instances).toHaveLength(0);
@@ -304,22 +300,20 @@ describe("registerUploadAppToHq — gate 3: domain mismatch", () => {
 			{},
 		)) as {
 			isError: true;
-			_meta: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe(UPLOAD_ERROR_TAGS.domain_mismatch);
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+			message: string;
+		};
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.domain_mismatch);
+		expect(payload.app_id).toBe("a1");
 		/* Message surfaces the authorized domain so the LLM can relay
 		 * actionable guidance to the user. */
-		expect(out).toMatchObject({
-			content: [
-				expect.objectContaining({
-					text: expect.stringContaining("acme-research"),
-				}),
-			],
-		});
+		expect(payload.message).toContain("acme-research");
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(LogWriterMock.instances).toHaveLength(0);
@@ -341,17 +335,20 @@ describe("registerUploadAppToHq — gate 4: HQ upload failed", () => {
 			{},
 		)) as {
 			isError: true;
-			_meta: { error_type: string; app_id: string; run_id?: string };
 			content: Array<{ type: "text"; text: string }>;
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe(UPLOAD_ERROR_TAGS.hq_upload_failed);
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toMatch(UUID_RE);
-		/* The HQ status code is surfaced in the user-facing text so the
-		 * LLM can explain the failure category to the user. */
-		expect(out.content[0]?.text).toContain("502");
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+			message: string;
+		};
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_upload_failed);
+		expect(payload.app_id).toBe("a1");
+		/* The HQ status code is surfaced in the user-facing message so
+		 * the LLM can explain the failure category to the user. */
+		expect(payload.message).toContain("502");
 
 		/* LogWriter WAS allocated (gate 4 sits past the writer ctor) AND
 		 * flushed — the `finally` block drains even on non-success return. */
@@ -377,14 +374,17 @@ describe("registerUploadAppToHq — ownership failure", () => {
 		)) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { error_type: string; app_id: string; run_id?: string };
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe("not_found");
-		expect(out.content[0]?.text).toBe("App not found.");
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.message).toBe("App not found.");
+		expect(payload.app_id).toBe("a1");
 		/* Ownership failure must short-circuit BEFORE any settings read,
 		 * blueprint load, or HQ call — the ownership pre-gate is the
 		 * first line of defense against cross-tenant upload probes. */
@@ -396,19 +396,16 @@ describe("registerUploadAppToHq — ownership failure", () => {
 });
 
 describe("registerUploadAppToHq — wire parity (IDOR regression lock)", () => {
-	it("not_owner and not_found produce byte-identical envelopes modulo run_id", async () => {
+	it("not_owner and not_found produce byte-identical envelopes", async () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client cannot
-		 * enumerate existing app ids. Threads the same `run_id`
-		 * through both calls so even that dimension is pinned. */
-		const runId = "fixed-rid-for-upload-parity";
-
+		 * enumerate existing app ids. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerUploadAppToHq(sA, toolCtx);
 		const ownerMismatch = await capA()(
 			{ app_id: "probe-id", domain: "acme-research" },
-			{ _meta: { run_id: runId } },
+			{},
 		);
 
 		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
@@ -416,7 +413,7 @@ describe("registerUploadAppToHq — wire parity (IDOR regression lock)", () => {
 		registerUploadAppToHq(sB, toolCtx);
 		const notFound = await capB()(
 			{ app_id: "probe-id", domain: "acme-research" },
-			{ _meta: { run_id: runId } },
+			{},
 		);
 
 		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
@@ -496,13 +493,16 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		);
 
 		/* Each progress emission goes through `server.server.notification`
-		 * with an `_meta.stage` tag. Pull those tags off the spy calls in
-		 * order — a future regression that re-orders the pipeline or
-		 * drops one of the emissions will flip this assertion. */
-		const stages = notificationSpy.mock.calls
-			.map((c) => c[0] as { params?: { _meta?: { stage?: string } } })
-			.map((arg) => arg.params?._meta?.stage);
-		expect(stages).toEqual(["upload_started", "upload_complete"]);
+		 * with the stage packed into the formatted `message` string as
+		 * `[<stage>] <text>[ | k=v...]`. Pull the prefixes off in order
+		 * — a future regression that re-orders the pipeline or drops
+		 * one of the emissions will flip this assertion. */
+		const messages = notificationSpy.mock.calls
+			.map((c) => c[0] as { params?: { message?: string } })
+			.map((arg) => arg.params?.message ?? "");
+		expect(messages).toHaveLength(2);
+		expect(messages[0]).toMatch(/^\[upload_started\] /);
+		expect(messages[1]).toMatch(/^\[upload_complete\] /);
 	});
 
 	it("no-ops progress notifications when no progress token is supplied", async () => {
@@ -540,18 +540,20 @@ describe("registerUploadAppToHq — log writer drain on throw", () => {
 			{},
 		)) as {
 			isError: true;
-			_meta: { error_type: string; app_id?: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 
 		/* The throw surfaces through `toMcpErrorResult`'s shared
 		 * taxonomy — not as one of the gate tags. */
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).not.toBe(UPLOAD_ERROR_TAGS.hq_upload_failed);
-		/* Error envelope carries the resolved `run_id` + `app_id` so
-		 * admin surfaces grouping by run id see this failure alongside
-		 * the successful calls that share the same id. */
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id?: string;
+		};
+		expect(payload.error_type).not.toBe(UPLOAD_ERROR_TAGS.hq_upload_failed);
+		/* Error content carries `app_id` so the model can correlate
+		 * the failure back to the target app. */
+		expect(payload.app_id).toBe("a1");
 
 		/* Writer ran its finally block exactly once. */
 		expect(LogWriterMock.instances).toHaveLength(1);

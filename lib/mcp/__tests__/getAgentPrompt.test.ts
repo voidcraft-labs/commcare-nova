@@ -3,18 +3,16 @@
  *
  * Verifies the load-bearing behaviors of the self-fetch bootstrap tool:
  *
- *   - Build mode: rendering happens with no `app_id` round trip; even a
- *     spurious `app_id` is ignored (no Firestore call) and `_meta.app_id`
- *     is *not* stamped on the build envelope (an admin surface seeing
- *     `app_id` here would falsely correlate a build run to an unrelated
- *     app). Two combos cover interactive vs autonomous wiring — the
- *     wiring difference shows up as a different Interaction Mode
- *     section appended to the returned text.
+ *   - Build mode: rendering happens with no `app_id` round trip; a
+ *     spurious `app_id` is ignored (no Firestore call). Two combos
+ *     cover interactive vs autonomous wiring — the wiring difference
+ *     shows up as a different Interaction Mode section appended to
+ *     the returned text.
  *   - Edit mode happy path: ownership check + blueprint load + doc
  *     threaded into the renderer; the returned text carries
  *     `EDIT_PREAMBLE` framing + the inlined blueprint summary
  *     (verified by spot-checking the fixture's app + module names in
- *     the emitted text). `_meta.app_id` rides on success.
+ *     the emitted text).
  *   - Edit mode missing `app_id`: collapses to the `invalid_input`
  *     bucket via `McpInvalidInputError` — argument-validation failures
  *     short-circuit the classifier with a precise wire `error_type`.
@@ -22,14 +20,9 @@
  *     hardening — same envelope as a missing-id probe).
  *   - Edit mode empty-modules doc: `buildSolutionsArchitectPrompt` treats
  *     empty docs as build, so the emitted text contains build markers.
- *     `_meta.app_id` still rides (the handler did load the doc; the
- *     renderer's internal fallthrough is the right thing to do).
- *   - `_meta.run_id` threading: client-supplied id rides through; absent
- *     id gets a freshly-minted uuid v4 — same on success and error
- *     paths.
- *   - Error envelope parity: a thrown `renderAgentPrompt` surfaces as an
- *     MCP `isError: true` envelope classified through the shared
- *     taxonomy, with `run_id` stamped on `_meta`.
+ *   - Error envelope parity: a thrown `renderAgentPrompt` surfaces as
+ *     an MCP `isError: true` envelope classified through the shared
+ *     taxonomy.
  *
  * The MCP SDK is mocked at the boundary through the shared
  * `makeFakeServer` helper that captures the handler callback. The
@@ -70,15 +63,6 @@ vi.mock("../loadApp", () => ({
 }));
 
 /* --- Helpers --------------------------------------------------------- */
-
-/**
- * Loose UUID-v4 regex — asserts on shape (rather than pinning a value)
- * so tests stay decoupled from `crypto.randomUUID()`'s output while
- * still catching a regression that would return a fixed string or
- * something structurally wrong (e.g. a stringified counter).
- */
-const UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Baseline tool context — scopes aren't inspected by the tool body. */
 const toolCtx: ToolContext = { userId: "u1", scopes: [] };
@@ -215,19 +199,12 @@ describe("registerGetAgentPrompt — build mode", () => {
 				{},
 			)) as {
 				content: Array<{ type: "text"; text: string }>;
-				_meta: { run_id: string; app_id?: string };
 			};
 
 			const text = out.content[0]?.text ?? "";
 			expect(text.length).toBeGreaterThan(0);
 			expect(text).toContain(combo.expectedPhrase);
 			expect(text).not.toContain(combo.forbiddenPhrase);
-
-			/* Build mode never stamps `app_id` on the success envelope —
-			 * an admin surface correlating runs to apps would otherwise
-			 * see a misleading id on a call that didn't touch one. */
-			expect(out._meta.app_id).toBeUndefined();
-			expect(out._meta.run_id).toMatch(UUID_RE);
 
 			/* Renderer was called with no doc — build mode never loads
 			 * the blueprint. The handler omits the second argument
@@ -240,21 +217,19 @@ describe("registerGetAgentPrompt — build mode", () => {
 		});
 	}
 
-	it("ignores a spurious app_id quietly (no Firestore call, no app_id on _meta)", async () => {
+	it("ignores a spurious app_id quietly (no Firestore call)", async () => {
 		/* Sharp-edge contract: `mode` is the authoritative discriminator,
 		 * so a build-mode call carrying an `app_id` must NOT trigger an
-		 * ownership round trip or stamp `_meta.app_id`. The skill is
-		 * trusted to pass `mode` correctly; build mode has no app to
-		 * gate on. */
+		 * ownership round trip. The skill is trusted to pass `mode`
+		 * correctly; build mode has no app to gate on. */
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()(
+		await capture()(
 			{ mode: "build", interactive: true, app_id: "spurious-id" },
 			{},
-		)) as { _meta: { run_id: string; app_id?: string } };
+		);
 
-		expect(out._meta.app_id).toBeUndefined();
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(loadAppOwner).not.toHaveBeenCalled();
 		/* The renderer still runs with no doc — confirms build mode is
@@ -277,7 +252,6 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 			{},
 		)) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { app_id: string; run_id: string };
 		};
 
 		const text = out.content[0]?.text ?? "";
@@ -292,9 +266,6 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 		 * than a spurious empty-doc fallback). */
 		expect(text).toContain("Vaccine Tracker");
 		expect(text).toContain("Patients");
-
-		expect(out._meta.app_id).toBe("a-edit");
-		expect(out._meta.run_id).toMatch(UUID_RE);
 
 		/* Renderer received `(interactive, doc)` — confirms the
 		 * handler did the threading rather than dropping the doc. */
@@ -318,19 +289,18 @@ describe("registerGetAgentPrompt — edit mode missing app_id", () => {
 		const out = (await capture()({ mode: "edit", interactive: true }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta?: { error_type: string; run_id?: string };
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("invalid_input");
-		/* The thrown message rides through to the wire text so the
-		 * client can show a precise reason — the classifier's generic
-		 * "internal" message would have lost that. */
-		expect(out.content[0]?.text).toContain("edit mode requires app_id");
-		/* The minted run id holds on the error path too — the per-call
-		 * grouping invariant can't break on argument-validation
-		 * failures. */
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+		};
+		expect(payload.error_type).toBe("invalid_input");
+		/* The thrown message rides through as the content's `message`
+		 * field so the client can show a precise reason — the
+		 * classifier's generic "internal" message would have lost that. */
+		expect(payload.message).toContain("edit mode requires app_id");
 		/* Hard short-circuit: argument validation runs before any
 		 * Firestore call. */
 		expect(loadAppOwner).not.toHaveBeenCalled();
@@ -355,14 +325,17 @@ describe("registerGetAgentPrompt — edit mode unowned app_id", () => {
 		)) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta?: { error_type: string; app_id?: string; run_id?: string };
 		};
 
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_found");
-		expect(out.content[0]?.text).toBe("App not found.");
-		expect(out._meta?.app_id).toBe("owned-by-other");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.message).toBe("App not found.");
+		expect(payload.app_id).toBe("owned-by-other");
 		/* Cross-tenant probes must short-circuit — no blueprint load. */
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 	});
@@ -374,10 +347,7 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 		 * any generation tools fire. `buildSolutionsArchitectPrompt`
 		 * routes empty docs into the build branch; the tool must
 		 * inherit that fallthrough so the emitted text isn't a
-		 * malformed edit prompt against an empty structure. The tool's
-		 * envelope still stamps `app_id` on `_meta` — the handler did
-		 * load the doc and gate on ownership, the renderer's internal
-		 * fallthrough is the orthogonal concern. */
+		 * malformed edit prompt against an empty structure. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		const empty = fixtureEmptyDoc();
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(loadedFor(empty));
@@ -390,7 +360,6 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 			{},
 		)) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { app_id: string };
 		};
 
 		const text = out.content[0]?.text ?? "";
@@ -399,47 +368,14 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 		 * thing with the empty doc and the tool didn't paper over it. */
 		expect(text).toContain("Initial Build");
 		expect(text).not.toContain("Editing Mode");
-		/* `_meta.app_id` still rides — the tool processed the edit
-		 * request, even if the body happened to render as build. */
-		expect(out._meta.app_id).toBe("a-empty");
-	});
-});
-
-describe("registerGetAgentPrompt — run_id threading", () => {
-	it("threads a client-supplied run_id from extra._meta.run_id onto the success envelope", async () => {
-		const { server, capture } = makeFakeServer();
-		registerGetAgentPrompt(server, toolCtx);
-
-		const out = (await capture()(
-			{ mode: "build", interactive: true },
-			{ _meta: { run_id: "client-rid-42" } },
-		)) as { _meta: { run_id: string } };
-
-		expect(out._meta.run_id).toBe("client-rid-42");
-	});
-
-	it("mints a uuid v4 run_id when the client doesn't supply one", async () => {
-		const { server, capture } = makeFakeServer();
-		registerGetAgentPrompt(server, toolCtx);
-
-		const out = (await capture()(
-			{ mode: "build", interactive: false },
-			{},
-		)) as {
-			_meta: { run_id: string };
-		};
-
-		expect(out._meta.run_id).toMatch(UUID_RE);
 	});
 });
 
 describe("registerGetAgentPrompt — renderAgentPrompt throws", () => {
-	it("surfaces as an MCP error envelope with a populated error_type and the resolved run_id", async () => {
+	it("surfaces as an MCP error envelope with a populated error_type", async () => {
 		/* Force the renderer to throw to exercise the tool's try/catch +
-		 * classifier path. The envelope must carry `isError: true`, a
-		 * non-empty `error_type`, AND the same `run_id` a success would
-		 * have stamped — admin surfaces grouping by run id must see error
-		 * responses under the same id as the rest of the call. */
+		 * classifier path. The envelope must carry `isError: true` and a
+		 * non-empty `error_type`. */
 		vi.mocked(renderAgentPrompt).mockImplementationOnce(() => {
 			throw new Error("renderer exploded");
 		});
@@ -447,17 +383,16 @@ describe("registerGetAgentPrompt — renderAgentPrompt throws", () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()(
-			{ mode: "build", interactive: true },
-			{ _meta: { run_id: "client-rid-err" } },
-		)) as {
+		const out = (await capture()({ mode: "build", interactive: true }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 
 		expect(out.isError).toBe(true);
-		expect(typeof out._meta?.error_type).toBe("string");
-		expect(out._meta?.error_type.length ?? 0).toBeGreaterThan(0);
-		expect(out._meta?.run_id).toBe("client-rid-err");
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type?: string;
+		};
+		expect(typeof payload.error_type).toBe("string");
+		expect(payload.error_type?.length ?? 0).toBeGreaterThan(0);
 	});
 });

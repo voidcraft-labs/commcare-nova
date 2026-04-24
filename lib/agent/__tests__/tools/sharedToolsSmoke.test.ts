@@ -27,11 +27,12 @@ import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeTestContext } from "../fixtures";
 
 /* Mock the apps module wholesale so `McpContext.recordMutations` — which
- * awaits `updateApp` as part of its fail-closed contract — doesn't try to
- * reach real Firestore. The chat surface's `updateApp` call is
+ * awaits `updateAppForRun` as part of its fail-closed contract — doesn't
+ * try to reach real Firestore. The chat surface's `updateApp` call is
  * fire-and-forget, so the mock also needs to resolve for that path. */
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
+	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 

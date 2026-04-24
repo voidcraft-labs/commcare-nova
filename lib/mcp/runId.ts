@@ -1,24 +1,94 @@
 /**
- * Resolve the `run_id` for an MCP tool call — client-supplied via
- * `_meta.run_id` or freshly minted when absent.
+ * Server-side `run_id` derivation.
  *
- * MCP clients bundle multi-call subagent builds under one run id so
- * admin surfaces can group the full run's events together. Without
- * `_meta.run_id`, a standalone tool call still gets its own id so the
- * grouping invariant holds uniformly.
+ * The MCP wire surface does not carry `run_id` — clients never supply
+ * one and never see one. The server infers a grouping id from state it
+ * already observes (the app's `run_id` field + `updated_at` timestamp)
+ * so admin surfaces can stitch related event-log rows together without
+ * trusting or validating client-supplied ids.
  *
- * The MCP SDK types `_meta` as `$loose` (open object), so `run_id`
- * isn't on the typed shape — the narrow defensive cast keeps the check
- * string-typed without depending on the SDK's loose-shape internals.
+ * Sliding-window semantics: as long as mutations keep landing on an app
+ * within `WINDOW_MS`, they all share the app's current `run_id`. After
+ * `WINDOW_MS` of inactivity, the next mutation mints a fresh id and the
+ * old run is "closed" in the event log.
  *
- * Shared by every MCP tool adapter: `sharedToolAdapter`, `createApp`,
- * `deleteApp`, `getApp`, `listApps`, `compileApp`, `uploadAppToHq`.
- * Keeping one resolver means a future change to run-id sourcing
- * (e.g., honoring an `Idempotency-Key` header as a secondary source)
- * lands in exactly one place.
+ * Pure function — the caller extracts primitives from the Firestore
+ * `AppDoc` and passes them in. Keeping the signature free of Firestore
+ * types makes this trivially unit-testable and decouples the derivation
+ * logic from the `Timestamp` wire type.
  */
 
-export function resolveRunId(extra: { _meta?: unknown } | undefined): string {
-	const metaRunId = (extra?._meta as { run_id?: unknown } | undefined)?.run_id;
-	return typeof metaRunId === "string" ? metaRunId : crypto.randomUUID();
+/**
+ * Window of inactivity after which a run is considered closed. 30 minutes
+ * handles the realistic pauses during a multi-step build (tool-call
+ * round-trips, user AskUserQuestion responses, model thinking) without
+ * letting unrelated later work accidentally join.
+ */
+export const RUN_WINDOW_MS = 30 * 60 * 1000;
+
+/**
+ * Input shape for `deriveRunId`: the current `run_id` on the app doc
+ * (null on brand-new apps that never ran), the epoch-ms of the app's
+ * most recent mutation, and the current wall-clock. Wall-clock is
+ * injectable so tests can pin time without freezing the whole runtime.
+ */
+export interface DeriveRunIdInput {
+	/** Currently recorded run_id on the app doc, or null if never set. */
+	currentRunId: string | null;
+	/**
+	 * Epoch-ms of the app's last write (i.e. `updated_at.toMillis()`). Null
+	 * when the app has never been written — shouldn't happen in practice
+	 * (create_app always seeds both fields) but the null case is handled
+	 * defensively so the derivation doesn't crash if a malformed row leaks
+	 * past the Zod converter.
+	 */
+	lastActiveMs: number | null;
+	/** Wall-clock at the moment the tool call is handled. */
+	now: Date;
+}
+
+/**
+ * Return the run_id the current tool call should ride under.
+ *
+ * - If the app has a `currentRunId` and `lastActiveMs` is within
+ *   `RUN_WINDOW_MS` of `now`, reuse it. Subsequent writes in the same
+ *   run group onto the same event-log row.
+ * - Otherwise (no prior run, or window elapsed), mint a fresh UUID v4.
+ *   The caller is responsible for persisting the new id back onto the
+ *   app doc so the next call in this run reuses it.
+ */
+export function deriveRunId(input: DeriveRunIdInput): string {
+	if (
+		input.currentRunId &&
+		input.lastActiveMs !== null &&
+		input.now.getTime() - input.lastActiveMs < RUN_WINDOW_MS
+	) {
+		return input.currentRunId;
+	}
+	return crypto.randomUUID();
+}
+
+/**
+ * Extract epoch-ms from the `updated_at` value on an `AppDoc`.
+ *
+ * In production the Zod converter validates this field as a Firestore
+ * `Timestamp` instance, but tests commonly fabricate it as a plain
+ * `Date` (casting through `unknown` to avoid pulling in the Firestore
+ * Admin SDK for a unit-test fixture). This helper accepts both shapes
+ * — a `.toMillis()` method if present, else the Date's `.getTime()` —
+ * so the derivation works identically in both environments. Unknown
+ * shapes fall through to `null`, which the derivation treats as
+ * "closed run" and mints a fresh id from.
+ */
+export function timestampToMillis(ts: unknown): number | null {
+	if (ts == null) return null;
+	if (ts instanceof Date) return ts.getTime();
+	if (typeof ts === "object" && "toMillis" in ts) {
+		const toMillis = (ts as { toMillis: unknown }).toMillis;
+		if (typeof toMillis === "function") {
+			const result = (toMillis as () => unknown).call(ts);
+			return typeof result === "number" ? result : null;
+		}
+	}
+	return null;
 }

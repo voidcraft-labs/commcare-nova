@@ -6,8 +6,9 @@
  * Two output formats:
  *   - `"json"` — the `HqApplication` JSON as compact text. Use when piping
  *     into tools that parse the HQ wire shape programmatically.
- *   - `"ccz"` — the `.ccz` archive HQ mobile pulls down, base64-encoded in
- *     the text payload with `_meta.encoding: "base64"` so the client decodes.
+ *   - `"ccz"` — the `.ccz` archive HQ mobile pulls down, base64-encoded
+ *     inside a `{ format, encoding, data }` JSON wrapper so the client
+ *     knows to decode the `data` field.
  *
  * Expands via `expandDoc` first; `compileCcz` then wraps the HQ JSON plus
  * the app name and source blueprint into the zipped archive.
@@ -24,7 +25,6 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
-import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -57,12 +57,8 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					),
 			},
 		},
-		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
-			/* Resolve run id up-front so both format branches + the error
-			 * envelope stamp the same id. Client-supplied ids thread
-			 * through; absent ones get a freshly-minted uuid. */
-			const runId = resolveRunId(extra);
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
@@ -83,25 +79,29 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the ccz path, the way a binary `if/else` would. */
 				switch (args.format) {
 					case "json":
+						/* Content is the bare HQ JSON. The caller asked for
+						 * JSON and gets JSON — no envelope, no wrapper. */
 						return {
 							content: [{ type: "text", text: JSON.stringify(hqJson) }],
-							_meta: { format: "json", app_id: appId, run_id: runId },
 						};
 					case "ccz": {
 						/* `compileCcz` returns a Node `Buffer`; MCP text
 						 * content is UTF-8 only, so base64 is the safest
-						 * lossless escape. `_meta.encoding: "base64"` tells
-						 * MCP clients to decode rather than treat the text
-						 * as the archive directly. */
+						 * lossless escape. The `encoding` field inside the
+						 * JSON wrapper tells the caller to decode rather
+						 * than treat the text as the archive directly. */
 						const cczBuf = compileCcz(hqJson, app.app_name, doc);
 						return {
-							content: [{ type: "text", text: cczBuf.toString("base64") }],
-							_meta: {
-								format: "ccz",
-								encoding: "base64",
-								app_id: appId,
-								run_id: runId,
-							},
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify({
+										format: "ccz",
+										encoding: "base64",
+										data: cczBuf.toString("base64"),
+									}),
+								},
+							],
 						};
 					}
 					default: {
@@ -118,7 +118,6 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			} catch (err) {
 				return toMcpErrorResult(err, {
 					appId,
-					runId,
 					userId: ctx.userId,
 				});
 			}

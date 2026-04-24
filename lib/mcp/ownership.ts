@@ -36,7 +36,7 @@ export type AccessErrorReason = "not_found" | "not_owner";
  * Narrower than a raw `Error` so the MCP error serializer can
  * short-circuit `classifyError` and surface a deterministic
  * `error_type` (one of the two reasons above) in the tool result's
- * `_meta`.
+ * content payload.
  */
 export class McpAccessError extends Error {
 	constructor(public readonly reason: AccessErrorReason) {

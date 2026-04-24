@@ -22,23 +22,15 @@
  *
  * Build mode (`mode === "build"`) ignores `app_id` even when present.
  * Skill simplicity wins here: `mode` is the authoritative flag, and a
- * spurious id shouldn't cause a Firestore round-trip or skew the
- * envelope. `_meta.app_id` is therefore only stamped on edit-mode
- * success — a build response with `_meta.app_id` would mislead admin
- * surfaces correlating runs to apps.
+ * spurious id shouldn't cause a Firestore round-trip.
  *
  * **Plain text, not JSON.** The handler emits the rendered system
  * prompt as a plain MCP `text` content block. The plugin's bootstrap
  * subagent reads that text verbatim as its operating instructions — no
  * JSON wrapper, no parse step on the hot path.
  *
- * **`_meta.run_id` is still threaded.** Same reason `list_apps` does
- * it: MCP clients bundle multi-call runs under one id so admin surfaces
- * grouping by run id can stitch this call to the sibling tool calls the
- * plugin skill makes during the same build (e.g.
- * `get_agent_prompt` → `create_app` → `generate_schema`). Without
- * threading it here the bootstrap call would orphan from the rest of
- * the run on every admin timeline.
+ * **No event-log write.** The bootstrap fetch is a pure read; event-log
+ * rows for the run are written by the mutating tool calls that follow.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -52,7 +44,6 @@ import {
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
 import { type PromptMode, renderAgentPrompt } from "../prompts";
-import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -116,18 +107,12 @@ export function registerGetAgentPrompt(
 					),
 			},
 		},
-		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
-			/* Resolve `run_id` at the top so both success and error envelopes
-			 * thread the same id onto `_meta` — admin surfaces grouping by
-			 * run id rely on every exit path stamping it consistently, and
-			 * the bootstrap call is usually the first in a run so it sets
-			 * the key the rest of the call chain inherits. */
-			const runId = resolveRunId(extra);
+		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			/* `appId` is captured here (rather than read inline in the
-			 * branches) so the `catch` can stamp it onto error `_meta`
-			 * when the failure originates from the edit branch. Build
-			 * mode leaves it `undefined`, which is what the spread in
-			 * `_meta` correctly omits — see `errors.ts`'s base merge. */
+			 * branches) so the `catch` can stamp it onto the error
+			 * payload when the failure originates from the edit branch.
+			 * Build mode leaves it `undefined`, which the error builder
+			 * correctly omits from the JSON content. */
 			const appId = args.mode === "edit" ? args.app_id : undefined;
 			try {
 				if (args.mode === "edit") {
@@ -152,25 +137,19 @@ export function registerGetAgentPrompt(
 					const systemPrompt = renderAgentPrompt(args.interactive, loaded.doc);
 					return {
 						content: [{ type: "text", text: systemPrompt }],
-						_meta: { app_id: args.app_id, run_id: runId },
 					};
 				}
 
 				/* Build mode: `app_id` is intentionally ignored even when
-				 * supplied (sharp-edge — skill convenience, `mode` is
-				 * the authoritative flag). `_meta.app_id` is therefore
-				 * not stamped on the build-mode envelope; an admin
-				 * surface seeing `app_id` here would falsely correlate a
-				 * build run to an unrelated app. */
+				 * supplied (sharp-edge — skill convenience, `mode` is the
+				 * authoritative flag). */
 				const systemPrompt = renderAgentPrompt(args.interactive);
 				return {
 					content: [{ type: "text", text: systemPrompt }],
-					_meta: { run_id: runId },
 				};
 			} catch (err) {
 				return toMcpErrorResult(err, {
 					appId,
-					runId,
 					userId: ctx.userId,
 				});
 			}

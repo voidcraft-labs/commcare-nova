@@ -9,9 +9,9 @@
  * get another); co-using the renderer makes that impossible by
  * construction and keeps a single canonical domain-vocabulary view.
  *
- * Returns the summary as text content. No persistence, no run id
- * plumbing, no progress emission — a pure read with deterministic
- * per-call side effects scoped to the ownership gate.
+ * Returns the summary as text content. Pure read — no persistence, no
+ * event-log write, no progress emission — scoped to the ownership
+ * gate.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -24,7 +24,6 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
-import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -50,12 +49,8 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 					),
 			},
 		},
-		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
-			/* Resolve `run_id` at the top so both success and error envelopes
-			 * thread the same id onto `_meta` — admin surfaces grouping by
-			 * run id rely on every exit path stamping it consistently. */
-			const runId = resolveRunId(extra);
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
@@ -71,12 +66,10 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 
 				return {
 					content: [{ type: "text", text: summarizeBlueprint(loaded.doc) }],
-					_meta: { app_id: appId, run_id: runId },
 				};
 			} catch (err) {
 				return toMcpErrorResult(err, {
 					appId,
-					runId,
 					userId: ctx.userId,
 				});
 			}

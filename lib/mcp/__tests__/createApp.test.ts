@@ -1,19 +1,19 @@
 /**
  * `registerCreateApp` unit tests.
  *
- * Verifies the five load-bearing behaviors of the MCP-only create tool:
+ * Verifies the four load-bearing behaviors of the MCP-only create tool:
  *   - Happy path with a name: forwards `{ appName, status: "complete" }`
  *     to the DB helper, surfaces the returned `app_id`, and emits the
- *     `stage: "app_created"` + `run_id` markers MCP clients latch on.
+ *     `stage: "app_created"` marker for progress clients.
  *   - Happy path without a name: normalizes the omitted optional to
  *     `undefined` so the DB helper's `""` default kicks in.
  *   - Whitespace-only name: normalized to `undefined` for the same
  *     reason — a blank row is strictly worse than an empty one.
- *   - Client-supplied `run_id` threads through from `extra._meta.run_id`
- *     and is what gets persisted on the app doc — admin surfaces can
- *     group subsequent tool calls under the same id.
+ *   - A fresh server-minted run_id is persisted to the new app doc so
+ *     the sliding-window derivation in subsequent MCP calls has an
+ *     anchor to reuse (see `lib/mcp/runId.ts`).
  *   - `createApp` throws: surfaces as an MCP `isError: true` envelope
- *     classified through the shared taxonomy (with `run_id` stamped).
+ *     classified through the shared taxonomy.
  *
  * The MCP SDK is mocked at the boundary through the shared
  * `makeFakeServer` helper that captures the handler callback.
@@ -59,24 +59,23 @@ describe("registerCreateApp — happy path with name", () => {
 
 		const out = (await capture()({ app_name: "My App" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { stage: string; app_id: string; run_id: string };
 		};
 
 		expect(createApp).toHaveBeenCalledTimes(1);
 		const [owner, runId, opts] = vi.mocked(createApp).mock.calls[0] ?? [];
 		expect(owner).toBe("u1");
-		/* Run id shape — mint-per-call via `crypto.randomUUID()`. We
-		 * don't pin a specific value; we just verify it's a UUID v4. */
+		/* Server-minted run id seeds the new app doc. Shape-check only;
+		 * we don't pin a specific value. */
 		expect(typeof runId).toBe("string");
 		expect(runId).toMatch(UUID_RE);
 		expect(opts).toEqual({ appName: "My App", status: "complete" });
 
+		/* Every structured signal rides in content JSON: the `stage`
+		 * marker the model branches on plus the minted `app_id`. */
 		expect(JSON.parse(out.content[0]?.text ?? "{}")).toEqual({
+			stage: "app_created",
 			app_id: "app-123",
 		});
-		expect(out._meta.stage).toBe("app_created");
-		expect(out._meta.app_id).toBe("app-123");
-		expect(out._meta.run_id).toBe(runId);
 	});
 });
 
@@ -111,30 +110,24 @@ describe("registerCreateApp — whitespace-only name", () => {
 	});
 });
 
-describe("registerCreateApp — run_id threading", () => {
-	it("threads a client-supplied run_id through to the DB helper and the envelope", async () => {
-		vi.mocked(createApp).mockResolvedValueOnce("app-threaded");
+describe("registerCreateApp — run seed", () => {
+	it("persists a unique UUID-v4 run id per call to the DB helper", async () => {
+		/* Each create mints a fresh id — two back-to-back creates must
+		 * produce different seeds, since each is the anchor for its own
+		 * subsequent run. */
+		vi.mocked(createApp).mockResolvedValueOnce("app-1");
+		vi.mocked(createApp).mockResolvedValueOnce("app-2");
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
+		await capture()({}, {});
+		await capture()({}, {});
 
-		const out = (await capture()(
-			{ app_name: "Threaded" },
-			{ _meta: { run_id: "client-rid-create" } },
-		)) as {
-			content: Array<{ type: "text"; text: string }>;
-			_meta: { run_id: string; app_id: string };
-		};
-
-		/* The run id the DB helper persists on the new app doc MUST be
-		 * the client-threaded one — otherwise admin surfaces grouping
-		 * subsequent tool calls under the same `_meta.run_id` would
-		 * point at a different runId than the persisted doc carries. */
-		const [, runId] = vi.mocked(createApp).mock.calls[0] ?? [];
-		expect(runId).toBe("client-rid-create");
-		/* And the envelope stamps the same id — client sees its own id
-		 * echoed back, confirming the round-trip. */
-		expect(out._meta.run_id).toBe("client-rid-create");
+		const [, runIdA] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [, runIdB] = vi.mocked(createApp).mock.calls[1] ?? [];
+		expect(runIdA).toMatch(UUID_RE);
+		expect(runIdB).toMatch(UUID_RE);
+		expect(runIdA).not.toBe(runIdB);
 	});
 });
 
@@ -166,7 +159,7 @@ function typeCheckCreateAppOptions(): void {
 void typeCheckCreateAppOptions;
 
 describe("registerCreateApp — createApp throws", () => {
-	it("surfaces as an MCP error envelope with populated error_type and run_id", async () => {
+	it("surfaces as an MCP error envelope with populated error_type", async () => {
 		vi.mocked(createApp).mockRejectedValueOnce(
 			new Error("firestore write failed"),
 		);
@@ -174,19 +167,16 @@ describe("registerCreateApp — createApp throws", () => {
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);
 
-		const out = (await capture()(
-			{ app_name: "x" },
-			{ _meta: { run_id: "client-rid-err" } },
-		)) as {
+		const out = (await capture()({ app_name: "x" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.isError).toBe(true);
-		expect(typeof out._meta?.error_type).toBe("string");
-		expect(out._meta?.error_type.length ?? 0).toBeGreaterThan(0);
-		/* Error envelope must carry the same run_id the success envelope
-		 * would have — admin surfaces grouping by run id need to see
-		 * failures under the same id as the successful calls. */
-		expect(out._meta?.run_id).toBe("client-rid-err");
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type?: string;
+			message?: string;
+		};
+		expect(typeof payload.error_type).toBe("string");
+		expect(payload.error_type?.length ?? 0).toBeGreaterThan(0);
 	});
 });

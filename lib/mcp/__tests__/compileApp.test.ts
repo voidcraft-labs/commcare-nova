@@ -4,11 +4,12 @@
  * Covers the five paths the route handler has to care about:
  *
  *   - Happy path, `format: "json"` — the tool ownership-gates, loads
- *     the blueprint, expands to HQ JSON, and returns a compact JSON
- *     text payload with `_meta.format: "json"` + `run_id`.
+ *     the blueprint, expands to HQ JSON, and returns the HQ JSON
+ *     directly as content (no wrapper — the caller asked for JSON).
  *   - Happy path, `format: "ccz"` — the same pipeline plus a
- *     `compileCcz` call; the returned text is base64 and
- *     `_meta.encoding: "base64"` tells clients to decode.
+ *     `compileCcz` call; content is a JSON envelope with the
+ *     base64-encoded archive under `data` and an `encoding: "base64"`
+ *     tag inline.
  *   - Ownership failure — IDOR hardening collapses `"not_owner"` to
  *     `"not_found"` on the wire and the tool never calls `compileCcz`.
  *   - App not found (`not_found`) — ownership returns null, so the
@@ -51,10 +52,6 @@ vi.mock("@/lib/commcare/compiler", () => ({
 }));
 
 /* --- Helpers --------------------------------------------------------- */
-
-/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
-const UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * A minimal `BlueprintDoc` the tool hands to `expandDoc`. `expandDoc`
@@ -146,41 +143,18 @@ describe("registerCompileApp — happy path, json format", () => {
 
 		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { format: string; app_id: string; run_id: string };
 		};
 
-		/* The payload must parse as JSON and carry the exact shape
-		 * `expandDoc` returned. `JSON.parse` is whitespace-agnostic, so
-		 * this assertion catches both compact and pretty-printed output
-		 * without pinning the formatting choice. */
+		/* JSON format returns the raw `HqApplication` in content — the
+		 * caller asked for JSON and gets JSON, no envelope wrapper. */
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as HqApplication;
 		expect(parsed).toEqual(FAKE_HQ_JSON);
-		expect(out._meta.format).toBe("json");
-		expect(out._meta.app_id).toBe("a1");
-		/* Minted run id shape — uuid v4 when the client didn't thread one. */
-		expect(out._meta.run_id).toMatch(UUID_RE);
 		/* Hard invariant: the JSON path never triggers the ccz packer. */
 		expect(compileCcz).not.toHaveBeenCalled();
 		/* Hard invariant: the single-read refactor keeps Firestore reads
 		 * to one per call — `loadAppBlueprint` runs once and no follow-up
 		 * `loadApp` is issued. */
 		expect(loadAppBlueprint).toHaveBeenCalledTimes(1);
-	});
-
-	it("threads a client-supplied run_id through to _meta.run_id", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
-		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
-		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
-
-		const { server, capture } = makeFakeServer();
-		registerCompileApp(server, toolCtx);
-
-		const out = (await capture()(
-			{ app_id: "a1", format: "json" },
-			{ _meta: { run_id: "client-rid-json" } },
-		)) as { _meta: { run_id: string } };
-
-		expect(out._meta.run_id).toBe("client-rid-json");
 	});
 });
 
@@ -198,23 +172,22 @@ describe("registerCompileApp — happy path, ccz format", () => {
 
 		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: {
-				format: string;
-				encoding: string;
-				app_id: string;
-				run_id: string;
-			};
 		};
 
-		/* Base64 round-trip must equal the original buffer — the client
-		 * decodes back to bytes, so any encoding drift would corrupt the
-		 * archive. */
-		const decoded = Buffer.from(out.content[0]?.text ?? "", "base64");
+		/* Content is a JSON envelope with the base64-encoded archive
+		 * under `data` and the encoding tag inline — clients parse
+		 * `encoding` to know to decode `data`. Base64 round-trip must
+		 * equal the original buffer — the client decodes back to bytes,
+		 * so any encoding drift would corrupt the archive. */
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			format: string;
+			encoding: string;
+			data: string;
+		};
+		expect(payload.format).toBe("ccz");
+		expect(payload.encoding).toBe("base64");
+		const decoded = Buffer.from(payload.data, "base64");
 		expect(decoded.equals(fakeBytes)).toBe(true);
-		expect(out._meta.format).toBe("ccz");
-		expect(out._meta.encoding).toBe("base64");
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toMatch(UUID_RE);
 		/* `compileCcz` receives the expanded JSON, the denormalized app
 		 * name (non-empty by `denormalize`'s invariant), and the source
 		 * blueprint — three args in that order, matching the signature. */
@@ -240,13 +213,16 @@ describe("registerCompileApp — ownership failure", () => {
 		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_found");
-		expect(out.content[0]?.text).toBe("App not found.");
-		expect(out._meta?.app_id).toBe("a1");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.message).toBe("App not found.");
+		expect(payload.app_id).toBe("a1");
 		/* No blueprint load and no expand when ownership fails —
 		 * cross-tenant compile probes must short-circuit. */
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
@@ -264,12 +240,15 @@ describe("registerCompileApp — not found", () => {
 
 		const out = (await capture()({ app_id: "ghost", format: "json" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_found");
-		expect(out._meta?.app_id).toBe("ghost");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.app_id).toBe("ghost");
 	});
 
 	it("maps a hard-delete race on loadAppBlueprint to error_type = 'not_found'", async () => {
@@ -285,12 +264,15 @@ describe("registerCompileApp — not found", () => {
 
 		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta?.error_type).toBe("not_found");
-		expect(out._meta?.app_id).toBe("a1");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.app_id).toBe("a1");
 		/* The expander never runs — the tool bails on the missing row
 		 * before reaching the emission pipeline. */
 		expect(expandDoc).not.toHaveBeenCalled();
@@ -298,28 +280,22 @@ describe("registerCompileApp — not found", () => {
 });
 
 describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
-	it("not_owner and not_found produce byte-identical envelopes modulo run_id", async () => {
+	it("not_owner and not_found produce byte-identical envelopes", async () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client has no
-		 * signal to distinguish them. Threads the same `run_id`
-		 * through both calls so even that dimension is pinned. */
-		const runId = "fixed-rid-for-compile-parity";
-
+		 * signal to distinguish them. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerCompileApp(sA, toolCtx);
 		const ownerMismatch = await capA()(
 			{ app_id: "probe-id", format: "json" },
-			{ _meta: { run_id: runId } },
+			{},
 		);
 
 		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerCompileApp(sB, toolCtx);
-		const notFound = await capB()(
-			{ app_id: "probe-id", format: "json" },
-			{ _meta: { run_id: runId } },
-		);
+		const notFound = await capB()({ app_id: "probe-id", format: "json" }, {});
 
 		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
 		/* Neither branch reached the expander — both short-circuited at
@@ -347,15 +323,18 @@ describe("registerCompileApp — compileCcz throws", () => {
 
 		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
 			isError?: true;
-			_meta?: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 		expect(out.isError).toBe(true);
-		expect(typeof out._meta?.error_type).toBe("string");
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(typeof payload.error_type).toBe("string");
 		/* Generic taxonomy, not the access-error reasons — `compileCcz`
 		 * failing is an emission fault, not a missing-app probe. */
-		expect(out._meta?.error_type).not.toBe("not_owner");
-		expect(out._meta?.error_type).not.toBe("not_found");
-		expect(out._meta?.app_id).toBe("a1");
-		expect(out._meta?.run_id).toMatch(UUID_RE);
+		expect(payload.error_type).not.toBe("not_owner");
+		expect(payload.error_type).not.toBe("not_found");
+		expect(payload.app_id).toBe("a1");
 	});
 });

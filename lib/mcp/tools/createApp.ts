@@ -12,18 +12,16 @@
  * `verifyAccessToken`, so by the time this handler runs the JWT
  * already proved `nova.write`.
  *
- * Run-id sourcing: honors `extra._meta.run_id` when the MCP client
- * threads one so the `runs/{runId}` summary doc groups this creation
- * with whatever subagent follow-up calls share the id. Absent a
- * client-threaded value, a fresh uuid is minted per call.
+ * Run grouping: the new app doc is seeded with a freshly-minted run id.
+ * Subsequent MCP tool calls that land within the sliding inactivity
+ * window (see `lib/mcp/runId.ts`) read the id off the app doc and reuse
+ * it, so the whole build — from creation through first `validate_app` —
+ * groups onto a single event-log run.
  *
  * **No event-log write on success.** `create_app` is atomic: the app
  * row itself is the record of creation (via its `created_at` + `owner`
  * fields), so duplicating that into the event log would add no
- * information. Admin surfaces grouping event-log rows by `run_id`
- * show an empty group for MCP-created apps until a subsequent tool
- * call (`generate_schema`, `add_module`, etc.) writes events under
- * the same id.
+ * information.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -34,7 +32,6 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -58,12 +55,11 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 					),
 			},
 		},
-		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
-			/* Thread the client-supplied run id when present, mint a fresh
-			 * one otherwise. Every created doc persists this id so admin
-			 * surfaces can group any follow-up tool calls (`generate_schema`,
-			 * `add_module`) that ride on the same run id. */
-			const runId = resolveRunId(extra);
+		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+			/* Mint the first run id for this app. Subsequent MCP tool
+			 * calls on the same app read it off the doc and reuse it
+			 * for the duration of the sliding inactivity window. */
+			const runId = crypto.randomUUID();
 			try {
 				/* Normalize the optional name: `trim()` collapses surrounding
 				 * whitespace, `|| undefined` maps the empty string (and the
@@ -79,11 +75,15 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 					status: "complete",
 				});
 				return {
-					content: [{ type: "text", text: JSON.stringify({ app_id: appId }) }],
-					_meta: { stage: "app_created", app_id: appId, run_id: runId },
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ stage: "app_created", app_id: appId }),
+						},
+					],
 				};
 			} catch (err) {
-				return toMcpErrorResult(err, { runId, userId: ctx.userId });
+				return toMcpErrorResult(err, { userId: ctx.userId });
 			}
 		},
 	);

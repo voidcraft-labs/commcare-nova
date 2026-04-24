@@ -1,7 +1,7 @@
 /**
  * `sharedToolAdapter` unit tests.
  *
- * Verifies the adapter's six load-bearing behaviors:
+ * Verifies the adapter's five load-bearing behaviors:
  *   - Read / mutating / validateApp result projection each produces the
  *     right MCP text payload. The mutating branch also proves the
  *     hard invariant that the adapter does NOT re-persist: the fake
@@ -10,8 +10,6 @@
  *   - Ownership failures short-circuit before the tool executes and
  *     route through `toMcpErrorResult`.
  *   - `logWriter.flush()` is awaited even when the tool throws.
- *   - `run_id` is threaded from `extra._meta.run_id` when the client
- *     supplies it.
  *   - `app_id` is stripped from the payload before the shared tool's
  *     `execute` sees it.
  *   - Real Phase-D tool modules round-trip cleanly through the adapter
@@ -47,7 +45,7 @@ import { makeFakeServer } from "./fakeServer";
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: vi.fn(),
 	loadAppOwner: vi.fn(),
-	updateApp: vi.fn().mockResolvedValue(undefined),
+	updateAppForRun: vi.fn().mockResolvedValue(undefined),
 }));
 
 /* `vi.mock` is hoisted above imports, so its factory can't close over
@@ -71,10 +69,6 @@ const { LogWriterMock } = vi.hoisted(() => {
 vi.mock("@/lib/log/writer", () => ({ LogWriter: LogWriterMock }));
 
 /* --- Helpers --------------------------------------------------------- */
-
-/** Loose UUID-v4 regex for asserting minted run ids without pinning a value. */
-const UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Build a minimal valid `BlueprintDoc` with the fields `loadApp` will
@@ -208,17 +202,11 @@ describe("registerSharedTool — read tools", () => {
 
 		const out = (await capture()({ app_id: "a1", q: "x" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { app_id: string; run_id: string };
 		};
 
 		expect(out.content).toEqual([
 			{ type: "text", text: JSON.stringify({ query: "x", results: [] }) },
 		]);
-		expect(out._meta.app_id).toBe("a1");
-		/* run_id is minted in-adapter when not provided; just assert it's
-		 * a non-empty string so we don't couple the test to crypto.randomUUID. */
-		expect(typeof out._meta.run_id).toBe("string");
-		expect(out._meta.run_id.length).toBeGreaterThan(0);
 	});
 });
 
@@ -353,15 +341,14 @@ describe("registerSharedTool — ownership failure", () => {
 		const out = (await capture()({ app_id: "ghost" }, {})) as {
 			isError: true;
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { error_type: string; app_id: string; run_id?: string };
 		};
 		expect(out.isError).toBe(true);
-		expect(out._meta.error_type).toBe("not_found");
-		expect(out._meta.app_id).toBe("ghost");
-		/* Every error envelope stamps `run_id` — minted when the client
-		 * didn't thread one, so the per-call grouping invariant holds on
-		 * the error path too. */
-		expect(out._meta.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.app_id).toBe("ghost");
 	});
 });
 
@@ -380,44 +367,30 @@ describe("registerSharedTool — logWriter flush on error", () => {
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError: true;
-			_meta: { error_type: string; app_id: string; run_id?: string };
+			content: Array<{ type: "text"; text: string }>;
 		};
 
 		/* After the tool threw, the adapter must have still flushed the
 		 * writer buffer — otherwise queued events would be lost. */
 		const flush = latestFlushSpy();
 		expect(flush).toHaveBeenCalledTimes(1);
-		/* Mid-throw error envelope still stamps `run_id` + `app_id`. */
+		/* Mid-throw error content carries `app_id` so the model can
+		 * correlate the failure back to the target app. */
 		expect(out.isError).toBe(true);
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toMatch(UUID_RE);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			app_id: string;
+		};
+		expect(payload.app_id).toBe("a1");
 	});
 });
 
-describe("registerSharedTool — run_id threading + app_id stripping", () => {
-	it("threads run_id from extra._meta.run_id into the response", async () => {
-		const readTool: SharedToolModule = {
-			description: "r",
-			inputSchema: z.object({}),
-			async execute() {
-				return { ok: true };
-			},
-		};
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "r_tool", readTool, toolCtx);
-
-		const out = (await capture()(
-			{ app_id: "a1" },
-			{ _meta: { run_id: "rid-123" } },
-		)) as { _meta: { run_id: string } };
-
-		expect(out._meta.run_id).toBe("rid-123");
-	});
-
+describe("registerSharedTool — app_id stripping", () => {
 	it("strips app_id from the input forwarded to the shared tool", async () => {
-		/* Tracks what the shared tool saw. We use a mutable capture rather
-		 * than an expect inside the closure so the test's assertion shows
-		 * the actual seen input if it fails. */
+		/* `app_id` is an MCP-boundary injection — the shared tool input
+		 * schemas don't declare it (the chat surface passes `appId` via
+		 * `ctx.appId`). Leaking it through would either be silently
+		 * ignored (on loose Zod schemas) or fail parsing (on strict
+		 * schemas); stripping at the boundary is the uniform contract. */
 		let seen: Record<string, unknown> | null = null;
 
 		const introspectTool: SharedToolModule = {
@@ -530,12 +503,8 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 			toolCtx,
 		);
 
-		const out = (await capture()(
-			{ app_id: "a1", query: "any" },
-			{ _meta: { run_id: "rid-real-read" } },
-		)) as {
+		const out = (await capture()({ app_id: "a1", query: "any" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
-			_meta: { app_id: string; run_id: string };
 		};
 
 		/* Payload must carry the `{ query, results }` shape the real
@@ -548,8 +517,6 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 		expect(parsed.query).toBe("any");
 		expect(Array.isArray(parsed.results)).toBe(true);
 		expect(parsed.results).toHaveLength(0);
-		expect(out._meta.app_id).toBe("a1");
-		expect(out._meta.run_id).toBe("rid-real-read");
 	});
 });
 
@@ -671,13 +638,10 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 
 describe("registerSharedTool — IDOR byte-parity regression lock", () => {
 	it("not_owner and not_found produce byte-identical envelopes through the shared wrapper", async () => {
-		/* Regression lock for the IDOR hardening on the shared
-		 * surface. Every shared SA tool routes through this wrapper,
-		 * so proving the envelope is byte-identical here covers the
-		 * entire shared surface in one assertion. The two calls thread
-		 * the SAME client-supplied `run_id` so even that dimension is
-		 * pinned for byte-level comparison. */
-		const runId = "fixed-rid-for-adapter-parity";
+		/* Regression lock for the IDOR hardening on the shared surface.
+		 * Every shared SA tool routes through this wrapper, so proving
+		 * the envelope is byte-identical here covers the entire shared
+		 * surface in one assertion. */
 		const anyTool: SharedToolModule = {
 			description: "unused",
 			inputSchema: z.object({}),
@@ -691,21 +655,15 @@ describe("registerSharedTool — IDOR byte-parity regression lock", () => {
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerSharedTool(sA, "any", anyTool, toolCtx);
-		const notOwnerResult = await capA()(
-			{ app_id: "probe-id" },
-			{ _meta: { run_id: runId } },
-		);
+		const notOwnerResult = await capA()({ app_id: "probe-id" }, {});
 
 		/* Case 2: ownership returns null (not_found). Envelope shape
 		 * must be identical — same text, same `error_type`, same
-		 * `_meta` layout. */
+		 * layout. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerSharedTool(sB, "any", anyTool, toolCtx);
-		const notFoundResult = await capB()(
-			{ app_id: "probe-id" },
-			{ _meta: { run_id: runId } },
-		);
+		const notFoundResult = await capB()({ app_id: "probe-id" }, {});
 
 		/* Identical serialization proves there's no wire signal a
 		 * probing client could use to distinguish the two cases. */

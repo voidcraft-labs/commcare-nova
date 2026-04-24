@@ -12,11 +12,6 @@
  * Read-only; no event log or progress emitter needed. Soft-deleted
  * rows (`status: "deleted"`) are dropped by `listApps` at the
  * persistence boundary.
- *
- * `_meta.run_id` rides on both the success and error envelope — absent
- * a target `app_id`, `run_id` is the only grouping signal admin surfaces
- * can use to stitch this call to sibling tool calls the MCP client
- * bundles under the same id.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,7 +21,6 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { resolveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /** Wire shape returned to the MCP client — one entry per visible app. */
@@ -65,12 +59,7 @@ export function registerListApps(server: McpServer, ctx: ToolContext): void {
 			description:
 				"List the authenticated user's Nova apps. Returns id, name, status, and updated_at per app.",
 		},
-		async (extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
-			/* Resolve run id even though no `app_id` grounds this call —
-			 * MCP clients bundle multi-call runs under one id, and an
-			 * earlier `list_apps` followed by a `get_app` should share
-			 * the same grouping key on admin surfaces. */
-			const runId = resolveRunId(extra);
+		async (_extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
 				const apps = await listApps(ctx.userId);
 				return {
@@ -80,10 +69,9 @@ export function registerListApps(server: McpServer, ctx: ToolContext): void {
 							text: JSON.stringify({ apps: apps.map(toEntry) }),
 						},
 					],
-					_meta: { run_id: runId },
 				};
 			} catch (err) {
-				return toMcpErrorResult(err, { runId, userId: ctx.userId });
+				return toMcpErrorResult(err, { userId: ctx.userId });
 			}
 		},
 	);

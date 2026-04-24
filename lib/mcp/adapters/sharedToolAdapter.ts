@@ -17,10 +17,11 @@
  *   2. **Per-call `McpContext`** — satisfies `ToolExecutionContext` for
  *      the shared tool and owns event-log writer + progress emitter +
  *      run id.
- *   3. **Run-id threading** — MCP clients can bundle multi-call
- *      subagent builds under one run id by passing it on `_meta.run_id`;
- *      when absent we mint one per call so admin surfaces still group
- *      the single-call case under a fresh id.
+ *   3. **Server-derived run id** — after the app is loaded, the
+ *      adapter derives a run id from the app's own state (current
+ *      `run_id` + `updated_at` sliding window) and passes it into the
+ *      context. Clients never see or supply a run id; see
+ *      `lib/mcp/runId.ts` for the derivation semantics.
  *   4. **Progress emitter** — adapters inside the tool body emit
  *      fine-grained stage notifications; the emitter no-ops when the
  *      client didn't opt in.
@@ -62,7 +63,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
-import { resolveRunId } from "../runId";
+import { deriveRunId, timestampToMillis } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -133,7 +134,12 @@ export function registerSharedTool(
 	ctx: ToolContext,
 ): void {
 	/* Compose the MCP-surfaced schema from the tool's own shape plus
-	 * the app_id injection. `ZodObject.shape` is a `ZodRawShape`
+	 * the boundary-layer `app_id` injection — shared tool modules
+	 * don't declare it because the chat surface passes it via
+	 * `ctx.appId`. The adapter strips it before forwarding to
+	 * `tool.execute`.
+	 *
+	 * `ZodObject.shape` is a `ZodRawShape`
 	 * (`Record<string, ZodTypeAny>`) — exactly what the SDK's
 	 * `ZodRawShapeCompat` expects. We don't wrap back in `z.object`
 	 * because `McpServer.tool`'s overload takes the raw shape directly
@@ -148,14 +154,16 @@ export function registerSharedTool(
 	};
 
 	/* Both return branches (success / error envelope) structurally
-	 * satisfy the SDK's `CallToolResult` type — success has
-	 * `content` + `_meta` only; error adds `isError: true` and an
-	 * `error_type`-tagged `_meta`. The SDK's target type carries an
-	 * open `[x: string]: unknown` index signature; we match it by
-	 * declaring the same index signature on `McpToolErrorResult` in
-	 * `../errors.ts`. That avoids importing `CallToolResult` here (via
-	 * two paths `McpServer` + `types.js`, TS otherwise reports "Two
-	 * different types with this name exist" for the inferred alias). */
+	 * satisfy the SDK's `CallToolResult` type — success has a
+	 * `content` array, error adds `isError: true`. Every structured
+	 * signal the model needs lives inside `content[0].text` (JSON for
+	 * most tools, plain markdown for renderer passthrough). The SDK's
+	 * target type carries an open `[x: string]: unknown` index
+	 * signature; we match it by declaring the same index signature on
+	 * both result types in `../errors.ts`, which avoids importing
+	 * `CallToolResult` here (via two paths `McpServer` + `types.js`
+	 * TS otherwise reports "Two different types with this name exist"
+	 * for the inferred alias). */
 	server.registerTool(
 		toolName,
 		{ description: tool.description, inputSchema: mcpSchema },
@@ -166,23 +174,38 @@ export function registerSharedTool(
 			 * the ownership check and the error envelope. */
 			const appId = args.app_id;
 
-			/* Resolve run id BEFORE the try so it's in scope for the outer
-			 * `catch` block's error-envelope `_meta` — even an ownership
-			 * rejection (which predates the `initMcpCall` helper) can carry
-			 * the client-threaded run id on the response, keeping the
-			 * invariant uniform across every exit path. */
-			const runId = resolveRunId(extra);
-
-			/* Outer try catches ownership failures (pre-logWriter) so a
-			 * forbidden call never allocates a writer it has nothing to
-			 * flush. Post-ownership we enter a nested try/finally so the
-			 * writer always drains. */
 			try {
 				await requireOwnedApp(ctx.userId, appId);
 
+				/* `loadAppBlueprint` both fetches the row and rebuilds
+				 * the derived `fieldParent` reverse index tools expect.
+				 * The load runs AFTER the ownership check; the race
+				 * between the two reads — ownership resolves, then a
+				 * concurrent hard-delete nulls the row — surfaces as
+				 * the same `not_found` an "app never existed" probe
+				 * would hit, so MCP clients see one consistent error.
+				 * Only the blueprint flows downstream; the helper also
+				 * returns the full `AppDoc` for tools that want
+				 * denormalized columns. */
+				const loaded = await loadAppBlueprint(appId);
+				if (!loaded) throw new McpAccessError("not_found");
+
+				/* Derive the run id from the app's own state after loading
+				 * but before any event-log write or progress emission.
+				 * The sliding-window rule lives in `deriveRunId`: within
+				 * the window, reuse the app's current `run_id` so calls
+				 * group together in the event log; past the window, mint
+				 * a fresh id to start a new run. Clients never supply or
+				 * observe this value. */
+				const runId = deriveRunId({
+					currentRunId: loaded.app.run_id,
+					lastActiveMs: timestampToMillis(loaded.app.updated_at),
+					now: new Date(),
+				});
+
 				/* `initMcpCall` bundles the per-call collaborators the
 				 * adapter needs (`LogWriter` + progress emitter +
-				 * `McpContext`) and binds them to the resolved `runId`.
+				 * `McpContext`) and binds them to the derived `runId`.
 				 * Shared with `uploadAppToHq` so a single change to
 				 * collaborator wiring lands in one place rather than
 				 * across every tool handler. */
@@ -195,29 +218,17 @@ export function registerSharedTool(
 				);
 
 				try {
-					/* `loadAppBlueprint` both fetches the row and rebuilds
-					 * the derived `fieldParent` reverse index tools expect.
-					 * The load runs AFTER the ownership check; the race
-					 * between the two reads — ownership resolves, then a
-					 * concurrent hard-delete nulls the row — surfaces as
-					 * the same `not_found` an "app never existed" probe
-					 * would hit, so MCP clients see one consistent error.
-					 * Only the blueprint flows downstream; the helper also
-					 * returns the full `AppDoc` for tools that want
-					 * denormalized columns. */
-					const loaded = await loadAppBlueprint(appId);
-					if (!loaded) throw new McpAccessError("not_found");
-
-					/* Strip `app_id` before forwarding — it's an MCP-boundary
-					 * field only, and shared tool input schemas don't declare
-					 * it. The underscore prefix signals intentional-discard
-					 * for Biome's `noUnusedVariables` rule. */
-					const { app_id: _discarded, ...toolInput } = args;
+					/* Strip `app_id` before forwarding — it's an MCP-
+					 * boundary field only, and shared tool input schemas
+					 * don't declare it. `run_id` reaches the shared tool
+					 * through `ctx.runId` (already bound on `mcpCtx`), so
+					 * the tool body accesses it via the execution-context
+					 * interface — same contract as the chat-side SA. */
+					const { app_id: _discardedAppId, ...toolInput } = args;
 					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
 					const payload = projectResult(outcome);
 					return {
 						content: [{ type: "text", text: JSON.stringify(payload) }],
-						_meta: { app_id: appId, run_id: runId },
 					};
 				} finally {
 					/* Drain the event-log buffer before returning OR
@@ -228,15 +239,11 @@ export function registerSharedTool(
 					await logWriter.flush();
 				}
 			} catch (err) {
-				/* Both ownership failures (outer path) and mid-execute
-				 * throws (inner path, post-flush) land here.
-				 * `toMcpErrorResult` classifies via the shared taxonomy
-				 * and returns the MCP `isError: true` envelope with the
-				 * run id threaded onto `_meta` so admin surfaces grouping
-				 * by run id see error responses under the same id. */
+				/* Both ownership failures and mid-execute throws land
+				 * here. `toMcpErrorResult` classifies via the shared
+				 * taxonomy. */
 				return toMcpErrorResult(err, {
 					appId,
-					runId,
 					userId: ctx.userId,
 				});
 			}
