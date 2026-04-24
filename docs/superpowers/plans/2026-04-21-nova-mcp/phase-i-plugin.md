@@ -1,6 +1,6 @@
 # Phase I — The plugin (separate repo)
 
-**Goal:** Six Claude Code skills in a `nova-plugin` GitHub repository, plus **two static subagent files** that the skills spawn. Build / Ship / Edit skills hand a freshly-minted `RUN_ID` plus the user's spec to a bootstrap subagent; the subagent calls `mcp__nova__get_agent_prompt` on its first tool use and follows the returned text as its operating instructions.
+**Goal:** Six Claude Code skills in a `nova-plugin` GitHub repository, plus **two static subagent files** that the skills spawn. Build / Ship / Edit skills hand a freshly-minted `RUN_ID` plus the user's spec to a bootstrap subagent; the subagent calls `mcp__plugin_nova_nova__get_agent_prompt` on its first tool use and follows the returned text as its operating instructions.
 
 **Dependencies:** Phases A–H. Phase H's probe (`docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md`) proved Claude Code caches agent definitions at session start in a JS closure — there is no programmatic path to make new or overwritten agent files visible mid-session, and `/reload-plugins` is a `LocalCommandCall` with no skill-layer invocation. Phase I's original plan (skill writes `<plugin-root>/agents/nova-architect-{runId}.md`, then spawns) is structurally impossible and has been replaced with the self-fetch bootstrap described here.
 
@@ -115,7 +115,7 @@ description: Nova CommCare app architect — interactive mode. Spawned by /nova:
 model: opus
 effort: xhigh
 maxTurns: 100
-tools: [mcp__nova__create_app, mcp__nova__generate_schema, mcp__nova__generate_scaffold, mcp__nova__add_module, mcp__nova__search_blueprint, mcp__nova__get_app, mcp__nova__get_module, mcp__nova__get_form, mcp__nova__get_field, mcp__nova__add_fields, mcp__nova__add_field, mcp__nova__edit_field, mcp__nova__remove_field, mcp__nova__update_module, mcp__nova__update_form, mcp__nova__create_form, mcp__nova__remove_form, mcp__nova__create_module, mcp__nova__remove_module, mcp__nova__validate_app, mcp__nova__get_agent_prompt, AskUserQuestion]
+tools: [mcp__plugin_nova_nova__create_app, mcp__plugin_nova_nova__generate_schema, mcp__plugin_nova_nova__generate_scaffold, mcp__plugin_nova_nova__add_module, mcp__plugin_nova_nova__search_blueprint, mcp__plugin_nova_nova__get_app, mcp__plugin_nova_nova__get_module, mcp__plugin_nova_nova__get_form, mcp__plugin_nova_nova__get_field, mcp__plugin_nova_nova__add_fields, mcp__plugin_nova_nova__add_field, mcp__plugin_nova_nova__edit_field, mcp__plugin_nova_nova__remove_field, mcp__plugin_nova_nova__update_module, mcp__plugin_nova_nova__update_form, mcp__plugin_nova_nova__create_form, mcp__plugin_nova_nova__remove_form, mcp__plugin_nova_nova__create_module, mcp__plugin_nova_nova__remove_module, mcp__plugin_nova_nova__validate_app, mcp__plugin_nova_nova__get_agent_prompt, AskUserQuestion]
 ---
 
 You are the nova-architect subagent. The authoritative operating
@@ -126,7 +126,7 @@ your FIRST tool call.
 
 Your first user message carries a JSON block with `mode`, `interactive`,
 `run_id`, and (for edits) `app_id`. Parse it, then call
-`mcp__nova__get_agent_prompt` with those arguments. Pass `_meta: { run_id }`
+`mcp__plugin_nova_nova__get_agent_prompt` with those arguments. Pass `_meta: { run_id }`
 on that call so admin-surface run grouping starts on turn 0.
 
 The tool returns a text block — treat it as your full system prompt
@@ -134,7 +134,7 @@ and obey it for the remainder of this run.
 
 ## Invariants (before, during, and after the fetch)
 
-- Every `mcp__nova__*` call MUST carry `_meta: { run_id: "<run_id from first message>" }` so the whole run threads through one admin-surface row. Do not drop it mid-run.
+- Every `mcp__plugin_nova_nova__*` call MUST carry `_meta: { run_id: "<run_id from first message>" }` so the whole run threads through one admin-surface row. Do not drop it mid-run.
 - Do not skip the bootstrap fetch. The instructions in this file are a stub only; the real operating instructions live on the server and include the blueprint framing, tool discipline, and completion contract you must follow.
 - When you finish the user's task, report the relevant ids (app_id for build, resulting blueprint summary for edit) as your final message.
 ````
@@ -150,7 +150,7 @@ description: Nova CommCare app architect — autonomous mode. Spawned by /nova:s
 model: opus
 effort: xhigh
 maxTurns: 100
-tools: [mcp__nova__create_app, mcp__nova__generate_schema, mcp__nova__generate_scaffold, mcp__nova__add_module, mcp__nova__search_blueprint, mcp__nova__get_app, mcp__nova__get_module, mcp__nova__get_form, mcp__nova__get_field, mcp__nova__add_fields, mcp__nova__add_field, mcp__nova__edit_field, mcp__nova__remove_field, mcp__nova__update_module, mcp__nova__update_form, mcp__nova__create_form, mcp__nova__remove_form, mcp__nova__create_module, mcp__nova__remove_module, mcp__nova__validate_app, mcp__nova__get_agent_prompt]
+tools: [mcp__plugin_nova_nova__create_app, mcp__plugin_nova_nova__generate_schema, mcp__plugin_nova_nova__generate_scaffold, mcp__plugin_nova_nova__add_module, mcp__plugin_nova_nova__search_blueprint, mcp__plugin_nova_nova__get_app, mcp__plugin_nova_nova__get_module, mcp__plugin_nova_nova__get_form, mcp__plugin_nova_nova__get_field, mcp__plugin_nova_nova__add_fields, mcp__plugin_nova_nova__add_field, mcp__plugin_nova_nova__edit_field, mcp__plugin_nova_nova__remove_field, mcp__plugin_nova_nova__update_module, mcp__plugin_nova_nova__update_form, mcp__plugin_nova_nova__create_form, mcp__plugin_nova_nova__remove_form, mcp__plugin_nova_nova__create_module, mcp__plugin_nova_nova__remove_module, mcp__plugin_nova_nova__validate_app, mcp__plugin_nova_nova__get_agent_prompt]
 disallowedTools: [AskUserQuestion]
 ---
 
@@ -174,7 +174,7 @@ All three mutating skills follow the same three-step pattern:
 
 2. **Spawn the static subagent** via the Agent tool — `subagent_type: "nova:nova-architect-interactive"` for `/nova:build` and `/nova:edit`, `subagent_type: "nova:nova-architect-autonomous"` for `/nova:ship`. Tool-level `AskUserQuestion` enforcement lives in the static agent frontmatter; skills don't need to pass it.
 
-3. **Pass the bootstrap payload** as the Agent tool's `prompt` argument. The payload is a JSON block the subagent parses on turn 0 to call `mcp__nova__get_agent_prompt` with the right arguments. Schema:
+3. **Pass the bootstrap payload** as the Agent tool's `prompt` argument. The payload is a JSON block the subagent parses on turn 0 to call `mcp__plugin_nova_nova__get_agent_prompt` with the right arguments. Schema:
    ```json
    {
      "run_id": "<uuid>",
@@ -222,9 +222,9 @@ You are orchestrating a Nova build. Execute these two steps in order; do not imp
      "task": "$ARGUMENTS"
    }
 
-   Follow your bootstrap: call mcp__nova__get_agent_prompt with the
+   Follow your bootstrap: call mcp__plugin_nova_nova__get_agent_prompt with the
    mode/interactive/run_id above (no app_id in build mode), then build
-   the CommCare app matching the task. Every mcp__nova__* call you make
+   the CommCare app matching the task. Every mcp__plugin_nova_nova__* call you make
    MUST carry _meta: { run_id: "<runId>" }.
 
    When complete, report the app_id, a summary of modules and forms,
@@ -274,10 +274,10 @@ You are orchestrating an autonomous Nova build. Two steps in order; do not impro
      "task": "$ARGUMENTS"
    }
 
-   Follow your bootstrap: call mcp__nova__get_agent_prompt with the
+   Follow your bootstrap: call mcp__plugin_nova_nova__get_agent_prompt with the
    mode/interactive/run_id above (no app_id in build mode), then build
    the CommCare app matching the task autonomously. Make every design
-   decision yourself. Every mcp__nova__* call you make MUST carry
+   decision yourself. Every mcp__plugin_nova_nova__* call you make MUST carry
    _meta: { run_id: "<runId>" }.
 
    When complete, report the app_id, a summary of modules and forms,
@@ -328,11 +328,11 @@ You are orchestrating a Nova edit. Two steps in order; do not improvise.
      "task": "$1"
    }
 
-   Follow your bootstrap: call mcp__nova__get_agent_prompt with the
+   Follow your bootstrap: call mcp__plugin_nova_nova__get_agent_prompt with the
    mode/interactive/app_id/run_id above. The server inlines the app's
    blueprint summary into the returned text so you boot with full edit
    context — do NOT call get_app as a separate step. Then apply the
-   requested edit. Every mcp__nova__* call you make MUST carry
+   requested edit. Every mcp__plugin_nova_nova__* call you make MUST carry
    _meta: { run_id: "<runId>" }.
 
    When complete, report the modified blueprint summary.
@@ -367,7 +367,7 @@ name: list
 description: List your Nova apps.
 ---
 
-Call `mcp__nova__list_apps`. The tool returns JSON `{ apps: [...] }` inside a text content block. Parse it and format as a markdown table: ID, Name, Status, Last Updated.
+Call `mcp__plugin_nova_nova__list_apps`. The tool returns JSON `{ apps: [...] }` inside a text content block. Parse it and format as a markdown table: ID, Name, Status, Last Updated.
 ```
 
 - [ ] **Step 2: `skills/show/SKILL.md`**
@@ -379,7 +379,7 @@ description: Show the blueprint summary of a Nova app.
 argument-hint: <app_id>
 ---
 
-Call `mcp__nova__get_app` with `app_id: "$ARGUMENTS"`. Present the returned markdown summary verbatim.
+Call `mcp__plugin_nova_nova__get_app` with `app_id: "$ARGUMENTS"`. Present the returned markdown summary verbatim.
 ```
 
 - [ ] **Step 3: `skills/upload/SKILL.md`**
@@ -391,7 +391,7 @@ description: Upload a Nova app to CommCare HQ.
 argument-hint: <app_id> <domain> [app_name]
 ---
 
-Call `mcp__nova__upload_app_to_hq` with:
+Call `mcp__plugin_nova_nova__upload_app_to_hq` with:
 - `app_id: "$0"`
 - `domain: "$1"`
 - `app_name: "$2"` (omit the field entirely if $2 is empty)
@@ -428,7 +428,7 @@ Expected: table of apps (or empty-state message).
 
 Expected:
 - Skill mints a run_id and spawns `nova:nova-architect-autonomous` with the JSON bootstrap payload.
-- Subagent's first tool call is `mcp__nova__get_agent_prompt(mode="build", interactive=false, run_id="<runId>")`; the returned text becomes its operating instructions.
+- Subagent's first tool call is `mcp__plugin_nova_nova__get_agent_prompt(mode="build", interactive=false, run_id="<runId>")`; the returned text becomes its operating instructions.
 - Subagent calls `create_app`, `generate_schema`, `generate_scaffold`, `add_module` (one or more), `validate_app` — every call carries `_meta: { run_id: "<runId>" }` including the bootstrap `get_agent_prompt` call itself.
 - `AskUserQuestion` is not available (autonomous agent has `disallowedTools: [AskUserQuestion]` in its frontmatter); if the subagent tries to call it, Claude Code blocks at the tool-permission layer.
 - Subagent reports `app_id` + summary.
