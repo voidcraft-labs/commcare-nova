@@ -79,7 +79,7 @@
 				},
 				{
 					"fieldPath": "__name__",
-					"order": "DESCENDING"
+					"order": "ASCENDING"
 				}
 			],
 			"density": "SPARSE_ALL"
@@ -98,7 +98,7 @@
 				},
 				{
 					"fieldPath": "__name__",
-					"order": "DESCENDING"
+					"order": "ASCENDING"
 				}
 			],
 			"density": "SPARSE_ALL"
