@@ -1,42 +1,31 @@
 /**
  * `renderAgentPrompt` unit tests.
  *
- * Covers the load-bearing behaviors of the agent-definition renderer:
+ * Covers the load-bearing behaviors of the agent-prompt-body renderer:
  *
- *   - Autonomous build strips `AskUserQuestion` from `tools` AND lists
- *     it in `disallowedTools` (belt-and-suspenders: prompt-only
- *     instruction would be weaker than a Claude Code tool-allowlist
- *     gate). Note Claude Code's allowlist frontmatter field is
- *     literally `tools` — `allowedTools` would be silently ignored.
- *   - Interactive build includes `AskUserQuestion` in `tools` and omits
- *     `disallowedTools` entirely (no ambiguous deny signal).
- *   - Build mode's `tools` list *includes* the four generation tools
- *     (`create_app`, `generate_schema`, `generate_scaffold`,
- *     `add_module`). Pairs with the edit-mode absence assertion below so
- *     a regression in the derivation filter can't hide behind a
- *     superset that already excluded them.
- *   - Edit mode strips those same four generation tools so the subagent
- *     can't replace an existing app's structure mid-edit.
- *   - `frontmatter.name` is invariant across every mode × interactive
- *     combination — uniqueness across parallel runs is handled by the
- *     plugin's per-run filename suffix, not by varying this field.
- *   - The interactivity block is appended to the system prompt for both
- *     modes, with the right wording per mode.
+ *   - Autonomous variant appends the "AskUserQuestion tool is not
+ *     available" Interaction Mode block so the subagent knows not to
+ *     waste a turn discovering the missing tool (tool-level enforcement
+ *     lives in the plugin's `disallowedTools` frontmatter — the prompt
+ *     reminder is the in-body complement).
+ *   - Interactive variant appends the "ask at most a handful of
+ *     questions" Interaction Mode block.
+ *   - Build-mode call (`editDoc === undefined`) falls through to
+ *     `buildSolutionsArchitectPrompt`'s build branch.
  *   - **Edit-mode prompt parity with the web flow.** When a populated
- *     blueprint is threaded through, the rendered prompt includes
+ *     blueprint is threaded through, the rendered prompt carries
  *     `EDIT_PREAMBLE`'s framing (the spawned subagent gets "you have
  *     full visibility, only ask about intent" instead of the build
- *     stage list). Verifies the regression where the previous version
- *     rendered build framing for edit mode is closed.
- *   - **Empty/missing doc fallback.** `renderAgentPrompt("edit", _, undefined)`
- *     and `renderAgentPrompt("edit", _, emptyDoc)` both fall back to
- *     the build prompt — `buildSolutionsArchitectPrompt`'s
+ *     stage list) plus the fixture's app + module names inlined via
+ *     `summarizeBlueprint(doc)`. A regression that fell back to the
+ *     build prompt would fail on the `Editing Mode` + fixture-name
+ *     checks.
+ *   - **Empty/missing doc fallback.** `renderAgentPrompt(_, undefined)`
+ *     and `renderAgentPrompt(_, emptyDoc)` both fall back to the build
+ *     prompt — `buildSolutionsArchitectPrompt`'s
  *     `moduleOrder.length > 0` branch is the single source of truth
  *     for "is there anything to edit?", and the MCP renderer
  *     intentionally inherits its degenerate-case behavior.
- *   - The emitted model string is the Claude Code short slug
- *     (`opus` | `sonnet` | `haiku`), not Nova's full model id — letting
- *     the harness pick the current version of the tier automatically.
  */
 
 import { describe, expect, it } from "vitest";
@@ -117,62 +106,23 @@ function fixtureEmptyDoc(): BlueprintDoc {
 }
 
 describe("renderAgentPrompt", () => {
-	it("autonomous build disallows AskUserQuestion", () => {
-		const r = renderAgentPrompt("build", false);
-		expect(r.frontmatter.disallowedTools).toContain("AskUserQuestion");
-		expect(r.frontmatter.tools).not.toContain("AskUserQuestion");
+	it("interactive variant appends the AskUserQuestion permission block", () => {
+		expect(renderAgentPrompt(true)).toContain("AskUserQuestion tool");
 	});
 
-	it("interactive build allows AskUserQuestion", () => {
-		const r = renderAgentPrompt("build", true);
-		expect(r.frontmatter.tools).toContain("AskUserQuestion");
-		expect(r.frontmatter.disallowedTools).toBeUndefined();
+	it("autonomous variant appends the 'tool not available' reminder", () => {
+		expect(renderAgentPrompt(false)).toContain("not available");
 	});
 
-	it("build mode exposes all four generation tools", () => {
-		/* Positive complement to the edit-mode absence assertion below.
-		 * Without this, a derivation filter that accidentally stripped a
-		 * generator from the build list (or renamed one on the server
-		 * side) would pass the edit-mode test — the tool would be
-		 * absent from both lists, which is still "stripped in edit
-		 * mode". Pinning presence in build mode fences that regression. */
-		const r = renderAgentPrompt("build", true);
-		expect(r.frontmatter.tools).toContain("mcp__nova__create_app");
-		expect(r.frontmatter.tools).toContain("mcp__nova__generate_schema");
-		expect(r.frontmatter.tools).toContain("mcp__nova__generate_scaffold");
-		expect(r.frontmatter.tools).toContain("mcp__nova__add_module");
-	});
-
-	it("edit mode strips generation tools", () => {
-		const r = renderAgentPrompt("edit", true);
-		expect(r.frontmatter.tools).not.toContain("mcp__nova__generate_schema");
-		expect(r.frontmatter.tools).not.toContain("mcp__nova__generate_scaffold");
-		expect(r.frontmatter.tools).not.toContain("mcp__nova__add_module");
-		expect(r.frontmatter.tools).not.toContain("mcp__nova__create_app");
-	});
-
-	it("frontmatter name is always nova-architect", () => {
-		for (const mode of ["build", "edit"] as const) {
-			for (const interactive of [true, false]) {
-				expect(renderAgentPrompt(mode, interactive).frontmatter.name).toBe(
-					"nova-architect",
-				);
-			}
-		}
-	});
-
-	it("system prompt includes interactivity block", () => {
-		expect(renderAgentPrompt("build", true).system_prompt).toContain(
-			"AskUserQuestion tool",
-		);
-		expect(renderAgentPrompt("build", false).system_prompt).toContain(
-			"not available",
-		);
+	it("build mode (no editDoc) falls through to the build prompt", () => {
+		const sp = renderAgentPrompt(true);
+		expect(sp).toContain("Initial Build");
+		expect(sp).not.toContain("Editing Mode");
 	});
 
 	it("edit mode with a populated doc emits EDIT_PREAMBLE framing + an inlined blueprint summary", () => {
-		/* Edit-mode parity with `/api/chat`: when the handler threads a
-		 * populated doc through, the rendered prompt must carry
+		/* Edit-mode parity with `/api/chat`: when a populated doc is
+		 * threaded through, the rendered prompt must carry
 		 * `EDIT_PREAMBLE`'s "Editing Mode" header + the "full
 		 * visibility" framing (so the subagent doesn't ask about app
 		 * structure it can already see), plus an inlined
@@ -183,8 +133,7 @@ describe("renderAgentPrompt", () => {
 		 * to prove `summarizeBlueprint` ran against this doc — a
 		 * regression that fell back to the build prompt would have no
 		 * way to surface those strings. */
-		const doc = fixturePopulatedDoc();
-		const sp = renderAgentPrompt("edit", true, doc).system_prompt;
+		const sp = renderAgentPrompt(true, fixturePopulatedDoc());
 		expect(sp).toContain("Editing Mode");
 		expect(sp).toContain("full visibility");
 		expect(sp).toContain("Vaccine Tracker");
@@ -196,30 +145,14 @@ describe("renderAgentPrompt", () => {
 		expect(sp).not.toContain("Initial Interaction");
 	});
 
-	it("edit mode with no doc (undefined) falls back to the build prompt", () => {
-		/* Documents the deliberate fallback: callers that don't yet
-		 * have a doc loaded land in the build branch. The MCP tool
-		 * surface treats this as an `invalid_input` and refuses, but
-		 * the renderer itself stays liberal so call sites aren't forced
-		 * to fabricate a doc. */
-		const sp = renderAgentPrompt("edit", true).system_prompt;
-		expect(sp).toContain("Initial Build");
-		expect(sp).not.toContain("Editing Mode");
-	});
-
 	it("edit mode with an empty-modules doc falls back to the build prompt", () => {
 		/* `createApp` writes an empty doc before any generation tools
 		 * fire — there's nothing to "edit" yet, so
 		 * `buildSolutionsArchitectPrompt` routes empty docs into the
 		 * build branch. The test confirms the MCP renderer inherits
 		 * that behavior end-to-end. */
-		const sp = renderAgentPrompt("edit", true, fixtureEmptyDoc()).system_prompt;
+		const sp = renderAgentPrompt(true, fixtureEmptyDoc());
 		expect(sp).toContain("Initial Build");
 		expect(sp).not.toContain("Editing Mode");
-	});
-
-	it("model slug maps to short Claude Code name", () => {
-		const r = renderAgentPrompt("build", true);
-		expect(r.frontmatter.model).toMatch(/^(opus|sonnet|haiku)$/);
 	});
 });

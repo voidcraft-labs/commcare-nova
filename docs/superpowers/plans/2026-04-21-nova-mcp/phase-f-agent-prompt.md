@@ -31,19 +31,21 @@
  * established that Claude Code caches agent definitions at session start,
  * making server-driven dynamic frontmatter impossible.
  *
- * Three flags drive the output, each with a single concern:
- *   - `mode` has no effect on the body text today (build/edit parity is
- *     handled entirely by `editDoc`); it's still accepted because future
- *     mode-specific guidance could reasonably live here without re-
- *     plumbing the tool signature.
+ * Two flags drive the output:
  *   - `interactive` picks the Interaction Mode section (the autonomous
  *     variant instructs the subagent not to call AskUserQuestion;
  *     tool-level enforcement is in the plugin's autonomous agent file).
- *   - `editDoc` picks the system-prompt flavor by being threaded
- *     straight through to `buildSolutionsArchitectPrompt`. Build calls
- *     pass `undefined`; edit calls pass the loaded blueprint. Empty
- *     docs (`moduleOrder.length === 0`) intentionally fall back to
- *     the build prompt — same fallthrough the web flow's renderer uses.
+ *   - `editDoc` picks the build/edit flavor by being threaded straight
+ *     through to `buildSolutionsArchitectPrompt`. Build calls pass
+ *     `undefined`; edit calls pass the loaded blueprint. Empty docs
+ *     (`moduleOrder.length === 0`) fall back to the build prompt — same
+ *     fallthrough the web flow's renderer uses.
+ *
+ * `PromptMode` is still exported because `get_agent_prompt`'s wire
+ * schema uses it (the tool boundary needs "is this edit mode?" to
+ * decide whether to load the blueprint); the renderer itself no longer
+ * branches on `mode` because `editDoc` presence is the semantic
+ * discriminator.
  */
 
 import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
@@ -73,7 +75,6 @@ tool is not available to you in this mode.`,
 } as const;
 
 export function renderAgentPrompt(
-	_mode: PromptMode,
 	interactive: boolean,
 	editDoc?: BlueprintDoc,
 ): string {
@@ -89,11 +90,10 @@ export function renderAgentPrompt(
 
 The test file covers the renderer's load-bearing behaviors:
 
-- Autonomous variant appends the "do NOT attempt to ask the user questions" block.
 - Interactive variant appends the "ask at most a handful of questions" block.
+- Autonomous variant appends the "AskUserQuestion tool is not available" reminder.
 - Build-mode call (`editDoc === undefined`) falls through to the build prompt.
 - **Edit mode with a populated doc emits `EDIT_PREAMBLE` framing + an inlined `summarizeBlueprint(doc)`.** Spot-checks for `"Editing Mode"`, `"full visibility"`, plus the fixture's app + module names. Asserts `"Initial Build"` and `"Initial Interaction"` are absent so a regression that fell back to the build prompt would fail loudly.
-- **Edit mode with no doc (`undefined`) falls back to the build prompt.** Documents the deliberate fallback — the renderer stays liberal so call sites aren't forced to fabricate a doc; the tool surface enforces the conditional `app_id` requirement separately.
 - **Edit mode with an empty-modules doc falls back to the build prompt.** Confirms the degenerate edit case (empty doc from `createApp` before any modules land) inherits `buildSolutionsArchitectPrompt`'s built-in fallthrough.
 
 - [ ] **Step 3: Run + commit**
@@ -191,11 +191,7 @@ export function registerGetAgentPrompt(
 					await requireOwnedApp(ctx.userId, args.app_id);
 					const loaded = await loadAppBlueprint(args.app_id);
 					if (!loaded) throw new McpAccessError("not_found");
-					const systemPrompt = renderAgentPrompt(
-						args.mode,
-						args.interactive,
-						loaded.doc,
-					);
+					const systemPrompt = renderAgentPrompt(args.interactive, loaded.doc);
 					return {
 						content: [{ type: "text", text: systemPrompt }],
 						_meta: { app_id: args.app_id, run_id: runId },
@@ -205,7 +201,7 @@ export function registerGetAgentPrompt(
 				/* Build mode: app_id is ignored even when supplied. _meta.app_id
 				 * is NOT stamped — admin surfaces would otherwise correlate
 				 * this build run to an unrelated app. */
-				const systemPrompt = renderAgentPrompt(args.mode, args.interactive);
+				const systemPrompt = renderAgentPrompt(args.interactive);
 				return {
 					content: [{ type: "text", text: systemPrompt }],
 					_meta: { run_id: runId },
@@ -227,7 +223,7 @@ export function registerGetAgentPrompt(
 The test file covers the tool's load-bearing behaviors:
 
 - **Build mode** (two combos covering interactive vs autonomous wording) returns a text content block with the rendered prompt, never stamps `_meta.app_id`, and never calls Firestore. A separate test verifies that a spurious `app_id` is ignored quietly (no Firestore call, no app_id on `_meta`).
-- **Edit mode happy path** — owned app, populated doc: ownership check + single blueprint load, doc threaded into the renderer (verified via `toHaveBeenCalledWith("edit", true, doc)`), returned text carries `EDIT_PREAMBLE` framing + the fixture's app + module names from the inlined `summarizeBlueprint(doc)`, `_meta.app_id` stamped on success.
+- **Edit mode happy path** — owned app, populated doc: ownership check + single blueprint load, doc threaded into the renderer (verified via `toHaveBeenCalledWith(true, doc)`), returned text carries `EDIT_PREAMBLE` framing + the fixture's app + module names from the inlined `summarizeBlueprint(doc)`, `_meta.app_id` stamped on success.
 - **Edit mode missing `app_id`** — collapses to `error_type: "invalid_input"` with the thrown message text on the wire, never touches Firestore (argument validation runs before any call).
 - **Edit mode unowned `app_id`** — collapses to `error_type: "not_found"` (IDOR hardening), never loads the blueprint.
 - **Edit mode empty-modules doc** — the loaded doc has no modules, so `buildSolutionsArchitectPrompt` falls back to the build prompt body while the tool still reports edit-mode framing at the envelope level (`_meta.app_id` stamped).

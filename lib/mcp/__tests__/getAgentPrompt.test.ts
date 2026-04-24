@@ -1,28 +1,29 @@
 /**
  * `registerGetAgentPrompt` unit tests.
  *
- * Verifies the load-bearing behaviors of the dynamic-agent bootstrap
- * tool:
+ * Verifies the load-bearing behaviors of the self-fetch bootstrap tool:
  *
  *   - Build mode: rendering happens with no `app_id` round trip; even a
  *     spurious `app_id` is ignored (no Firestore call) and `_meta.app_id`
  *     is *not* stamped on the build envelope (an admin surface seeing
  *     `app_id` here would falsely correlate a build run to an unrelated
- *     app). Two combos cover interactive vs autonomous wiring.
+ *     app). Two combos cover interactive vs autonomous wiring — the
+ *     wiring difference shows up as a different Interaction Mode
+ *     section appended to the returned text.
  *   - Edit mode happy path: ownership check + blueprint load + doc
- *     threaded into the renderer; the system prompt carries
+ *     threaded into the renderer; the returned text carries
  *     `EDIT_PREAMBLE` framing + the inlined blueprint summary
- *     (verified by spot-checking the fixture's app + module name in
- *     the parsed payload). `_meta.app_id` rides on success.
+ *     (verified by spot-checking the fixture's app + module names in
+ *     the emitted text). `_meta.app_id` rides on success.
  *   - Edit mode missing `app_id`: collapses to the `invalid_input`
  *     bucket via `McpInvalidInputError` — argument-validation failures
  *     short-circuit the classifier with a precise wire `error_type`.
  *   - Edit mode unowned `app_id`: collapses to `not_found` (IDOR
  *     hardening — same envelope as a missing-id probe).
  *   - Edit mode empty-modules doc: `buildSolutionsArchitectPrompt` treats
- *     empty docs as build, so the rendered prompt contains build
- *     markers. Confirms the degenerate-edit fallback is preserved
- *     end-to-end through the tool boundary.
+ *     empty docs as build, so the emitted text contains build markers.
+ *     `_meta.app_id` still rides (the handler did load the doc; the
+ *     renderer's internal fallthrough is the right thing to do).
  *   - `_meta.run_id` threading: client-supplied id rides through; absent
  *     id gets a freshly-minted uuid v4 — same on success and error
  *     paths.
@@ -85,8 +86,7 @@ const toolCtx: ToolContext = { userId: "u1", scopes: [] };
 /**
  * Build a minimal-but-renderable blueprint with one module/form/field
  * so `summarizeBlueprint` produces strings the assertions can spot-
- * check. Mirrors `getApp.test.ts`'s fixture shape; if those tests
- * tighten on a richer fixture in the future this can converge with it.
+ * check. Mirrors `getApp.test.ts`'s fixture shape.
  */
 function fixturePopulatedDoc(): BlueprintDoc {
 	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
@@ -187,40 +187,26 @@ beforeEach(() => {
 
 describe("registerGetAgentPrompt — build mode", () => {
 	/* Build mode covers the trivial path: no `app_id`, no Firestore,
-	 * the renderer is called with `undefined` for the doc. Two combos
-	 * pin interactive vs autonomous wiring; the edit-mode behaviors
-	 * live in their own describe block below. */
+	 * the renderer is called with no doc. Two combos pin interactive vs
+	 * autonomous wiring — verified via the distinct Interaction Mode
+	 * wording each emits. */
 	const combos = [
 		{
 			interactive: true,
-			spotCheck: (payload: {
-				frontmatter: { tools?: string[]; disallowedTools?: string[] };
-			}) => {
-				/* Build + interactive: generators present, AskUserQuestion
-				 * in `tools`, no `disallowedTools`. */
-				expect(payload.frontmatter.tools).toContain("mcp__nova__create_app");
-				expect(payload.frontmatter.tools).toContain("AskUserQuestion");
-				expect(payload.frontmatter.disallowedTools).toBeUndefined();
-			},
+			/* Interactive: the permission block appears verbatim. */
+			expectedPhrase: "AskUserQuestion tool",
+			forbiddenPhrase: "not available to you",
 		},
 		{
 			interactive: false,
-			spotCheck: (payload: {
-				frontmatter: { tools?: string[]; disallowedTools?: string[] };
-			}) => {
-				/* Build + autonomous: generators present, AskUserQuestion
-				 * stripped from `tools` AND listed in `disallowedTools`. */
-				expect(payload.frontmatter.tools).toContain("mcp__nova__create_app");
-				expect(payload.frontmatter.tools).not.toContain("AskUserQuestion");
-				expect(payload.frontmatter.disallowedTools).toContain(
-					"AskUserQuestion",
-				);
-			},
+			/* Autonomous: the "not available" reminder appears instead. */
+			expectedPhrase: "not available to you",
+			forbiddenPhrase: "ask at most a handful",
 		},
 	];
 
 	for (const combo of combos) {
-		it(`interactive=${combo.interactive} returns a well-formed payload`, async () => {
+		it(`interactive=${combo.interactive} emits the matching Interaction Mode block`, async () => {
 			const { server, capture } = makeFakeServer();
 			registerGetAgentPrompt(server, toolCtx);
 
@@ -232,20 +218,10 @@ describe("registerGetAgentPrompt — build mode", () => {
 				_meta: { run_id: string; app_id?: string };
 			};
 
-			const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
-				frontmatter: {
-					name: string;
-					tools?: string[];
-					disallowedTools?: string[];
-				};
-				system_prompt: string;
-			};
-
-			expect(parsed.frontmatter.name).toBe("nova-architect");
-			expect(typeof parsed.system_prompt).toBe("string");
-			expect(parsed.system_prompt.length).toBeGreaterThan(0);
-
-			combo.spotCheck(parsed);
+			const text = out.content[0]?.text ?? "";
+			expect(text.length).toBeGreaterThan(0);
+			expect(text).toContain(combo.expectedPhrase);
+			expect(text).not.toContain(combo.forbiddenPhrase);
 
 			/* Build mode never stamps `app_id` on the success envelope —
 			 * an admin surface correlating runs to apps would otherwise
@@ -254,14 +230,11 @@ describe("registerGetAgentPrompt — build mode", () => {
 			expect(out._meta.run_id).toMatch(UUID_RE);
 
 			/* Renderer was called with no doc — build mode never loads
-			 * the blueprint, even on a well-formed call. The handler
-			 * omits the third argument entirely (rather than passing
-			 * `undefined`), matching the default-optional contract of
-			 * `renderAgentPrompt(mode, interactive, editDoc?)`. */
-			expect(renderAgentPrompt).toHaveBeenCalledWith(
-				"build",
-				combo.interactive,
-			);
+			 * the blueprint. The handler omits the second argument
+			 * entirely (rather than passing `undefined`), matching the
+			 * default-optional contract of
+			 * `renderAgentPrompt(interactive, editDoc?)`. */
+			expect(renderAgentPrompt).toHaveBeenCalledWith(combo.interactive);
 			expect(loadAppBlueprint).not.toHaveBeenCalled();
 			expect(loadAppOwner).not.toHaveBeenCalled();
 		});
@@ -285,13 +258,8 @@ describe("registerGetAgentPrompt — build mode", () => {
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(loadAppOwner).not.toHaveBeenCalled();
 		/* The renderer still runs with no doc — confirms build mode is
-		 * truly app-agnostic end-to-end. The handler calls
-		 * `renderAgentPrompt(mode, interactive)` with the third
-		 * parameter omitted, which matches the signature's optional
-		 * slot — `toHaveBeenCalledWith` treats the received
-		 * arguments-length literally, so only two positional args are
-		 * asserted here. */
-		expect(renderAgentPrompt).toHaveBeenCalledWith("build", true);
+		 * truly app-agnostic end-to-end. */
+		expect(renderAgentPrompt).toHaveBeenCalledWith(true);
 	});
 });
 
@@ -312,37 +280,25 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 			_meta: { app_id: string; run_id: string };
 		};
 
-		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
-			frontmatter: { name: string; tools?: string[] };
-			system_prompt: string;
-		};
-
-		expect(parsed.frontmatter.name).toBe("nova-architect");
-		/* Edit mode strips the four generation tools — pinning here
-		 * guards against a regression where the tool name ignored
-		 * `mode` and rendered build framing. */
-		expect(parsed.frontmatter.tools).not.toContain("mcp__nova__create_app");
-		expect(parsed.frontmatter.tools).not.toContain(
-			"mcp__nova__generate_schema",
-		);
-		/* `EDIT_PREAMBLE` framing must appear — the regression fix's
-		 * whole point is that edit mode boots with the same prompt
-		 * `/api/chat`'s edit mode produces. */
-		expect(parsed.system_prompt).toContain("Editing Mode");
-		expect(parsed.system_prompt).toContain("full visibility");
+		const text = out.content[0]?.text ?? "";
+		/* `EDIT_PREAMBLE` framing must appear — edit mode boots with
+		 * the same prompt `/api/chat`'s edit mode produces; this is
+		 * the end-to-end parity check. */
+		expect(text).toContain("Editing Mode");
+		expect(text).toContain("full visibility");
 		/* Inlined `summarizeBlueprint(doc)` must surface the fixture's
 		 * recognizable strings — proves the doc actually reached the
 		 * renderer and the summary was rendered against it (rather
 		 * than a spurious empty-doc fallback). */
-		expect(parsed.system_prompt).toContain("Vaccine Tracker");
-		expect(parsed.system_prompt).toContain("Patients");
+		expect(text).toContain("Vaccine Tracker");
+		expect(text).toContain("Patients");
 
 		expect(out._meta.app_id).toBe("a-edit");
 		expect(out._meta.run_id).toMatch(UUID_RE);
 
-		/* Renderer received `(mode, interactive, doc)` — confirms the
+		/* Renderer received `(interactive, doc)` — confirms the
 		 * handler did the threading rather than dropping the doc. */
-		expect(renderAgentPrompt).toHaveBeenCalledWith("edit", true, doc);
+		expect(renderAgentPrompt).toHaveBeenCalledWith(true, doc);
 		/* The single-load invariant — the tool issues exactly one
 		 * blueprint read per call. */
 		expect(loadAppBlueprint).toHaveBeenCalledTimes(1);
@@ -413,12 +369,15 @@ describe("registerGetAgentPrompt — edit mode unowned app_id", () => {
 });
 
 describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
-	it("falls back to the build prompt when the loaded doc has no modules", async () => {
+	it("falls back to the build prompt body when the loaded doc has no modules", async () => {
 		/* Degenerate edit case: `createApp` writes an empty doc before
 		 * any generation tools fire. `buildSolutionsArchitectPrompt`
 		 * routes empty docs into the build branch; the tool must
-		 * inherit that fallthrough so the rendered prompt isn't a
-		 * malformed edit prompt against an empty structure. */
+		 * inherit that fallthrough so the emitted text isn't a
+		 * malformed edit prompt against an empty structure. The tool's
+		 * envelope still stamps `app_id` on `_meta` — the handler did
+		 * load the doc and gate on ownership, the renderer's internal
+		 * fallthrough is the orthogonal concern. */
 		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		const empty = fixtureEmptyDoc();
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(loadedFor(empty));
@@ -429,22 +388,20 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 		const out = (await capture()(
 			{ mode: "edit", interactive: true, app_id: "a-empty" },
 			{},
-		)) as { content: Array<{ type: "text"; text: string }> };
-
-		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
-			system_prompt: string;
-			frontmatter: { tools?: string[] };
+		)) as {
+			content: Array<{ type: "text"; text: string }>;
+			_meta: { app_id: string };
 		};
 
+		const text = out.content[0]?.text ?? "";
 		/* Build framing leaked through, edit framing did not — the
 		 * underlying `buildSolutionsArchitectPrompt` did the right
 		 * thing with the empty doc and the tool didn't paper over it. */
-		expect(parsed.system_prompt).toContain("Initial Build");
-		expect(parsed.system_prompt).not.toContain("Editing Mode");
-		/* But the *tool surface* still reflects edit mode — generators
-		 * stripped, since the user explicitly asked for edit mode and
-		 * shouldn't suddenly get a `create_app` tool exposed. */
-		expect(parsed.frontmatter.tools).not.toContain("mcp__nova__create_app");
+		expect(text).toContain("Initial Build");
+		expect(text).not.toContain("Editing Mode");
+		/* `_meta.app_id` still rides — the tool processed the edit
+		 * request, even if the body happened to render as build. */
+		expect(out._meta.app_id).toBe("a-empty");
 	});
 });
 

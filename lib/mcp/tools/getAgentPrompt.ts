@@ -1,18 +1,15 @@
 /**
- * `nova.get_agent_prompt` — dynamic-agent bootstrap.
+ * `nova.get_agent_prompt` — self-fetch bootstrap tool.
  *
  * Scope: `nova.read` (enforced at the verify layer — the route handler
  * declares this tool's mount with `scopes: ["nova.read"]` so by the time
  * this body runs the JWT already proved the scope; no per-handler check).
  *
- * The plugin skills call this tool at the start of every build/edit run.
- * The returned `{ frontmatter, system_prompt }` payload is materialized
- * by the skill at `<plugin-root>/agents/nova-architect-{runId}.md`, then
- * the skill spawns a subagent via the Agent tool with
- * `subagent_type: "nova:nova-architect-{runId}"`. Hosting the renderer
- * server-side is what lets us iterate the SA prompt, model, reasoning
- * effort, and tool allowlist without cutting a new plugin release —
- * the next skill invocation just picks up the fresh render.
+ * The plugin ships two static subagent files whose bodies instruct the
+ * spawned subagent to call this tool on turn 0 and treat the returned
+ * text as its full operating instructions. Hosting the renderer server-
+ * side is what lets us iterate the SA's prompt body without a plugin
+ * release — every subagent spawn fetches fresh.
  *
  * **Edit mode loads the blueprint here.** When `mode === "edit"`, the
  * tool requires `app_id`, ownership-gates on it, loads the blueprint,
@@ -30,15 +27,10 @@
  * success — a build response with `_meta.app_id` would mislead admin
  * surfaces correlating runs to apps.
  *
- * **Why a JSON-stringified text payload, not structured content.** MCP
- * defines `content` as a typed array — `text`, `image`, `resource`. There
- * is no first-class "JSON object" content kind on the wire, and Nova's
- * other tools that emit structured data (`list_apps`, `get_app`,
- * `compile_app`'s metadata branch) all serialize to a JSON string in a
- * `text` block for the same reason. The plugin skill `JSON.parse`s the
- * text. Keeping the on-the-wire shape uniform also means a single MCP
- * client deserializer can handle every tool's response — no per-tool
- * branching on content kind.
+ * **Plain text, not JSON.** The handler emits the rendered system
+ * prompt as a plain MCP `text` content block. The plugin's bootstrap
+ * subagent reads that text verbatim as its operating instructions — no
+ * JSON wrapper, no parse step on the hot path.
  *
  * **`_meta.run_id` is still threaded.** Same reason `list_apps` does
  * it: MCP clients bundle multi-call runs under one id so admin surfaces
@@ -67,9 +59,11 @@ import type { ToolContext } from "../types";
  * Register the three-argument `get_agent_prompt` tool on an `McpServer`.
  *
  * Inputs:
- *   - `mode` and `interactive` are the two render-time flags every call
- *     supplies. `mode` picks the agent description + tools allowlist;
- *     `interactive` controls the `AskUserQuestion` allowlist.
+ *   - `mode` and `interactive` are the two decision flags every call
+ *     supplies. `mode` drives whether edit-mode blueprint loading fires
+ *     (and implicitly, which system-prompt framing renders).
+ *     `interactive` picks the Interaction Mode section appended to the
+ *     rendered body.
  *   - `app_id` is conditionally required: required in edit mode (so the
  *     handler can ownership-gate + inline the blueprint summary into
  *     the system prompt), ignored in build mode (skill convenience —
@@ -90,7 +84,7 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Get the current nova-architect agent definition (frontmatter + system prompt) for the given mode. Plugin skills call this to materialize the subagent file at invoke time so the server stays the source of truth for prompt, model, effort, and tool restrictions. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot.",
+				"Return the current nova-architect operating instructions for the given mode. The plugin's static bootstrap subagent calls this as its first tool use and follows the returned text as its full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot.",
 			/* Raw-shape Zod object — `registerTool` composes the object
 			 * validator around it. Wrapping in `z.object(...)` would
 			 * register the wrong shape: `{ schema: z.object }` rather
@@ -107,18 +101,18 @@ export function registerGetAgentPrompt(
 				mode: z
 					.enum(["build", "edit"] as const satisfies readonly PromptMode[])
 					.describe(
-						"Which agent flavor to render. `build` exposes generation tools (create_app, generate_schema, generate_scaffold, add_module); `edit` strips them so the subagent can't replace an existing app's structure mid-edit.",
+						"Build or edit framing. Edit mode inlines the target app's blueprint summary into the returned text.",
 					),
 				interactive: z
 					.boolean()
 					.describe(
-						"When true, the subagent may call AskUserQuestion (added to the `tools` allowlist). When false, the frontmatter emits `disallowedTools: ['AskUserQuestion']` so Claude Code physically blocks the call — a prompt-only 'don't ask' instruction would be weaker.",
+						"When true, the returned instructions permit AskUserQuestion for genuine ambiguities; when false, they instruct the subagent to commit to defaults. Tool-level enforcement lives in the plugin's static agent frontmatter.",
 					),
 				app_id: z
 					.string()
 					.optional()
 					.describe(
-						"Required when `mode === 'edit'` — the Firestore app id whose blueprint summary should be inlined into the rendered system prompt. The user must own this app. Ignored when `mode === 'build'` (build mode has no app to read from).",
+						"Required when `mode === 'edit'` — the Firestore app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored when `mode === 'build'` (build mode has no app to read from).",
 					),
 			},
 		},
@@ -155,26 +149,22 @@ export function registerGetAgentPrompt(
 					 * way `getApp` does. */
 					const loaded = await loadAppBlueprint(args.app_id);
 					if (!loaded) throw new McpAccessError("not_found");
-					const payload = renderAgentPrompt(
-						args.mode,
-						args.interactive,
-						loaded.doc,
-					);
+					const systemPrompt = renderAgentPrompt(args.interactive, loaded.doc);
 					return {
-						content: [{ type: "text", text: JSON.stringify(payload) }],
+						content: [{ type: "text", text: systemPrompt }],
 						_meta: { app_id: args.app_id, run_id: runId },
 					};
 				}
 
 				/* Build mode: `app_id` is intentionally ignored even when
-				 * supplied (sharp-edge #2 — skill convenience, `mode` is
+				 * supplied (sharp-edge — skill convenience, `mode` is
 				 * the authoritative flag). `_meta.app_id` is therefore
 				 * not stamped on the build-mode envelope; an admin
 				 * surface seeing `app_id` here would falsely correlate a
 				 * build run to an unrelated app. */
-				const payload = renderAgentPrompt(args.mode, args.interactive);
+				const systemPrompt = renderAgentPrompt(args.interactive);
 				return {
-					content: [{ type: "text", text: JSON.stringify(payload) }],
+					content: [{ type: "text", text: systemPrompt }],
 					_meta: { run_id: runId },
 				};
 			} catch (err) {
