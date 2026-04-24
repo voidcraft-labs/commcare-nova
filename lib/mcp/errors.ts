@@ -192,7 +192,19 @@ export function toMcpErrorResult(
 		 * `message` is the precise reason (e.g. "edit mode requires
 		 * app_id") and routing it through `classifyError`'s status-code
 		 * + substring heuristics would only succeed in losing that
-		 * precision. */
+		 * precision.
+		 *
+		 * Logged at `warn`, not `error`: these are expected client
+		 * mistakes (e.g. missing a conditional-required field), not
+		 * server bugs. But they ARE logged so a sudden spike of them
+		 * against one userId is visible in Cloud Logging — that's
+		 * either a client regression or an attacker probing the
+		 * contract. Silent was worse than noisy here. */
+		log.warn("[mcp] invalid input", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
+			message: err.message,
+		});
 		return {
 			isError: true,
 			content: [
@@ -216,7 +228,9 @@ export function toMcpErrorResult(
 		 * so the ownership-probe audit log below can still distinguish
 		 * the two server-side: admins watch for `"not_owner"` to catch
 		 * cross-tenant scans that a pure "row not here" bucket would
-		 * otherwise drown out. */
+		 * otherwise drown out. `"not_found"` stays silent — every
+		 * harmless typo against a real app id would flood the logs
+		 * otherwise. */
 		if (err.reason === "not_owner") {
 			log.warn("[mcp] cross-tenant access attempt", {
 				userId: ctx?.userId ?? null,
@@ -234,7 +248,23 @@ export function toMcpErrorResult(
 		};
 	}
 
+	/* Generic branch — anything that isn't an expected
+	 * McpInvalidInputError or McpAccessError lands here. Almost always a
+	 * server bug (Firestore exception, missing index, null deref, etc.)
+	 * and almost always something we want in Cloud Logging with the full
+	 * stack. The prior no-log version swallowed every such failure into
+	 * an opaque "internal error" wire envelope with zero server-side
+	 * trace — a silent-failure trap that made every Firestore surprise
+	 * invisible in prod. `log.error` with the raw `err` lets the logger
+	 * extract `stack_trace` for GCP Error Reporting grouping; the
+	 * classified bucket + user/app context give enough labels to filter
+	 * in the Cloud Logging Explorer. */
 	const classified = classifyError(err);
+	log.error("[mcp] tool handler failed", err, {
+		error_type: classified.type,
+		userId: ctx?.userId ?? null,
+		appId: ctx?.appId ?? null,
+	});
 	return {
 		isError: true,
 		content: [
