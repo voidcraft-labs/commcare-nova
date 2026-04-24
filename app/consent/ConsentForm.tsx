@@ -231,19 +231,31 @@ export function ConsentForm({
 						<span className="text-[11px] font-medium uppercase tracking-[0.18em] text-nova-text-muted">
 							Authorization request
 						</span>
-						{/* Weight contrast carries the emphasis: the surrounding copy
-						 *   drops to `font-medium` and the client name stays at
-						 *   `font-semibold`, wrapped in smart quotes to mark it
-						 *   typographically as a name. Deliberately NOT styled with
-						 *   Nova's brand gradient — the consent page is the one
-						 *   screen where applying Nova's signature treatment to a
-						 *   third-party name would suggest endorsement or brand
-						 *   overlap, exactly the confusion a consent flow has to
-						 *   prevent. */}
+						{/* Two distinct entities share this headline — the third-party
+						 *   client (quoted, amber) and Nova itself (gradient on the
+						 *   last word). Amber on the client name solves "everything
+						 *   runs together" by giving the name its own tonal identity
+						 *   against the cool-white surrounding copy; the warm accent
+						 *   also sits outside Nova's violet brand family, so there's
+						 *   zero risk of a viewer reading the color as an endorsement.
+						 *   That last part is load-bearing: the consent page is the
+						 *   one screen where dressing a third-party name in Nova's
+						 *   signature treatment (brand gradient, violet tint) would
+						 *   suggest brand overlap — exactly the confusion a consent
+						 *   flow has to prevent. Smart quotes stay to reinforce the
+						 *   "this is a name" cue; weight contrast (semibold vs the
+						 *   surrounding medium) backs up the color shift. */}
 						<h1 className="font-display text-[1.75rem] font-medium leading-[1.15] text-nova-text">
 							Allow{" "}
-							<span className="font-semibold">&ldquo;{clientName}&rdquo;</span>{" "}
-							to use your Nova account?
+							<span className="font-semibold">
+								&ldquo;<span className="text-nova-amber">{clientName}</span>
+								&rdquo;
+							</span>{" "}
+							to use your{" "}
+							<span className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text font-semibold text-transparent">
+								nova
+							</span>{" "}
+							account?
 						</h1>
 					</div>
 				</div>
