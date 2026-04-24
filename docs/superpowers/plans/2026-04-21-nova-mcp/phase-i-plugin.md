@@ -4,7 +4,7 @@
 
 **Dependencies:** Phases A–H. Phase H's probe (`docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md`) proved Claude Code caches agent definitions at session start in a JS closure — there is no programmatic path to make new or overwritten agent files visible mid-session, and `/reload-plugins` is a `LocalCommandCall` with no skill-layer invocation. Phase I's original plan (skill writes `<plugin-root>/agents/nova-architect-{runId}.md`, then spawns) is structurally impossible and has been replaced with the self-fetch bootstrap described here.
 
-**Where this work lives:** Separate repo at `github.com/dimagi/nova-plugin`, not inside `commcare-nova`.
+**Where this work lives:** Separate repo at `github.com/voidcraft-labs/nova-plugin`, not inside `commcare-nova`.
 
 ---
 
@@ -31,9 +31,9 @@ git init
   "name": "nova",
   "version": "1.0.0",
   "description": "Build, edit, compile, and deploy CommCare apps from Claude Code",
-  "author": { "name": "Dimagi", "email": "support@dimagi.com" },
+  "author": { "name": "bperry", "email": "bperry@dimagi.com" },
   "homepage": "https://docs.commcare.app/mcp",
-  "repository": "https://github.com/dimagi/nova-plugin",
+  "repository": "https://github.com/voidcraft-labs/nova-plugin",
   "license": "Apache-2.0"
 }
 ```
@@ -62,7 +62,7 @@ Build, edit, compile, and deploy CommCare apps from Claude Code.
 
 ## Install
 
-    /plugin marketplace add dimagi/nova-marketplace
+    /plugin marketplace add voidcraft-labs/nova-marketplace
     /plugin install nova@nova-marketplace
 
 ## Authenticate

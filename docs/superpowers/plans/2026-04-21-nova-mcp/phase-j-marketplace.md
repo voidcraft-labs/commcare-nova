@@ -1,10 +1,10 @@
 # Phase J — Marketplace
 
-**Goal:** A Nova-owned Claude Code marketplace that points at the plugin repo, so users can install with `/plugin marketplace add dimagi/nova-marketplace` followed by `/plugin install nova@nova-marketplace`.
+**Goal:** A Nova-owned Claude Code marketplace that points at the plugin repo, so users can install with `/plugin marketplace add voidcraft-labs/nova-marketplace` followed by `/plugin install nova@nova-marketplace`.
 
 **Dependencies:** Phase I — plugin must be published to GitHub first.
 
-**Where this work lives:** Separate repo at `github.com/dimagi/nova-marketplace`.
+**Where this work lives:** Separate repo at `github.com/voidcraft-labs/nova-marketplace`.
 
 ---
 
@@ -28,9 +28,9 @@ git init
 ```json
 {
   "name": "nova-marketplace",
-  "description": "Dimagi's marketplace for Nova-related Claude Code plugins",
+  "description": "CommCare Nova's marketplace for Claude Code plugins",
   "owner": {
-    "name": "Dimagi",
+    "name": "bperry",
     "homepage": "https://docs.commcare.app"
   },
   "plugins": [
@@ -38,7 +38,7 @@ git init
       "name": "nova",
       "source": {
         "type": "github",
-        "repo": "dimagi/nova-plugin",
+        "repo": "voidcraft-labs/nova-plugin",
         "branch": "main"
       }
     }
@@ -53,7 +53,7 @@ git init
 
 Add this marketplace to Claude Code:
 
-    /plugin marketplace add dimagi/nova-marketplace
+    /plugin marketplace add voidcraft-labs/nova-marketplace
 
 Then install plugins from it:
 
@@ -81,14 +81,14 @@ git commit -m "chore: initial marketplace with nova plugin"
 
 ```bash
 cd ~/work/personal/code/nova-plugin
-gh repo create dimagi/nova-plugin --public --source=. --push
+gh repo create voidcraft-labs/nova-plugin --public --source=. --push
 ```
 
 - [ ] **Step 2: Push marketplace repo**
 
 ```bash
 cd ~/work/personal/code/nova-marketplace
-gh repo create dimagi/nova-marketplace --public --source=. --push
+gh repo create voidcraft-labs/nova-marketplace --public --source=. --push
 ```
 
 - [ ] **Step 3: End-to-end install from published marketplace**
@@ -96,7 +96,7 @@ gh repo create dimagi/nova-marketplace --public --source=. --push
 In a fresh Claude Code session:
 
 ```
-/plugin marketplace add dimagi/nova-marketplace
+/plugin marketplace add voidcraft-labs/nova-marketplace
 /plugin install nova@nova-marketplace
 /nova:list
 ```
@@ -114,9 +114,9 @@ Append to `docs/superpowers/plans/notes/2026-04-21-nova-mcp-infra.md`:
 ```markdown
 ## Marketplace published (YYYY-MM-DD)
 
-- Plugin repo: https://github.com/dimagi/nova-plugin
-- Marketplace repo: https://github.com/dimagi/nova-marketplace
-- Install: /plugin marketplace add dimagi/nova-marketplace && /plugin install nova@nova-marketplace
+- Plugin repo: https://github.com/voidcraft-labs/nova-plugin
+- Marketplace repo: https://github.com/voidcraft-labs/nova-marketplace
+- Install: /plugin marketplace add voidcraft-labs/nova-marketplace && /plugin install nova@nova-marketplace
 ```
 
 Commit:
