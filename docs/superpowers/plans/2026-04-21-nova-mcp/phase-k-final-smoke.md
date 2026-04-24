@@ -15,7 +15,7 @@
 In a new Claude Code session:
 
 ```
-/plugin marketplace add dimagi/nova-marketplace
+/plugin marketplace add voidcraft-labs/nova-marketplace
 /plugin install nova@nova-marketplace
 ```
 
