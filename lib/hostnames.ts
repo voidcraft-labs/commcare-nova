@@ -54,9 +54,27 @@ export const AS_ISSUER = `${AS_ORIGIN}/api/auth`;
 export const MCP_RESOURCE_ORIGIN = isDev
 	? devOrigin
 	: `https://${HOSTNAMES.mcp}`;
-export const MCP_RESOURCE_URL = isDev
-	? `${MCP_RESOURCE_ORIGIN}/api/mcp`
-	: `${MCP_RESOURCE_ORIGIN}/mcp`;
+
+/**
+ * Path component of the MCP resource URL, extracted as a constant so
+ * `MCP_RESOURCE_METADATA_URL` below can interpolate it directly rather
+ * than parsing it back out of `MCP_RESOURCE_URL`. Manual URL surgery
+ * (slice, regex strip) in an auth context is exactly the kind of code
+ * that drifts wrong under refactor.
+ */
+const MCP_RESOURCE_PATH = isDev ? "/api/mcp" : "/mcp";
+
+export const MCP_RESOURCE_URL = `${MCP_RESOURCE_ORIGIN}${MCP_RESOURCE_PATH}`;
+
+/**
+ * RFC 9728 protected-resource metadata URL — the value the MCP route's
+ * `WWW-Authenticate` headers point at, so an OAuth client receiving a
+ * 401 can follow it back to the AS metadata. Shape matches the upstream
+ * `@better-auth/oauth-provider` so a revoked-consent 401 is
+ * byte-identical to a signature-failure 401 and Claude Code's
+ * auto-discovery flow doesn't have to branch on which path produced it.
+ */
+export const MCP_RESOURCE_METADATA_URL = `${MCP_RESOURCE_ORIGIN}/.well-known/oauth-protected-resource${MCP_RESOURCE_PATH}`;
 
 /**
  * Path prefixes each hostname is allowed to serve. Matching is segment-anchored:

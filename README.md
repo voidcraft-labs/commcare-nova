@@ -60,16 +60,47 @@ The key resource is derived from `GOOGLE_CLOUD_PROJECT` — no extra env var nee
 ## Commands
 
 ```bash
-npm run dev        # Turbopack dev server
-npm run build      # production build
-npm run lint       # Biome lint + format check
-npm run format     # Biome auto-format
-npm test           # vitest
+npm run dev               # Turbopack dev server
+npm run build             # production build
+npm run lint              # Biome lint + format check
+npm run format            # Biome auto-format
+npm test                  # vitest (unit tests)
+npm run test:integration  # vitest against the Firestore emulator (see below)
 ```
 
 Production diagnostic scripts live in `scripts/` and are excluded from Docker. Run any with `--help` for usage. Requires `gcloud auth application-default login`.
 
 A [Lefthook](https://github.com/evilmartians/lefthook) pre-commit hook runs `biome check --staged`. It installs automatically on `npm install`.
+
+## Integration tests
+
+Some tests run against a real Firestore emulator instead of hand-rolled mocks — they catch schema-boundary bugs that pure unit tests can't, since the test author chooses both sides of a mock and a wrong assumption goes undetected. These live in files matching `**/*.integration.test.ts` and are skipped by default in `npm test`.
+
+To run them:
+
+```bash
+npm run test:integration
+```
+
+The script wraps `firebase emulators:exec` around vitest, so the emulator starts and stops automatically per run. **Java 21+ is required** — the Firestore emulator is a JVM process, and `firebase-tools` 14+ rejects older JDKs.
+
+On macOS:
+
+```bash
+brew install openjdk
+```
+
+Then add to your shell profile (`.zshrc` / `.bashrc`):
+
+```bash
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"   # Apple Silicon
+# export PATH="/usr/local/opt/openjdk/bin:$PATH"    # Intel
+export JAVA_HOME="/opt/homebrew/opt/openjdk"        # adjust accordingly
+```
+
+Verify with `java -version` (should report 21+). On Linux, install OpenJDK 21+ via your package manager (`apt install openjdk-21-jdk` or similar) and ensure `JAVA_HOME` points at it.
+
+Tests that need the emulator self-skip when `FIRESTORE_EMULATOR_HOST` is unset, so contributors who only run `npm test` don't have to install Java.
 
 ## Stack
 

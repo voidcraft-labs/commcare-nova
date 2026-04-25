@@ -9,119 +9,17 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
-import tablerEye from "@iconify-icons/tabler/eye";
-import tablerKey from "@iconify-icons/tabler/key";
-import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
-import tablerUser from "@iconify-icons/tabler/user";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { authClient } from "@/lib/auth-client";
+import { deriveCapabilities } from "@/lib/oauth/capabilities";
 
 interface ConsentFormProps {
 	clientName: string;
 	scopes: readonly string[];
 	redirectMismatch: boolean;
-}
-
-/**
- * Capabilities the user is actually granting, in plain English. This is a
- * derived view of `NOVA_OAUTH_SCOPES` from lib/auth.ts — several scopes
- * collapse into one capability row (`profile` + `email` both grant "See
- * your name and email"; showing them as separate rows implies granular
- * control the flow doesn't actually offer), and a few are hidden because
- * they're implied by merely being signed in (see `IMPLIED_SCOPES` below).
- *
- * Copy tone: direct, second-person, no jargon. The `nova.write` line keeps
- * "on your behalf" intentionally — that phrase is doing the trust-
- * signalling work for the single most consequential capability on the list.
- *
- * Keep in sync with `NOVA_OAUTH_SCOPES`: any new scope that isn't an
- * identity or persistence primitive should land here with its own row, OR
- * be added to `IMPLIED_SCOPES` if it's plumbing the user shouldn't have
- * to think about. Unmapped scopes fall through to the `Access to: ...`
- * catch-all row (see `deriveCapabilities`) so a scope added to the AS
- * without updating this file is still surfaced in the UI — a missed
- * capability that silently granted permission would be a consent-flow bug.
- */
-/**
- * Each capability carries a semantic icon so the row's meaning is legible
- * at a glance without needing a color/fill difference to signal "read vs
- * write" — the prior dot-and-tint treatment ended up reading like a
- * selected item in a multi-select, which misrepresents what the user is
- * actually doing (granting all listed capabilities, not picking one).
- */
-interface Capability {
-	key: string;
-	label: string;
-	icon: typeof tablerUser;
-	matches: (scopes: readonly string[]) => boolean;
-}
-
-const CAPABILITIES: readonly Capability[] = [
-	{
-		key: "identity",
-		label: "See your name and email",
-		icon: tablerUser,
-		matches: (s) => s.includes("profile") || s.includes("email"),
-	},
-	{
-		key: "nova.read",
-		label: "Read your CommCare apps",
-		icon: tablerEye,
-		matches: (s) => s.includes("nova.read"),
-	},
-	{
-		key: "nova.write",
-		label: "Create, edit, and deploy CommCare apps on your behalf",
-		icon: tablerPencil,
-		matches: (s) => s.includes("nova.write"),
-	},
-];
-
-/**
- * Scopes that are implied by simply being signed in and don't deserve a row
- * of their own — showing "Confirm it's you" next to "Read your CommCare
- * apps" misleads the user into thinking those two grants are comparable.
- * `openid` is the OIDC identity claim; `offline_access` is just persistence.
- */
-const IMPLIED_SCOPES: ReadonlySet<string> = new Set([
-	"openid",
-	"offline_access",
-]);
-
-/**
- * Scopes that a `CAPABILITIES` entry already covers. Used to identify
- * "unknown" scopes in `deriveCapabilities` — anything not known + not
- * implied falls through to a catch-all row so we never silently hide a
- * scope the user is actually granting.
- */
-const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
-	"profile",
-	"email",
-	"nova.read",
-	"nova.write",
-]);
-
-/**
- * Collapse the requested scope list into the capability rows the form
- * displays. Hides `IMPLIED_SCOPES`, merges overlapping capabilities (e.g.
- * `profile`+`email` → one row), and emits a catch-all row for anything
- * unrecognized so the user sees every grant they're making.
- */
-function deriveCapabilities(scopes: readonly string[]): Capability[] {
-	const rows = CAPABILITIES.filter((c) => c.matches(scopes));
-	for (const s of scopes) {
-		if (IMPLIED_SCOPES.has(s) || KNOWN_CAPABILITY_SCOPES.has(s)) continue;
-		rows.push({
-			key: `unknown:${s}`,
-			label: `Access to ${s}`,
-			icon: tablerKey,
-			matches: () => true,
-		});
-	}
-	return rows;
 }
 
 /**

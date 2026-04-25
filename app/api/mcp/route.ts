@@ -30,9 +30,11 @@
  *      → 403.
  *   2. On success, `mcpHandler` hands the verified `JWTPayload` to the
  *      inner handler. We narrow it to our `JwtClaims` shape (see
- *      `lib/mcp/types.ts`) and instantiate a per-request
- *      `createMcpHandler` that registers every Nova tool on a fresh
- *      `McpServer`.
+ *      `lib/mcp/types.ts`), confirm the user still has an active
+ *      `oauthConsent` for the calling client (the instant-revocation
+ *      lock — see "Why the consent check" below), and instantiate a
+ *      per-request `createMcpHandler` that registers every Nova tool
+ *      on a fresh `McpServer`.
  *   3. The MCP JSON-RPC layer inside `createMcpHandler` dispatches the
  *      tool call through the registered callback.
  *
@@ -58,12 +60,28 @@
  * layer has already checked the token signature + aud + iss, so a
  * missing `sub` at this point means the token is structurally broken;
  * we throw rather than silently coerce.
+ *
+ * ## Why the consent check runs every request
+ *
+ * JWT access tokens are self-contained — the MCP route never calls
+ * back to the AS to re-validate, so on its own, signature verification
+ * has no way to honor a revoke that happened after the token was
+ * minted. The per-request `oauthConsent` lookup IS the revocation
+ * lock: deleting the consent from `/settings` makes the next MCP
+ * request fail immediately, regardless of token expiry.
  */
 
 import { mcpHandler } from "@better-auth/oauth-provider";
 import type { JWTPayload } from "jose";
 import { createMcpHandler } from "mcp-handler";
-import { AS_ISSUER, AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
+import { hasActiveConsent } from "@/lib/db/oauth-consents";
+import {
+	AS_ISSUER,
+	AS_ORIGIN,
+	MCP_RESOURCE_METADATA_URL,
+	MCP_RESOURCE_URL,
+} from "@/lib/hostnames";
+import { log } from "@/lib/logger";
 import { parseScopes, SCOPES } from "@/lib/mcp/scopes";
 import { registerNovaPrompts, registerNovaTools } from "@/lib/mcp/server";
 import type { JwtClaims } from "@/lib/mcp/types";
@@ -81,6 +99,32 @@ import type { JwtClaims } from "@/lib/mcp/types";
  * one `run_id`) without leaving abandoned requests to accumulate.
  */
 export const maxDuration = 300;
+
+/**
+ * Closed set of reasons that flow into the `error_description` param
+ * of `WWW-Authenticate`. RFC 6750 quotes the value but performs no
+ * escaping, so widening to `string` would let a future caller
+ * inject sibling params (`error="..." x="injected"`) by passing a
+ * value containing `"`. Add new reasons here, never widen.
+ */
+type UnauthorizedReason =
+	| "missing client identity"
+	| "missing subject claim"
+	| "consent revoked"
+	| "auth check failed";
+
+/**
+ * Build a 401 with the upstream plugin's `WWW-Authenticate` shape plus
+ * RFC 6750 §3 `error` / `error_description` for client-side diagnostics.
+ */
+function mcpUnauthorizedResponse(reason: UnauthorizedReason): Response {
+	return new Response(null, {
+		status: 401,
+		headers: {
+			"WWW-Authenticate": `Bearer resource_metadata="${MCP_RESOURCE_METADATA_URL}", error="invalid_token", error_description="${reason}"`,
+		},
+	});
+}
 
 /**
  * Build the verified-and-routed MCP handler. `mcpHandler` adds the
@@ -115,21 +159,38 @@ const handler = mcpHandler(
 		scopes: [SCOPES.read, SCOPES.write],
 	},
 	async (req: Request, jwt: JWTPayload): Promise<Response> => {
-		/* Post-verify narrowing. `JWTPayload` from `jose` is intentionally
-		 * loose — the library's philosophy is that verification-layer
-		 * consumers know which claims they care about. Nova cares about
-		 * two: `sub` (hard requirement — downstream tools all key on
-		 * `userId`) and `scope` (informational, threaded through to the
-		 * tool context for any future scope-conditional behavior).
-		 *
-		 * Missing `sub` at this point indicates the AS issued a token
-		 * without a subject claim — that's structurally broken and the
-		 * only defensible response is to refuse rather than fall back to
-		 * an anonymous context that could accidentally leak into tool
-		 * code. */
+		/* `azp` carries the OAuth client_id (OIDC's "authorized party"
+		 * claim) on every token `@better-auth/oauth-provider` mints. A
+		 * structurally broken token (missing `sub` or `azp`) MUST return
+		 * 401, not throw — `mcpHandler`'s outer catch only re-shapes
+		 * `APIError` throws into 401s; a plain throw surfaces as 500
+		 * and hangs Claude Code instead of triggering re-auth. */
 		if (!jwt.sub) {
-			throw new Error("access token missing required `sub` claim");
+			log.error("[mcp] access token missing required `sub` claim");
+			return mcpUnauthorizedResponse("missing subject claim");
 		}
+		const clientId = typeof jwt.azp === "string" ? jwt.azp : undefined;
+		if (!clientId) {
+			log.error("[mcp] access token missing required `azp` claim", {
+				sub: jwt.sub,
+			});
+			return mcpUnauthorizedResponse("missing client identity");
+		}
+
+		/* The revocation lock — see the module docblock for why this
+		 * exists. Firestore failure also returns 401: same reasoning as
+		 * the missing-claim paths above. */
+		let consentActive: boolean;
+		try {
+			consentActive = await hasActiveConsent(jwt.sub, clientId);
+		} catch (err) {
+			log.error("[mcp] consent lookup failed", err);
+			return mcpUnauthorizedResponse("auth check failed");
+		}
+		if (!consentActive) {
+			return mcpUnauthorizedResponse("consent revoked");
+		}
+
 		const claims: JwtClaims = {
 			sub: jwt.sub,
 			/* `scope` is space-delimited per RFC 6749. We pass the raw

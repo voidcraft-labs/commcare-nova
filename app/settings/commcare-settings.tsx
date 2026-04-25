@@ -344,7 +344,8 @@ export function CommCareSettings({
 					className="shrink-0 text-nova-violet/50"
 				/>
 				<p className="text-xs text-nova-text-muted/70">
-					Your credentials are encrypted at rest and stored server-side.
+					Your credentials are encrypted in transit and at rest, stored
+					server-side.
 				</p>
 			</div>
 		</section>
