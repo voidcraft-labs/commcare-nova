@@ -61,6 +61,7 @@ import {
 	POPOVER_POPUP_CLS,
 } from "@/lib/styles";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import { classifyRenameOutcome } from "./renameOutcome";
 
 interface FieldHeaderProps {
 	field: Field;
@@ -155,7 +156,8 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	}, []);
 
 	/* Auto-dismiss the notice popover after 4 seconds so a stale error
-	 * doesn't shadow a subsequent successful rename. */
+	 * doesn't shadow a subsequent successful rename. Cleanup cancels the
+	 * timer if the consumer unmounts mid-window or a fresh notice arrives. */
 	useEffect(() => {
 		if (!idNotice) return;
 		const timer = setTimeout(() => setIdNotice(null), 4000);
@@ -164,33 +166,44 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 
 	/** Attempts the rename and returns false if blocked by a sibling conflict.
 	 * On success the mutation has already been applied by the store.
-	 * Rename doesn't change uuid, so no selection update is needed. */
+	 * Rename doesn't change uuid, so no selection update is needed. The
+	 * outcome classification is owned by `classifyRenameOutcome` so the
+	 * conflict-message wording + branching is testable without mounting
+	 * the header. */
 	const validateRename = useCallback(
 		(newId: string): boolean => {
-			if (!selectedUuid || !newId) return false;
+			if (!selectedUuid) return false;
 
 			const result = renameFieldAction(asUuid(selectedUuid), newId);
+			const outcome = classifyRenameOutcome({
+				newId,
+				hasConflict: !!result.conflict,
+			});
 
-			/* Store blocked the rename — two siblings would now share the
-			 * same id, which CommCare forbids. Surface the collision with
-			 * a quick shake on the input wrapper plus an error popover
-			 * anchored to it; the setTimeout drops the shake class back
-			 * to resting state once the animation finishes. */
-			if (result.conflict) {
-				setShaking(true);
-				setIdNotice({
-					severity: "error",
-					message: `A sibling field already has the ID "${newId}"`,
-				});
-				setTimeout(() => setShaking(false), 400);
-				return false;
+			switch (outcome.kind) {
+				case "noop":
+					return false;
+				case "conflict":
+					/* Store blocked the rename — two siblings would now share
+					 * the same id, which CommCare forbids. Surface the
+					 * collision with a quick shake on the input wrapper plus
+					 * an error popover anchored to it. The `onAnimationEnd`
+					 * handler on the wrapper clears `shaking` when the CSS
+					 * keyframe completes. */
+					setShaking(true);
+					setIdNotice({
+						severity: "error",
+						message: outcome.message,
+					});
+					return false;
+				case "success":
+					/* Rename succeeded — uuid stays the same, selection is
+					 * stable. Clear the new-field highlight so subsequent
+					 * edits are normal. */
+					setIdNotice(null);
+					clearNewField();
+					return true;
 			}
-
-			/* Rename succeeded — uuid stays the same, selection is stable.
-			 * Clear the new-field highlight so subsequent edits are normal. */
-			setIdNotice(null);
-			clearNewField();
-			return true;
 		},
 		[selectedUuid, renameFieldAction, clearNewField],
 	);
@@ -328,8 +341,16 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 					>
 						{idField.draft || "\u00A0"}
 					</span>
+					{/* Filter `onAnimationEnd` on the keyframe name — animation
+					 *  events bubble, so any descendant @keyframes ending would
+					 *  otherwise clear `shaking` mid-shake. Children today use
+					 *  CSS transitions (which fire transitionend, not
+					 *  animationend), but the filter is the contract. */}
 					<div
 						ref={idWrapperRef}
+						onAnimationEnd={(e) => {
+							if (e.animationName === "shake") setShaking(false);
+						}}
 						className={`flex items-center rounded-md border outline-none transition-colors ${shaking ? "xpath-shake" : ""} ${
 							idField.focused
 								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"

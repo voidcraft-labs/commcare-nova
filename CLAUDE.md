@@ -130,6 +130,8 @@ All hooks colocate with their domain: `lib/doc/hooks/`, `lib/session/hooks.tsx`,
 
 Use React 19 ref-callback cleanup (not `useEffect`) for click-outside, Escape, and observer wire-up.
 
+Time-bounded UI animations clear state via `onAnimationEnd` (filtered on `e.animationName` to ignore bubbled descendant animations), not JS timers. Keeps cleanup automatic and aligns the JS state with the CSS lifecycle.
+
 ### Floating elements (Base UI)
 
 A single floating-tree coordinator handles dismiss/focus across all surfaces; the root layout provides shared tooltip delay grouping.

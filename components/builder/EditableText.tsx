@@ -54,16 +54,18 @@ export function EditableText({
 		selectAll,
 	});
 
-	// Callback ref wrapping the hook's ref so we can also handle autoFocus on
-	// mount without triggering React's synthetic focus event (which would fire
-	// handleFocus and reset the draft to the current prop value unnecessarily).
+	// Callback ref wrapping the hook's ref so we can also drive imperative
+	// focus on mount. The programmatic `.focus()` triggers React's onFocus,
+	// which routes through `handleFocus` from `useCommitField`; that's where
+	// the `selectAll` branch lives. This ref only handles the caret-at-end
+	// placement for the non-selectAll path, since the hook doesn't address
+	// it.
 	const setInputRef = useCallback(
 		(el: HTMLInputElement | HTMLTextAreaElement | null) => {
 			ref(el);
 			if (el && autoFocus) {
 				el.focus({ preventScroll: true });
-				if (selectAll) el.select();
-				else el.setSelectionRange(el.value.length, el.value.length);
+				if (!selectAll) el.setSelectionRange(el.value.length, el.value.length);
 			}
 		},
 		[ref, autoFocus, selectAll],

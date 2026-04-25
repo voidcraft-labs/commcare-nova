@@ -103,7 +103,9 @@ export function useCommitField({
 	// changes are visible without a synchronization effect.
 	const draft = focused ? internalDraft : value;
 
-	// Clear the saved checkmark after 1.5 s with proper cleanup on unmount.
+	// Clear the saved checkmark after 1.5s. Cleanup cancels the timer if
+	// the consumer unmounts mid-window or fires a fresh commit before the
+	// previous one drops.
 	useEffect(() => {
 		if (!saved) return;
 		const timer = setTimeout(() => setSaved(false), 1500);
@@ -142,9 +144,9 @@ export function useCommitField({
 		// that happened while the field was blurred.
 		setInternalDraft(value);
 		setFocused(true);
-		if (selectAll) {
-			setTimeout(() => inputRef.current?.select(), 0);
-		}
+		// React's onFocus fires after the browser positions the caret, so
+		// `.select()` here just overrides it — no deferral needed.
+		if (selectAll) inputRef.current?.select();
 	}, [value, selectAll]);
 
 	const handleBlur = useCallback(() => {

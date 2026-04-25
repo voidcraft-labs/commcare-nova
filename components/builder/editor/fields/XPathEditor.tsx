@@ -28,6 +28,10 @@ import type {
 	XPathStringKeys,
 } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
+import {
+	shouldShowValidateMsgEditor,
+	shouldShowValidateMsgPill,
+} from "./validateMsgVisibility";
 
 /**
  * `K extends XPathStringKeys<F>` admits both optional (`string |
@@ -69,11 +73,22 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 	const hasValidateMsg = !!validateMsg;
 	const [addingMsg, setAddingMsg] = useState(false);
 
-	// Show the nested message editor when the user opts in (pill
-	// click), when undo/redo restores focus to it, or when a value
-	// is already persisted.
-	const showValidateMsg =
-		isValidate && (hasValidateMsg || addingMsg || focusHint === "validate_msg");
+	// Visibility decisions live in `validateMsgVisibility.ts` so the
+	// "show editor vs pill vs nothing" rules are pinned in pure tests
+	// without mounting the XPath editor's CodeMirror surface.
+	const showValidateMsgEditor = shouldShowValidateMsgEditor({
+		keyName,
+		hasValidateMsg,
+		addingMsg,
+		focusHint,
+	});
+	const showValidateMsgPill = shouldShowValidateMsgPill({
+		keyName,
+		current,
+		hasValidateMsg,
+		addingMsg,
+		focusHint,
+	});
 
 	// `validate_msg` doesn't flow through the generic `onChange` (that
 	// prop is scoped to `keyName`). Dispatch via the doc-mutation API
@@ -114,30 +129,26 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 					onEditingChange={setEditing}
 				/>
 			</div>
-			{isValidate &&
-				(showValidateMsg ? (
-					<div className="mt-1">
-						<EditableText
-							label="Validation Message"
-							dataFieldId="validate_msg"
-							value={validateMsg ?? ""}
-							onSave={saveValidateMsg}
-							onEmpty={clearValidateMsg}
-							autoFocus={addingMsg || focusHint === "validate_msg"}
-						/>
-					</div>
-				) : (
-					// Only offer the add affordance when the parent XPath has
-					// a value — a message with no validation is noise.
-					current && (
-						<div className="mt-1">
-							<AddPropertyButton
-								label="Validation Message"
-								onClick={() => setAddingMsg(true)}
-							/>
-						</div>
-					)
-				))}
+			{showValidateMsgEditor && (
+				<div className="mt-1">
+					<EditableText
+						label="Validation Message"
+						dataFieldId="validate_msg"
+						value={validateMsg ?? ""}
+						onSave={saveValidateMsg}
+						onEmpty={clearValidateMsg}
+						autoFocus={addingMsg || focusHint === "validate_msg"}
+					/>
+				</div>
+			)}
+			{showValidateMsgPill && (
+				<div className="mt-1">
+					<AddPropertyButton
+						label="Validation Message"
+						onClick={() => setAddingMsg(true)}
+					/>
+				</div>
+			)}
 		</div>
 	);
 }
