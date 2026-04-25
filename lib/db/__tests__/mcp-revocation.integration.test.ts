@@ -216,6 +216,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 			mcpRequest({
 				sub: "user-test-1",
 				azp: created.client_id,
+				iat: Math.floor(Date.now() / 1000),
 				scope: "nova.read nova.write",
 			}),
 		);
@@ -239,6 +240,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 		const claims: Partial<JWTPayload> = {
 			sub: "user-test-1",
 			azp: created.client_id,
+			iat: Math.floor(Date.now() / 1000),
 			scope: "nova.read nova.write",
 		};
 
@@ -274,11 +276,29 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 
 	it("rejects with 401 when the JWT is missing the `azp` claim", async () => {
 		const res = await POST(
-			mcpRequest({ sub: "user-test-1", scope: "nova.read nova.write" }),
+			mcpRequest({
+				sub: "user-test-1",
+				iat: Math.floor(Date.now() / 1000),
+				scope: "nova.read nova.write",
+			}),
 		);
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
 			'error_description="missing client identity"',
+		);
+	});
+
+	it("rejects with 401 when the JWT is missing the `iat` claim", async () => {
+		const res = await POST(
+			mcpRequest({
+				sub: "user-test-1",
+				azp: "client-x",
+				scope: "nova.read nova.write",
+			}),
+		);
+		expect(res.status).toBe(401);
+		expect(res.headers.get("WWW-Authenticate")).toContain(
+			'error_description="missing token issue time"',
 		);
 	});
 
@@ -295,6 +315,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 				mcpRequest({
 					sub: "user-test-1",
 					azp: "client-x",
+					iat: Math.floor(Date.now() / 1000),
 					scope: "nova.read nova.write",
 				}),
 			);

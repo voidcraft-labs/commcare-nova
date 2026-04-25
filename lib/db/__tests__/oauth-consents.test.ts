@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
 	interface FakeDocRef {
 		id: string;
 		collectionPath: string;
+		delete?: () => Promise<void>;
 	}
 
 	interface FakeCollection {
@@ -123,7 +124,7 @@ const mocks = vi.hoisted(() => {
 			id,
 			exists: true,
 			data: () => data,
-			ref: { id, collectionPath },
+			ref: { id, collectionPath, delete: vi.fn(async () => {}) },
 		}),
 		reset,
 	};
@@ -317,6 +318,11 @@ describe("revokeAuthorizedClient", () => {
 	 */
 	function setupTxnHarness(opts: {
 		consentDoc?: { id: string; data: unknown; ref: { id: string } } | null;
+		consentRows?: Array<{
+			id: string;
+			data: unknown;
+			ref: { id: string };
+		}>;
 		refreshTokens?: Array<{
 			id: string;
 			data: unknown;
@@ -324,6 +330,7 @@ describe("revokeAuthorizedClient", () => {
 		}>;
 	}) {
 		const txDeletes: Array<{ id: string }> = [];
+		const txSets: Array<{ id: string; data: unknown; opts?: unknown }> = [];
 		const txUpdates: Array<{ id: string; patch: unknown }> = [];
 
 		mocks.runTransaction.mockImplementation(
@@ -336,6 +343,7 @@ describe("revokeAuthorizedClient", () => {
 						| { docs: Array<{ ref: { id: string }; data: () => unknown }> }
 					>;
 					delete: (ref: { id: string }) => void;
+					set: (ref: { id: string }, data: unknown, opts?: unknown) => void;
 					update: (ref: { id: string }, patch: unknown) => void;
 				}) => Promise<unknown>,
 			) => {
@@ -343,7 +351,8 @@ describe("revokeAuthorizedClient", () => {
 					get: vi.fn(async (target: unknown) => {
 						/* Doc refs have `.id`; Query objects don't. The
 						 * production helper passes the consent ref first
-						 * then a Query for the refresh-token bulk read. */
+						 * then Query objects for consent duplicates and
+						 * refresh-token bulk reads. */
 						if (
 							typeof target === "object" &&
 							target !== null &&
@@ -353,6 +362,21 @@ describe("revokeAuthorizedClient", () => {
 							return c
 								? { exists: true, data: () => c.data }
 								: { exists: false };
+						}
+						if (
+							typeof target === "object" &&
+							target !== null &&
+							"_path" in target &&
+							target._path === "oauthConsent"
+						) {
+							const rows =
+								opts.consentRows ?? (opts.consentDoc ? [opts.consentDoc] : []);
+							return {
+								docs: rows.map((t) => ({
+									ref: t.ref,
+									data: () => t.data,
+								})),
+							};
 						}
 						const tokens = opts.refreshTokens ?? [];
 						return {
@@ -365,6 +389,9 @@ describe("revokeAuthorizedClient", () => {
 					delete: vi.fn((ref: { id: string }) => {
 						txDeletes.push({ id: ref.id });
 					}),
+					set: vi.fn((ref: { id: string }, data: unknown, opts?: unknown) => {
+						txSets.push({ id: ref.id, data, opts });
+					}),
 					update: vi.fn((ref: { id: string }, patch: unknown) => {
 						txUpdates.push({ id: ref.id, patch });
 					}),
@@ -373,7 +400,7 @@ describe("revokeAuthorizedClient", () => {
 			},
 		);
 
-		return { txDeletes, txUpdates };
+		return { txDeletes, txSets, txUpdates };
 	}
 
 	it("happy path: deletes the consent and revokes every active refresh token in one transaction", async () => {
@@ -473,5 +500,185 @@ describe("revokeAuthorizedClient", () => {
 		/* Only the live token gets the update. */
 		expect(txUpdates).toHaveLength(1);
 		expect(txUpdates[0].id).toBe("live");
+	});
+
+	it("deletes every consent row for the user/client and writes a revocation watermark", async () => {
+		const { txDeletes, txSets, txUpdates } = setupTxnHarness({
+			consentDoc: {
+				id: "consent-selected",
+				data: { userId: "user-1", clientId: "client-A", scopes: [] },
+				ref: { id: "consent-selected" },
+			},
+			consentRows: [
+				{
+					id: "consent-selected",
+					data: { userId: "user-1", clientId: "client-A", scopes: [] },
+					ref: { id: "consent-selected" },
+				},
+				{
+					id: "consent-duplicate",
+					data: { userId: "user-1", clientId: "client-A", scopes: [] },
+					ref: { id: "consent-duplicate" },
+				},
+			],
+			refreshTokens: [
+				{
+					id: "token-a",
+					data: { userId: "user-1", clientId: "client-A" },
+					ref: { id: "token-a" },
+				},
+			],
+		});
+
+		const { revokeAuthorizedClient } = await import("../oauth-consents");
+		await revokeAuthorizedClient("user-1", "consent-selected");
+
+		expect(txDeletes.map((d) => d.id).sort()).toEqual([
+			"consent-duplicate",
+			"consent-selected",
+		]);
+		expect(txSets).toEqual([
+			expect.objectContaining({ id: expect.stringMatching(/^grant-rev-/) }),
+		]);
+		expect(txUpdates).toEqual(
+			expect.arrayContaining([expect.objectContaining({ id: "token-a" })]),
+		);
+	});
+});
+
+describe("hasActiveConsent", () => {
+	it("rejects a token issued before the user/client revocation watermark", async () => {
+		mocks.setCollection("oauthConsent", [
+			mocks.makeDocSnap(
+				"consent-1",
+				{
+					userId: "user-1",
+					clientId: "client-A",
+					scopes: ["nova.read"],
+					createdAt: Timestamp.fromDate(new Date("2026-04-01T00:00:00Z")),
+				},
+				"oauthConsent",
+			),
+		]);
+		mocks.setCollection("oauthGrantRevocation", [
+			mocks.makeDocSnap(
+				"grant-rev-1",
+				{
+					userId: "user-1",
+					clientId: "client-A",
+					revokedAt: Timestamp.fromDate(new Date("2026-04-25T10:00:00Z")),
+				},
+				"oauthGrantRevocation",
+			),
+		]);
+
+		const { hasActiveConsent } = await import("../oauth-consents");
+		const active = await hasActiveConsent(
+			"user-1",
+			"client-A",
+			Math.floor(new Date("2026-04-25T09:59:59Z").getTime() / 1000),
+		);
+
+		expect(active).toBe(false);
+	});
+
+	it("accepts a token issued after the last user/client revocation watermark", async () => {
+		mocks.setCollection("oauthConsent", [
+			mocks.makeDocSnap(
+				"consent-1",
+				{
+					userId: "user-1",
+					clientId: "client-A",
+					scopes: ["nova.read"],
+					createdAt: Timestamp.fromDate(new Date("2026-04-01T00:00:00Z")),
+				},
+				"oauthConsent",
+			),
+		]);
+		mocks.setCollection("oauthGrantRevocation", [
+			mocks.makeDocSnap(
+				"grant-rev-1",
+				{
+					userId: "user-1",
+					clientId: "client-A",
+					revokedAt: Timestamp.fromDate(new Date("2026-04-25T10:00:00Z")),
+				},
+				"oauthGrantRevocation",
+			),
+		]);
+
+		const { hasActiveConsent } = await import("../oauth-consents");
+		const active = await hasActiveConsent(
+			"user-1",
+			"client-A",
+			Math.floor(new Date("2026-04-25T10:00:01Z").getTime() / 1000),
+		);
+
+		expect(active).toBe(true);
+	});
+});
+
+describe("cleanupStalePublicOAuthClients", () => {
+	it("deletes old unauthenticated public clients that have no consent or refresh tokens", async () => {
+		const orphan = mocks.makeDocSnap(
+			"internal-orphan",
+			{
+				clientId: "client-orphan",
+				public: true,
+				createdAt: Timestamp.fromDate(new Date("2026-03-01T00:00:00Z")),
+			},
+			"oauthClient",
+		);
+		mocks.setCollection("oauthClient", [orphan]);
+		mocks.setCollection("oauthConsent", []);
+		mocks.setCollection("oauthRefreshToken", []);
+
+		const { cleanupStalePublicOAuthClients } = await import(
+			"../oauth-consents"
+		);
+		const deleted = await cleanupStalePublicOAuthClients({
+			now: new Date("2026-04-25T00:00:00Z"),
+			olderThanDays: 30,
+			limit: 20,
+		});
+
+		expect(deleted).toBe(1);
+		expect(orphan.ref.delete).toHaveBeenCalledTimes(1);
+		expect(mocks.getCollection("oauthClient").whereCalls).toEqual([
+			["createdAt", "<", new Date("2026-03-26T00:00:00.000Z")],
+		]);
+	});
+
+	it("keeps old public clients that still have consent", async () => {
+		const authorized = mocks.makeDocSnap(
+			"internal-authorized",
+			{
+				clientId: "client-authorized",
+				public: true,
+				createdAt: Timestamp.fromDate(new Date("2026-03-01T00:00:00Z")),
+			},
+			"oauthClient",
+		);
+		mocks.setCollection("oauthClient", [authorized]);
+		mocks.setCollection("oauthConsent", [
+			mocks.makeDocSnap(
+				"consent-1",
+				{ clientId: "client-authorized", userId: "user-1", scopes: [] },
+				"oauthConsent",
+			),
+		]);
+		mocks.setCollection("oauthRefreshToken", []);
+
+		const { cleanupStalePublicOAuthClients } = await import(
+			"../oauth-consents"
+		);
+		const deleted = await cleanupStalePublicOAuthClients({
+			now: new Date("2026-04-25T00:00:00Z"),
+			olderThanDays: 30,
+			limit: 20,
+		});
+
+		expect(deleted).toBe(0);
+		expect(authorized.ref.delete).not.toHaveBeenCalled();
 	});
 });

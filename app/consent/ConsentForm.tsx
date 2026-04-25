@@ -15,11 +15,15 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { authClient } from "@/lib/auth-client";
 import { deriveCapabilities } from "@/lib/oauth/capabilities";
+import { deriveOAuthClientDisclosure } from "@/lib/oauth/client-display";
 
 interface ConsentFormProps {
 	clientName: string;
 	scopes: readonly string[];
 	redirectMismatch: boolean;
+	redirectUri?: string;
+	clientUri?: string;
+	trustedClient: boolean;
 }
 
 /**
@@ -65,6 +69,9 @@ export function ConsentForm({
 	clientName,
 	scopes,
 	redirectMismatch,
+	redirectUri,
+	clientUri,
+	trustedClient,
 }: ConsentFormProps) {
 	const [pending, setPending] = useState<"accept" | "deny" | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -107,6 +114,12 @@ export function ConsentForm({
 	};
 
 	const capabilities = deriveCapabilities(scopes);
+	const disclosure = deriveOAuthClientDisclosure({
+		clientName,
+		redirectUri,
+		clientUri,
+		trusted: trustedClient,
+	});
 
 	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1) —
 	 * gentle decelerating arrival. Timing is tight enough to feel instant on
@@ -146,7 +159,8 @@ export function ConsentForm({
 						<h1 className="font-display text-[1.75rem] font-medium leading-[1.15] text-nova-text">
 							Allow{" "}
 							<span className="font-semibold">
-								&ldquo;<span className="text-nova-amber">{clientName}</span>
+								&ldquo;
+								<span className="text-nova-amber">{disclosure.clientName}</span>
 								&rdquo;
 							</span>{" "}
 							to use your{" "}
@@ -155,6 +169,23 @@ export function ConsentForm({
 							</span>{" "}
 							account?
 						</h1>
+						<div className="flex flex-col gap-1 text-xs leading-relaxed text-nova-text-muted">
+							<p>
+								<span className="font-medium text-nova-amber">
+									{disclosure.trustLabel}
+								</span>{" "}
+								· redirects to {disclosure.redirectDisplay}
+							</p>
+							{disclosure.clientUriDisplay ? (
+								<p>Publisher site: {disclosure.clientUriDisplay}</p>
+							) : null}
+							{disclosure.brandWarning ? (
+								<p className="text-nova-rose">
+									This app name resembles Nova, CommCare, or Dimagi, but it has
+									not been verified by Nova.
+								</p>
+							) : null}
+						</div>
 					</div>
 				</div>
 

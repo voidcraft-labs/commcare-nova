@@ -119,6 +119,7 @@ export const maxDuration = 300;
 type UnauthorizedReason =
 	| "missing client identity"
 	| "missing subject claim"
+	| "missing token issue time"
 	| "consent revoked"
 	| "auth check failed";
 
@@ -189,13 +190,20 @@ const handler = mcpHandler(
 			});
 			return mcpUnauthorizedResponse("missing client identity");
 		}
+		if (typeof jwt.iat !== "number" || !Number.isFinite(jwt.iat)) {
+			log.error("[mcp] access token missing required `iat` claim", {
+				sub: jwt.sub,
+				clientId,
+			});
+			return mcpUnauthorizedResponse("missing token issue time");
+		}
 
 		/* The revocation lock — see the module docblock for why this
 		 * exists. Firestore failure also returns 401: same reasoning as
 		 * the missing-claim paths above. */
 		let consentActive: boolean;
 		try {
-			consentActive = await hasActiveConsent(jwt.sub, clientId);
+			consentActive = await hasActiveConsent(jwt.sub, clientId, jwt.iat);
 		} catch (err) {
 			log.error("[mcp] consent lookup failed", err);
 			return mcpUnauthorizedResponse("auth check failed");

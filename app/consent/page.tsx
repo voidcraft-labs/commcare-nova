@@ -53,11 +53,11 @@ function parseScopes(raw: string | string[] | undefined): string[] {
  * the difference between "Nova doesn't know this client" and "Nova is
  * broken." The UI still degrades gracefully; the signal just isn't eaten.
  */
-async function fetchClientName(
+async function fetchClientPublicInfo(
 	auth: ReturnType<typeof getAuth>,
 	clientId: string,
 	hdrs: Headers,
-): Promise<string | undefined> {
+): Promise<{ clientName?: string; clientUri?: string } | undefined> {
 	/* Better Auth's handler requires a parseable absolute URL. The origin
 	 * is discarded by the handler — only the pathname + search are read —
 	 * so any syntactically valid origin works. `http://internal` reads
@@ -73,8 +73,14 @@ async function fetchClientName(
 			);
 			return undefined;
 		}
-		const body = (await res.json()) as { client_name?: string };
-		return body.client_name;
+		const body = (await res.json()) as {
+			client_name?: string;
+			client_uri?: string;
+		};
+		return {
+			clientName: body.client_name,
+			clientUri: body.client_uri,
+		};
 	} catch (err) {
 		console.warn(
 			`[consent] /oauth2/public-client threw for client_id=${clientId}:`,
@@ -99,6 +105,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const clientId = typeof sp.client_id === "string" ? sp.client_id : undefined;
 	const scopes = parseScopes(sp.scope);
 	const sig = typeof sp.sig === "string" ? sp.sig : undefined;
+	const redirectUri =
+		typeof sp.redirect_uri === "string" ? sp.redirect_uri : undefined;
 
 	/* `sig` is the HMAC the authorize handler appends to the full query
 	 * before redirecting here; its presence is the only trustworthy signal
@@ -108,10 +116,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	 * stale or forged signatures at the POST, so surfacing an error branch
 	 * client-side is a UX concession, not a security boundary. */
 	const requestValid = Boolean(clientId && scopes.length > 0 && sig);
-	const clientName =
+	const clientInfo =
 		requestValid && clientId
-			? ((await fetchClientName(auth, clientId, hdrs)) ?? "An application")
-			: "An application";
+			? await fetchClientPublicInfo(auth, clientId, hdrs)
+			: undefined;
+	const clientName = clientInfo?.clientName ?? "An application";
 
 	return (
 		<main className="relative isolate flex min-h-full items-center justify-center overflow-hidden px-5 py-12 sm:py-16">
@@ -134,6 +143,9 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 					clientName={clientName}
 					scopes={scopes}
 					redirectMismatch={!requestValid}
+					redirectUri={redirectUri}
+					clientUri={clientInfo?.clientUri}
+					trustedClient={false}
 				/>
 			</div>
 		</main>

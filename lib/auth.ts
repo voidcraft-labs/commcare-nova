@@ -29,16 +29,19 @@ import { MCP_RESOURCE_URL } from "./hostnames";
 /**
  * OAuth scopes Nova's authorization server can grant.
  *
- * Referenced twice in the oauth-provider config below:
+ * Referenced three times in the oauth-provider config below:
  *   - `scopes` — the authoritative list the AS advertises + enforces.
  *   - `clientRegistrationDefaultScopes` — what a newly registered client
  *     gets when it doesn't send an explicit `scope` param during DCR.
+ *   - `clientRegistrationAllowedScopes` — the complete allowlist a dynamic
+ *     client may request explicitly.
  *
- * Both slots receive the same list because a client omitting `scope` on
- * registration is signalling "give me everything you can grant"; narrowing
- * the default would silently break clients that later request the full
- * set at /authorize. Tool-level scope enforcement still happens at the
- * MCP handler, so granting the full set here is safe.
+ * Defaults deliberately exclude HQ scopes. A public DCR client omitting
+ * `scope` should get the MCP baseline, not delegated CommCare HQ powers.
+ * HQ scopes stay requestable via `clientRegistrationAllowedScopes`, so a
+ * client that needs deployment can ask for them explicitly and the consent
+ * screen can make that grant visible. Better Auth treats the registration
+ * allowlist as the full valid set, so it includes the baseline scopes too.
  *
  * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
  * standard set clients expect for refresh-token flows. The Nova scopes
@@ -58,6 +61,21 @@ const NOVA_OAUTH_SCOPES = [
 	"offline_access",
 	"nova.read",
 	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
+] as const;
+
+export const NOVA_OAUTH_DEFAULT_CLIENT_SCOPES = [
+	"openid",
+	"profile",
+	"email",
+	"offline_access",
+	"nova.read",
+	"nova.write",
+] as const;
+
+export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
+	...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES,
 	"nova.hq.read",
 	"nova.hq.write",
 ] as const;
@@ -274,8 +292,10 @@ function createAuth() {
 			 *     so Claude Code (which has no pre-shared credentials) can
 			 *     bootstrap itself. Abuse is bounded by the plugin's own
 			 *     per-IP-per-endpoint rate limiter (see `rateLimit` below)
-			 *     and by the 30-day client-secret expiration that forces
-			 *     periodic re-registration.
+			 *     and by opportunistic cleanup of stale unauthenticated
+			 *     public clients on successful registration. Public clients
+			 *     do not receive a client secret, so secret expiration
+			 *     cannot bound this storage surface.
 			 *
 			 * Rate limiting: `@better-auth/oauth-provider` ships its own
 			 * per-endpoint limiter (distinct from Better Auth's global
@@ -298,7 +318,8 @@ function createAuth() {
 				scopes: [...NOVA_OAUTH_SCOPES],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
-				clientRegistrationDefaultScopes: [...NOVA_OAUTH_SCOPES],
+				clientRegistrationDefaultScopes: [...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES],
+				clientRegistrationAllowedScopes: [...NOVA_OAUTH_ALLOWED_CLIENT_SCOPES],
 				clientRegistrationClientSecretExpiration: "30d",
 				rateLimit: {
 					register: { window: 60, max: 5 },

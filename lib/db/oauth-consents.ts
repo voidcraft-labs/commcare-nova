@@ -17,7 +17,9 @@
  * `namingStrategy: "default"`.
  */
 
+import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "@google-cloud/firestore";
+import { decodeJwt } from "jose";
 import { getDb } from "./firestore";
 
 // ── Public types ────────────────────────────────────────────────────
@@ -67,6 +69,11 @@ interface OAuthClientDoc {
 	clientId: string;
 	/** Human-readable client name. Stored as `name`; surfaced as `client_name` over the wire. */
 	name?: string;
+	/** Public clients are unauthenticated DCR clients (`token_endpoint_auth_method: none`). */
+	public?: boolean;
+	/** Present only for clients registered by an authenticated user. */
+	userId?: string;
+	createdAt?: Timestamp | Date;
 }
 
 /**
@@ -80,11 +87,20 @@ interface OAuthRefreshTokenDoc {
 	revoked?: Timestamp | Date;
 }
 
+/** Per-(user, client) revocation watermark used to invalidate JWT access tokens. */
+interface OAuthGrantRevocationDoc {
+	userId: string;
+	clientId: string;
+	revokedAt?: Timestamp | Date;
+}
+
 // ── Collection names ────────────────────────────────────────────────
 
 const COLLECTION_CONSENT = "oauthConsent";
 const COLLECTION_CLIENT = "oauthClient";
 const COLLECTION_REFRESH_TOKEN = "oauthRefreshToken";
+const COLLECTION_GRANT_REVOCATION = "oauthGrantRevocation";
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -92,6 +108,28 @@ const COLLECTION_REFRESH_TOKEN = "oauthRefreshToken";
 function toISOString(val: Timestamp | Date): string {
 	if (val instanceof Timestamp) return val.toDate().toISOString();
 	return val.toISOString();
+}
+
+/** Firestore timestamp-ish value to epoch millis. Invalid/missing means fail closed. */
+function toMillis(val: Timestamp | Date | undefined): number | null {
+	if (!val) return null;
+	const date = val instanceof Timestamp ? val.toDate() : val;
+	const ms = date.getTime();
+	return Number.isFinite(ms) ? ms : null;
+}
+
+/** Deterministic doc id without exposing raw user/client ids in the path. */
+function grantRevocationDocId(userId: string, clientId: string): string {
+	const digest = createHash("sha256")
+		.update(userId)
+		.update("\0")
+		.update(clientId)
+		.digest("base64url");
+	return `grant-rev-${digest}`;
+}
+
+function hashStoredOAuthToken(token: string): string {
+	return createHash("sha256").update(token).digest("base64url");
 }
 
 /**
@@ -194,8 +232,19 @@ export async function revokeAuthorizedClient(
 			throw new Error("Consent does not belong to this user");
 		}
 
-		/* Read tokens inside the txn so the bulk update commits
-		 * atomically with the consent delete. */
+		/* Delete every consent row for the same pair. The plugin's
+		 * find-then-create flow plus Firestore's lack of uniqueness can
+		 * produce duplicates; leaving any one row behind would keep the
+		 * MCP route's active-grant check alive. */
+		const consentsSnap = await tx.get(
+			db
+				.collection(COLLECTION_CONSENT)
+				.where("userId", "==", userId)
+				.where("clientId", "==", consent.clientId),
+		);
+
+		/* Read tokens inside the txn so the bulk update commits atomically
+		 * with consent deletion and the JWT revocation watermark. */
 		const tokensSnap = await tx.get(
 			db
 				.collection(COLLECTION_REFRESH_TOKEN)
@@ -203,17 +252,85 @@ export async function revokeAuthorizedClient(
 				.where("clientId", "==", consent.clientId),
 		);
 
-		tx.delete(consentRef);
+		for (const consentDoc of consentsSnap.docs) {
+			tx.delete(consentDoc.ref);
+		}
 
 		/* `serverTimestamp()` resolves on commit so every revoked
-		 * token gets the same server-side timestamp. */
+		 * token and the watermark get the same server-side timestamp. */
 		const revokedAt = FieldValue.serverTimestamp();
 		for (const tokenDoc of tokensSnap.docs) {
 			const data = tokenDoc.data() as OAuthRefreshTokenDoc;
 			if (data.revoked) continue;
 			tx.update(tokenDoc.ref, { revoked: revokedAt });
 		}
+
+		tx.set(
+			db
+				.collection(COLLECTION_GRANT_REVOCATION)
+				.doc(grantRevocationDocId(userId, consent.clientId)),
+			{
+				userId,
+				clientId: consent.clientId,
+				revokedAt,
+				updatedAt: revokedAt,
+			},
+			{ merge: true },
+		);
 	});
+}
+
+/** Write the per-(user, client) JWT revocation watermark outside a transaction. */
+export async function recordOAuthGrantRevocation(
+	userId: string,
+	clientId: string,
+): Promise<void> {
+	const revokedAt = FieldValue.serverTimestamp();
+	await getDb()
+		.collection(COLLECTION_GRANT_REVOCATION)
+		.doc(grantRevocationDocId(userId, clientId))
+		.set(
+			{
+				userId,
+				clientId,
+				revokedAt,
+				updatedAt: revokedAt,
+			},
+			{ merge: true },
+		);
+}
+
+/**
+ * Mirror a successful `/oauth2/revoke` call into Nova's instant JWT
+ * revocation lock. JWT access tokens carry `sub` + `azp`; refresh tokens
+ * are looked up by Better Auth's default hashed storage value.
+ */
+export async function recordOAuthGrantRevocationForToken(
+	token: string,
+): Promise<boolean> {
+	try {
+		const jwt = decodeJwt(token);
+		const userId = typeof jwt.sub === "string" ? jwt.sub : undefined;
+		const clientId = typeof jwt.azp === "string" ? jwt.azp : undefined;
+		if (userId && clientId) {
+			await recordOAuthGrantRevocation(userId, clientId);
+			return true;
+		}
+	} catch {
+		/* Not a JWT access token; fall through to refresh-token lookup. */
+	}
+
+	const snap = await getDb()
+		.collection(COLLECTION_REFRESH_TOKEN)
+		.where("token", "==", hashStoredOAuthToken(token))
+		.limit(1)
+		.get();
+	if (snap.empty) return false;
+
+	const refresh = snap.docs[0]?.data() as OAuthRefreshTokenDoc | undefined;
+	if (!refresh?.userId || !refresh.clientId) return false;
+	await recordOAuthGrantRevocation(refresh.userId, refresh.clientId);
+	return true;
 }
 
 /**
@@ -224,6 +341,7 @@ export async function revokeAuthorizedClient(
 export async function hasActiveConsent(
 	userId: string,
 	clientId: string,
+	tokenIssuedAt?: number,
 ): Promise<boolean> {
 	const snap = await getDb()
 		.collection(COLLECTION_CONSENT)
@@ -231,7 +349,76 @@ export async function hasActiveConsent(
 		.where("clientId", "==", clientId)
 		.limit(1)
 		.get();
-	return !snap.empty;
+	if (snap.empty) return false;
+
+	if (tokenIssuedAt === undefined) return true;
+
+	const issuedAtMs = Number.isFinite(tokenIssuedAt)
+		? tokenIssuedAt * 1000
+		: null;
+	if (issuedAtMs === null) return false;
+
+	const revocationSnap = await getDb()
+		.collection(COLLECTION_GRANT_REVOCATION)
+		.where("userId", "==", userId)
+		.where("clientId", "==", clientId)
+		.limit(1)
+		.get();
+	if (revocationSnap.empty) return true;
+
+	const revocation = revocationSnap.docs[0]?.data() as
+		| OAuthGrantRevocationDoc
+		| undefined;
+	const revokedAtMs = toMillis(revocation?.revokedAt);
+	if (revokedAtMs === null) return false;
+	return revokedAtMs < issuedAtMs;
+}
+
+/**
+ * Opportunistic cleanup for unauthenticated public DCR clients. Public
+ * clients never receive a client secret, so `client_secret_expires_at`
+ * cannot bound storage growth; stale clients with no consents or refresh
+ * tokens are safe to delete.
+ */
+export async function cleanupStalePublicOAuthClients({
+	now = new Date(),
+	olderThanDays = 30,
+	limit = 50,
+}: {
+	now?: Date;
+	olderThanDays?: number;
+	limit?: number;
+} = {}): Promise<number> {
+	const cutoff = new Date(now.getTime() - olderThanDays * MS_PER_DAY);
+	const snap = await getDb()
+		.collection(COLLECTION_CLIENT)
+		.where("createdAt", "<", cutoff)
+		.limit(limit)
+		.get();
+
+	let deleted = 0;
+	for (const doc of snap.docs) {
+		const client = doc.data() as OAuthClientDoc;
+		if (!client.public || client.userId || !client.clientId) continue;
+
+		const [consents, refreshTokens] = await Promise.all([
+			getDb()
+				.collection(COLLECTION_CONSENT)
+				.where("clientId", "==", client.clientId)
+				.limit(1)
+				.get(),
+			getDb()
+				.collection(COLLECTION_REFRESH_TOKEN)
+				.where("clientId", "==", client.clientId)
+				.limit(1)
+				.get(),
+		]);
+		if (!consents.empty || !refreshTokens.empty) continue;
+
+		await doc.ref.delete();
+		deleted += 1;
+	}
+	return deleted;
 }
 
 // ── Internals ───────────────────────────────────────────────────────
