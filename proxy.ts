@@ -43,17 +43,23 @@ import {
 } from "@/lib/hostnames";
 
 /**
- * Build a 404 with `Cache-Control: no-store` and a plain-text body. Off-
- * allowlist requests share this response so the hostname security boundary
- * cannot be cached by an intermediate (CDN, browser disk cache) and then
- * served back as a positive answer if the allowlist later changes.
+ * Build a 404 with `Cache-Control: no-store`. Off-allowlist requests share
+ * this response so the hostname security boundary cannot be cached by an
+ * intermediate (CDN, browser disk cache) and then served back as a
+ * positive answer if the allowlist later changes.
+ *
+ * The body is `null` rather than a courtesy "Not Found" string. With a
+ * non-null body the underlying `Response` carries an internal body
+ * promise that never settles unless the body is read — irrelevant in
+ * production (the response goes straight to the wire) but a leak under
+ * vitest's async-leak detection. Browsers and CLI tools render their own
+ * default 404 surface against an empty body, so there is no UX cost.
  */
 function notFound(): NextResponse {
-	return new NextResponse("Not Found", {
+	return new NextResponse(null, {
 		status: 404,
 		headers: {
 			"Cache-Control": "no-store",
-			"Content-Type": "text/plain; charset=utf-8",
 		},
 	});
 }
