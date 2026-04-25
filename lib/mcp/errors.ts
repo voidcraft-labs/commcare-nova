@@ -78,7 +78,7 @@ export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can
- * emit. Spans four independent failure sources:
+ * emit. Spans five independent failure sources:
  *
  *   - `"not_found"` — the single access-failure bucket the wire
  *     exposes. The internal `AccessErrorReason` union (`"not_found"`
@@ -91,6 +91,14 @@ export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
  *     required only in edit mode). Surfaces via `McpInvalidInputError`
  *     and short-circuits the classifier the same way `McpAccessError`
  *     does.
+ *   - `"scope_missing"` — the caller's access token lacks an OAuth
+ *     scope a specific tool requires (orthogonal to the route-layer
+ *     `nova.read` + `nova.write` floor). Today only the HQ tools
+ *     (`get_hq_connection`, `upload_app_to_hq`) gate this way; see
+ *     `requireScope` in `./scopes` for the helper that produces the
+ *     envelope. Distinct from `UploadErrorType` because scope failure
+ *     is a token-shape problem, not a per-tool gate, and surfaces
+ *     across multiple tools.
  *   - `UploadErrorType` — upload-tool-specific gate rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
@@ -101,6 +109,7 @@ export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
 export type McpErrorType =
 	| "not_found"
 	| "invalid_input"
+	| "scope_missing"
 	| UploadErrorType
 	| AgentErrorType;
 
@@ -112,11 +121,18 @@ export type McpErrorType =
  *
  * `app_id` rides through when the handler knows the target app. Absent
  * otherwise (pre-app-resolution failures).
+ *
+ * `required_scope` rides through when `error_type === "scope_missing"`
+ * so a client can show the user *which* scope was absent (e.g. so the
+ * MCP client UI can prompt "re-authorize to grant CommCare HQ access").
+ * Absent on every other error type — the field is meaningless outside
+ * the scope-gate path.
  */
 export interface McpErrorPayload {
 	error_type: McpErrorType;
 	message: string;
 	app_id?: string;
+	required_scope?: string;
 }
 
 /**

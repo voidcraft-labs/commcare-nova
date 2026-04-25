@@ -11,9 +11,14 @@
  * Per-request context the MCP route handler materializes from the verified
  * JWT claims. Passed to each adapter's `register<Tool>(server, ctx)` call
  * so adapter closures can resolve the authenticated user without
- * re-parsing the token. Scopes are already checked at the verify layer
- * via the plugin's `verifyAccessToken({ scopes })` — this context carries
- * them for informational use only.
+ * re-parsing the token.
+ *
+ * The route's verify layer checks the floor scopes (`nova.read`,
+ * `nova.write`) before any handler runs; orthogonal scopes
+ * (`nova.hq.read`, `nova.hq.write`) layer on top via per-tool
+ * `requireScope` calls inside the HQ handlers. This context carries
+ * the full scope set so those per-tool checks can read it without
+ * re-parsing the token claim.
  */
 export interface ToolContext {
 	/** Better Auth user id, from the JWT `sub` claim. */
@@ -22,13 +27,12 @@ export interface ToolContext {
 	 * Scopes granted on the caller's access token, post-verification.
 	 * Typed as `readonly string[]` not `Scope[]` because the claim
 	 * carries third-party scopes (`openid`, `profile`, `offline_access`)
-	 * Nova doesn't own but must preserve alongside its own. Tool bodies
-	 * that need to branch on a Nova scope check
-	 * `scopes.includes(SCOPES.write)` against the string array. No tool
-	 * reads this field today — scope enforcement happens at the route
-	 * layer's `verifyAccessToken` — but the field is threaded through
-	 * so future scope-conditional tool behavior doesn't need a context
-	 * refactor.
+	 * Nova doesn't own but must preserve alongside its own. Per-tool
+	 * scope guards (`requireScope` in `lib/mcp/scopes.ts`) read this
+	 * field to gate orthogonal scopes like `nova.hq.read` /
+	 * `nova.hq.write`; the floor scopes (`nova.read`, `nova.write`) are
+	 * already enforced at the route's verify layer before this context
+	 * is constructed.
 	 */
 	scopes: readonly string[];
 }

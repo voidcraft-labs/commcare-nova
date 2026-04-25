@@ -41,8 +41,15 @@ import { MCP_RESOURCE_URL } from "./hostnames";
  * MCP handler, so granting the full set here is safe.
  *
  * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
- * standard set clients expect for refresh-token flows. `nova.read` /
- * `nova.write` are Nova-specific scopes enforced per-tool.
+ * standard set clients expect for refresh-token flows. The Nova scopes
+ * split into two layers: `nova.read` / `nova.write` cover Nova-internal
+ * (Firestore-backed) operations and are enforced at the MCP route's
+ * verify layer; `nova.hq.read` / `nova.hq.write` cover delegated access
+ * to CommCare HQ via the user's stored API key and are enforced
+ * per-tool inside the HQ handlers (see `lib/mcp/scopes.ts`'s
+ * `requireScope`). HQ access is *orthogonal* to read/write — a client
+ * that only needs Nova-internal access can omit the HQ scopes at
+ * `/oauth2/authorize` and still call non-HQ tools.
  */
 const NOVA_OAUTH_SCOPES = [
 	"openid",
@@ -51,6 +58,8 @@ const NOVA_OAUTH_SCOPES = [
 	"offline_access",
 	"nova.read",
 	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
 ] as const;
 
 let _authDb: AdminFirestore | null = null;

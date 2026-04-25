@@ -38,18 +38,27 @@
  *   3. The MCP JSON-RPC layer inside `createMcpHandler` dispatches the
  *      tool call through the registered callback.
  *
- * ## Why scope enforcement at the verify layer
+ * ## Two-layer scope enforcement
  *
- * The plugin's `verifyAccessToken` config takes a `scopes` array that
- * it checks as part of token verification. Declaring required scopes
- * here means every tool registered downstream inherits the check for
- * free — there is no per-handler `requireScope(...)` call to forget,
- * and a newly added tool can't accidentally ship without scope
- * enforcement. If in the future we need a read-only token class that
- * can hit the read tools but not the write tools, the right shape is
- * two separate mount points with different scope sets (one requiring
- * `nova.read`, one requiring both), not a per-tool branch inside a
- * single mount.
+ * Scope checks split between this verify layer and the individual tool
+ * handlers, picked by whether the scope is *comparable* (read vs
+ * write — one is a subset of the other in capability) or *orthogonal*
+ * to read/write (HQ access — a separate authorization to a third-party
+ * system that cuts across both axes).
+ *
+ *   - **Comparable, verify-layer.** `nova.read` and `nova.write` are
+ *     declared in `verifyAccessToken({ scopes })` below. Every tool
+ *     registered downstream inherits the check for free — there is no
+ *     per-handler `requireScope(...)` call to forget, and a newly added
+ *     Nova-internal tool can't ship without enforcement.
+ *   - **Orthogonal, per-tool.** `nova.hq.read` and `nova.hq.write` gate
+ *     access to CommCare HQ. They're not comparable to read/write
+ *     (you can have HQ access without Nova write, or vice versa), so
+ *     mount-splitting can't capture them — it would require a 4-way
+ *     mount cross-product. Instead, HQ tools call `requireScope` (in
+ *     `lib/mcp/scopes.ts`) at the top of their handler. Adding HQ
+ *     scopes to *this* layer's `scopes` array would mandate them for
+ *     every MCP request, defeating the orthogonal split.
  *
  * ## Why the JWT narrowing runs here
  *
@@ -152,10 +161,14 @@ const handler = mcpHandler(
 		/* Outer-level scopes — a sibling of `verifyOptions`, NOT nested
 		 * inside it. The verify helper's semantics are "token must carry
 		 * ALL listed scopes, extras allowed" (source of truth:
-		 * `@better-auth/core/dist/oauth2/verify.d.mts`). Both Nova scopes
-		 * are required on every request because read + write tools share
-		 * this single mount; split into separate mounts with distinct
-		 * scope sets if a read-only token class is ever introduced. */
+		 * `@better-auth/core/dist/oauth2/verify.d.mts`). Both Nova
+		 * read/write scopes are the floor for any tool call. The HQ
+		 * scopes (`nova.hq.read`, `nova.hq.write`) deliberately stay
+		 * OUT of this list — they're orthogonal to read/write and
+		 * enforced per-tool inside the HQ handlers via `requireScope`,
+		 * so a client without HQ scopes can still call non-HQ tools.
+		 * See the "Two-layer scope enforcement" section in the module
+		 * docblock above. */
 		scopes: [SCOPES.read, SCOPES.write],
 	},
 	async (req: Request, jwt: JWTPayload): Promise<Response> => {

@@ -2,7 +2,10 @@
  * `nova.upload_app_to_hq` — upload an owned app's blueprint to CommCare
  * HQ as a new app in the authorized project space.
  *
- * Scope: `nova.write`.
+ * Scope: `nova.hq.write` (per-tool, in addition to the route-layer
+ * `nova.read` + `nova.write` floor). HQ access is orthogonal to
+ * Nova-internal read/write — see `lib/mcp/scopes.ts` for the full
+ * enforcement model.
  *
  * HQ has no atomic update API, so every call produces a brand-new app
  * in the target project — the returned `hq_app_id` is always fresh.
@@ -16,24 +19,33 @@
  * tool had to gate for — invalid slug, unauthorized slug, missing
  * arg — by the simple expedient of not accepting the arg.
  *
- * Two gates remain, each producing a distinct `error_type` in the
- * returned content so MCP clients can surface actionable guidance:
+ * Three actionable `error_type` values can surface from this tool, in
+ * the order their gates fire — each producing a distinct envelope so
+ * MCP clients can branch cleanly:
  *
- *   1. `hq_not_configured` — the user has not stored CommCare HQ
+ *   1. `scope_missing`     — the access token lacks `nova.hq.write`.
+ *                            Pre-gate 0; cuts off ownership probing
+ *                            before any Firestore read.
+ *   2. `hq_not_configured` — the user has not stored CommCare HQ
  *                            credentials in Settings; there is nothing
  *                            to upload with.
- *   2. `hq_upload_failed`  — `importApp` returned a non-success
+ *   3. `hq_upload_failed`  — `importApp` returned a non-success
  *                            response (HQ rejected the upload, network
  *                            fault, or 5xx from HQ).
+ *
+ * (`not_found` from the ownership pre-gate is also possible but not
+ * actionable — it collapses cross-tenant probes to the same shape as
+ * a missing app.)
  *
  * The hardcoded `COMMCARE_HQ_URL` inside `lib/commcare/client.ts` is
  * the one SSRF boundary; since the domain now comes from the user's
  * KMS-encrypted settings (written through a validated save path), it
  * cannot smuggle path components into the URL `importApp` constructs.
  *
- * Ownership is checked BEFORE the upload gates so a cross-tenant
- * upload probe can never surface a settings-level failure reason for
- * an app the caller doesn't own.
+ * Pre-gate ordering — scope → ownership → settings — is defensive:
+ * each gate leaks strictly less information than the one after it, so
+ * the earliest-applicable rejection always closes more probe channels
+ * than it opens.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -51,6 +63,7 @@ import {
 import { loadAppBlueprint } from "../loadApp";
 import { McpAccessError, requireOwnedApp } from "../ownership";
 import { deriveRunId, timestampToMillis } from "../runId";
+import { requireScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -142,7 +155,26 @@ export function registerUploadAppToHq(
 			const appId = args.app_id;
 
 			try {
-				/* Pre-gate: ownership. Runs BEFORE the upload gate so a
+				/* Pre-gate 0: scope. Runs BEFORE ownership so a token without
+				 * `nova.hq.write` cannot probe whether an app id exists or
+				 * is owned by the caller — scope failure leaks nothing about
+				 * the user's data, ownership failure does (collapsed at the
+				 * wire to `not_found`, but still a probe channel that's
+				 * cheaper to cut off entirely). `appId` rides through into
+				 * the envelope so the wire shape stays uniform with this
+				 * tool's other failure modes — every upload error envelope
+				 * carries `app_id`, and a client switching on `error_type`
+				 * shouldn't have to special-case `scope_missing` for that
+				 * field. */
+				const scopeError = requireScope(
+					ctx.scopes,
+					SCOPES.hqWrite,
+					"upload_app_to_hq",
+					appId,
+				);
+				if (scopeError) return scopeError;
+
+				/* Pre-gate 1: ownership. Runs BEFORE the upload gate so a
 				 * cross-tenant upload probe never surfaces settings-level
 				 * failure reasons for an app the caller doesn't own. */
 				await requireOwnedApp(ctx.userId, appId);

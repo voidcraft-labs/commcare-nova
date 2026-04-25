@@ -17,6 +17,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCommCareSettings } from "@/lib/db/settings";
+import { SCOPES } from "../scopes";
 import { registerGetHqConnection } from "../tools/getHqConnection";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -25,7 +26,12 @@ vi.mock("@/lib/db/settings", () => ({
 	getCommCareSettings: vi.fn(),
 }));
 
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+/* The `nova.hq.read` scope is required by the per-tool guard inside
+ * `registerGetHqConnection`. The route-layer floor (`nova.read`,
+ * `nova.write`) is irrelevant in these unit tests because we're calling
+ * the handler directly — only the scope the handler itself reads from
+ * `ctx.scopes` matters here. */
+const toolCtx: ToolContext = { userId: "u1", scopes: [SCOPES.hqRead] };
 
 beforeEach(() => {
 	vi.mocked(getCommCareSettings).mockReset();
@@ -86,6 +92,33 @@ describe("registerGetHqConnection — not configured", () => {
 		 * that the user has not connected HQ. A present-but-null `domain`
 		 * would force clients to check both fields. */
 		expect("domain" in parsed).toBe(false);
+	});
+});
+
+describe("registerGetHqConnection — missing nova.hq.read", () => {
+	it("returns a scope_missing envelope without touching the DB", async () => {
+		const { server, capture } = makeFakeServer();
+		/* Caller's token has the route-layer floor scopes but not the
+		 * orthogonal HQ-read scope — the per-tool guard must reject
+		 * before any Firestore read fires. */
+		registerGetHqConnection(server, {
+			userId: "u1",
+			scopes: [SCOPES.read, SCOPES.write],
+		});
+
+		const out = (await capture()({})) as {
+			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type?: string;
+			required_scope?: string;
+		};
+		expect(payload.error_type).toBe("scope_missing");
+		expect(payload.required_scope).toBe(SCOPES.hqRead);
+		/* Pre-DB short-circuit: the handler must not have read settings. */
+		expect(getCommCareSettings).not.toHaveBeenCalled();
 	});
 });
 

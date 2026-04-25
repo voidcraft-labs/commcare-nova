@@ -3,7 +3,9 @@
  * CommCare HQ credentials configured, and if so, which project space
  * they authorize.
  *
- * Scope: `nova.read`.
+ * Scope: `nova.hq.read` (per-tool, in addition to the route-layer
+ * `nova.read` floor). HQ access is orthogonal to Nova-internal
+ * read/write — see `lib/mcp/scopes.ts` for the full enforcement model.
  *
  * A user's Nova account can only hold ONE CommCare HQ credential +
  * domain pair at a time, because HQ API keys are scoped per-project on
@@ -27,6 +29,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { requireScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -66,6 +69,17 @@ export function registerGetHqConnection(
 		},
 		async (_extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
+				/* Per-tool scope gate — runs BEFORE any data read so a
+				 * missing-scope token cannot probe whether HQ creds exist
+				 * for the user. The route-layer `nova.read` requirement has
+				 * already passed; this gate adds the HQ-specific layer. */
+				const scopeError = requireScope(
+					ctx.scopes,
+					SCOPES.hqRead,
+					"get_hq_connection",
+				);
+				if (scopeError) return scopeError;
+
 				const settings = await getCommCareSettings(ctx.userId);
 				/* The public shape carries `domain: null` in the
 				 * unconfigured case; the wire shape collapses that to a

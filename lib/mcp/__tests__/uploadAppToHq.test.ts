@@ -35,6 +35,7 @@ import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
+import { SCOPES } from "../scopes";
 import {
 	registerUploadAppToHq,
 	UPLOAD_ERROR_TAGS,
@@ -147,7 +148,13 @@ const FIXTURE_SETTINGS = {
 	domain: { name: "acme-research", displayName: "ACME Research" },
 } as const;
 
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+/* The `nova.hq.write` scope is required by the per-tool guard inside
+ * `registerUploadAppToHq`. Floor scopes (`nova.read` / `nova.write`)
+ * are irrelevant in unit tests — they're checked at the route's verify
+ * layer before the handler is reached, which we bypass entirely here.
+ * Including only the scope the handler actually inspects keeps the
+ * fixture honest about what's being asserted. */
+const toolCtx: ToolContext = { userId: "u1", scopes: [SCOPES.hqWrite] };
 
 beforeEach(() => {
 	vi.mocked(loadAppOwner).mockReset();
@@ -219,6 +226,47 @@ describe("registerUploadAppToHq — happy path", () => {
 		 * runs regardless of outcome. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
+	it("returns scope_missing without touching ownership, settings, or HQ", async () => {
+		const { server, capture } = makeFakeServer();
+		/* Token has the route-layer floor but lacks the orthogonal HQ
+		 * write scope. The per-tool guard must short-circuit before any
+		 * Firestore read or HQ network call. */
+		registerUploadAppToHq(server, {
+			userId: "u1",
+			scopes: [SCOPES.read, SCOPES.write],
+		});
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			required_scope?: string;
+			app_id?: string;
+		};
+		expect(payload.error_type).toBe("scope_missing");
+		expect(payload.required_scope).toBe(SCOPES.hqWrite);
+		/* Wire-shape uniformity: every upload-tool failure envelope
+		 * carries `app_id`. A client switching on `error_type` should
+		 * never need to special-case `scope_missing` for that field. */
+		expect(payload.app_id).toBe("a1");
+
+		/* Pre-gate 0 fires BEFORE every other I/O — no ownership check,
+		 * no settings read, no blueprint load, no HQ call, no log writer
+		 * allocation. The scope failure leaks nothing about the user's
+		 * data. */
+		expect(loadAppOwner).not.toHaveBeenCalled();
+		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
+		expect(loadAppBlueprint).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 });
 

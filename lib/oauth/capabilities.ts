@@ -20,6 +20,8 @@
  */
 
 import type { IconifyIcon } from "@iconify/types";
+import tablerCloudDataConnection from "@iconify-icons/tabler/cloud-data-connection";
+import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerKey from "@iconify-icons/tabler/key";
 import tablerPencil from "@iconify-icons/tabler/pencil";
@@ -43,9 +45,17 @@ interface CapabilityDef extends Capability {
 }
 
 /**
- * The capabilities Nova advertises. The "on your behalf" on the write
- * row carries the trust signal for the most consequential grant — keep
- * it on rephrase.
+ * The capabilities Nova advertises. The "on your behalf" on each write
+ * row (Nova-internal AND HQ deploy) carries the trust signal for the
+ * most consequential grants — keep it on rephrase.
+ *
+ * The Nova rows (`nova.read` / `nova.write`) cover Firestore-backed app
+ * blueprints; the HQ rows (`nova.hq.read` / `nova.hq.write`) cover the
+ * separate CommCare HQ system the user has authenticated to via a
+ * stored API key. Cloud iconography on the HQ rows distinguishes them
+ * from the eye/pencil pair on the Nova-internal rows — visually
+ * reinforcing that HQ is an external system, not just another Nova
+ * capability.
  */
 const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 	{
@@ -62,9 +72,21 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 	},
 	{
 		key: "nova.write",
-		label: "Create, edit, and deploy CommCare apps on your behalf",
+		label: "Create and edit CommCare apps on your behalf",
 		icon: tablerPencil,
 		matches: (s) => s.has("nova.write"),
+	},
+	{
+		key: "nova.hq.read",
+		label: "See your CommCare HQ project connection",
+		icon: tablerCloudDataConnection,
+		matches: (s) => s.has("nova.hq.read"),
+	},
+	{
+		key: "nova.hq.write",
+		label: "Deploy your apps to CommCare HQ on your behalf",
+		icon: tablerCloudUpload,
+		matches: (s) => s.has("nova.hq.write"),
 	},
 ];
 
@@ -85,6 +107,8 @@ const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
 	"email",
 	"nova.read",
 	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
 ]);
 
 // ── Public API ──────────────────────────────────────────────────────
