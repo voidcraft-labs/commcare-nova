@@ -9,9 +9,10 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
+import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { authClient } from "@/lib/auth-client";
 import { deriveCapabilities } from "@/lib/oauth/capabilities";
@@ -127,6 +128,7 @@ export function ConsentForm({
 	 * sight. Three staggered groups (card → content → actions) rather than
 	 * per-scope stagger, which at 6 rows would drag past the snappy threshold. */
 	const ease = [0.16, 1, 0.3, 1] as const;
+	const verified = disclosure.verificationKind === "verified";
 
 	return (
 		<ConsentCard tone="default">
@@ -134,58 +136,78 @@ export function ConsentForm({
 				initial={{ opacity: 0, y: 8 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ duration: 0.5, ease }}
-				className="flex flex-col gap-7"
+				className="flex flex-col gap-5"
 			>
-				<div className="flex flex-col items-start gap-5">
-					<IconChip tone="violet" icon={tablerShieldCheck} />
-					<div className="flex flex-col gap-2">
+				<div className="flex flex-col gap-4">
+					<div className="flex items-center gap-3">
+						<IconChip tone="violet" icon={tablerShieldCheck} size="sm" />
 						<span className="text-[11px] font-medium uppercase tracking-[0.18em] text-nova-text-muted">
 							Authorization request
 						</span>
-						{/* Two distinct entities share this headline — the third-party
-						 *   client (quoted, amber) and Nova itself (gradient on the
-						 *   last word). Amber on the client name solves "everything
-						 *   runs together" by giving the name its own tonal identity
-						 *   against the cool-white surrounding copy; the warm accent
-						 *   also sits outside Nova's violet brand family, so there's
-						 *   zero risk of a viewer reading the color as an endorsement.
-						 *   That last part is load-bearing: the consent page is the
-						 *   one screen where dressing a third-party name in Nova's
-						 *   signature treatment (brand gradient, violet tint) would
-						 *   suggest brand overlap — exactly the confusion a consent
-						 *   flow has to prevent. Smart quotes stay to reinforce the
-						 *   "this is a name" cue; weight contrast (semibold vs the
-						 *   surrounding medium) backs up the color shift. */}
-						<h1 className="font-display text-[1.75rem] font-medium leading-[1.15] text-nova-text">
-							Allow{" "}
-							<span className="font-semibold">
-								&ldquo;
-								<span className="text-nova-amber">{disclosure.clientName}</span>
-								&rdquo;
-							</span>{" "}
-							to use your{" "}
-							<span className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text font-semibold text-transparent">
+					</div>
+					<div className="flex flex-col gap-3">
+						<h1 className="font-display text-[1.65rem] font-medium leading-[1.08] text-nova-text">
+							Connect to{" "}
+							<span
+								data-testid="consent-nova-mark"
+								className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text font-semibold text-transparent [background-position:right_center] [background-size:325%_100%]"
+							>
 								nova
-							</span>{" "}
-							account?
+							</span>
+							?
 						</h1>
-						<div className="flex flex-col gap-1 text-xs leading-relaxed text-nova-text-muted">
-							<p>
-								<span className="font-medium text-nova-amber">
-									{disclosure.trustLabel}
-								</span>{" "}
-								· redirects to {disclosure.redirectDisplay}
-							</p>
-							{disclosure.clientUriDisplay ? (
-								<p>Publisher site: {disclosure.clientUriDisplay}</p>
-							) : null}
-							{disclosure.brandWarning ? (
-								<p className="text-nova-rose">
-									This app name resembles Nova, CommCare, or Dimagi, but it has
-									not been verified by Nova.
-								</p>
-							) : null}
+						<div className="overflow-hidden rounded-xl border border-nova-border/70 bg-nova-surface/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+							<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/60 bg-nova-elevated/20 px-3.5 py-2.5">
+								<div className="text-[10px] font-medium uppercase leading-none tracking-[0.12em] text-nova-text-muted">
+									Application
+								</div>
+								<div
+									data-testid="consent-app-name"
+									className="min-w-0 break-words font-display text-[1.05rem] font-semibold leading-tight text-nova-orchid"
+								>
+									{disclosure.appName}
+								</div>
+							</div>
+							<dl>
+								{disclosure.detailValue ? (
+									<IdentityRow
+										label="Details"
+										value={disclosure.detailValue}
+										description={disclosure.detailDescription ?? undefined}
+									/>
+								) : null}
+								<IdentityRow
+									label="Redirects to"
+									value={disclosure.redirectDisplay}
+								/>
+								{disclosure.clientUriDisplay ? (
+									<IdentityRow
+										label="Publisher"
+										value={disclosure.clientUriDisplay}
+									/>
+								) : null}
+								<IdentityRow
+									label="Verification"
+									value={disclosure.verificationLabel}
+									valuePrefix={
+										<Icon
+											data-testid="consent-verification-icon"
+											icon={verified ? tablerCircleCheck : tablerAlertTriangle}
+											width="16"
+											height="16"
+											className={`shrink-0 ${verified ? "text-nova-violet-bright" : "text-nova-rose"}`}
+											aria-hidden
+										/>
+									}
+								/>
+							</dl>
 						</div>
+						{disclosure.brandWarning ? (
+							<div className="border-l-2 border-nova-rose/50 pl-3 text-xs leading-relaxed text-nova-rose">
+								Name resembles Nova, CommCare, or Dimagi, but Nova has not
+								verified this app.
+							</div>
+						) : null}
 					</div>
 				</div>
 
@@ -193,12 +215,12 @@ export function ConsentForm({
 					initial={{ opacity: 0, y: 6 }}
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.5, ease, delay: 0.08 }}
-					className="flex flex-col gap-3"
+					className="flex flex-col gap-2.5"
 				>
-					<p className="text-xs font-medium uppercase tracking-[0.14em] text-nova-text-muted">
+					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-nova-text-muted">
 						It will be able to
 					</p>
-					<ul className="flex flex-col gap-1.5">
+					<ul className="overflow-hidden rounded-xl border border-nova-border/60 bg-nova-surface/20">
 						{capabilities.map((c) => (
 							<CapabilityRow key={c.key} label={c.label} icon={c.icon} />
 						))}
@@ -227,7 +249,7 @@ export function ConsentForm({
 					initial={{ opacity: 0, y: 6 }}
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.5, ease, delay: 0.16 }}
-					className="flex flex-col-reverse gap-3 sm:flex-row"
+					className="flex flex-col-reverse gap-2.5 sm:flex-row"
 				>
 					<Button
 						type="button"
@@ -290,7 +312,7 @@ function ConsentCard({
 
 	return (
 		<div
-			className={`relative w-full rounded-2xl border border-nova-border bg-nova-deep p-7 sm:p-8 ${glow}`}
+			className={`relative w-full rounded-2xl border border-nova-border bg-nova-deep p-5 sm:p-6 ${glow}`}
 		>
 			{/* Hairline top highlight — one-pixel violet gradient along the top
 			 *   edge of the card. Reads as a light source from above and adds a
@@ -309,17 +331,18 @@ function ConsentCard({
 }
 
 /**
- * Rounded-square icon chip that pairs with a headline. Sized large enough
- * (44px) to act as the dominant visual mass at the top of the card, so the
- * headline gets space to breathe underneath. The inner gradient echoes the
- * logo wordmark's text-gradient for quiet brand continuity.
+ * Rounded-square icon chip that pairs with the consent eyebrow. The happy
+ * path uses the small size to keep the identity details from crowding the
+ * headline; the invalid-link branch keeps the larger size for error focus.
  */
 function IconChip({
 	tone,
 	icon,
+	size = "md",
 }: {
 	tone: "violet" | "error";
 	icon: Parameters<typeof Icon>[0]["icon"];
+	size?: "sm" | "md";
 }) {
 	const theme =
 		tone === "error"
@@ -331,17 +354,50 @@ function IconChip({
 					ring: "border-nova-violet/30 bg-nova-violet/10",
 					icon: "text-nova-violet-bright",
 				};
+	const box = size === "sm" ? "h-8 w-8 rounded-lg" : "h-11 w-11 rounded-xl";
+	const iconSize = size === "sm" ? "18" : "22";
 	return (
 		<div
-			className={`flex h-11 w-11 items-center justify-center rounded-xl border ${theme.ring}`}
+			className={`flex items-center justify-center border ${box} ${theme.ring}`}
 		>
 			<Icon
 				icon={icon}
-				width="22"
-				height="22"
+				width={iconSize}
+				height={iconSize}
 				className={theme.icon}
 				aria-hidden
 			/>
+		</div>
+	);
+}
+
+function IdentityRow({
+	label,
+	value,
+	description,
+	valuePrefix,
+}: {
+	label: string;
+	value: string;
+	description?: string;
+	valuePrefix?: ReactNode;
+}) {
+	return (
+		<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/50 px-3.5 py-2.5 last:border-b-0">
+			<dt className="text-[10px] font-medium uppercase leading-none tracking-[0.12em] text-nova-text-muted">
+				{label}
+			</dt>
+			<dd className="min-w-0 text-sm leading-snug text-nova-text">
+				<span className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
+					{valuePrefix}
+					<span className="break-words">{value}</span>
+				</span>
+				{description ? (
+					<span className="mt-1 block text-xs leading-relaxed text-nova-text-muted">
+						{description}
+					</span>
+				) : null}
+			</dd>
 		</div>
 	);
 }
@@ -362,15 +418,15 @@ function CapabilityRow({
 	icon: Parameters<typeof Icon>[0]["icon"];
 }) {
 	return (
-		<li className="relative flex items-center gap-3 rounded-lg border border-nova-border/60 bg-nova-surface/40 px-3.5 py-2.5">
+		<li className="relative flex items-center gap-3 border-b border-nova-border/50 px-3.5 py-2 last:border-b-0">
 			<Icon
 				icon={icon}
-				width="16"
-				height="16"
+				width="15"
+				height="15"
 				className="shrink-0 text-nova-text-muted"
 				aria-hidden
 			/>
-			<span className="flex-1 text-sm leading-snug text-nova-text">
+			<span className="flex-1 text-[13px] leading-snug text-nova-text">
 				{label}
 			</span>
 		</li>

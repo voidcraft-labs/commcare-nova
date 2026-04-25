@@ -123,7 +123,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const clientName = clientInfo?.clientName ?? "An application";
 
 	return (
-		<main className="relative isolate flex min-h-full items-center justify-center overflow-hidden px-5 py-12 sm:py-16">
+		<main className="relative isolate flex min-h-full items-center justify-center overflow-hidden px-5 py-6 sm:py-10">
 			{/* Atmosphere — cosmic violet blurs that signal "you are still inside
 			 *   Nova, this is a real screen from us." Matches the landing page's
 			 *   unauthenticated sign-in surface so the OAuth flow reads as one

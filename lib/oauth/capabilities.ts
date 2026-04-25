@@ -7,7 +7,7 @@
  *
  *   - **Implied scopes** (`openid`, `offline_access`) are protocol
  *     primitives, not user-facing permissions; listing them next to
- *     "Read your CommCare apps" implies they're comparable grants.
+ *     "Read your apps" implies they're comparable grants.
  *     Real OAuth consent UIs hide them; we do too.
  *   - **Overlapping scopes** collapse: `profile` + `email` → one
  *     "See your name and email" row, since splitting them implies
@@ -66,13 +66,13 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 	},
 	{
 		key: "nova.read",
-		label: "Read your CommCare apps",
+		label: "Read your apps",
 		icon: tablerEye,
 		matches: (s) => s.has("nova.read"),
 	},
 	{
 		key: "nova.write",
-		label: "Create and edit CommCare apps on your behalf",
+		label: "Create and edit apps on your behalf",
 		icon: tablerPencil,
 		matches: (s) => s.has("nova.write"),
 	},
