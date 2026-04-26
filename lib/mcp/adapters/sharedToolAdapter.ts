@@ -31,9 +31,9 @@
  *      throw. `LogWriter.logEvent` is fire-and-forget and a missed
  *      flush silently drops everything that hadn't hit the batch-size
  *      trigger yet.
- *   6. **Result projection** — three structural shapes (read /
- *      mutating / validateApp) reduce to a single MCP text payload the
- *      LLM can reason over.
+ *   6. **Result projection** — three tagged-union shapes (`"read"` /
+ *      `"mutate"` / `"validate"`) reduce to a single MCP text payload
+ *      the LLM can reason over via an exhaustive `kind`-switch.
  *
  * **Hard invariant — the adapter MUST NOT re-persist mutations.**
  * Every shared mutating tool already calls

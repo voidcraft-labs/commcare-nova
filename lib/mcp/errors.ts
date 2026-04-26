@@ -6,7 +6,7 @@
  * taxonomy used by both the chat surface and this one; this module is
  * the bridge from that classification to the MCP result envelope.
  *
- * Two thrown-error classes short-circuit the classifier because their
+ * Three thrown-error classes short-circuit the classifier because their
  * failure shapes are deterministic and don't benefit from
  * `classifyError`'s status-code + substring heuristics:
  *
@@ -18,6 +18,10 @@
  *   raw-shape Zod schema can't express (e.g. conditional-required
  *   fields). The thrown `message` rides through to the wire `text`
  *   verbatim so the client sees the precise failure reason.
+ * - `McpScopeError` (from `./scopes`) — per-tool scope gate rejection
+ *   (`nova.hq.read` / `nova.hq.write`). Carries the missing scope so
+ *   the wire envelope can echo it back as `required_scope` for a
+ *   precise re-authorization prompt.
  *
  * **IDOR hardening.** `McpAccessError.reason` carries two distinct
  * internal reasons (`"not_found"`, `"not_owner"`) so admins can
@@ -96,11 +100,9 @@ export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
  *     scope a specific tool requires (orthogonal to the route-layer
  *     `nova.read` + `nova.write` floor). Today only the HQ tools
  *     (`get_hq_connection`, `upload_app_to_hq`) gate this way; see
- *     `assertScope` / `McpScopeError` in `./scopes` for the helper that
- *     produces the envelope. Distinct from `UploadErrorType` because
- *     scope failure
- *     is a token-shape problem, not a per-tool gate, and surfaces
- *     across multiple tools.
+ *     `assertScope` / `McpScopeError` in `./scopes`. Distinct from
+ *     `UploadErrorType` because scope failure is a token-shape problem,
+ *     not a per-tool gate, and surfaces across multiple tools.
  *   - `UploadErrorType` — upload-tool-specific gate rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
@@ -290,17 +292,13 @@ export function toMcpErrorResult(
 		};
 	}
 
-	/* Generic branch — anything that isn't an expected
-	 * McpInvalidInputError or McpAccessError lands here. Almost always a
-	 * server bug (Firestore exception, missing index, null deref, etc.)
-	 * and almost always something we want in Cloud Logging with the full
-	 * stack. The prior no-log version swallowed every such failure into
-	 * an opaque "internal error" wire envelope with zero server-side
-	 * trace — a silent-failure trap that made every Firestore surprise
-	 * invisible in prod. `log.error` with the raw `err` lets the logger
-	 * extract `stack_trace` for GCP Error Reporting grouping; the
-	 * classified bucket + user/app context give enough labels to filter
-	 * in the Cloud Logging Explorer. */
+	/* Generic branch — anything that isn't one of the three short-circuit
+	 * error classes lands here. Almost always a server bug (Firestore
+	 * exception, missing index, null deref, etc.) and almost always
+	 * something we want in Cloud Logging with the full stack. `log.error`
+	 * with the raw `err` lets the logger extract `stack_trace` for GCP
+	 * Error Reporting grouping; the classified bucket + user/app context
+	 * give enough labels to filter in the Cloud Logging Explorer. */
 	const classified = classifyError(err);
 	log.error("[mcp] tool handler failed", err, {
 		error_type: classified.type,

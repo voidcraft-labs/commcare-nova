@@ -42,3 +42,17 @@ SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }
 ## Two tool groups: generation + shared
 
 Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`, `addModule`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+
+## Shared-tool return contract
+
+Every `lib/agent/tools/<name>.ts` `execute` returns one of three tagged shapes (`tools/common.ts` + `tools/validateApp.ts`):
+
+- `MutatingToolResult<R>` — `{ kind: "mutate", mutations, newDoc, result }`. Tool body has already persisted via `ctx.recordMutations` before returning; `result` is the LLM-facing payload.
+- `ReadToolResult<R>` — `{ kind: "read", data }`. Pure read, no persistence.
+- `ValidateAppResult` — `{ kind: "validate", success, doc, hqJson?, errors? }`. The fix loop persists internally; the wrapper unconditionally advances its working doc.
+
+The `kind` discriminator is the contract two consumers dispatch on:
+- Chat-side `wrapMutating` / `wrapRead` in `solutionsArchitect.ts` destructure the shape and surface only the inner payload to the AI SDK tool.
+- MCP `projectResult` in `lib/mcp/adapters/sharedToolAdapter.ts` switches on `kind` to project to the wire envelope.
+
+Adding a new shared tool: pick a shape, return it tagged. A future fourth shape requires updating both consumers — the exhaustive `switch` in `projectResult` is the compile-time tripwire.

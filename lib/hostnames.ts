@@ -19,29 +19,28 @@ export const HOSTNAMES = {
 export type Hostname = (typeof HOSTNAMES)[keyof typeof HOSTNAMES];
 
 /**
- * The two origins OAuth + MCP URL construction care about:
+ * Origin + URL constants OAuth and MCP URL construction reference:
  *
- *   - `AS_ORIGIN` — the authorization server. In prod this is the main
- *     host (`https://commcare.app`); it's where the bare AS metadata
- *     wrapper lives so Claude Code can discover the token endpoint.
- *
+ *   - `AS_ORIGIN` — the authorization server origin. In prod this is
+ *     the main host (`https://commcare.app`); it's where the bare AS
+ *     metadata wrapper lives so Claude Code can discover the token
+ *     endpoint.
  *   - `AS_ISSUER` — Better Auth's canonical issuer. The auth handler
  *     lives under `/api/auth`, and Better Auth signs OAuth access tokens
  *     with that pathful base URL as `iss`.
- *
  *   - `MCP_RESOURCE_URL` — the actual MCP endpoint URL. In prod this is
  *     `https://mcp.commcare.app/mcp`; in local dev it is the direct Next
- *     route `http://localhost:3000/api/mcp`. This is what MCP clients
- *     send as the OAuth `resource` value and what appears as `aud` on
- *     MCP-minted tokens.
+ *     route `http://localhost:3000/api/mcp`. MCP clients send this as
+ *     the OAuth `resource` value and it appears as `aud` on MCP-minted
+ *     tokens.
  *
- * In dev both collapse to `BETTER_AUTH_URL` (typically
- * `http://localhost:3000`) for AS/resource origins, while the MCP
- * resource path stays `/api/mcp` because local smoke tests hit the
- * Next.js route directly rather than the production `/mcp` rewrite.
+ * In dev all collapse to `BETTER_AUTH_URL` (typically
+ * `http://localhost:3000`) for the origin half, while the MCP resource
+ * path stays `/api/mcp` because local smoke tests hit the Next.js route
+ * directly rather than the production `/mcp` rewrite.
  *
- * These are derived from env + HOSTNAMES so every code path (the route
- * handler's `verifyOptions`, `oauthProvider`'s `validAudiences`, the
+ * Derived from env + HOSTNAMES so every code path (the route handler's
+ * `verifyOptions`, `oauthProvider`'s `validAudiences`, the
  * protected-resource metadata route) reads a single source of truth
  * instead of constructing URL strings that drift from BETTER_AUTH_URL
  * or the externally reachable MCP path.

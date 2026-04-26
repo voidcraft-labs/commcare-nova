@@ -68,7 +68,9 @@
  * a concrete `JwtClaims` with `sub: string` guaranteed. The verify
  * layer has already checked the token signature + aud + iss, so a
  * missing `sub` at this point means the token is structurally broken;
- * we throw rather than silently coerce.
+ * we return a 401 (NOT a throw — `mcpHandler`'s outer catch reshapes
+ * only `APIError` throws into 401s, so a plain throw would surface as
+ * 500 and prevent Claude Code from triggering re-auth).
  *
  * ## Why the consent check runs every request
  *
