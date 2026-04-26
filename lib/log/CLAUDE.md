@@ -4,8 +4,12 @@ The single persistent stream of what happened during a generation run.
 
 ## Boundary
 
-Writes come from one place: `GenerationContext` (server-side). It owns a
-`LogWriter` for the current request. Reads come from three places:
+Writes come from two places: `GenerationContext` (chat surface) and
+`McpContext` (MCP surface). Both implement the shared
+`ToolExecutionContext` interface and each owns its own per-request
+`LogWriter` stamped with a `source` tag (`"chat"` or `"mcp"`) so a
+single event stream can be filtered by origin. Reads come from three
+places:
 
 - `app/build/replay/[id]/page.tsx` — loads a run for replay
 - `app/api/apps/[id]/logs/route.ts` — admin log inspection

@@ -50,7 +50,7 @@ import { MCP_RESOURCE_URL } from "./hostnames";
  * verify layer; `nova.hq.read` / `nova.hq.write` cover delegated access
  * to CommCare HQ via the user's stored API key and are enforced
  * per-tool inside the HQ handlers (see `lib/mcp/scopes.ts`'s
- * `requireScope`). HQ access is *orthogonal* to read/write — a client
+ * `assertScope`). HQ access is *orthogonal* to read/write — a client
  * that only needs Nova-internal access can omit the HQ scopes at
  * `/oauth2/authorize` and still call non-HQ tools.
  */
@@ -324,26 +324,15 @@ function createAuth() {
 				rateLimit: {
 					register: { window: 60, max: 5 },
 				},
-				/* `@better-auth/oauth-provider` nags on every cold start
-				 * asking us to ensure the RFC 8414 metadata document is
-				 * mounted, because its startup check fires unconditionally
-				 * whenever `basePath !== "/"` — it can't HEAD-probe its own
-				 * process to verify the route is actually there. The
-				 * warning's own text tells you to silence it once you've
-				 * verified the mount ("Upon completion, clear with
-				 * silenceWarnings.oauthAuthServerConfig").
-				 *
-				 * We serve the metadata at
+				/* RFC 8414 metadata is mounted at
 				 * `app/.well-known/oauth-authorization-server/route.ts`
 				 * on the main host (`proxy.ts` allowlists the path there).
-				 * Protected-resource metadata advertises the bare AS origin,
-				 * so MCP clients probe that bare well-known path; the returned
-				 * document then carries Better Auth's pathful issuer
-				 * (`${AS_ORIGIN}/api/auth`), which the MCP verifier enforces.
-				 * The warning text nominally points at a path-inserted variant
-				 * under `/api/auth` based on the plugin's internal `ctx.baseURL`
-				 * (which has `basePath` appended), but our advertised discovery
-				 * route is the bare origin route. Silencing is the ack. */
+				 * The plugin's startup check fires whenever
+				 * `basePath !== "/"` — it can't HEAD-probe its own process
+				 * to confirm the route is mounted, so it nags
+				 * unconditionally. Silencing is the ack per the plugin's
+				 * own guidance ("Upon completion, clear with
+				 * silenceWarnings.oauthAuthServerConfig"). */
 				silenceWarnings: { oauthAuthServerConfig: true },
 			}),
 		],

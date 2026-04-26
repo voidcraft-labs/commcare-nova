@@ -16,7 +16,7 @@
  * The route's verify layer checks the floor scopes (`nova.read`,
  * `nova.write`) before any handler runs; orthogonal scopes
  * (`nova.hq.read`, `nova.hq.write`) layer on top via per-tool
- * `requireScope` calls inside the HQ handlers. This context carries
+ * `assertScope` calls inside the HQ handlers. This context carries
  * the full scope set so those per-tool checks can read it without
  * re-parsing the token claim.
  */
@@ -27,12 +27,13 @@ export interface ToolContext {
 	 * Scopes granted on the caller's access token, post-verification.
 	 * Typed as `readonly string[]` not `Scope[]` because the claim
 	 * carries third-party scopes (`openid`, `profile`, `offline_access`)
-	 * Nova doesn't own but must preserve alongside its own. Per-tool
-	 * scope guards (`requireScope` in `lib/mcp/scopes.ts`) read this
-	 * field to gate orthogonal scopes like `nova.hq.read` /
-	 * `nova.hq.write`; the floor scopes (`nova.read`, `nova.write`) are
-	 * already enforced at the route's verify layer before this context
-	 * is constructed.
+	 * Nova doesn't own but must preserve alongside its own. Bespoke
+	 * MCP-only tool register functions (e.g. `get_hq_connection`,
+	 * `upload_app_to_hq`) call `assertScope` against this list at the
+	 * top of their handler to gate orthogonal scopes like
+	 * `nova.hq.read` / `nova.hq.write`. Shared SA tools never see
+	 * scopes — the route's verify layer already enforced the floor
+	 * (`nova.read`, `nova.write`) before any tool body runs.
 	 */
 	scopes: readonly string[];
 }
