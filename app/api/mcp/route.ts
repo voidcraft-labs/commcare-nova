@@ -11,10 +11,11 @@
  * `lib/hostnames.ts`): the external URL stays clean, the internal
  * layout follows Next.js convention.
  *
- * `mcp-handler`'s default `basePath: "/api"` composes with the `/mcp`
- * segment to produce the exact pathname it expects to match against
- * internally. Keeping `basePath: "/api"` explicit here is belt-and-
- * suspenders in case a library version changes the default.
+ * `mcp-handler` matches `new URL(req.url).pathname` against
+ * `${basePath}/mcp` to dispatch the streamable-HTTP transport. Next.js
+ * middleware rewrites the routing target without touching `Request.url`,
+ * so the wire pathname must drive `basePath` per environment — see the
+ * comment at the `createMcpHandler` call site below.
  *
  * ## Request flow
  *
@@ -90,6 +91,7 @@ import {
 	AS_ISSUER,
 	AS_ORIGIN,
 	MCP_RESOURCE_METADATA_URL,
+	MCP_RESOURCE_PATH,
 	MCP_RESOURCE_URL,
 } from "@/lib/hostnames";
 import { log } from "@/lib/logger";
@@ -236,12 +238,23 @@ const handler = mcpHandler(
 				});
 			},
 			{ serverInfo: { name: "nova", version: "1.0.0" } },
-			/* `basePath: "/api"` composes with this route's `/mcp` segment
-			 * to produce `/api/mcp`, which is the internal pathname the
-			 * library matches against. `maxDuration` caps streaming
-			 * response time at the protocol layer (distinct from the
-			 * Next.js platform-timeout `maxDuration` exported above). */
-			{ basePath: "/api", maxDuration },
+			/* `mcp-handler` matches `new URL(req.url).pathname` against
+			 * its computed `${basePath}/mcp` endpoint. `Request.url`
+			 * carries the wire URL the client sent — Next's middleware
+			 * rewrites the routing target but does not update the
+			 * Request, so a hardcoded `basePath: "/api"` 404s every
+			 * production request that arrives via the
+			 * `mcp.commcare.app/mcp` host (wire pathname `/mcp`, not
+			 * `/api/mcp`). Strip the trailing `/mcp` from
+			 * `MCP_RESOURCE_PATH` so basePath tracks the wire pathname
+			 * per environment: empty in prod, `/api` in dev.
+			 * `maxDuration` caps streaming response time at the protocol
+			 * layer (distinct from the Next.js platform-timeout
+			 * `maxDuration` exported above). */
+			{
+				basePath: MCP_RESOURCE_PATH.replace(/\/mcp$/, ""),
+				maxDuration,
+			},
 		)(req);
 	},
 );

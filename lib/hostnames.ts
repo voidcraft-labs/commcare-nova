@@ -60,8 +60,16 @@ export const MCP_RESOURCE_ORIGIN = isDev
  * than parsing it back out of `MCP_RESOURCE_URL`. Manual URL surgery
  * (slice, regex strip) in an auth context is exactly the kind of code
  * that drifts wrong under refactor.
+ *
+ * Exported because the MCP route's `mcp-handler` library does its own
+ * `req.url` pathname matching against `${basePath}/mcp` and Next.js
+ * middleware rewrites do NOT update `Request.url` — the request still
+ * carries the wire path the client sent. So the route's `basePath`
+ * has to track this path per environment (prod=`/mcp` wire,
+ * dev=`/api/mcp` wire) or the inner handler 404s on what the OAuth
+ * layer just authorized. See `app/api/mcp/route.ts`.
  */
-const MCP_RESOURCE_PATH = isDev ? "/api/mcp" : "/mcp";
+export const MCP_RESOURCE_PATH = isDev ? "/api/mcp" : "/mcp";
 
 export const MCP_RESOURCE_URL = `${MCP_RESOURCE_ORIGIN}${MCP_RESOURCE_PATH}`;
 
