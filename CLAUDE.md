@@ -42,10 +42,10 @@ One Cloud Run service serves three hostnames, separated by middleware (`proxy.ts
 
 Three groups under `app/`:
 - `(app)/` — authenticated builder. Owns `getSession()`, `AppHeader`, toast/tooltip providers, `nova-noise`. All main-app pages live here.
-- `(docs)/docs/` — public docs site. Mounts its own fumadocs `RootProvider`; never reads the session, so docs pages render statically (SSG).
+- `(docs)/docs/` — public docs site. Mounts its own fumadocs `RootProvider`; never reads the session. Forced to dynamic rendering (`export const dynamic = "force-dynamic"` on the page) so the proxy's per-request CSP nonce can stamp onto Next's inline RSC chunks — SSG would bake them nonceless and the strict-dynamic CSP would block them, killing hydration.
 - `(dev-only)/` — dev-only test pages, gated by `NODE_ENV` in their own layout.
 
-Root `app/layout.tsx` is intentionally minimal — html/body/fonts/global CSS only. Anything that calls `getSession()` belongs in `(app)/layout.tsx`, not the root, so the docs and any future public surface stay request-independent.
+Root `app/layout.tsx` is intentionally minimal — html/body/fonts/global CSS only. Anything that calls `getSession()` belongs in `(app)/layout.tsx`, not the root, so the docs and any future public surface aren't paying for a session lookup they never use.
 
 ### Single agent, two endpoints
 

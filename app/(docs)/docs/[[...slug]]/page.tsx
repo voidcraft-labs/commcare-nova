@@ -5,6 +5,17 @@
  * `<MDX components={getMDXComponents()} />` is required: the explicit
  * prop, not `providerImportSource` context, is what fumadocs's runtime
  * renderer reads.
+ *
+ * `dynamic = "force-dynamic"` is load-bearing, not a perf default we
+ * forgot to remove. The proxy stamps a per-request `'strict-dynamic'`
+ * nonce CSP onto every HTML response (see `proxy.ts`), and Next.js can
+ * only attach that nonce to the inline RSC payload chunks
+ * (`self.__next_f.push(...)`) it emits when a page renders at request
+ * time — SSG bakes them at build time, with no request and no nonce, so
+ * the browser then blocks them and React never hydrates. The cost of
+ * dynamic rendering here is trivial: pure MDX → HTML, no DB, no session
+ * lookup; the docs layout deliberately doesn't read the session for
+ * exactly this reason.
  */
 import {
 	DocsBody,
@@ -17,15 +28,16 @@ import { notFound } from "next/navigation";
 import { source } from "@/lib/docs/source";
 import { getMDXComponents } from "@/mdx-components";
 
+/* See top-of-file comment — required so the proxy's per-request nonce
+ * lands on Next's inline RSC chunks. Removing this re-breaks the docs
+ * site under the strict CSP. */
+export const dynamic = "force-dynamic";
+
 type PageProps = {
 	params: Promise<{
 		slug?: string[];
 	}>;
 };
-
-export function generateStaticParams() {
-	return source.generateParams("slug");
-}
 
 export async function generateMetadata({
 	params,
