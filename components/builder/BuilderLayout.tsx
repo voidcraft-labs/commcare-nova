@@ -87,9 +87,13 @@ export function BuilderLayout({
 	/* inReplayMode controls ReplayController mount in the header area. */
 	const inReplayMode = useInReplayMode();
 
-	/* CommCare settings — server-resolved, passed through to BuilderSubheader. */
+	/* CommCare settings — server-resolved, passed through to BuilderSubheader.
+	 * `commcareSettings` is a discriminated union; narrow on `configured`
+	 * to access `domain` (only present in the `true` branch). */
 	const commcareConfigured = commcareSettings?.configured ?? false;
-	const commcareDomain = commcareSettings?.domain ?? null;
+	const commcareDomain = commcareSettings?.configured
+		? commcareSettings.domain
+		: null;
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
 	// Switching cursor modes preserves scroll position so the same field

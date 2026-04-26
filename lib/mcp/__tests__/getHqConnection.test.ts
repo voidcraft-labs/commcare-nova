@@ -72,8 +72,6 @@ describe("registerGetHqConnection — not configured", () => {
 	it("returns {configured: false} with no domain key", async () => {
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: false,
-			username: "",
-			domain: null,
 		});
 
 		const { server, capture } = makeFakeServer();

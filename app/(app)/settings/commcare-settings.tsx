@@ -69,11 +69,18 @@ export function CommCareSettings({
 	userEmail,
 }: CommCareSettingsProps) {
 	/* ── Form values ─────────────────────────────────────────────── */
-	const [username, setUsername] = useState(initial.username || userEmail);
+	/* `initial` is a discriminated union — narrow on `configured` before
+	 * reading the saved username/domain, falling back to email/null when
+	 * unconfigured. */
+	const [username, setUsername] = useState(
+		initial.configured ? initial.username : userEmail,
+	);
 	const [apiKey, setApiKey] = useState("");
 
 	/* ── Domain + status ─────────────────────────────────────────── */
-	const [domain, setDomain] = useState<CommCareDomain | null>(initial.domain);
+	const [domain, setDomain] = useState<CommCareDomain | null>(
+		initial.configured ? initial.domain : null,
+	);
 	const [status, setStatus] = useState<FormStatus>(
 		initial.configured ? { type: "configured" } : { type: "idle" },
 	);
