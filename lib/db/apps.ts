@@ -37,6 +37,26 @@ export interface AppSummary {
 }
 
 /**
+ * Shape returned by `listDeletedApps` — the standard summary plus the
+ * two soft-delete metadata fields, both guaranteed non-null on any row
+ * this query returns. `status` is inherited as-is from `AppSummary`:
+ * soft-delete and lifecycle status are orthogonal axes, so a deleted
+ * `error` app surfaces here with `status: "error"` (and any legacy
+ * row written by the old delete flow still surfaces with `status:
+ * "deleted"`, until the legacy data is scrubbed).
+ *
+ * Callers (the trash UI) read `deleted_at` and `recoverable_until` to
+ * render "deleted X days ago" and "permanently deletes on DATE" without
+ * a second fetch.
+ */
+export interface DeletedAppSummary extends AppSummary {
+	/** ISO-8601 timestamp the app was soft-deleted. */
+	deleted_at: string;
+	/** ISO-8601 deadline past which the app is eligible for hard-delete. */
+	recoverable_until: string;
+}
+
+/**
  * Narrowed status enum exposed on list/search surfaces.
  *
  * The on-disk `AppDoc["status"]` enum also includes `"deleted"`, but soft-
@@ -447,23 +467,31 @@ export async function updateAppForRun(
 }
 
 /**
- * Soft-delete an app by marking `status: "deleted"` with the delete
- * timestamp and a recoverable-until deadline. The row is NOT removed
- * from Firestore — `listApps` filters `"deleted"` rows out at the
- * persistence boundary, but the blueprint, event log, and HQ
- * credentials survive so support-initiated recovery within the window
- * is a single status flip back to `"complete"`.
+ * Soft-delete an app by recording the moment of deletion and the
+ * recoverable-until deadline.
  *
- * A retention job (implemented outside this file) hard-deletes rows
- * past their `recoverable_until` date. 30 days mirrors the chat-side
- * support window for accidental-delete recovery.
+ * **Status is intentionally untouched.** `deleted_at` (presence of a
+ * non-null timestamp) is the sole soft-delete marker — lifecycle
+ * status and existence live on independent axes, so a deleted `error`
+ * app stays an `error` app, a deleted `complete` app stays `complete`,
+ * and `restoreApp` can clear the marker without making any policy
+ * decision about lifecycle. This matches the standard soft-delete
+ * pattern and removes the round-trip-loss problem the old status-flip
+ * approach had.
+ *
+ * The row is NOT removed from Firestore — `listApps` filters rows
+ * where `deleted_at != null` at the persistence boundary, but the
+ * blueprint, event log, and HQ credentials survive intact so a restore
+ * within the recovery window is a pair-of-fields nullify and nothing
+ * more. A retention job (implemented outside this file) hard-deletes
+ * rows past their `recoverable_until` date. 30 days mirrors the chat-
+ * side support window for accidental-delete recovery.
  *
  * Returns the ISO-8601 `recoverable_until` timestamp so callers can
  * surface the deadline to users. Uses Firestore's `update()` so a
  * missing document rejects with a `NOT_FOUND` error rather than
- * materializing a partial ghost row — the write touches only the
- * three soft-delete fields, and a merge-create on a non-existent id
- * would land a row that fails the full `appDocSchema` parse (no
+ * materializing a partial ghost row — a merge-create on a non-existent
+ * id would land a row that fails the full `appDocSchema` parse (no
  * owner, no blueprint) and quietly poison later reads. Callers decide
  * how to map the thrown rejection to their error surface.
  */
@@ -476,11 +504,36 @@ export async function softDeleteApp(appId: string): Promise<string> {
 	const deletedAt = now.toISOString();
 	const recoverableUntil = new Date(now.getTime() + RETENTION_MS).toISOString();
 	await docs.app(appId).update({
-		status: "deleted",
 		deleted_at: deletedAt,
 		recoverable_until: recoverableUntil,
 	});
 	return recoverableUntil;
+}
+
+/**
+ * Restore a soft-deleted app — the inverse of `softDeleteApp`.
+ *
+ * Clears `deleted_at` and `recoverable_until` as a pair (the invariant
+ * `softDeleteApp` sets them as a pair, this clears them as a pair).
+ * Status is intentionally untouched: a deleted `error` app stays an
+ * `error` app after restore, a deleted `complete` app stays `complete`.
+ * Soft-delete is the existence axis; lifecycle status is its own.
+ *
+ * Uses `.update()` for the same NOT_FOUND-on-missing-row reason the
+ * soft-delete helper does — a `set()` would materialize a ghost row
+ * lacking `owner` / `blueprint`. Callers decide how to map the thrown
+ * rejection to their error surface.
+ *
+ * `updated_at` is intentionally not bumped: the blueprint hasn't
+ * changed, and the stale-`generating` reaper inside `listApps` is
+ * keyed on `generating` rows only, so a stale timestamp on a restored
+ * `"complete"`/`"error"` row is harmless.
+ */
+export async function restoreApp(appId: string): Promise<void> {
+	await docs.app(appId).update({
+		deleted_at: null,
+		recoverable_until: null,
+	});
 }
 
 /**
@@ -519,6 +572,14 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
  * `app_name`, and `searchApps`'s Fuse instance normalizes case per
  * match. Firestore's `orderBy` on `app_name_lower` works whether the
  * field is in the `select()` projection or not.
+ *
+ * `deleted_at` is included even though `AppSummary` does not expose it
+ * to callers — `projectAppSummary` reads it to filter soft-deleted
+ * rows out of the active list. Without this projection, the field
+ * would be `undefined` on the wire and the `!= null` filter would
+ * silently pass deleted rows through (`undefined != null` is `false`
+ * under loose equality). The leak would surface in the home Active
+ * tab AND in MCP `list_apps` / `search_apps`.
  */
 const SUMMARY_FIELDS = [
 	"app_name",
@@ -529,6 +590,7 @@ const SUMMARY_FIELDS = [
 	"error_type",
 	"created_at",
 	"updated_at",
+	"deleted_at",
 ] as const;
 
 /**
@@ -658,9 +720,13 @@ function projectAppSummary(
 ): AppSummary | null {
 	const data = doc.data();
 
-	/* Soft-deleted rows never surface. Compared before any timestamp
-	 * work to skip cheaply — a deleted row's other fields are irrelevant. */
-	if (data.status === "deleted") return null;
+	/* Soft-deleted rows never surface. The marker is `deleted_at != null`
+	 * — the canonical soft-delete signal on this schema. Catches both
+	 * new-flow rows (only `deleted_at` set) and legacy rows (status =
+	 * "deleted" was also written by the old soft-delete code). Compared
+	 * before any timestamp work to skip cheaply — a deleted row's other
+	 * fields are irrelevant. */
+	if (data.deleted_at != null) return null;
 
 	const createdAt = (data.created_at as Timestamp).toDate();
 	const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
@@ -701,12 +767,12 @@ function projectAppSummary(
  * unnecessary here because data is validated on write (completeApp,
  * updateApp) and defaults are baked in at that time.
  *
- * Soft-deleted rows (`status: "deleted"`) are filtered out in-memory
+ * Soft-deleted rows (`deleted_at != null`) are filtered out in-memory
  * after the fetch. The filter runs post-query rather than as an
- * additional `.where("status", "!=", "deleted")` clause because
- * Firestore's inequality filters consume an index slot and would
- * require a second composite index; soft-deleted apps are rare, so the
- * in-memory skip is strictly cheaper.
+ * additional `.where("deleted_at", "==", null)` clause because that
+ * would require a parallel set of composite indexes that include the
+ * `deleted_at` axis; soft-deleted apps are rare, so the in-memory skip
+ * is strictly cheaper.
  *
  * A secondary `orderBy("__name__", "asc")` is appended to every query —
  * it is Firestore's document id, implicitly the tiebreaker — so a
@@ -943,4 +1009,124 @@ export async function searchApps(
 	 * user has no more apps to search. Passing the cursor through
 	 * preserves that 1:1 semantic. */
 	return { apps: matches, nextCursor: page.nextCursor };
+}
+
+// ── Trash query ────────────────────────────────────────────────────
+
+/**
+ * Denormalized fields fetched by `listDeletedApps`. Adds
+ * `recoverable_until` to the standard summary projection so the trash
+ * UI can render the "permanently deletes on DATE" copy without a
+ * second read. `deleted_at` is already in `SUMMARY_FIELDS` (the active
+ * list also reads it for soft-delete filtering).
+ */
+const DELETED_SUMMARY_FIELDS = [
+	...SUMMARY_FIELDS,
+	"recoverable_until",
+] as const;
+
+/** Options consumed by `listDeletedApps`. */
+export interface ListDeletedAppsOptions {
+	/**
+	 * Max rows to return. Soft-deleted apps are bounded by the 30-day
+	 * retention window, so a single `limit`-bounded page typically fits
+	 * a typical user's whole trash — no cursor is exposed yet.
+	 */
+	limit: number;
+}
+
+/** Shape returned by `listDeletedApps`. */
+export interface ListDeletedAppsResult {
+	apps: DeletedAppSummary[];
+}
+
+/**
+ * List a user's soft-deleted apps that are still within the recovery
+ * window, most-recently-deleted first.
+ *
+ * Two filters in sequence:
+ *
+ *   1. **Firestore-level "is deleted":** `orderBy("deleted_at", "desc")`
+ *      implicitly drops documents whose `deleted_at` is null. A
+ *      separate `where("deleted_at", "!=", null)` is unnecessary and
+ *      would require a different index shape.
+ *   2. **In-memory "still recoverable":** rows whose `recoverable_until`
+ *      has elapsed are filtered out before returning. The trash UI is
+ *      a recovery surface, not a permanent archive — past-window
+ *      tombstones don't belong there.
+ *
+ * The `__name__ ASC` tiebreaker resolves two apps deleted in the same
+ * millisecond deterministically.
+ *
+ * Note: there is no retention sweep on this system. Filtered past-
+ * window rows still live in Firestore indefinitely; this helper just
+ * stops surfacing them to the UI. `recoverable_until` is the user-
+ * facing recovery deadline, not a data-retention deadline.
+ *
+ * Status, error_type, and the standard timestamps are surfaced as-is.
+ * Soft-delete is the existence axis, not the lifecycle axis — a
+ * deleted `error` app keeps its `error` status (and `error_type`) so
+ * the trash badge reads the truth. The stale-`generating` reaper from
+ * `projectAppSummary` is irrelevant here: a deleted row's `updated_at`
+ * is frozen by definition.
+ *
+ * Required composite index (in addition to those `listApps` uses):
+ *   - `(owner ASC, deleted_at DESC, __name__ ASC)`.
+ * See `firestore.indexes.json`.
+ */
+export async function listDeletedApps(
+	owner: string,
+	options: ListDeletedAppsOptions,
+): Promise<ListDeletedAppsResult> {
+	/* Untyped collection ref for the same reason `listApps` uses one —
+	 * `select()` returns partial documents that would fail the Zod
+	 * converter's full-schema validation. */
+	const snap = await getDb()
+		.collection("apps")
+		.where("owner", "==", owner)
+		.orderBy("deleted_at", "desc")
+		.orderBy("__name__", "asc")
+		.select(...DELETED_SUMMARY_FIELDS)
+		.limit(options.limit)
+		.get();
+
+	const now = Date.now();
+
+	const apps: DeletedAppSummary[] = [];
+	for (const doc of snap.docs) {
+		const data = doc.data();
+		const recoverableUntil = data.recoverable_until as string;
+		/* Past-window rows are excluded from the trash surface — they
+		 * still exist in Firestore (no retention sweep), the UI just
+		 * stops showing them. */
+		if (new Date(recoverableUntil).getTime() <= now) continue;
+
+		const createdAt = (data.created_at as Timestamp).toDate();
+		const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
+		apps.push({
+			id: doc.id,
+			app_name: data.app_name as string,
+			connect_type: (data.connect_type as AppDoc["connect_type"]) ?? null,
+			module_count: (data.module_count as number) ?? 0,
+			form_count: (data.form_count as number) ?? 0,
+			/* Status pass-through. New-flow rows carry their real lifecycle
+			 * state (`complete` / `error` / `generating`); legacy rows
+			 * (deleted by the old status-flip code) carry the literal
+			 * `"deleted"` until that data is scrubbed. The DeletedAppSummary
+			 * type admits both. */
+			status: data.status as AppDoc["status"],
+			error_type: (data.error_type as string | null) ?? null,
+			created_at: createdAt.toISOString(),
+			updated_at: updatedAt.toISOString(),
+			/* Both soft-delete fields are non-null on any row this query
+			 * returns — the `orderBy("deleted_at")` filter implicitly drops
+			 * nulls, and `softDeleteApp` writes the two fields as a pair.
+			 * The cast is safe; a defensive null-guard would mask a write-
+			 * side regression. */
+			deleted_at: data.deleted_at as string,
+			recoverable_until: recoverableUntil,
+		});
+	}
+
+	return { apps };
 }

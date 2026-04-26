@@ -1,41 +1,44 @@
 /**
- * Async server component for the app list.
+ * Home app list — Server Component shell. Fetches the user's active
+ * and recently-deleted apps in parallel and hands both arrays to the
+ * client island that owns the active/deleted view toggle. The
+ * orchestration is deliberately flat: this file knows the user's
+ * apps, the page header, and the existence of the body component —
+ * nothing about per-card state, action wiring, or filtering.
  *
- * Separated from the page so it can be wrapped in a Suspense boundary —
- * the page shell streams immediately while this component resolves the
- * Firestore query. Only rendered when `userHasApps` returns true (checked
- * at the page level before the Suspense boundary).
+ * Wrapped in a Suspense boundary by the page so the shell streams
+ * before the Firestore queries resolve. Both queries read different
+ * ends of the same collection (live rows vs. `deleted_at`-flagged
+ * rows) so they have no read-after-write dependency and run in
+ * parallel.
  */
 
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
-import { AppCardList } from "@/components/ui/AppCardList";
-import { listApps } from "@/lib/db/apps";
+import { listApps, listDeletedApps } from "@/lib/db/apps";
+import { AppListBody } from "./app-list-body";
 
 interface AppListProps {
-	/** Owner ID (Better Auth user ID) — used to query apps by owner. */
+	/** Owner ID (Better Auth user ID). */
 	userId: string;
-	/** Whether to show replay buttons (admin-only feature). */
+	/** Whether to show admin-only replay buttons on active cards. */
 	isAdmin: boolean;
 }
 
 /**
- * First-page size for the web card grid.
- *
- * The web surface is non-paginated today — it renders a single card grid
- * of up to this many apps. Picked to match the previous hard-coded default
- * in `listApps` so behavior is unchanged after the signature refactor.
- * When the web UI grows a "show more" affordance, consume `nextCursor`
- * here too instead of widening this number.
+ * First-page size. The web surface is non-paginated today — a single
+ * card grid up to this many rows. The same number is reused for the
+ * recently-deleted list, which is naturally bounded by the 30-day
+ * retention window and rarely binds.
  */
-const WEB_LIST_PAGE_SIZE = 50;
+const PAGE_SIZE = 50;
 
 export async function AppList({ userId, isAdmin }: AppListProps) {
-	const { apps } = await listApps(userId, {
-		limit: WEB_LIST_PAGE_SIZE,
-		sort: "updated_desc",
-	});
+	const [activeRes, deletedRes] = await Promise.all([
+		listApps(userId, { limit: PAGE_SIZE, sort: "updated_desc" }),
+		listDeletedApps(userId, { limit: PAGE_SIZE }),
+	]);
 
 	return (
 		<>
@@ -50,7 +53,11 @@ export async function AppList({ userId, isAdmin }: AppListProps) {
 				</Link>
 			</div>
 
-			<AppCardList apps={apps} linkToApps showReplay={isAdmin} />
+			<AppListBody
+				active={activeRes.apps}
+				deleted={deletedRes.apps}
+				showReplay={isAdmin}
+			/>
 		</>
 	);
 }

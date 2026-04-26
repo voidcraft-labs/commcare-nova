@@ -93,6 +93,25 @@
 					"order": "ASCENDING"
 				},
 				{
+					"fieldPath": "deleted_at",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
 					"fieldPath": "updated_at",
 					"order": "DESCENDING"
 				},

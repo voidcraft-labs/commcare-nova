@@ -164,10 +164,11 @@ export const appDocSchema = z.object({
 	 * - `complete` — build finished successfully (or was created
 	 *   atomically, e.g. via `create_app`).
 	 * - `error` — generation failed; see `error_type` for the bucket.
-	 * - `deleted` — soft-deleted. Rows in this state carry `deleted_at`
-	 *   and `recoverable_until` and are filtered out of `listApps` and
-	 *   any public surface; a retention job is responsible for eventual
-	 *   hard-delete once the recovery window expires.
+	 * - `deleted` — legacy marker, retained in the enum for back-compat
+	 *   with rows soft-deleted before the marker moved off `status`.
+	 *   New code uses `deleted_at != null` as the soft-delete signal
+	 *   and never writes this value; lifecycle status and existence are
+	 *   independent axes (see `softDeleteApp` / `restoreApp`).
 	 */
 	status: z
 		.enum(["generating", "complete", "error", "deleted"])
@@ -176,18 +177,18 @@ export const appDocSchema = z.object({
 	error_type: z.string().nullable().default(null),
 	/**
 	 * ISO-8601 timestamp marking the moment of soft-delete. Null for any
-	 * row that has not been soft-deleted. Paired with `recoverable_until`
-	 * to form the soft-delete contract: both are set together when a row
-	 * transitions into `status: "deleted"` and cleared together when
-	 * support flips the row back.
+	 * live row, non-null for any deleted row — `deleted_at` is the sole
+	 * soft-delete marker on this schema, fully orthogonal to `status`.
+	 * Set together with `recoverable_until` by `softDeleteApp` and
+	 * cleared together by `restoreApp`; lifecycle status is never
+	 * touched in either direction.
 	 */
 	deleted_at: z.string().nullable().default(null),
 	/**
 	 * ISO-8601 deadline past which a soft-deleted row is eligible for
-	 * hard-delete by the retention job. Null for any row that has not
-	 * been soft-deleted. Uses the same ISO representation as
-	 * `deleted_at` so consumers computing "days remaining" work with
-	 * one uniform timestamp type.
+	 * hard-delete by the retention job. Null for any live row. Uses the
+	 * same ISO representation as `deleted_at` so consumers computing
+	 * "days remaining" work with one uniform timestamp type.
 	 */
 	recoverable_until: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */

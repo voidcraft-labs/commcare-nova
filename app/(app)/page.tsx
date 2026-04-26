@@ -15,10 +15,13 @@ import { Landing } from "./landing";
  * 2. Authenticated, no apps → Get-started prompt (rendered immediately,
  *    no Suspense skeleton) linking to `/build/new`.
  * 3. Authenticated, has apps → App list skeleton streams via Suspense
- *    while the full list loads from Firestore.
+ *    while the active + recently-deleted lists load from Firestore.
+ *    The active/deleted toggle lives in the client island below the
+ *    fetch — it's a UI filter, not a routable state, so it stays out
+ *    of the URL.
  *
- * The `userHasApps` existence check (`limit(1)`) runs before the Suspense
- * boundary so new users never see the app-list skeleton.
+ * The `userHasApps` existence check (`limit(1)`) runs before the
+ * Suspense boundary so new users never see the app-list skeleton.
  */
 export default async function HomePage() {
 	const session = await getSession();

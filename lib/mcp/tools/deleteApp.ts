@@ -3,14 +3,16 @@
  *
  * Scope: `nova.write`.
  *
- * Marks the app `status: "deleted"` and returns the recovery-window
- * deadline. The blueprint, event log, and HQ credentials survive the
- * soft-delete — a retention job hard-deletes rows past the window, and
- * support can recover within the window by flipping the status back to
- * `"complete"`. The dual layer (soft-delete + retention sweep) mirrors
- * the behavior of every other surface in Nova that wraps a destructive
- * action (`listApps` already filters `"deleted"` rows at the query
- * boundary).
+ * Records `deleted_at` + `recoverable_until` on the app row and
+ * returns the recovery-window deadline. Lifecycle status is untouched
+ * — `deleted_at != null` is the sole soft-delete marker; soft-delete
+ * and lifecycle status are orthogonal axes, so the row's real status
+ * roundtrips through any subsequent restore. The blueprint, event
+ * log, and HQ credentials all survive intact; a retention job hard-
+ * deletes rows past the window. The dual layer (soft-delete +
+ * retention sweep) mirrors the behavior of every other surface in
+ * Nova that wraps a destructive action (`listApps` already filters
+ * `deleted_at != null` rows at the query boundary).
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

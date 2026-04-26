@@ -16,7 +16,7 @@
  * both of which would be cross-tenant escape hatches.
  *
  * Read-only; no event log or progress emitter needed. Soft-deleted
- * rows (`status: "deleted"`) are dropped by `listApps` at the
+ * rows (`deleted_at != null`) are dropped by `listApps` at the
  * persistence boundary.
  */
 

@@ -1,7 +1,4 @@
-"use client";
-import { useCallback } from "react";
 import type { AppSummary } from "@/lib/db/apps";
-import { useExternalNavigate } from "@/lib/routing/hooks";
 import { AppCard } from "./AppCard";
 
 interface AppCardListProps {
@@ -13,23 +10,17 @@ interface AppCardListProps {
 }
 
 /**
- * Grid of app cards. Shared between the home page (user's own apps)
- * and admin user detail page (admin viewing any user's apps).
+ * Grid of app cards used by the admin user-detail page (admin viewing
+ * any user's apps). The home app list builds its own grid inline in
+ * `app/(app)/app-list.tsx` because it owns the delete affordance — a
+ * concern admin should never inherit. Stays a Server Component because
+ * `AppCard` is the only client island it needs.
  */
 export function AppCardList({
 	apps,
 	linkToApps = false,
 	showReplay = false,
 }: AppCardListProps) {
-	const navigate = useExternalNavigate();
-
-	const handleReplay = useCallback(
-		(appId: string) => {
-			navigate.push(`/build/replay/${appId}`);
-		},
-		[navigate],
-	);
-
 	if (apps.length === 0) {
 		return (
 			<p className="py-12 text-center text-sm text-nova-text-muted">
@@ -50,7 +41,7 @@ export function AppCardList({
 							? `/build/${app.id}`
 							: undefined
 					}
-					onReplay={showReplay ? handleReplay : undefined}
+					showReplay={showReplay}
 				/>
 			))}
 		</div>

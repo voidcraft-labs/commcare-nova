@@ -2,10 +2,14 @@
  * `softDeleteApp` unit tests.
  *
  * Locks the Firestore contract of the persistence-layer helper that
- * `delete_app` sits on top of:
+ * `delete_app` (MCP tool) and the home-page Server Action sit on top
+ * of:
  *
- *   - The write targets the correct document and sets the three
- *     soft-delete fields (`status`, `deleted_at`, `recoverable_until`).
+ *   - The write targets the correct document and sets exactly two
+ *     fields: `deleted_at` and `recoverable_until`. Lifecycle status
+ *     is intentionally untouched — `deleted_at != null` is the sole
+ *     soft-delete marker; soft-delete and lifecycle status are
+ *     orthogonal axes.
  *   - `update()` is used, not `set()` — so a missing-row write rejects
  *     with NOT_FOUND instead of materializing a ghost row that lacks
  *     the `owner` / `blueprint` fields the Zod converter requires.
@@ -61,7 +65,7 @@ describe("softDeleteApp", () => {
 		appMock.mockClear();
 	});
 
-	it("writes the three soft-delete fields via update() and returns the recovery deadline", async () => {
+	it("writes deleted_at + recoverable_until via update() and returns the recovery deadline", async () => {
 		updateMock.mockResolvedValueOnce(undefined);
 
 		const { softDeleteApp } = await import("../apps");
@@ -72,29 +76,31 @@ describe("softDeleteApp", () => {
 		 * id would silently write to the wrong document. */
 		expect(appMock).toHaveBeenCalledWith("app-1");
 
-		/* Single update(), payload shape + types pinned. */
+		/* Single update(), payload shape pinned. */
 		expect(updateMock).toHaveBeenCalledTimes(1);
 		const [patch] = updateMock.mock.calls[0] ?? [];
-		expect(patch).toMatchObject({
-			status: "deleted",
-		});
-		expect(typeof (patch as { deleted_at: unknown }).deleted_at).toBe("string");
-		expect(
-			typeof (patch as { recoverable_until: unknown }).recoverable_until,
-		).toBe("string");
+		const patchObj = patch as Record<string, unknown>;
+
+		/* The two fields the soft-delete contract sets. */
+		expect(typeof patchObj.deleted_at).toBe("string");
+		expect(typeof patchObj.recoverable_until).toBe("string");
+
+		/* Lifecycle status is intentionally untouched — soft-delete is
+		 * the existence axis, status is the lifecycle axis, and they
+		 * are independent. A regression that brings back the old
+		 * status-flip behavior would set `status: "deleted"` here. */
+		expect(patchObj).not.toHaveProperty("status");
 
 		/* The returned value is the same ISO string written into
 		 * `recoverable_until` — callers surface it to users as the
 		 * recovery deadline. */
-		expect(recoverableUntil).toBe(
-			(patch as { recoverable_until: string }).recoverable_until,
-		);
+		expect(recoverableUntil).toBe(patchObj.recoverable_until);
 
 		/* Retention window: `recoverable_until` - `deleted_at` must be
 		 * ~30 days, to within ~1s of scheduler drift. */
 		const delta =
 			new Date(recoverableUntil).getTime() -
-			new Date((patch as { deleted_at: string }).deleted_at).getTime();
+			new Date(patchObj.deleted_at as string).getTime();
 		expect(delta).toBeCloseTo(RETENTION_MS, -3);
 	});
 
@@ -114,7 +120,7 @@ describe("softDeleteApp", () => {
 	it("calls update(), not set() — guarantees NOT_FOUND on missing rows", async () => {
 		/* The load-bearing semantic difference: `set()` materializes a
 		 * new document when one doesn't exist; `update()` rejects with
-		 * NOT_FOUND. A ghost row with only the three soft-delete fields
+		 * NOT_FOUND. A ghost row with only the soft-delete fields
 		 * would be invalid at every read — the converter requires
 		 * `owner` + `blueprint`. Pin the contract explicitly so a
 		 * future contributor "fixing" this by switching to `set()`
@@ -126,10 +132,6 @@ describe("softDeleteApp", () => {
 		await softDeleteApp("app-1");
 
 		expect(updateMock).toHaveBeenCalledTimes(1);
-		/* Hard invariant: `set()` must never run on soft-delete, even
-		 * in some corner case. The stub is wired on the same ref
-		 * `update` lives on so a `.set({...})` call on the ref would
-		 * increment this spy's call count. */
 		expect(setMock).not.toHaveBeenCalled();
 	});
 });
