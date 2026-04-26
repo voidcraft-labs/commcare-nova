@@ -1,10 +1,17 @@
+/**
+ * Application root layout.
+ *
+ * The root layout's job is the document shell only: `<html>`, `<body>`,
+ * the global CSS import, and the next/font loaders that publish the
+ * Nova font CSS variables. Nothing here reads sessions, headers, or
+ * cookies, so every route group below — main app, docs, dev-only —
+ * starts from a request-independent shell that can be statically
+ * generated. Per-area chrome (the authenticated app header, error
+ * reporter, toast container, the docs RootProvider) lives inside each
+ * route group's own layout.
+ */
 import type { Metadata } from "next";
 import { JetBrains_Mono, Outfit, Plus_Jakarta_Sans } from "next/font/google";
-import { ErrorReporter } from "@/components/ErrorReporter";
-import { AppHeader } from "@/components/ui/AppHeader";
-import { ToastContainer } from "@/components/ui/ToastContainer";
-import { TooltipProvider } from "@/components/ui/TooltipProvider";
-import { getSession } from "@/lib/auth-utils";
 import "./globals.css";
 
 const display = Outfit({
@@ -31,57 +38,17 @@ export const metadata: Metadata = {
 	description: "Build CommCare apps from natural language",
 };
 
-/**
- * Root layout — fonts, global header, page wrapper.
- *
- * The flex-col + h-dvh container lets the global header take its natural
- * height while the page content fills the rest. When unauthenticated, the
- * header returns null so the full viewport is available. On builder pages,
- * BuilderLayout uses flex-1 to fill the remaining space below the header.
- * On regular pages, the overflow-auto wrapper scrolls naturally.
- */
-export default async function RootLayout({
+export default function RootLayout({
 	children,
 }: {
 	children: React.ReactNode;
 }) {
-	const session = await getSession();
-	/* Impersonated sessions are blocked from admin routes, so hide the nav link. */
-	const isAdmin =
-		session?.user?.role === "admin" && !session?.session?.impersonatedBy;
-
-	/* During impersonation, session.user is the target — pass their
-	 * identity so the header banner shows who is being viewed. */
-	const impersonating = session?.session?.impersonatedBy
-		? { userName: session.user.name, userEmail: session.user.email }
-		: null;
-
 	return (
 		<html lang="en" className="dark">
 			<body
-				className={`${display.variable} ${sans.variable} ${mono.variable} antialiased nova-noise`}
+				className={`${display.variable} ${sans.variable} ${mono.variable} antialiased`}
 			>
-				<div className="flex flex-col h-dvh bg-nova-void">
-					{/* Skip link — visually hidden until focused, jumps keyboard users past the header nav. */}
-					<a
-						href="#main-content"
-						className="sr-only focus:not-sr-only focus:absolute focus:z-system focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-nova-violet focus:text-white focus:text-sm focus:font-medium focus:outline-none"
-					>
-						Skip to main content
-					</a>
-					<ErrorReporter />
-					<TooltipProvider>
-						<AppHeader
-							isAdmin={isAdmin}
-							isAuthenticated={!!session}
-							impersonating={impersonating}
-						/>
-						<div id="main-content" className="flex-1 overflow-auto">
-							{children}
-						</div>
-						<ToastContainer />
-					</TooltipProvider>
-				</div>
+				{children}
 			</body>
 		</html>
 	);

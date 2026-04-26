@@ -1,0 +1,38 @@
+---
+title: Manage access
+description: Disconnect Claude Code from Nova, uninstall the plugin, or both.
+---
+
+Disconnecting Claude Code from your Nova account and uninstalling the plugin are two different things. You can do either one without the other. Disconnecting invalidates the credentials Claude Code uses to reach Nova. Uninstalling removes the `/nova:*` commands from Claude Code.
+
+## Disconnect Claude Code from Nova
+
+The easiest way is from inside Claude Code. Run `/mcp`, pick `nova`, and choose Clear authentication. Claude Code tells Nova to invalidate the connection and forgets the credentials locally.
+
+If you've already uninstalled the plugin (so `nova` no longer shows up under `/mcp`), do it from the web instead. Open [Nova settings → Connected apps](https://commcare.app/settings), find the Claude Code entry, and remove it.
+
+After either of those, the next `/nova:*` command you run will fail until you sign back in.
+
+## Uninstall the plugin
+
+```text
+/plugin uninstall nova
+```
+
+This removes the `/nova:*` commands from Claude Code. It doesn't touch your Nova account or any of your apps.
+
+## Remove the marketplace
+
+You only need this if you also want Claude Code to forget where the Nova plugin lives:
+
+```text
+/plugin marketplace remove nova-marketplace
+```
+
+If you decide to install the plugin again later, you'd add the marketplace back first.
+
+## Verifying it worked
+
+Run `/mcp` and check that `nova` is no longer in the list. Then open [Nova settings → Connected apps](https://commcare.app/settings) and check that Claude Code is no longer listed there either.
+
+Your Nova apps stay where they are. You can still edit them from the [Nova web builder](https://commcare.app).

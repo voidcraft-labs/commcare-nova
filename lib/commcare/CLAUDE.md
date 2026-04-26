@@ -14,12 +14,7 @@ One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, 
 
 ## Allowlist
 
-Only these consumers may reach into this package:
-
-- `app/api/compile/*`, `app/api/commcare/*`, `app/api/upload/*`
-- `lib/agent/validationLoop`
-- `lib/codemirror/*` (xpath parser + lint diagnostics)
-- `lib/preview/engine/*` (xpath transpiler for live evaluation)
+The set of allowed consumers is enforced by `biome.json`'s `noRestrictedImports` rule on `@/lib/commcare`. Read it there — keeping a hand-maintained copy here drifts.
 
 ## Subpackage layout
 

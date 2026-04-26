@@ -114,7 +114,11 @@ export const HOSTNAME_ALLOWLIST = {
 		"/.well-known/oauth-protected-resource",
 		"/.well-known/oauth-protected-resource/mcp",
 	],
-	[HOSTNAMES.docs]: ["/", "/_next", "/favicon"],
+	/* The docs host serves docs content at the root, so the proxy rewrites
+	 * every wire path to the internal `/docs/[[...slug]]` route — the
+	 * docs allowlist enumerates only the framework + search-API paths
+	 * that bypass the rewrite. Page-path coverage is the proxy's job. */
+	[HOSTNAMES.docs]: ["/api/search", "/_next", "/favicon"],
 } as const satisfies Record<Hostname, readonly string[]>;
 
 /** Normalize the Host header: lowercase, strip trailing dot, strip :80 / :443. */

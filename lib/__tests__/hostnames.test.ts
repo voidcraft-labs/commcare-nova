@@ -54,6 +54,27 @@ describe("isPathAllowedOnHost", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/admin")).toBe(false);
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/admin")).toBe(true);
 	});
+	it("does not list /docs on the docs allowlist (it's an internal path)", () => {
+		/* `/docs` is the internal Next route; the docs site lives at the
+		 * root externally. The proxy rewrites bare paths to `/docs/<...>`
+		 * itself rather than admitting `/docs` as a public surface. */
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/docs")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/docs/claude-code")).toBe(
+			false,
+		);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/docs")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/docs")).toBe(false);
+	});
+	it("keeps /mcp on the MCP host only", () => {
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/mcp")).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/mcp")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/mcp")).toBe(false);
+	});
+	it("allows docs search only on the docs host", () => {
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/search")).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/search")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/api/search")).toBe(false);
+	});
 	it("allows OAuth-AS metadata on commcare.app but not on mcp", () => {
 		expect(
 			isPathAllowedOnHost(

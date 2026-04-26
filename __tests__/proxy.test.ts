@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, type NextResponse } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "../proxy";
 
 /**
@@ -200,8 +200,23 @@ describe("proxy: mcp.commcare.app routing", () => {
 });
 
 describe("proxy: docs.commcare.app routing", () => {
-	it("passes through the root path (no CSP)", () => {
+	it("rewrites the bare root to the internal /docs route", () => {
 		const res = proxy(req("docs.commcare.app", "/"));
+		expectRewrite(res, "/docs");
+	});
+
+	it("rewrites a section path to its /docs/<section> internal target", () => {
+		const res = proxy(req("docs.commcare.app", "/claude-code"));
+		expectRewrite(res, "/docs/claude-code");
+	});
+
+	it("rewrites a deep section page to its /docs/<section>/<page> target", () => {
+		const res = proxy(req("docs.commcare.app", "/claude-code/commands"));
+		expectRewrite(res, "/docs/claude-code/commands");
+	});
+
+	it("passes through the docs search API", () => {
+		const res = proxy(req("docs.commcare.app", "/api/search"));
 		expectBypassPassthrough(res);
 	});
 
@@ -215,6 +230,20 @@ describe("proxy: docs.commcare.app routing", () => {
 
 	it("404s /api/chat (not in docs allowlist)", () => {
 		const res = proxy(req("docs.commcare.app", "/api/chat"));
+		expectNotFound(res);
+	});
+
+	it("404s direct /docs access from the wire (internal-only path)", () => {
+		/* `/docs` is the internal Next route. Externally the docs site
+		 * lives at the root, so a request that names the internal path
+		 * directly would shadow the public URL with a duplicate. Block
+		 * it so each page has exactly one canonical URL. */
+		const res = proxy(req("docs.commcare.app", "/docs"));
+		expectNotFound(res);
+	});
+
+	it("404s nested /docs/<...> access from the wire", () => {
+		const res = proxy(req("docs.commcare.app", "/docs/claude-code"));
 		expectNotFound(res);
 	});
 });
@@ -322,6 +351,64 @@ describe("proxy: unknown hosts (Cloud Run health checks, dev localhost, missing 
 		 * it must land at the auth redirect — proving page-route
 		 * treatment, not a 404. */
 		const res = proxy(req("", "/build"));
+		expectAuthRedirect(res);
+	});
+});
+
+/**
+ * The dev-mode `/docs` bypass on unknown hosts is the one branch in the proxy
+ * whose behavior depends on `NODE_ENV`. The test framework runs with
+ * `NODE_ENV === "test"`, so without `vi.stubEnv` the branch is silently
+ * unreachable from any of the other tests — and a future regression that
+ * flipped the gate (e.g. `!isProd`, an inverted env check) would not show
+ * up in CI. The two specs below pin both halves of the gate: dev grants
+ * passthrough, production redirects.
+ *
+ * The bypass is needed locally because `localhost:3000` doesn't classify
+ * as the docs hostname, so the docs-host rewrite branch never fires; the
+ * affordance lets a developer preview docs by visiting the internal
+ * `/docs/<...>` route directly without setting up `docs.commcare.app`
+ * against their loopback.
+ */
+describe("proxy: dev-mode /docs bypass on unknown hosts", () => {
+	beforeEach(() => {
+		vi.stubEnv("NODE_ENV", "development");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("passes /docs through without auth on localhost", () => {
+		const res = proxy(req("localhost:3000", "/docs"));
+		expect(res.status).not.toBe(404);
+		expect(res.status).not.toBe(307);
+		expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+	});
+
+	it("passes nested /docs/<section>/<page> through without auth on localhost", () => {
+		const res = proxy(req("localhost:3000", "/docs/claude-code/commands"));
+		expect(res.status).not.toBe(404);
+		expect(res.status).not.toBe(307);
+		expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+	});
+});
+
+describe("proxy: dev-mode /docs bypass does NOT fire in production", () => {
+	beforeEach(() => {
+		vi.stubEnv("NODE_ENV", "production");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("redirects unauthenticated /docs to / on an unknown host in prod", () => {
+		/* Belt-and-suspenders for the security boundary: even on an unknown
+		 * host (e.g. Cloud Run's internal `*-uc.a.run.app` probe address),
+		 * unauthenticated `/docs` MUST land at the auth redirect in prod —
+		 * not pass through. If this test breaks because the bypass fired,
+		 * the dev-only condition has regressed and is now leaking into
+		 * production. */
+		const res = proxy(req("nova-abc-uc.a.run.app", "/docs"));
 		expectAuthRedirect(res);
 	});
 });

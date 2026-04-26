@@ -1,0 +1,102 @@
+---
+title: Commands
+description: Every Nova command in Claude Code, what it does, and an example.
+---
+
+The plugin adds seven `/nova:*` commands. The two `/plugin` commands and `/mcp` are Claude Code's own — they appear here because you use them during setup.
+
+The intended flow is: build an app with `/nova:build` (or `/nova:autobuild`), change it with `/nova:edit` until it's right, then push it to CommCare HQ with `/nova:upload_to_hq`. Apps live in your Nova account — uploading to HQ is a separate, optional step.
+
+## Setup
+
+`/plugin marketplace add voidcraft-labs/nova-marketplace` registers the marketplace where the Nova plugin lives. Run once per machine.
+
+`/plugin install nova@nova-marketplace` installs the plugin. The Nova MCP server connection comes with it.
+
+`/mcp` opens Claude Code's MCP menu. Pick `nova` to sign in, see the connection status, reauthenticate, or clear the connection.
+
+## Building apps
+
+`/nova:build` and `/nova:autobuild` are the same command in different modes. The mode determines whether Claude pauses to ask you questions or makes every call itself.
+
+### `/nova:build <description>`
+
+Builds an app from your description. Claude pauses to ask you a question whenever something in the spec is unclear, then keeps going once you reply. Use this when you want to stay in the loop while the app comes together.
+
+```text
+/nova:build household registration app with child nutrition follow-ups
+```
+
+When it finishes, it prints the new app as **"App Name" (app_id)**, what it built, and any warnings.
+
+### `/nova:autobuild <description>`
+
+The same build, except Claude doesn't ask anything. It picks an answer for every unclear point and keeps going. You can't course-correct mid-build, so use this when the description is already specific enough that you don't expect to need to.
+
+```text
+/nova:autobuild simple vaccine tracking app for rural clinics
+```
+
+The output is the same as `/nova:build`, plus a note about the choices Claude made on its own.
+
+## Changing an app
+
+### `/nova:edit <app_id> "<instruction>"`
+
+Modifies an existing app. Like `/nova:build`, edits run interactively, so Claude can ask you questions while it works.
+
+Quote the instruction. `/nova:edit` is the only Nova command that takes two arguments instead of one freeform string, and Claude Code splits its arguments on whitespace — without quotes, only the first word after the app ID would become the instruction. Other multi-word commands like `/nova:upload_to_hq vaccine tracking` don't need quotes because they take the whole rest of the line as one value.
+
+```text
+/nova:edit <your-app-id> "add a phone number field to the registration form"
+```
+
+Prints the modified app and a summary of what changed.
+
+## Looking at your apps
+
+These commands don't change anything in Nova. Use them when you need to see what you have.
+
+### `/nova:list`
+
+Your ten most recently updated apps as a table: name, status, last updated, ID. If you have more than ten, ask for the next page.
+
+```text
+/nova:list
+```
+
+### `/nova:find <search>`
+
+Searches your apps by name. Case-insensitive and tolerates typos.
+
+```text
+/nova:find vaccine tracking
+```
+
+### `/nova:show <app_id>`
+
+Prints a summary of one app: its modules, forms, fields, and case types. Use this when you want to see what's inside an app without opening the web builder.
+
+```text
+/nova:show <your-app-id>
+```
+
+## Uploading to CommCare HQ
+
+### `/nova:upload_to_hq <app_id or name>`
+
+Pushes an app from Nova to CommCare HQ. The argument is either the app's ID or a name to search for; if more than one app matches the name, Claude shows the matches and asks which one you mean.
+
+Before it actually uploads, Claude shows you the target HQ project space (read from the API key you saved in [Nova settings](https://commcare.app/settings)) and asks you to confirm. Decline to back out without uploading.
+
+```text
+/nova:upload_to_hq vaccine tracking
+```
+
+On success, the response includes the URL of the new HQ app and any warnings HQ returned. CommCare HQ has no API for updating an app, so every upload creates a new app on HQ; your Nova copy is unaffected. If you want to retire the previous HQ version, archive it in HQ.
+
+## Updating the plugin
+
+`/plugin update nova` updates to the latest release in the marketplace. Restart Claude Code afterwards.
+
+To remove the plugin or disconnect from your Nova account, see [Manage access](/claude-code/access).

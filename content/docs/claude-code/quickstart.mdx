@@ -1,0 +1,37 @@
+---
+title: Quick start
+description: Install the Nova plugin in Claude Code, sign in, and build your first app.
+---
+
+## Install the plugin
+
+In Claude Code:
+
+```text
+/plugin marketplace add voidcraft-labs/nova-marketplace
+/plugin install nova@nova-marketplace
+```
+
+The first command tells Claude Code where to find the plugin. The second installs it. The Nova MCP server connection comes with the plugin, so there's nothing else to wire up.
+
+## Sign in
+
+Run `/mcp`, pick `nova` from the list, and complete the sign-in in the browser window that opens. Claude Code remembers the connection, so you only do this once.
+
+If the sign-in window doesn't open, run `/mcp` again. If Claude Code later says you're not signed in anymore, run `/mcp`, pick `nova`, and choose Reauthenticate.
+
+## Build your first app
+
+Run `/nova:build` followed by a description of what you want:
+
+```text
+/nova:build household registration app for community health workers
+```
+
+Claude builds the app and pauses to ask you a question whenever something in the spec is unclear. When it's done, it prints the new app's ID and a summary of what it built.
+
+If you'd rather Claude make every call itself without asking, use `/nova:autobuild` instead. The [Commands](/claude-code/commands) page covers the difference and the rest of what you can do once you have apps in Nova.
+
+## Uploading to CommCare HQ
+
+`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app. Before your first upload, add your CommCare HQ API key on the [Nova settings page](https://commcare.app/settings) — Nova reads the target HQ project space from there. After that, uploads work without configuration. Full details are on the [Commands](/claude-code/commands#novaupload_to_hq-app_id-or-name) page.

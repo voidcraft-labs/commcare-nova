@@ -30,6 +30,23 @@ Google Cloud Run via Docker (`next.config.ts` → `output: "standalone"`).
 
 ## Architecture
 
+### Multi-host, single service
+
+One Cloud Run service serves three hostnames, separated by middleware (`proxy.ts`) reading the `Host` header:
+
+- `commcare.app` — main builder app, `/api/auth`, `/api/chat`, OAuth AS metadata.
+- `mcp.commcare.app` — MCP API only. Externally exposed `/mcp` rewrites internally to `/api/mcp`.
+- `docs.commcare.app` — public docs site. Every wire path rewrites internally to `/docs/<...>` so docs URLs read clean (`docs.commcare.app/claude-code/commands`); `/docs` itself is internal-only and 404s if requested directly. Per-host allowlists in `lib/hostnames.ts` 404 anything off the list.
+
+### Route groups
+
+Three groups under `app/`:
+- `(app)/` — authenticated builder. Owns `getSession()`, `AppHeader`, toast/tooltip providers, `nova-noise`. All main-app pages live here.
+- `(docs)/docs/` — public docs site. Mounts its own fumadocs `RootProvider`; never reads the session, so docs pages render statically (SSG).
+- `(dev-only)/` — dev-only test pages, gated by `NODE_ENV` in their own layout.
+
+Root `app/layout.tsx` is intentionally minimal — html/body/fonts/global CSS only. Anything that calls `getSession()` belongs in `(app)/layout.tsx`, not the root, so the docs and any future public surface stay request-independent.
+
 ### Single agent, single endpoint
 
 One chat route runs everything. A single `ToolLoopAgent` (the Solutions Architect) converses, generates, and edits. One conversation = one prompt-cache window, so the SA keeps full memory of every design decision. No orchestration, no sub-agents. See `lib/agent/CLAUDE.md`.
@@ -38,7 +55,7 @@ One chat route runs everything. A single `ToolLoopAgent` (the Solutions Architec
 
 ### CommCare boundary
 
-`lib/commcare/` is the single package that owns CommCare's wire vocabulary — `HqApplication` JSON, XForm XML, `.ccz` archive, the XPath dialect, identifier rules, HQ REST client, KMS encryption for stored HQ credentials. Everything else in `lib/` speaks the domain shape (`BlueprintDoc` + `Field`) and only crosses into CommCare through the `@/lib/commcare` barrel. A Biome `noRestrictedImports` rule limits direct-into-internals imports to a small allowlist (`app/api/compile/*`, `app/api/commcare/*`, `lib/agent/validationLoop`, `lib/codemirror/*`, `lib/preview/engine/*`). See `lib/commcare/CLAUDE.md`.
+`lib/commcare/` is the single package that owns CommCare's wire vocabulary — `HqApplication` JSON, XForm XML, `.ccz` archive, the XPath dialect, identifier rules, HQ REST client, KMS encryption for stored HQ credentials. Everything else in `lib/` speaks the domain shape (`BlueprintDoc` + `Field`) and only crosses into CommCare through the `@/lib/commcare` barrel. A Biome `noRestrictedImports` rule enforces the boundary; the allowed consumers live in `biome.json`. See `lib/commcare/CLAUDE.md`.
 
 ### Root route
 
