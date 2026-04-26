@@ -29,7 +29,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { requireScope, SCOPES } from "../scopes";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -72,37 +72,19 @@ export function registerGetHqConnection(
 				/* Per-tool scope gate — runs BEFORE any data read so a
 				 * missing-scope token cannot probe whether HQ creds exist
 				 * for the user. The route-layer `nova.read` requirement has
-				 * already passed; this gate adds the HQ-specific layer. */
-				const scopeError = requireScope(
-					ctx.scopes,
-					SCOPES.hqRead,
-					"get_hq_connection",
-				);
-				if (scopeError) return scopeError;
+				 * already passed; this gate adds the HQ-specific layer.
+				 * Throws `McpScopeError` on miss; the surrounding catch
+				 * routes through `toMcpErrorResult`'s scope-missing branch. */
+				assertScope(ctx.scopes, SCOPES.hqRead, "get_hq_connection");
 
 				const settings = await getCommCareSettings(ctx.userId);
-				/* The public shape carries `domain: null` in the
-				 * unconfigured case; the wire shape collapses that to a
-				 * single-key `{configured: false}` so the shape itself
-				 * signals the two states and callers don't need to
-				 * simultaneously branch on both fields. */
+				/* `CommCareSettingsPublic` is a discriminated union — the
+				 * `configured: true` branch types `domain` as non-null, so
+				 * the wire shape projection is a 1:1 pass-through with no
+				 * defensive fallback. */
 				const body: GetHqConnectionBody = settings.configured
-					? {
-							configured: true,
-							domain: settings.domain ?? {
-								name: "",
-								displayName: "",
-							},
-						}
+					? { configured: true, domain: settings.domain }
 					: { configured: false };
-				/* The `domain ?? { name: "", displayName: "" }` fallback
-				 * should be unreachable — `getCommCareSettings` only
-				 * reports `configured: true` when a domain row exists —
-				 * but TypeScript can't prove that invariant through the
-				 * public type. Kept as a defensive branch rather than
-				 * a `!` assertion so a future settings-schema drift
-				 * surfaces as an empty name rather than a runtime
-				 * crash. */
 				return {
 					content: [{ type: "text", text: JSON.stringify(body) }],
 				};

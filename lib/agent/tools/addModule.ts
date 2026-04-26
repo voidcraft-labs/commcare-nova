@@ -71,6 +71,7 @@ export const addModuleTool = {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Module ${moduleIndex} not found` },
@@ -79,6 +80,7 @@ export const addModuleTool = {
 			const mod = doc.modules[moduleUuid];
 			if (!mod) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Module ${moduleIndex} not found` },
@@ -91,6 +93,7 @@ export const addModuleTool = {
 			// directly, so no stream event is needed here.
 			if (!mod.caseType || !case_list_columns) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { moduleIndex, name: mod.name, columns: null },
@@ -108,6 +111,7 @@ export const addModuleTool = {
 			// useful for replay attribution and server-side telemetry.
 			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: {
@@ -123,6 +127,7 @@ export const addModuleTool = {
 			// unexpected throw (Firestore down mid-recordMutations, etc.)
 			// would otherwise abort the entire tool loop.
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

@@ -66,6 +66,7 @@ export const updateModuleTool = {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Module ${moduleIndex} not found` },
@@ -94,6 +95,7 @@ export const updateModuleTool = {
 			const mod = newDoc.modules[moduleUuid];
 			if (!mod) {
 				return {
+					kind: "mutate" as const,
 					mutations,
 					newDoc,
 					result: { error: `Module ${moduleIndex} not found after update` },
@@ -110,12 +112,14 @@ export const updateModuleTool = {
 						: `case detail columns (${mod.caseDetailColumns?.length ?? 0})`,
 				);
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully updated module "${mod.name}" (index ${moduleIndex}). Changed: ${changes.join(", ")}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

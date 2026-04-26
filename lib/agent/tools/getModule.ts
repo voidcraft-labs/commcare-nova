@@ -12,6 +12,7 @@ import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, CaseListColumn, FormType } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ReadToolResult } from "./common";
 
 export const getModuleInputSchema = z.object({
 	moduleIndex: z.number().describe("0-based module index"),
@@ -55,27 +56,40 @@ export const getModuleTool = {
 		input: GetModuleInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<GetModuleResult> {
+	): Promise<ReadToolResult<GetModuleResult>> {
 		const { moduleIndex } = input;
 		const moduleUuid = doc.moduleOrder[moduleIndex];
-		if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
+		if (!moduleUuid) {
+			return {
+				kind: "read",
+				data: { error: `Module ${moduleIndex} not found` },
+			};
+		}
 		const mod = doc.modules[moduleUuid];
-		if (!mod) return { error: `Module ${moduleIndex} not found` };
+		if (!mod) {
+			return {
+				kind: "read",
+				data: { error: `Module ${moduleIndex} not found` },
+			};
+		}
 		const formUuids = doc.formOrder[moduleUuid] ?? [];
 		return {
-			moduleIndex,
-			name: mod.name,
-			case_type: mod.caseType ?? null,
-			case_list_columns: mod.caseListColumns ?? null,
-			forms: formUuids.map((fUuid, i) => {
-				const f = doc.forms[fUuid];
-				return {
-					formIndex: i,
-					name: f?.name ?? "",
-					type: f?.type ?? "survey",
-					fieldCount: countFieldsUnder(doc, fUuid),
-				};
-			}),
+			kind: "read",
+			data: {
+				moduleIndex,
+				name: mod.name,
+				case_type: mod.caseType ?? null,
+				case_list_columns: mod.caseListColumns ?? null,
+				forms: formUuids.map((fUuid, i) => {
+					const f = doc.forms[fUuid];
+					return {
+						formIndex: i,
+						name: f?.name ?? "",
+						type: f?.type ?? "survey",
+						fieldCount: countFieldsUnder(doc, fUuid),
+					};
+				}),
+			},
 		};
 	},
 };

@@ -23,17 +23,16 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { McpAccessError, requireOwnedApp } from "../ownership";
 import type { ToolContext } from "../types";
 
 /**
  * Register the single-argument `get_app` tool on an `McpServer`.
  *
- * Ownership is verified before the app load and, because the two reads
- * aren't atomic, the load path independently surfaces a concurrent
- * hard-delete as `not_found`. A pre-load ownership pass still pays for
- * itself here: cross-tenant probes short-circuit before Firestore has
- * to return anything more than an owner field.
+ * `loadAppBlueprint` ownership-gates and loads the doc in one
+ * Firestore read, throwing `McpAccessError` on a cross-tenant probe
+ * or a vanished row. Only `.doc` is consumed here — the full `AppDoc`
+ * envelope is available for callers that need denormalized columns
+ * (see `compile_app`).
  */
 export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
@@ -52,18 +51,7 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
 			try {
-				await requireOwnedApp(ctx.userId, appId);
-
-				/* `loadAppBlueprint` both fetches the row and rebuilds the
-				 * derived `fieldParent` index. Null means the row vanished
-				 * between the ownership check and this read (concurrent
-				 * hard-delete); collapse that race to the same `not_found`
-				 * a missing-app probe gets. Only `.doc` is needed here —
-				 * the full `AppDoc` is returned for callers that consume
-				 * denormalized columns (see `compile_app`). */
-				const loaded = await loadAppBlueprint(appId);
-				if (!loaded) throw new McpAccessError("not_found");
-
+				const loaded = await loadAppBlueprint(appId, ctx.userId);
 				return {
 					content: [{ type: "text", text: summarizeBlueprint(loaded.doc) }],
 				};

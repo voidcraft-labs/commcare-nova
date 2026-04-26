@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ReadToolResult } from "./common";
 
 export const getFormInputSchema = z.object({
 	moduleIndex: z.number().describe("0-based module index"),
@@ -39,17 +40,21 @@ export const getFormTool = {
 		input: GetFormInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<GetFormResult> {
+	): Promise<ReadToolResult<GetFormResult>> {
 		const { moduleIndex, formIndex } = input;
+		const notFound: ReadToolResult<GetFormResult> = {
+			kind: "read",
+			data: { error: `Form m${moduleIndex}-f${formIndex} not found` },
+		};
 		const moduleUuid = doc.moduleOrder[moduleIndex];
-		if (!moduleUuid)
-			return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+		if (!moduleUuid) return notFound;
 		const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
-		if (!formUuid)
-			return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+		if (!formUuid) return notFound;
 		const snapshot = formSnapshot(doc, formUuid);
-		if (!snapshot)
-			return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-		return { moduleIndex, formIndex, form: snapshot };
+		if (!snapshot) return notFound;
+		return {
+			kind: "read",
+			data: { moduleIndex, formIndex, form: snapshot },
+		};
 	},
 };

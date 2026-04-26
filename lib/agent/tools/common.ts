@@ -32,6 +32,14 @@ export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
 /**
  * Standard output shape for every mutating shared tool.
  *
+ * Tagged with `kind: "mutate"` so the MCP adapter's result projector
+ * dispatches via a `switch` on the discriminator rather than
+ * runtime structural inspection — the type system catches a future
+ * fourth shape at compile time, and `MutatingToolResult` /
+ * `ReadToolResult` / `ValidateAppResult` are unambiguous regardless of
+ * incidental shape collisions in their inner payload.
+ *
+ * - `kind`: the discriminator — always `"mutate"`.
  * - `mutations`: the computed batch. The tool has already persisted it
  *   via `ctx.recordMutations` before returning; the SA wrapper uses the
  *   presence of mutations to decide whether to advance its own working
@@ -43,7 +51,22 @@ export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
  *   typed via the `R` parameter.
  */
 export interface MutatingToolResult<R> {
+	kind: "mutate";
 	mutations: Mutation[];
 	newDoc: BlueprintDoc;
 	result: R;
+}
+
+/**
+ * Standard output shape for every read-only shared tool. Tagged with
+ * `kind: "read"` so the MCP adapter dispatches via the same switch the
+ * mutating + validate branches use; the inner `data` field carries the
+ * per-tool typed payload. The chat-side wrapper unwraps `data` so the
+ * AI SDK tool surface still sees just the bare result — the
+ * discriminator is an internal contract between the tool body and the
+ * two consumers (chat factory, MCP adapter).
+ */
+export interface ReadToolResult<R> {
+	kind: "read";
+	data: R;
 }

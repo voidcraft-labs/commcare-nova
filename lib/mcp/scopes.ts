@@ -13,9 +13,10 @@
  *      `nova.hq.write` are *orthogonal* to read/write — they gate access
  *      to a separate third-party system (CommCare HQ), not Nova-internal
  *      operations. Tools that touch HQ (`get_hq_connection`,
- *      `upload_app_to_hq`) call `requireScope` at the top of their
- *      handler; a token lacking the HQ scope gets a structured
- *      `scope_missing` envelope back, but can still call non-HQ tools.
+ *      `upload_app_to_hq`) call `assertScope` at the top of their
+ *      handler; a token lacking the HQ scope produces a structured
+ *      `scope_missing` envelope through the shared error serializer,
+ *      but can still call non-HQ tools.
  *
  * The orthogonal split is why HQ scopes can't live at the verify layer:
  * adding them there would mandate HQ access for *any* MCP request,
@@ -28,8 +29,6 @@
  * `parseScopes` below splits the raw space-delimited `scope` claim into
  * the array `ToolContext.scopes` carries.
  */
-
-import type { McpErrorPayload, McpToolErrorResult } from "./errors";
 
 /**
  * Canonical scope identifiers. Using `as const` locks the object shape
@@ -66,7 +65,7 @@ export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
  * claim carries third-party scopes (`openid`, `profile`,
  * `offline_access`) that Nova doesn't own but must preserve alongside
  * its own. Consumers that check for a Nova-specific scope use
- * `requireScope` (or `scopes.includes(SCOPES.hqWrite)` directly) against
+ * `assertScope` (or `scopes.includes(SCOPES.hqWrite)` directly) against
  * the string array; those constants already carry the correct literal
  * types.
  *
@@ -80,60 +79,50 @@ export function parseScopes(scope: string | undefined): string[] {
 }
 
 /**
- * Per-tool scope guard. Returns `null` when the access token carries
- * `required`, or a structured `scope_missing` error envelope otherwise.
+ * Thrown when the caller's access token lacks an OAuth scope a specific
+ * tool requires. Parallel to `McpAccessError` and `McpInvalidInputError`:
+ * `toMcpErrorResult` short-circuits the generic classifier and emits
+ * a deterministic `scope_missing` envelope carrying the required scope
+ * so MCP clients can show a precise re-authorization prompt.
+ *
+ * `app_id` is uniformly stamped onto the wire envelope by the error
+ * serializer (via `ctx.appId`), so callers don't need to thread it
+ * through this throw — they just `throw new McpScopeError(SCOPES.hqWrite,
+ * "upload_app_to_hq")` from inside their `try` block.
+ */
+export class McpScopeError extends Error {
+	constructor(
+		public readonly requiredScope: Scope,
+		public readonly toolName: string,
+	) {
+		super(
+			`Tool "${toolName}" requires the "${requiredScope}" OAuth scope, which was not granted on this access token. Re-authorize the connecting client to grant this permission.`,
+		);
+		this.name = "McpScopeError";
+	}
+}
+
+/**
+ * Per-tool scope guard. Throws `McpScopeError` when the token lacks
+ * `required`; resolves cleanly otherwise. The catch block wrapping the
+ * tool body routes the throw through `toMcpErrorResult`, which builds
+ * a `scope_missing` envelope with `app_id` stamped from `ctx.appId` —
+ * uniform with every other access-failure on the wire.
  *
  * Pattern at the call site:
  *
- *   const scopeError = requireScope(ctx.scopes, SCOPES.hqRead, "get_hq_connection");
- *   if (scopeError) return scopeError;
+ *   assertScope(ctx.scopes, SCOPES.hqRead, "get_hq_connection");
  *
- * The check should run *before* any data read so a missing-scope token
+ * The check should run BEFORE any data read so a missing-scope token
  * can't probe whether a record exists — same defensive ordering as the
  * ownership pre-gate in `upload_app_to_hq`.
- *
- * Returns rather than throws because scope failure is an *expected*
- * client-handling case (the MCP client should prompt the user to
- * re-authorize), not an exceptional one — the wire envelope is
- * structurally indistinguishable from any other gate rejection in the
- * `error_type` taxonomy.
- *
- * `toolName` rides into the human-readable `message` so the user sees
- * which capability they need to grant; `required_scope` rides into a
- * sibling field so a programmatic MCP client can show a precise
- * re-authorization prompt without parsing the message.
- *
- * `appId` rides through when the calling tool already knows the target
- * app at the gate site — keeping the wire shape uniform with the
- * tool's other failure envelopes (e.g. `upload_app_to_hq`'s
- * `hq_not_configured` / `hq_upload_failed` / `not_found` all carry
- * `app_id`). Tools without an app-id concept at the gate site
- * (`get_hq_connection`) omit the parameter; the field is dropped from
- * the payload rather than emitted as `null`.
  */
-export function requireScope(
+export function assertScope(
 	scopes: readonly string[],
 	required: Scope,
 	toolName: string,
-	appId?: string,
-): McpToolErrorResult | null {
-	if (scopes.includes(required)) return null;
-	/* `satisfies McpErrorPayload` enforces that any drift between the
-	 * wire taxonomy (`McpErrorType` in `./errors`) and what this helper
-	 * emits is a compile error — same pattern `UPLOAD_ERROR_TAGS` in
-	 * `uploadAppToHq.ts:75` uses for its own tool-specific tags.
-	 * Conditional spread for `app_id` mirrors `toMcpErrorResult`'s
-	 * handling of the same field — present only when the caller knows
-	 * the target app, absent otherwise (no `null`-as-sentinel on the
-	 * wire). */
-	const payload = {
-		error_type: "scope_missing",
-		message: `Tool "${toolName}" requires the "${required}" OAuth scope, which was not granted on this access token. Re-authorize the connecting client to grant this permission.`,
-		required_scope: required,
-		...(appId !== undefined && { app_id: appId }),
-	} satisfies McpErrorPayload;
-	return {
-		isError: true,
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-	};
+): void {
+	if (!scopes.includes(required)) {
+		throw new McpScopeError(required, toolName);
+	}
 }

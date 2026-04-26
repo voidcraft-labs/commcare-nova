@@ -33,10 +33,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadAppOwner } from "@/lib/db/apps";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
+import { McpAccessError } from "../ownership";
 import { renderAgentPrompt } from "../prompts";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 import type { ToolContext } from "../types";
@@ -45,9 +45,10 @@ import { makeFakeServer } from "./fakeServer";
 /* Hoisted mocks — every dependency the tool touches has a vi.fn()
  * stand-in. The renderer wrap preserves the real implementation as
  * the default so happy-path payloads stay realistic; the error-path
- * test flips it via `mockImplementationOnce`. The two data-layer
- * mocks (`loadAppOwner`, `loadAppBlueprint`) drive the edit-mode
- * ownership + load round-trip without going through Firestore. */
+ * test flips it via `mockImplementationOnce`. `loadAppBlueprint` is
+ * mocked directly to drive ownership + load scenarios via resolve /
+ * reject — both succeed and `McpAccessError` failures route through
+ * the same single-read entry point. */
 vi.mock("../prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../prompts")>();
 	return {
@@ -55,9 +56,6 @@ vi.mock("../prompts", async (importOriginal) => {
 		renderAgentPrompt: vi.fn(actual.renderAgentPrompt),
 	};
 });
-vi.mock("@/lib/db/apps", () => ({
-	loadAppOwner: vi.fn(),
-}));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
 }));
@@ -163,7 +161,6 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 
 beforeEach(() => {
 	vi.mocked(renderAgentPrompt).mockClear();
-	vi.mocked(loadAppOwner).mockReset();
 	vi.mocked(loadAppBlueprint).mockReset();
 });
 
@@ -213,7 +210,6 @@ describe("registerGetAgentPrompt — build mode", () => {
 			 * `renderAgentPrompt(interactive, editDoc?)`. */
 			expect(renderAgentPrompt).toHaveBeenCalledWith(combo.interactive);
 			expect(loadAppBlueprint).not.toHaveBeenCalled();
-			expect(loadAppOwner).not.toHaveBeenCalled();
 		});
 	}
 
@@ -231,7 +227,6 @@ describe("registerGetAgentPrompt — build mode", () => {
 		);
 
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
-		expect(loadAppOwner).not.toHaveBeenCalled();
 		/* The renderer still runs with no doc — confirms build mode is
 		 * truly app-agnostic end-to-end. */
 		expect(renderAgentPrompt).toHaveBeenCalledWith(true);
@@ -240,7 +235,6 @@ describe("registerGetAgentPrompt — build mode", () => {
 
 describe("registerGetAgentPrompt — edit mode happy path", () => {
 	it("loads the blueprint, threads it through the renderer, and returns the inlined edit prompt", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		const doc = fixturePopulatedDoc();
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(loadedFor(doc));
 
@@ -303,18 +297,19 @@ describe("registerGetAgentPrompt — edit mode missing app_id", () => {
 		expect(payload.message).toContain("edit mode requires app_id");
 		/* Hard short-circuit: argument validation runs before any
 		 * Firestore call. */
-		expect(loadAppOwner).not.toHaveBeenCalled();
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 	});
 });
 
 describe("registerGetAgentPrompt — edit mode unowned app_id", () => {
-	it("collapses to error_type = 'not_found' (IDOR hardening), never loads the blueprint", async () => {
+	it("collapses to error_type = 'not_found' (IDOR hardening), never renders", async () => {
 		/* IDOR hardening: cross-tenant probes see the same envelope a
-		 * missing-id probe would see. The internal `not_owner` reason
-		 * stays on `McpAccessError` for the audit log; the wire only
-		 * exposes `not_found`. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		 * missing-id probe would see. `loadAppBlueprint` throws
+		 * `McpAccessError("not_owner")`; the wire collapses to
+		 * `not_found`. */
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_owner"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
@@ -336,8 +331,9 @@ describe("registerGetAgentPrompt — edit mode unowned app_id", () => {
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.message).toBe("App not found.");
 		expect(payload.app_id).toBe("owned-by-other");
-		/* Cross-tenant probes must short-circuit — no blueprint load. */
-		expect(loadAppBlueprint).not.toHaveBeenCalled();
+		/* Cross-tenant probes must short-circuit — the renderer never
+		 * runs because `loadAppBlueprint` threw before reaching it. */
+		expect(renderAgentPrompt).not.toHaveBeenCalled();
 	});
 });
 
@@ -348,7 +344,6 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 		 * routes empty docs into the build branch; the tool must
 		 * inherit that fallthrough so the emitted text isn't a
 		 * malformed edit prompt against an empty structure. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		const empty = fixtureEmptyDoc();
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(loadedFor(empty));
 

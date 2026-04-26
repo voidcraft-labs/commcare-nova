@@ -119,6 +119,7 @@ export const editFieldTool = {
 			);
 			if (!resolved) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
@@ -149,6 +150,7 @@ export const editFieldTool = {
 				const allowed = fieldRegistry[fromKind].convertTargets;
 				if (!allowed.includes(newKind)) {
 					return {
+						kind: "mutate" as const,
 						mutations: [],
 						newDoc: doc,
 						result: {
@@ -172,6 +174,7 @@ export const editFieldTool = {
 				const postConvertField = afterConvert.fields[fieldUuid];
 				if (!postConvertField || postConvertField.kind !== newKind) {
 					return {
+						kind: "mutate" as const,
 						mutations: allMutations,
 						newDoc: workingDoc,
 						result: {
@@ -220,6 +223,7 @@ export const editFieldTool = {
 			);
 			if (!afterRename) {
 				return {
+					kind: "mutate" as const,
 					mutations: allMutations,
 					newDoc: workingDoc,
 					result: { error: `Field "${finalId}" not found after rename` },
@@ -264,12 +268,14 @@ export const editFieldTool = {
 			const label = postField && "label" in postField ? postField.label : "";
 			const kind = postField?.kind ?? "unknown";
 			return {
+				kind: "mutate" as const,
 				mutations: allMutations,
 				newDoc: workingDoc,
 				result: `Successfully updated "${finalId}"${renameNote} in "${formName}". Changed: ${changedFields}. Current label: "${label}", kind: ${kind}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

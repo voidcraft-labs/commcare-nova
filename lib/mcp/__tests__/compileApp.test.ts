@@ -3,34 +3,35 @@
  *
  * Covers the five paths the route handler has to care about:
  *
- *   - Happy path, `format: "json"` — the tool ownership-gates, loads
- *     the blueprint, expands to HQ JSON, and returns the HQ JSON
- *     directly as content (no wrapper — the caller asked for JSON).
+ *   - Happy path, `format: "json"` — the tool ownership-gates + loads
+ *     the blueprint via a single `loadAppBlueprint` call, expands to HQ
+ *     JSON, and returns the HQ JSON directly as content (no wrapper —
+ *     the caller asked for JSON).
  *   - Happy path, `format: "ccz"` — the same pipeline plus a
  *     `compileCcz` call; content is a JSON envelope with the
  *     base64-encoded archive under `data` and an `encoding: "base64"`
  *     tag inline.
  *   - Ownership failure — IDOR hardening collapses `"not_owner"` to
  *     `"not_found"` on the wire and the tool never calls `compileCcz`.
- *   - App not found (`not_found`) — ownership returns null, so the
- *     tool never reaches the blueprint load or the expander.
+ *   - App not found (`not_found`) — `loadAppBlueprint` throws, so the
+ *     tool never reaches the expander.
  *   - `compileCcz` throws — the error surfaces through the shared
  *     taxonomy (not the `McpAccessError` fast path).
  *
  * `@/lib/mcp/loadApp` is mocked directly so each test pins the exact
- * `{ doc, app }` pair the tool sees. `loadAppOwner` is mocked on the
- * db layer to drive the ownership gate. The MCP SDK boundary follows
- * the shared `makeFakeServer` helper pattern used by sibling tool tests.
+ * `{ doc, app }` pair the tool sees — or pins the rejection reason for
+ * the access-failure paths. The MCP SDK boundary follows the shared
+ * `makeFakeServer` helper pattern used by sibling tool tests.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
-import { loadAppOwner } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
+import { McpAccessError } from "../ownership";
 import { registerCompileApp } from "../tools/compileApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -38,9 +39,6 @@ import { makeFakeServer } from "./fakeServer";
 /* Hoisted mocks — every dependency the tool touches has a vi.fn()
  * stand-in so each test pins exact return values without going through
  * Firestore, the real expander, or the real compiler. */
-vi.mock("@/lib/db/apps", () => ({
-	loadAppOwner: vi.fn(),
-}));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
 }));
@@ -124,7 +122,6 @@ const FAKE_HQ_JSON = {
 const toolCtx: ToolContext = { userId: "u1", scopes: [] };
 
 beforeEach(() => {
-	vi.mocked(loadAppOwner).mockReset();
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
@@ -134,7 +131,6 @@ beforeEach(() => {
 
 describe("registerCompileApp — happy path, json format", () => {
 	it("returns the HqApplication JSON for an owned app", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
 
@@ -160,7 +156,6 @@ describe("registerCompileApp — happy path, json format", () => {
 
 describe("registerCompileApp — happy path, ccz format", () => {
 	it("returns the ccz archive base64-encoded with encoding meta", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
 
@@ -202,10 +197,13 @@ describe("registerCompileApp — happy path, ccz format", () => {
 describe("registerCompileApp — ownership failure", () => {
 	it("collapses not_owner to not_found on the wire (IDOR hardening) and never compiles", async () => {
 		/* IDOR hardening: cross-tenant probes see the same envelope a
-		 * missing-id probe would see. The wire never exposes the
-		 * `"not_owner"` distinction; the internal reason stays on the
-		 * `McpAccessError` for the server-side audit log. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		 * missing-id probe would see. `loadAppBlueprint` throws
+		 * `McpAccessError("not_owner")`; the wire never exposes the
+		 * `"not_owner"` distinction. The internal reason stays on the
+		 * error for the server-side audit log. */
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_owner"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
@@ -223,17 +221,18 @@ describe("registerCompileApp — ownership failure", () => {
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.message).toBe("App not found.");
 		expect(payload.app_id).toBe("a1");
-		/* No blueprint load and no expand when ownership fails —
-		 * cross-tenant compile probes must short-circuit. */
-		expect(loadAppBlueprint).not.toHaveBeenCalled();
+		/* No expand when ownership fails — cross-tenant compile probes
+		 * must short-circuit. */
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(compileCcz).not.toHaveBeenCalled();
 	});
 });
 
 describe("registerCompileApp — not found", () => {
-	it("maps ownership-null to error_type = 'not_found'", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+	it("maps a missing app row to error_type = 'not_found'", async () => {
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_found"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
@@ -249,32 +248,7 @@ describe("registerCompileApp — not found", () => {
 		};
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.app_id).toBe("ghost");
-	});
-
-	it("maps a hard-delete race on loadAppBlueprint to error_type = 'not_found'", async () => {
-		/* Ownership check passes, then the blueprint load returns null —
-		 * a concurrent hard-delete between the two reads. The tool must
-		 * collapse this to the same `not_found` reason a missing-app
-		 * probe gets so MCP clients see one error code. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
-		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(null);
-
-		const { server, capture } = makeFakeServer();
-		registerCompileApp(server, toolCtx);
-
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
-			isError?: true;
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.isError).toBe(true);
-		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
-			error_type: string;
-			app_id: string;
-		};
-		expect(payload.error_type).toBe("not_found");
-		expect(payload.app_id).toBe("a1");
-		/* The expander never runs — the tool bails on the missing row
-		 * before reaching the emission pipeline. */
+		/* The expander never runs — the tool bails on the missing row. */
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
 });
@@ -284,7 +258,9 @@ describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client has no
 		 * signal to distinguish them. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_owner"),
+		);
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerCompileApp(sA, toolCtx);
 		const ownerMismatch = await capA()(
@@ -292,7 +268,9 @@ describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
 			{},
 		);
 
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_found"),
+		);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerCompileApp(sB, toolCtx);
 		const notFound = await capB()({ app_id: "probe-id", format: "json" }, {});
@@ -306,7 +284,6 @@ describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
 
 describe("registerCompileApp — compileCcz throws", () => {
 	it("surfaces compiler failures through the shared error taxonomy", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
 		vi.mocked(compileCcz).mockImplementationOnce(() => {

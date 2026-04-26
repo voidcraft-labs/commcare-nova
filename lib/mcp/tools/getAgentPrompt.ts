@@ -42,7 +42,6 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { McpAccessError, requireOwnedApp } from "../ownership";
 import { type PromptMode, renderAgentPrompt } from "../prompts";
 import type { ToolContext } from "../types";
 
@@ -65,7 +64,7 @@ import type { ToolContext } from "../types";
  * `ctx.userId` rides every error envelope so cross-tenant audit logging
  * (in `toMcpErrorResult`'s `McpAccessError` branch) stays uniform across
  * every tool. The build-mode happy path doesn't read `ctx.userId`; edit
- * mode reads it for `requireOwnedApp` to gate the blueprint load.
+ * mode reads it for `loadAppBlueprint` to gate the blueprint load.
  */
 export function registerGetAgentPrompt(
 	server: McpServer,
@@ -126,14 +125,10 @@ export function registerGetAgentPrompt(
 					if (!args.app_id) {
 						throw new McpInvalidInputError("edit mode requires app_id");
 					}
-					await requireOwnedApp(ctx.userId, args.app_id);
-					/* `loadAppBlueprint` returns null when a concurrent
-					 * hard-delete lands between the ownership check and
-					 * this read — collapse that race to the same
-					 * `not_found` shape a missing-app probe surfaces, the
-					 * way `getApp` does. */
-					const loaded = await loadAppBlueprint(args.app_id);
-					if (!loaded) throw new McpAccessError("not_found");
+					/* `loadAppBlueprint` ownership-gates and loads in one
+					 * Firestore read; throws `McpAccessError` on cross-tenant
+					 * probe or vanished row. */
+					const loaded = await loadAppBlueprint(args.app_id, ctx.userId);
 					const systemPrompt = renderAgentPrompt(args.interactive, loaded.doc);
 					return {
 						content: [{ type: "text", text: systemPrompt }],

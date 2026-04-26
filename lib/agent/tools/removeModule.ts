@@ -56,6 +56,7 @@ export const removeModuleTool = {
 			// synchronized with reality.
 			if (!moduleUuid) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: `Module ${moduleIndex} does not exist — no change. App has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`,
@@ -76,12 +77,14 @@ export const removeModuleTool = {
 			);
 
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

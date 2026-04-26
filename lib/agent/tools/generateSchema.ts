@@ -64,6 +64,7 @@ export const generateSchemaTool = {
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, "schema");
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: {
@@ -83,6 +84,7 @@ export const generateSchemaTool = {
 			// that escaped Zod, etc.) would propagate out of the tool loop
 			// as an unhandled exception and abort the entire run.
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

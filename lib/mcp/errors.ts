@@ -38,6 +38,7 @@ import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
+import { McpScopeError } from "./scopes";
 
 /**
  * Thrown when an MCP tool's input arguments fail a contract check the
@@ -95,8 +96,9 @@ export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
  *     scope a specific tool requires (orthogonal to the route-layer
  *     `nova.read` + `nova.write` floor). Today only the HQ tools
  *     (`get_hq_connection`, `upload_app_to_hq`) gate this way; see
- *     `requireScope` in `./scopes` for the helper that produces the
- *     envelope. Distinct from `UploadErrorType` because scope failure
+ *     `assertScope` / `McpScopeError` in `./scopes` for the helper that
+ *     produces the envelope. Distinct from `UploadErrorType` because
+ *     scope failure
  *     is a token-shape problem, not a per-tool gate, and surfaces
  *     across multiple tools.
  *   - `UploadErrorType` — upload-tool-specific gate rejections.
@@ -232,6 +234,27 @@ export function toMcpErrorResult(
 					text: JSON.stringify(payload("invalid_input", err.message)),
 				},
 			],
+		};
+	}
+
+	if (err instanceof McpScopeError) {
+		/* Scope-gate failure short-circuits the classifier the same way
+		 * `McpInvalidInputError` does: the failure shape is deterministic
+		 * (we know exactly which scope was missing on which tool) and
+		 * routing through the status-code heuristic would only succeed
+		 * in losing that precision. The wire payload carries
+		 * `required_scope` alongside the standard fields so a
+		 * programmatic MCP client can show a precise re-authorization
+		 * prompt without parsing the message. */
+		const scopePayload: McpErrorPayload = {
+			error_type: "scope_missing",
+			message: err.message,
+			required_scope: err.requiredScope,
+			...(ctx?.appId !== undefined && { app_id: ctx.appId }),
+		};
+		return {
+			isError: true,
+			content: [{ type: "text", text: JSON.stringify(scopePayload) }],
 		};
 	}
 

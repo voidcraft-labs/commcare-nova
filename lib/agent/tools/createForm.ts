@@ -60,6 +60,7 @@ export const createFormTool = {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Module ${moduleIndex} not found` },
@@ -84,12 +85,14 @@ export const createFormTool = {
 			const forms = newDoc.formOrder[moduleUuid] ?? [];
 			const newFormIndex = forms.length - 1;
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully created form "${name}" (${type}) in module "${mod?.name ?? moduleIndex}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

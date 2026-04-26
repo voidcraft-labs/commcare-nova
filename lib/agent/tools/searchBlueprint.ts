@@ -11,6 +11,7 @@ import { z } from "zod";
 import { type SearchResult, searchBlueprint } from "@/lib/doc/searchBlueprint";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ReadToolResult } from "./common";
 
 export const searchBlueprintInputSchema = z.object({
 	query: z
@@ -40,8 +41,8 @@ export const searchBlueprintTool = {
 		input: SearchBlueprintInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<SearchBlueprintResult> {
+	): Promise<ReadToolResult<SearchBlueprintResult>> {
 		const results = searchBlueprint(doc, input.query);
-		return { query: input.query, results };
+		return { kind: "read", data: { query: input.query, results } };
 	},
 };

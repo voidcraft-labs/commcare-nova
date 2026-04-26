@@ -24,7 +24,6 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { McpAccessError, requireOwnedApp } from "../ownership";
 import type { ToolContext } from "../types";
 
 /**
@@ -60,16 +59,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
 			try {
-				await requireOwnedApp(ctx.userId, appId);
-
-				/* Single load covers both the compile input (blueprint with
-				 * rebuilt `fieldParent`) and the denormalized app name.
-				 * Null means the row vanished between the ownership check
-				 * and this read (concurrent hard-delete); map that race to
-				 * the same `not_found` a missing-id probe surfaces. */
-				const loaded = await loadAppBlueprint(appId);
-				if (!loaded) throw new McpAccessError("not_found");
-				const { doc, app } = loaded;
+				/* Single load covers ownership gate, the compile input
+				 * (blueprint with rebuilt `fieldParent`), and the
+				 * denormalized app name in one Firestore read. Throws
+				 * `McpAccessError` on cross-tenant probe or vanished row;
+				 * the wire collapses both to `not_found`. */
+				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
 				const hqJson = expandDoc(doc);
 

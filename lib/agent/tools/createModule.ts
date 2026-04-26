@@ -76,12 +76,14 @@ export const createModuleTool = {
 
 			const newModIndex = newDoc.moduleOrder.length - 1;
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

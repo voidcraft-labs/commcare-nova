@@ -20,6 +20,7 @@ import type { BlueprintDoc, Field } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 import { resolveFieldByIndex } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import type { ReadToolResult } from "./common";
 
 export const getFieldInputSchema = z.object({
 	moduleIndex: z.number().describe("0-based module index"),
@@ -64,12 +65,15 @@ export const getFieldTool = {
 		input: GetFieldInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<GetFieldResult> {
+	): Promise<ReadToolResult<GetFieldResult>> {
 		const { moduleIndex, formIndex, fieldId } = input;
 		const resolved = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
 		if (!resolved) {
 			return {
-				error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
+				kind: "read",
+				data: {
+					error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
+				},
 			};
 		}
 		// If the resolved field is a container, include its children so
@@ -82,11 +86,8 @@ export const getFieldTool = {
 				}
 			: resolved.field;
 		return {
-			moduleIndex,
-			formIndex,
-			fieldId,
-			path: resolved.path,
-			field,
+			kind: "read",
+			data: { moduleIndex, formIndex, fieldId, path: resolved.path, field },
 		};
 	},
 };

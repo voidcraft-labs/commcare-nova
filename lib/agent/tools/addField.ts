@@ -94,6 +94,7 @@ export const addFieldTool = {
 			const resolved = resolveFormContext(doc, moduleIndex, formIndex);
 			if (!resolved) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
@@ -163,6 +164,7 @@ export const addFieldTool = {
 			const field = flatFieldToField(processed, uuid);
 			if (!field) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
@@ -193,12 +195,14 @@ export const addFieldTool = {
 					: "at end";
 			const parentDesc = parentId ? ` inside group "${parentId}"` : "";
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully added field "${fieldInput.id}" (${fieldInput.label ?? ""}) to "${formName}" ${posDesc}${parentDesc}. Form now has ${totalCount} field${totalCount === 1 ? "" : "s"}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { MESSAGES } from "@/lib/agent/errorClassifier";
 import { toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
+import { McpScopeError, SCOPES } from "../scopes";
 
 /**
  * Parse the JSON payload from an error result's content. Every error
@@ -103,6 +104,46 @@ describe("toMcpErrorResult", () => {
 	it("omits app_id when ctx is present but appId is not set", () => {
 		const result = toMcpErrorResult(new Error("boom"), {});
 		const payload = parsePayload(result);
+		expect("app_id" in payload).toBe(false);
+	});
+
+	it("serializes McpScopeError into a scope_missing envelope with required_scope", () => {
+		/* Scope-gate failures short-circuit the classifier the same way
+		 * `McpAccessError` does: the failure shape is deterministic, and
+		 * the wire payload carries `required_scope` so a programmatic
+		 * client can show a precise re-authorization prompt without
+		 * parsing the message. */
+		const result = toMcpErrorResult(
+			new McpScopeError(SCOPES.hqWrite, "upload_app_to_hq"),
+			{ appId: "a1" },
+		);
+		expect(result.isError).toBe(true);
+		const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			required_scope: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe("scope_missing");
+		expect(payload.required_scope).toBe(SCOPES.hqWrite);
+		expect(payload.app_id).toBe("a1");
+		expect(payload.message).toContain("upload_app_to_hq");
+		expect(payload.message).toContain(SCOPES.hqWrite);
+	});
+
+	it("omits app_id from a scope_missing envelope when ctx has no appId", () => {
+		/* Tools without an app-id concept at the gate site (e.g.
+		 * `get_hq_connection`) don't pass `appId` through their catch.
+		 * The field must drop out of the payload entirely, not appear
+		 * as `null`. */
+		const result = toMcpErrorResult(
+			new McpScopeError(SCOPES.hqRead, "get_hq_connection"),
+		);
+		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
+			string,
+			unknown
+		>;
+		expect(payload.error_type).toBe("scope_missing");
 		expect("app_id" in payload).toBe(false);
 	});
 });

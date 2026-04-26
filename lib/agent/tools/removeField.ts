@@ -49,6 +49,7 @@ export const removeFieldTool = {
 			);
 			if (!resolved) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
@@ -71,12 +72,14 @@ export const removeFieldTool = {
 			const formName = newDoc.forms[formUuid]?.name ?? "";
 			const afterCount = countFieldsUnder(newDoc, formUuid);
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully removed field "${fieldId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

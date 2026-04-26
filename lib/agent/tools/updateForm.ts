@@ -161,6 +161,7 @@ export const updateFormTool = {
 			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
 			if (!formUuid) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
@@ -169,6 +170,7 @@ export const updateFormTool = {
 			const existing = doc.forms[formUuid];
 			if (!existing) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
@@ -216,6 +218,7 @@ export const updateFormTool = {
 			const formAfter = newDoc.forms[formUuid];
 			if (!formAfter) {
 				return {
+					kind: "mutate" as const,
 					mutations,
 					newDoc,
 					result: {
@@ -240,12 +243,14 @@ export const updateFormTool = {
 					connect === null ? "connect removed" : "connect updated",
 				);
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

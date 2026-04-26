@@ -8,24 +8,24 @@
  *     heading) rather than a full markdown byte comparison — a future
  *     renderer tweak (e.g. pluralization, whitespace) shouldn't break
  *     this contract.
- *   - Ownership failure: a cross-tenant probe short-circuits before
- *     `loadApp` is called. The wire collapses `"not_owner"` to
- *     `"not_found"` (IDOR hardening) so a probing client cannot
- *     enumerate existing app ids.
- *   - App not found: either ownership returns null (app never existed)
- *     or `loadApp` returns null (concurrent hard-delete between the
- *     ownership check and the load); both collapse to a content
- *     payload carrying `error_type: "not_found"`.
+ *   - Ownership failure: a cross-tenant probe surfaces as
+ *     `loadAppBlueprint` throwing `McpAccessError("not_owner")`. The
+ *     wire collapses to `"not_found"` (IDOR hardening) so a probing
+ *     client cannot enumerate existing app ids.
+ *   - App not found: `loadApp` returns null inside `loadAppBlueprint`,
+ *     which throws `McpAccessError("not_found")`. Same wire shape.
  *   - Wire parity: cross-tenant and missing-id envelopes must be
  *     byte-identical so a probing client has zero signal to
  *     distinguish the two cases.
  *
  * The MCP SDK is mocked at the boundary through the shared
- * `makeFakeServer` helper that captures the handler callback.
+ * `makeFakeServer` helper that captures the handler callback. The DB
+ * layer's `loadApp` is mocked to drive the four scenarios above through
+ * the real `loadAppBlueprint`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadApp, loadAppOwner } from "@/lib/db/apps";
+import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -34,11 +34,11 @@ import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
 
 /* `vi.mock` hoists above imports so the mock installs before
- * `../tools/getApp` resolves `@/lib/db/apps`. Only the two functions
- * the tool actually uses are replaced. */
+ * `../tools/getApp` (and through it `loadAppBlueprint`) resolves
+ * `@/lib/db/apps`. Only `loadApp` is replaced — every test scenario
+ * is driven by the value (or rejection) `loadApp` resolves to. */
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: vi.fn(),
-	loadAppOwner: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -139,14 +139,12 @@ const toolCtx: ToolContext = { userId: "u1", scopes: [] };
 
 beforeEach(() => {
 	vi.mocked(loadApp).mockReset();
-	vi.mocked(loadAppOwner).mockReset();
 });
 
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerGetApp — happy path", () => {
 	it("returns the shared summarizeBlueprint output for an owned app", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
 		const blueprint = mockBlueprint();
 		vi.mocked(loadApp).mockResolvedValueOnce(mockAppDoc(blueprint));
 
@@ -175,10 +173,12 @@ describe("registerGetApp — ownership failure", () => {
 		/* IDOR hardening: when the caller doesn't own the app, the wire
 		 * response must be indistinguishable from a missing-id probe so
 		 * a malicious client cannot enumerate existing app ids by
-		 * watching the response. The internal `McpAccessError.reason`
-		 * stays `"not_owner"` for the server-side audit log; on the
-		 * wire it collapses to `"not_found"`. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		 * watching the response. `loadAppBlueprint` throws
+		 * `McpAccessError("not_owner")` internally; the wire collapses
+		 * to `"not_found"`. */
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			mockAppDoc(mockBlueprint(), { owner: "someone-else" }),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerGetApp(server, toolCtx);
@@ -196,14 +196,12 @@ describe("registerGetApp — ownership failure", () => {
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.message).toBe("App not found.");
 		expect(payload.app_id).toBe("a1");
-		/* The load must not run — an ownership mismatch short-circuits. */
-		expect(loadApp).not.toHaveBeenCalled();
 	});
 });
 
 describe("registerGetApp — not found", () => {
-	it("maps ownership-null to error_type = 'not_found'", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+	it("maps a missing app row to error_type = 'not_found'", async () => {
+		vi.mocked(loadApp).mockResolvedValueOnce(null);
 
 		const { server, capture } = makeFakeServer();
 		registerGetApp(server, toolCtx);
@@ -220,30 +218,6 @@ describe("registerGetApp — not found", () => {
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.app_id).toBe("ghost");
 	});
-
-	it("maps race (owner ok, load returns null) to error_type = 'not_found'", async () => {
-		/* Concurrent hard-delete between the ownership check and the
-		 * load returns ownership first, then a null app. The tool must
-		 * collapse this to the same `not_found` reason a missing-app
-		 * probe gets, so MCP clients see one consistent error. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
-		vi.mocked(loadApp).mockResolvedValueOnce(null);
-
-		const { server, capture } = makeFakeServer();
-		registerGetApp(server, toolCtx);
-
-		const out = (await capture()({ app_id: "a1" }, {})) as {
-			isError?: true;
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.isError).toBe(true);
-		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
-			error_type: string;
-			app_id: string;
-		};
-		expect(payload.error_type).toBe("not_found");
-		expect(payload.app_id).toBe("a1");
-	});
 });
 
 describe("registerGetApp — wire parity (IDOR regression lock)", () => {
@@ -252,12 +226,14 @@ describe("registerGetApp — wire parity (IDOR regression lock)", () => {
 		 * comparing two responses — one for an id they own (collapsed to
 		 * not_found) and one for a genuinely missing id — must see the
 		 * same text and error_type. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			mockAppDoc(mockBlueprint(), { owner: "someone-else" }),
+		);
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerGetApp(sA, toolCtx);
 		const ownerMismatch = await capA()({ app_id: "owned-by-other" }, {});
 
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		vi.mocked(loadApp).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerGetApp(sB, toolCtx);
 		const notFound = await capB()({ app_id: "owned-by-other" }, {});

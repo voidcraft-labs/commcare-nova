@@ -26,7 +26,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
-import { loadApp, loadAppOwner } from "@/lib/db/apps";
+import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
+import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
@@ -44,7 +45,6 @@ import { makeFakeServer } from "./fakeServer";
  * `@/lib/db/apps` + `@/lib/log/writer`. */
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: vi.fn(),
-	loadAppOwner: vi.fn(),
 	updateAppForRun: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -155,14 +155,14 @@ function latestFlushSpy(): ReturnType<typeof vi.fn> {
 
 beforeEach(() => {
 	vi.mocked(loadApp).mockReset();
-	vi.mocked(loadAppOwner).mockReset();
 	LogWriterMock.instances = [];
-	/* Default: ownership passes, app loads with an empty blueprint. Tests
-	 * override these for the ownership-failure path. `AppDoc` carries
-	 * Firestore `Timestamp` fields that tests don't care about — cast
-	 * through `unknown` to keep the shape narrow without pulling in the
-	 * Firestore Admin SDK just to fabricate a Timestamp. */
-	vi.mocked(loadAppOwner).mockResolvedValue("u1");
+	/* Default: app loads owned by the caller with an empty blueprint —
+	 * `loadAppBlueprint` ownership-gates internally on `app.owner ===
+	 * userId`. Tests override `loadApp` to drive the failure paths.
+	 * `AppDoc` carries Firestore `Timestamp` fields that tests don't
+	 * care about — cast through `unknown` to keep the shape narrow
+	 * without pulling in the Firestore Admin SDK just to fabricate a
+	 * Timestamp. */
 	vi.mocked(loadApp).mockResolvedValue({
 		owner: "u1",
 		app_name: "Test",
@@ -192,9 +192,11 @@ describe("registerSharedTool — read tools", () => {
 			inputSchema: z.object({ q: z.string() }),
 			async execute(input) {
 				/* Read tools take input + ctx + doc; we echo the input to prove
-				 * the adapter forwarded correctly. */
+				 * the adapter forwarded correctly. The `kind: "read"` tag is
+				 * the contract every read tool follows so the adapter
+				 * dispatches via the discriminator. */
 				const typed = input as { q: string };
-				return { query: typed.q, results: [] };
+				return { kind: "read", data: { query: typed.q, results: [] } };
 			},
 		};
 		const { server, capture } = makeFakeServer();
@@ -231,6 +233,7 @@ describe("registerSharedTool — mutating tools", () => {
 				await ctx.recordMutations([mut], doc, "stage:x");
 				toolSawRecordMutations = true;
 				const result: MutatingToolResult<{ ok: true }> = {
+					kind: "mutate",
 					mutations: [mut],
 					newDoc: doc,
 					result: { ok: true },
@@ -286,9 +289,10 @@ describe("registerSharedTool — validateApp projection", () => {
 			inputSchema: z.object({}),
 			async execute(_input, _ctx, doc) {
 				return {
+					kind: "validate",
 					success: false,
 					doc, // full BlueprintDoc — must NOT appear in output
-					hqJson: { big: "payload" }, // must NOT appear in output
+					hqJson: { big: "payload" } as never, // must NOT appear in output
 					errors: ["e1"],
 				};
 			},
@@ -310,7 +314,7 @@ describe("registerSharedTool — validateApp projection", () => {
 			description: "validate",
 			inputSchema: z.object({}),
 			async execute(_input, _ctx, doc) {
-				return { success: true, doc };
+				return { kind: "validate", success: true, doc };
 			},
 		};
 
@@ -325,8 +329,8 @@ describe("registerSharedTool — validateApp projection", () => {
 });
 
 describe("registerSharedTool — ownership failure", () => {
-	it("returns an MCP error envelope when the user doesn't own the app", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+	it("returns an MCP error envelope when the app row is missing", async () => {
+		vi.mocked(loadApp).mockResolvedValueOnce(null);
 		const anyTool: SharedToolModule = {
 			description: "unused",
 			inputSchema: z.object({}),
@@ -398,7 +402,7 @@ describe("registerSharedTool — app_id stripping", () => {
 			inputSchema: z.object({ payload: z.string() }),
 			async execute(input) {
 				seen = input as Record<string, unknown>;
-				return { ok: true };
+				return { kind: "read", data: { ok: true } };
 			},
 		};
 
@@ -417,14 +421,15 @@ describe("registerSharedTool — app_id stripping", () => {
 });
 
 describe("projectResult — direct", () => {
-	it("passes read-tool returns through unchanged", () => {
-		const raw = { query: "x", results: [1, 2, 3] };
-		expect(projectResult(raw)).toBe(raw);
+	it("unwraps a `read` result to its `data` field", () => {
+		const data = { query: "x", results: [1, 2, 3] };
+		expect(projectResult({ kind: "read", data })).toBe(data);
 	});
 
-	it("unwraps a MutatingToolResult to its `result` field", () => {
+	it("unwraps a `mutate` result to its `result` field", () => {
 		const newDoc = mockBlueprint() as unknown as BlueprintDoc;
 		const raw: MutatingToolResult<{ ok: true }> = {
+			kind: "mutate",
 			mutations: [{ kind: "setAppName", name: "x" }],
 			newDoc,
 			result: { ok: true },
@@ -432,45 +437,25 @@ describe("projectResult — direct", () => {
 		expect(projectResult(raw)).toEqual({ ok: true });
 	});
 
-	it("projects a failed validateApp result to { success, errors }", () => {
-		const raw = {
+	it("projects a failed `validate` result to { success, errors }", () => {
+		const raw: ValidateAppResult = {
+			kind: "validate",
 			success: false,
-			doc: mockBlueprint(),
-			hqJson: { huge: "payload" },
+			doc: mockBlueprint() as unknown as BlueprintDoc,
+			hqJson: { huge: "payload" } as never,
 			errors: ["e"],
 		};
 		expect(projectResult(raw)).toEqual({ success: false, errors: ["e"] });
 	});
 
-	it("projects a successful validateApp result to just { success }", () => {
-		const raw = {
+	it("projects a successful `validate` result to just { success }", () => {
+		const raw: ValidateAppResult = {
+			kind: "validate",
 			success: true,
-			doc: mockBlueprint(),
-			hqJson: { huge: "payload" },
+			doc: mockBlueprint() as unknown as BlueprintDoc,
+			hqJson: { huge: "payload" } as never,
 		};
 		expect(projectResult(raw)).toEqual({ success: true });
-	});
-
-	it("returns primitives unchanged", () => {
-		expect(projectResult("raw")).toBe("raw");
-		expect(projectResult(42)).toBe(42);
-		expect(projectResult(null)).toBe(null);
-	});
-
-	it("isMutatingToolResult rejects wrong-typed fields — falls through to read branch", () => {
-		/* Keys match but `newDoc` is a string, not an object. The
-		 * tightened predicate must reject this and fall through to the
-		 * pass-through read branch rather than unwrapping `result`. */
-		const raw = { mutations: [], newDoc: "str", result: {} };
-		expect(projectResult(raw)).toBe(raw);
-	});
-
-	it("isValidateAppResult rejects wrong-typed fields — falls through to read branch", () => {
-		/* `success` + `doc` present, but `doc` is a string. The
-		 * tightened predicate must reject this and fall through to the
-		 * pass-through read branch. */
-		const raw = { success: true, doc: "not-an-object" };
-		expect(projectResult(raw)).toBe(raw);
 	});
 });
 
@@ -650,17 +635,31 @@ describe("registerSharedTool — IDOR byte-parity regression lock", () => {
 			},
 		};
 
-		/* Case 1: ownership returns a different user (not_owner).
+		/* Case 1: row exists but owned by another user (not_owner).
+		 * `loadAppBlueprint` throws `McpAccessError("not_owner")`;
 		 * `toMcpErrorResult` collapses to `"not_found"` on the wire. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		vi.mocked(loadApp).mockResolvedValueOnce({
+			owner: "someone-else",
+			app_name: "Test",
+			blueprint: mockBlueprint() as unknown as BlueprintDoc,
+			connect_type: null,
+			module_count: 0,
+			form_count: 0,
+			status: "complete",
+			error_type: null,
+			deleted_at: null,
+			recoverable_until: null,
+			run_id: null,
+			created_at: new Date() as unknown as AppDoc["created_at"],
+			updated_at: new Date() as unknown as AppDoc["updated_at"],
+		});
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerSharedTool(sA, "any", anyTool, toolCtx);
 		const notOwnerResult = await capA()({ app_id: "probe-id" }, {});
 
-		/* Case 2: ownership returns null (not_found). Envelope shape
-		 * must be identical — same text, same `error_type`, same
-		 * layout. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		/* Case 2: row missing (not_found). Envelope shape must be
+		 * identical — same text, same `error_type`, same layout. */
+		vi.mocked(loadApp).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerSharedTool(sB, "any", anyTool, toolCtx);
 		const notFoundResult = await capB()({ app_id: "probe-id" }, {});

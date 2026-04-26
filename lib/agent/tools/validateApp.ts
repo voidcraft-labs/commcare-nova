@@ -50,6 +50,11 @@ export type ValidateAppInput = z.infer<typeof validateAppInputSchema>;
 /**
  * Shape the shared tool returns on every call.
  *
+ * Tagged with `kind: "validate"` so the MCP adapter's result projector
+ * dispatches via a `switch` on the discriminator (parallel to
+ * `MutatingToolResult` and `ReadToolResult`).
+ *
+ * - `kind` — the discriminator — always `"validate"`.
  * - `success` — `true` only when the fix loop reached zero errors AND
  *   post-expansion validation passed.
  * - `doc` — always present. The final working doc after all fix-registry
@@ -62,6 +67,7 @@ export type ValidateAppInput = z.infer<typeof validateAppInputSchema>;
  *   empty/absent on success.
  */
 export interface ValidateAppResult {
+	kind: "validate";
 	success: boolean;
 	doc: BlueprintDoc;
 	hqJson?: HqApplication;
@@ -80,12 +86,14 @@ export const validateAppTool = {
 		const result = await validateAndFix(ctx, doc);
 		if (result.success) {
 			return {
+				kind: "validate",
 				success: true,
 				doc: result.doc,
 				...(result.hqJson !== undefined && { hqJson: result.hqJson }),
 			};
 		}
 		return {
+			kind: "validate",
 			success: false,
 			doc: result.doc,
 			...(result.hqJson !== undefined && { hqJson: result.hqJson }),

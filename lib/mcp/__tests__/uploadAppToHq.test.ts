@@ -30,11 +30,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { importApp } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
-import { loadAppOwner, updateAppForRun } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
+import { McpAccessError } from "../ownership";
 import { SCOPES } from "../scopes";
 import {
 	registerUploadAppToHq,
@@ -48,7 +49,6 @@ import { makeFakeServer } from "./fakeServer";
 /* `vi.mock` hoists above imports so every boundary is stubbed before
  * the handler file resolves its imports. */
 vi.mock("@/lib/db/apps", () => ({
-	loadAppOwner: vi.fn(),
 	/* `updateAppForRun` is touched indirectly through
 	 * `McpContext.recordMutations`'s save path — but only on mutating
 	 * flows. Tests here never invoke `recordMutations`, so this stays
@@ -157,7 +157,6 @@ const FIXTURE_SETTINGS = {
 const toolCtx: ToolContext = { userId: "u1", scopes: [SCOPES.hqWrite] };
 
 beforeEach(() => {
-	vi.mocked(loadAppOwner).mockReset();
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(getDecryptedCredentialsWithDomain).mockReset();
 	vi.mocked(importApp).mockReset();
@@ -169,7 +168,6 @@ beforeEach(() => {
 	/* Default happy-path mocks — individual tests override via
 	 * `mockReturnValueOnce` / `mockResolvedValueOnce` where needed. The
 	 * defaults mean tests only have to pin the deviation they care about. */
-	vi.mocked(loadAppOwner).mockResolvedValue("u1");
 	vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValue(
 		FIXTURE_SETTINGS,
 	);
@@ -258,11 +256,9 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 		 * never need to special-case `scope_missing` for that field. */
 		expect(payload.app_id).toBe("a1");
 
-		/* Pre-gate 0 fires BEFORE every other I/O — no ownership check,
-		 * no settings read, no blueprint load, no HQ call, no log writer
-		 * allocation. The scope failure leaks nothing about the user's
-		 * data. */
-		expect(loadAppOwner).not.toHaveBeenCalled();
+		/* Pre-gate 0 fires BEFORE every other I/O — no blueprint load,
+		 * no settings read, no HQ call, no log writer allocation. The
+		 * scope failure leaks nothing about the user's data. */
 		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
@@ -273,6 +269,9 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 describe("registerUploadAppToHq — gate 1: HQ not configured", () => {
 	it("returns error_type 'hq_not_configured' when no creds exist", async () => {
 		vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValueOnce(null);
+		/* Ownership + blueprint load resolves cleanly (it's gate 1 that
+		 * fails, not the ownership gate). */
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
@@ -289,11 +288,10 @@ describe("registerUploadAppToHq — gate 1: HQ not configured", () => {
 		};
 		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_not_configured);
 		expect(payload.app_id).toBe("a1");
-		/* Gate 1 failure short-circuits before any downstream work. */
-		expect(loadAppBlueprint).not.toHaveBeenCalled();
+		/* Gate 1 failure short-circuits before any HQ network call. */
 		expect(importApp).not.toHaveBeenCalled();
-		/* And — critically — no `LogWriter` was allocated for a gate that
-		 * has nothing to flush. */
+		/* And — critically — no `LogWriter` was allocated for a gate
+		 * that has nothing to flush. The writer ctor lives past gate 1. */
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 });
@@ -336,9 +334,12 @@ describe("registerUploadAppToHq — ownership failure", () => {
 	it("collapses not_owner to not_found on the wire (IDOR hardening) and never fetches creds or calls importApp", async () => {
 		/* IDOR hardening: an upload probe against an app owned by
 		 * another user must look indistinguishable from a probe against
-		 * a non-existent id. The wire collapses both to `"not_found"`
-		 * so a malicious client cannot enumerate existing app ids. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		 * a non-existent id. `loadAppBlueprint` throws
+		 * `McpAccessError("not_owner")`; the wire collapses to
+		 * `"not_found"`. */
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_owner"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
@@ -357,11 +358,11 @@ describe("registerUploadAppToHq — ownership failure", () => {
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.message).toBe("App not found.");
 		expect(payload.app_id).toBe("a1");
-		/* Ownership failure must short-circuit BEFORE any settings read,
-		 * blueprint load, or HQ call — the ownership pre-gate is the
-		 * first line of defense against cross-tenant upload probes. */
+		/* Ownership failure must short-circuit BEFORE any settings read
+		 * or HQ call — the ownership pre-gate (folded into
+		 * `loadAppBlueprint`) is the first line of defense against
+		 * cross-tenant upload probes. */
 		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
-		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
@@ -372,12 +373,16 @@ describe("registerUploadAppToHq — wire parity (IDOR regression lock)", () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client cannot
 		 * enumerate existing app ids. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_owner"),
+		);
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerUploadAppToHq(sA, toolCtx);
 		const ownerMismatch = await capA()({ app_id: "probe-id" }, {});
 
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		vi.mocked(loadAppBlueprint).mockRejectedValueOnce(
+			new McpAccessError("not_found"),
+		);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerUploadAppToHq(sB, toolCtx);
 		const notFound = await capB()({ app_id: "probe-id" }, {});

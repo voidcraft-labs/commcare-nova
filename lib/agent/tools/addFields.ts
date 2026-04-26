@@ -71,6 +71,7 @@ export const addFieldsTool = {
 			const resolved = resolveFormContext(doc, moduleIndex, formIndex);
 			if (!resolved) {
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
@@ -166,12 +167,14 @@ export const addFieldsTool = {
 					? ` Skipped ${skippedIds.length} invalid field(s): ${skippedIds.join(", ")}.`
 					: "";
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully added ${mutations.length} field${mutations.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

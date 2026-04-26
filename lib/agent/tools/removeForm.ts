@@ -60,6 +60,7 @@ export const removeFormTool = {
 				const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
 				const remainingForms = (moduleUuid && doc.formOrder[moduleUuid]) ?? [];
 				return {
+					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: `Form m${moduleIndex}-f${formIndex} does not exist — no change. Module "${mod?.name ?? `module ${moduleIndex}`}" has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
@@ -83,12 +84,14 @@ export const removeFormTool = {
 			const mod = moduleUuid ? newDoc.modules[moduleUuid] : undefined;
 			const remainingForms = (moduleUuid && newDoc.formOrder[moduleUuid]) ?? [];
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
 			};
 		} catch (err) {
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },

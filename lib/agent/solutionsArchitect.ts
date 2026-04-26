@@ -32,7 +32,7 @@ import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
-import type { MutatingToolResult } from "./tools/common";
+import type { MutatingToolResult, ReadToolResult } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
 import { editFieldTool } from "./tools/editField";
@@ -149,6 +149,9 @@ export function createSolutionsArchitect(
 			inputSchema: t.inputSchema,
 			...(t.strict !== undefined && { strict: t.strict }),
 			execute: async (input: I) => {
+				/* `kind: "mutate"` discriminator is internal to the shared
+				 * tool contract — the chat-side AI SDK tool surface only
+				 * sees `result`. Destructure-and-discard. */
 				const { mutations, newDoc, result } = await t.execute(input, ctx, doc);
 				if (mutations.length > 0) doc = newDoc;
 				return result;
@@ -161,19 +164,31 @@ export function createSolutionsArchitect(
 	 * Reads the working doc and returns the tool's result; the SA's
 	 * closure is never advanced (reads don't mutate state).
 	 *
-	 * Separate from `wrapMutating` because read tools don't return the
-	 * `MutatingToolResult` envelope — their execute method returns the
-	 * LLM-facing value directly, so there's nothing to destructure.
+	 * Separate from `wrapMutating` because read tools return a
+	 * `ReadToolResult<R>` envelope — the `kind: "read"` discriminator is
+	 * the contract the MCP adapter dispatches on; the chat-side wrapper
+	 * unwraps `data` so the AI SDK tool surface still sees the bare
+	 * payload the model expects.
 	 */
 	function wrapRead<I, R>(t: {
 		description: string;
 		inputSchema: FlexibleSchema<I>;
-		execute(input: I, ctx: ToolExecutionContext, doc: BlueprintDoc): Promise<R>;
+		execute(
+			input: I,
+			ctx: ToolExecutionContext,
+			doc: BlueprintDoc,
+		): Promise<ReadToolResult<R>>;
 	}) {
 		return {
 			description: t.description,
 			inputSchema: t.inputSchema,
-			execute: async (input: I) => t.execute(input, ctx, doc),
+			execute: async (input: I) => {
+				/* `kind: "read"` discriminator is internal to the shared
+				 * tool contract — the AI SDK tool surface sees the bare
+				 * `data`. Unwrap. */
+				const { data } = await t.execute(input, ctx, doc);
+				return data;
+			},
 		};
 	}
 

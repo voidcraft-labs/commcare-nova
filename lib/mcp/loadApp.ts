@@ -1,7 +1,12 @@
 /**
- * Shared MCP helper — load one app's blueprint and hydrate its derived
- * `fieldParent` reverse index, returning both the in-memory blueprint
- * and the `AppDoc` denormalized columns in one record.
+ * Shared MCP helper — ownership-gate and load one app's blueprint in a
+ * single Firestore read.
+ *
+ * Combines the ownership check + the blueprint load that every MCP
+ * tool surface needs. Folding both into one read avoids a redundant
+ * full-doc fetch (a separate `loadAppOwner` would re-read the same
+ * row). The cost matters because every shared-tool dispatch + every
+ * blueprint-touching MCP tool runs through this path.
  *
  * Firestore persists the `PersistableDoc` shape (see `toPersistableDoc`)
  * without `fieldParent` — the index is derived from `fieldOrder` at
@@ -21,27 +26,18 @@
  * than a silently-stale blueprint missing the rebuilt `fieldParent`
  * index. The blueprint lives in one place on this result — on `.doc`.
  *
- * Three MCP surfaces use this: the shared tool adapter before
- * dispatching to a mutating or read tool (destructures `.doc`), the
- * `get_app` tool when rendering a summary (destructures `.doc`), and
- * `compile_app` when emitting HQ format (uses both).
- *
- * Returns `null` when the app row is absent. The null case maps to an
- * `McpAccessError("not_found")` at the caller — preserving that
- * reason coding requires the caller to translate, since this helper
- * stays pure (no MCP-type leakage into the load path).
- *
- * Race: ownership checks (`requireOwnedApp`) and this load are not
- * atomic. A concurrent hard-delete between the two reads lands here
- * as the same null return an "app never existed" probe would see, so
- * the caller can collapse both paths to one consistent `not_found`
- * response.
+ * Throws `McpAccessError("not_found")` when the app row is absent or
+ * `McpAccessError("not_owner")` when the row exists but is owned by
+ * another user; the wire layer collapses both to `not_found` (see
+ * `errors.ts`'s IDOR-hardening note) while the audit log preserves
+ * the internal distinction.
  */
 
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import { McpAccessError } from "./ownership";
 
 /**
  * Result of a successful `loadAppBlueprint` call. The `fieldParent`-
@@ -62,16 +58,22 @@ export interface LoadedApp {
 }
 
 /**
- * Fetch `appId`'s blueprint and rebuild its `fieldParent` reverse
- * index in-memory. Returns `{ doc, app }` for callers that need
- * either the hydrated blueprint, denormalized `AppDoc` fields, or
- * both. Resolves to `null` if the app row is missing.
+ * Fetch `appId`'s blueprint, verify the caller owns it, and rebuild
+ * its `fieldParent` reverse index in-memory. Returns `{ doc, app }`
+ * for callers that need either the hydrated blueprint, denormalized
+ * `AppDoc` fields, or both.
+ *
+ * Throws `McpAccessError("not_found")` when the row is absent and
+ * `McpAccessError("not_owner")` when it exists but is owned by
+ * someone else. Both collapse to `"not_found"` on the wire.
  */
 export async function loadAppBlueprint(
 	appId: string,
-): Promise<LoadedApp | null> {
+	userId: string,
+): Promise<LoadedApp> {
 	const loaded = await loadApp(appId);
-	if (!loaded) return null;
+	if (!loaded) throw new McpAccessError("not_found");
+	if (loaded.owner !== userId) throw new McpAccessError("not_owner");
 	/* Split the raw blueprint off the `AppDoc` envelope so the return
 	 * type can't accidentally leak a stale blueprint through `.app`.
 	 * `rebuildFieldParent` assigns into `doc.fieldParent`; spreading

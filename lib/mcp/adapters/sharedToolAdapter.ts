@@ -12,8 +12,9 @@
  *
  * What this adapter adds around each tool call:
  *
- *   1. **Ownership** — `requireOwnedApp` before anything else, so a
- *      cross-tenant probe never reaches tool code or Firestore reads.
+ *   1. **Ownership** — `loadAppBlueprint(appId, userId)` ownership-gates
+ *      and loads the doc in one Firestore read, so a cross-tenant probe
+ *      throws before the tool body runs.
  *   2. **Per-call `McpContext`** — satisfies `ToolExecutionContext` for
  *      the shared tool and owns event-log writer + progress emitter +
  *      run id.
@@ -53,7 +54,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
-import type { MutatingToolResult } from "@/lib/agent/tools/common";
+import type {
+	MutatingToolResult,
+	ReadToolResult,
+} from "@/lib/agent/tools/common";
+import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
 import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
 import {
@@ -62,7 +67,6 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { McpAccessError, requireOwnedApp } from "../ownership";
 import { deriveRunId, timestampToMillis } from "../runId";
 import type { ToolContext } from "../types";
 
@@ -78,16 +82,12 @@ type McpToolResult = McpToolSuccessResult | McpToolErrorResult;
 
 /**
  * Structural contract the adapter accepts. Every shared tool module
- * satisfies this — `execute`'s return can be one of three shapes
- * (read result / `MutatingToolResult<R>` / `ValidateAppResult`) and we
- * intentionally leave it as `unknown` at the generic level.
- *
- * Carrying a three-way discriminated union through this interface
- * would either explode the type into a tagged sum every tool file has
- * to opt into, or force this adapter to special-case per tool. Neither
- * is worth it: the adapter's `projectResult` discriminator runs at
- * runtime exactly where the shape variance matters and leaves the tool
- * authoring surface unchanged.
+ * satisfies this — `execute` returns one of the three tagged shapes
+ * (`MutatingToolResult` / `ReadToolResult` / `ValidateAppResult`),
+ * collapsed at the union level so the adapter dispatches via a `switch`
+ * on the `kind` discriminator. The per-tool generic `R` parameter is
+ * erased at the boundary; `projectResult` re-emits the per-tool payload
+ * via the discriminator.
  */
 export interface SharedToolModule {
 	/** Human-readable description surfaced to the LLM in MCP tool listing. */
@@ -109,7 +109,9 @@ export interface SharedToolModule {
 		input: unknown,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<unknown>;
+	): Promise<
+		MutatingToolResult<unknown> | ReadToolResult<unknown> | ValidateAppResult
+	>;
 }
 
 /**
@@ -175,20 +177,12 @@ export function registerSharedTool(
 			const appId = args.app_id;
 
 			try {
-				await requireOwnedApp(ctx.userId, appId);
-
-				/* `loadAppBlueprint` both fetches the row and rebuilds
-				 * the derived `fieldParent` reverse index tools expect.
-				 * The load runs AFTER the ownership check; the race
-				 * between the two reads — ownership resolves, then a
-				 * concurrent hard-delete nulls the row — surfaces as
-				 * the same `not_found` an "app never existed" probe
-				 * would hit, so MCP clients see one consistent error.
-				 * Only the blueprint flows downstream; the helper also
-				 * returns the full `AppDoc` for tools that want
-				 * denormalized columns. */
-				const loaded = await loadAppBlueprint(appId);
-				if (!loaded) throw new McpAccessError("not_found");
+				/* `loadAppBlueprint` ownership-gates and loads in one
+				 * Firestore read; throws `McpAccessError` on cross-tenant
+				 * probe or vanished row, both of which the wire collapses
+				 * to `not_found`. The full `AppDoc` is returned alongside
+				 * `.doc` for tools that want denormalized columns. */
+				const loaded = await loadAppBlueprint(appId, ctx.userId);
 
 				/* Derive the run id from the app's own state after loading
 				 * but before any event-log write or progress emission.
@@ -252,102 +246,57 @@ export function registerSharedTool(
 }
 
 /**
+ * Tagged union of every shape a shared tool can return. The `kind`
+ * discriminator is set by each tool's own return statement — the
+ * adapter dispatches on it via a `switch`, and the type system catches
+ * a future fourth variant at compile time rather than at runtime
+ * structural inspection. See `lib/agent/tools/common.ts` and
+ * `validateApp.ts` for the per-shape definitions.
+ */
+type SharedToolReturn =
+	| MutatingToolResult<unknown>
+	| ReadToolResult<unknown>
+	| ValidateAppResult;
+
+/**
  * Map a shared tool's return value into the payload the MCP client's
- * LLM sees. Three mutually-exclusive branches, checked in an order
- * that makes misclassification impossible even if a future result
- * shape accidentally shared keys across branches:
+ * LLM sees. Three branches, dispatched on the `kind` discriminator:
  *
- *   1. **`MutatingToolResult<R>`** — requires ALL three keys present
- *      (`mutations`, `newDoc`, `result`). The tool already persisted
- *      `mutations` via `ctx.recordMutations` before returning; we
- *      unwrap to `result.result`, which is the per-tool typed payload
- *      the LLM cares about. `mutations` + `newDoc` are internal wire
- *      data for the chat-side SA wrapper and are deliberately not
- *      surfaced to MCP callers (they re-read state via read tools).
- *   2. **`ValidateAppResult`** — `{ success, doc, hqJson?, errors? }`.
- *      We project to `{ success }` (or `{ success, errors }` on
- *      failure) and drop both `doc` and `hqJson`. The full doc +
- *      compiled HQ JSON would balloon the response by megabytes for
- *      no MCP benefit: callers re-read state via `get_app` or
- *      `compile_app` if they need it.
- *   3. **Read tool** — anything else. Pure pass-through; read tools
- *      are already shaped for direct LLM consumption.
+ *   - `"mutate"` — unwrap `result`, the per-tool typed payload. The
+ *     mutations were already persisted by the tool body via
+ *     `ctx.recordMutations`; the adapter does NOT re-apply them.
+ *     `mutations` + `newDoc` are internal wire data the chat surface
+ *     needs (its SA wrapper advances its working-doc closure when
+ *     mutations land); MCP callers re-read state via read tools, so
+ *     surfacing them on the wire would be noise.
+ *   - `"validate"` — project to `{ success }` (or `{ success, errors }`
+ *     on failure), dropping `doc` + `hqJson`. The full doc + compiled
+ *     HQ JSON would balloon the response by megabytes for no MCP
+ *     benefit: callers re-read state via `get_app` or `compile_app`
+ *     when they need it.
+ *   - `"read"` — unwrap `data`, the bare per-tool payload.
  *
- * Order matters. If we checked `success` + `doc` first, a future
- * `MutatingToolResult` whose `.result` payload coincidentally had
- * both keys would be misclassified. Checking for the mutating tuple
- * first preempts that class of drift.
+ * Exhaustive switch — TypeScript narrows `kind` to `never` in the
+ * `default` branch, so adding a fourth variant without a matching
+ * case becomes a compile error.
  *
  * Exported so unit tests can call the three branches directly without
  * spinning up an MCP server.
  */
-export function projectResult(raw: unknown): unknown {
-	if (typeof raw !== "object" || raw === null) return raw;
-
-	/* 1. MutatingToolResult discrimination: all three keys required.
-	 * Checking the full tuple (not just `mutations`) rules out read
-	 * results that carry a `mutations` field for unrelated reasons. */
-	if (isMutatingToolResult(raw)) {
-		return raw.result;
+export function projectResult(raw: SharedToolReturn): unknown {
+	switch (raw.kind) {
+		case "mutate":
+			return raw.result;
+		case "validate":
+			if (raw.success) return { success: true };
+			/* On failure we include `errors` even when empty — clients
+			 * branch on `success` but benefit from a stable key layout. */
+			return { success: false, errors: raw.errors ?? [] };
+		case "read":
+			return raw.data;
+		default: {
+			const _exhaustive: never = raw;
+			return _exhaustive;
+		}
 	}
-
-	/* 2. validateApp discrimination: `success` + `doc`, with `doc`
-	 * being object-typed (the full `BlueprintDoc`). Mutating tool
-	 * results also carry `result`, which the mutating check above
-	 * already catches; `isValidateAppResult` additionally ensures
-	 * no `result` key on the outer shape as belt-and-suspenders
-	 * against a future shape regression. */
-	if (isValidateAppResult(raw)) {
-		if (raw.success) return { success: true };
-		/* On failure we include `errors` even when empty — clients
-		 * branch on `success` but benefit from a stable key layout. */
-		return { success: false, errors: raw.errors ?? [] };
-	}
-
-	/* 3. Read-tool pass-through. */
-	return raw;
-}
-
-/**
- * Strict structural check for `MutatingToolResult<R>`. All three
- * fields must be present AND typed correctly — `mutations` is an
- * array and `newDoc` is a non-null object. Written this way so a
- * read result that happens to key-match (e.g., carries a
- * `newDoc: "some-string"` alias for unrelated reasons) doesn't
- * false-positive.
- */
-function isMutatingToolResult(raw: object): raw is MutatingToolResult<unknown> {
-	if (!("mutations" in raw) || !("newDoc" in raw) || !("result" in raw)) {
-		return false;
-	}
-	const r = raw as { mutations: unknown; newDoc: unknown };
-	return (
-		Array.isArray(r.mutations) &&
-		typeof r.newDoc === "object" &&
-		r.newDoc !== null
-	);
-}
-
-/**
- * Structural check for `ValidateAppResult`. `success` is a boolean;
- * `doc` is a non-null object (the full `BlueprintDoc`); there is no
- * `result` key on the outer shape — the latter is what separates
- * this from the `MutatingToolResult`, whose `.result` payload could
- * hypothetically carry a `success` + `doc` pair of its own. We check
- * the OUTER shape, so the presence of `result` on the outer object
- * is a negative signal. Errors are optional.
- */
-function isValidateAppResult(raw: object): raw is {
-	success: boolean;
-	doc: unknown;
-	hqJson?: unknown;
-	errors?: string[];
-} {
-	if (!("success" in raw) || !("doc" in raw) || "result" in raw) return false;
-	const r = raw as { success: unknown; doc: unknown };
-	return (
-		typeof r.success === "boolean" &&
-		typeof r.doc === "object" &&
-		r.doc !== null
-	);
 }

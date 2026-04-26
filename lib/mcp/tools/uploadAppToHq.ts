@@ -61,9 +61,8 @@ import {
 	type UploadErrorType,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { McpAccessError, requireOwnedApp } from "../ownership";
 import { deriveRunId, timestampToMillis } from "../runId";
-import { requireScope, SCOPES } from "../scopes";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -160,24 +159,17 @@ export function registerUploadAppToHq(
 				 * is owned by the caller — scope failure leaks nothing about
 				 * the user's data, ownership failure does (collapsed at the
 				 * wire to `not_found`, but still a probe channel that's
-				 * cheaper to cut off entirely). `appId` rides through into
-				 * the envelope so the wire shape stays uniform with this
-				 * tool's other failure modes — every upload error envelope
-				 * carries `app_id`, and a client switching on `error_type`
-				 * shouldn't have to special-case `scope_missing` for that
-				 * field. */
-				const scopeError = requireScope(
-					ctx.scopes,
-					SCOPES.hqWrite,
-					"upload_app_to_hq",
-					appId,
-				);
-				if (scopeError) return scopeError;
+				 * cheaper to cut off entirely). Throws `McpScopeError`;
+				 * the surrounding catch stamps `app_id` from `ctx`. */
+				assertScope(ctx.scopes, SCOPES.hqWrite, "upload_app_to_hq");
 
-				/* Pre-gate 1: ownership. Runs BEFORE the upload gate so a
-				 * cross-tenant upload probe never surfaces settings-level
-				 * failure reasons for an app the caller doesn't own. */
-				await requireOwnedApp(ctx.userId, appId);
+				/* Pre-gate 1: ownership + blueprint load in one Firestore
+				 * read. `loadAppBlueprint` throws `McpAccessError` on
+				 * cross-tenant probe or vanished row — both collapse to
+				 * `not_found` on the wire so a probing client cannot
+				 * surface settings-level failure reasons for an app the
+				 * caller doesn't own. */
+				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
 				/* Gate 1 — KMS credentials present. `null` means the user
 				 * hasn't configured CommCare HQ yet. User-actionable: they
@@ -192,22 +184,13 @@ export function registerUploadAppToHq(
 				}
 
 				/* The stored domain is the single source of truth for
-				 * which project space this upload targets. The save path
-				 * validates the slug before persisting, so the value
-				 * reaching `importApp` below is trusted — no runtime
-				 * re-validation needed (and no `invalid_domain` gate, no
-				 * `domain_mismatch` gate; those both existed only because
-				 * the prior version accepted user-supplied input). */
+				 * which project space this upload targets. The settings-
+				 * save flow only persists a domain that `testDomainAccess`
+				 * confirmed via HQ — and `testDomainAccess` itself rejects
+				 * domains failing `isValidDomainSlug`. `importApp`
+				 * re-validates as belt-and-suspenders, so the value
+				 * reaching it is trusted by construction. */
 				const targetDomain = settings.domain.name;
-
-				/* Ownership + settings cleared — load the blueprint and
-				 * proceed with the upload pipeline. The load runs AFTER
-				 * ownership: a concurrent hard-delete between the two
-				 * reads surfaces here as `null`, which we collapse to the
-				 * same `not_found` a missing-id probe would hit. */
-				const loaded = await loadAppBlueprint(appId);
-				if (!loaded) throw new McpAccessError("not_found");
-				const { doc, app } = loaded;
 
 				/* Derive the run id from the app's own state (see
 				 * `lib/mcp/runId.ts`). The upload typically comes at the
@@ -215,8 +198,8 @@ export function registerUploadAppToHq(
 				 * reuses the same id that the preceding mutations
 				 * grouped under. */
 				const runId = deriveRunId({
-					currentRunId: loaded.app.run_id,
-					lastActiveMs: timestampToMillis(loaded.app.updated_at),
+					currentRunId: app.run_id,
+					lastActiveMs: timestampToMillis(app.updated_at),
 					now: new Date(),
 				});
 

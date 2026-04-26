@@ -64,6 +64,7 @@ export const generateScaffoldTool = {
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, "scaffold");
 			return {
+				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: {
@@ -87,6 +88,7 @@ export const generateScaffoldTool = {
 			// exception here (Firestore down mid-recordMutations, etc.)
 			// would otherwise abort the entire tool loop.
 			return {
+				kind: "mutate" as const,
 				mutations: [],
 				newDoc: doc,
 				result: { error: err instanceof Error ? err.message : String(err) },
