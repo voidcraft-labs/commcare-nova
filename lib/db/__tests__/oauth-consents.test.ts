@@ -22,7 +22,11 @@ const mocks = vi.hoisted(() => {
 		id: string;
 		exists: boolean;
 		data: () => unknown;
-		ref: { id: string; collectionPath: string };
+		ref: {
+			id: string;
+			collectionPath: string;
+			delete: ReturnType<typeof vi.fn>;
+		};
 	}
 
 	interface FakeQuerySnap {
