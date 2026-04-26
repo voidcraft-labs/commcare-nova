@@ -28,8 +28,7 @@ export type AccessErrorReason = "not_found" | "not_owner";
  * Thrown when an MCP caller targets an app they cannot access.
  *
  * Two reasons:
- * - `not_found` — the app row genuinely does not exist (typo, stale
- *   id, hard-deleted out from under a running tool call).
+ * - `not_found` — the app row does not exist (typo or stale id).
  * - `not_owner` — the row exists but is owned by another user; the
  *   caller is never told the app is present under a different owner.
  *

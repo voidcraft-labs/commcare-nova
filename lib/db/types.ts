@@ -185,10 +185,10 @@ export const appDocSchema = z.object({
 	 */
 	deleted_at: z.string().nullable().default(null),
 	/**
-	 * ISO-8601 deadline past which a soft-deleted row is eligible for
-	 * hard-delete by the retention job. Null for any live row. Uses the
-	 * same ISO representation as `deleted_at` so consumers computing
-	 * "days remaining" work with one uniform timestamp type.
+	 * ISO-8601 end of the recovery window — past this, the trash UI
+	 * stops surfacing the row. Null for any live row. Uses the same
+	 * ISO representation as `deleted_at` so consumers computing "days
+	 * remaining" work with one uniform timestamp type.
 	 */
 	recoverable_until: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */

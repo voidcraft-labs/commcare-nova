@@ -52,18 +52,18 @@ export interface AppSummary {
 export interface DeletedAppSummary extends AppSummary {
 	/** ISO-8601 timestamp the app was soft-deleted. */
 	deleted_at: string;
-	/** ISO-8601 deadline past which the app is eligible for hard-delete. */
+	/** ISO-8601 end of the recovery window the trash UI surfaces. */
 	recoverable_until: string;
 }
 
 /**
  * Narrowed status enum exposed on list/search surfaces.
  *
- * The on-disk `AppDoc["status"]` enum also includes `"deleted"`, but soft-
- * deleted rows never surface through `listApps`/`searchApps` (see the in-
- * memory strip inside `listApps`). Callers that want to filter by status
- * therefore reference this narrower type — the `"deleted"` value is never a
- * legitimate filter argument.
+ * The on-disk `AppDoc["status"]` enum also includes `"deleted"` for
+ * legacy rows written by the prior status-flip soft-delete flow.
+ * Soft-deletes are filtered server-side via `where("deleted_at", "==",
+ * null)`, so callers that want to filter by status reference this
+ * narrower type — `"deleted"` is never a legitimate filter argument.
  */
 export type AppStatus = Exclude<AppDoc["status"], "deleted">;
 
@@ -129,13 +129,13 @@ export interface ListAppsOptions {
 export interface ListAppsResult {
 	apps: AppSummary[];
 	/**
-	 * Present iff Firestore indicated more rows beyond this page. Callers
-	 * pass it back as `options.cursor` to fetch the next page.
+	 * Present iff Firestore returned exactly `limit` rows on this page —
+	 * the "maybe more" signal. Callers pass it back as `options.cursor`
+	 * to fetch the next page.
 	 *
-	 * Soft-deleted rows that fell on a page boundary may cause a page to
-	 * return fewer than `limit` rows while still setting `nextCursor` —
-	 * the cursor represents "resume from this Firestore position", not
-	 * "we returned a full page".
+	 * Soft-deletes are filtered server-side, so `apps.length === limit`
+	 * whenever this is set; a present cursor genuinely means more
+	 * visible apps may exist.
 	 */
 	nextCursor?: string;
 }
@@ -231,6 +231,10 @@ function denormalize(doc: PersistableDoc) {
  * an active generation exists that isn't the given `excludeAppId` — so
  * retries on the same build are allowed, but concurrent new builds are blocked.
  *
+ * Soft-deleted rows are excluded server-side via `deleted_at == null`:
+ * a deleted-mid-generation row is effectively abandoned and must not
+ * keep blocking new builds.
+ *
  * Single Firestore query with `limit(5)` — enough to find a live one
  * even if the first few results are stale or the excluded app.
  */
@@ -241,6 +245,7 @@ export async function hasActiveGeneration(
 	const snap = await collections
 		.apps()
 		.where("owner", "==", owner)
+		.where("deleted_at", "==", null)
 		.where("status", "==", "generating")
 		.limit(5)
 		.get();
@@ -272,16 +277,21 @@ export async function hasActiveGeneration(
 // ── Existence Check ───────────────────────────────────────────────
 
 /**
- * Lightweight existence check — does the user own at least one app?
+ * Lightweight existence check — does the user own at least one live
+ * (non-soft-deleted) app?
  *
  * Uses `limit(1)` with no field projection so it's as cheap as a
  * Firestore read can be. Called by the root page before the Suspense
  * boundary to choose between the get-started state and the app list.
+ *
+ * The soft-delete filter mirrors `listApps`: a user who deleted every
+ * app should land on get-started, not an empty list page.
  */
 export async function userHasApps(owner: string): Promise<boolean> {
 	const snap = await getDb()
 		.collection("apps")
 		.where("owner", "==", owner)
+		.where("deleted_at", "==", null)
 		.limit(1)
 		.get();
 	return !snap.empty;
@@ -479,13 +489,12 @@ export async function updateAppForRun(
  * pattern and removes the round-trip-loss problem the old status-flip
  * approach had.
  *
- * The row is NOT removed from Firestore — `listApps` filters rows
- * where `deleted_at != null` at the persistence boundary, but the
- * blueprint, event log, and HQ credentials survive intact so a restore
- * within the recovery window is a pair-of-fields nullify and nothing
- * more. A retention job (implemented outside this file) hard-deletes
- * rows past their `recoverable_until` date. 30 days mirrors the chat-
- * side support window for accidental-delete recovery.
+ * The row is NOT removed from Firestore — `listApps` binds
+ * `where("deleted_at", "==", null)` so deleted rows never enter the
+ * active list, but the blueprint, event log, and HQ credentials
+ * survive intact so a restore within the recovery window is a pair-
+ * of-fields nullify and nothing more. The 30-day window mirrors the
+ * chat-side support window for accidental-delete recovery.
  *
  * Returns the ISO-8601 `recoverable_until` timestamp so callers can
  * surface the deadline to users. Uses Firestore's `update()` so a
@@ -573,13 +582,9 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
  * match. Firestore's `orderBy` on `app_name_lower` works whether the
  * field is in the `select()` projection or not.
  *
- * `deleted_at` is included even though `AppSummary` does not expose it
- * to callers — `projectAppSummary` reads it to filter soft-deleted
- * rows out of the active list. Without this projection, the field
- * would be `undefined` on the wire and the `!= null` filter would
- * silently pass deleted rows through (`undefined != null` is `false`
- * under loose equality). The leak would surface in the home Active
- * tab AND in MCP `list_apps` / `search_apps`.
+ * Soft-delete is filtered at the Firestore query layer via
+ * `where("deleted_at", "==", null)` — it does not need to ride the
+ * projection.
  */
 const SUMMARY_FIELDS = [
 	"app_name",
@@ -590,7 +595,6 @@ const SUMMARY_FIELDS = [
 	"error_type",
 	"created_at",
 	"updated_at",
-	"deleted_at",
 ] as const;
 
 /**
@@ -708,25 +712,18 @@ function cursorFor(summary: AppSummary, sort: AppsSortOrder): string {
  * returned by `listApps`, applying the stale-`generating` reaper on
  * the way out.
  *
- * Returns `null` for soft-deleted rows so callers can strip them in a
- * single pass. Consolidated here so `listApps` has one projection
- * site; any schema drift between Firestore and `AppSummary` fails in
- * one place.
+ * Soft-delete filtering is handled at the query layer (`where(
+ * "deleted_at", "==", null)`), so every row that reaches this
+ * function is already known to be live. Consolidated here so
+ * `listApps` has one projection site; any schema drift between
+ * Firestore and `AppSummary` fails in one place.
  */
 function projectAppSummary(
 	doc: FirebaseFirestore.QueryDocumentSnapshot,
 	now: number,
 	maxAgeMs: number,
-): AppSummary | null {
+): AppSummary {
 	const data = doc.data();
-
-	/* Soft-deleted rows never surface. The marker is `deleted_at != null`
-	 * — the canonical soft-delete signal on this schema. Catches both
-	 * new-flow rows (only `deleted_at` set) and legacy rows (status =
-	 * "deleted" was also written by the old soft-delete code). Compared
-	 * before any timestamp work to skip cheaply — a deleted row's other
-	 * fields are irrelevant. */
-	if (data.deleted_at != null) return null;
 
 	const createdAt = (data.created_at as Timestamp).toDate();
 	const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
@@ -767,12 +764,12 @@ function projectAppSummary(
  * unnecessary here because data is validated on write (completeApp,
  * updateApp) and defaults are baked in at that time.
  *
- * Soft-deleted rows (`deleted_at != null`) are filtered out in-memory
- * after the fetch. The filter runs post-query rather than as an
- * additional `.where("deleted_at", "==", null)` clause because that
- * would require a parallel set of composite indexes that include the
- * `deleted_at` axis; soft-deleted apps are rare, so the in-memory skip
- * is strictly cheaper.
+ * Soft-deleted rows are filtered at the Firestore query layer via
+ * `where("deleted_at", "==", null)`. Filtering in JS after `.limit(N)`
+ * is the obvious-looking alternative but lets a deleted-heavy page
+ * return short with `next_cursor` still set. Server-side filtering
+ * preserves "page returns up to `limit` visible rows; cursor set iff
+ * more truly exist."
  *
  * A secondary `orderBy("__name__", "asc")` is appended to every query —
  * it is Firestore's document id, implicitly the tiebreaker — so a
@@ -780,19 +777,19 @@ function projectAppSummary(
  * when two apps share the same sort-field value (common for
  * `updated_at` when writes land in the same tick).
  *
- * Required composite indexes (all scoped to `collectionGroup: "apps"`):
- *   - `(owner ASC, updated_at DESC)` — default sort, no status filter.
- *   - `(owner ASC, app_name_lower ASC)` — name sort, no status filter.
- *   - `(owner ASC, status ASC, updated_at DESC)` — default sort + status.
- *   - `(owner ASC, status ASC, app_name_lower ASC)` — name sort + status.
+ * Required composite indexes (all scoped to `collectionGroup: "apps"`,
+ * `deleted_at` first so the equality filter binds the prefix):
+ *   - `(owner ASC, deleted_at ASC, updated_at DESC)` — default sort.
+ *   - `(owner ASC, deleted_at ASC, updated_at ASC)` — updated_asc.
+ *   - `(owner ASC, deleted_at ASC, app_name_lower ASC)` — name_asc.
+ *   - `(owner ASC, deleted_at ASC, app_name_lower DESC)` — name_desc.
+ *   - The same four with `status ASC` inserted before the sort field
+ *     for status-filtered variants.
  *
- * Pagination semantics: the returned `nextCursor` is present iff
- * Firestore returned exactly `limit` rows (the "maybe more" signal).
- * Soft-deleted rows that fall on a page boundary can cause the visible
- * page to return fewer than `limit` rows while still setting
- * `nextCursor` — the cursor represents "resume scanning from this
- * Firestore position", not "we returned a full page". Callers that
- * need a full page in that case re-call with the cursor.
+ * Pagination semantics: `nextCursor` is present iff Firestore returned
+ * exactly `limit` rows. Because the soft-delete filter runs server-
+ * side, every returned doc is visible — `apps.length === snap.size` —
+ * so the cursor accurately signals "more visible apps may exist."
  *
  * Stale-generating reaper behavior is per-page: only rows scanned by
  * this call get reaped. An app that is stale but lives on a page the
@@ -813,11 +810,15 @@ export async function listApps(
 	 * on the way out. */
 	let query: FirebaseFirestore.Query = getDb()
 		.collection("apps")
-		.where("owner", "==", owner);
+		.where("owner", "==", owner)
+		/* `createApp` writes `deleted_at: null` on every new doc, so this
+		 * equality filter matches every live app — no missing-field rows
+		 * to leak. See the function docblock for the rationale. */
+		.where("deleted_at", "==", null);
 
 	/* Status filter is a Firestore `where` clause, not an in-memory post-
-	 * filter. The composite indexes cover `(owner, status, sort_field)`
-	 * so filtered queries cost the same as unfiltered ones. */
+	 * filter. The composite indexes cover `(owner, deleted_at, status,
+	 * sort_field)` so filtered queries cost the same as unfiltered ones. */
 	if (status) {
 		query = query.where("status", "==", status);
 	}
@@ -878,61 +879,20 @@ export async function listApps(
 	const now = Date.now();
 	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-	/* Project + strip soft-deleted rows in a single pass. */
-	const apps: AppSummary[] = [];
-	for (const doc of snap.docs) {
-		const projected = projectAppSummary(
+	/* Soft-deletes are filtered server-side — the loop is a straight
+	 * 1:1 map, no per-row skip needed. */
+	const apps: AppSummary[] = snap.docs.map((doc) =>
+		projectAppSummary(
 			doc as FirebaseFirestore.QueryDocumentSnapshot,
 			now,
 			maxAgeMs,
-		);
-		if (projected) apps.push(projected);
-	}
+		),
+	);
 
-	/* "Maybe more" signal: if Firestore returned exactly `limit` rows,
-	 * emit a cursor keyed off the last Firestore doc we scanned (not
-	 * necessarily the last one we returned — they may differ when a
-	 * page-boundary row was soft-deleted). The cursor uses the post-
-	 * projection `AppSummary` shape, so the soft-deleted projection gap
-	 * is fine: the scan position is recorded by the last returned
-	 * summary because every non-deleted row is in `apps`, in order.
-	 * When the page boundary row was deleted, `apps.length < limit` yet
-	 * `snap.docs.length === limit` — we still emit a cursor (more may
-	 * follow on the next page) but pointed at the last visible summary. */
-	let nextCursor: string | undefined;
-	if (snap.size === limit && apps.length > 0) {
-		nextCursor = cursorFor(apps[apps.length - 1], sort);
-	} else if (snap.size === limit) {
-		/* Edge case: the whole page was soft-deleted. We must still emit
-		 * a cursor so the caller can keep scanning — synthesize the
-		 * subset of `AppSummary` fields `cursorFor` actually reads from
-		 * the last Firestore doc and pass them through. Keeping cursor
-		 * construction in one place (`cursorFor`) means every new sort
-		 * axis lands in a single spot rather than drifting between two
-		 * parallel branches. */
-		const lastDoc = snap.docs[snap.docs.length - 1];
-		const data = lastDoc.data();
-		const updatedAt =
-			(data.updated_at as Timestamp)?.toDate() ??
-			(data.created_at as Timestamp).toDate();
-		nextCursor = cursorFor(
-			{
-				id: lastDoc.id,
-				app_name: (data.app_name as string) ?? "",
-				updated_at: updatedAt.toISOString(),
-				/* The rest of the `AppSummary` shape is irrelevant to
-				 * `cursorFor`; fill with neutral defaults so the type
-				 * check passes without leaking bogus values anywhere. */
-				connect_type: null,
-				module_count: 0,
-				form_count: 0,
-				status: "complete",
-				error_type: null,
-				created_at: updatedAt.toISOString(),
-			},
-			sort,
-		);
-	}
+	/* "Maybe more" signal: a full page may have followers; a short page
+	 * never does. */
+	const nextCursor =
+		snap.size === limit ? cursorFor(apps[apps.length - 1], sort) : undefined;
 
 	return { apps, nextCursor };
 }
@@ -1046,10 +1006,13 @@ export interface ListDeletedAppsResult {
  *
  * Two filters in sequence:
  *
- *   1. **Firestore-level "is deleted":** `orderBy("deleted_at", "desc")`
- *      implicitly drops documents whose `deleted_at` is null. A
- *      separate `where("deleted_at", "!=", null)` is unnecessary and
- *      would require a different index shape.
+ *   1. **Firestore-level "is deleted":** `where("deleted_at", "!=",
+ *      null)` excludes live rows at the query boundary. The orderBy-
+ *      as-implicit-filter trick doesn't apply here: every live row
+ *      writes `deleted_at: null` explicitly (see `createApp`), so the
+ *      field is present in the index and `orderBy("deleted_at")` would
+ *      return live rows too — consuming the page budget on rows that
+ *      get stripped in JS.
  *   2. **In-memory "still recoverable":** rows whose `recoverable_until`
  *      has elapsed are filtered out before returning. The trash UI is
  *      a recovery surface, not a permanent archive — past-window
@@ -1058,10 +1021,8 @@ export interface ListDeletedAppsResult {
  * The `__name__ ASC` tiebreaker resolves two apps deleted in the same
  * millisecond deterministically.
  *
- * Note: there is no retention sweep on this system. Filtered past-
- * window rows still live in Firestore indefinitely; this helper just
- * stops surfacing them to the UI. `recoverable_until` is the user-
- * facing recovery deadline, not a data-retention deadline.
+ * Past-window rows persist on disk; this helper filters them out of
+ * the trash UI once `recoverable_until` elapses.
  *
  * Status, error_type, and the standard timestamps are surfaced as-is.
  * Soft-delete is the existence axis, not the lifecycle axis — a
@@ -1084,6 +1045,7 @@ export async function listDeletedApps(
 	const snap = await getDb()
 		.collection("apps")
 		.where("owner", "==", owner)
+		.where("deleted_at", "!=", null)
 		.orderBy("deleted_at", "desc")
 		.orderBy("__name__", "asc")
 		.select(...DELETED_SUMMARY_FIELDS)
@@ -1096,9 +1058,9 @@ export async function listDeletedApps(
 	for (const doc of snap.docs) {
 		const data = doc.data();
 		const recoverableUntil = data.recoverable_until as string;
-		/* Past-window rows are excluded from the trash surface — they
-		 * still exist in Firestore (no retention sweep), the UI just
-		 * stops showing them. */
+		/* Past-window rows are excluded from the trash surface once
+		 * `recoverable_until` elapses — the trash is a recovery
+		 * surface, not a permanent archive. */
 		if (new Date(recoverableUntil).getTime() <= now) continue;
 
 		const createdAt = (data.created_at as Timestamp).toDate();

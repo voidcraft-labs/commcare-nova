@@ -63,11 +63,17 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 	const usageSnaps =
 		usageRefs.length > 0 ? await getDb().getAll(...usageRefs) : [];
 
-	/* App counts are aggregation queries — run in parallel.
-	 * Each query filters the root-level apps collection by owner userId. */
+	/* App counts are aggregation queries — run in parallel. Filter by
+	 * `deleted_at == null` so the count reflects live apps only; soft-
+	 * deleted rows would otherwise inflate the admin view. */
 	const appCounts = await Promise.all(
 		allUsers.map((u) =>
-			collections.apps().where("owner", "==", u.id).count().get(),
+			collections
+				.apps()
+				.where("owner", "==", u.id)
+				.where("deleted_at", "==", null)
+				.count()
+				.get(),
 		),
 	);
 

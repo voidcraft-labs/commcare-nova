@@ -8,11 +8,9 @@
  * — `deleted_at != null` is the sole soft-delete marker; soft-delete
  * and lifecycle status are orthogonal axes, so the row's real status
  * roundtrips through any subsequent restore. The blueprint, event
- * log, and HQ credentials all survive intact; a retention job hard-
- * deletes rows past the window. The dual layer (soft-delete +
- * retention sweep) mirrors the behavior of every other surface in
- * Nova that wraps a destructive action (`listApps` already filters
- * `deleted_at != null` rows at the query boundary).
+ * log, and HQ credentials all survive intact. `listApps` filters
+ * `deleted_at != null` rows at the query boundary, so a deleted app
+ * vanishes from every active surface immediately.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

@@ -1,18 +1,11 @@
 /**
- * `listApps` projection-and-filter regression tests.
+ * `listApps` query-shape regression tests.
  *
- * These tests pin a single contract that the existing per-helper
- * mocks couldn't catch: `listApps` must include `deleted_at` in its
- * Firestore `.select()` projection, AND it must drop rows where that
- * field is non-null at the projection step.
- *
- * The bug they protect against: an earlier draft listed only the
- * fields exposed on `AppSummary`, omitting `deleted_at`. Because
- * `select()` filters the document data on the wire, the in-memory
- * filter `data.deleted_at != null` then evaluated `undefined != null`
- * (false under loose equality) and silently passed every soft-
- * deleted row straight through into the active list — and into the
- * MCP `list_apps` / `search_apps` tools that compose on top of it.
+ * The contract these tests pin: soft-deleted rows must be filtered at
+ * the Firestore query layer via `where("deleted_at", "==", null)`, not
+ * stripped in JS after `.limit(N)`. JS-stripping lets a deleted-heavy
+ * page return short with `next_cursor` still set — the regression to
+ * keep out.
  *
  * The Firestore module is mocked at the file boundary. The chain is
  * a single object that returns itself from every chained call, so the
@@ -72,41 +65,41 @@ const baseLiveDoc = (id: string) =>
 		error_type: null,
 		created_at: Timestamp.fromDate(new Date("2026-04-01T00:00:00Z")),
 		updated_at: Timestamp.fromDate(new Date("2026-04-15T00:00:00Z")),
-		deleted_at: null,
-	});
-
-const baseDeletedDoc = (id: string) =>
-	makeDoc(id, {
-		app_name: `Deleted ${id}`,
-		connect_type: null,
-		module_count: 1,
-		form_count: 1,
-		/* `status` is intentionally `complete` — the new soft-delete
-		 * path leaves lifecycle status alone, and the filter must work
-		 * regardless of status (catching legacy `status: "deleted"`
-		 * rows is a side effect of the same `deleted_at != null`
-		 * check). */
-		status: "complete",
-		error_type: null,
-		created_at: Timestamp.fromDate(new Date("2026-04-01T00:00:00Z")),
-		updated_at: Timestamp.fromDate(new Date("2026-04-15T00:00:00Z")),
-		deleted_at: "2026-04-20T00:00:00.000Z",
 	});
 
 describe("listApps", () => {
 	beforeEach(() => {
+		/* `mockClear()` resets call history but preserves return values
+		 * — that's what we want for the fluent-chain mocks. `getMock`
+		 * uses `mockReset()` instead because each test arms a different
+		 * `mockResolvedValueOnce` and stale resolutions would leak. */
 		selectMock.mockClear();
-		selectMock.mockReturnValue(queryMock);
 		getMock.mockReset();
 		(queryMock.where as ReturnType<typeof vi.fn>).mockClear();
 		(queryMock.orderBy as ReturnType<typeof vi.fn>).mockClear();
 		(queryMock.limit as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.startAfter as ReturnType<typeof vi.fn>).mockClear();
 	});
 
-	it("includes deleted_at in the projection — without it, the in-memory filter silently leaks soft-deleted rows", async () => {
-		/* Direct contract assertion: the `select()` call must include
-		 * `deleted_at`. Loose equality on an `undefined` projected
-		 * value is what produced the original leak. */
+	it("filters soft-deleted rows server-side via where('deleted_at', '==', null)", async () => {
+		/* The core invariant: every active-list query must bind the
+		 * soft-delete filter at the Firestore boundary so deleted rows
+		 * never enter the page budget. Without it, `.limit(N)` runs
+		 * before the strip and a deleted-heavy page returns short. */
+		getMock.mockResolvedValueOnce({ docs: [], size: 0 });
+
+		const { listApps } = await import("../apps");
+		await listApps("user-1", { limit: 50, sort: "updated_desc" });
+
+		const whereCalls = (queryMock.where as ReturnType<typeof vi.fn>).mock.calls;
+		expect(whereCalls).toContainEqual(["deleted_at", "==", null]);
+	});
+
+	it("does not include deleted_at in the field projection — the query filter handles it, the projection no longer needs it", async () => {
+		/* Defense against drift: once the where-clause filter exists,
+		 * carrying `deleted_at` through the projection is purely cost
+		 * with no benefit. Catching the regression here keeps the
+		 * SUMMARY_FIELDS list lean. */
 		getMock.mockResolvedValueOnce({ docs: [], size: 0 });
 
 		const { listApps } = await import("../apps");
@@ -114,16 +107,16 @@ describe("listApps", () => {
 
 		expect(selectMock).toHaveBeenCalledTimes(1);
 		const projectedFields = selectMock.mock.calls[0];
-		expect(projectedFields).toContain("deleted_at");
+		expect(projectedFields).not.toContain("deleted_at");
 	});
 
-	it("strips rows where deleted_at is non-null at the projection step", async () => {
-		/* Behavioral assertion: a mixed page returns only the live
-		 * row. Without the projection fix above the filter would never
-		 * fire, so this test fails for the same regression — two
-		 * checks of the same invariant from different angles. */
+	it("returns every doc Firestore returns 1:1 — soft-delete strip lives in the query, not the projection loop", async () => {
+		/* Behavioral assertion: with the where-clause filter, Firestore
+		 * already excludes soft-deleted rows. The JS loop must therefore
+		 * be a straight pass-through, not a filter step (which would
+		 * silently double-strip and could mask bugs). */
 		getMock.mockResolvedValueOnce({
-			docs: [baseLiveDoc("a"), baseDeletedDoc("b"), baseLiveDoc("c")],
+			docs: [baseLiveDoc("a"), baseLiveDoc("b"), baseLiveDoc("c")],
 			size: 3,
 		});
 
@@ -133,6 +126,90 @@ describe("listApps", () => {
 			sort: "updated_desc",
 		});
 
-		expect(apps.map((a) => a.id)).toEqual(["a", "c"]);
+		expect(apps.map((a) => a.id)).toEqual(["a", "b", "c"]);
+	});
+
+	it("emits next_cursor when Firestore returns exactly `limit` rows — every returned row is visible, so the signal is accurate", async () => {
+		/* Server-side filtering means `apps.length === snap.size`, so
+		 * the "maybe more" signal is exact: a present cursor genuinely
+		 * means more visible apps may exist. */
+		getMock.mockResolvedValueOnce({
+			docs: [baseLiveDoc("a"), baseLiveDoc("b")],
+			size: 2,
+		});
+
+		const { listApps } = await import("../apps");
+		const result = await listApps("user-1", {
+			limit: 2,
+			sort: "updated_desc",
+		});
+
+		expect(result.apps).toHaveLength(2);
+		expect(result.nextCursor).toBeDefined();
+	});
+
+	it("omits next_cursor when Firestore returns fewer than `limit` rows — there is nothing more to scan", async () => {
+		getMock.mockResolvedValueOnce({
+			docs: [baseLiveDoc("a")],
+			size: 1,
+		});
+
+		const { listApps } = await import("../apps");
+		const result = await listApps("user-1", {
+			limit: 10,
+			sort: "updated_desc",
+		});
+
+		expect(result.apps).toHaveLength(1);
+		expect(result.nextCursor).toBeUndefined();
+	});
+
+	it("binds the status filter as a Firestore where clause — pinning the (owner, deleted_at, status, sort) index path", async () => {
+		/* The status filter is the second equality clause and must
+		 * actually reach Firestore — a regression that pushed it into
+		 * an in-memory step would silently break the index plan and
+		 * pay full-collection scan cost. */
+		getMock.mockResolvedValueOnce({ docs: [], size: 0 });
+
+		const { listApps } = await import("../apps");
+		await listApps("user-1", {
+			limit: 50,
+			sort: "updated_desc",
+			status: "complete",
+		});
+
+		const whereCalls = (queryMock.where as ReturnType<typeof vi.fn>).mock.calls;
+		expect(whereCalls).toContainEqual(["status", "==", "complete"]);
+	});
+
+	it("rejects a cursor minted under a different sort — silent resumption from the wrong index position would mis-order the page", async () => {
+		/* `decodeAppsCursor` validates the discriminant against the
+		 * caller's `sort`. Mixing sort orders across pagination calls
+		 * is unrecoverable: the underlying Firestore scan position
+		 * doesn't translate. The throw is the user-visible signal that
+		 * tells the caller to drop the cursor and restart.
+		 *
+		 * Mint the cursor by running a real call — keeps the test
+		 * honest about the encoding format rather than hand-rolling a
+		 * base64url payload that could drift from `encodeAppsCursor`. */
+		const { listApps } = await import("../apps");
+
+		getMock.mockResolvedValueOnce({
+			docs: [baseLiveDoc("a")],
+			size: 1,
+		});
+		const seed = await listApps("user-1", {
+			limit: 1,
+			sort: "updated_desc",
+		});
+		expect(seed.nextCursor).toBeDefined();
+
+		await expect(
+			listApps("user-1", {
+				limit: 1,
+				sort: "name_asc",
+				cursor: seed.nextCursor,
+			}),
+		).rejects.toThrow(/Cursor was minted/);
 	});
 });
