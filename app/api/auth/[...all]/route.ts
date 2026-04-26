@@ -41,16 +41,33 @@ const handler = async (req: Request) => {
 	const response = await getAuth().handler(authReq);
 
 	if (isOAuthRegister && response.ok) {
-		try {
-			await cleanupStalePublicOAuthClients();
-		} catch (err) {
-			log.error("[auth/oauth] stale public-client cleanup failed", err);
-		}
+		/* Cleanup is opportunistic housekeeping — not load-bearing for any
+		 * security check, and never load-bearing for the registering
+		 * client. Awaiting it here would couple register-response latency
+		 * to a Firestore scan over up to 50 public-client docs (each
+		 * followed by two consent + refresh-token reads). Fire-and-forget
+		 * keeps the register endpoint fast; the catch surfaces failures to
+		 * Cloud Logging without blocking the response. */
+		void cleanupStalePublicOAuthClients().catch((err) =>
+			log.error("[auth/oauth] stale public-client cleanup failed", err),
+		);
 	}
 
 	if (isOAuthRevoke && response.ok && revokedToken) {
 		try {
-			await recordOAuthGrantRevocationForToken(revokedToken);
+			const wrote = await recordOAuthGrantRevocationForToken(revokedToken);
+			if (!wrote) {
+				/* Better Auth's `/oauth2/revoke` returns 200 even for invalid
+				 * tokens (RFC 7009 §2.2), so a `false` here means we couldn't
+				 * classify the token as either a verifiable JWT or a refresh
+				 * token in our table. With JWT signature verification in
+				 * place, that's operationally interesting — a spike of these
+				 * is the visible signal that token shape and watermark logic
+				 * have drifted apart. */
+				log.warn(
+					"[auth/oauth] revoke ok but no watermark written — token shape unrecognized",
+				);
+			}
 		} catch (err) {
 			log.error("[auth/oauth] grant revocation watermark failed", err);
 			return new Response(null, { status: 500 });
