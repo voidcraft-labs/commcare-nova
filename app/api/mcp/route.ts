@@ -49,13 +49,13 @@
  *   - **Comparable, verify-layer.** `nova.read` and `nova.write` are
  *     declared in `verifyAccessToken({ scopes })` below. Every tool
  *     registered downstream inherits the check for free — there is no
- *     per-handler `requireScope(...)` call to forget, and a newly added
+ *     per-handler `assertScope(...)` call to forget, and a newly added
  *     Nova-internal tool can't ship without enforcement.
  *   - **Orthogonal, per-tool.** `nova.hq.read` and `nova.hq.write` gate
  *     access to CommCare HQ. They're not comparable to read/write
  *     (you can have HQ access without Nova write, or vice versa), so
  *     mount-splitting can't capture them — it would require a 4-way
- *     mount cross-product. Instead, HQ tools call `requireScope` (in
+ *     mount cross-product. Instead, HQ tools call `assertScope` (in
  *     `lib/mcp/scopes.ts`) at the top of their handler. Adding HQ
  *     scopes to *this* layer's `scopes` array would mandate them for
  *     every MCP request, defeating the orthogonal split.
@@ -92,7 +92,7 @@ import {
 } from "@/lib/hostnames";
 import { log } from "@/lib/logger";
 import { parseScopes, SCOPES } from "@/lib/mcp/scopes";
-import { registerNovaPrompts, registerNovaTools } from "@/lib/mcp/server";
+import { registerNovaTools } from "@/lib/mcp/server";
 import type { JwtClaims } from "@/lib/mcp/types";
 
 /**
@@ -166,7 +166,7 @@ const handler = mcpHandler(
 		 * read/write scopes are the floor for any tool call. The HQ
 		 * scopes (`nova.hq.read`, `nova.hq.write`) deliberately stay
 		 * OUT of this list — they're orthogonal to read/write and
-		 * enforced per-tool inside the HQ handlers via `requireScope`,
+		 * enforced per-tool inside the HQ handlers via `assertScope`,
 		 * so a client without HQ scopes can still call non-HQ tools.
 		 * See the "Two-layer scope enforcement" section in the module
 		 * docblock above. */
@@ -232,7 +232,6 @@ const handler = mcpHandler(
 					userId: claims.sub,
 					scopes: parseScopes(claims.scope),
 				});
-				registerNovaPrompts(server);
 			},
 			{ serverInfo: { name: "nova", version: "1.0.0" } },
 			/* `basePath: "/api"` composes with this route's `/mcp` segment
@@ -251,7 +250,9 @@ const handler = mcpHandler(
  *   - `GET`  — SSE stream for server-to-client notifications.
  *   - `DELETE` — explicit session termination.
  *
- * All three share the same verified handler so scope enforcement
- * uniformly covers every method, including session teardown.
+ * Nova holds no per-session state across requests (a fresh `McpServer`
+ * is constructed per call), so DELETE is a no-op for resource release;
+ * we still route it through the verified handler so token + scope
+ * checks fire uniformly across verbs.
  */
 export { handler as DELETE, handler as GET, handler as POST };

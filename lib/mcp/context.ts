@@ -203,6 +203,21 @@ export interface InitMcpCallResult {
 }
 
 /**
+ * Narrow shape the adapter consumes from the SDK's `RequestHandlerExtra`.
+ *
+ * The MCP SDK's `_meta` is `Record<string, unknown>` post-validation, but
+ * `progressToken` is the only field we read. RFC 6802 (MCP progress) types
+ * it as `string | number`. Declaring the shape locally keeps the import
+ * surface small and removes the `as` cast at the read site without forcing
+ * a deep import of the SDK's `RequestMeta` schema.
+ */
+interface McpCallExtra {
+	_meta?: {
+		progressToken?: string | number;
+	};
+}
+
+/**
  * Build the per-call collaborators for an MCP tool handler.
  *
  * Takes `runId` as an input rather than minting it internally: every
@@ -224,11 +239,9 @@ export function initMcpCall(
 	ctx: ToolContext,
 	appId: string,
 	runId: string,
-	extra: { _meta?: unknown } | undefined,
+	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
-	const progressToken = (
-		extra?._meta as { progressToken?: string | number } | undefined
-	)?.progressToken;
+	const progressToken = extra?._meta?.progressToken;
 	const logWriter = new LogWriter(appId, "mcp");
 	const progress = createProgressEmitter(server, progressToken);
 	const mcpCtx = new McpContext({

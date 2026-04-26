@@ -36,8 +36,8 @@ import { getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
 import {
 	classifyHost,
-	HOSTNAME_ALLOWLIST,
 	HOSTNAMES,
+	isPathAllowedExactOnHost,
 	isPathAllowedOnHost,
 	normalizeHost,
 } from "@/lib/hostnames";
@@ -145,13 +145,10 @@ export function proxy(request: NextRequest): NextResponse {
 	/* ── 1. Hostname routing ─────────────────────────────────────────── */
 
 	if (classified === HOSTNAMES.mcp) {
-		/* The MCP host's externally-reachable surface is enumerated by
-		 * `HOSTNAME_ALLOWLIST[HOSTNAMES.mcp]` — that array is the single
-		 * source of truth. The matcher is exact-equality rather than
-		 * prefix-equality (which `isPathAllowedOnHost` does for the
-		 * other hosts) because `/mcp/foo` would match a `/mcp` prefix
-		 * and fall through to a non-existent page, leaking past the
-		 * security-boundary 404 contract. */
+		/* The MCP host uses exact-match (`isPathAllowedExactOnHost`)
+		 * rather than the prefix matcher used elsewhere: `/mcp/foo`
+		 * would match a `/mcp` prefix and fall through to a non-existent
+		 * page, leaking past the security-boundary 404 contract. */
 		if (pathname === "/mcp" || pathname === "/mcp/") {
 			/* Both `/mcp` and `/mcp/` rewrite to the same internal target
 			 * `/api/mcp` (no trailing slash) — Next's route handler lives
@@ -165,11 +162,7 @@ export function proxy(request: NextRequest): NextResponse {
 			target.pathname = "/api/mcp";
 			return NextResponse.rewrite(target);
 		}
-		/* Remaining mcp-host allowlist entries (currently just the
-		 * OAuth-protected-resource discovery doc) pass through to their
-		 * page route untouched — exact match only, never prefix. */
-		const mcpAllowed = HOSTNAME_ALLOWLIST[HOSTNAMES.mcp];
-		if (mcpAllowed.some((p) => p !== "/mcp" && p === pathname)) {
+		if (isPathAllowedExactOnHost(HOSTNAMES.mcp, pathname)) {
 			return NextResponse.next();
 		}
 		return notFound();

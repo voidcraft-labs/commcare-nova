@@ -162,3 +162,28 @@ export function isPathAllowedOnHost(host: Hostname, path: string): boolean {
 			: path === prefix || path.startsWith(`${prefix}/`),
 	);
 }
+
+/**
+ * Per-host pre-built set of exact-match allowlist entries used by hosts that
+ * cannot use the prefix-based matcher (the MCP host: `/mcp/foo` would match
+ * a `/mcp` prefix and fall through to a non-existent page, leaking past the
+ * security-boundary 404 contract).
+ */
+const HOSTNAME_EXACT_ALLOWLIST: Record<Hostname, ReadonlySet<string>> = {
+	[HOSTNAMES.main]: new Set(HOSTNAME_ALLOWLIST[HOSTNAMES.main]),
+	[HOSTNAMES.mcp]: new Set(HOSTNAME_ALLOWLIST[HOSTNAMES.mcp]),
+	[HOSTNAMES.docs]: new Set(HOSTNAME_ALLOWLIST[HOSTNAMES.docs]),
+};
+
+/**
+ * True if `path` exactly equals an allowlist entry on `host`. Counterpart
+ * to `isPathAllowedOnHost`'s prefix matcher — used where prefix matching
+ * would over-match (e.g. the MCP host's `/mcp` entry must NOT grant
+ * `/mcp/foo`).
+ */
+export function isPathAllowedExactOnHost(
+	host: Hostname,
+	path: string,
+): boolean {
+	return HOSTNAME_EXACT_ALLOWLIST[host].has(path);
+}

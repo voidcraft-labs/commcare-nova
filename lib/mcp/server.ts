@@ -33,6 +33,12 @@
  * whose shape it can go through the shared path, so the domain
  * definition lives in exactly one place (`lib/agent/tools`) and is
  * consumed identically by the chat-side agent and the MCP endpoint.
+ *
+ * Nova exposes no standalone MCP prompt resources. The agent-prompt
+ * surface is served through the `get_agent_prompt` tool instead, because
+ * the rendered prompt varies by build mode (new vs edit) and embeds an
+ * app-scoped blueprint summary. Those inputs need `app_id`, which MCP
+ * prompt resources can't receive.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -147,21 +153,4 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	for (const { name, tool } of SHARED_TOOLS) {
 		registerSharedTool(server, name, tool, ctx);
 	}
-}
-
-/**
- * Nova exposes no standalone MCP prompt resources. The agent-prompt
- * surface is served through the `get_agent_prompt` TOOL instead,
- * because the rendered prompt varies by build mode (new vs edit) and
- * embeds an app-scoped blueprint summary. Those inputs need `app_id`,
- * which MCP prompt resources can't receive — they're discovered before
- * any tool-call context exists, so modeling the agent prompt as a
- * prompt resource would force a static fallback that's strictly worse
- * than the tool-routed dynamic path.
- *
- * The `_server` parameter name signals intentional non-use to Biome's
- * `noUnusedFunctionParameters` rule without disabling it on the file.
- */
-export function registerNovaPrompts(_server: McpServer): void {
-	/* intentionally empty — see docstring. */
 }

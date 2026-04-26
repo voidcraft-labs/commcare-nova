@@ -68,27 +68,25 @@ export function deriveRunId(input: DeriveRunIdInput): string {
 	return crypto.randomUUID();
 }
 
+/** Anything carrying a Firestore-style `.toMillis()` method. */
+interface MillisCarrier {
+	toMillis(): number;
+}
+
 /**
  * Extract epoch-ms from the `updated_at` value on an `AppDoc`.
  *
  * In production the Zod converter validates this field as a Firestore
- * `Timestamp` instance, but tests commonly fabricate it as a plain
- * `Date` (casting through `unknown` to avoid pulling in the Firestore
- * Admin SDK for a unit-test fixture). This helper accepts both shapes
- * — a `.toMillis()` method if present, else the Date's `.getTime()` —
- * so the derivation works identically in both environments. Unknown
- * shapes fall through to `null`, which the derivation treats as
- * "closed run" and mints a fresh id from.
+ * `Timestamp` instance; in tests it's commonly fabricated as a plain
+ * `Date`. The signature accepts both — and `null`/`undefined` for
+ * never-written app rows. Unknown shapes fall through to `null`, which
+ * the derivation treats as "closed run" and mints a fresh id from.
  */
-export function timestampToMillis(ts: unknown): number | null {
+export function timestampToMillis(
+	ts: MillisCarrier | Date | null | undefined,
+): number | null {
 	if (ts == null) return null;
 	if (ts instanceof Date) return ts.getTime();
-	if (typeof ts === "object" && "toMillis" in ts) {
-		const toMillis = (ts as { toMillis: unknown }).toMillis;
-		if (typeof toMillis === "function") {
-			const result = (toMillis as () => unknown).call(ts);
-			return typeof result === "number" ? result : null;
-		}
-	}
-	return null;
+	const result = ts.toMillis();
+	return Number.isFinite(result) ? result : null;
 }
