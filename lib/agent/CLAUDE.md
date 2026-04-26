@@ -13,18 +13,19 @@ CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/comm
 ## What lives here
 
 - `solutionsArchitect.ts` — the one `ToolLoopAgent` factory. Owns the SA's internal `BlueprintDoc` for the lifetime of a request and emits fine-grained mutations for every tool call.
-- `prompts.ts` — system prompt + blueprint summary renderer. The summary walks the normalized doc directly and emits field vocabulary. CommCare XForm terms (e.g. `jr:`, `#form/`, XPath function names) still appear where the SA genuinely needs them.
+- `prompts.ts` — composes the mode-specific (build vs. edit) SA system prompt. CommCare XForm terms (e.g. `jr:`, `#form/`, XPath function names) still appear where the SA genuinely needs them.
+- `summarizeBlueprint.ts` — domain-vocabulary renderer that walks `BlueprintDoc` and produces the compact text both `prompts.ts` (edit-mode summary) and the MCP `get_app` tool share.
 - `toolSchemaGenerator.ts` — generates the three field-mutation tool schemas (`addFieldsItemSchema`, `addFieldSchema`, `editFieldUpdatesSchema`) from `fieldRegistry` + `fieldKinds`. Per-kind `saDocs` flows through into the `kind` enum description. The 8-optional sentinel strategy (promoting `label`/`required` to required-with-sentinel) stays inside this file.
 - `toolSchemas.ts` — materializes the generator output once and exposes the stable Zod nodes the SA + `scripts/test-schema.ts` reuse.
 - `scaffoldSchemas.ts` — describe-rich input schemas for the initial-build generation tools (`generateSchema`, `generateScaffold`, `addModule`). Separate from `toolSchemas.ts` because these describe whole-app structure, not per-field edits.
-- `generationContext.ts` — shared wrapper around the Anthropic client, SSE stream writer, `LogWriter` (event log), and `UsageAccumulator` (cost). Owns `emitMutations`, `emitConversation`, `emitError`, and the shared `handleAgentStep(step, label)` helper used by the SA's `onStepFinish` callback. The only sanctioned way to write a doc-mutating stream event and the only way to write an agent-side log event.
-- `validationLoop.ts`, `autoFixer.ts`, `errorClassifier.ts` — post-generation CommCare validation + fix loop. Emits fix mutations through `emitMutations`.
+- `generationContext.ts` — shared wrapper around the Anthropic client, SSE stream writer, `LogWriter` (event log), and `UsageAccumulator` (cost). Implements the shared `ToolExecutionContext` contract (`recordMutations`, `recordConversation`) on top of chat-specific internals (`emitMutations`, `emitConversation`, `emitError`) plus the shared `handleAgentStep(step, label)` helper used by the SA's `onStepFinish` callback. The only sanctioned way to write a doc-mutating stream event and the only way to write an agent-side log event.
+- `validationLoop.ts`, `autoFixer.ts`, `errorClassifier.ts` — post-generation CommCare validation + fix loop. Takes `ToolExecutionContext` (not the concrete `GenerationContext`) so the same loop runs on the SA chat surface and the MCP adapter; emits fix mutations through `ctx.recordMutations`.
 - `blueprintHelpers.ts` — pure `Mutation[]` builders the SA calls from its tool handlers (`addFieldMutations`, `setScaffoldMutations`, `renameFieldMutations`, etc.).
 - `contentProcessing.ts` — sentinel stripping (`stripEmpty`) + case-type default merging (`applyDefaults`) for the flat `addFields` input. Domain-vocab throughout; case-type metadata (which uses CommCare-flavored `validation`/`validation_msg` on its property shape) is translated onto the field's `validate`/`validate_msg` at this one boundary.
 
 ## The write surface (server side)
 
-The SA computes `Mutation[]` internally (via the helpers in `blueprintHelpers.ts`), applies them to its own doc via Immer `produce`, and emits them on the SSE stream via `ctx.emitMutations(mutations, stage?)`. Clients of that stream (the interactive builder) receive `data-mutations` events and feed the payload straight into `docStore.applyMany(mutations)` — no translation, no reconstruction. The agent and the user speak the same mutation API.
+The SA computes `Mutation[]` internally (via the helpers in `blueprintHelpers.ts`), applies them to its own doc via Immer `produce`, and persists them through the shared tool-execution contract via `ctx.recordMutations(mutations, doc, stage?)`. Clients of that stream (the interactive builder) receive `data-mutations` events and feed the payload straight into `docStore.applyMany(mutations)` — no translation, no reconstruction. The agent and the user speak the same mutation API.
 
 `data-done` still carries the full `PersistableDoc` at the end of `validateApp` because validation autofixes can produce opaque deltas; the final reconciliation there is cheaper than threading a mutation trail through the fix registry. Nothing else emits full docs on the live path.
 
@@ -41,3 +42,17 @@ SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }
 ## Two tool groups: generation + shared
 
 Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`, `addModule`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+
+## Shared-tool return contract
+
+Every `lib/agent/tools/<name>.ts` `execute` returns one of three tagged shapes (`tools/common.ts` + `tools/validateApp.ts`):
+
+- `MutatingToolResult<R>` — `{ kind: "mutate", mutations, newDoc, result }`. Tool body has already persisted via `ctx.recordMutations` before returning; `result` is the LLM-facing payload.
+- `ReadToolResult<R>` — `{ kind: "read", data }`. Pure read, no persistence.
+- `ValidateAppResult` — `{ kind: "validate", success, doc, hqJson?, errors? }`. The fix loop persists internally; the wrapper unconditionally advances its working doc.
+
+The `kind` discriminator is the contract two consumers dispatch on:
+- Chat-side `wrapMutating` / `wrapRead` in `solutionsArchitect.ts` destructure the shape and surface only the inner payload to the AI SDK tool.
+- MCP `projectResult` in `lib/mcp/adapters/sharedToolAdapter.ts` switches on `kind` to project to the wire envelope.
+
+Adding a new shared tool: pick a shape, return it tagged. A future fourth shape requires updating both consumers — the exhaustive `switch` in `projectResult` is the compile-time tripwire.

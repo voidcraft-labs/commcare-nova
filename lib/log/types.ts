@@ -139,6 +139,25 @@ const envelopeSchema = z.object({
 	runId: z.string(),
 	ts: z.number().int().nonnegative(),
 	seq: z.number().int().nonnegative(),
+	/**
+	 * Which entrypoint produced this event. `"chat"` = the web chat route
+	 * (`/api/chat`, SSE + session cookie). `"mcp"` = the hosted MCP
+	 * endpoint (`/mcp`, HTTP JSON-RPC + OAuth bearer). The distinction
+	 * exists so analytics + admin inspection can separate chat-surface
+	 * events (human in the loop, visible in the builder UI) from
+	 * MCP-surface events (programmatic tool calls from an external
+	 * client) without reverse-engineering either from the payload.
+	 *
+	 * Required on every envelope — no optional, no default. Historical
+	 * events written before this field existed are backfilled by
+	 * `scripts/migrate-event-source.ts` (one-shot, idempotent, must run
+	 * before the schema-enforcing deploy lands). See
+	 * `lib/log/writer.ts` for the authoritative-stamping rule: the
+	 * writer's constructor-provided source overwrites whatever the
+	 * caller set, so the persisted value cannot drift from the
+	 * surface that built the writer.
+	 */
+	source: z.enum(["chat", "mcp"]),
 });
 
 /** An agent or user mutation against the doc. */

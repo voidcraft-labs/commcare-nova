@@ -509,7 +509,7 @@ vi.mock("../validationLoop", async () => {
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
-	updateApp: vi.fn(() => Promise.resolve()),
+	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
 describe("solutionsArchitect — validateApp", () => {
@@ -687,6 +687,64 @@ describe("validationLoop — fix pass emission", () => {
 			time_estimate: 1,
 		});
 		expectNoLegacyEvents(writer);
+	});
+
+	it("skips the connect-defaults emission when the derived config is structurally identical", async () => {
+		/* Log-bloat regression guard. `deriveConnectDefaults` builds a
+		 * fresh object graph on every call (`{ ...form.connect }` + sub-
+		 * config clones), so reference equality can never short-circuit
+		 * on its own. Without the structural-equality check in
+		 * `applyConnectDefaults`, re-running validation on an already-
+		 * fully-defaulted form would re-emit the same `updateForm`
+		 * mutation every time — one Firestore write per validateApp call
+		 * for a no-op reducer patch. This test fixes the form's connect
+		 * to the exact shape `deriveConnectDefaults` produces, so the
+		 * derived value is equal-but-not-identical and the pass should
+		 * skip emission. */
+		const runnerMod = await import("@/lib/commcare/validator/runner");
+		const { validateAndFix } =
+			await vi.importActual<typeof import("../validationLoop")>(
+				"../validationLoop",
+			);
+
+		// Validator returns no errors so the loop exits right after
+		// applyConnectDefaults runs — isolates this assertion from the
+		// fix:attempt-N path.
+		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
+
+		/* A form whose learn_module already matches the defaults
+		 * `deriveConnectDefaults` would produce: `id = moduleSlug` (the
+		 * module's display name slugified), `name = form.name`,
+		 * `description = form.name`, `time_estimate = 1` (zero input
+		 * fields → Math.max(1, ceil(0/3))). */
+		const docWithSettledConnect: BlueprintDoc = {
+			...makeFixtureDoc(),
+			connectType: "learn",
+			forms: {
+				[FORM_A]: {
+					uuid: FORM_A,
+					id: "enroll",
+					name: "Enroll Patient",
+					type: "registration",
+					connect: {
+						learn_module: {
+							id: "patient",
+							name: "Enroll Patient",
+							description: "Enroll Patient",
+							time_estimate: 1,
+						},
+					},
+				},
+			},
+		};
+
+		const { ctx, writer } = buildCtx();
+		await validateAndFix(ctx, docWithSettledConnect);
+
+		const connectMuts = mutationEvents(writer).filter(
+			(m) => m.stage === "connect-defaults",
+		);
+		expect(connectMuts).toHaveLength(0);
 	});
 });
 

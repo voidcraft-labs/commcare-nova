@@ -68,11 +68,31 @@ export class LogWriter {
 	private readonly sink: EventSink;
 	private readonly flushMs: number;
 	private readonly maxBatch: number;
+	/**
+	 * The entrypoint ("chat" | "mcp") this writer was built for. Stamped
+	 * onto every event in `logEvent`. The writer is the single source of
+	 * truth for the surface tag: call sites cannot cause drift because
+	 * `logEvent` overwrites any caller-provided `source` with this value.
+	 */
+	private readonly source: "chat" | "mcp";
 
+	/**
+	 * @param appId - Firestore app id the events belong to.
+	 * @param source - Entrypoint producing the events. Authoritative:
+	 *   overwrites any `source` field set by callers on individual
+	 *   events. Callers may still include `source` inline on the
+	 *   envelopes they build (for type satisfaction + self-documentation
+	 *   of the in-memory value), but the persisted value is always this
+	 *   constructor argument.
+	 * @param opts - Optional sink / batching overrides (tests use this to
+	 *   inject a mock sink).
+	 */
 	constructor(
 		private readonly appId: string,
+		source: "chat" | "mcp",
 		opts: LogWriterOptions = {},
 	) {
+		this.source = source;
 		this.sink = opts.sink ?? firestoreSink;
 		this.flushMs = opts.flushMs ?? DEFAULT_FLUSH_MS;
 		this.maxBatch = opts.maxBatch ?? DEFAULT_MAX_BATCH;
@@ -83,9 +103,17 @@ export class LogWriter {
 	 * reaches `maxBatch`, flushes synchronously; otherwise arms a
 	 * `flushMs` timer (idempotent — re-arming during an existing window
 	 * is a no-op).
+	 *
+	 * Re-stamps `source` with the writer's constructor-provided value
+	 * regardless of what the caller set. This makes the writer the
+	 * single authority for "which surface produced this event", so a
+	 * miswired call site cannot pollute the persisted stream.
 	 */
 	logEvent(event: Event): void {
-		this.buffer.push(event);
+		// `as Event` — spread drops the `kind` discriminator narrowing; reasserting
+		// the union is safe because we only overwrote `source`, not `kind`.
+		const stamped = { ...event, source: this.source } as Event;
+		this.buffer.push(stamped);
 		if (this.buffer.length >= this.maxBatch) {
 			void this.flush();
 			return;

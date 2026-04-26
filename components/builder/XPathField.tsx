@@ -306,10 +306,12 @@ function InlineXPathEditor({
 		);
 	}, []);
 
-	/** Trigger the reject shake animation on the editor wrapper. */
+	/** Trigger the reject shake animation on the editor wrapper. The
+	 *  `onAnimationEnd` handler on the wrapper clears `shaking` when the
+	 *  CSS keyframe completes — see the `xpath-shake` utility in
+	 *  `globals.css`. */
 	const shake = useCallback(() => {
 		setShaking(true);
-		setTimeout(() => setShaking(false), 400);
 	}, []);
 
 	/**
@@ -478,8 +480,14 @@ function InlineXPathEditor({
 	);
 
 	return (
+		// Filter `onAnimationEnd` on the keyframe name — animation events
+		// bubble, and any descendant @keyframes (CodeMirror cursor blink, etc.)
+		// would otherwise clear `shaking` mid-shake.
 		<div
 			ref={wrapperRef}
+			onAnimationEnd={(e) => {
+				if (e.animationName === "shake") setShaking(false);
+			}}
 			className={`rounded-md border border-nova-violet/50 ${shaking ? "xpath-shake" : ""}`}
 		>
 			<CodeMirror

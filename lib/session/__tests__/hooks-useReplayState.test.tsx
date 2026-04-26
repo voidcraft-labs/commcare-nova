@@ -23,6 +23,7 @@ function userMsg(seq: number, text: string): Event {
 		runId: "run-replay-state-test",
 		ts: seq * 1000,
 		seq,
+		source: "chat",
 		payload: { type: "user-message", text },
 	};
 }

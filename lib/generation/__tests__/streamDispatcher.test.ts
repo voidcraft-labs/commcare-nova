@@ -73,7 +73,14 @@ function convEvent(
 	payload: ConversationEvent["payload"],
 	seq = 0,
 ): ConversationEvent {
-	return { kind: "conversation", runId: "test-run", ts: 0, seq, payload };
+	return {
+		kind: "conversation",
+		runId: "test-run",
+		ts: 0,
+		seq,
+		source: "chat",
+		payload,
+	};
 }
 
 // ── Test suite ──────────────────────────────────────────────────────────

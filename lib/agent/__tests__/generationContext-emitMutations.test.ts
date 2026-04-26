@@ -14,12 +14,22 @@
 // for every `ToolLoopAgent`'s `onStepFinish`.
 
 import type { LanguageModelUsage } from "ai";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
+import { updateAppForRun } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
-import { makeTestContext } from "./fixtures";
+import { makeMinimalDoc, makeTestContext } from "./fixtures";
+
+/* `emitMutations` fires a fire-and-forget `updateAppForRun` on every
+ * call (the doc argument is the persistence target; the run id keeps
+ * `app.run_id` in sync with the current chat run so MCP's sliding-
+ * window derivation doesn't re-attach to a closed run). Stub it out at
+ * the module level so the no-op save doesn't reach Firestore. */
+vi.mock("@/lib/db/apps", () => ({
+	updateAppForRun: vi.fn(() => Promise.resolve()),
+}));
 
 // Representative text-field add mutation. The specific mutation shape is
 // unimportant to the helper — these tests only assert that the batch
@@ -52,7 +62,18 @@ describe("GenerationContext.emitMutations", () => {
 	let writer: ReturnType<typeof makeTestContext>["writer"];
 	let logWriter: ReturnType<typeof makeTestContext>["logWriter"];
 
+	/* A minimal doc reused across these tests. The content doesn't matter —
+	 * the tests assert on writer + logWriter side effects, not on what got
+	 * written to Firestore (that's mocked out). But the arg must type-check
+	 * against `BlueprintDoc`, so we hand a valid shape. */
+	const DOC = makeMinimalDoc();
+
 	beforeEach(() => {
+		/* Reset the shared module-level `updateAppForRun` mock so one test's save
+		 * calls don't bleed into the next one's `toHaveBeenCalledWith`
+		 * assertions. The `vi.mock(...)` factory ran once at module load;
+		 * only the call log needs resetting. */
+		vi.mocked(updateAppForRun).mockClear();
 		const handles = makeTestContext();
 		ctx = handles.ctx;
 		writer = handles.writer;
@@ -60,7 +81,7 @@ describe("GenerationContext.emitMutations", () => {
 	});
 
 	it("writes a data-mutations event to the SSE stream carrying raw mutations + MutationEvent envelopes", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION]);
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
 			type: string;
 			data: {
@@ -84,7 +105,7 @@ describe("GenerationContext.emitMutations", () => {
 	});
 
 	it("includes the optional stage tag on the SSE payload AND on every envelope", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION], "form:0-0");
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC, "form:0-0");
 		const call = writer.write.mock.calls[0]?.[0] as {
 			data: {
 				mutations: Mutation[];
@@ -99,7 +120,7 @@ describe("GenerationContext.emitMutations", () => {
 	});
 
 	it("omits the stage key entirely from SSE when no stage is provided (not 'stage: undefined')", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION]);
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
 			data: Record<string, unknown>;
 		};
@@ -109,7 +130,7 @@ describe("GenerationContext.emitMutations", () => {
 	it("writes exactly one MutationEvent to the log for a single-mutation batch (default case)", () => {
 		// Catches the regression where emitMutations writes SSE but
 		// silently skips the log fan-out on the default (stage-less) path.
-		ctx.emitMutations([TEXT_FIELD_MUTATION]);
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
 		expect(logWriter.logEvent).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -122,7 +143,7 @@ describe("GenerationContext.emitMutations", () => {
 	});
 
 	it("writes one MutationEvent per mutation to the log writer with the supplied stage", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION, SECOND_MUTATION], "form:0-0");
+		ctx.emitMutations([TEXT_FIELD_MUTATION, SECOND_MUTATION], DOC, "form:0-0");
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
 		expect(logWriter.logEvent).toHaveBeenNthCalledWith(
 			1,
@@ -147,14 +168,14 @@ describe("GenerationContext.emitMutations", () => {
 	});
 
 	it("assigns monotonically increasing seq to each emitted mutation event", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION, SECOND_MUTATION], "form:0-0");
+		ctx.emitMutations([TEXT_FIELD_MUTATION, SECOND_MUTATION], DOC, "form:0-0");
 		const first = logWriter.logEvent.mock.calls[0]?.[0] as { seq: number };
 		const second = logWriter.logEvent.mock.calls[1]?.[0] as { seq: number };
 		expect(second.seq).toBeGreaterThan(first.seq);
 	});
 
 	it("writes a mutation event WITHOUT a stage field when no stage is provided", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION]);
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
 		const event = logWriter.logEvent.mock.calls[0]?.[0] as Record<
 			string,
 			unknown
@@ -162,10 +183,69 @@ describe("GenerationContext.emitMutations", () => {
 		expect("stage" in event).toBe(false);
 	});
 
-	it("no-ops on empty mutation arrays — no SSE write, no log event", () => {
-		ctx.emitMutations([], "form:0-0");
+	it("no-ops on empty mutation arrays — no SSE write, no log event, no Firestore save", () => {
+		const result = ctx.emitMutations([], DOC, "form:0-0");
+		expect(result).toEqual([]);
 		expect(writer.write).not.toHaveBeenCalled();
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
+	});
+
+	it("returns the built MutationEvent array so callers can forward metadata without rebuilding", () => {
+		const events = ctx.emitMutations([TEXT_FIELD_MUTATION], DOC, "form:0-0");
+		expect(events).toHaveLength(1);
+		expect(events[0]).toEqual(
+			expect.objectContaining({
+				kind: "mutation",
+				runId: "run-1",
+				actor: "agent",
+				stage: "form:0-0",
+				mutation: TEXT_FIELD_MUTATION,
+			}),
+		);
+	});
+
+	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", () => {
+		/* `emitMutations` persists the `doc` argument — every caller threads
+		 * a post-mutation snapshot through. A caller that forgets to advance
+		 * the doc would show up here as either the wrong appId or a body
+		 * shape that doesn't match what was handed in. */
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
+		const [savedAppId, savedDoc] =
+			vi.mocked(updateAppForRun).mock.calls[0] ?? [];
+		expect(savedAppId).toBe("test-app");
+		// The rest of the doc flows through verbatim.
+		expect(savedDoc).toMatchObject({
+			appId: "test-app",
+			appName: "",
+			moduleOrder: [],
+		});
+	});
+
+	it("strips fieldParent from the persisted payload even when populated", () => {
+		/* `fieldParent` is a derived reverse-index the client rebuilds from
+		 * `fieldOrder` in `docStore.load()`; it must never reach Firestore,
+		 * otherwise the persisted shape grows a second source of truth that
+		 * can drift from `fieldOrder`. The base `makeMinimalDoc()` has an
+		 * empty `fieldParent`, which would make `not.toHaveProperty` pass
+		 * vacuously — this test hands in a populated map so the strip is
+		 * exercised on real data. */
+		const docWithParent = {
+			...makeMinimalDoc(),
+			fieldParent: {
+				[asUuid("f1")]: asUuid("form-uuid"),
+				[asUuid("f2")]: asUuid("form-uuid"),
+			},
+		};
+		ctx.emitMutations([TEXT_FIELD_MUTATION], docWithParent);
+		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
+		const savedDoc = vi.mocked(updateAppForRun).mock.calls[0]?.[1];
+		expect(savedDoc).not.toHaveProperty("fieldParent");
+	});
+
+	it("skips the Firestore save on empty batches (no-op path)", () => {
+		ctx.emitMutations([], DOC, "form:0-0");
+		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
 	});
 });
 

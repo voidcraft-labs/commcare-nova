@@ -35,6 +35,7 @@ function envelopes(mutations: Mutation[], stage?: string): MutationEvent[] {
 		runId: "test-run",
 		ts: 0,
 		seq: i,
+		source: "chat",
 		actor: "agent",
 		...(stage && { stage }),
 		mutation,

@@ -8,7 +8,7 @@
  * and the panel (gates card chrome on the partition) read. These
  * tests pin the behaviors that matter:
  *   - autoFocus only when pending AND the entry isn't independently
- *     visible (fix for the stuck-activation bug).
+ *     visible.
  *   - sectionHasContent returns false for "entries exist but all
  *     hidden non-addable" so empty labelled cards never mount.
  */
@@ -87,11 +87,10 @@ describe("partitionEditorEntries", () => {
 		expect(visible[0].independentlyVisible).toBe(false);
 	});
 
-	it("pending + independently visible → visible with autoFocus=false (bug fix)", () => {
-		// Covers the bug: if the predicate already reports visible
-		// (value committed by any path), the pending flag MUST NOT
-		// carry autoFocus=true — that would steal keyboard focus on
-		// the very next render.
+	it("pending + independently visible → visible with autoFocus=false", () => {
+		// When the predicate already reports visible (value committed by
+		// any path), the pending flag must not carry autoFocus=true —
+		// that would steal keyboard focus on the very next render.
 		const { visible } = partitionEditorEntries(
 			baseField,
 			[entry({ visible: () => true, addable: true })],
@@ -109,6 +108,59 @@ describe("partitionEditorEntries", () => {
 		expect(pills).toHaveLength(0);
 		expect(visible).toHaveLength(1);
 		expect(visible[0].independentlyVisible).toBe(true);
+	});
+
+	// ── pendingSatisfied flag ───────────────────────────────────────────
+	// The flag reports "the user-requested activation has now been
+	// satisfied by the value landing." The section consumes this signal
+	// to clear stale pending state so a later value-clear doesn't
+	// re-trigger autoFocus and steal keyboard focus.
+
+	it("pendingSatisfied is false when nothing is pending", () => {
+		const { pendingSatisfied } = partitionEditorEntries(baseField, [
+			entry({ visible: () => true }),
+		]);
+		expect(pendingSatisfied).toBe(false);
+	});
+
+	it("pendingSatisfied is false when pending entry is NOT independently visible (still autoFocusing)", () => {
+		// User clicked the pill; the value hasn't landed yet. Activation
+		// must stay pending so the next render still passes autoFocus=true.
+		const { pendingSatisfied } = partitionEditorEntries(
+			baseField,
+			[entry({ visible: () => false, addable: true })],
+			(key) => key === "hint",
+		);
+		expect(pendingSatisfied).toBe(false);
+	});
+
+	it("pendingSatisfied is true when pending entry has become independently visible", () => {
+		// The signal the section consumes to clear stale pending state:
+		// pending=true AND independentlyVisible=true means the user's
+		// pill-click intent has been fulfilled by a value landing.
+		// Without this, a later value-clear would re-arm autoFocus and
+		// hijack keyboard focus on the next render.
+		const { pendingSatisfied } = partitionEditorEntries(
+			baseField,
+			[entry({ visible: () => true, addable: true })],
+			(key) => key === "hint",
+		);
+		expect(pendingSatisfied).toBe(true);
+	});
+
+	it("pendingSatisfied is true even when only one of several pending entries has landed", () => {
+		// Activation is section-scoped — at most one entry can be pending
+		// at a time. The flag fires the moment any visible entry shows
+		// the satisfied combo, even if others are still pending-and-hidden.
+		const { pendingSatisfied } = partitionEditorEntries(
+			baseField,
+			[
+				entry({ visible: () => true, addable: true }, "hint"),
+				entry({ visible: () => false, addable: true }, "validate"),
+			],
+			(key) => key === "hint" || key === "validate",
+		);
+		expect(pendingSatisfied).toBe(true);
 	});
 });
 

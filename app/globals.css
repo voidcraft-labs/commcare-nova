@@ -2,6 +2,8 @@
 @import "../styles/keyframe-animations.css";
 
 @import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
 
 :root {
 	/* Nova color system */
@@ -631,4 +633,283 @@ body {
 	pointer-events: none;
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 	z-index: var(--z-system);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Fumadocs theme bridging — wear the docs as Nova chrome.
+ *
+ * Fumadocs's dark token block comes from `fumadocs-ui/css/preset.css`
+ * (imported above) and is activated by `<html class="dark">` in the
+ * root layout. Two layers run on top:
+ *
+ *   1. `html.dark` re-points the fumadocs neutral token block at Nova's
+ *      surface stack (`--nova-void` / `--nova-deep` / `--nova-surface` /
+ *      `--nova-border`) and at the violet accent. This applies app-wide
+ *      including portaled surfaces (search dialog, popovers) so they
+ *      inherit the same chrome as the in-tree docs UI. Nothing else in
+ *      the app consumes `--color-fd-*`, so there is no leakage risk.
+ *
+ *   2. `.nova-docs` adds the docs-page-only treatments — the cosmic
+ *      ambient glow (echoing `app/landing.tsx`'s violet bloom), the
+ *      display font on headings, code-block depth, callout chrome,
+ *      and the active-sidebar-item violet fill. None of these belong
+ *      on portaled fumadocs UI, so they stay scoped here.
+ * ───────────────────────────────────────────────────────────────────── */
+html.dark {
+	/* Surface stack — map fumadocs's neutral tokens onto Nova's. */
+	--color-fd-background: var(--nova-void);
+	--color-fd-foreground: var(--nova-text);
+	--color-fd-muted: var(--nova-deep);
+	--color-fd-muted-foreground: var(--nova-text-secondary);
+	--color-fd-popover: var(--nova-deep);
+	--color-fd-popover-foreground: var(--nova-text);
+	--color-fd-card: var(--nova-deep);
+	--color-fd-card-foreground: var(--nova-text);
+	--color-fd-secondary: var(--nova-surface);
+	--color-fd-secondary-foreground: var(--nova-text);
+	--color-fd-border: var(--nova-border);
+
+	/* Violet accent — primary/ring drive links, focus rings, and TOC
+	 * highlights. `--color-fd-accent` is the hover/active-item fill;
+	 * keep it transparent-ish so it tints over the surface gradient. */
+	--color-fd-primary: var(--nova-violet-bright);
+	--color-fd-primary-foreground: #ffffff;
+	--color-fd-ring: var(--nova-violet-bright);
+	--color-fd-accent: color-mix(
+		in srgb,
+		var(--nova-violet-bright) 16%,
+		transparent
+	);
+	--color-fd-accent-foreground: #ffffff;
+}
+
+/* ─── docs-page-only treatments ────────────────────────────────────── */
+
+.nova-docs {
+	position: relative;
+	/* `isolation: isolate` opens a new stacking context so the `::before`
+	 * bloom can sit at `z-index: -1` behind descendants *within*
+	 * `.nova-docs` without escaping the global stacking order — and
+	 * without forcing `position: relative` onto direct children, which
+	 * would override Tailwind's `.fixed` utility and break the search
+	 * dialog's viewport-fixed positioning. */
+	isolation: isolate;
+	background: var(--nova-void);
+}
+
+/* Cosmic violet bloom behind the page — the same ambient glow the
+ * landing page uses, just dialed down for a docs surface. Two soft
+ * blobs at the top corners and a wide wash across the masthead.
+ * `z-index: -1` sits beneath siblings within the `isolation: isolate`
+ * stacking context above. */
+.nova-docs::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: -1;
+	background:
+		radial-gradient(
+			60rem 24rem at 30% -4rem,
+			rgba(139, 92, 246, 0.12),
+			transparent 70%
+		),
+		radial-gradient(
+			36rem 24rem at 92% 4rem,
+			rgba(139, 92, 246, 0.08),
+			transparent 70%
+		),
+		linear-gradient(180deg, rgba(18, 18, 42, 0.6), transparent 28rem);
+}
+
+/* Display font on docs headings, matching the rest of Nova. */
+.nova-docs #nd-page :is(h1, h2, h3) {
+	font-family: var(--font-nova-display);
+	letter-spacing: -0.01em;
+}
+
+/* Sidebar + subnav: subtle elevated panel with a violet inner edge,
+ * echoing the `nova-panel` motif used throughout the builder. */
+.nova-docs #nd-sidebar,
+.nova-docs #nd-subnav {
+	background:
+		linear-gradient(180deg, rgba(18, 18, 42, 0.85), rgba(5, 5, 16, 0.95)),
+		var(--nova-void);
+	border-color: var(--nova-border);
+	backdrop-filter: blur(8px);
+}
+
+.nova-docs #nd-sidebar {
+	box-shadow:
+		inset -1px 0 0 rgba(139, 92, 246, 0.06),
+		0 0 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Sidebar nav items — violet-tinted hover, fully filled active state
+ * with a violet glow ring. Replaces the default outline-only active
+ * affordance, which read as a stray border on the dark surface. */
+.nova-docs #nd-sidebar a[data-active="true"] {
+	background: color-mix(in srgb, var(--nova-violet-bright) 12%, transparent);
+	color: #ffffff;
+	box-shadow:
+		inset 0 0 0 1px var(--nova-border-bright),
+		0 0 16px rgba(139, 92, 246, 0.12);
+}
+
+.nova-docs #nd-sidebar a:not([data-active="true"]):hover {
+	background: color-mix(in srgb, var(--nova-violet-bright) 6%, transparent);
+	color: var(--nova-text);
+}
+
+/* TOC active link — violet, with a violet bar to match the marker. */
+.nova-docs #nd-toc a[data-active="true"] {
+	color: var(--nova-violet-bright);
+}
+
+/* Search trigger — Nova surface, not the default fumadocs muted gray. */
+.nova-docs button[data-search-full],
+.nova-docs button[data-search] {
+	background: linear-gradient(
+		180deg,
+		rgba(18, 18, 42, 0.7),
+		rgba(10, 10, 26, 0.7)
+	);
+	border-color: var(--nova-border);
+	color: var(--nova-text-secondary);
+	box-shadow: inset 0 1px 0 rgba(139, 92, 246, 0.04);
+}
+
+.nova-docs button[data-search-full]:hover,
+.nova-docs button[data-search]:hover {
+	background: color-mix(
+		in srgb,
+		var(--nova-violet-bright) 8%,
+		var(--nova-deep)
+	);
+	border-color: var(--nova-border-bright);
+	color: #ffffff;
+}
+
+/* Body prose — Nova text colors, violet links. */
+.nova-docs #nd-page .prose {
+	color: var(--nova-text-secondary);
+}
+
+.nova-docs #nd-page .prose :is(strong, em, b) {
+	color: var(--nova-text);
+}
+
+.nova-docs #nd-page .prose a {
+	color: var(--nova-violet-bright);
+	text-decoration-color: rgba(167, 139, 250, 0.4);
+	text-underline-offset: 3px;
+	transition:
+		color 0.15s ease,
+		text-decoration-color 0.15s ease;
+}
+
+.nova-docs #nd-page .prose a:hover {
+	color: #ffffff;
+	text-decoration-color: var(--nova-violet-bright);
+}
+
+/* Inline `code` — Nova surface chip with a violet border tint. */
+.nova-docs #nd-page :not(pre) > code {
+	background: var(--nova-deep);
+	border: 1px solid var(--nova-border);
+	border-radius: 5px;
+	padding: 0.1em 0.35em;
+	color: var(--nova-text);
+	font-size: 0.9em;
+}
+
+/* Code blocks — depth gradient, violet rim light, soft drop shadow.
+ * Matches the recessed-hardware look of `nova-panel` blocks elsewhere. */
+.nova-docs figure.shiki {
+	background:
+		linear-gradient(180deg, rgba(18, 18, 42, 0.8), rgba(5, 5, 16, 0.95)),
+		var(--nova-deep);
+	border: 1px solid var(--nova-border);
+	box-shadow:
+		inset 0 1px 0 rgba(139, 92, 246, 0.08),
+		0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.nova-docs figure.shiki :is(pre, code) {
+	background: transparent;
+}
+
+.nova-docs figure.shiki [role="region"] {
+	scrollbar-color: var(--nova-border-bright) transparent;
+}
+
+/* Callouts — Nova surface with a violet accent rail on the start side
+ * (`Callout` already renders a colored bar; we just blend it with our
+ * surface so the whole component reads as one Nova panel). */
+.nova-docs #nd-page [class*="rounded-xl"][class*="bg-fd-card"] {
+	background:
+		linear-gradient(
+			90deg,
+			color-mix(
+				in srgb,
+				var(--callout-color, var(--nova-violet)) 8%,
+				transparent
+			),
+			transparent 30%
+		),
+		var(--nova-deep);
+	border-color: var(--nova-border);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.02),
+		0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Steps numbered indicator — fumadocs renders this as a `::before`
+ * pseudo on `.fd-step` carrying the `counter(step)` content. We swap
+ * the default secondary fill for a violet-glowing pip on the elevated
+ * surface, matching the active-state language used elsewhere. The
+ * border on the parent `.fd-steps` rail picks up the violet too. */
+.nova-docs .fd-steps {
+	border-inline-start-color: var(--nova-border);
+}
+
+.nova-docs .fd-step::before {
+	background: linear-gradient(180deg, var(--nova-elevated), var(--nova-deep));
+	border: 1px solid var(--nova-border-bright);
+	color: var(--nova-violet-bright);
+	box-shadow:
+		inset 0 1px 0 rgba(139, 92, 246, 0.15),
+		0 0 12px rgba(139, 92, 246, 0.08);
+}
+
+/* Tables — Nova chrome on header + zebra. */
+.nova-docs #nd-page .prose table {
+	border-color: var(--nova-border);
+}
+
+.nova-docs #nd-page .prose th {
+	background: var(--nova-deep);
+	color: var(--nova-text);
+}
+
+.nova-docs #nd-page .prose tr:nth-child(2n) td {
+	background: rgba(18, 18, 42, 0.4);
+}
+
+/* Pre/next page footer cards — Nova surface treatment. */
+.nova-docs #nd-page a[class*="rounded-lg"][class*="border"] {
+	background: var(--nova-deep);
+	border-color: var(--nova-border);
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease;
+}
+
+.nova-docs #nd-page a[class*="rounded-lg"][class*="border"]:hover {
+	background: color-mix(
+		in srgb,
+		var(--nova-violet-bright) 6%,
+		var(--nova-deep)
+	);
+	border-color: var(--nova-border-bright);
 }

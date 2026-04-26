@@ -174,7 +174,11 @@ export async function POST(req: Request) {
 	 * Placeholder fields (`promptMode` / `freshEdit` / `appReady` / `cacheExpired`
 	 * / `moduleCount`) are rewritten via `usage.configureRun()` inside the
 	 * execute block once we know the editing mode. */
-	const logWriter = new LogWriter(appId);
+	/* Chat-surface writer — every event out of this route is stamped
+	 * `source: "chat"`. The MCP endpoint constructs its own LogWriter
+	 * with `source: "mcp"`; the writer is the single authority on the
+	 * surface tag so the two cannot drift. */
+	const logWriter = new LogWriter(appId, "chat");
 	const usage = new UsageAccumulator({
 		appId,
 		userId: keyResult.session.user.id,

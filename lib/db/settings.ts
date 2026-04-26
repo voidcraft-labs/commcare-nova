@@ -22,35 +22,46 @@ import type { UserSettingsDoc } from "./types";
 
 // ── Public types ───────────────────────────────────────────────────
 
-/** Safe subset of settings returned to the client (never includes raw API key). */
-export interface CommCareSettingsPublic {
-	configured: boolean;
-	username: string;
-	/** The authorized project space, or null when not configured. */
-	domain: { name: string; displayName: string } | null;
-}
+/**
+ * Safe subset of settings returned to the client (never includes raw
+ * API key). Discriminated on `configured` so the type system enforces
+ * the on-disk schema invariant: a configured row always has both a
+ * username and a domain (the save flow only persists rows that passed
+ * `testDomainAccess`); an unconfigured row carries neither.
+ */
+export type CommCareSettingsPublic =
+	| { configured: false }
+	| {
+			configured: true;
+			username: string;
+			domain: { name: string; displayName: string };
+	  };
 
 // ── Read operations ────────────────────────────────────────────────
 
 /**
  * Get the user's CommCare settings in a client-safe format.
  *
- * Returns `configured: false` when no settings exist. Never exposes
- * the raw API key — only whether credentials are present.
+ * Returns `configured: false` when no settings exist OR when the
+ * persisted row is missing the username/domain that a configured row
+ * must have — the save flow rejects partial rows, so the
+ * defensive collapse here turns an in-place schema corruption into a
+ * "not configured" UX rather than an inconsistent half-state. Never
+ * exposes the raw API key.
  */
 export async function getCommCareSettings(
 	userId: string,
 ): Promise<CommCareSettingsPublic> {
 	const snap = await docs.settings(userId).get();
-	if (!snap.exists) {
-		return { configured: false, username: "", domain: null };
-	}
+	if (!snap.exists) return { configured: false };
 	const data = snap.data();
-	if (!data) return { configured: false, username: "", domain: null };
+	if (!data) return { configured: false };
+	const domain = data.approved_domains?.[0];
+	if (!data.commcare_username || !domain) return { configured: false };
 	return {
 		configured: true,
 		username: data.commcare_username,
-		domain: data.approved_domains?.[0] ?? null,
+		domain,
 	};
 }
 

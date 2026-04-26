@@ -21,6 +21,7 @@
  */
 
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
+import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -96,11 +97,100 @@ export function resolveFieldByIndex(
 	return { ...resolved, formUuid };
 }
 
+/**
+ * Map a `(moduleIndex, formIndex)` pair to the doc's form uuid. Returns
+ * `undefined` when either index is out of range — tool bodies surface
+ * that as an error string to the SA.
+ *
+ * The lighter cousin of `resolveFieldByIndex`: callers that don't need a
+ * field lookup (per-form reads, structural edits) use this to skip the
+ * DFS walk over the form's field subtree.
+ */
+export function resolveFormUuid(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): Uuid | undefined {
+	const moduleUuid = doc.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	return formUuids[formIndex];
+}
+
+/**
+ * The four handles shared tool modules need when resolving a positional
+ * `(moduleIndex, formIndex)` triple: the `moduleUuid` / `formUuid` for
+ * mutation emission and index → uuid resolution, plus the `mod` / `form`
+ * entities for the `form.type` + `mod.caseType` signals downstream
+ * helpers (e.g. `applyDefaults`) consume.
+ */
+export interface FormContext {
+	moduleUuid: Uuid;
+	mod: Module;
+	formUuid: Uuid;
+	form: Form;
+}
+
+/**
+ * Resolve the module + form entities for a positional
+ * `(moduleIndex, formIndex)` triple. Returns `undefined` when either
+ * index is out of range — callers map that to a tool-specific error
+ * string, so the message wording stays at the call site and the SA
+ * keeps its existing voice.
+ *
+ * Use this instead of `resolveFormUuid` when the tool body also needs
+ * the resolved `mod` / `form` entities (e.g. `form.type` for preload
+ * auto-defaults, `mod.caseType` for case-type lookup). The shared add-
+ * path pipeline in `contentProcessing.applyDefaults` consumes both.
+ */
+export function resolveFormContext(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): FormContext | undefined {
+	const moduleUuid = doc.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const mod = doc.modules[moduleUuid];
+	if (!mod) return undefined;
+	const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+	if (!formUuid) return undefined;
+	const form = doc.forms[formUuid];
+	if (!form) return undefined;
+	return { moduleUuid, mod, formUuid, form };
+}
+
+// ── Form-tree snapshot ──────────────────────────────────────────────────
+
+/**
+ * Shape returned by `formSnapshot` — the form entity augmented with its
+ * ordered, nested field tree. Uses the domain `Form` type verbatim so
+ * downstream consumers (SA `getForm` tool, MCP adapter) read domain
+ * names (`closeCondition`, `postSubmit`, `formLinks`) and don't carry
+ * any CommCare wire-format translation.
+ *
+ * Lives alongside the positional lookup helpers because it's a
+ * `BlueprintDoc`-read derived shape — the same category of surface.
+ */
+export type FormSnapshot = Form & { fields: FieldWithChildren[] };
+
+/**
+ * Build a `FormSnapshot` for the given form uuid. Returns `undefined`
+ * when the form doesn't exist in the doc — callers surface that as a
+ * "form not found" error to the SA.
+ */
+export function formSnapshot(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): FormSnapshot | undefined {
+	const form = doc.forms[formUuid];
+	if (!form) return undefined;
+	return { ...form, fields: buildFieldTree(doc, formUuid) };
+}
+
 // ── Mutation builders — app level ───────────────────────────────────────
 
 /** Replace the app's case-type catalog wholesale. */
 export function setCaseTypesMutations(
-	_doc: BlueprintDoc,
 	caseTypes: CaseType[] | null,
 ): Mutation[] {
 	return [{ kind: "setCaseTypes", caseTypes }];
@@ -379,10 +469,7 @@ export function updateFieldMutations(
  * clean slate. This helper deliberately doesn't emit removeModule
  * mutations for existing modules to keep the intent explicit.
  */
-export function setScaffoldMutations(
-	doc: BlueprintDoc,
-	scaffold: Scaffold,
-): Mutation[] {
+export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
 	const muts: Mutation[] = [];
 	muts.push({ kind: "setAppName", name: scaffold.app_name });
 	const connectType = scaffold.connect_type;
@@ -416,10 +503,6 @@ export function setScaffoldMutations(
 			muts.push({ kind: "addForm", moduleUuid, form: formEntity });
 		}
 	}
-	// `doc` is read only for reference, not consulted — but keep the
-	// parameter for signature symmetry with other mutation builders
-	// (every helper takes the doc first).
-	void doc;
 	return muts;
 }
 

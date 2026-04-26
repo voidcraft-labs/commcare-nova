@@ -25,19 +25,13 @@
  */
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { Field, FieldPatch } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
-import {
-	type PartitionedEntries,
-	partitionEditorEntries,
-} from "./partitionEditorEntries";
-import {
-	type EditorSectionName,
-	useEntryActivation,
-} from "./useEntryActivation";
+import type { EditorSectionName } from "./useEntryActivation";
+import { useSectionActivation } from "./useSectionActivation";
 
 /**
  * Prop shape for the section. Generic on the field variant so the
@@ -57,51 +51,29 @@ export function FieldEditorSection<F extends Field>({
 	entries,
 }: FieldEditorSectionProps<F>) {
 	const { updateField } = useBlueprintMutations();
-	// `field.uuid` is already branded `Uuid` — the activation hook
-	// scopes by the raw string so component identity persists across
-	// hover/unfocus cycles without caring about branded types.
-	const activation = useEntryActivation(field.uuid, section);
+	// `useSectionActivation` owns activation state, the partition, and
+	// both clear paths (pending-satisfied + empty-commit). The section
+	// is a pure renderer over the returned `visible` / `pills` arrays
+	// plus the `activate` / `onCommit` callbacks.
+	const { visible, pills, activate, onCommit } = useSectionActivation(
+		field,
+		section,
+		entries,
+	);
 
-	// Generic setter: write exactly one key on this field. `FieldPatch`
-	// is the union-wide partial — the reducer merges known scalar props
-	// and ignores the rest. The cast to `FieldPatch` is necessary because
-	// the per-entry key type is a string literal but the patch input is
-	// the union-of-partials shape.
+	// Generic setter: write exactly one key on this field, then notify
+	// the activation hook so it can clear pending state on empty-commit.
+	// `FieldPatch` is the union-wide partial — the reducer merges known
+	// scalar props and ignores the rest.
 	const setKey = useCallback(
 		<K extends keyof F & string>(key: K, value: F[K]) => {
 			updateField(field.uuid, {
 				[key]: value,
 			} as FieldPatch);
+			onCommit(key, value);
 		},
-		[updateField, field.uuid],
+		[updateField, field.uuid, onCommit],
 	);
-
-	// Partition entries via the shared helper. The panel uses the same
-	// partition (with a no-op pending predicate) to decide whether to
-	// mount the section's card at all — keeping the partition logic in
-	// one place ensures the panel's "would this render anything?" check
-	// agrees with what the section actually renders.
-	const partitioned: PartitionedEntries<F> = partitionEditorEntries(
-		field,
-		entries,
-		(key) => activation.pending(key),
-	);
-	const { visible, pills } = partitioned;
-
-	// Activation is a one-shot "just-activated, take focus" intent. As
-	// soon as the pending entry is ALSO visible by its own `visible()`
-	// predicate (value committed, undo/redo restored it, sibling
-	// predicate flipped it true), the intent is satisfied and we clear
-	// it. This avoids a stuck-pending state where a value arrives by a
-	// non-onChange path (LLM mutation, undo, parent-key flip) and the
-	// next unrelated rerender would steal keyboard focus with a stale
-	// autoFocus=true.
-	const anyVisibleAndPending = visible.some(
-		({ autoFocus, independentlyVisible }) => autoFocus && independentlyVisible,
-	);
-	useEffect(() => {
-		if (anyVisibleAndPending) activation.clear();
-	}, [anyVisibleAndPending, activation]);
 
 	// Section contributes nothing — let the panel skip the card chrome.
 	if (visible.length === 0 && pills.length === 0) return null;
@@ -161,7 +133,7 @@ export function FieldEditorSection<F extends Field>({
 							<AddPropertyButton
 								key={entry.key as string}
 								label={entry.label}
-								onClick={() => activation.activate(entry.key as string)}
+								onClick={() => activate(entry.key as string)}
 							/>
 						))}
 					</div>

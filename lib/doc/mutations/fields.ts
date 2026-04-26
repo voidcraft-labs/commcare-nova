@@ -6,6 +6,7 @@ import {
 	fieldSchema,
 	reconcileFieldForKind,
 } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import {
 	rewriteHashtagRefs,
@@ -511,7 +512,7 @@ export function applyFieldMutation(
 			// single source of truth for which swaps are semantically valid.
 			const allowed = fieldRegistry[field.kind].convertTargets;
 			if (!allowed.includes(mut.toKind)) {
-				console.warn(
+				log.warn(
 					`convertField: ${field.kind} cannot convert to ${mut.toKind}`,
 					{ uuid: mut.uuid, validTargets: allowed },
 				);
@@ -528,7 +529,7 @@ export function applyFieldMutation(
 				// reducer propagates up through `store.applyMany()` and crashes
 				// the surrounding render. Logging + no-op keeps the app alive
 				// while making the anomaly visible in dev tools.
-				console.warn(
+				log.warn(
 					`convertField: cannot reconcile ${field.kind} → ${mut.toKind}`,
 					{ uuid: mut.uuid, field },
 				);

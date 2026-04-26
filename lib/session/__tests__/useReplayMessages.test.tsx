@@ -42,6 +42,7 @@ function convEvent(seq: number, payload: ConversationPayload): Event {
 		runId: "run-replay-test",
 		ts: seq * 1000,
 		seq,
+		source: "chat",
 		payload,
 	};
 }
@@ -65,6 +66,7 @@ function mutationEvent(seq: number): MutationEvent {
 		runId: "run-replay-test",
 		ts: seq * 1000,
 		seq,
+		source: "chat",
 		actor: "agent",
 		stage: "scaffold",
 		mutation: { kind: "setAppName", name: `App ${seq}` },

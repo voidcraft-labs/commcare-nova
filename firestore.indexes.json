@@ -1,6 +1,212 @@
 {
 	"indexes": [
 		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "app_name_lower",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "app_name_lower",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "updated_at",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "deleted_at",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "updated_at",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "updated_at",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "updated_at",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "app_name_lower",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "owner",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "app_name_lower",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
 			"collectionGroup": "events",
 			"queryScope": "COLLECTION",
 			"fields": [
@@ -15,37 +221,64 @@
 				{
 					"fieldPath": "seq",
 					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
 				}
-			]
+			],
+			"density": "SPARSE_ALL"
 		},
 		{
-			"collectionGroup": "apps",
+			"collectionGroup": "events",
 			"queryScope": "COLLECTION",
 			"fields": [
 				{
-					"fieldPath": "owner",
+					"fieldPath": "ts",
 					"order": "ASCENDING"
 				},
 				{
-					"fieldPath": "updated_at",
+					"fieldPath": "seq",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "verification",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "identifier",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "createdAt",
+					"order": "DESCENDING"
+				},
+				{
+					"fieldPath": "__name__",
 					"order": "DESCENDING"
 				}
-			]
-		},
+			],
+			"density": "SPARSE_ALL"
+		}
+	],
+	"fieldOverrides": [
 		{
-			"collectionGroup": "apps",
-			"queryScope": "COLLECTION",
-			"fields": [
+			"collectionGroup": "users",
+			"fieldPath": "email",
+			"ttl": false,
+			"indexes": [
 				{
-					"fieldPath": "owner",
-					"order": "ASCENDING"
-				},
-				{
-					"fieldPath": "status",
-					"order": "ASCENDING"
+					"order": "ASCENDING",
+					"queryScope": "COLLECTION"
 				}
 			]
 		}
-	],
-	"fieldOverrides": []
+	]
 }

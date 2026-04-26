@@ -11,6 +11,7 @@ function mut(seq: number, stage?: string): MutationEvent {
 		runId: "r",
 		ts: seq,
 		seq,
+		source: "chat",
 		actor: "agent",
 		...(stage && { stage }),
 		mutation: { kind: "setAppName", name: `v${seq}` },
@@ -35,6 +36,7 @@ function mutWith(
 		runId: "r",
 		ts: seq,
 		seq,
+		source: "chat",
 		actor: "agent",
 		stage,
 		mutation,
@@ -45,7 +47,14 @@ function conv(
 	seq: number,
 	payload: ConversationEvent["payload"],
 ): ConversationEvent {
-	return { kind: "conversation", runId: "r", ts: seq, seq, payload };
+	return {
+		kind: "conversation",
+		runId: "r",
+		ts: seq,
+		seq,
+		source: "chat",
+		payload,
+	};
 }
 
 describe("replayEvents", () => {

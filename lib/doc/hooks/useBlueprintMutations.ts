@@ -49,6 +49,7 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
+import { type LogContext, log } from "@/lib/logger";
 
 /**
  * Result of a `renameField` dispatch.
@@ -238,22 +239,17 @@ export interface BlueprintMutations {
 }
 
 /**
- * Dev-only warning for silent no-ops.
+ * Warning for silent no-ops, routed through the structured logger.
  *
  * Every mutation method bails out silently when a uuid can't be found
  * in the current doc — matching the legacy engine's behavior, which the
- * UI relies on so stale selections don't crash the tree. In development
- * we still want visibility into which lookups are failing so bugs don't
- * hide behind the fail-open contract. Stripped by the production build
- * via the `NODE_ENV` check.
+ * UI relies on so stale selections don't crash the tree. We still want
+ * visibility into which lookups are failing so bugs don't hide behind
+ * the fail-open contract. The logger decides per-environment whether
+ * to print locally or emit structured JSON to Cloud Logging.
  */
-function warnUnresolved(
-	method: string,
-	context: Record<string, unknown>,
-): void {
-	if (process.env.NODE_ENV !== "production") {
-		console.warn(`[useBlueprintMutations.${method}] unresolved uuid`, context);
-	}
+function warnUnresolved(method: string, context: LogContext): void {
+	log.warn(`[useBlueprintMutations.${method}] unresolved uuid`, context);
 }
 
 /**

@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { assert, describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -46,6 +46,7 @@ import {
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import type { FieldKind } from "@/lib/domain";
+import { log } from "@/lib/logger";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -1043,13 +1044,14 @@ describe("useBlueprintMutations", () => {
 
 		it("no-ops silently when uuid is unknown", () => {
 			// An unrecognized uuid must not throw and must leave the store
-			// unchanged — matches the fail-open contract the other mutation methods
-			// follow. The hook's JSDoc also promises a dev-mode `console.warn`
-			// on every unresolved uuid; that warn is the ONLY observability the
-			// fail-open contract offers, so we spy on it here to lock the
-			// contract against a future refactor dropping the `warnUnresolved`
-			// call.
-			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			// unchanged — matches the fail-open contract the other mutation
+			// methods follow. The hook's JSDoc also promises a `log.warn` on
+			// every unresolved uuid; that warning is the ONLY observability
+			// the fail-open contract offers, so we assert on the globally
+			// mocked logger here to lock the contract against a future
+			// refactor dropping the `warnUnresolved` call. (The logger mock
+			// lives in `vitest.setup.ts`; `clearMocks` wipes prior calls
+			// before this test runs.)
 			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 				wrapper,
 			});
@@ -1078,7 +1080,7 @@ describe("useBlueprintMutations", () => {
 			// Lock the fail-open contract: the warn must fire and include both
 			// `uuid` and `toKind` so a dev debugging a silent no-op can tell
 			// which call site produced it.
-			expect(warnSpy).toHaveBeenCalledWith(
+			expect(log.warn).toHaveBeenCalledWith(
 				expect.stringContaining(
 					"[useBlueprintMutations.convertField] unresolved uuid",
 				),
@@ -1087,7 +1089,6 @@ describe("useBlueprintMutations", () => {
 					toKind: "secret",
 				}),
 			);
-			warnSpy.mockRestore();
 		});
 	});
 

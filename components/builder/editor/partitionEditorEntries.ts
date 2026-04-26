@@ -53,6 +53,16 @@ export interface PartitionedEntries<F extends Field> {
 	visible: VisiblePartitionedEntry<F>[];
 	/** Entries that should render as Add Property pills. */
 	pills: FieldEditorEntry<F>[];
+	/**
+	 * True when at least one pending entry has become independently
+	 * visible — the pill-click intent is satisfied (value landed by any
+	 * path: user typing, undo/redo restore, LLM mutation, sibling
+	 * predicate flip) so activation can safely clear. Without this
+	 * signal, the pending flag would linger and a later value-clear
+	 * would re-trigger autoFocus on the next render, hijacking focus
+	 * after the user has moved on.
+	 */
+	pendingSatisfied: boolean;
 }
 
 /**
@@ -75,6 +85,7 @@ export function partitionEditorEntries<F extends Field>(
 ): PartitionedEntries<F> {
 	const visible: VisiblePartitionedEntry<F>[] = [];
 	const pills: FieldEditorEntry<F>[] = [];
+	let pendingSatisfied = false;
 
 	for (const entry of entries) {
 		const pending = isPending(entry.key as string);
@@ -89,12 +100,18 @@ export function partitionEditorEntries<F extends Field>(
 				autoFocus: pending && !independentlyVisible,
 				independentlyVisible,
 			});
+			// `pending && independentlyVisible` is the satisfaction signal:
+			// the user requested activation AND the value has now landed.
+			// One match across all entries is enough — activation is
+			// section-scoped, so a single satisfied entry clears it for the
+			// whole section.
+			if (pending && independentlyVisible) pendingSatisfied = true;
 		} else if (entry.addable) {
 			pills.push(entry);
 		}
 	}
 
-	return { visible, pills };
+	return { visible, pills, pendingSatisfied };
 }
 
 /**

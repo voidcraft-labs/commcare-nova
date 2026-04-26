@@ -19,11 +19,79 @@
  *   BETTER_AUTH_URL      — Base URL (e.g. http://localhost:3000 or production URL).
  *                          Optional in dev — Better Auth auto-detects from requests.
  */
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
-import { admin } from "better-auth/plugins";
+import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
-import type { Firestore } from "firebase-admin/firestore";
-import { getDb } from "./db/firestore";
+import { Firestore as AdminFirestore } from "firebase-admin/firestore";
+import { MCP_RESOURCE_URL } from "./hostnames";
+
+/**
+ * OAuth scopes Nova's authorization server can grant.
+ *
+ * Referenced three times in the oauth-provider config below:
+ *   - `scopes` — the authoritative list the AS advertises + enforces.
+ *   - `clientRegistrationDefaultScopes` — what a newly registered client
+ *     gets when it doesn't send an explicit `scope` param during DCR.
+ *   - `clientRegistrationAllowedScopes` — the complete allowlist a dynamic
+ *     client may request explicitly.
+ *
+ * Defaults deliberately exclude HQ scopes. A public DCR client omitting
+ * `scope` should get the MCP baseline, not delegated CommCare HQ powers.
+ * HQ scopes stay requestable via `clientRegistrationAllowedScopes`, so a
+ * client that needs deployment can ask for them explicitly and the consent
+ * screen can make that grant visible. Better Auth treats the registration
+ * allowlist as the full valid set, so it includes the baseline scopes too.
+ *
+ * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
+ * standard set clients expect for refresh-token flows. The Nova scopes
+ * split into two layers: `nova.read` / `nova.write` cover Nova-internal
+ * (Firestore-backed) operations and are enforced at the MCP route's
+ * verify layer; `nova.hq.read` / `nova.hq.write` cover delegated access
+ * to CommCare HQ via the user's stored API key and are enforced
+ * per-tool inside the HQ handlers (see `lib/mcp/scopes.ts`'s
+ * `assertScope`). HQ access is *orthogonal* to read/write — a client
+ * that only needs Nova-internal access can omit the HQ scopes at
+ * `/oauth2/authorize` and still call non-HQ tools.
+ */
+const NOVA_OAUTH_SCOPES = [
+	"openid",
+	"profile",
+	"email",
+	"offline_access",
+	"nova.read",
+	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
+] as const;
+
+export const NOVA_OAUTH_DEFAULT_CLIENT_SCOPES = [
+	"openid",
+	"profile",
+	"email",
+	"offline_access",
+	"nova.read",
+	"nova.write",
+] as const;
+
+export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
+	...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES,
+	"nova.hq.read",
+	"nova.hq.write",
+] as const;
+
+let _authDb: AdminFirestore | null = null;
+
+function getAuthDb(): AdminFirestore {
+	if (!_authDb) {
+		_authDb = new AdminFirestore({
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+			ignoreUndefinedProperties: true,
+			preferRest: true,
+		});
+	}
+	return _authDb;
+}
 
 /**
  * Creates the Better Auth instance. Extracted as a named function so
@@ -37,6 +105,30 @@ function createAuth() {
 		baseURL: process.env.BETTER_AUTH_URL,
 
 		/**
+		 * Disable the jwt plugin's `/token` endpoint.
+		 *
+		 * The `jwt()` plugin below mounts two endpoints: `/jwks` (public
+		 * key set, which we keep) and `/token`, which mints a JWT scoped
+		 * to the current session cookie. That's a second JWT-issuing
+		 * surface alongside `/oauth2/token` (OAuth 2.1 authorization code
+		 * exchange) — different credential lifecycle, different audience,
+		 * different intended relying parties.
+		 *
+		 * Exposing both is non-compliant for OIDC/MCP: discovery documents
+		 * advertise a single token endpoint, and clients seeing two
+		 * JWT-minting paths can legitimately pick the wrong one. Nova
+		 * only issues programmatic tokens through the OAuth code flow, so
+		 * the jwt plugin's `/token` has no role and is stripped. The
+		 * plugin stays enabled for its JWKS endpoint, which is exactly
+		 * what `oauth-provider` needs to publish its signing keys.
+		 *
+		 * Per Better Auth's own jwt + oidc-provider docs, this pairing
+		 * (disabled `/token` + `jwt({ disableSettingJwtHeader: true })`)
+		 * is the mandatory configuration for OAuth/OIDC/MCP deployments.
+		 */
+		disabledPaths: ["/token"],
+
+		/**
 		 * Extend the auth user model with app-level fields.
 		 *
 		 * `lastActiveAt` — most recent authenticated interaction. Updated
@@ -46,7 +138,7 @@ function createAuth() {
 		user: {
 			additionalFields: {
 				lastActiveAt: {
-					type: "date" as const,
+					type: "date",
 					required: false,
 					input: false,
 					returned: true,
@@ -57,15 +149,16 @@ function createAuth() {
 		/**
 		 * Firestore database for auth state (users, sessions, accounts).
 		 *
-		 * Reuses the app's existing Firestore singleton — same project, same
-		 * credentials. Collections are prefixed with `auth_` to namespace them
-		 * away from application data collections (apps, usage, etc.).
-		 *
-		 * The type cast bridges `@google-cloud/firestore` → `firebase-admin/firestore`.
-		 * They're the same underlying class — firebase-admin re-exports it.
+		 * Uses the Firebase Admin Firestore export because
+		 * `better-auth-firestore` imports its `Timestamp` class from the same
+		 * module. Passing the app's `@google-cloud/firestore` singleton can
+		 * produce a different runtime `Timestamp` class when npm installs
+		 * separate Firestore versions, causing adapter date conversion to miss.
+		 * Collections are still in the same project/database and are prefixed
+		 * with `auth_` to namespace them away from application data.
 		 */
 		database: firestoreAdapter({
-			firestore: getDb() as unknown as Firestore,
+			firestore: getAuthDb(),
 			collections: {
 				users: "auth_users",
 				sessions: "auth_sessions",
@@ -77,9 +170,14 @@ function createAuth() {
 		/**
 		 * Trusted origins for CSRF validation.
 		 *
-		 * The baseURL origin is automatically trusted, but we declare it
-		 * explicitly so CSRF validation doesn't silently break if
-		 * BETTER_AUTH_URL is misconfigured or unset in a deploy.
+		 * Better Auth auto-trusts the configured `baseURL` origin, so this
+		 * list is technically redundant when BETTER_AUTH_URL is set — and
+		 * a no-op when it isn't. We list it explicitly for two reasons:
+		 *   1. Visibility — the set of origins allowed to post to auth
+		 *      endpoints is grep-able in this file, not buried in framework
+		 *      inference.
+		 *   2. Easy extension — preview / staging / custom domains get
+		 *      appended here rather than requiring a config-shape refactor.
 		 */
 		trustedOrigins: process.env.BETTER_AUTH_URL
 			? [process.env.BETTER_AUTH_URL]
@@ -128,20 +226,114 @@ function createAuth() {
 		},
 
 		/**
-		 * Better Auth admin plugin — adds `role` to the auth user schema,
-		 * plus banning, impersonation, and user management APIs.
+		 * Better Auth plugin stack.
 		 *
-		 * `role` lives on `auth_users` (Better Auth's user table) and is
-		 * available as `session.user.role`. No custom session field needed.
+		 * Three concerns are layered here:
+		 *   1. `admin` — role + user-management APIs for the Nova admin dashboard.
+		 *   2. `jwt`  — exposes `/api/auth/jwks` so OAuth access tokens (signed
+		 *               by the oauth-provider plugin) can be verified by the
+		 *               MCP handler and any other relying party.
+		 *   3. `oauthProvider` — turns Better Auth into a full OAuth 2.1
+		 *               authorization server for programmatic MCP clients.
 		 *
-		 * `adminUserIds` bootstraps admin access from an env var so the first
-		 * admin doesn't need to manually edit Firestore. Users in this list
-		 * are always treated as admin regardless of their `role` field.
+		 * The session-cookie login flow on commcare.app is unaffected — the
+		 * OAuth plugin only adds NEW endpoints under `/api/auth` and
+		 * `/oauth2`, plus `.well-known` metadata. Nothing about existing
+		 * first-party auth changes.
 		 */
 		plugins: [
+			/**
+			 * Admin plugin — adds `role` to the auth user schema, plus
+			 * banning, impersonation, and user management APIs.
+			 *
+			 * `role` lives on `auth_users` (Better Auth's user table) and is
+			 * available as `session.user.role`. No custom session field needed.
+			 *
+			 * `adminUserIds` bootstraps admin access from an env var so the
+			 * first admin doesn't need to manually edit Firestore. Users in
+			 * this list are always treated as admin regardless of their
+			 * `role` field.
+			 */
 			admin({
 				adminUserIds:
 					process.env.ADMIN_USER_IDS?.split(",").filter(Boolean) ?? [],
+			}),
+
+			/**
+			 * JWT plugin — exposes `/api/auth/jwks`. The oauth-provider
+			 * plugin signs access tokens with these keys; the MCP handler
+			 * verifies bearer tokens against the same JWKS. One keypair,
+			 * one verification surface — no shared secrets to rotate.
+			 *
+			 * `disableSettingJwtHeader: true` is REQUIRED when running in
+			 * OAuth / OIDC / MCP mode per Better Auth's docs. Without it,
+			 * the JWT middleware attempts to attach bearer tokens to every
+			 * Better Auth response, which conflicts with the session-cookie
+			 * flow that the rest of Nova still uses for first-party login.
+			 */
+			jwt({ disableSettingJwtHeader: true }),
+
+			/**
+			 * OAuth 2.1 authorization server (`@better-auth/oauth-provider`).
+			 *
+			 * Turns Better Auth into a full OAuth-AS for programmatic clients
+			 * — primarily Claude Code and any other MCP consumer, but the
+			 * configuration is generic so additional clients can register
+			 * dynamically (RFC 7591) without code changes.
+			 *
+			 * Notable choices:
+			 *   - `loginPage` / `consentPage` point at Nova-owned UI routes
+			 *     so the OAuth flow reuses Nova's branded sign-in + a custom
+			 *     consent screen rather than the plugin's minimal defaults.
+			 *   - `validAudiences` pins the token `aud` claim to the MCP
+			 *     resource URL. Tokens minted for Nova cannot be replayed
+			 *     against any other audience.
+			 *   - Dynamic client registration is enabled AND unauthenticated
+			 *     so Claude Code (which has no pre-shared credentials) can
+			 *     bootstrap itself. Abuse is bounded by the plugin's own
+			 *     per-IP-per-endpoint rate limiter (see `rateLimit` below)
+			 *     and by opportunistic cleanup of stale unauthenticated
+			 *     public clients on successful registration. Public clients
+			 *     do not receive a client secret, so secret expiration
+			 *     cannot bound this storage surface.
+			 *
+			 * Rate limiting: `@better-auth/oauth-provider` ships its own
+			 * per-endpoint limiter (distinct from Better Auth's global
+			 * `rateLimit` above) with sensible production defaults. We
+			 * override `register` specifically because it's the one public,
+			 * unauthenticated endpoint that persists a Firestore doc on
+			 * success — tightening it to 5 req/min per IP caps storage
+			 * abuse without impacting legitimate clients (which register
+			 * once per install). Other endpoints stay on plugin defaults.
+			 */
+			oauthProvider({
+				/* Nova's sign-in surface is the root route — `/` renders the
+				 * landing page with the Google OAuth button when no session
+				 * exists (see CLAUDE.md's "no redirects" root-route design).
+				 * There is no `/sign-in` page, so pointing the plugin there
+				 * would 404 first-touch unauthenticated OAuth-flow users. */
+				loginPage: "/",
+				consentPage: "/consent",
+				validAudiences: [MCP_RESOURCE_URL],
+				scopes: [...NOVA_OAUTH_SCOPES],
+				allowDynamicClientRegistration: true,
+				allowUnauthenticatedClientRegistration: true,
+				clientRegistrationDefaultScopes: [...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES],
+				clientRegistrationAllowedScopes: [...NOVA_OAUTH_ALLOWED_CLIENT_SCOPES],
+				clientRegistrationClientSecretExpiration: "30d",
+				rateLimit: {
+					register: { window: 60, max: 5 },
+				},
+				/* RFC 8414 metadata is mounted at
+				 * `app/.well-known/oauth-authorization-server/route.ts`
+				 * on the main host (`proxy.ts` allowlists the path there).
+				 * The plugin's startup check fires whenever
+				 * `basePath !== "/"` — it can't HEAD-probe its own process
+				 * to confirm the route is mounted, so it nags
+				 * unconditionally. Silencing is the ack per the plugin's
+				 * own guidance ("Upon completion, clear with
+				 * silenceWarnings.oauthAuthServerConfig"). */
+				silenceWarnings: { oauthAuthServerConfig: true },
 			}),
 		],
 

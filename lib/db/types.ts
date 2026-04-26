@@ -155,10 +155,42 @@ export const appDocSchema = z.object({
 	module_count: z.number().default(0),
 	/** Number of forms across all modules — denormalized for list display. */
 	form_count: z.number().default(0),
-	/** Build lifecycle status. */
-	status: z.enum(["generating", "complete", "error"]).default("complete"),
+	/**
+	 * Build lifecycle status.
+	 *
+	 * - `generating` — a build is in progress. `updated_at` advances on
+	 *   every intermediate write; a 10-minute gap trips the staleness
+	 *   inference in `listApps` and self-converts the row to `error`.
+	 * - `complete` — build finished successfully (or was created
+	 *   atomically, e.g. via `create_app`).
+	 * - `error` — generation failed; see `error_type` for the bucket.
+	 * - `deleted` — legacy marker, retained in the enum for back-compat
+	 *   with rows soft-deleted before the marker moved off `status`.
+	 *   New code uses `deleted_at != null` as the soft-delete signal
+	 *   and never writes this value; lifecycle status and existence are
+	 *   independent axes (see `softDeleteApp` / `restoreApp`).
+	 */
+	status: z
+		.enum(["generating", "complete", "error", "deleted"])
+		.default("complete"),
 	/** Error classification — set when status is 'error'. Null for non-error apps. */
 	error_type: z.string().nullable().default(null),
+	/**
+	 * ISO-8601 timestamp marking the moment of soft-delete. Null for any
+	 * live row, non-null for any deleted row — `deleted_at` is the sole
+	 * soft-delete marker on this schema, fully orthogonal to `status`.
+	 * Set together with `recoverable_until` by `softDeleteApp` and
+	 * cleared together by `restoreApp`; lifecycle status is never
+	 * touched in either direction.
+	 */
+	deleted_at: z.string().nullable().default(null),
+	/**
+	 * ISO-8601 deadline past which a soft-deleted row is eligible for
+	 * hard-delete by the retention job. Null for any live row. Uses the
+	 * same ISO representation as `deleted_at` so consumers computing
+	 * "days remaining" work with one uniform timestamp type.
+	 */
+	recoverable_until: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */

@@ -6,14 +6,21 @@
  * type definitions for the admin plugin's user fields (`role`, `banned`,
  * etc.) and admin API methods. `inferAdditionalFields` infers any
  * remaining custom session/user fields from the server config.
+ * `oauthProviderClient` exposes the typed `authClient.oauth2.consent(...)`
+ * method the consent page calls to post the accept/deny decision.
  */
 
+import { oauthProviderClient } from "@better-auth/oauth-provider/client";
 import { adminClient, inferAdditionalFields } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import type { Auth } from "./auth";
 
 export const authClient = createAuthClient({
-	plugins: [inferAdditionalFields<Auth>(), adminClient()],
+	plugins: [
+		inferAdditionalFields<Auth>(),
+		adminClient(),
+		oauthProviderClient(),
+	],
 	/* Disable automatic session refetch on window focus. Better Auth's default
 	 * (refetchOnWindowFocus: true) causes useSession() to briefly transition
 	 * through { data: null, isPending: false, isRefetching: true } on every

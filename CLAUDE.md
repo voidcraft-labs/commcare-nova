@@ -30,15 +30,32 @@ Google Cloud Run via Docker (`next.config.ts` → `output: "standalone"`).
 
 ## Architecture
 
-### Single agent, single endpoint
+### Multi-host, single service
 
-One chat route runs everything. A single `ToolLoopAgent` (the Solutions Architect) converses, generates, and edits. One conversation = one prompt-cache window, so the SA keeps full memory of every design decision. No orchestration, no sub-agents. See `lib/agent/CLAUDE.md`.
+One Cloud Run service serves three hostnames, separated by middleware (`proxy.ts`) reading the `Host` header:
+
+- `commcare.app` — main builder app, `/api/auth`, `/api/chat`, OAuth AS metadata.
+- `mcp.commcare.app` — MCP API only. Externally exposed `/mcp` rewrites internally to `/api/mcp`.
+- `docs.commcare.app` — public docs site. Every wire path rewrites internally to `/docs/<...>` so docs URLs read clean (`docs.commcare.app/claude-code/commands`); `/docs` itself is internal-only and 404s if requested directly. Per-host allowlists in `lib/hostnames.ts` 404 anything off the list.
+
+### Route groups
+
+Three groups under `app/`:
+- `(app)/` — authenticated builder. Owns `getSession()`, `AppHeader`, toast/tooltip providers, `nova-noise`. All main-app pages live here.
+- `(docs)/docs/` — public docs site. Mounts its own fumadocs `RootProvider`; never reads the session, so docs pages render statically (SSG).
+- `(dev-only)/` — dev-only test pages, gated by `NODE_ENV` in their own layout.
+
+Root `app/layout.tsx` is intentionally minimal — html/body/fonts/global CSS only. Anything that calls `getSession()` belongs in `(app)/layout.tsx`, not the root, so the docs and any future public surface stay request-independent.
+
+### Single agent, two endpoints
+
+`/api/chat` runs the chat-side `ToolLoopAgent` (the Solutions Architect): it converses, generates, and edits. One conversation = one prompt-cache window, so the SA keeps full memory of every design decision. No orchestration, no sub-agents. `/api/mcp` exposes the SA's shared tools to external MCP clients (Claude Code et al) without running its own agent loop — the external client drives the loop. Both endpoints consume one tool surface in `lib/agent/tools/`; see `lib/agent/CLAUDE.md` for the contract that lets both reuse the same domain logic.
 
 **Edit vs build mode.** Two orthogonal decisions: (1) whether the app already exists picks the prompt + tool set — existing apps get editing prompt + blueprint summary + shared tools only; generation tools are never exposed in edit mode. (2) Prompt-cache window (5-min TTL) picks message strategy — within window: full history; after expiry: last-user-message only. App-exists stays false during initial generation even after modules land, so gen tools aren't stripped mid-build.
 
 ### CommCare boundary
 
-`lib/commcare/` is the single package that owns CommCare's wire vocabulary — `HqApplication` JSON, XForm XML, `.ccz` archive, the XPath dialect, identifier rules, HQ REST client, KMS encryption for stored HQ credentials. Everything else in `lib/` speaks the domain shape (`BlueprintDoc` + `Field`) and only crosses into CommCare through the `@/lib/commcare` barrel. A Biome `noRestrictedImports` rule limits direct-into-internals imports to a small allowlist (`app/api/compile/*`, `app/api/commcare/*`, `lib/agent/validationLoop`, `lib/codemirror/*`, `lib/preview/engine/*`). See `lib/commcare/CLAUDE.md`.
+`lib/commcare/` is the single package that owns CommCare's wire vocabulary — `HqApplication` JSON, XForm XML, `.ccz` archive, the XPath dialect, identifier rules, HQ REST client, KMS encryption for stored HQ credentials. Everything else in `lib/` speaks the domain shape (`BlueprintDoc` + `Field`) and only crosses into CommCare through the `@/lib/commcare` barrel. A Biome `noRestrictedImports` rule enforces the boundary; the allowed consumers live in `biome.json`. See `lib/commcare/CLAUDE.md`.
 
 ### Root route
 
@@ -82,12 +99,7 @@ The chat route reads the model stream manually (not `writer.merge()`) so stream 
 
 ### CommCare HQ upload
 
-Upload creates a **new app** each time — HQ has no atomic update API. The HQ base URL is hardcoded (prevents SSRF). User API keys are KMS-encrypted at rest. Domain slugs are validated against HQ's legacy regex to prevent path traversal in the import URL.
-
-Two workarounds live on the import endpoint because HQ's decorators on it are incomplete:
-
-- **CSRF:** missing `@csrf_exempt`. The client fetches a token from the unauthenticated login GET and sends it on the POST. Harmless if HQ fixes it upstream.
-- **WAF:** missing the XSS-body exemption. AWS WAF blocks XForms-looking tags in multipart bodies. Fix: a 16KB padding form field inserted **before** the app file pushes JSON past the WAF inspection window. The padding field name must NOT start with `_` (CouchDB reserved). Symptom of a block: a bare nginx 403 — distinct from Django's verbose CSRF 403.
+Each upload creates a new HQ app (no atomic update API), POSTed via the hardcoded HQ base URL with a KMS-encrypted user key. Two CSRF + WAF workarounds live on the import endpoint to compensate for HQ-side decorator gaps. Details in `lib/commcare/CLAUDE.md`.
 
 ## Conventions
 
@@ -129,6 +141,8 @@ All hooks colocate with their domain: `lib/doc/hooks/`, `lib/session/hooks.tsx`,
 ### DOM listeners
 
 Use React 19 ref-callback cleanup (not `useEffect`) for click-outside, Escape, and observer wire-up.
+
+Time-bounded UI animations clear state via `onAnimationEnd` (filtered on `e.animationName` to ignore bubbled descendant animations), not JS timers. Keeps cleanup automatic and aligns the JS state with the CSS lifecycle.
 
 ### Floating elements (Base UI)
 

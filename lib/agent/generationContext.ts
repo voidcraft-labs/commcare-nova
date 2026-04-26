@@ -19,6 +19,12 @@
  *    sub-gens (internal `generate` / `generatePlainText` / `streamGenerate`
  *    calls) accumulate tokens without stepping the counter.
  *
+ * Implements `ToolExecutionContext` — the narrow interface extracted tool
+ * modules consume. `recordMutations` + `recordConversation` are the
+ * surface-neutral entry points; `emitMutations` + `emitConversation` are
+ * the chat-surface implementations (with SSE fan-out) that the interface
+ * methods delegate to.
+ *
  * Sub-generation prompts/outputs (from `generate`, `generatePlainText`,
  * `streamGenerate`) are intentionally NOT persisted in the event log — only
  * aggregate token usage. Per spec §5 the log is supplemental and does not
@@ -42,8 +48,9 @@ import type {
 import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
-import { updateApp } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -56,6 +63,7 @@ import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
+import type { ToolExecutionContext } from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(
@@ -86,19 +94,15 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
 }
 
 /**
- * Accessor the route installs so `saveBlueprint` can read the SA's latest
- * doc snapshot without the SA having to push it in. The SA owns the
- * authoritative doc and mutates it in place; the route just registers a
- * function that returns the current reference, which the context calls on
- * each intermediate save. Undefined until the SA registers — no-op saves
- * before that.
- */
-type DocProvider = () => BlueprintDoc | undefined;
-
-/**
  * Constructor options. Two orthogonal collaborators: `LogWriter` owns
  * durable event persistence (fire-and-forget); `UsageAccumulator` owns
  * cost aggregation and exposes the `runId` used on every event envelope.
+ *
+ * `appId` is required — the chat route creates the app doc via `createApp`
+ * before constructing the context (Firestore-down = 503, not an orphaned
+ * build). Every `GenerationContext` instance has a target app to persist
+ * against, so `saveBlueprint` can persist the post-mutation doc threaded
+ * in by each caller — the same shape as `McpContext`.
  */
 interface GenerationContextOptions {
 	apiKey: string;
@@ -110,8 +114,9 @@ interface GenerationContextOptions {
 	usage: UsageAccumulator;
 	/** Authenticated user session — always present (all users are authenticated). */
 	session: Session;
-	/** Firestore app ID — present when the app has been saved at least once. */
-	appId?: string;
+	/** Firestore app id. The chat route creates the app doc before this
+	 * constructor runs so every context has a valid target app. */
+	appId: string;
 }
 
 /**
@@ -136,22 +141,16 @@ export interface AgentStep {
 	warnings?: CallWarning[];
 }
 
-export class GenerationContext {
+export class GenerationContext implements ToolExecutionContext {
 	private anthropic: ReturnType<typeof createAnthropic>;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
 	readonly usage: UsageAccumulator;
 	/** Authenticated user session. */
 	readonly session: Session;
-	/** Firestore app ID — set when the app has been saved at least once. */
-	readonly appId: string | undefined;
-	/**
-	 * Pull-based doc provider — the SA installs this during agent creation
-	 * so intermediate saves always read the SA's current working state.
-	 * Kept private so the emit pipeline owns the save timing; external
-	 * readers should consult the doc store, not this context.
-	 */
-	private docProvider: DocProvider | undefined;
+	/** Firestore app id — required. Created before construction by the
+	 * chat route so every context has a valid persistence target. */
+	readonly appId: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
 	 * each request; doc IDs are Firestore-minted, so no cross-request
@@ -174,13 +173,22 @@ export class GenerationContext {
 	}
 
 	/**
-	 * Register the function the context uses to read the SA's current doc
-	 * for intermediate Firestore saves. The SA calls this once during
-	 * agent construction. Replacing an existing provider is fine — the
-	 * most recent registration wins.
+	 * ToolExecutionContext accessor — the authenticated Better Auth user
+	 * id. Exposed so shared tool bodies can look up user-scoped resources
+	 * (e.g. KMS-encrypted HQ credentials) through the interface without
+	 * dipping into the concrete class.
 	 */
-	registerDocProvider(provider: DocProvider) {
-		this.docProvider = provider;
+	get userId(): string {
+		return this.session.user.id;
+	}
+
+	/**
+	 * ToolExecutionContext accessor — the per-run grouping id, sourced
+	 * from the `UsageAccumulator` so the run-id stamped on every event
+	 * envelope stays consistent with the run-summary doc.
+	 */
+	get runId(): string {
+		return this.usage.runId;
 	}
 
 	/**
@@ -190,23 +198,29 @@ export class GenerationContext {
 	 * document's `updated_at` advances during generation. This lets the
 	 * staleness check in `listApps()` distinguish "still actively
 	 * generating" from "process died" — without this, `updated_at ===
-	 * created_at` for the entire run. The doc is pulled from the
-	 * registered provider at call time so we always pick up the latest
-	 * mutation.
+	 * created_at` for the entire run.
+	 *
+	 * Writes `run_id` on every intermediate save (via `updateAppForRun`
+	 * rather than `updateApp`) so the app doc's run_id reflects the
+	 * current chat run while it's in flight. Without this, an edit run
+	 * that mutates the doc but never reaches `validateApp` leaves
+	 * `app.run_id` stuck at the prior `completeApp`'s id, and the MCP
+	 * surface's sliding-window run derivation (see
+	 * `lib/mcp/runId.ts`) would attach subsequent MCP events to a
+	 * closed chat run within the inactivity window.
+	 *
+	 * `doc` is the post-mutation blueprint, threaded in by the caller.
+	 * Chat stays fire-and-forget because the SA's fix-retry discipline
+	 * covers missed intermediate saves and we don't want to block the
+	 * SSE stream on Firestore latency. Errors are logged; no rejection
+	 * ever propagates out of this method. `McpContext.saveBlueprint`
+	 * mirrors the same strip via the shared `toPersistableDoc` helper
+	 * but awaits the write (its fail-closed contract has no agent loop
+	 * to retry).
 	 */
-	private saveBlueprint() {
-		if (!this.appId || !this.docProvider) return;
-		const doc = this.docProvider();
-		if (!doc) return;
-		// `fieldParent` is a derived reverse-index rebuilt on the client from
-		// `fieldOrder` in `docStore.load()`; strip it before writing so the
-		// Firestore doc stays in the persistable shape the schema validates
-		// on read. `void fieldParent` acknowledges the discard explicitly —
-		// cleaner than an underscore-prefixed ghost variable.
-		const { fieldParent, ...persistable } = doc;
-		void fieldParent;
-		updateApp(this.appId, persistable).catch((err) =>
-			log.error("[intermediate-save] failed", err),
+	private saveBlueprint(doc: BlueprintDoc): void {
+		updateAppForRun(this.appId, toPersistableDoc(doc), this.usage.runId).catch(
+			(err) => log.error("[intermediate-save] failed", err),
 		);
 	}
 
@@ -219,13 +233,23 @@ export class GenerationContext {
 	 * every lifecycle derivation (stage, error, status message, validation
 	 * attempt) reads from that buffer, so live + replay end up driving the
 	 * UI from the same data.
+	 *
+	 * Returns the built envelope so callers can hand it to downstream
+	 * metadata surfaces without rebuilding it — mirrors
+	 * `McpContext.recordConversation` so a shared tool body can treat
+	 * both implementations identically.
 	 */
-	emitConversation(payload: ConversationPayload): void {
+	emitConversation(payload: ConversationPayload): ConversationEvent {
 		const event: ConversationEvent = {
 			kind: "conversation",
 			runId: this.usage.runId,
 			ts: Date.now(),
 			seq: this.seq++,
+			/* `source: "chat"` is stamped inline so the in-memory event we
+			 * hold is schema-valid and self-documenting. The writer re-stamps
+			 * it authoritatively on its way to Firestore (see LogWriter), so
+			 * this is defense-in-depth, not the canonical value. */
+			source: "chat",
 			payload,
 		};
 		this.logWriter.logEvent(event);
@@ -234,6 +258,7 @@ export class GenerationContext {
 			data: event,
 			transient: true,
 		});
+		return event;
 	}
 
 	/**
@@ -288,13 +313,19 @@ export class GenerationContext {
 
 	/**
 	 * Emit a fine-grained mutation batch to the client stream and the
-	 * event log.
+	 * event log, and persist the post-mutation doc snapshot to Firestore.
 	 *
 	 * This is the ONLY sanctioned way for the SA (or its validation loop)
 	 * to tell the client that the doc has changed. The mutations payload
 	 * is the same `Mutation[]` the SA applied to its own internal doc via
 	 * `applyMutations` on an Immer draft — the client applies the
 	 * identical array via `docStore.applyMany(mutations)`.
+	 *
+	 * `doc` is the POST-mutation blueprint — callers apply the mutations
+	 * on their working doc FIRST, then thread the resulting value in
+	 * here. The persisted snapshot is exactly that value. Matches the
+	 * semantic on `McpContext.recordMutations` so a shared tool body can
+	 * invoke the interface method uniformly on either surface.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
 	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix:attempt-N"`). It's
@@ -309,14 +340,20 @@ export class GenerationContext {
 	 *    AND the `events` envelope array (for the session events buffer).
 	 * 3. Firestore intermediate save — advances `updated_at` on the app
 	 *    doc so listApps can distinguish in-progress from orphaned runs.
+	 *    Fire-and-forget; this method does not await the Firestore write.
 	 * 4. Event log — one `MutationEvent` per mutation, reusing the same
 	 *    envelopes that went out on SSE.
 	 *
-	 * No-op on empty batches — consumer is expected to short-circuit when
-	 * appropriate.
+	 * Returns the built envelopes so callers can forward them to
+	 * downstream metadata without rebuilding. No-op on empty batches,
+	 * returning `[]`.
 	 */
-	emitMutations(mutations: Mutation[], stage?: string): void {
-		if (mutations.length === 0) return;
+	emitMutations(
+		mutations: Mutation[],
+		doc: BlueprintDoc,
+		stage?: string,
+	): MutationEvent[] {
+		if (mutations.length === 0) return [];
 
 		/* Build MutationEvent envelopes once; the same values ship on SSE
 		 * (client pushes to the events buffer) and on the log writer.
@@ -328,7 +365,14 @@ export class GenerationContext {
 			ts: Date.now(),
 			seq: this.seq++,
 			actor: "agent",
-			...(stage && { stage }),
+			/* Inline `source: "chat"` so the envelope we ship on SSE
+			 * (via `data-mutations` → session events buffer) is
+			 * schema-valid. LogWriter re-stamps it on the way to
+			 * Firestore regardless; this is the client-facing value. */
+			source: "chat",
+			/* Include `stage` whenever the caller explicitly passed a value —
+			 * empty-string is a valid stage. Mirrors McpContext.recordMutations. */
+			...(stage !== undefined && { stage }),
 			mutation,
 		}));
 
@@ -343,10 +387,45 @@ export class GenerationContext {
 		});
 		/* Fire-and-forget intermediate save advances `updated_at` so the
 		 * staleness detector distinguishes "still generating" from "process
-		 * died". */
-		this.saveBlueprint();
+		 * died". The caller owns the doc shape; we just persist whatever
+		 * post-mutation snapshot they handed us. */
+		this.saveBlueprint(doc);
 		/* Event log — write the same envelopes we just sent on SSE. */
 		for (const e of events) this.logWriter.logEvent(e);
+		return events;
+	}
+
+	/**
+	 * ToolExecutionContext implementation. Delegates to `emitMutations`,
+	 * which takes `doc` directly and persists it via `saveBlueprint`.
+	 * The chat surface's intermediate save is fire-and-forget (SA
+	 * fix-retry discipline covers missed saves), so the returned promise
+	 * resolves as soon as the synchronous SSE write + log enqueue
+	 * complete — matching the interface's asynchronous signature while
+	 * preserving the chat surface's "don't block the stream on
+	 * Firestore" invariant.
+	 *
+	 * The `async` keyword is load-bearing for the interface's
+	 * `Promise<MutationEvent[]>` return type; the body is synchronous
+	 * because `emitMutations` is synchronous and `saveBlueprint` is
+	 * fire-and-forget. No `await` appears inside this method by design.
+	 */
+	async recordMutations(
+		mutations: Mutation[],
+		doc: BlueprintDoc,
+		stage?: string,
+	): Promise<MutationEvent[]> {
+		return this.emitMutations(mutations, doc, stage);
+	}
+
+	/**
+	 * ToolExecutionContext implementation. Pure delegator to
+	 * `emitConversation`; synchronous by construction (no Firestore
+	 * latency to block on for conversation events — the durable persistence
+	 * is owned by the batched `LogWriter.flush`).
+	 */
+	recordConversation(payload: ConversationPayload): ConversationEvent {
+		return this.emitConversation(payload);
 	}
 
 	/**
@@ -431,17 +510,14 @@ export class GenerationContext {
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	private trackSubGeneration(
-		_model: string,
-		usage: {
-			inputTokens?: number;
-			outputTokens?: number;
-			inputTokenDetails?: {
-				cacheReadTokens?: number;
-				cacheWriteTokens?: number;
-			};
-		},
-	): void {
+	private trackSubGeneration(usage: {
+		inputTokens?: number;
+		outputTokens?: number;
+		inputTokenDetails?: {
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		};
+	}): void {
 		this.usage.track({
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
@@ -467,7 +543,7 @@ export class GenerationContext {
 				maxOutputTokens: opts.maxOutputTokens,
 			});
 			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(model, result.usage);
+			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.text;
 		} catch (error) {
 			this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
@@ -500,7 +576,7 @@ export class GenerationContext {
 				}),
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(model, result.usage);
+			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.output ?? null;
 		} catch (error) {
 			this.emitError(classifyError(error), `generate:${opts.label}`);
@@ -544,7 +620,7 @@ export class GenerationContext {
 
 		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
 		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(model, usage);
+		if (usage) this.trackSubGeneration(usage);
 		return last;
 	}
 }

@@ -1,4 +1,7 @@
+import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
+
+const withMDX = createMDX();
 
 const nextConfig: NextConfig = {
 	/* Standalone output for containerized deployments (Cloud Run, Docker). */
@@ -42,4 +45,4 @@ const nextConfig: NextConfig = {
 	},
 };
 
-export default nextConfig;
+export default withMDX(nextConfig);

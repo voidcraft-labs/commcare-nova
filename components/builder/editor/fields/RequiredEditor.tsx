@@ -27,9 +27,11 @@ import { Toggle } from "@/components/ui/Toggle";
 import type { Field } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
-
-/** CommCare sentinel: "required with no XPath condition" — i.e. always required. */
-const ALWAYS_REQUIRED = "true()";
+import {
+	deriveRequiredState,
+	nextRequiredValue,
+	shouldShowConditionEditor,
+} from "./requiredState";
 
 /**
  * Props narrow `K` to the `required` key. `value` is the raw string
@@ -49,6 +51,8 @@ export function RequiredEditor<F extends Field>({
 	autoFocus,
 }: FieldEditorComponentProps<F, "required" & keyof F>) {
 	const required = typeof value === "string" ? value : undefined;
+	const { enabled, hasCondition, conditionValue } =
+		deriveRequiredState(required);
 
 	// `field.uuid` is already branded `Uuid` by the Field type — no
 	// second cast is needed before calling into the doc-store hook.
@@ -71,30 +75,35 @@ export function RequiredEditor<F extends Field>({
 	const shouldFocusToggle = autoFocus || focusHint === "required";
 	const shouldOpenCondition = focusHint === "required_condition";
 
-	const hasCondition = !!required && required !== ALWAYS_REQUIRED;
-	const isRequired = !!required;
-
 	// ── Save helpers ──────────────────────────────────────────────────
 	// Each transition resets local flags explicitly because the editor
 	// may unmount in the same React batch, bypassing any internal
-	// setState that XPathField's own effect would normally fire.
+	// setState that XPathField's own effect would normally fire. The
+	// next-value computation is owned by `nextRequiredValue` so the
+	// sentinel-vs-undefined logic stays in one tested place.
 
 	const handleToggleOff = useCallback(() => {
-		onChange(undefined as F["required" & keyof F]);
+		onChange(
+			nextRequiredValue({ type: "toggle-off" }) as F["required" & keyof F],
+		);
 		setAddingCondition(false);
 		setEditing(false);
 	}, [onChange]);
 
 	const handleToggleOn = useCallback(() => {
-		onChange(ALWAYS_REQUIRED as F["required" & keyof F]);
+		onChange(
+			nextRequiredValue({ type: "toggle-on" }) as F["required" & keyof F],
+		);
 	}, [onChange]);
 
 	const handleConditionSave = useCallback(
 		(next: string) => {
-			// Empty input reverts to the always-required sentinel rather
-			// than clearing the toggle — the user meant "required, but no
-			// condition".
-			onChange((next || ALWAYS_REQUIRED) as F["required" & keyof F]);
+			onChange(
+				nextRequiredValue({
+					type: "save-condition",
+					next,
+				}) as F["required" & keyof F],
+			);
 			setAddingCondition(false);
 			if (!next) setEditing(false);
 		},
@@ -102,13 +111,21 @@ export function RequiredEditor<F extends Field>({
 	);
 
 	const handleConditionRemove = useCallback(() => {
-		onChange(ALWAYS_REQUIRED as F["required" & keyof F]);
+		onChange(
+			nextRequiredValue({
+				type: "remove-condition",
+			}) as F["required" & keyof F],
+		);
 		setAddingCondition(false);
 		setEditing(false);
 	}, [onChange]);
 
-	const showEditor =
-		isRequired && (hasCondition || addingCondition || shouldOpenCondition);
+	const showEditor = shouldShowConditionEditor({
+		enabled,
+		hasCondition,
+		addingCondition,
+		shouldOpenCondition,
+	});
 
 	// `data-field-id` is hardcoded to `"required"` because this editor
 	// is permanently bound to that key — the registry only wires it
@@ -124,14 +141,14 @@ export function RequiredEditor<F extends Field>({
 					{editing && <SaveShortcutHint />}
 				</span>
 				<Toggle
-					enabled={isRequired}
-					onToggle={isRequired ? handleToggleOff : handleToggleOn}
+					enabled={enabled}
+					onToggle={enabled ? handleToggleOff : handleToggleOn}
 					autoFocus={shouldFocusToggle}
 					dataFieldId="required"
 				/>
 			</div>
 			<AnimatePresence initial={false}>
-				{isRequired && (
+				{enabled && (
 					<motion.div
 						key="required-content"
 						initial={{ opacity: 0, height: 0 }}
@@ -147,7 +164,7 @@ export function RequiredEditor<F extends Field>({
 							>
 								<div className="flex-1 min-w-0">
 									<XPathField
-										value={hasCondition ? required : ""}
+										value={conditionValue}
 										onSave={handleConditionSave}
 										getLintContext={getLintContext}
 										autoEdit={addingCondition || shouldOpenCondition}
