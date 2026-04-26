@@ -10,6 +10,18 @@ Users authenticate via Google OAuth, and each app is persisted to Firestore with
 
 Three routes do all the work: `/` (app list or get-started), `/build/[id]` (the builder — generation, editing, and upload to CommCare HQ), and `/settings` (CommCare HQ credentials). An admin dashboard at `/admin` provides user management and usage visibility.
 
+The same tool surface the in-app SA uses is also reachable from outside via an MCP endpoint — `/api/mcp`, served at `mcp.commcare.app/mcp` in production. External MCP clients (e.g., the [nova-plugin](https://github.com/voidcraft-labs/nova-plugin) for Claude Code) authenticate over OAuth 2.1 and drive the same generation / editing / upload tools the chat agent uses. Public docs live at [docs.commcare.app](https://docs.commcare.app).
+
+## Architecture
+
+One Cloud Run service serves three hostnames, separated by middleware (`proxy.ts`) reading the `Host` header:
+
+- `commcare.app` — main builder app, `/api/auth`, `/api/chat`, OAuth authorization-server metadata.
+- `mcp.commcare.app` — MCP API only. Externally exposed `/mcp` rewrites internally to `/api/mcp`.
+- `docs.commcare.app` — public docs site (fumadocs). Per-host allowlists in `lib/hostnames.ts` 404 anything off the list.
+
+Per-host details — including the route-group layout under `app/`, the chat-vs-MCP split, and the fail-closed Firestore persistence model — live in [`CLAUDE.md`](./CLAUDE.md).
+
 ## Getting started
 
 ### Local
@@ -106,11 +118,28 @@ Tests that need the emulator self-skip when `FIRESTORE_EMULATOR_HOST` is unset, 
 
 - **Next.js 16** (App Router, Turbopack) · **TypeScript** strict · **Tailwind CSS v4**
 - **Vercel AI SDK** + **Anthropic Claude** — streaming chat, tool calls, structured output
-- **Better Auth** — Google OAuth with Firestore-backed sessions
+- **mcp-handler** + **@modelcontextprotocol/sdk** — `/api/mcp` streamable-HTTP server exposing the SA's tools to external clients
+- **Better Auth** + **@better-auth/oauth-provider** — Google OAuth for the app, OAuth 2.1 authorization server for MCP clients
 - **Google Cloud Firestore** — app persistence, chat threads, event logging, usage
 - **Google Cloud KMS** — credential encryption at rest
 - **Zustand** (builder state) · **Motion** (animations) · **Pragmatic Drag and Drop** · **TipTap 3** (rich text) · **Base UI** (floating elements)
+- **fumadocs** — docs.commcare.app static site
 - **Vitest**
+
+## Plugin development
+
+The [nova-plugin](https://github.com/voidcraft-labs/nova-plugin) is a flat-file Claude Code plugin whose `.mcp.json` pins the production URL `https://mcp.commcare.app/mcp` — by design, with no env-var substitution, so the published artifact is immutable from the user's environment. To iterate on the plugin against your local Nova:
+
+```bash
+npm run dev                                                 # 1. Nova on localhost:3000
+./scripts/nova-plugin-dev.sh                                # 2. claude with --plugin-dir overlay → localhost
+./scripts/nova-plugin-dev.sh --nova-plugin /path/to/clone   #    custom clone location
+NOVA_MCP_URL=https://staging.example.com/api/mcp ./scripts/nova-plugin-dev.sh   # alt server
+```
+
+The script materializes a gitignored `.dev-plugin/` overlay inside the plugin repo with a generated `.mcp.json` pointing at localhost, then execs `claude --plugin-dir <overlay>`. Claude Code's session-only plugins **override** installed plugins by name, so if you also have the production `nova` plugin installed at user scope it's transparently shadowed for that session and reverts on exit — no uninstall/reinstall needed.
+
+The script defaults to a sibling clone at `<commcare-nova>/../nova-plugin`. Override with `--nova-plugin <path>` if your layout differs; the script errors with a clone hint if it can't find a Claude plugin root at the resolved location.
 
 ## Developer tools
 
