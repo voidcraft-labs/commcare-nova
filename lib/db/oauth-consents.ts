@@ -19,8 +19,22 @@
 
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "@google-cloud/firestore";
-import { decodeJwt } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { AS_ISSUER, AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
 import { getDb } from "./firestore";
+
+/**
+ * JWKS for verifying OAuth-minted access tokens. `createRemoteJWKSet`
+ * fetches lazily on first verify and caches keys in-process, so module
+ * scope is the right place to construct it — the URL is the same
+ * across every revoke call.
+ *
+ * Same JWKS the MCP route's `mcpHandler` wires up. The MCP route trusts
+ * Better Auth's verify helper to enforce iss + aud + signature; the
+ * revocation watermark path verifies independently because its trust
+ * model can't piggyback on the helper (no `mcpHandler` here).
+ */
+const AS_JWKS = createRemoteJWKSet(new URL(`${AS_ORIGIN}/api/auth/jwks`));
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -165,8 +179,7 @@ function decodeScopes(raw: unknown): string[] {
 /**
  * List the user's authorized OAuth clients, newest first. Reads
  * `oauthConsent` rows for the user, then joins on `oauthClient` for
- * display names. The `in`-query Firestore caps at 30 values, which is
- * effectively unreachable per user.
+ * display names.
  */
 export async function listAuthorizedClients(
 	userId: string,
@@ -302,22 +315,39 @@ export async function recordOAuthGrantRevocation(
 
 /**
  * Mirror a successful `/oauth2/revoke` call into Nova's instant JWT
- * revocation lock. JWT access tokens carry `sub` + `azp`; refresh tokens
- * are looked up by Better Auth's default hashed storage value.
+ * revocation lock.
+ *
+ * JWT access tokens carry `sub` + `azp` and are verified against the
+ * AS's JWKS before their claims are trusted. Without that verification
+ * the function would write a revocation watermark for any (`sub`,
+ * `azp`) the caller chose to forge — and Better Auth's `/oauth2/revoke`
+ * returns 200 even for invalid tokens (RFC 7009 §2.2), so the wrapper's
+ * `response.ok` gate can't filter forgeries on its own. Verification
+ * here closes that channel.
+ *
+ * Refresh tokens are opaque strings (not JWTs); they fall through to a
+ * hashed-storage lookup against `oauthRefreshToken`, which is safe by
+ * construction — only tokens the AS itself minted can hit a row.
  */
 export async function recordOAuthGrantRevocationForToken(
 	token: string,
 ): Promise<boolean> {
 	try {
-		const jwt = decodeJwt(token);
-		const userId = typeof jwt.sub === "string" ? jwt.sub : undefined;
-		const clientId = typeof jwt.azp === "string" ? jwt.azp : undefined;
+		const { payload } = await jwtVerify(token, AS_JWKS, {
+			issuer: AS_ISSUER,
+			audience: MCP_RESOURCE_URL,
+		});
+		const userId = typeof payload.sub === "string" ? payload.sub : undefined;
+		const clientId = typeof payload.azp === "string" ? payload.azp : undefined;
 		if (userId && clientId) {
 			await recordOAuthGrantRevocation(userId, clientId);
 			return true;
 		}
 	} catch {
-		/* Not a JWT access token; fall through to refresh-token lookup. */
+		/* Not a verifiable JWT (forged, expired, wrong audience, or just
+		 * an opaque refresh token) — fall through to the refresh-token
+		 * hash lookup, which is safe against forgery because only tokens
+		 * the AS minted appear in the table. */
 	}
 
 	const snap = await getDb()
@@ -434,6 +464,9 @@ async function fetchClientNames(
 ): Promise<Array<[string, string]>> {
 	if (clientIds.length === 0) return [];
 
+	/* Firestore caps `in` queries at 30 values; effectively unreachable
+	 * per user (would mean 30+ distinct DCR clients authorized by one
+	 * user), but the cap is the reason the caller dedupes. */
 	const snap = await getDb()
 		.collection(COLLECTION_CLIENT)
 		.where("clientId", "in", clientIds)
