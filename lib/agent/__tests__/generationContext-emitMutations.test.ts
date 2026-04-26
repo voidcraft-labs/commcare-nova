@@ -16,20 +16,19 @@
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
-import { updateApp } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
-/* `emitMutations` fires a fire-and-forget `updateApp` on every call
- * (the doc argument is the persistence target). Stub it out at the
- * module level so the no-op save doesn't reach Firestore. The mock is
- * observable via `vi.mocked(updateApp)` for tests asserting that the
- * save was dispatched with the right (appId, post-mutation persistable
- * doc) args. */
+/* `emitMutations` fires a fire-and-forget `updateAppForRun` on every
+ * call (the doc argument is the persistence target; the run id keeps
+ * `app.run_id` in sync with the current chat run so MCP's sliding-
+ * window derivation doesn't re-attach to a closed run). Stub it out at
+ * the module level so the no-op save doesn't reach Firestore. */
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
+	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
 // Representative text-field add mutation. The specific mutation shape is
@@ -70,11 +69,11 @@ describe("GenerationContext.emitMutations", () => {
 	const DOC = makeMinimalDoc();
 
 	beforeEach(() => {
-		/* Reset the shared module-level `updateApp` mock so one test's save
+		/* Reset the shared module-level `updateAppForRun` mock so one test's save
 		 * calls don't bleed into the next one's `toHaveBeenCalledWith`
 		 * assertions. The `vi.mock(...)` factory ran once at module load;
 		 * only the call log needs resetting. */
-		vi.mocked(updateApp).mockClear();
+		vi.mocked(updateAppForRun).mockClear();
 		const handles = makeTestContext();
 		ctx = handles.ctx;
 		writer = handles.writer;
@@ -211,8 +210,9 @@ describe("GenerationContext.emitMutations", () => {
 		 * the doc would show up here as either the wrong appId or a body
 		 * shape that doesn't match what was handed in. */
 		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		expect(vi.mocked(updateApp)).toHaveBeenCalledTimes(1);
-		const [savedAppId, savedDoc] = vi.mocked(updateApp).mock.calls[0] ?? [];
+		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
+		const [savedAppId, savedDoc] =
+			vi.mocked(updateAppForRun).mock.calls[0] ?? [];
 		expect(savedAppId).toBe("test-app");
 		// The rest of the doc flows through verbatim.
 		expect(savedDoc).toMatchObject({
@@ -238,14 +238,14 @@ describe("GenerationContext.emitMutations", () => {
 			},
 		};
 		ctx.emitMutations([TEXT_FIELD_MUTATION], docWithParent);
-		expect(vi.mocked(updateApp)).toHaveBeenCalledTimes(1);
-		const savedDoc = vi.mocked(updateApp).mock.calls[0]?.[1];
+		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
+		const savedDoc = vi.mocked(updateAppForRun).mock.calls[0]?.[1];
 		expect(savedDoc).not.toHaveProperty("fieldParent");
 	});
 
 	it("skips the Firestore save on empty batches (no-op path)", () => {
 		ctx.emitMutations([], DOC, "form:0-0");
-		expect(vi.mocked(updateApp)).not.toHaveBeenCalled();
+		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
 	});
 });
 

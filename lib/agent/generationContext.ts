@@ -48,7 +48,7 @@ import type {
 import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
-import { updateApp } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
@@ -200,6 +200,15 @@ export class GenerationContext implements ToolExecutionContext {
 	 * generating" from "process died" — without this, `updated_at ===
 	 * created_at` for the entire run.
 	 *
+	 * Writes `run_id` on every intermediate save (via `updateAppForRun`
+	 * rather than `updateApp`) so the app doc's run_id reflects the
+	 * current chat run while it's in flight. Without this, an edit run
+	 * that mutates the doc but never reaches `validateApp` leaves
+	 * `app.run_id` stuck at the prior `completeApp`'s id, and the MCP
+	 * surface's sliding-window run derivation (see
+	 * `lib/mcp/runId.ts`) would attach subsequent MCP events to a
+	 * closed chat run within the inactivity window.
+	 *
 	 * `doc` is the post-mutation blueprint, threaded in by the caller.
 	 * Chat stays fire-and-forget because the SA's fix-retry discipline
 	 * covers missed intermediate saves and we don't want to block the
@@ -210,8 +219,8 @@ export class GenerationContext implements ToolExecutionContext {
 	 * to retry).
 	 */
 	private saveBlueprint(doc: BlueprintDoc): void {
-		updateApp(this.appId, toPersistableDoc(doc)).catch((err) =>
-			log.error("[intermediate-save] failed", err),
+		updateAppForRun(this.appId, toPersistableDoc(doc), this.usage.runId).catch(
+			(err) => log.error("[intermediate-save] failed", err),
 		);
 	}
 

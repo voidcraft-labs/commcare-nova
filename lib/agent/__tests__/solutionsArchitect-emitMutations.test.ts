@@ -509,7 +509,7 @@ vi.mock("../validationLoop", async () => {
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
-	updateApp: vi.fn(() => Promise.resolve()),
+	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
 describe("solutionsArchitect — validateApp", () => {
