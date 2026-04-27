@@ -227,7 +227,7 @@ Pattern — member-registration on a household followup:
 - "Member identity" group: every child field sets \`case_property: member\` — visible \`case_name\` (the member's name, per the Case Name Property rule above), \`sex\`, \`age\` + hidden \`registration_date\`, \`last_visit_date\`, \`member_status\`.
 - "Household update" group: every child field sets \`case_property: household\` — hidden \`last_visit_date\` (the household's) + hidden \`member_count\`.
 
-Both groups have a \`last_visit_date\` underneath, but at different paths — they're cousins by structure, no manual disambiguation needed.
+Both groups have a \`last_visit_date\` underneath, but at different paths — they're cousins by structure, so they share the id \`last_visit_date\` *literally*. No \`m_\`, no \`_household\`, no defensive prefixes — when two cousin fields mean the same thing, they get the same id.
 
 **Empty-label groups are a residual tool, not a primary one.** Reserved for stray hidden fields that don't fit any logical group — typically a tail-of-form update to a parent or related case. Don't reach for empty-label \`_meta\` groups as a disambiguation strategy; that's the pattern logical grouping is meant to make unnecessary.
 
