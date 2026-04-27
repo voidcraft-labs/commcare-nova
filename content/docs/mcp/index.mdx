@@ -1,0 +1,23 @@
+---
+title: MCP server
+description: Connect any MCP-compatible coding agent to your CommCare Nova account.
+---
+
+Nova exposes an MCP server at `https://mcp.commcare.app/mcp`. Once your coding agent is connected, it can build, edit, and upload CommCare apps in your Nova account from natural-language instructions.
+
+If you use Claude Code, install the [Nova plugin](/claude-code) instead — it bundles the MCP connection with a set of `/nova:*` commands tuned for the workflow. The plain MCP endpoint documented here is for everything else: other coding agents, custom scripts, or any client that speaks the [Model Context Protocol](https://modelcontextprotocol.io).
+
+## What your agent can do
+
+The MCP server gives your agent the same tools Nova's own builder uses internally:
+
+- **Browse and read your apps** — list, search, and summarize apps you already have.
+- **Build a new app from a description** — generate the case structure, modules, forms, and fields from a short brief.
+- **Edit any part of an existing app** — modules, forms, individual fields, validation rules, case wiring.
+- **Validate and upload to CommCare HQ** — run the same validation pass Nova uses, then push the finished app to your HQ project space.
+
+## In this section
+
+- [Connecting](/mcp/connecting) — point your client at Nova and sign in.
+- [Tools](/mcp/tools) — what each tool does, grouped by when you'd use it.
+- [Manage access](/mcp/access) — what permissions your client gets, and how to revoke them.

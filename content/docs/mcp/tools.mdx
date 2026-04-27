@@ -1,0 +1,81 @@
+---
+title: Tools
+description: What your agent can do once it's connected to Nova.
+---
+
+These are the tools the Nova MCP server exposes. You don't call them directly — your agent does, in response to natural-language instructions. Knowing what's available helps you write better prompts and understand what your agent is doing.
+
+## Easy starting point
+
+`get_agent_prompt` returns Nova's own system prompt — the same one our solutions architect uses internally. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the returned text as its operating instructions. You don't have to do this — your agent can drive the tools however it wants — but starting from the prompt Nova already tunes for these tools is the fastest way to good results.
+
+## Browsing apps
+
+| Tool | What it does |
+|---|---|
+| `list_apps` | List your apps with optional status filter, sort, and pagination. |
+| `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. |
+| `get_app` | Summarize one app: modules, forms, fields, case types. |
+
+## Creating and deleting apps
+
+| Tool | What it does |
+|---|---|
+| `create_app` | Create a new empty app and return its ID. |
+| `delete_app` | Soft-delete an app. Recoverable within the returned window. |
+
+## Building a new app from a description
+
+These three cover the cold-start phase of a build: name the app, lay out its modules, set up the case lists. Once they're done, your agent moves into the editing tools below to fill in fields.
+
+| Tool | What it does |
+|---|---|
+| `generate_schema` | Set the app name and case-type catalog. First step. |
+| `generate_scaffold` | Define the module + form structure. Run after `generate_schema`. |
+| `add_module` | Configure case-list and case-detail columns for one module. Run for each module after the scaffold lands. |
+
+## Working on modules
+
+| Tool | What it does |
+|---|---|
+| `create_module` | Add a new module. |
+| `update_module` | Rename, change case type, or update list/detail columns. |
+| `remove_module` | Delete a module. |
+| `get_module` | Show details for one module. |
+
+## Working on forms
+
+CommCare has four form types: `registration` creates a new case, `followup` updates a case, `close` loads and closes a case, `survey` is standalone (no case).
+
+| Tool | What it does |
+|---|---|
+| `create_form` | Add a new form to a module. |
+| `update_form` | Rename, change CommCare Connect config, set close condition or post-submit destination. |
+| `remove_form` | Delete a form. |
+| `get_form` | Show details for one form. |
+
+## Working on fields (questions)
+
+A field is a single question on a form: text input, dropdown, date, number, repeat group, label, and so on. Most fields also save to a case property; some (on survey forms, or label-only fields) don't.
+
+| Tool | What it does |
+|---|---|
+| `add_field` | Insert one new field at a specific position. |
+| `add_fields` | Insert several fields in one call. Faster for bulk adds. |
+| `edit_field` | Change a field's properties: label, validation, visibility, choices, case wiring. |
+| `remove_field` | Delete a field. |
+| `get_field` | Show one field's properties. |
+| `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. |
+
+## Validating and uploading
+
+| Tool | What it does |
+|---|---|
+| `validate_app` | Run Nova's validation pass. The loop auto-fixes common issues; remaining errors come back in the response. |
+| `compile_app` | Compile to CommCare HQ format — either the JSON shape HQ accepts, or a `.ccz` archive. |
+| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project space (domain) it authorizes. |
+| `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Returns the HQ app URL. |
+
+<Callout type="info">
+HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
+</Callout>

@@ -1,0 +1,28 @@
+---
+title: Manage access
+description: What permissions your client gets and how to revoke them.
+---
+
+When your client signs in to Nova, you see a consent screen listing what it's asking for. Each row is one permission your client can use. You can revoke the connection from your client or from Nova at any time.
+
+## What your client can do
+
+| Permission | What it grants |
+|---|---|
+| See your name and email | Standard sign-in identity. |
+| Read your apps | List, search, and summarize apps in your Nova account. |
+| Create and edit apps on your behalf | Build new apps and modify existing ones. |
+| See your CommCare HQ project connection | Look up which HQ project space your stored API key authorizes. Used to preview the target before an upload. |
+| Deploy your apps to CommCare HQ on your behalf | Upload finished apps to your HQ project space. |
+
+The bottom two are separate from the rest because CommCare HQ is a different system — having Nova access doesn't automatically grant HQ access. If your client connected without those permissions, the HQ tools refuse with a clear error and you'll need to reauthorize.
+
+## Disconnecting
+
+The cleanest way is from your client's MCP settings — most clients have a "sign out" or "remove server" action that tells Nova to invalidate the connection.
+
+If your client doesn't, or if you've already removed Nova from your client's config, do it from Nova: open [Settings → Connected apps](https://commcare.app/settings), find the client's entry, and remove it. Once the connection is gone, the next tool call from that client fails until you sign back in.
+
+## Reauthorizing
+
+If your client has the connection but is missing a permission you need (typically the HQ ones), tell your client to sign out and back in. The new sign-in shows the consent screen again — make sure every row you need is checked before you click Allow.

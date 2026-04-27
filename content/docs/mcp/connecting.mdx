@@ -1,0 +1,59 @@
+---
+title: Connecting
+description: Connect your MCP client to Nova and sign in.
+---
+
+Two steps: tell your client where Nova lives, then sign in once so the client can act on your behalf.
+
+## Add the server
+
+Add Nova as a remote MCP server in your client's settings. The URL is:
+
+```text
+https://mcp.commcare.app/mcp
+```
+
+A typical config entry looks like:
+
+```json
+{
+  "mcpServers": {
+    "nova": {
+      "url": "https://mcp.commcare.app/mcp"
+    }
+  }
+}
+```
+
+Field names vary by client — some use `url`, some `endpoint`; some need a `transport` marker. The URL is the same regardless. Check your client's docs for the exact wrapper.
+
+<Callout type="info">
+Nova's MCP server is remote and uses OAuth. If your client only supports local MCP servers (stdio) or doesn't handle OAuth, it won't work with Nova.
+</Callout>
+
+## Sign in
+
+The first time your agent tries to use a Nova tool, your client opens a browser tab on commcare.app.
+
+<Steps>
+<Step>Sign in with the same Google account you use for the Nova web builder.</Step>
+<Step>Review the permissions your client is asking for and click **Allow**. They're things like *Read your apps* and *Create and edit apps on your behalf* — see [Manage access](/mcp/access) for the full list.</Step>
+<Step>The browser tab closes (or shows a confirmation). Your client picks up the connection and your agent can call Nova from then on.</Step>
+</Steps>
+
+You only sign in once per client. The connection sticks until you revoke it.
+
+If your client doesn't open the browser tab automatically, check its MCP logs — most clients print the sign-in URL there as a fallback.
+
+## CommCare HQ uploads
+
+The HQ upload tool needs two things that aren't required for the rest of the surface:
+
+1. **HQ permissions on the connection.** The consent screen has two HQ-specific rows — *See your CommCare HQ project connection* and *Deploy your apps to CommCare HQ on your behalf*. If your client requested them when you signed in, they're already part of the connection. If not, you'll need to sign out and back in once your client is configured to ask for them.
+2. **An HQ API key in Nova settings.** Nova reads the target HQ project space from your stored API key — your agent doesn't supply it. Add the key on the [Nova settings page](https://commcare.app/settings).
+
+If either is missing when the upload tool runs, the response carries a clear error your agent can pass back to you.
+
+## Verifying
+
+Open [Settings → Connected apps](https://commcare.app/settings). Your client should appear in the list with the date it was connected, the permissions it has, and a button to revoke it.
