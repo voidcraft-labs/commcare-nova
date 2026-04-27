@@ -84,7 +84,17 @@
  */
 
 import "dotenv/config";
-import { FieldValue } from "firebase-admin/firestore";
+// Import `FieldValue` from `@google-cloud/firestore` directly, NOT from
+// `firebase-admin/firestore`. firebase-admin nests its own copy of
+// `@google-cloud/firestore` under `node_modules/firebase-admin/node_modules/`,
+// so importing through firebase-admin yields a `DeleteTransform` class from a
+// different module instance than the one our top-level `getDb()` Firestore
+// uses to validate writes. The Firestore SDK's `instanceof DeleteTransform`
+// check fails silently across the duplicate install, the sentinel falls
+// through to the generic-object branch, and the write throws `Couldn't
+// serialize object of type DeleteTransform`. Importing from the same package
+// the Firestore client uses keeps the class identity aligned.
+import { FieldValue } from "@google-cloud/firestore";
 import { getDb } from "@/lib/db/firestore";
 import { log } from "@/lib/logger";
 
