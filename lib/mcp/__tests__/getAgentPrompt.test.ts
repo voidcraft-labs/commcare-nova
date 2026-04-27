@@ -166,35 +166,36 @@ beforeEach(() => {
 
 /* --- Tests ----------------------------------------------------------- */
 
-describe("registerGetAgentPrompt — build mode", () => {
-	/* Build mode covers the trivial path: no `app_id`, no Firestore,
+describe("registerGetAgentPrompt — build modes", () => {
+	/* Build modes cover the trivial path: no `app_id`, no Firestore,
 	 * the renderer is called with no doc. Two combos pin interactive vs
 	 * autonomous wiring — verified via the distinct Interaction Mode
-	 * wording each emits. */
+	 * wording each emits. The interactive axis rides on `mode`
+	 * (`build` vs `autonomous_build`); the handler derives the boolean
+	 * for `renderAgentPrompt`. */
 	const combos = [
 		{
-			interactive: true,
+			mode: "build" as const,
 			/* Interactive: the permission block appears verbatim. */
 			expectedPhrase: "AskUserQuestion tool",
 			forbiddenPhrase: "not available to you",
+			rendererArg: true,
 		},
 		{
-			interactive: false,
+			mode: "autonomous_build" as const,
 			/* Autonomous: the "not available" reminder appears instead. */
 			expectedPhrase: "not available to you",
 			forbiddenPhrase: "ask at most a handful",
+			rendererArg: false,
 		},
 	];
 
 	for (const combo of combos) {
-		it(`interactive=${combo.interactive} emits the matching Interaction Mode block`, async () => {
+		it(`mode=${combo.mode} emits the matching Interaction Mode block`, async () => {
 			const { server, capture } = makeFakeServer();
 			registerGetAgentPrompt(server, toolCtx);
 
-			const out = (await capture()(
-				{ mode: "build", interactive: combo.interactive },
-				{},
-			)) as {
+			const out = (await capture()({ mode: combo.mode }, {})) as {
 				content: Array<{ type: "text"; text: string }>;
 			};
 
@@ -203,12 +204,12 @@ describe("registerGetAgentPrompt — build mode", () => {
 			expect(text).toContain(combo.expectedPhrase);
 			expect(text).not.toContain(combo.forbiddenPhrase);
 
-			/* Renderer was called with no doc — build mode never loads
+			/* Renderer was called with no doc — build modes never load
 			 * the blueprint. The handler omits the second argument
 			 * entirely (rather than passing `undefined`), matching the
 			 * default-optional contract of
 			 * `renderAgentPrompt(interactive, editDoc?)`. */
-			expect(renderAgentPrompt).toHaveBeenCalledWith(combo.interactive);
+			expect(renderAgentPrompt).toHaveBeenCalledWith(combo.rendererArg);
 			expect(loadAppBlueprint).not.toHaveBeenCalled();
 		});
 	}
@@ -217,14 +218,11 @@ describe("registerGetAgentPrompt — build mode", () => {
 		/* Sharp-edge contract: `mode` is the authoritative discriminator,
 		 * so a build-mode call carrying an `app_id` must NOT trigger an
 		 * ownership round trip. The skill is trusted to pass `mode`
-		 * correctly; build mode has no app to gate on. */
+		 * correctly; build modes have no app to gate on. */
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		await capture()(
-			{ mode: "build", interactive: true, app_id: "spurious-id" },
-			{},
-		);
+		await capture()({ mode: "build", app_id: "spurious-id" }, {});
 
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		/* The renderer still runs with no doc — confirms build mode is
@@ -241,10 +239,7 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()(
-			{ mode: "edit", interactive: true, app_id: "a-edit" },
-			{},
-		)) as {
+		const out = (await capture()({ mode: "edit", app_id: "a-edit" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
@@ -280,7 +275,7 @@ describe("registerGetAgentPrompt — edit mode missing app_id", () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()({ mode: "edit", interactive: true }, {})) as {
+		const out = (await capture()({ mode: "edit" }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -315,7 +310,7 @@ describe("registerGetAgentPrompt — edit mode unowned app_id", () => {
 		registerGetAgentPrompt(server, toolCtx);
 
 		const out = (await capture()(
-			{ mode: "edit", interactive: true, app_id: "owned-by-other" },
+			{ mode: "edit", app_id: "owned-by-other" },
 			{},
 		)) as {
 			isError?: true;
@@ -350,10 +345,7 @@ describe("registerGetAgentPrompt — edit mode empty-modules doc", () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()(
-			{ mode: "edit", interactive: true, app_id: "a-empty" },
-			{},
-		)) as {
+		const out = (await capture()({ mode: "edit", app_id: "a-empty" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
@@ -378,7 +370,7 @@ describe("registerGetAgentPrompt — renderAgentPrompt throws", () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()({ mode: "build", interactive: true }, {})) as {
+		const out = (await capture()({ mode: "build" }, {})) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};

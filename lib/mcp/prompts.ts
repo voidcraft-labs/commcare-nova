@@ -40,13 +40,25 @@ import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
 import type { BlueprintDoc } from "@/lib/domain";
 
 /**
- * Wire enum for the two modes the MCP surface accepts at the tool
- * boundary. Exported so `get_agent_prompt`'s Zod input schema can
- * `satisfies`-check its enum literals against this union — the renderer
- * itself does not branch on `mode`; the build/edit fork runs inside
- * `buildSolutionsArchitectPrompt` via `editDoc` presence.
+ * Wire enum for the three modes the MCP surface accepts at the
+ * `get_agent_prompt` tool boundary. The interactive/autonomous axis is
+ * folded into this enum to remove the only `boolean` field in the
+ * Nova MCP surface — model tool-call serialization fumbles boolean
+ * literals (e.g. emits the string `"true"` instead of the literal
+ * `true`) far more often than enum strings, so a single string
+ * discriminator is the more reliable shape. Only the three
+ * combinations actually used by the plugin's skills are expressible:
+ * `autonomous_edit` isn't a real workflow and is intentionally not
+ * representable.
+ *
+ * Exported so `get_agent_prompt`'s Zod input schema can
+ * `satisfies`-check its enum literals against this union. The
+ * renderer itself does not branch on `mode` — the build/edit fork
+ * runs inside `buildSolutionsArchitectPrompt` via `editDoc` presence,
+ * and the interactive/autonomous split is decided by the handler
+ * before `renderAgentPrompt` is called.
  */
-export type PromptMode = "build" | "edit";
+export type PromptMode = "build" | "autonomous_build" | "edit";
 
 /**
  * Per-mode interaction-policy text appended to the system prompt. Both
