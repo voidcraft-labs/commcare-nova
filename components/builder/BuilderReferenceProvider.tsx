@@ -47,7 +47,7 @@ export function BuilderReferenceProvider({
 	}, [docStore, loc]);
 
 	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
-	 *  Covers fields (field references, case_property), modules (case_type renames),
+	 *  Covers fields (field references, case_property_on), modules (case_type renames),
 	 *  and forms (form type changes affecting case config). Uses a tuple selector
 	 *  with reference equality — only fires when at least one entity map gets a
 	 *  new Immer reference. */

@@ -1,6 +1,6 @@
 /**
  * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
- * emits domain-vocabulary text (`field`, `kind`, `case_property`) — no
+ * emits domain-vocabulary text (`field`, `kind`, `case_property_on`) — no
  * CommCare wire terms. The SA prompt composer and the MCP `get_app`
  * tool both consume this so the two surfaces show one canonical
  * domain-vocabulary view of an app.
@@ -12,7 +12,7 @@ import { isContainer } from "@/lib/domain";
 
 /**
  * Render a field and its children as nested bullet lines. Shows `id`,
- * `kind`, and the `label` / `case_property` hints when present. Nested
+ * `kind`, and the `label` / `case_property_on` hints when present. Nested
  * containers indent their children by two spaces per level so depth is
  * visually obvious.
  */
@@ -23,13 +23,13 @@ function summarizeField(
 ): string | undefined {
 	const field = doc.fields[uuid];
 	if (!field) return undefined;
-	// `label` is absent on hidden, `case_property` is absent on
+	// `label` is absent on hidden, `case_property_on` is absent on
 	// structural/media kinds and on non-case fields — render each
 	// piece only when it's meaningful.
 	const pieces: string[] = [`${indent}- ${field.id} (${field.kind})`];
 	if ("label" in field && field.label) pieces[0] += `: "${field.label}"`;
-	if ("case_property" in field && field.case_property) {
-		pieces[0] += ` → ${field.case_property}`;
+	if ("case_property_on" in field && field.case_property_on) {
+		pieces[0] += ` → ${field.case_property_on}`;
 	}
 	if (isContainer(field)) {
 		const children = doc.fieldOrder[uuid] ?? [];

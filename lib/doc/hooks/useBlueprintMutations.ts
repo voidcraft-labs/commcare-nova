@@ -398,19 +398,19 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// Scope: the primary field's parent AND the parent of every
 				// peer that will cascade-rename to `newId`. Skipping peers'
 				// parents would let the reducer silently create duplicate
-				// sibling ids in a different form — same case_property means
+				// sibling ids in a different form — same case_property_on means
 				// both (primary + peer) rename together, so the collision
 				// check must consider every destination parent. Peers are
-				// identified by matching (id, case_property) on the primary.
-				const caseProperty = (field as { case_property?: string })
-					.case_property;
+				// identified by matching (id, case_property_on) on the primary.
+				const casePropertyOn = (field as { case_property_on?: string })
+					.case_property_on;
 				const peerUuids: Uuid[] = [];
-				if (typeof caseProperty === "string" && caseProperty.length > 0) {
+				if (typeof casePropertyOn === "string" && casePropertyOn.length > 0) {
 					for (const [fuuid, f] of Object.entries(doc.fields)) {
 						if (!f || fuuid === uuid) continue;
 						if (f.id !== field.id) continue;
-						const cp = (f as { case_property?: string }).case_property;
-						if (cp !== caseProperty) continue;
+						const cp = (f as { case_property_on?: string }).case_property_on;
+						if (cp !== casePropertyOn) continue;
 						peerUuids.push(fuuid as Uuid);
 					}
 				}

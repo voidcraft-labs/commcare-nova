@@ -18,7 +18,7 @@
 //   Distinct from `containerFieldBase` so `fieldBaseSchema`'s "label
 //   required" invariant stays honest.
 // - `inputFieldBaseSchema` (fieldBase + `hint?`, `required?`,
-//   `relevant?`, `case_property?`) carries the input-specific wiring
+//   `relevant?`, `case_property_on?`) carries the input-specific wiring
 //   used by text/int/select/etc.
 //
 // `containerFieldBase` and `fieldBaseSchema` are sibling extensions of
@@ -72,14 +72,14 @@ export type InputFieldBase = FieldBase & {
 	hint?: string;
 	required?: string; // XPath expression or "true()"
 	relevant?: string; // XPath expression
-	case_property?: string; // case type name this field writes to
+	case_property_on?: string; // case type name this field writes to
 };
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: z.string().optional(),
 	required: z.string().optional(),
 	relevant: z.string().optional(),
-	case_property: z.string().optional(),
+	case_property_on: z.string().optional(),
 });
 
 /** Select option value + label pair, shared by singleSelect/multiSelect. */

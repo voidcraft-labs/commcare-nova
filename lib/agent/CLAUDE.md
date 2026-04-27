@@ -6,7 +6,9 @@ Owns every module the Solutions Architect reaches into during generation or edit
 
 External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `components/chat/ChatSidebar.tsx`) import from `@/lib/agent/*` entry points — never from individual implementation files.
 
-**The SA speaks domain vocabulary end-to-end.** Tool names, tool arguments, tool return shapes, and the system prompt all use domain names (`field`, `kind`, `validate`, `validate_msg`, `case_property`). There is no CommCare→domain translation layer anywhere in this directory — SA tool args feed directly into `blueprintHelpers.ts` reducers.
+**The SA speaks domain vocabulary end-to-end.** Tool names, tool arguments, tool return shapes, and the system prompt all use domain names (`field`, `kind`, `validate`, `validate_msg`, `case_property_on`). There is no CommCare→domain translation layer anywhere in this directory — SA tool args feed directly into `blueprintHelpers.ts` reducers.
+
+The case-type pointer is `case_property_on` (disambiguating against the still-present `CasePropertyMapping.case_property` slot in `lib/domain/blueprint.ts`, which holds a property name). The `_on` suffix is load-bearing: it forces the prepositional reading "the case [type] this property is on," which keeps the SA from treating its value as a property name. Without the suffix the SA reads the value as a property name and prefixes field ids with the case-type name to "disambiguate," wasting tokens and corrupting field identity.
 
 CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). `validateAndFix` feeds `BlueprintDoc` through the validator + `expandDoc` directly — no wire-format round-trip inside the agent layer.
 

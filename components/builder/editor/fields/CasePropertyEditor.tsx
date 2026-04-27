@@ -1,5 +1,5 @@
 /**
- * CasePropertyEditor — declarative editor for the `case_property` key.
+ * CasePropertyEditor — declarative editor for the `case_property_on` key.
  *
  * Reads the selected form's module to discover writable case types
  * (the module's own type plus any direct child types) and renders a
@@ -260,14 +260,14 @@ export function CasePropertyDropdown({
  * case types from the URL-selected form and marshals the generic
  * `onChange` into the dropdown's `string | null` shape (null clears).
  *
- * The `as F["case_property" & keyof F]` cast lets a `string` flow
+ * The `as F["case_property_on" & keyof F]` cast lets a `string` flow
  * through the generic-key-typed onChange. Every kind that declares
- * `case_property` carries it as `string | undefined`, so the value is
+ * `case_property_on` carries it as `string | undefined`, so the value is
  * always valid — the cast is the syntactic form TS requires when
  * writing through an indexed-access generic.
  */
 export function CasePropertyEditor<F extends Field>(
-	props: FieldEditorComponentProps<F, "case_property" & keyof F>,
+	props: FieldEditorComponentProps<F, "case_property_on" & keyof F>,
 ) {
 	const { field, value, onChange, autoFocus } = props;
 	const ctx = useSelectedFormContext();
@@ -285,14 +285,14 @@ export function CasePropertyEditor<F extends Field>(
 	if (!isCaseName && writableCaseTypes.length === 0) return null;
 
 	return (
-		<div data-field-id="case_property">
+		<div data-field-id="case_property_on">
 			<CasePropertyDropdown
 				value={typeof value === "string" ? value : undefined}
 				isCaseName={isCaseName}
 				disabled={MEDIA_TYPES.has(field.kind)}
 				caseTypes={writableCaseTypes}
 				onChange={(caseType) =>
-					onChange((caseType ?? undefined) as F["case_property" & keyof F])
+					onChange((caseType ?? undefined) as F["case_property_on" & keyof F])
 				}
 				autoFocus={autoFocus}
 			/>

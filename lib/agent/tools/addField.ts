@@ -137,13 +137,13 @@ export const addFieldTool = {
 			//   - XPath HTML-entity unescape (`. &gt; 0` → `. > 0`) on every
 			//     XPath-valued key so the XForm parser doesn't later reject
 			//     LLM-mangled expressions.
-			//   - Case-type property defaulting: if `case_property` + the
+			//   - Case-type property defaulting: if `case_property_on` + the
 			//     catalog has an entry, seed `kind` / `label` / `hint` /
 			//     `required` / the nested `validate: { expr, msg? }` object /
 			//     `options` from the catalog wherever the payload left them
 			//     unset.
 			//   - Preload auto-default: on case-loading forms, a field whose
-			//     `case_property` matches the module's case type (and isn't
+			//     `case_property_on` matches the module's case type (and isn't
 			//     `case_name`) gets `default_value = "#case/{id}"`.
 			// `addFieldSchema` uses plain optionals, so `stripEmpty`'s
 			// sentinel collapse isn't needed here — that's the one place the

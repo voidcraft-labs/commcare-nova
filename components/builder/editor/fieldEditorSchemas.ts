@@ -103,12 +103,12 @@ function hintEntry<F extends Field>(): {
 }
 
 function casePropertyEntry<F extends Field>(): {
-	key: "case_property" & keyof F;
+	key: "case_property_on" & keyof F;
 	component: typeof CasePropertyEditor;
 	label: string;
 } {
 	return {
-		key: "case_property" as "case_property" & keyof F,
+		key: "case_property_on" as "case_property_on" & keyof F,
 		component: CasePropertyEditor,
 		label: "Saves to",
 	};

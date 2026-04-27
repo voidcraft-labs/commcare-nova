@@ -25,7 +25,7 @@ export const hiddenFieldSchema = structuralFieldBase.extend({
 	default_value: z.string().optional(),
 	required: z.string().optional(),
 	relevant: z.string().optional(),
-	case_property: z.string().optional(),
+	case_property_on: z.string().optional(),
 });
 
 export type HiddenField = z.infer<typeof hiddenFieldSchema>;

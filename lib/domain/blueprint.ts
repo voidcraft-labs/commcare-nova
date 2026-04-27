@@ -13,6 +13,14 @@ import { moduleSchema } from "./modules";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
+//
+// NOTE: this struct's `case_property` slot holds a case PROPERTY NAME (the
+// derived form-action mapping's case-side key — e.g. "name", "dob"). It
+// is NOT the field-level `case_property_on` pointer (case TYPE this field
+// writes to) on `inputFieldBaseSchema`. The two share the word "case
+// property" but model different things; keep the name `case_property`
+// here because the value IS a case property name. The matching field-side
+// pointer carries the `_on` suffix to force the prepositional reading.
 const casePropertyMappingSchema = z.object({
 	case_property: z.string(),
 	question_id: z.string(), // stays "question_id" — CommCare terminology at the boundary

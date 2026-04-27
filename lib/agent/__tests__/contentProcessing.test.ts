@@ -6,7 +6,7 @@ import { applyDefaults } from "../contentProcessing";
 // property metadata uses CommCare-flavored `validation` / `validation_msg`.
 // `applyDefaults` is the one place in the agent where the case-type
 // vocabulary meets the field vocabulary: the output field uses domain
-// names (`validate`, `kind`, `case_property`).
+// names (`validate`, `kind`, `case_property_on`).
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
@@ -40,7 +40,7 @@ const testCaseType: CaseType = {
 describe("applyDefaults", () => {
 	it("fills in label from case type for sparse field", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property: "patient" },
+			{ id: "case_name", kind: "text", case_property_on: "patient" },
 			[testCaseType],
 		);
 		expect(result.label).toBe("Full Name");
@@ -52,7 +52,7 @@ describe("applyDefaults", () => {
 				id: "case_name",
 				kind: "text",
 				label: "Custom Label",
-				case_property: "patient",
+				case_property_on: "patient",
 			},
 			[testCaseType],
 		);
@@ -66,7 +66,7 @@ describe("applyDefaults", () => {
 		// into that nested shape — only when the SA didn't provide its
 		// own validate object.
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property: "patient" },
+			{ id: "age", kind: "int", case_property_on: "patient" },
 			[testCaseType],
 		);
 		expect(result.required).toBe("true()");
@@ -78,7 +78,7 @@ describe("applyDefaults", () => {
 
 	it("fills in options for select properties", () => {
 		const result = applyDefaults(
-			{ id: "gender", kind: "single_select", case_property: "patient" },
+			{ id: "gender", kind: "single_select", case_property_on: "patient" },
 			[testCaseType],
 		);
 		expect(result.options).toEqual([
@@ -89,20 +89,20 @@ describe("applyDefaults", () => {
 
 	it("fills in hint from case type", () => {
 		const result = applyDefaults(
-			{ id: "phone", kind: "text", case_property: "patient" },
+			{ id: "phone", kind: "text", case_property_on: "patient" },
 			[testCaseType],
 		);
 		expect(result.hint).toBe("Include country code");
 	});
 
 	it("derives kind from case type data_type", () => {
-		const result = applyDefaults({ id: "age", case_property: "patient" }, [
+		const result = applyDefaults({ id: "age", case_property_on: "patient" }, [
 			testCaseType,
 		]);
 		expect(result.kind).toBe("int");
 	});
 
-	it("returns field unchanged when no case_property", () => {
+	it("returns field unchanged when no case_property_on", () => {
 		const result = applyDefaults(
 			{ id: "notes", kind: "text", label: "Notes" },
 			[testCaseType],
@@ -113,7 +113,7 @@ describe("applyDefaults", () => {
 
 	it("returns field unchanged when case types is null", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property: "patient" },
+			{ id: "case_name", kind: "text", case_property_on: "patient" },
 			null,
 		);
 		expect(result.label).toBeUndefined();
@@ -121,7 +121,7 @@ describe("applyDefaults", () => {
 
 	it("returns field unchanged when property not found in case type", () => {
 		const result = applyDefaults(
-			{ id: "nonexistent", kind: "text", case_property: "patient" },
+			{ id: "nonexistent", kind: "text", case_property_on: "patient" },
 			[testCaseType],
 		);
 		expect(result.label).toBeUndefined();
@@ -140,13 +140,13 @@ describe("applyDefaults", () => {
 		expect(result.relevant).toBe(". > 0 && . < 10");
 	});
 
-	it("looks up the correct case type from array by case_property", () => {
+	it("looks up the correct case type from array by case_property_on", () => {
 		const otherCaseType: CaseType = {
 			name: "household",
 			properties: [{ name: "case_name", label: "Household ID" }],
 		};
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property: "household" },
+			{ id: "case_name", kind: "text", case_property_on: "household" },
 			[testCaseType, otherCaseType],
 		);
 		expect(result.label).toBe("Household ID");
@@ -156,7 +156,7 @@ describe("applyDefaults", () => {
 
 	it("auto-sets default_value for primary case properties in follow-up forms", () => {
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property: "patient" },
+			{ id: "age", kind: "int", case_property_on: "patient" },
 			[testCaseType],
 			"followup",
 			"patient",
@@ -166,7 +166,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value for case_name in follow-up forms", () => {
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property: "patient" },
+			{ id: "case_name", kind: "text", case_property_on: "patient" },
 			[testCaseType],
 			"followup",
 			"patient",
@@ -176,7 +176,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value in registration forms", () => {
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property: "patient" },
+			{ id: "age", kind: "int", case_property_on: "patient" },
 			[testCaseType],
 			"registration",
 			"patient",
@@ -186,7 +186,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value for child case properties", () => {
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property: "patient" },
+			{ id: "age", kind: "int", case_property_on: "patient" },
 			[testCaseType],
 			"followup",
 			"household",
@@ -199,7 +199,7 @@ describe("applyDefaults", () => {
 			{
 				id: "age",
 				kind: "int",
-				case_property: "patient",
+				case_property_on: "patient",
 				default_value: "today()",
 			},
 			[testCaseType],
@@ -214,7 +214,7 @@ describe("applyDefaults", () => {
 			{
 				id: "age",
 				kind: "int",
-				case_property: "patient",
+				case_property_on: "patient",
 				calculate: "#case/age + 1",
 			},
 			[testCaseType],
@@ -226,7 +226,7 @@ describe("applyDefaults", () => {
 
 	it("does not auto-set default_value when formType/moduleCaseType not provided", () => {
 		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property: "patient" },
+			{ id: "age", kind: "int", case_property_on: "patient" },
 			[testCaseType],
 		);
 		expect(result.default_value).toBeUndefined();

@@ -664,7 +664,7 @@ describe("renameField result metadata", () => {
 
 		expect(result).toBeDefined();
 		expect(result?.xpathFieldsRewritten).toBeGreaterThan(0);
-		// No case_property set on the renamed field → cascade counts stay zero.
+		// No case_property_on set on the renamed field → cascade counts stay zero.
 		expect(result?.peerFieldsRenamed).toBe(0);
 		expect(result?.columnsRewritten).toBe(0);
 		expect(result?.cascadedAcrossForms).toBe(false);
@@ -781,7 +781,7 @@ describe("renameField case-property cascade", () => {
 			fields: {
 				// The authoritative holder of the `age` case property lives
 				// in form 1 of module X.
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				// Form 2 of the SAME module has a field whose label references
 				// `#case/age` — this is the ref that must be rewritten.
 				[Q("ref")]: field_(Q("ref"), "display", {
@@ -826,7 +826,7 @@ describe("renameField case-property cascade", () => {
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				[Q("ref")]: field_(Q("ref"), "adult_check", {
 					calculate: "#case/age >= 18",
 					relevant: "#case/age > 0",
@@ -855,7 +855,7 @@ describe("renameField case-property cascade", () => {
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 			},
 			fieldOrder: { [F("1")]: [Q("src")] },
 		};
@@ -879,22 +879,22 @@ describe("renameField case-property cascade", () => {
 		expect(modY?.caseListColumns?.[0]?.field).toBe("age");
 	});
 
-	it("renames peer fields that declare the same (id, case_property) pair", () => {
+	it("renames peer fields that declare the same (id, case_property_on) pair", () => {
 		// The same case property is declared by two input fields in two
 		// different forms (common when multiple forms read/write the case).
 		// Renaming one must rename the peer so both still write to the same
 		// property. Forms may be in different modules provided the fields
-		// share the same case_property value.
+		// share the same case_property_on value.
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
-				// Peer: same id, same case_property, different form.
-				[Q("peer")]: field_(Q("peer"), "age", { case_property: "patient" }),
-				// Not a peer: matching id but different case_property.
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
+				// Peer: same id, same case_property_on, different form.
+				[Q("peer")]: field_(Q("peer"), "age", { case_property_on: "patient" }),
+				// Not a peer: matching id but different case_property_on.
 				[Q("other")]: field_(Q("other"), "age", {
-					case_property: "household",
+					case_property_on: "household",
 				}),
 			},
 			fieldOrder: {
@@ -915,7 +915,7 @@ describe("renameField case-property cascade", () => {
 
 		expect(next.fields[Q("src")]?.id).toBe("age_1");
 		expect(next.fields[Q("peer")]?.id).toBe("age_1");
-		// Non-peer (different case_property) stays as-is.
+		// Non-peer (different case_property_on) stays as-is.
 		expect(next.fields[Q("other")]?.id).toBe("age");
 		expect(result?.peerFieldsRenamed).toBe(1);
 		expect(result?.cascadedAcrossForms).toBe(true);
@@ -926,10 +926,10 @@ describe("renameField case-property cascade", () => {
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
-				// Field with case_property but no cross-form refs, no peers,
-				// and no columns on any module. A clean case_property-bearing
+				// Field with case_property_on but no cross-form refs, no peers,
+				// and no columns on any module. A clean case_property_on-bearing
 				// rename that cascades to nothing.
-				[Q("src")]: field_(Q("src"), "lonely", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "lonely", { case_property_on: "patient" }),
 			},
 			fieldOrder: { [F("1")]: [Q("src")] },
 			modules: {
@@ -1009,7 +1009,7 @@ describe("renameField case-property cascade", () => {
 			...base,
 			fields: {
 				// Primary holder of the `age` case property, in its own form.
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				// Same-form ref with /data/age reached by form-local pass.
 				// AND #case/age reached by the cascade pass (module X's
 				// caseType is "patient" → its forms are visited).
@@ -1045,7 +1045,7 @@ describe("renameField case-property cascade", () => {
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				// Both the renamed field AND the ref live in F1. Module X
 				// (F1's module) has caseType "patient" so the cascade visits
 				// F1 and rewrites the #case/ ref — but F1 is the primary form.
@@ -1087,7 +1087,7 @@ describe("renameField case-property cascade", () => {
 		const start: BlueprintDoc = {
 			...base,
 			fields: {
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 			},
 			fieldOrder: { [F("1")]: [Q("src")] },
 		};
@@ -1106,9 +1106,9 @@ describe("renameField case-property cascade", () => {
 		expect(result?.cascadedAcrossForms).toBe(true);
 	});
 
-	it("cascades to the case_property's case type, not the primary's module's case type (child-case scenario)", () => {
+	it("cascades to the case_property_on's case type, not the primary's module's case type (child-case scenario)", () => {
 		// Child-case pattern: a field on a form hosted in a "patient" module
-		// but whose `case_property` is a different case type ("visit"). A
+		// but whose `case_property_on` is a different case type ("visit"). A
 		// `#case/` ref resolves against the containing module's caseType, so
 		// rewrites must happen in forms of modules with caseType === "visit",
 		// NOT in forms of the "patient" module.
@@ -1155,7 +1155,7 @@ describe("renameField case-property cascade", () => {
 			fields: {
 				// Primary: lives in host form, writes to visit case.
 				[Q("src")]: field_(Q("src"), "date_of_visit", {
-					case_property: "visit",
+					case_property_on: "visit",
 				}),
 				// Visit-module ref — SHOULD be rewritten (same caseType).
 				[Q("tgt_ref")]: field_(Q("tgt_ref"), "display", {
@@ -1214,9 +1214,9 @@ describe("renameField case-property cascade", () => {
 			// Add a third form to module X to make three same-case peers.
 			formOrder: { [M("X")]: [F("1"), F("2"), F("3")] },
 			fields: {
-				[Q("a")]: field_(Q("a"), "age", { case_property: "patient" }),
-				[Q("b")]: field_(Q("b"), "age", { case_property: "patient" }),
-				[Q("c")]: field_(Q("c"), "age", { case_property: "patient" }),
+				[Q("a")]: field_(Q("a"), "age", { case_property_on: "patient" }),
+				[Q("b")]: field_(Q("b"), "age", { case_property_on: "patient" }),
+				[Q("c")]: field_(Q("c"), "age", { case_property_on: "patient" }),
 			},
 			fieldOrder: {
 				[F("1")]: [Q("a")],
@@ -1242,10 +1242,10 @@ describe("renameField case-property cascade", () => {
 
 	it("renames a peer in a mismatched-caseType module without rewriting its #case/ refs", () => {
 		// Subtle cross-case-type write pattern: peer in form F2 of a module
-		// whose caseType is "household", but the peer's own `case_property`
+		// whose caseType is "household", but the peer's own `case_property_on`
 		// is "patient" (it writes to a different case than its host module's
 		// caseType — child-case style). Renaming the primary must:
-		//   - rename the peer (same id + same case_property = peer),
+		//   - rename the peer (same id + same case_property_on = peer),
 		//   - NOT rewrite `#case/<oldId>` inside the peer's form, because
 		//     `#case/` in F2 resolves against F2's module caseType
 		//     ("household"), a DIFFERENT property from the one being renamed.
@@ -1274,12 +1274,12 @@ describe("renameField case-property cascade", () => {
 			},
 			fields: {
 				[Q("primary")]: field_(Q("primary"), "age", {
-					case_property: "patient",
+					case_property_on: "patient",
 				}),
-				// Peer: same id, same case_property (= "patient"), but lives
+				// Peer: same id, same case_property_on (= "patient"), but lives
 				// in module Y (caseType "household") — a cross-case-type write.
 				[Q("peer")]: field_(Q("peer"), "age", {
-					case_property: "patient",
+					case_property_on: "patient",
 				}),
 				// Neighbor in F2 with a #case/age ref. Because F2's module
 				// caseType is "household", this ref means "household.age",
@@ -1306,7 +1306,7 @@ describe("renameField case-property cascade", () => {
 			}) as FieldRenameMeta;
 		});
 
-		// Peer renamed (same id + case_property match).
+		// Peer renamed (same id + case_property_on match).
 		expect(next.fields[Q("peer")]?.id).toBe("age_1");
 		// Neighbor's #case/age ref untouched — different case-type namespace.
 		expect(asField(next.fields[Q("neighbor")])?.label).toBe(
@@ -1352,7 +1352,7 @@ describe("renameField case-property cascade", () => {
 				[F("1")]: { uuid: F("1"), name: "F1", type: "followup" } as Form,
 			},
 			fields: {
-				[Q("src")]: field_(Q("src"), "age", { case_property: "patient" }),
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 			},
 			moduleOrder: [M("X")],
 			formOrder: { [M("X")]: [F("1")] },
@@ -1388,11 +1388,11 @@ describe("renameField case-property cascade", () => {
 			modules: {},
 			forms: {},
 			fields: {
-				// A field with case_property but no module references it —
+				// A field with case_property_on but no module references it —
 				// simulates a pre-scaffold / partially-loaded state. The
 				// rename should succeed without iterating empty module state.
 				[Q("orphan")]: field_(Q("orphan"), "age", {
-					case_property: "patient",
+					case_property_on: "patient",
 				}),
 			},
 			moduleOrder: [],

@@ -207,7 +207,7 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  * Reconciliation rules — applied in this order:
  *   1. Start with the source field's shared identity (`uuid`, `id`, `label`).
  *   2. Carry over any property whose key exists on BOTH kinds (validation,
- *      relevancy, required, case_property, calculate, default_value, hint
+ *      relevancy, required, case_property_on, calculate, default_value, hint
  *      — depending on what the destination kind accepts).
  *   3. Stamp the new `kind` discriminator.
  *   4. Run the result through `fieldSchema.safeParse` to strip keys the
@@ -235,10 +235,10 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  * Special cases:
  *   - `single_select` ↔ `multi_select`: `options` transfers verbatim.
  *   - `text` ↔ `secret`: no options, no calculate on secret — validate/
- *     relevant/required/hint/case_property carry over.
+ *     relevant/required/hint/case_property_on carry over.
  *   - Media subkinds (image/audio/video/signature): identity + label +
  *     hint + required + relevant carry over; no calculate, no
- *     case_property, no validate (not in media schemas today).
+ *     case_property_on, no validate (not in media schemas today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`
  *     under the same parent uuid, which is still a valid container after

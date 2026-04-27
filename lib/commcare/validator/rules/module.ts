@@ -166,7 +166,7 @@ function invalidColumnField(
 			validationError(
 				"INVALID_COLUMN_FIELD",
 				"module",
-				`Module "${mod.name}" has a case list column with field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. The case list won't be able to display this column. Either add a field with id "${col.field}" and \`case_property\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
+				`Module "${mod.name}" has a case list column with field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. The case list won't be able to display this column. Either add a field with id "${col.field}" and \`case_property_on\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
 				{ moduleUuid, moduleName: mod.name },
 				{ field: col.field },
 			),

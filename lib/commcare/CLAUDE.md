@@ -1,6 +1,6 @@
 # lib/commcare
 
-One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive). The only package in `lib/` that imports CommCare's vocabulary (HQ shell shapes, `doc_type` strings, `case_property`, XPath functions, session datums, identifier rules). A Biome `noRestrictedImports` rule enforces the one-way direction.
+One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive). The only package in `lib/` that imports CommCare's vocabulary (HQ shell shapes, `doc_type` strings, XPath functions, session datums, identifier rules). A Biome `noRestrictedImports` rule enforces the one-way direction.
 
 ## Public surface
 
@@ -29,7 +29,7 @@ xpath/{grammar.lezer.grammar,parser,parser.terms,transpiler,typeInfer,detectUnqu
 xpath/passes/dateArithmetic.ts
 ```
 
-`fieldProps.ts` is the one reading-helper the wire emitters share: a single untyped lookup over `Field`'s discriminated union for the optional string properties (`relevant`, `validate`, `calculate`, `default_value`, `required`, `hint`, `label`, `case_property`, `validate_msg`) — narrowing per kind at every call site would cascade N×M branches.
+`fieldProps.ts` is the one reading-helper the wire emitters share: a single untyped lookup over `Field`'s discriminated union for the optional string properties (`relevant`, `validate`, `calculate`, `default_value`, `required`, `hint`, `label`, `case_property_on`, `validate_msg`) — narrowing per kind at every call site would cascade N×M branches.
 
 ## Key design decisions
 

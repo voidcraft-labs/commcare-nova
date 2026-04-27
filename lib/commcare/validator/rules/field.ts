@@ -7,7 +7,7 @@
  * node, recursing through container kinds.
  *
  * All rules operate on the domain shape — `field.kind`, `field.validate`,
- * `field.case_property` — never on the legacy wire shape. The only wire
+ * `field.case_property_on` — never on the legacy wire shape. The only wire
  * tokens appearing here are the `kind` string literals themselves, which
  * match CommCare's field-kind taxonomy and stay stable.
  */

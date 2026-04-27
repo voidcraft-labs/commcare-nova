@@ -104,7 +104,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("adds a simple text field", () => {
 			const doc0 = makeShellDoc();
 			const field = textField("case_name", "Patient Name", {
-				case_property: "case_name",
+				case_property_on: "case_name",
 			} as Partial<Field>);
 			const muts = addFieldMutations(doc0, { parentUuid: FORM, field });
 			const doc1 = apply(doc0, muts);
@@ -114,7 +114,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			const added = doc1.fields[order[0]];
 			expect(added.id).toBe("case_name");
 			expect(added.kind).toBe("text");
-			expect((added as { case_property?: string }).case_property).toBe(
+			expect((added as { case_property_on?: string }).case_property_on).toBe(
 				"case_name",
 			);
 		});
@@ -158,7 +158,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 					{ value: "male", label: "Male" },
 					{ value: "female", label: "Female" },
 				],
-				case_property: "gender",
+				case_property_on: "gender",
 			} as Field;
 			const doc1 = apply(
 				doc0,
@@ -187,7 +187,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				id: "age_group",
 				kind: "hidden",
 				calculate: "if(/data/age < 18, 'child', 'adult')",
-				case_property: "age_group",
+				case_property_on: "age_group",
 			} as Field;
 			doc = apply(
 				doc,
@@ -312,10 +312,10 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 // ── deriveCaseConfig tests (doc-native helper) ───────────────────────
 //
 // `deriveCaseConfig` walks `doc.fieldOrder[formUuid]` and reads domain
-// field keys (kind, id, case_property). The tests feed it the same
+// field keys (kind, id, case_property_on). The tests feed it the same
 // normalized doc shape that the expander + validator use in production.
 
-describe("child case derivation via case_property annotations", () => {
+describe("child case derivation via case_property_on annotations", () => {
 	const caseTypes = [
 		{
 			name: "patient",
@@ -327,7 +327,7 @@ describe("child case derivation via case_property annotations", () => {
 		},
 	];
 
-	it("derives a child case from case_property annotations", () => {
+	it("derives a child case from case_property_on annotations", () => {
 		const doc = buildDoc({
 			appName: "Test App",
 			modules: [
@@ -343,13 +343,13 @@ describe("child case derivation via case_property annotations", () => {
 									kind: "text",
 									id: "case_name",
 									label: "Referral Name",
-									case_property: "referral",
+									case_property_on: "referral",
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
 									label: "Referral Reason",
-									case_property: "referral",
+									case_property_on: "referral",
 								}),
 							],
 						},
@@ -384,19 +384,19 @@ describe("child case derivation via case_property annotations", () => {
 									kind: "text",
 									id: "case_name",
 									label: "Patient Name",
-									case_property: "patient",
+									case_property_on: "patient",
 								}),
 								f({
 									kind: "text",
 									id: "case_name",
 									label: "Referral Name",
-									case_property: "referral",
+									case_property_on: "referral",
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
 									label: "Reason",
-									case_property: "referral",
+									case_property_on: "referral",
 								}),
 							],
 						},

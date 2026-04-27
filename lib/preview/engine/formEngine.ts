@@ -478,10 +478,10 @@ export class FormEngine {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const withCP = f as Field & { case_property?: string };
+			const withCP = f as Field & { case_property_on?: string };
 			if (
-				withCP.case_property &&
-				withCP.case_property === this.moduleCaseType &&
+				withCP.case_property_on &&
+				withCP.case_property_on === this.moduleCaseType &&
 				this.caseData.has(f.id)
 			) {
 				const newValue = this.caseData.get(f.id) ?? "";
@@ -810,10 +810,10 @@ export class FormEngine {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const withCP = f as Field & { case_property?: string };
+			const withCP = f as Field & { case_property_on?: string };
 			if (
-				withCP.case_property &&
-				withCP.case_property === this.moduleCaseType &&
+				withCP.case_property_on &&
+				withCP.case_property_on === this.moduleCaseType &&
 				this.caseData.has(f.id)
 			) {
 				this.instance.set(path, this.caseData.get(f.id) ?? "");

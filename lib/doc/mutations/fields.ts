@@ -50,7 +50,7 @@ export interface MoveFieldResult {
  *
  * A rename is either **form-local** (the field does not write to a case, so
  * only its own form's XPath references change) or **cascaded** (the field
- * has a `case_property` — renaming its id is semantically a rename of the
+ * has a `case_property_on` — renaming its id is semantically a rename of the
  * case property it holds, so the reducer propagates the change across every
  * module/form that references the property).
  *
@@ -64,7 +64,7 @@ export interface MoveFieldResult {
  *     the UI toast ("N references updated").
  *   - `peerFieldsRenamed` — how many OTHER fields were renamed because
  *     they represented the same case property (same `id` + same
- *     `case_property`) in a different form. Those are authoritative peers
+ *     `case_property_on`) in a different form. Those are authoritative peers
  *     of the renamed field, not references to it.
  *   - `columnsRewritten` — number of `caseListColumns` / `caseDetailColumns`
  *     entries on matching modules whose `field` value was updated.
@@ -365,14 +365,14 @@ export function applyFieldMutation(
 				return emptyFieldRenameMeta();
 			}
 
-			// The cascade target case type is the field's `case_property`
+			// The cascade target case type is the field's `case_property_on`
 			// value — the case type this field WRITES TO, which may differ
 			// from the containing module's `caseType` when the field creates
 			// a child case. A non-empty value triggers the case-property
 			// cascade: #case/<oldId> hashtags across every form bound to a
 			// module with the matching caseType, column renames on those
 			// modules, and peer-field renames of any other field that
-			// declares the same (id, case_property) pair.
+			// declares the same (id, case_property_on) pair.
 			const caseType = extractCaseProperty(field);
 			const doc = draft as unknown as BlueprintDoc;
 
@@ -553,17 +553,17 @@ function emptyFieldRenameMeta(): FieldRenameMeta {
 }
 
 /**
- * Read a field's `case_property` value in a kind-agnostic way.
+ * Read a field's `case_property_on` value in a kind-agnostic way.
  *
- * `case_property` lives on the `InputFieldBase` mixin (every input-like
+ * `case_property_on` lives on the `InputFieldBase` mixin (every input-like
  * kind: text, int, select, date, …) but not on structural kinds (group,
  * repeat). Walking the discriminated union at every call site would bloat
  * the reducer with type guards; a narrow helper isolates the cast. The
  * empty-string case clears the property — we treat it as "not set" so a
- * media-field `case_property: ""` clear doesn't accidentally cascade.
+ * media-field `case_property_on: ""` clear doesn't accidentally cascade.
  */
 function extractCaseProperty(field: { kind: string }): string | undefined {
-	const value = (field as { case_property?: string }).case_property;
+	const value = (field as { case_property_on?: string }).case_property_on;
 	if (typeof value !== "string" || value.length === 0) return undefined;
 	return value;
 }
@@ -689,14 +689,14 @@ function rewriteFieldExpressions(
 }
 
 /**
- * Cross-form cascade triggered when a field with `case_property` is
+ * Cross-form cascade triggered when a field with `case_property_on` is
  * renamed. Because `field.id` IS the case property name for fields that
  * save to a case, a rename is semantically a rename of the case property.
  * That property is referenced from three places outside the containing
  * form:
  *
  *   1. **Peer fields** — other input fields whose `id === oldId` AND
- *      `case_property === caseType`. Those are not references; they're
+ *      `case_property_on === caseType`. Those are not references; they're
  *      authoritative declarations of the same property in a different
  *      form (common when multiple forms read/write the same case
  *      property). Each peer is renamed + has its own form's local refs

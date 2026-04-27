@@ -103,7 +103,7 @@ function makeFixtureDoc(): BlueprintDoc {
 		id: "case_name",
 		kind: "text",
 		label: "Patient name",
-		case_property: "case_name",
+		case_property_on: "case_name",
 	} as Field;
 
 	return {
@@ -329,7 +329,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 					calculate: "",
 					default_value: "",
 					options: [],
-					case_property: "",
+					case_property_on: "",
 				},
 			],
 		});

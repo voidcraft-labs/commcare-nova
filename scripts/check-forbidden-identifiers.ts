@@ -25,10 +25,17 @@
 import { execSync } from "node:child_process";
 
 /**
- * Pre-Phase-7 wire-format identifiers. Anything matching these as a
- * whole-word identifier (or, for `case_property_on`, as a bare substring
- * since it's a CommCare wire key) is forbidden outside the shared
- * exclusion set.
+ * Wire-format identifiers banned outside the CommCare emission boundary.
+ * Anything matching these as a whole-word identifier is forbidden outside
+ * the shared exclusion set.
+ *
+ * `case_property_on` is NOT on this list — it's the canonical domain
+ * name for the case-type pointer on input fields. The bare alternative
+ * `case_property` is a CommCare wire key (the value-bearing tag inside
+ * a case action) and reads as a noun phrase ("a case property"), which
+ * trains the SA to treat its value as a property name rather than a
+ * type pointer. The `_on` suffix forces the prepositional reading
+ * ("the case [type] this property is on") and breaks that confusion.
  */
 const FORBIDDEN_WIRE_IDENTIFIERS = [
 	"\\bAppBlueprint\\b",
@@ -41,13 +48,10 @@ const FORBIDDEN_WIRE_IDENTIFIERS = [
 	"\\bWireQuestion\\b",
 	"\\bnormalizedState\\b",
 	"\\breplaceForm\\b",
-	// Substring — a CommCare wire key. Appearing anywhere in application
-	// code is a leak of CommCare's vocabulary into domain land.
-	"case_property_on",
 ];
 
 /**
- * Directories to scan. Matches the post-Phase-7 top-level source layout.
+ * Directories to scan. Covers the production source tree.
  */
 const SCAN_DIRS = ["lib", "app", "components", "scripts"];
 
@@ -82,8 +86,8 @@ const SHARED_EXCLUSIONS = [
  */
 const QUESTION_PASS_EXCLUSIONS = [
 	...SHARED_EXCLUSIONS,
-	// Chat surfaces that ask the user clarifying "questions". The T15
-	// sweep deliberately kept these.
+	// Chat surfaces that legitimately use the word "questions" when the
+	// SA asks the user clarifying questions about their app intent.
 	"--glob",
 	"!components/chat/AskQuestionsCard.tsx",
 	"--glob",

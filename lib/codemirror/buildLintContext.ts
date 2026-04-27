@@ -72,7 +72,7 @@ export function buildLintContext(
 	// Case properties: own case type + any child case types that point to
 	// this module's type. The case-type record on `doc.caseTypes` is the
 	// authoritative list; it's populated by the SA and we never synthesize
-	// entries from per-field `case_property` values (by design).
+	// entries from per-field `case_property_on` values (by design).
 	const caseProperties = new Map<string, { label?: string }>();
 	if (moduleCaseType && state.caseTypes) {
 		const ct = state.caseTypes.find((c) => c.name === moduleCaseType);

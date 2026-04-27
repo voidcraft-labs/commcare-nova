@@ -99,7 +99,7 @@ function editPatchToFieldPatch(
 		"relevant",
 		"calculate",
 		"default_value",
-		"case_property",
+		"case_property_on",
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];

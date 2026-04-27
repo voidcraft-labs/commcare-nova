@@ -31,7 +31,7 @@ interface DField {
 	default_value?: string;
 	validate?: string;
 	validate_msg?: string;
-	case_property?: string;
+	case_property_on?: string;
 	options?: Array<{ value: string; label: string }>;
 	children?: DField[];
 }
@@ -217,8 +217,8 @@ describe("FormEngine", () => {
 		it("pre-populates case data into the instance", () => {
 			const input = dTree(
 				[
-					{ id: "case_name", kind: "text", case_property: "patient" },
-					{ id: "age", kind: "int", case_property: "patient" },
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "age", kind: "int", case_property_on: "patient" },
 				],
 				"followup",
 			);
@@ -263,7 +263,7 @@ describe("FormEngine", () => {
 						id: "case_name",
 						kind: "text",
 						label: "Name",
-						case_property: "patient",
+						case_property_on: "patient",
 						default_value: "concat(#case/age, ' - ', #case/case_name)",
 					},
 				],
@@ -291,7 +291,7 @@ describe("FormEngine", () => {
 						id: "case_name",
 						kind: "text",
 						label: "Name",
-						case_property: "patient",
+						case_property_on: "patient",
 						default_value: "concat(#case/age, ' - ', #case/case_name)",
 					},
 				],
@@ -581,7 +581,7 @@ describe("FormEngine", () => {
 						id: "case_name",
 						kind: "text",
 						label: "Name",
-						case_property: "patient",
+						case_property_on: "patient",
 					},
 					{
 						id: "greeting",

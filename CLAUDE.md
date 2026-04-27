@@ -85,7 +85,7 @@ The chat route reads the model stream manually (not `writer.merge()`) so stream 
 
 **Fields are self-contained.** All metadata lives on the field. Case-type metadata is a generation-time artifact — defaults are baked into fields at add time and the case-type record is never consulted at runtime.
 
-**Field id = case property name.** A field saves to the case type named by its `case_property` value — matching the module's type is a normal property; naming a different type auto-derives child case creation.
+**Field id = case property name.** A field saves to the case type named by its `case_property_on` value — matching the module's type is a normal property; naming a different type auto-derives child case creation. The pointer is named `case_property_on` (not `case_property`) so the parameter reads as a preposition pointing at the case type, not as the property name itself.
 
 **Form-level case wiring is derived, not stored** — expander + validator scan fields on demand.
 

@@ -117,7 +117,7 @@ function noCaseNameField(
 			validationError(
 				"NO_CASE_NAME_FIELD",
 				"form",
-				`"${ctx.formName}" is a registration form but none of its fields has id "case_name". Every new case needs a name — add a text field with id "case_name" and \`case_property\` set to the module's case type.`,
+				`"${ctx.formName}" is a registration form but none of its fields has id "case_name". Every new case needs a name — add a text field with id "case_name" and \`case_property_on\` set to the module's case type.`,
 				baseLocation(ctx),
 			),
 		];
@@ -209,7 +209,7 @@ function mediaCaseProperty(
 				validationError(
 					"MEDIA_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" tries to save the ${field.kind} field "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Clear \`case_property\` on this field.`,
+					`"${ctx.formName}" tries to save the ${field.kind} field "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Clear \`case_property_on\` on this field.`,
 					baseLocation(ctx),
 					{ property: prop, questionId: qId },
 				),
@@ -307,7 +307,7 @@ function registrationNoCaseProperties(
 			validationError(
 				"REGISTRATION_NO_CASE_PROPS",
 				"form",
-				`"${ctx.formName}" is a registration form but none of its fields save data to the "${mod.caseType}" case. A registration form should capture information about the new case. Set \`case_property\` to "${mod.caseType}" on fields whose answers should be saved to the case.`,
+				`"${ctx.formName}" is a registration form but none of its fields save data to the "${mod.caseType}" case. A registration form should capture information about the new case. Set \`case_property_on\` to "${mod.caseType}" on fields whose answers should be saved to the case.`,
 				baseLocation(ctx),
 			),
 		];

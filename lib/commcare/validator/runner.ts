@@ -188,7 +188,7 @@ function humanizeXPathError(
 
 		case "INVALID_CASE_REF": {
 			const prop = rawMessage.match(/"([^"]+)"/)?.[1] || "";
-			return `${loc} references case property "${prop}" which doesn't exist on this case type. Check for typos, or make sure a field saves to this property via \`case_property\`.`;
+			return `${loc} references case property "${prop}" which doesn't exist on this case type. Check for typos, or make sure a field saves to this property via \`case_property_on\`.`;
 		}
 
 		case "TYPE_ERROR":

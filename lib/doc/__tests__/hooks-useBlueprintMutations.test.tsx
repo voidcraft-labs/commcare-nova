@@ -442,7 +442,7 @@ describe("useBlueprintMutations", () => {
 
 	it("renameQuestion returns conflict: true when a peer's sibling id clashes", () => {
 		// Regression guard: two forms declare the same case property via
-		// matching (id, case_property) pairs — these are peers, both
+		// matching (id, case_property_on) pairs — these are peers, both
 		// renamed atomically when either is renamed. A peer's own form
 		// already contains a sibling with the target id. The cascade would
 		// silently create a duplicate sibling id unless the conflict check
@@ -472,21 +472,21 @@ describe("useBlueprintMutations", () => {
 				[CP_F2]: { uuid: CP_F2, id: "cp_f2", name: "F2", type: "followup" },
 			},
 			fields: {
-				// Primary and peer share (id="age", case_property="patient").
+				// Primary and peer share (id="age", case_property_on="patient").
 				// Renaming either cascades to rename both.
 				[CP_PRIMARY]: {
 					uuid: CP_PRIMARY,
 					id: "age",
 					kind: "text",
 					label: "Age",
-					case_property: "patient",
+					case_property_on: "patient",
 				} as BlueprintDoc["fields"][typeof CP_PRIMARY],
 				[CP_PEER]: {
 					uuid: CP_PEER,
 					id: "age",
 					kind: "text",
 					label: "Age",
-					case_property: "patient",
+					case_property_on: "patient",
 				} as BlueprintDoc["fields"][typeof CP_PEER],
 				// Blocker: lives in F2 alongside the peer. If we try to rename
 				// the primary → "age_new", the peer in F2 would also become

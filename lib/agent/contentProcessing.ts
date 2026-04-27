@@ -18,7 +18,7 @@
  *      `fieldSchema.safeParse` validation + domain `Field` assembly.
  *
  * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`,
- * `case_property`); there is no CommCare → domain translation inside
+ * `case_property_on`); there is no CommCare → domain translation inside
  * the agent. The one boundary translation this file does is
  * case-type → field: case-type property metadata uses CommCare-flavored
  * `validation` / `validation_msg` (case-type properties describe the
@@ -131,7 +131,7 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  *      have emitted — a frequent cause of otherwise-subtle XForm
  *      parse failures.
  *
- *   2. **Case-type defaulting.** When `case_property` is set, the
+ *   2. **Case-type defaulting.** When `case_property_on` is set, the
  *      matching case type's property metadata seeds any unset keys on
  *      the field:
  *        - `kind` from `property.data_type` (defaulting to "text")
@@ -142,7 +142,7 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  *        - `validate_msg` from `property.validation_msg`
  *
  *   3. **Preload auto-default.** For case-loading forms (followup,
- *      close), any field whose `case_property` matches the module's
+ *      close), any field whose `case_property_on` matches the module's
  *      own case type (other than `case_name`) gets `default_value`
  *      auto-set to `#case/{id}`. Mirrors the `case_preload` logic in
  *      `deriveCaseConfig.ts`, which preloads every primary case
@@ -166,8 +166,8 @@ export function applyDefaults<E extends object = object>(
 		}
 	}
 
-	if (result.case_property && caseTypes) {
-		const ct = caseTypes.find((c) => c.name === result.case_property);
+	if (result.case_property_on && caseTypes) {
+		const ct = caseTypes.find((c) => c.name === result.case_property_on);
 		const prop = ct?.properties.find((p) => p.name === result.id);
 		if (prop) {
 			result.kind ??= prop.data_type ?? "text";
@@ -198,8 +198,8 @@ export function applyDefaults<E extends object = object>(
 	if (
 		formType &&
 		CASE_LOADING_FORM_TYPES.has(formType) &&
-		result.case_property &&
-		result.case_property === moduleCaseType &&
+		result.case_property_on &&
+		result.case_property_on === moduleCaseType &&
 		result.id !== "case_name" &&
 		!result.default_value &&
 		!result.calculate
@@ -220,7 +220,7 @@ export function applyDefaults<E extends object = object>(
  * the flat schema is a union across all kinds. Per-kind validity is
  * enforced HERE: the assembled candidate runs through `fieldSchema`
  * (the discriminated union) so Zod strips keys the target kind doesn't
- * declare (e.g. `label` on `hidden`, `case_property` on media kinds)
+ * declare (e.g. `label` on `hidden`, `case_property_on` on media kinds)
  * and rejects invalid values. Returns `undefined` when the shape can't
  * be salvaged into a valid `Field`; callers skip and log.
  *
@@ -283,9 +283,9 @@ export function flatFieldToField(
 			q.options.length > 0 && {
 				options: q.options,
 			}),
-		...(typeof q.case_property === "string" &&
-			q.case_property.length > 0 && {
-				case_property: q.case_property,
+		...(typeof q.case_property_on === "string" &&
+			q.case_property_on.length > 0 && {
+				case_property_on: q.case_property_on,
 			}),
 		// Nested repeat config: SA passes `repeat: { mode, count?,
 		// ids_query? }`; the domain schema is a discriminated union over

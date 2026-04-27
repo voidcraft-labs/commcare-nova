@@ -5,7 +5,7 @@
 // condition — no child field needs its own relevant when the group controls
 // visibility at the container level. Maps to CommCare <group> control.
 //
-// Groups do not write to the case — they have no case_property, hint, or
+// Groups do not write to the case — they have no case_property_on, hint, or
 // required fields. Only `relevant` is meaningful at the group level.
 //
 // **Empty-label groups are transparent at runtime.** Groups extend
@@ -19,7 +19,7 @@
 // can select and edit them. Empty-label groups are a residual layout
 // affordance — a place for stray hidden fields that don't fit any
 // labeled group. Logical case-scoped grouping (every child field's
-// `case_property` matching the group's purpose) is the primary
+// `case_property_on` matching the group's purpose) is the primary
 // organization pattern; empty-label groups are not a primary
 // disambiguation tool.
 
@@ -44,6 +44,6 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	isStructural: true,
 	isContainer: true,
 	saDocs:
-		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's `case_property` matches the group's purpose) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime) — a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
+		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's `case_property_on` matches the group's purpose) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime) — a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
 	convertTargets: ["repeat"],
 };

@@ -56,9 +56,9 @@ function findModuleUuidForForm(
 
 /**
  * Find the first field under `parentUuid` that looks like a case-name
- * candidate: text kind with `case_property` set and an id containing
+ * candidate: text kind with `case_property_on` set and an id containing
  * "name" (case-insensitive). Falls back to the first field with any
- * `case_property` set so a best-effort rename still succeeds.
+ * `case_property_on` set so a best-effort rename still succeeds.
  */
 function findCaseNameCandidate(
 	doc: BlueprintDoc,
@@ -66,10 +66,10 @@ function findCaseNameCandidate(
 ): Field | undefined {
 	// Prefer text fields whose id hints at "name".
 	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
-	const caseProperty = (f: Field) =>
-		(f as { case_property?: string }).case_property;
+	const casePropertyOn = (f: Field) =>
+		(f as { case_property_on?: string }).case_property_on;
 
-	// First pass: text kind + case_property + "name" in id.
+	// First pass: text kind + case_property_on + "name" in id.
 	const firstPass = [...stack];
 	while (firstPass.length > 0) {
 		const uuid = firstPass.pop();
@@ -77,7 +77,7 @@ function findCaseNameCandidate(
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		if (
-			caseProperty(field) &&
+			casePropertyOn(field) &&
 			/name/i.test(field.id) &&
 			field.kind === "text"
 		) {
@@ -87,21 +87,21 @@ function findCaseNameCandidate(
 		if (children) firstPass.push(...children);
 	}
 
-	// Second pass: any field with case_property.
+	// Second pass: any field with case_property_on.
 	const secondPass = [...(doc.fieldOrder[parentUuid] ?? [])];
 	while (secondPass.length > 0) {
 		const uuid = secondPass.pop();
 		if (!uuid) break;
 		const field = doc.fields[uuid];
 		if (!field) continue;
-		if (caseProperty(field)) return field;
+		if (casePropertyOn(field)) return field;
 		const children = doc.fieldOrder[uuid];
 		if (children) secondPass.push(...children);
 	}
 	return undefined;
 }
 
-/** Find a field whose id matches `prop` AND has any `case_property` set. */
+/** Find a field whose id matches `prop` AND has any `case_property_on` set. */
 function findFieldByCaseProperty(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
@@ -113,7 +113,7 @@ function findFieldByCaseProperty(
 		if (!uuid) break;
 		const field = doc.fields[uuid];
 		if (!field) continue;
-		const cp = (field as { case_property?: string }).case_property;
+		const cp = (field as { case_property_on?: string }).case_property_on;
 		if (field.id === prop && cp) return field;
 		const children = doc.fieldOrder[uuid];
 		if (children) stack.push(...children);
@@ -176,7 +176,7 @@ const fixNoCaseNameField: FixFn = (error, doc) => {
 		mutations.push({
 			kind: "updateField",
 			uuid: candidate.uuid,
-			patch: { case_property: moduleCaseType } as FieldPatch,
+			patch: { case_property_on: moduleCaseType } as FieldPatch,
 		});
 	}
 	return mutations;
@@ -184,7 +184,7 @@ const fixNoCaseNameField: FixFn = (error, doc) => {
 
 /**
  * RESERVED_CASE_PROPERTY: Rename any field whose id == reservedName AND
- * carries a `case_property`, appending `_value` to dodge the CommCare
+ * carries a `case_property_on`, appending `_value` to dodge the CommCare
  * reserved-word collision.
  */
 const fixReservedCaseProperty: FixFn = (error, doc) => {
@@ -198,7 +198,7 @@ const fixReservedCaseProperty: FixFn = (error, doc) => {
 		if (!uuid) break;
 		const field = doc.fields[uuid];
 		if (!field) continue;
-		const cp = (field as { case_property?: string }).case_property;
+		const cp = (field as { case_property_on?: string }).case_property_on;
 		if (field.id === reserved && cp) {
 			mutations.push({
 				kind: "renameField",
@@ -213,9 +213,9 @@ const fixReservedCaseProperty: FixFn = (error, doc) => {
 };
 
 /**
- * MEDIA_CASE_PROPERTY: Strip `case_property` from a media field — the
+ * MEDIA_CASE_PROPERTY: Strip `case_property_on` from a media field — the
  * attachment is handled separately. We emit an updateField patch whose
- * `case_property` is the empty sentinel; the mutation reducer treats an
+ * `case_property_on` is the empty sentinel; the mutation reducer treats an
  * empty string the same as clearing the value.
  */
 const fixMediaCaseProperty: FixFn = (error, doc) => {
@@ -228,10 +228,10 @@ const fixMediaCaseProperty: FixFn = (error, doc) => {
 		{
 			kind: "updateField",
 			uuid: field.uuid,
-			// case_property is optional on every input kind; passing the
+			// case_property_on is optional on every input kind; passing the
 			// empty string clears it at the XForm emitter without
 			// triggering a schema rejection on write.
-			patch: { case_property: "" } as FieldPatch,
+			patch: { case_property_on: "" } as FieldPatch,
 		},
 	];
 };

@@ -200,7 +200,7 @@ export function buildFormActions(
 		}
 	}
 
-	// Child / sub-cases (auto-derived from `case_property` pointing at a
+	// Child / sub-cases (auto-derived from `case_property_on` pointing at a
 	// different case type).
 	if (child_cases && child_cases.length > 0) {
 		base.subcases = child_cases.map((child): OpenSubCaseAction => {

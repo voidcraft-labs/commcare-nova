@@ -182,14 +182,14 @@ describe("convertField — temporal family", () => {
 		expect(converted.uuid).toBe("q-1");
 	});
 
-	it("datetime → date preserves relevant and case_property", () => {
+	it("datetime → date preserves relevant and case_property_on", () => {
 		const doc = docWithField({
 			uuid: "q-1",
 			kind: "datetime",
 			id: "appt_dt",
 			label: "Appointment",
 			relevant: ". != ''",
-			case_property: "appointment_dt",
+			case_property_on: "appointment_dt",
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -201,7 +201,7 @@ describe("convertField — temporal family", () => {
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("date");
 		expect(converted.relevant).toBe(". != ''");
-		expect(converted.case_property).toBe("appointment_dt");
+		expect(converted.case_property_on).toBe("appointment_dt");
 	});
 });
 

@@ -8,7 +8,7 @@
  * the first draft which made six independent walks per form.
  *
  * Field discriminator is `kind`; validation key is `validate`; case
- * linkage is `case_property`. Children live in `fieldOrder[parentUuid]`,
+ * linkage is `case_property_on`. Children live in `fieldOrder[parentUuid]`,
  * not on the field itself.
  */
 
@@ -63,7 +63,7 @@ export interface FormStats {
 	hasCloseCase: boolean;
 	hasFormLinks: boolean;
 	hasConnect: boolean;
-	/** Number of case properties saved by this form (fields with case_property). */
+	/** Number of case properties saved by this form (fields with case_property_on). */
 	casePropertyCount: number;
 }
 
@@ -229,12 +229,12 @@ function countLogicFromList(fields: Field[]): LogicCounts {
 
 /**
  * Count fields from a pre-collected list that save to a case property
- * (have `case_property` set).
+ * (have `case_property_on` set).
  */
 function countCasePropertiesFromList(fields: Field[]): number {
 	let count = 0;
 	for (const f of fields) {
-		if ("case_property" in f && f.case_property) count++;
+		if ("case_property_on" in f && f.case_property_on) count++;
 	}
 	return count;
 }
@@ -492,7 +492,7 @@ function walkForLogic(
  *   - Registration forms without a case_name field (case has no name)
  *   - Modules with caseType but no caseListColumns (invisible columns)
  *   - Hidden fields without calculate/default (orphaned, always blank)
- *   - Forms with zero case_property fields (form saves nothing)
+ *   - Forms with zero case_property_on fields (form saves nothing)
  *
  * NOTE: post_submit is NOT flagged. The system applies form-type
  * defaults automatically, so omitting it is correct behavior.
@@ -538,7 +538,7 @@ function checkQuality(
 					module: mod.name,
 					form: form.name,
 					message:
-						"Form has no fields with case_property — saves nothing to the case",
+						"Form has no fields with case_property_on — saves nothing to the case",
 				});
 			}
 

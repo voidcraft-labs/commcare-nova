@@ -81,7 +81,7 @@ describe("toolSchemaGenerator", () => {
 
 	it("makes clearable edit-patch fields nullable", () => {
 		// `relevant` / `calculate` / `default_value` / `options` /
-		// `case_property` accept `null` to explicitly clear the value;
+		// `case_property_on` accept `null` to explicitly clear the value;
 		// the tool handler maps null → undefined so the reducer's
 		// Object.assign drops the key.
 		const jsonSchema = z.toJSONSchema(
@@ -94,7 +94,7 @@ describe("toolSchemaGenerator", () => {
 			"calculate",
 			"default_value",
 			"options",
-			"case_property",
+			"case_property_on",
 		]) {
 			const prop = jsonSchema.properties[key];
 			expect(prop, `expected ${key} in schema`).toBeDefined();
@@ -147,7 +147,7 @@ describe("toolSchemaGenerator", () => {
 			calculate: "",
 			default_value: "",
 			options: [],
-			case_property: "patient",
+			case_property_on: "patient",
 		});
 		expect(result.success).toBe(true);
 	});

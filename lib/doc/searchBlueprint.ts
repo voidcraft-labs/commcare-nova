@@ -27,7 +27,7 @@ export interface SearchResult {
 	fieldPath?: string;
 	/** Stable uuid of the matched entity — lets callers target mutations. */
 	uuid?: Uuid;
-	/** Which property matched (e.g. 'label', 'case_property', 'id', 'name'). */
+	/** Which property matched (e.g. 'label', 'case_property_on', 'id', 'name'). */
 	field: string;
 	/** The matched value. */
 	value: string;
@@ -148,12 +148,12 @@ function searchFields(
 		}
 		const anyField = field as Record<string, unknown>;
 		if (
-			typeof anyField.case_property === "string" &&
+			typeof anyField.case_property_on === "string" &&
 			field.id.toLowerCase().includes(query)
 		) {
 			matchFields.push({
-				field: "case_property",
-				value: `${field.id}→${anyField.case_property}`,
+				field: "case_property_on",
+				value: `${field.id}→${anyField.case_property_on}`,
 			});
 		}
 		for (const key of [
@@ -189,8 +189,8 @@ function searchFields(
 
 		for (const match of matchFields) {
 			const caseTag =
-				typeof anyField.case_property === "string"
-					? `, case_property:${anyField.case_property}`
+				typeof anyField.case_property_on === "string"
+					? `, case_property_on:${anyField.case_property_on}`
 					: "";
 			results.push({
 				type: "field",

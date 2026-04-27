@@ -238,7 +238,7 @@ describe("addField and addFields share the same add-path pipeline", () => {
 						calculate: "",
 						default_value: "",
 						options: [],
-						case_property: "",
+						case_property_on: "",
 					},
 				],
 			},

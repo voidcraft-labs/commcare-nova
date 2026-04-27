@@ -9,7 +9,7 @@
  *   regardless of cache state.
  *
  * The edit-mode summary is rendered from the normalized `BlueprintDoc`
- * and uses domain vocabulary (`field`, `kind`, `case_property`) to
+ * and uses domain vocabulary (`field`, `kind`, `case_property_on`) to
  * match the SA's tool surface.
  */
 
@@ -38,7 +38,7 @@ String literals must be wrapped in quotes.
 
 In any XPath Expression or label-type field, use the correct hashtag reference with their full path to output a node's or property's value:
 1. \`#form/full/path/to/field\`
-2. \`#case/case_property\`
+2. \`#case/case_property_name\`
 3. \`#user/user_property\`
 
 ### Direct Values (no arguments)
@@ -224,8 +224,8 @@ Groups are structural folders — they organize fields by purpose, not just visu
 
 Pattern — member-registration on a household followup:
 
-- "Member identity" group: every child field sets \`case_property: member\` — visible \`case_name\` (the member's name, per the Case Name Property rule above), \`sex\`, \`age\` + hidden \`registration_date\`, \`last_visit_date\`, \`member_status\`.
-- "Household update" group: every child field sets \`case_property: household\` — hidden \`last_visit_date\` (the household's) + hidden \`member_count\`.
+- "Member identity" group: every child field sets \`case_property_on: member\` — visible \`case_name\` (the member's name, per the Case Name Property rule above), \`sex\`, \`age\` + hidden \`registration_date\`, \`last_visit_date\`, \`member_status\`.
+- "Household update" group: every child field sets \`case_property_on: household\` — hidden \`last_visit_date\` (the household's) + hidden \`member_count\`.
 
 Both groups have a \`last_visit_date\` underneath, but at different paths — they're cousins by structure, so they share the id \`last_visit_date\` *literally*. No \`m_\`, no \`_household\`, no defensive prefixes — when two cousin fields mean the same thing, they get the same id.
 

@@ -5,7 +5,7 @@
  * `Field` is a discriminated union where each variant declares a
  * different subset of the optional string properties (`relevant`,
  * `validate`, `calculate`, `default_value`, `required`, `hint`, `label`,
- * `case_property`, `validate_msg`). Consumers that walk a doc and read
+ * `case_property_on`, `validate_msg`). Consumers that walk a doc and read
  * these values generically — the XForm emitter, formActions, case-config
  * derivation — can't narrow once per kind without cascading N×M
  * branching. `readFieldString` reads through the union via a single

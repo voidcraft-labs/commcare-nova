@@ -73,9 +73,9 @@ export function collectValidPaths(
  * Collect case-property names saved to a given case type across the whole
  * app. Walks modules with the target case type AND any parent module whose
  * case type is the parent of the target (child-case creation lives on the
- * parent module's fields via a non-matching `case_property`).
+ * parent module's fields via a non-matching `case_property_on`).
  *
- * The per-field filter (`field.case_property === caseType`) ensures only
+ * The per-field filter (`field.case_property_on === caseType`) ensures only
  * properties targeting the requested type are collected, even when walking
  * a parent module whose own fields save to its primary type.
  */
@@ -111,7 +111,8 @@ function collectFromTree(
 	for (const uuid of order) {
 		const field = doc.fields[uuid];
 		if (!field) continue;
-		const casePropertyOf = (field as { case_property?: string }).case_property;
+		const casePropertyOf = (field as { case_property_on?: string })
+			.case_property_on;
 		if (casePropertyOf === moduleCaseType) props.add(field.id);
 		if (doc.fieldOrder[uuid] !== undefined) {
 			collectFromTree(doc, uuid, moduleCaseType, props);

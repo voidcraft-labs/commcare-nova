@@ -8,7 +8,7 @@
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
- * `case_property`. Tool args flow straight into the reducer helpers in
+ * `case_property_on`. Tool args flow straight into the reducer helpers in
  * `blueprintHelpers.ts`. `validateAndFix` (in `validationLoop.ts`) reads
  * the normalized doc directly, runs XForm validation via
  * `lib/commcare/`, and returns a normalized doc with any auto-fixes

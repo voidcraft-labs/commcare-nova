@@ -27,7 +27,7 @@
 // ## Vocabulary
 //
 // The SA speaks domain vocabulary end-to-end: `kind`, `validate`,
-// `validate_msg`, `case_property`. There is no translation layer between
+// `validate_msg`, `case_property_on`. There is no translation layer between
 // the LLM and the mutation reducer — tool args flow straight through.
 // CommCare wire terms live only at the emission boundary in
 // `lib/commcare/` (XForm output). The domain never round-trips
@@ -76,7 +76,7 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 // whereas these strings describe the EXTERNAL LLM contract (how to
 // fill each slot, when to use sentinels, hashtag reference rules, etc.).
 //
-// Field names here are the domain names (`validate`, `case_property`,
+// Field names here are the domain names (`validate`, `case_property_on`,
 // …). If we ever flip to per-type tools (one schema per kind), these
 // strings still apply — they carry the per-property guidance, not the
 // per-kind shape.
@@ -85,7 +85,7 @@ const FIELD_DOCS = {
 	id:
 		"Unique identifier per parent level. Use alphanumeric snake_case " +
 		"(must start with a letter). Becomes the XForm node name and the " +
-		"CommCare case-property key when `case_property` is set.",
+		"CommCare case-property key when `case_property_on` is set.",
 	label:
 		"Human-friendly label shown to the end user. Supports hashtag " +
 		"references (`#case/prop`, `#form/path`, `#user/prop`) and " +
@@ -125,7 +125,7 @@ const FIELD_DOCS = {
 	options:
 		"Choice list for single_select / multi_select — minimum 2 options. " +
 		"Omit entirely for other kinds.",
-	case_property:
+	case_property_on:
 		"Case type name this field saves to. When it matches the module's " +
 		"case type, the field becomes a normal case property. When " +
 		"different, the field implicitly creates a child case of that " +
@@ -226,8 +226,8 @@ const repeatConfigField = () =>
 				"Pick a `mode` and provide the matching mode-specific field " +
 				"(`count` for count_bound, `ids_query` for query_bound).",
 		);
-const casePropertyField = () =>
-	z.string().optional().describe(FIELD_DOCS.case_property);
+const casePropertyOnField = () =>
+	z.string().optional().describe(FIELD_DOCS.case_property_on);
 
 // Nullable variants for the edit patch. `null` means "clear this
 // property" (distinct from "leave unchanged", which is the key absent).
@@ -269,7 +269,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 		calculate: calculateField(),
 		default_value: defaultValueField(),
 		options: optionsField(),
-		case_property: casePropertyField(),
+		case_property_on: casePropertyOnField(),
 		repeat: repeatConfigField().optional(),
 	});
 }
@@ -299,7 +299,7 @@ function buildAddFieldSchema(kinds: readonly FieldKind[]) {
 		calculate: calculateField(),
 		default_value: defaultValueField(),
 		options: optionsField(),
-		case_property: casePropertyField(),
+		case_property_on: casePropertyOnField(),
 		repeat: repeatConfigField().optional(),
 	});
 }
@@ -343,7 +343,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			calculate: nullableString(FIELD_DOCS.calculate),
 			default_value: nullableString(FIELD_DOCS.default_value),
 			options: nullableOptions(),
-			case_property: nullableString(FIELD_DOCS.case_property),
+			case_property_on: nullableString(FIELD_DOCS.case_property_on),
 			repeat: repeatConfigField().optional(),
 		})
 		.describe(

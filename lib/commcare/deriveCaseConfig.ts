@@ -2,7 +2,7 @@
  * Form-level case config derivation.
  *
  * A form doesn't carry its case wiring directly — it's derived from the
- * per-field `case_property` annotations. A field whose `case_property`
+ * per-field `case_property_on` annotations. A field whose `case_property_on`
  * matches the module's case type becomes a primary case property; a
  * field pointing at a different case type contributes to a derived
  * child-case `OpenSubCaseAction`. Case name is always the field with
@@ -12,7 +12,7 @@
  * need the same derivation, so it lives here as a single pure function
  * over the normalized doc. No wire shapes involved — the function walks
  * `doc.fieldOrder[formUuid]` and reads domain field keys (`kind`,
- * `case_property`, `id`) directly.
+ * `case_property_on`, `id`) directly.
  */
 
 import {
@@ -88,10 +88,10 @@ export function deriveCaseConfig(
 			if (!field) continue;
 
 			const currentRepeat = field.kind === "repeat" ? field.id : repeatAncestor;
-			const caseProperty = readFieldString(field, "case_property");
+			const casePropertyOn = readFieldString(field, "case_property_on");
 
-			if (caseProperty) {
-				if (caseProperty === moduleCaseType) {
+			if (casePropertyOn) {
+				if (casePropertyOn === moduleCaseType) {
 					// Primary case property
 					if (field.id === "case_name") {
 						case_name_field = field.id;
@@ -109,9 +109,10 @@ export function deriveCaseConfig(
 					}
 				} else {
 					// Child case property
-					if (!childGroups.has(caseProperty)) childGroups.set(caseProperty, []);
+					if (!childGroups.has(casePropertyOn))
+						childGroups.set(casePropertyOn, []);
 					childGroups
-						.get(caseProperty)
+						.get(casePropertyOn)
 						?.push({ id: field.id, repeatAncestor: currentRepeat });
 				}
 			}
