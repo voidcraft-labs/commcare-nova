@@ -16,10 +16,12 @@
 // for `<group>` elements without a `<label>`. The Nova preview matches
 // this in `InteractiveFormRenderer`; edit-mode rendering still surfaces
 // empty-labeled groups via `VirtualFormList` → `GroupBracket` so authors
-// can select and edit them. One application is disambiguating two
-// hidden fields that share an id (because field id = case property
-// name) — wrapping each in its own empty-label group makes them
-// cousins instead of siblings, which CommCare allows.
+// can select and edit them. Empty-label groups are a residual layout
+// affordance — a place for stray hidden fields that don't fit any
+// labeled group. Logical case-scoped grouping (every child field's
+// `case_property` matching the group's purpose) is the primary
+// organization pattern; empty-label groups are not a primary
+// disambiguation tool.
 
 import tablerFolder from "@iconify-icons/tabler/folder";
 import { z } from "zod";
@@ -42,6 +44,6 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	isStructural: true,
 	isContainer: true,
 	saDocs:
-		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Leave the label empty to make the group transparent (invisible at runtime) — useful for disambiguating two hidden fields that share an id by giving them different parents.",
+		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's `case_property` matches the group's purpose) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime) — a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
 	convertTargets: ["repeat"],
 };

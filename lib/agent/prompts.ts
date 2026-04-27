@@ -50,6 +50,7 @@ In any XPath Expression or label-type field, use the correct hashtag reference w
 - \`here()\` → returns GPS position (case list/detail only, Android only)
 - \`random()\` → returns random decimal in [0.0, 1.0)
 - \`pi()\` → returns π
+- \`current()\` → returns the bind's own context node. Distinct from \`.\` (which rebinds inside predicates). Required pattern inside a query-bound repeat: \`current()/../@id\` walks from the calculate's bind up to the iteration \`<item>\` to read its \`@id\` attribute.
 
 ### Type Conversion
 
@@ -215,15 +216,34 @@ Child case creation always happens from forms in the parent module — do **not*
 
 If a hidden field would just copy another name-shaped property into \`case_name\`, you have a duplicate — collapse it.
 
-### Empty-Label Groups
+### Logical Grouping
 
-Groups are structural containers — folders for fields. A group with a non-empty \`label\` renders as a visible section with the label as its header. A group with an empty \`label\` renders **invisibly** at runtime — same purpose at the data-model layer, no visual chrome.
+Groups are structural folders — they organize fields by purpose, not just visual section. The data tree under a group becomes a nested path in the XForm, so logical groups shape both UX (one header per coherent topic) AND data model (related fields nest at the same path).
 
-Use empty-label groups to disambiguate two fields that would otherwise collide as siblings. The most common case: two hidden fields that share an \`id\` because field \`id\` = case property name (e.g., a follow-up form that sets \`last_visit_date\` on both the primary case and a related case). Wrapping each in its own empty-label group makes them cousins — different parents — which CommCare allows. Set \`case_property\` on each hidden field to the right case type.
+**Group fields by their logical purpose first, then by visibility.** When a form involves multiple case types or distinct semantic blocks, organize each case's fields — visible AND hidden — inside that case's logical group. Don't split visible content into one group and hidden metadata into a separate \`_meta\` sibling; that fragments the case's data and creates the disambiguation problem you'd otherwise have to solve.
 
-For visible logical grouping, always give the group a label.
+Pattern — member-registration on a household followup:
 
-Always validate when generation is complete.
+- "Member identity" group: every child field sets \`case_property: member\` — visible \`case_name\` (the member's name, per the Case Name Property rule above), \`sex\`, \`age\` + hidden \`registration_date\`, \`last_visit_date\`, \`member_status\`.
+- "Household update" group: every child field sets \`case_property: household\` — hidden \`last_visit_date\` (the household's) + hidden \`member_count\`.
+
+Both groups have a \`last_visit_date\` underneath, but at different paths — they're cousins by structure, no manual disambiguation needed.
+
+**Empty-label groups are a residual tool, not a primary one.** Reserved for stray hidden fields that don't fit any logical group — typically a tail-of-form update to a parent or related case. Don't reach for empty-label \`_meta\` groups as a disambiguation strategy; that's the pattern logical grouping is meant to make unnecessary.
+
+An empty-label group renders invisibly at runtime (no header, no chrome) but still groups its children at the data-tree level. Use empty labels deliberately.
+
+### Repeat Modes
+
+When \`kind: "repeat"\`, you must include a \`repeat\` object with one of three \`mode\` values. The mode determines runtime cardinality and whether Add/Remove appears.
+
+- **\`user_controlled\`** — default. The user adds/removes instances at form fill (e.g. household members, contacts). No \`count\` or \`ids_query\` needed.
+- **\`count_bound\`** — set \`repeat.count\` to an XPath (e.g. \`#form/desired_count\`). The runtime evaluates it ONCE at form load and freezes cardinality there. JavaRosa does NOT recalculate when dependencies change — this is the JavaRosa spec, not a Nova choice.
+- **\`query_bound\`** — set \`repeat.ids_query\` to an XPath that resolves to a list of case ids. The runtime materializes one instance per id, frozen at form load. Use for case-database iteration: "for each open service case, render a row." Inside the repeat, the iteration's case id is at \`current()/../@id\`; the dominant pattern for fetching per-iteration data is a hidden field with \`calculate: instance('casedb')/casedb/case[@case_id=current()/../@id]/<property>\` — that's the join expression that turns a list of ids into per-row case values.
+
+Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load — JavaRosa does not re-evaluate when the source XPath's dependencies change. \`user_controlled\` is user-driven (no expression to recalculate). None of the three modes reacts to a changing input field. If the user wants reactive cardinality based on a changing input, that workflow doesn't fit Nova's repeat primitives — flag the constraint to the user rather than silently approximating.
+
+**Pick the simplest mode that fits.** Most repeats are \`user_controlled\`. Reach for \`count_bound\` or \`query_bound\` only when cardinality is genuinely fixed by a query or count field — not as a default. Both \`count_bound\` and \`query_bound\` are heavy logic patterns: their children are usually hidden fields with computed values, not user input.
 
 ---
 
