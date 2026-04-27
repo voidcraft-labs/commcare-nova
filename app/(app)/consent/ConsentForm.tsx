@@ -7,9 +7,12 @@
 
 "use client";
 
+import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
+import tablerCircleDashed from "@iconify-icons/tabler/circle-dashed";
+import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
 import { motion } from "motion/react";
 import { type ReactNode, useState } from "react";
@@ -17,6 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { authClient } from "@/lib/auth-client";
 import { deriveCapabilities } from "@/lib/oauth/capabilities";
 import { deriveOAuthClientDisclosure } from "@/lib/oauth/client-display";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 interface ConsentFormProps {
 	clientName: string;
@@ -25,6 +29,21 @@ interface ConsentFormProps {
 	redirectUri?: string;
 	clientUri?: string;
 	trustedClient: boolean;
+	/**
+	 * Whether the user has connected a CommCare HQ API key. The OAuth grant
+	 * itself is unconditional — the user is granting the SCOPE here, and the
+	 * connecting app picks up data access the moment a key is later added —
+	 * but if HQ scopes are requested while the key is missing, the
+	 * capability list surfaces a dormancy hint so the user isn't surprised
+	 * when the connecting app's HQ features no-op until setup completes.
+	 *
+	 * Three-valued on purpose: `true` means "key present", `false` means
+	 * "we asked, no key", and `undefined` means "the question doesn't apply
+	 * (no HQ scopes requested)." Collapsing the last two into a single
+	 * `false` would force every consumer to re-derive the gating logic the
+	 * page already knows.
+	 */
+	hqConfigured?: boolean;
 }
 
 /**
@@ -73,6 +92,7 @@ export function ConsentForm({
 	redirectUri,
 	clientUri,
 	trustedClient,
+	hqConfigured,
 }: ConsentFormProps) {
 	const [pending, setPending] = useState<"accept" | "deny" | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -114,13 +134,37 @@ export function ConsentForm({
 		 * navigation needed here. */
 	};
 
-	const capabilities = deriveCapabilities(scopes);
 	const disclosure = deriveOAuthClientDisclosure({
 		clientName,
 		redirectUri,
 		clientUri,
 		trusted: trustedClient,
 	});
+
+	/* Split capabilities into the standard rows and the HQ rows so the
+	 * dormancy treatment (amber sub-card) can wrap the HQ rows + footnote
+	 * without leaking styling onto the standard rows. Order within each
+	 * group is preserved from `deriveCapabilities`, which already sequences
+	 * known capabilities top-to-bottom in a sensible progression and
+	 * appends unknown-scope catch-alls at the end — those land in the
+	 * non-HQ bucket, so the HQ sub-card always anchors at the bottom of
+	 * the list regardless of whether unknown scopes are present. */
+	const allCapabilities = deriveCapabilities(scopes);
+	const nonHqCapabilities = allCapabilities.filter(
+		(c) => !c.key.startsWith("nova.hq."),
+	);
+	const hqCapabilities = allCapabilities.filter((c) =>
+		c.key.startsWith("nova.hq."),
+	);
+
+	/* Render the dormancy sub-card only when the page told us we asked AND
+	 * got back a "no key" answer (`hqConfigured === false`) AND the row
+	 * actually surfaces. `undefined` means the page never even ran the
+	 * Firestore read — collapsing it with `false` would silently treat
+	 * "didn't ask" as "asked and got no key" the moment a future caller
+	 * forgets to gate the prop on scope content. */
+	const showHqPendingGroup =
+		hqConfigured === false && hqCapabilities.length > 0;
 
 	/* Ease curve mirrors the landing page's sign-in reveal (0.16, 1, 0.3, 1) —
 	 * gentle decelerating arrival. Timing is tight enough to feel instant on
@@ -220,11 +264,62 @@ export function ConsentForm({
 					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-nova-text-muted">
 						It will be able to
 					</p>
-					<ul className="overflow-hidden rounded-xl border border-nova-border/60 bg-nova-surface/20">
-						{capabilities.map((c) => (
-							<CapabilityRow key={c.key} label={c.label} icon={c.icon} />
-						))}
-					</ul>
+					{/* Three rendering shapes share the "It will be able to" slot:
+					 *
+					 *   1. Standard list — every row in a single <ul> with the
+					 *      gray surface treatment (HQ configured, OR no HQ
+					 *      scopes requested).
+					 *   2. Standard list + amber sub-card — non-HQ rows in the
+					 *      gray-bordered <ul> as usual; HQ rows + footnote nest
+					 *      below in a self-contained amber sub-card.
+					 *   3. Amber sub-card alone — the request is HQ-only (a
+					 *      legitimate scope combination for deploy-only
+					 *      integrations), so there are zero non-HQ rows and the
+					 *      gray wrapper would otherwise render an empty <ul>
+					 *      ("list, 0 items" to AT) inside a redundant outer
+					 *      border. Surface the amber sub-card as the only
+					 *      container in that case. */}
+					{showHqPendingGroup && nonHqCapabilities.length === 0 ? (
+						<div className="overflow-hidden rounded-xl border border-nova-amber/30 bg-nova-amber/[0.05]">
+							<ul>
+								{hqCapabilities.map((c) => (
+									<CapabilityRow key={c.key} label={c.label} icon={c.icon} />
+								))}
+							</ul>
+							<HqPendingFootnote />
+						</div>
+					) : (
+						<div className="overflow-hidden rounded-xl border border-nova-border/60 bg-nova-surface/20">
+							<ul>
+								{nonHqCapabilities.map((c) => (
+									<CapabilityRow key={c.key} label={c.label} icon={c.icon} />
+								))}
+								{!showHqPendingGroup
+									? hqCapabilities.map((c) => (
+											<CapabilityRow
+												key={c.key}
+												label={c.label}
+												icon={c.icon}
+											/>
+										))
+									: null}
+							</ul>
+							{showHqPendingGroup ? (
+								<div className="mx-2 mb-2 mt-2 overflow-hidden rounded-lg border border-nova-amber/30 bg-nova-amber/[0.05]">
+									<ul>
+										{hqCapabilities.map((c) => (
+											<CapabilityRow
+												key={c.key}
+												label={c.label}
+												icon={c.icon}
+											/>
+										))}
+									</ul>
+									<HqPendingFootnote />
+								</div>
+							) : null}
+						</div>
+					)}
 				</motion.div>
 
 				{error ? (
@@ -405,10 +500,16 @@ function IdentityRow({
 /**
  * Single capability row. Plain-English description is the only content —
  * raw scope identifiers are intentionally omitted to keep the list
- * scannable for non-technical users. Every row uses the same surface
- * treatment so the list doesn't read as a multi-select with a chosen
- * item; the semantic icon (user / eye / pencil / key) carries the "what
- * kind of grant this is" signal without needing color or fill.
+ * scannable for non-technical users. The semantic icon (user / eye /
+ * pencil / cloud) carries the "what kind of grant this is" signal
+ * without needing color or fill.
+ *
+ * The row stays decorationless even in the dormancy case: visual
+ * grouping is handled by the surrounding container (the nested amber
+ * card the consent form wraps HQ rows in when their data dependency is
+ * missing), not by per-row styling. That keeps the row primitive
+ * single-purpose and lets the row's amber wash inherit cleanly from the
+ * wrapper's `bg-nova-amber/*` instead of double-stacking.
  */
 function CapabilityRow({
 	label,
@@ -430,5 +531,112 @@ function CapabilityRow({
 				{label}
 			</span>
 		</li>
+	);
+}
+
+/**
+ * Dormancy footnote attached to the capability list when the user is
+ * granting HQ scopes but hasn't connected a CommCare HQ API key yet. The
+ * grant itself is unconditional — the connecting app picks up data
+ * access the moment a key is added later — so the footnote is purely
+ * informational, not a prerequisite or warning.
+ *
+ * The whole strip is a single popover trigger: opens on hover, focus, or
+ * click (no settings link inside, on purpose). A direct "Open settings"
+ * affordance would tempt the user to leave mid-flow, and the OAuth `sig`
+ * has an `exp` — losing the tab to a settings detour can stale the
+ * signature out from under them. The popover explains and reassures;
+ * the user finishes consent first, sets up later.
+ *
+ * Amber rather than rose: this is a "not yet configured" state, not an
+ * error. A rose treatment would frame setup as a failure recovery.
+ */
+function HqPendingFootnote() {
+	return (
+		<Popover.Root>
+			{/* The trigger carries a short accessible signpost; the
+			 *   substantive copy lives in `Popover.Title` +
+			 *   `Popover.Description` inside the popup so the dialog
+			 *   announcement on the touch / tap-to-open path is informative
+			 *   on its own.
+			 *
+			 *   Hover-open relies on Base UI's 300ms default delay to filter
+			 *   incidental pass-through hovers — without it, a cursor
+			 *   sweeping from the capability list down to the Allow button
+			 *   trips the hover threshold and flashes the popup open right
+			 *   as the user is about to click, reading as a bug. */}
+			<Popover.Trigger
+				openOnHover
+				closeDelay={120}
+				aria-label="Awaiting CommCare HQ setup. Open for details."
+				className="group flex w-full cursor-pointer items-center gap-2 border-t border-nova-amber/25 bg-nova-amber/[0.05] px-3.5 py-2 text-left outline-none transition-colors duration-150 hover:bg-nova-amber/[0.12] focus-visible:bg-nova-amber/[0.12] focus-visible:ring-1 focus-visible:ring-nova-amber/40 focus-visible:ring-inset"
+			>
+				<Icon
+					icon={tablerCircleDashed}
+					width="11"
+					height="11"
+					aria-hidden
+					className="shrink-0 text-nova-amber"
+				/>
+				<span className="flex-1 text-[10px] font-medium uppercase tracking-[0.12em] text-nova-amber/85">
+					Awaiting CommCare HQ setup
+				</span>
+				<Icon
+					icon={tablerInfoCircle}
+					width="12"
+					height="12"
+					aria-hidden
+					className="shrink-0 text-nova-amber/55 transition-colors duration-150 group-hover:text-nova-amber group-focus-visible:text-nova-amber"
+				/>
+			</Popover.Trigger>
+			<Popover.Portal>
+				<Popover.Positioner
+					side="top"
+					align="end"
+					sideOffset={10}
+					className={POPOVER_POSITIONER_GLASS_CLS}
+				>
+					<Popover.Popup className={`${POPOVER_POPUP_CLS} w-[18.5rem]`}>
+						<div className="px-4 pt-3.5 pb-4">
+							<div className="mb-2 flex items-center gap-2">
+								<Icon
+									icon={tablerCircleDashed}
+									width="13"
+									height="13"
+									aria-hidden
+									className="text-nova-amber"
+								/>
+								{/* `Popover.Title` is what Base UI threads into the
+								 *   popup's `aria-labelledby` — without it, AT users
+								 *   who land focus inside the dialog (touch / tap-to-
+								 *   open path) hear an unlabelled dialog. Default
+								 *   render element is `<h2>`; we override to `<p>`
+								 *   because the text is a small uppercase eyebrow,
+								 *   not a heading users would navigate to via the
+								 *   page's heading outline. */}
+								<Popover.Title
+									render={<p />}
+									className="text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-amber"
+								>
+									Activates after setup
+								</Popover.Title>
+							</div>
+							{/* `Popover.Description` threads into the popup's
+							 *   `aria-describedby`. Carries the substantive
+							 *   reassurance copy so the dialog announcement is
+							 *   informative, not just a labelled empty box. */}
+							<Popover.Description className="text-xs leading-relaxed text-nova-text">
+								Approving saves these permissions. Data access turns on
+								automatically when you add a CommCare HQ API key under{" "}
+								<span className="font-medium text-nova-text">
+									Settings &rarr; CommCare HQ
+								</span>{" "}
+								— you won&rsquo;t need to come back here.
+							</Popover.Description>
+						</div>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
 	);
 }

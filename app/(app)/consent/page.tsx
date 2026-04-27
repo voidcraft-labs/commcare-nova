@@ -22,6 +22,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
+import { getCommCareSettings } from "@/lib/db/settings";
 import { ConsentForm } from "./ConsentForm";
 
 interface ConsentPageProps {
@@ -116,10 +117,42 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	 * stale or forged signatures at the POST, so surfacing an error branch
 	 * client-side is a UX concession, not a security boundary. */
 	const requestValid = Boolean(clientId && scopes.length > 0 && sig);
-	const clientInfo =
+
+	/* The HQ scopes (`nova.hq.read` / `nova.hq.write`) are real grants
+	 * regardless of whether the user has connected a CommCare HQ API key —
+	 * the OAuth client gains effective access the moment a key is added
+	 * later, with no second consent cycle. We still want to surface that
+	 * dormancy so the user isn't surprised when the connecting app's HQ
+	 * features look broken until setup completes. */
+	const hqScopeRequested =
+		scopes.includes("nova.hq.read") || scopes.includes("nova.hq.write");
+
+	/* Fetch the public client display + the HQ-configured flag in parallel.
+	 * Both are display-only, both gated on `requestValid`, and neither
+	 * blocks the other. The HQ flag is `undefined` when we never asked
+	 * (no HQ scope or invalid request), `true`/`false` when we did — the
+	 * form distinguishes "didn't ask" from "asked, no key" so a future
+	 * caller forgetting the gating logic can't silently flip a "no HQ
+	 * scope requested" call into "user has no key" UI. On Firestore
+	 * failure we deliberately return `false` rather than `undefined`:
+	 * showing the dormancy hint is the safer of the two failure modes
+	 * (vs. silently implying the integration is wired up). */
+	const [clientInfo, hqConfigured] = await Promise.all([
 		requestValid && clientId
-			? await fetchClientPublicInfo(auth, clientId, hdrs)
-			: undefined;
+			? fetchClientPublicInfo(auth, clientId, hdrs)
+			: Promise.resolve(undefined),
+		requestValid && hqScopeRequested
+			? getCommCareSettings(session.user.id)
+					.then((s) => s.configured)
+					.catch((err) => {
+						console.warn(
+							`[consent] getCommCareSettings threw for user=${session.user.id}:`,
+							err,
+						);
+						return false;
+					})
+			: Promise.resolve<boolean | undefined>(undefined),
+	]);
 	const clientName = clientInfo?.clientName ?? "An application";
 
 	return (
@@ -146,6 +179,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 					redirectUri={redirectUri}
 					clientUri={clientInfo?.clientUri}
 					trustedClient={false}
+					hqConfigured={hqConfigured}
 				/>
 			</div>
 		</main>
