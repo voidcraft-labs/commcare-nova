@@ -12,6 +12,40 @@ export interface FieldState {
 	resolvedLabel?: string;
 	/** Hint with hashtag refs evaluated to runtime values. Only set when the hint contains refs. */
 	resolvedHint?: string;
+	/** Live instance count for repeat fields. Only set on `repeat` kinds —
+	 *  undefined elsewhere. Surfaced through `useEngineState(uuid)` so the
+	 *  preview's `RepeatField` re-renders when add/remove mutates
+	 *  cardinality: child-instance writes are keyed by `[N]/...` paths the
+	 *  UUID-keyed runtime store doesn't track, so the repeat's own state
+	 *  reference is the only signal Zustand subscribers can observe. */
+	repeatCount?: number;
+}
+
+/**
+ * Structural equality for `FieldState`. Callers writing back into a
+ * Zustand store use this to skip the write when the new state is equal
+ * by value to the current one — `validateAll` / `resetValidation` in
+ * the engine controller, schema-rebuild diffing in
+ * `formEngine.updateSchema`, and any future selective sync. Both stores
+ * key on `===` reference equality, so an unconditional `setState` of an
+ * equal-by-value-but-new-by-reference object forces spurious re-renders.
+ *
+ * Colocated with `FieldState` so adding a slot to the interface and
+ * extending the comparison happen in one file.
+ */
+export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
+	return (
+		a.path === b.path &&
+		a.value === b.value &&
+		a.visible === b.visible &&
+		a.required === b.required &&
+		a.valid === b.valid &&
+		a.touched === b.touched &&
+		a.errorMessage === b.errorMessage &&
+		a.resolvedLabel === b.resolvedLabel &&
+		a.resolvedHint === b.resolvedHint &&
+		a.repeatCount === b.repeatCount
+	);
 }
 
 /** Navigation screen types for the preview. */

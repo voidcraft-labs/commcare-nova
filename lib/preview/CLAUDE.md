@@ -19,6 +19,10 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 - **`reset()` is a full reinitialization** — rebuild instance, re-preload, reapply defaults, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
 
+## Repeat-count reactivity
+
+In render paths, read repeat instance counts from `state.repeatCount` (via `useEngineState`), not from `controller.getRepeatCount(uuid)`. The latter is a non-reactive method call — the row only re-renders if it subscribes to something whose reference changed. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal; the new `[N]/...` child writes don't reach the runtime store because `pathToUuid` only registers the `[0]` template path. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
+
 ## Value persistence across engine recreation
 
 Blueprint mutations in edit mode recreate the engine. The engine hook snapshots live-mode values before recreation and restores **only user-touched values**. Untouched fields pick up the new engine's defaults — this is what makes editing a `default_value` expression in edit mode immediately visible in preview.

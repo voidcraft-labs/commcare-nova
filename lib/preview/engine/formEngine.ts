@@ -31,7 +31,7 @@ import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import { resolveLabel } from "./labelRefs";
 import { TriggerDag } from "./triggerDag";
-import type { FieldState } from "./types";
+import { type FieldState, fieldStatesEqual } from "./types";
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
@@ -46,23 +46,6 @@ export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
 
 /** The Zustand store type — flat map of XForm path → immutable FieldState. */
 export type EngineStoreState = Record<string, FieldState>;
-
-/** Field-level equality check for FieldState. Used by updateSchema to
- *  diff old vs new states and only notify subscribers for paths that
- *  actually changed. */
-function statesEqual(a: FieldState, b: FieldState): boolean {
-	return (
-		a.path === b.path &&
-		a.value === b.value &&
-		a.visible === b.visible &&
-		a.required === b.required &&
-		a.valid === b.valid &&
-		a.touched === b.touched &&
-		a.errorMessage === b.errorMessage &&
-		a.resolvedLabel === b.resolvedLabel &&
-		a.resolvedHint === b.resolvedHint
-	);
-}
 
 /**
  * Convenience view passed to the engine. The engine builds the `FieldTreeNode`
@@ -183,6 +166,16 @@ export class FormEngine {
 			}
 		}
 
+		// Bump `repeatCount` on the repeat's own state — this is what
+		// `useEngineState` subscribers observe to re-render with the new
+		// cardinality. See `lib/preview/CLAUDE.md` § Repeat-count
+		// reactivity for the path-routing constraint that makes this the
+		// only viable signal.
+		const repeatState = this.store.getState()[repeatPath];
+		if (repeatState) {
+			updates[repeatPath] = { ...repeatState, repeatCount: newIndex + 1 };
+		}
+
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
@@ -218,6 +211,12 @@ export class FormEngine {
 					updates[newPath] = { ...state, path: newPath };
 				}
 			}
+		}
+
+		// Decrement `repeatCount` so subscribers re-render — see `addRepeat`.
+		const repeatState = currentState[repeatPath];
+		if (repeatState) {
+			updates[repeatPath] = { ...repeatState, repeatCount: count - 1 };
 		}
 
 		this.instance.removeRepeatInstance(repeatPath, index);
@@ -342,6 +341,19 @@ export class FormEngine {
 	 * so the new field's dependency edges are present for evaluation.
 	 */
 	addFieldState(path: string, field: Field): void {
+		// Containers are structural — no value, no `default_value`, no
+		// `required` expression. They only carry `relevant`, which the
+		// `evaluatePathsInto` call below resolves into the visibility
+		// flag. Skipping the DataInstance write keeps the value Map
+		// pristine: only leaf fields own value paths.
+		if (field.kind === "group" || field.kind === "repeat") {
+			this.store.setState({
+				[path]: this.initialContainerState(path, field.kind),
+			});
+			this.evaluatePathsInto([path]);
+			return;
+		}
+
 		/* Add path to DataInstance with empty value */
 		if (!this.instance.has(path)) {
 			this.instance.set(path, "");
@@ -376,6 +388,33 @@ export class FormEngine {
 
 		/* Evaluate expressions (calculate, relevant, required, validation) */
 		this.evaluatePathsInto([path]);
+	}
+
+	/**
+	 * Build the initial `FieldState` for a structural container. Groups
+	 * and repeats carry no value of their own — the shell exists so
+	 * visibility and (for repeats) instance count have a reactive home
+	 * subscribers can read via `useEngineState`. Repeats seed
+	 * `repeatCount: 1` because instance `[0]` is materialised at form
+	 * load; `addRepeat` / `removeRepeat` are the only mutators after that.
+	 *
+	 * Both the bulk initializer (`initStatesInto`) and the incremental
+	 * path (`addFieldState`) build container states through here so the
+	 * shape stays in lockstep when slots change.
+	 */
+	private initialContainerState(
+		path: string,
+		kind: "group" | "repeat",
+	): FieldState {
+		const base: FieldState = {
+			path,
+			value: "",
+			visible: true,
+			required: false,
+			valid: true,
+			touched: false,
+		};
+		return kind === "repeat" ? { ...base, repeatCount: 1 } : base;
 	}
 
 	/**
@@ -554,7 +593,7 @@ export class FormEngine {
 			const oldState = oldStates[path];
 			/* Keep old reference if every field is identical */
 			finalStates[path] =
-				oldState && statesEqual(oldState, rebuiltState)
+				oldState && fieldStatesEqual(oldState, rebuiltState)
 					? oldState
 					: rebuiltState;
 		}
@@ -836,14 +875,7 @@ export class FormEngine {
 			const path = `${prefix}/${f.id}`;
 
 			if (f.kind === "group" || f.kind === "repeat") {
-				states[path] = {
-					path,
-					value: "",
-					visible: true,
-					required: false,
-					valid: true,
-					touched: false,
-				};
+				states[path] = this.initialContainerState(path, f.kind);
 				if (node.children) {
 					const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
 					this.initStatesInto(states, node.children, childPrefix);

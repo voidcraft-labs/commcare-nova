@@ -407,6 +407,165 @@ describe("FormEngine", () => {
 		});
 	});
 
+	describe("repeats", () => {
+		// The engine must publish the live instance count on the repeat's own
+		// `FieldState.repeatCount` — that's what makes the preview's Add/Remove
+		// buttons reactive. A regression here puts us back to the silent-no-op
+		// click that motivated this slot existing.
+		it("seeds repeatCount=1 on the repeat's own state", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					label: "Household members",
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+			]);
+			const engine = new FormEngine(input, null);
+
+			expect(engine.getState("/data/members").repeatCount).toBe(1);
+		});
+
+		it("addRepeat bumps repeatCount and rewrites the FieldState reference", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					label: "Household members",
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+			]);
+			const engine = new FormEngine(input, null);
+
+			const before = engine.store.getState()["/data/members"];
+			expect(before?.repeatCount).toBe(1);
+
+			const newIndex = engine.addRepeat("/data/members");
+			expect(newIndex).toBe(1);
+
+			const after = engine.store.getState()["/data/members"];
+			expect(after?.repeatCount).toBe(2);
+			// New reference is the reactivity contract Zustand subscribers rely on.
+			expect(after).not.toBe(before);
+		});
+
+		it("removeRepeat decrements repeatCount and rewrites the FieldState reference", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					label: "Household members",
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+			]);
+			const engine = new FormEngine(input, null);
+
+			engine.addRepeat("/data/members");
+			engine.addRepeat("/data/members");
+			expect(engine.getState("/data/members").repeatCount).toBe(3);
+
+			const before = engine.store.getState()["/data/members"];
+			engine.removeRepeat("/data/members", 1);
+			const after = engine.store.getState()["/data/members"];
+
+			expect(after?.repeatCount).toBe(2);
+			expect(after).not.toBe(before);
+		});
+
+		// `removeRepeat` first writes DEFAULT_ENGINE_STATE for every path under
+		// the deleted index, then renumbers higher indices down by writing the
+		// shifted state into the same `updates` object. When index 0 is removed
+		// from a [0,1] pair, both loops touch `[0]/...` paths — the renumber
+		// loop's write must clobber the deletion loop's, otherwise the
+		// surviving instance's value disappears. This test pins that ordering
+		// invariant as a behavioral contract so a future cleanup can't quietly
+		// reorder the loops without a regression.
+		it("removeRepeat(0) renumbers higher instances down and preserves their values", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					label: "Household members",
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+			]);
+			const engine = new FormEngine(input, null);
+
+			engine.addRepeat("/data/members");
+			engine.setValue("/data/members[0]/name", "Alice");
+			engine.setValue("/data/members[1]/name", "Bob");
+
+			engine.removeRepeat("/data/members", 0);
+
+			expect(engine.getState("/data/members").repeatCount).toBe(1);
+			// Bob's value moves down into the [0] slot — renumber loop won.
+			expect(engine.getState("/data/members[0]/name").value).toBe("Bob");
+			// The vacated [1]/name slot is unplugged to the frozen default.
+			expect(engine.getState("/data/members[1]/name").value).toBe("");
+		});
+
+		// `repeatCount` rides on the same `FieldState` object that visibility
+		// and validation cascades rewrite — so any cascade that re-evaluates
+		// the repeat's own path (e.g. its parent's `relevant` toggling) must
+		// preserve the count. The engine accomplishes this by spreading
+		// `...current` when it builds the new state; this test pins that
+		// behaviour as a contract so a future cleanup can't quietly switch
+		// to an explicit-keys reconstruction and silently lose the slot.
+		it("preserves repeatCount through a relevance-driven cascade", () => {
+			const input = dTree([
+				{
+					id: "show",
+					kind: "single_select",
+					label: "Show?",
+					options: [
+						{ value: "yes", label: "Yes" },
+						{ value: "no", label: "No" },
+					],
+				},
+				{
+					id: "members",
+					kind: "repeat",
+					label: "Members",
+					relevant: '/data/show = "yes"',
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+			]);
+			const engine = new FormEngine(input, null);
+
+			engine.setValue("/data/show", "yes");
+			engine.addRepeat("/data/members");
+			expect(engine.getState("/data/members").repeatCount).toBe(2);
+
+			// Toggle the parent's relevance off and back on. Each transition
+			// rewrites the repeat's `visible` flag, which forces a fresh
+			// FieldState reference for the repeat's path.
+			engine.setValue("/data/show", "no");
+			engine.setValue("/data/show", "yes");
+
+			expect(engine.getState("/data/members").repeatCount).toBe(2);
+		});
+
+		it("removeRepeat is a no-op when only one instance remains", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					label: "Household members",
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+			]);
+			const engine = new FormEngine(input, null);
+
+			const before = engine.store.getState()["/data/members"];
+			engine.removeRepeat("/data/members", 0);
+			const after = engine.store.getState()["/data/members"];
+
+			expect(after?.repeatCount).toBe(1);
+			// Same reference — no spurious re-render fired.
+			expect(after).toBe(before);
+		});
+	});
+
 	describe("touch (blur validation)", () => {
 		it("marks field as touched — required validation deferred to submit", () => {
 			const input = dTree([

@@ -49,7 +49,7 @@ import type { Field, Form, Uuid } from "@/lib/domain";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import { FormEngine, type FormEngineInput } from "./formEngine";
-import type { FieldState } from "./types";
+import { type FieldState, fieldStatesEqual } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
 
@@ -221,22 +221,6 @@ function classifyChange(
 	}
 
 	return "none";
-}
-
-/** Field-level equality for FieldState. Only used for validateAll/resetValidation
- *  which operate on all fields but most states don't actually change. */
-function statesEqual(a: FieldState, b: FieldState): boolean {
-	return (
-		a.path === b.path &&
-		a.value === b.value &&
-		a.visible === b.visible &&
-		a.required === b.required &&
-		a.valid === b.valid &&
-		a.touched === b.touched &&
-		a.errorMessage === b.errorMessage &&
-		a.resolvedLabel === b.resolvedLabel &&
-		a.resolvedHint === b.resolvedHint
-	);
 }
 
 // ── EngineController ────────────────────────────────────────────────────
@@ -417,7 +401,12 @@ export class EngineController {
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return 0;
 		const result = this.engine.addRepeat(path);
-		this.syncAllToStore();
+		// Targeted sync — only the repeat's own path round-trips to the
+		// runtime store (see `lib/preview/CLAUDE.md` § Repeat-count
+		// reactivity). `syncAllToStore` would replace every UUID's
+		// reference and re-render every leaf row in the form, the exact
+		// fan-out the per-field subscription model is built to avoid.
+		this.syncPathsToStore([path]);
 		return result;
 	}
 
@@ -429,7 +418,9 @@ export class EngineController {
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
 		this.engine.removeRepeat(path, index);
-		this.syncAllToStore();
+		// Targeted sync — see `addRepeat` for why the repeat's own path
+		// is the only entry that round-trips to the runtime store.
+		this.syncPathsToStore([path]);
 	}
 
 	/** True iff `uuid` resolves to a repeat field whose `repeat_mode`
@@ -767,7 +758,7 @@ export class EngineController {
 			const uuid = this.pathToUuid.get(path);
 			if (!uuid) continue;
 			const oldState = currentRuntime[uuid];
-			if (!oldState || !statesEqual(oldState, newState)) {
+			if (!oldState || !fieldStatesEqual(oldState, newState)) {
 				updates[uuid] = newState;
 				hasChanges = true;
 			}
@@ -794,7 +785,7 @@ export class EngineController {
 			const newState = engineState[path];
 			if (!newState) continue;
 			const oldState = currentRuntime[uuid];
-			if (!oldState || !statesEqual(oldState, newState)) {
+			if (!oldState || !fieldStatesEqual(oldState, newState)) {
 				updates[uuid] = newState;
 				hasChanges = true;
 			}
