@@ -397,9 +397,23 @@ export class EngineController {
 		return this.engine.getRepeatCount(path);
 	}
 
-	/** Add a repeat instance. Returns the new index. */
+	/**
+	 * Add a repeat instance. Returns the new index, or 0 (the template
+	 * slot) when the call is rejected.
+	 *
+	 * Only `user_controlled` repeats accept add/remove at runtime —
+	 * `count_bound` and `query_bound` repeats freeze their cardinality
+	 * at form load (JavaRosa spec). The preview UI hides the Add button
+	 * for those modes (`RepeatField.tsx` gates on `isUserControlled`),
+	 * but this method is the authoritative second gate: tests, console
+	 * invocations, replay, and any future caller can't mutate
+	 * cardinality on a non-user-controlled repeat. Pattern matches the
+	 * "UI is first defense, reducer is authoritative" rule documented
+	 * for `convertField`.
+	 */
 	addRepeat(uuid: string): number {
 		if (!this.engine) return 0;
+		if (!this.isUserControlledRepeat(uuid)) return 0;
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return 0;
 		const result = this.engine.addRepeat(path);
@@ -407,13 +421,26 @@ export class EngineController {
 		return result;
 	}
 
-	/** Remove a repeat instance. */
+	/** Remove a repeat instance. Same gate as `addRepeat` — only
+	 *  `user_controlled` repeats can shed instances at runtime. */
 	removeRepeat(uuid: string, index: number): void {
 		if (!this.engine) return;
+		if (!this.isUserControlledRepeat(uuid)) return;
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
 		this.engine.removeRepeat(path, index);
 		this.syncAllToStore();
+	}
+
+	/** True iff `uuid` resolves to a repeat field whose `repeat_mode`
+	 *  is `user_controlled`. Defensive lookup — returns false for
+	 *  unknown ids, non-repeats, and the count_bound / query_bound
+	 *  modes whose cardinality is frozen. */
+	private isUserControlledRepeat(uuid: string): boolean {
+		if (!this.docStore) return false;
+		const field = this.docStore.getState().fields[uuid];
+		if (!field || field.kind !== "repeat") return false;
+		return field.repeat_mode === "user_controlled";
 	}
 
 	/** Get the XForm path for a UUID. */

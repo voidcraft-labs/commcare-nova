@@ -41,6 +41,7 @@ import {
 	resolveFieldByIndex,
 	updateFieldMutations,
 } from "../blueprintHelpers";
+import { unescapeXPath } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { editFieldUpdatesSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
@@ -78,12 +79,23 @@ function editPatchToFieldPatch(
 	updates: Omit<z.infer<typeof editFieldUpdatesSchema>, "id" | "kind">,
 ): Partial<Omit<Field, "uuid">> {
 	const patch: Record<string, unknown> = {};
+	// Plain scalars: SA passes a new value, `null` to clear, or omits
+	// to leave unchanged. The reducer's `Object.assign` drops keys set
+	// to `undefined`, so `null → undefined` is the clear path. The
+	// XPath-valued scalars (`relevant`, `calculate`, `default_value`,
+	// `required`) get HTML-entity unescape on the way through — same
+	// treatment `applyDefaults` applies on the add path, so the same
+	// SA payload produces the same stored entity through both tools.
+	const xpathScalarKeys = new Set([
+		"relevant",
+		"calculate",
+		"default_value",
+		"required",
+	]);
 	const scalarKeys = [
 		"label",
 		"hint",
 		"required",
-		"validate",
-		"validate_msg",
 		"relevant",
 		"calculate",
 		"default_value",
@@ -92,10 +104,48 @@ function editPatchToFieldPatch(
 	for (const key of scalarKeys) {
 		const value = updates[key];
 		if (value === undefined) continue;
-		patch[key] = value ?? undefined;
+		if (typeof value === "string" && xpathScalarKeys.has(key)) {
+			patch[key] = unescapeXPath(value);
+		} else {
+			patch[key] = value ?? undefined;
+		}
 	}
 	if (updates.options !== undefined) {
 		patch.options = updates.options ?? undefined;
+	}
+	// Nested `validate: { expr, msg? }` config. SA passes:
+	//   - object → replace; flatten back to schema's `validate` +
+	//     `validate_msg` keys (msg unset → `undefined`, which clears).
+	//     `expr` is XPath, so unescape on the way through.
+	//   - null → clear both keys.
+	//   - undefined (omitted) → leave unchanged.
+	if (updates.validate !== undefined) {
+		if (updates.validate === null) {
+			patch.validate = undefined;
+			patch.validate_msg = undefined;
+		} else {
+			patch.validate = unescapeXPath(updates.validate.expr);
+			patch.validate_msg = updates.validate.msg ?? undefined;
+		}
+	}
+	// Nested `repeat: { mode, count?, ids_query? }` config. The patch
+	// always overwrites all three flat repeat keys when `repeat` is
+	// present: the new mode determines which mode-specific field is
+	// valid, and the unused field gets `undefined` so the reducer
+	// clears it. Mode is required inside the nested object so we
+	// always have a value to write. `count` and `ids_query` are XPath
+	// expressions — empty-string is treated as "not set" (matching the
+	// add path's truthy-check) and unescaped when present.
+	if (updates.repeat !== undefined) {
+		patch.repeat_mode = updates.repeat.mode;
+		patch.repeat_count =
+			updates.repeat.count && updates.repeat.count.length > 0
+				? unescapeXPath(updates.repeat.count)
+				: undefined;
+		patch.data_source =
+			updates.repeat.ids_query && updates.repeat.ids_query.length > 0
+				? { ids_query: unescapeXPath(updates.repeat.ids_query) }
+				: undefined;
 	}
 	return patch as Partial<Omit<Field, "uuid">>;
 }

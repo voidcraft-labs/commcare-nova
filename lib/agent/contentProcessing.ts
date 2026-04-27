@@ -42,14 +42,24 @@ type CaseTypes = CaseType[] | null;
  * key before defaults are merged.
  */
 const XPATH_FIELDS = [
-	"validate",
 	"relevant",
 	"calculate",
 	"default_value",
 	"required",
 ] as const;
 
-function unescapeXPath(s: string): string {
+/**
+ * Reverse HTML-entity escaping that LLMs sometimes apply to XPath
+ * expressions (`&gt;` → `>`, `&apos;` → `'`, etc.). Applied to every
+ * XPath-shaped value we accept from the SA — both top-level XPath
+ * fields (via `XPATH_FIELDS` in `applyDefaults`) and nested-config
+ * XPath fields (validate.expr, repeat.count, repeat.ids_query, both in
+ * `flatFieldToField` and `editPatchToFieldPatch`). Without this step
+ * mangled entities slip through Zod (`z.string()` accepts anything),
+ * land in the stored entity, and only fail at FormPlayer when the XPath
+ * parser chokes on `&amp;gt;`.
+ */
+export function unescapeXPath(s: string): string {
 	return s
 		.replace(/&amp;/g, "&")
 		.replace(/&gt;/g, ">")
@@ -167,11 +177,20 @@ export function applyDefaults<E extends object = object>(
 			// Case-type → field vocabulary translation. CaseProperty uses
 			// CommCare-flavored `validation` / `validation_msg` because the
 			// case-type record directly models the CommCare data layer; the
-			// field uses `validate` / `validate_msg` because the field is
-			// our domain entity. This single line is the one point in the
-			// agent module where the two vocabularies meet.
-			result.validate ??= prop.validation;
-			result.validate_msg ??= prop.validation_msg;
+			// field's SA tool surface uses a nested `validate: { expr, msg }`
+			// object (the domain entity layer flattens back to `validate` +
+			// `validate_msg`). This block is the one point in the agent
+			// module where the two vocabularies meet — seed the nested
+			// object when the SA didn't provide a usable one. An SA stub
+			// like `validate: { expr: "" }` should not suppress the
+			// catalog default, so the predicate checks for a truthy
+			// `expr` rather than the object's mere presence.
+			if (prop.validation && !result.validate?.expr) {
+				result.validate = {
+					expr: prop.validation,
+					...(prop.validation_msg && { msg: prop.validation_msg }),
+				};
+			}
 			result.options ??= prop.options;
 		}
 	}
@@ -237,13 +256,20 @@ export function flatFieldToField(
 			q.relevant.length > 0 && {
 				relevant: q.relevant,
 			}),
-		...(typeof q.validate === "string" &&
-			q.validate.length > 0 && {
-				validate: q.validate,
-			}),
-		...(typeof q.validate_msg === "string" &&
-			q.validate_msg.length > 0 && {
-				validate_msg: q.validate_msg,
+		// Nested validate config: SA passes `validate: { expr, msg? }`;
+		// the schema stores `validate` (string) + `validate_msg`
+		// (optional string). Reshape here, unescaping XPath HTML
+		// entities on the expression — same mangling risk as the other
+		// XPath fields, just inlined since `validate.expr` isn't a
+		// top-level FlatField key.
+		...(q.validate &&
+			typeof q.validate.expr === "string" &&
+			q.validate.expr.length > 0 && {
+				validate: unescapeXPath(q.validate.expr),
+				...(typeof q.validate.msg === "string" &&
+					q.validate.msg.length > 0 && {
+						validate_msg: q.validate.msg,
+					}),
 			}),
 		...(typeof q.calculate === "string" &&
 			q.calculate.length > 0 && {
@@ -260,6 +286,30 @@ export function flatFieldToField(
 		...(typeof q.case_property === "string" &&
 			q.case_property.length > 0 && {
 				case_property: q.case_property,
+			}),
+		// Nested repeat config: SA passes `repeat: { mode, count?,
+		// ids_query? }`; the domain schema is a discriminated union over
+		// `repeat_mode` with `repeat_count` (count_bound) or
+		// `data_source: { ids_query }` (query_bound). Reshape here,
+		// unescaping XPath HTML entities on the inner expressions.
+		// Mode is required inside the nested object so there's no
+		// silent default — if the SA emits `kind: "repeat"` without a
+		// `repeat` object, the candidate has no `repeat_mode` and the
+		// discriminated union rejects, surfacing the omission as a
+		// parse error rather than a silent fallback.
+		...(q.kind === "repeat" &&
+			q.repeat && {
+				repeat_mode: q.repeat.mode,
+				...(typeof q.repeat.count === "string" &&
+					q.repeat.count.length > 0 && {
+						repeat_count: unescapeXPath(q.repeat.count),
+					}),
+				...(typeof q.repeat.ids_query === "string" &&
+					q.repeat.ids_query.length > 0 && {
+						data_source: {
+							ids_query: unescapeXPath(q.repeat.ids_query),
+						},
+					}),
 			}),
 	};
 	const result = fieldSchema.safeParse(candidate);

@@ -162,7 +162,7 @@ Z-index is a semantic scale of named tokens (not hardcoded numbers) — use the 
 
 ## Structured output constraint
 
-The Anthropic schema compiler times out with more than ~8 optional fields per array item. Use sentinel values (empty string, false) for required-but-sparse fields and post-process to strip them. Field schemas come from one shared source — never inline new ones in tool defs. Test with the schema script.
+The Anthropic schema compiler times out above 8 optional fields per array item — verified hard ceiling on opus-4-7 (9 reproducibly fails via `scripts/test-schema.ts`). Two patterns to fit at 8: required-with-sentinel for universal keys (post-processed via `stripEmpty`), and nested-object optionals for grouped feature configs (one slot regardless of inner field count). Field schemas come from one shared source — never inline new ones in tool defs. Test with the schema script.
 
 ## Model configuration
 

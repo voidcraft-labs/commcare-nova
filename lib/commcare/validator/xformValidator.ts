@@ -22,7 +22,14 @@ const XML_OPTS = { xmlMode: true } as const;
 
 // ── Instance node path collection ──────────────────────────────────
 
-/** Recursively collect all valid nodesets from the instance data tree. */
+/** Recursively collect all valid nodesets from the instance data tree —
+ *  both element paths and the `@attribute` paths attached to each
+ *  element. Setvalue / bind refs may target any attribute slot (e.g.
+ *  query-bound repeats write `@ids`, `@count`, `@current_index`, per-
+ *  iteration `@index` and `@id`); excluding any subset here would
+ *  false-positive on legitimate refs. Namespace prefixes (`jr:template`,
+ *  `vellum:role`, etc.) are kept verbatim because the prefix is part
+ *  of the attribute name in the parsed DOM. */
 function collectInstancePaths(
 	el: Element,
 	prefix: string,
@@ -32,6 +39,9 @@ function collectInstancePaths(
 		if (!isTag(child)) continue;
 		const path = `${prefix}/${child.name}`;
 		paths.add(path);
+		for (const attrName of Object.keys(child.attribs)) {
+			paths.add(`${path}/@${attrName}`);
+		}
 		collectInstancePaths(child, path, paths);
 	}
 }

@@ -122,6 +122,14 @@ export function RepeatField({
 
 	const addLabel = state.resolvedLabel ?? field.label ?? "entry";
 
+	// Add/Remove affordances are only meaningful for `user_controlled`
+	// repeats. `count_bound` and `query_bound` repeats freeze their
+	// cardinality at form load (JavaRosa spec), so the runtime suppresses
+	// these affordances — Nova's preview must mirror that. The instance
+	// dividers themselves still render so the user can see each iteration's
+	// content.
+	const isUserControlled = field.repeat_mode === "user_controlled";
+
 	return (
 		<>
 			{/* ── Header block ──────────────────────────────────────────── */}
@@ -218,7 +226,7 @@ export function RepeatField({
 										idx={idx}
 										depth={depth + 1}
 										onRemove={
-											count > 1
+											isUserControlled && count > 1
 												? () => controller.removeRepeat(field.uuid, idx)
 												: undefined
 										}
@@ -237,23 +245,32 @@ export function RepeatField({
 
 						{/* Add button — depth+1 to align with instance content.
 						 *  `mb-6` gives 24px before the close cap, matching the
-						 *  edit-mode insertion(N+1) that precedes `GroupCloseRow`. */}
-						<div
-							className="mb-6"
-							style={{
-								paddingLeft: depthPadding(depth + 1),
-								paddingRight: depthPadding(depth + 1),
-							}}
-						>
-							<button
-								type="button"
-								onClick={() => controller.addRepeat(field.uuid)}
-								className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
+						 *  edit-mode insertion(N+1) that precedes `GroupCloseRow`.
+						 *  Suppressed entirely for non-`user_controlled` modes:
+						 *  count_bound and query_bound repeats derive their
+						 *  cardinality from XPath / case query and JavaRosa
+						 *  freezes it at form load — there's no Add affordance
+						 *  in the actual CommCare runtime, and exposing one
+						 *  here would mislead the user about the form's
+						 *  behavior. */}
+						{isUserControlled && (
+							<div
+								className="mb-6"
+								style={{
+									paddingLeft: depthPadding(depth + 1),
+									paddingRight: depthPadding(depth + 1),
+								}}
 							>
-								<Icon icon={tablerPlus} width="14" height="14" />
-								Add {addLabel}
-							</button>
-						</div>
+								<button
+									type="button"
+									onClick={() => controller.addRepeat(field.uuid)}
+									className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
+								>
+									<Icon icon={tablerPlus} width="14" height="14" />
+									Add {addLabel}
+								</button>
+							</div>
+						)}
 					</div>
 
 					{/* ── Close cap ─────────────────────────────────────── */}

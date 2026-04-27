@@ -212,6 +212,13 @@ function installFields(
 		} else if (kind !== "hidden") {
 			base.label = id;
 		}
+		// `repeat` is a discriminated union on `repeat_mode`; default to
+		// `user_controlled` so fixtures that don't care about the mode
+		// stay valid against `fieldSchema`. Tests that need count_bound
+		// or query_bound pass the mode explicitly via `...rest`.
+		if (kind === "repeat" && base.repeat_mode === undefined) {
+			base.repeat_mode = "user_controlled";
+		}
 		fields[uuid] = base as unknown as Field;
 
 		// Container kinds carry a fieldOrder entry; without one, the walkers

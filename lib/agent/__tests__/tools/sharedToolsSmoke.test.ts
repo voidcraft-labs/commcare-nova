@@ -201,7 +201,7 @@ describe("addField and addFields share the same add-path pipeline", () => {
 					id,
 					kind: "int",
 					label: "Age",
-					validate: escapedValidate,
+					validate: { expr: escapedValidate },
 				},
 			},
 			singleCtx,
@@ -221,18 +221,19 @@ describe("addField and addFields share the same add-path pipeline", () => {
 					{
 						/* Full sentinel-padded shape — `addFieldsItemSchema`
 						 * makes `parentId`, `label`, `required` required-with-
-						 * sentinel, and eight other optionals fill the 8-slot
-						 * ceiling. `""` / `[]` are the absent sentinels the
-						 * batch-path `stripEmpty` collapses before
-						 * `applyDefaults` runs. */
+						 * sentinel, and eight other optionals (including the
+						 * nested `validate` and `repeat` config objects) fill
+						 * the 8-slot ceiling. `""` / `[]` are the absent
+						 * sentinels the batch-path `stripEmpty` collapses
+						 * before `applyDefaults` runs; `validate` and
+						 * `repeat` are simply omitted when not in use. */
 						id,
 						kind: "int",
 						parentId: "",
 						label: "Age",
 						required: "",
 						hint: "",
-						validate: escapedValidate,
-						validate_msg: "",
+						validate: { expr: escapedValidate },
 						relevant: "",
 						calculate: "",
 						default_value: "",

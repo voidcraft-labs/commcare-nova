@@ -131,6 +131,30 @@ const FIELD_DOCS = {
 		"different, the field implicitly creates a child case of that " +
 		'type. The case-name field must always have id "case_name". Must ' +
 		"NOT be set on media fields (image, audio, video, signature).",
+	// Repeat-specific. These keys live INSIDE the optional nested
+	// `repeat: { mode, count?, ids_query? }` object on the SA tools —
+	// non-repeat fields simply omit `repeat`. The descriptions describe
+	// the inner-key contract; the wrapping `repeat` object's own
+	// description handles the "set when kind === repeat" framing.
+	repeat_mode:
+		'Iteration mode. "user_controlled" — user adds/removes instances ' +
+		'at form fill (e.g. household members list). "count_bound" — count ' +
+		"comes from another XPath (set `count`); JavaRosa freezes the " +
+		'cardinality once at form load and does not recalculate. "query_bound" ' +
+		"— iterate over case-database query results (set `ids_query`); same " +
+		"one-time evaluation as count_bound.",
+	repeat_count:
+		"XPath expression that resolves to the desired iteration count, " +
+		'e.g. `#form/desired_count`. Set this when `mode === "count_bound"`; ' +
+		"omit otherwise. Evaluated once at form load — changes to the " +
+		"underlying value do not resize the repeat (JavaRosa spec). " +
+		"Supports hashtag references.",
+	ids_query:
+		"XPath expression that resolves to a list of case ids to iterate " +
+		"over, e.g. `instance('casedb')/casedb/case[@case_type='service'][@status='open']/@case_id`. " +
+		'Set this when `mode === "query_bound"`; omit otherwise. The runtime ' +
+		"materializes one instance per id; each iteration's `@id` resolves " +
+		"to the id at the matching position. Supports hashtag references.",
 } as const satisfies Record<string, string>;
 
 // ── Reusable Zod field primitives ───────────────────────────────────
@@ -157,11 +181,12 @@ const labelSentinel = () => z.string().describe(FIELD_DOCS.label);
 const requiredSentinel = () => z.string().describe(FIELD_DOCS.required);
 
 // Optional shape primitives — these DO count against the 8-optional
-// ceiling on the batch-item schema.
+// ceiling on the batch-item schema. `validate` and `repeat` are nested
+// objects so each consumes a single slot regardless of how many inner
+// fields they hold; that's what makes the 8-slot budget fit when both
+// validation config and repeat-mode config land on the same union of
+// kinds.
 const hintField = () => z.string().optional().describe(FIELD_DOCS.hint);
-const validateField = () => z.string().optional().describe(FIELD_DOCS.validate);
-const validateMsgField = () =>
-	z.string().optional().describe(FIELD_DOCS.validate_msg);
 const relevantField = () => z.string().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
 	z.string().optional().describe(FIELD_DOCS.calculate);
@@ -169,6 +194,38 @@ const defaultValueField = () =>
 	z.string().optional().describe(FIELD_DOCS.default_value);
 const optionsField = () =>
 	z.array(selectOptionSchema).optional().describe(FIELD_DOCS.options);
+
+// Nested-object factories — return the bare object so callers wrap it
+// with `.optional()` (add tools) or `.nullable().optional()` (edit
+// patch). The "never share an instance across generator outputs" rule
+// applies: each call returns a fresh schema so downstream JSON-schema
+// generation (which mutates Zod node caches) doesn't leak between tools.
+const validateConfigField = () =>
+	z
+		.object({
+			expr: z.string().describe(FIELD_DOCS.validate),
+			msg: z.string().optional().describe(FIELD_DOCS.validate_msg),
+		})
+		.describe(
+			"Validation config. `expr` is the XPath that must hold true; " +
+				"`msg` is the error message shown when it doesn't. Omit the " +
+				"object entirely to skip validation.",
+		);
+
+const repeatConfigField = () =>
+	z
+		.object({
+			mode: z
+				.enum(["user_controlled", "count_bound", "query_bound"])
+				.describe(FIELD_DOCS.repeat_mode),
+			count: z.string().optional().describe(FIELD_DOCS.repeat_count),
+			ids_query: z.string().optional().describe(FIELD_DOCS.ids_query),
+		})
+		.describe(
+			'Repeat-mode config — set only when `kind === "repeat"`. ' +
+				"Pick a `mode` and provide the matching mode-specific field " +
+				"(`count` for count_bound, `ids_query` for query_bound).",
+		);
 const casePropertyField = () =>
 	z.string().optional().describe(FIELD_DOCS.case_property);
 
@@ -198,20 +255,22 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 		id: idField(),
 		kind: makeKindEnum(kinds),
 		parentId: parentIdField(),
-		// Required sentinels (don't count against the 8-optional cap).
+		// Required sentinels (don't count against the optional cap).
 		label: labelSentinel(),
 		required: requiredSentinel(),
-		// Eight optionals — the maximum the Anthropic compiler handles per
-		// array item without timing out. Adding a ninth would push the
-		// batch-add tool into compile failures.
+		// Eight optionals — the cap (verified by `scripts/test-schema.ts`
+		// against opus-4-7; nine times out the Anthropic grammar
+		// compiler). `validate` and `repeat` are nested objects so each
+		// consumes a single slot for what would otherwise be 2-3 flat
+		// fields each — the only reason the cap fits at all.
 		hint: hintField(),
-		validate: validateField(),
-		validate_msg: validateMsgField(),
+		validate: validateConfigField().optional(),
 		relevant: relevantField(),
 		calculate: calculateField(),
 		default_value: defaultValueField(),
 		options: optionsField(),
 		case_property: casePropertyField(),
+		repeat: repeatConfigField().optional(),
 	});
 }
 
@@ -230,13 +289,18 @@ function buildAddFieldSchema(kinds: readonly FieldKind[]) {
 		label: z.string().optional().describe(FIELD_DOCS.label),
 		hint: hintField(),
 		required: z.string().optional().describe(FIELD_DOCS.required),
-		validate: validateField(),
-		validate_msg: validateMsgField(),
+		// Same nested shape as the batch-item schema — keeps the SA
+		// learning one pattern rather than a flat-vs-nested asymmetry
+		// across the two add tools. Single-add isn't subject to the
+		// 8-optional cap so we could afford flat fields here, but
+		// consistency wins.
+		validate: validateConfigField().optional(),
 		relevant: relevantField(),
 		calculate: calculateField(),
 		default_value: defaultValueField(),
 		options: optionsField(),
 		case_property: casePropertyField(),
+		repeat: repeatConfigField().optional(),
 	});
 }
 
@@ -260,13 +324,27 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			label: nullableString(FIELD_DOCS.label),
 			hint: nullableString(FIELD_DOCS.hint),
 			required: nullableString(FIELD_DOCS.required),
-			validate: nullableString(FIELD_DOCS.validate),
-			validate_msg: nullableString(FIELD_DOCS.validate_msg),
+			// Nested config objects (same shape as add tools). Passing
+			// `null` clears the whole config; passing the object
+			// replaces it. Mode-switching on a repeat is "set the new
+			// `repeat` object with the new `mode` and matching field" —
+			// the previous mode's mode-specific field is dropped because
+			// it's not declared on the new variant.
+			// `validate` is nullable so the SA can clear validation
+			// entirely (`validate: null`); when present, the new object
+			// replaces the prior config wholesale. `repeat` is NOT
+			// nullable: a repeat field must always have a mode, so
+			// "clear the repeat config" is meaningless. To switch
+			// modes, pass the new `repeat` object with the new mode and
+			// matching field — the patch handler clears the previous
+			// mode's fields automatically.
+			validate: validateConfigField().nullable().optional(),
 			relevant: nullableString(FIELD_DOCS.relevant),
 			calculate: nullableString(FIELD_DOCS.calculate),
 			default_value: nullableString(FIELD_DOCS.default_value),
 			options: nullableOptions(),
 			case_property: nullableString(FIELD_DOCS.case_property),
+			repeat: repeatConfigField().optional(),
 		})
 		.describe(
 			"Properties to update. Omit a key to leave it unchanged; pass " +

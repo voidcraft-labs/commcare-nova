@@ -315,6 +315,15 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	ui: [],
 };
 
+// `repeat_mode` and the mode-specific keys (`repeat_count`,
+// `data_source.ids_query`) are reachable only via the SA tool surface
+// (`addField` / `editField`). The inspector exposes only `relevant`
+// here because mode editing requires a mode picker plus mode-
+// conditional XPath editors (count visible iff
+// `repeat_mode === "count_bound"`, ids_query visible iff
+// `repeat_mode === "query_bound"`) with clear-on-mode-change semantics
+// — a custom widget tier this schema's flat-key entry vocabulary doesn't
+// directly support.
 const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [],
 	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show When")],

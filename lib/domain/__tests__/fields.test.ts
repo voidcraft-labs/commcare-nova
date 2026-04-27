@@ -109,11 +109,15 @@ describe("fieldSchema", () => {
 
 	it("accepts a repeat with absent label", () => {
 		// Same contract as group: container kinds allow empty/absent
-		// labels via `containerFieldBase`.
+		// labels via `containerFieldBase`. Repeat additionally requires
+		// `repeat_mode` (the mode discriminator); user_controlled is the
+		// no-extra-fields variant that pairs naturally with this test's
+		// "minimal valid repeat" intent.
 		const f = fieldSchema.parse({
 			kind: "repeat",
 			uuid: asUuid("abc"),
 			id: "data_loop",
+			repeat_mode: "user_controlled",
 		});
 		expect(f.kind).toBe("repeat");
 		expect((f as { label?: string }).label).toBeUndefined();
@@ -173,6 +177,7 @@ describe("isContainer", () => {
 			uuid: asUuid("abc"),
 			id: "r",
 			label: "R",
+			repeat_mode: "user_controlled",
 		});
 		expect(isContainer(r)).toBe(true);
 	});

@@ -537,11 +537,23 @@ function buildFieldParts(
 		const childBody: string[] = [];
 		const childInsideRepeat = field.kind === "repeat" ? true : insideRepeat;
 
+		// Query-bound repeats nest children under an extra `<item>` level
+		// (Vellum's "model iteration" pattern). The outer `<id>` element
+		// holds `@ids` / `@count` / `@current_index`; the inner `<item>`
+		// is the per-iteration template. Rewriting `childParentPath`
+		// here propagates `/item` into every descendant's bind nodeset,
+		// body ref, and setvalue ref — not just the data section.
+		// user_controlled and count_bound repeats keep the flat
+		// `<id>...</id>` shape with no rewrite.
+		const isQueryBoundRepeat =
+			field.kind === "repeat" && field.repeat_mode === "query_bound";
+		const childParentPath = isQueryBoundRepeat ? `${nodePath}/item` : nodePath;
+
 		for (const childUuid of doc.fieldOrder[fieldUuid] ?? []) {
 			buildFieldParts(
 				doc,
 				childUuid,
-				nodePath,
+				childParentPath,
 				childData,
 				childBinds,
 				setvalues,
@@ -553,12 +565,35 @@ function buildFieldParts(
 		}
 
 		// Rewrite the self-closing data element with a proper parent
-		// wrapping its children.
+		// wrapping its children. Three shapes:
+		//   - group: `<id>...</id>`
+		//   - user_controlled / count_bound repeat: `<id jr:template="">...</id>`
+		//   - query_bound repeat: `<id ids="" count="" current_index=""
+		//       vellum:role="Repeat"><item id="" index="" jr:template="">...
+		//       </item></id>`
+		// The query_bound shape mirrors Vellum's model-iteration
+		// emission. The four attribute slots on the outer `<id>` are
+		// load-bearing:
+		//   - `ids` and `count` are seeded by setvalue at xforms-ready
+		//     (or jr-insert when nested) from the configured ids_query.
+		//   - `current_index` is set by a `<bind calculate>` to
+		//     `count(${nodePath}/item)` — JavaRosa updates it as items
+		//     materialize, and the per-iteration `@index` setvalue reads
+		//     it at jr-insert time. Without this slot the model-iteration
+		//     pattern collapses (every iteration reads position 0).
+		//   - `vellum:role="Repeat"` is the round-trip metadata Vellum
+		//     uses to recognize a model-iteration container on import.
 		dataElements.pop();
-		const templateAttr = field.kind === "repeat" ? ' jr:template=""' : "";
-		dataElements.push(
-			`<${field.id}${templateAttr}>${childData.join("")}</${field.id}>`,
-		);
+		if (isQueryBoundRepeat) {
+			dataElements.push(
+				`<${field.id} ids="" count="" current_index="" vellum:role="Repeat"><item id="" index="" jr:template="">${childData.join("")}</item></${field.id}>`,
+			);
+		} else {
+			const templateAttr = field.kind === "repeat" ? ' jr:template=""' : "";
+			dataElements.push(
+				`<${field.id}${templateAttr}>${childData.join("")}</${field.id}>`,
+			);
+		}
 
 		// Rewrite the leaf bind as a relevant-only container bind when
 		// `relevant` is set; otherwise drop it (containers don't carry
@@ -593,6 +628,87 @@ function buildFieldParts(
 			? `\n      <label ref="jr:itext('${field.id}-label')"/>`
 			: "";
 		if (field.kind === "repeat") {
+			// Per-mode wire shape. The body's `<repeat>` and any top-level
+			// setvalue setup vary; the surrounding `<group>` wrapper +
+			// label + bind do not.
+			//
+			//   user_controlled: bare `<repeat nodeset="${nodePath}">`
+			//     + no jr:count, no setvalues. Runtime adds/removes
+			//     instances via UI.
+			//
+			//   count_bound: `<repeat nodeset="${nodePath}" jr:count="..."
+			//     jr:noAddRemove="true()">`. JavaRosa evaluates jr:count
+			//     once at form load and freezes the cardinality.
+			//
+			//   query_bound: `<repeat nodeset="${nodePath}/item"
+			//     jr:count="${nodePath}/@count" jr:noAddRemove="true()">`
+			//     plus four top-level <setvalue> elements (Vellum's
+			//     "model iteration" pattern):
+			//       1. on xforms-ready, set ${nodePath}/@ids =
+			//          join(' ', <ids_query>)
+			//       2. on xforms-ready, set ${nodePath}/@count =
+			//          count-selected(${nodePath}/@ids)
+			//       3. on jr-insert, set ${nodePath}/item/@index =
+			//          int(${nodePath}/@current_index)
+			//       4. on jr-insert, set ${nodePath}/item/@id =
+			//          selected-at(${nodePath}/@ids, ../@index)
+			//     The data section wraps children in `<item>` (handled
+			//     by the data-element rewrite above).
+			let repeatNodeset = nodePath;
+			let repeatExtraAttrs = "";
+			if (field.repeat_mode === "count_bound") {
+				const expandedCount = expandHashtags(field.repeat_count);
+				const vellumCountAttr = hasHashtags(field.repeat_count)
+					? ` vellum:count="${escapeXml(field.repeat_count)}"`
+					: "";
+				repeatExtraAttrs = `${vellumCountAttr} jr:count="${escapeXml(expandedCount)}" jr:noAddRemove="true()"`;
+				// Hashtags inside repeat_count may reference casedb/session.
+				instances.scanXPath(field.repeat_count);
+			} else if (field.repeat_mode === "query_bound") {
+				repeatNodeset = `${nodePath}/item`;
+				repeatExtraAttrs = ` jr:count="${nodePath}/@count" jr:noAddRemove="true()"`;
+				const expandedIdsQuery = expandHashtags(field.data_source.ids_query);
+				const idsValue = `join(' ', ${expandedIdsQuery})`;
+				const countValue = `count-selected(${nodePath}/@ids)`;
+				const indexValue = `int(${nodePath}/@current_index)`;
+				const idValue = `selected-at(${nodePath}/@ids, ../@index)`;
+				// `@current_index` calculate bind: JavaRosa updates the
+				// outer container's `@current_index` to match the live
+				// item count at every jr-insert. The per-instance
+				// `@index` setvalue reads this to know which slot it is.
+				// Without this bind, `@current_index` stays empty and
+				// every iteration's `@index` resolves to 0 — collapsing
+				// the @id setvalue's `selected-at(@ids, @index)` to
+				// always pick id 0.
+				binds.push(
+					`<bind nodeset="${nodePath}/@current_index" calculate="count(${nodePath}/item)"/>`,
+				);
+				// Event coercion for nested model-iteration repeats.
+				// Vellum's modeliteration.js (lines 174-178): when a
+				// query-bound repeat lives INSIDE another repeat, the
+				// `@ids` and `@count` setvalues fire on `jr-insert`
+				// instead of `xforms-ready` so each outer iteration re-
+				// seeds its inner ids list. With `xforms-ready`, the
+				// inner repeat's @ids reflects only the FIRST outer
+				// iteration's row context. The `@index` and `@id`
+				// setvalues are always on `jr-insert` regardless.
+				const seedEvent = insideRepeat ? "jr-insert" : "xforms-ready";
+				setvalues.push(
+					`<setvalue event="${seedEvent}" ref="${nodePath}/@ids" value="${escapeXml(idsValue)}"/>`,
+				);
+				setvalues.push(
+					`<setvalue event="${seedEvent}" ref="${nodePath}/@count" value="${escapeXml(countValue)}"/>`,
+				);
+				setvalues.push(
+					`<setvalue event="jr-insert" ref="${nodePath}/item/@index" value="${escapeXml(indexValue)}"/>`,
+				);
+				setvalues.push(
+					`<setvalue event="jr-insert" ref="${nodePath}/item/@id" value="${escapeXml(idValue)}"/>`,
+				);
+				// ids_query may reference casedb / commcaresession.
+				instances.scanXPath(field.data_source.ids_query);
+			}
+
 			const indentedChildren = childBody.map((el) => {
 				const lines = el.split("\n");
 				lines[0] = `        ${lines[0]}`;
@@ -601,7 +717,7 @@ function buildFieldParts(
 			});
 			const innerLines = indentedChildren.join("\n");
 			bodyElements.push(
-				`<group ref="${nodePath}">${labelLine}\n      <repeat nodeset="${nodePath}">\n${innerLines}\n      </repeat>\n    </group>`,
+				`<group ref="${nodePath}">${labelLine}\n      <repeat nodeset="${repeatNodeset}"${repeatExtraAttrs}>\n${innerLines}\n      </repeat>\n    </group>`,
 			);
 		} else {
 			const indentedChildren = childBody.map((el) => {

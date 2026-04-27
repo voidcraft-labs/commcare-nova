@@ -51,9 +51,12 @@ import {
 	multiSelectFieldSchema,
 } from "./multiSelect";
 import {
+	type CountBoundRepeatField,
+	type QueryBoundRepeatField,
 	type RepeatField,
 	repeatFieldMetadata,
 	repeatFieldSchema,
+	type UserControlledRepeatField,
 } from "./repeat";
 import {
 	type SecretField,
@@ -99,25 +102,51 @@ export const fieldKinds = [
 
 export type FieldKind = (typeof fieldKinds)[number];
 
-export const fieldSchema = z.discriminatedUnion("kind", [
-	textFieldSchema,
-	intFieldSchema,
-	decimalFieldSchema,
-	dateFieldSchema,
-	timeFieldSchema,
-	datetimeFieldSchema,
-	singleSelectFieldSchema,
-	multiSelectFieldSchema,
-	geopointFieldSchema,
-	imageFieldSchema,
-	audioFieldSchema,
-	videoFieldSchema,
-	barcodeFieldSchema,
-	signatureFieldSchema,
-	labelFieldSchema,
-	hiddenFieldSchema,
-	secretFieldSchema,
-	groupFieldSchema,
+/**
+ * Two-arm union over all field kinds. The first arm is a fast
+ * `discriminatedUnion("kind", ...)` over every kind EXCEPT repeat; the
+ * second arm is `repeatFieldSchema`, itself a `discriminatedUnion` on
+ * `repeat_mode` over the three repeat variants.
+ *
+ * Why split: `z.discriminatedUnion("kind", ...)` requires each member to
+ * carry a unique `kind` literal, but the three repeat variants
+ * (`user_controlled`, `count_bound`, `query_bound`) all share
+ * `kind: "repeat"`. Splitting into a two-arm `z.union` lets each layer
+ * use a true discriminated union: the parent narrows on `kind` for
+ * non-repeat fields in O(1); when `kind === "repeat"` the parent falls
+ * through to the second arm, which narrows on `repeat_mode`, again
+ * O(1). Net cost vs. a flat `discriminatedUnion("kind", ...)` is one
+ * extra arm-comparison for repeat fields.
+ *
+ * **Narrowing is two-tiered for repeats.** `kind === "repeat"` selects
+ * `RepeatField` (the union of three variants); `repeat_mode` narrows
+ * further within that. A flat `switch (f.kind)` cannot reach the three
+ * repeat variants directly — it lands on a single repeat case that
+ * still has `repeat_mode` as a sub-discriminator. Consumers that need
+ * to dispatch on a specific repeat variant must branch on `repeat_mode`
+ * after the kind narrowing.
+ */
+export const fieldSchema = z.union([
+	z.discriminatedUnion("kind", [
+		textFieldSchema,
+		intFieldSchema,
+		decimalFieldSchema,
+		dateFieldSchema,
+		timeFieldSchema,
+		datetimeFieldSchema,
+		singleSelectFieldSchema,
+		multiSelectFieldSchema,
+		geopointFieldSchema,
+		imageFieldSchema,
+		audioFieldSchema,
+		videoFieldSchema,
+		barcodeFieldSchema,
+		signatureFieldSchema,
+		labelFieldSchema,
+		hiddenFieldSchema,
+		secretFieldSchema,
+		groupFieldSchema,
+	]),
 	repeatFieldSchema,
 ]);
 
@@ -224,7 +253,16 @@ export function reconcileFieldForKind(
 	// Zod's default strip behavior will drop any keys the target kind
 	// doesn't recognize, and reject the whole parse if required keys are
 	// absent — which is the reconciliation policy we want.
-	const candidate = { ...source, kind: toKind };
+	const candidate: Record<string, unknown> = { ...source, kind: toKind };
+	// Repeat is a discriminated union on `repeat_mode`. When converting
+	// FROM a non-repeat kind (most commonly group→repeat), the source
+	// has no `repeat_mode` and the union has no default to fall back on.
+	// Seed `user_controlled` here — it's the mode that requires no
+	// extra fields, matches the most common authoring intent, and lets
+	// the user pick a different mode after conversion if needed.
+	if (toKind === "repeat" && candidate.repeat_mode === undefined) {
+		candidate.repeat_mode = "user_controlled";
+	}
 	const result = fieldSchema.safeParse(candidate);
 	if (!result.success) {
 		return undefined;
@@ -262,6 +300,7 @@ export { selectOptionSchema } from "./base";
 export type {
 	AudioField,
 	BarcodeField,
+	CountBoundRepeatField,
 	DateField,
 	DatetimeField,
 	DecimalField,
@@ -272,11 +311,13 @@ export type {
 	IntField,
 	LabelField,
 	MultiSelectField,
+	QueryBoundRepeatField,
 	RepeatField,
 	SecretField,
 	SignatureField,
 	SingleSelectField,
 	TextField,
 	TimeField,
+	UserControlledRepeatField,
 	VideoField,
 };

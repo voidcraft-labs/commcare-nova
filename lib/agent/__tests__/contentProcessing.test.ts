@@ -59,14 +59,21 @@ describe("applyDefaults", () => {
 		expect(result.label).toBe("Custom Label");
 	});
 
-	it("fills in validate, required, and validate_msg (translated from case-type vocab)", () => {
+	it("fills in validate (nested), required, and msg from case-type vocab", () => {
+		// SA tool surface uses a nested `validate: { expr, msg? }` object
+		// (so the 8-optional batch ceiling stays at 8). `applyDefaults`
+		// translates the case-type's flat `validation` / `validation_msg`
+		// into that nested shape — only when the SA didn't provide its
+		// own validate object.
 		const result = applyDefaults(
 			{ id: "age", kind: "int", case_property: "patient" },
 			[testCaseType],
 		);
 		expect(result.required).toBe("true()");
-		expect(result.validate).toBe(". > 0 and . < 150");
-		expect(result.validate_msg).toBe("Age must be between 1 and 149");
+		expect(result.validate).toEqual({
+			expr: ". > 0 and . < 150",
+			msg: "Age must be between 1 and 149",
+		});
 	});
 
 	it("fills in options for select properties", () => {
@@ -120,12 +127,17 @@ describe("applyDefaults", () => {
 		expect(result.label).toBeUndefined();
 	});
 
-	it("unescapes HTML entities in XPath fields", () => {
+	it("unescapes HTML entities in top-level XPath fields", () => {
+		// `applyDefaults` iterates the top-level XPATH_FIELDS list
+		// (`relevant`, `calculate`, `default_value`, `required`).
+		// Validate's expression now lives nested under `validate.expr`
+		// and is unescaped in `flatFieldToField` instead — see the
+		// nested-config tests below.
 		const result = applyDefaults(
-			{ id: "x", kind: "text", validate: ". &gt; 0 &amp;&amp; . &lt; 10" },
+			{ id: "x", kind: "text", relevant: ". &gt; 0 &amp;&amp; . &lt; 10" },
 			null,
 		);
-		expect(result.validate).toBe(". > 0 && . < 10");
+		expect(result.relevant).toBe(". > 0 && . < 10");
 	});
 
 	it("looks up the correct case type from array by case_property", () => {

@@ -68,6 +68,9 @@ describe("toolSchemaGenerator", () => {
 	});
 
 	it("requires id, kind, parentId, label, and required on batch items", () => {
+		// Repeat-mode config lives nested under the optional `repeat`
+		// object; validation lives nested under optional `validate`.
+		// Neither contributes top-level required keys.
 		const jsonSchema = z.toJSONSchema(
 			generated.addFieldsItemSchema,
 		) as unknown as { required: string[] };
@@ -104,23 +107,31 @@ describe("toolSchemaGenerator", () => {
 	});
 
 	it("parses a representative payload for every field kind", () => {
-		// Smoke test: each kind should parse successfully when given the
-		// minimum acceptable shape. Exercises the union enum + sentinel
-		// fields without asserting on individual kind semantics.
+		// Smoke test: each kind parses with the minimum acceptable
+		// shape. Repeat-mode config lives in the optional nested
+		// `repeat` object — non-repeat kinds simply omit it.
 		for (const kind of fieldKinds) {
-			const payload = {
+			const payload: Record<string, unknown> = {
 				id: `test_${kind}`,
 				kind,
 				parentId: "",
 				label: "Test Field",
 				required: "",
 			};
+			// Repeat needs the `repeat` config object (with at least a
+			// `mode`) for the discriminated union to find a variant.
+			if (kind === "repeat") {
+				payload.repeat = { mode: "user_controlled" };
+			}
 			const result = generated.addFieldsItemSchema.safeParse(payload);
 			expect(result.success, `kind ${kind} failed to parse`).toBe(true);
 		}
 	});
 
-	it("accepts optional sentinel values on the batch-item schema", () => {
+	it("accepts optional values on the batch-item schema (nested validate)", () => {
+		// Validation lives under nested `validate: { expr, msg? }`. The
+		// outer object consumes a single optional slot regardless of
+		// whether `msg` is set.
 		const result = generated.addFieldsItemSchema.safeParse({
 			id: "f1",
 			kind: "text",
@@ -128,8 +139,10 @@ describe("toolSchemaGenerator", () => {
 			label: "Full name",
 			required: "true()",
 			hint: "Enter legal name",
-			validate: "string-length(.) > 1",
-			validate_msg: "Must not be empty",
+			validate: {
+				expr: "string-length(.) > 1",
+				msg: "Must not be empty",
+			},
 			relevant: "#form/collect_name = 'yes'",
 			calculate: "",
 			default_value: "",
@@ -137,5 +150,47 @@ describe("toolSchemaGenerator", () => {
 			case_property: "patient",
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("accepts a query_bound repeat with nested config on the single-add schema", () => {
+		// SA picks `mode` and provides the matching mode-specific field
+		// (`ids_query` for query_bound) inside the nested `repeat` object.
+		const result = generated.addFieldSchema.safeParse({
+			id: "service_cases",
+			kind: "repeat",
+			label: "Service cases",
+			repeat: {
+				mode: "query_bound",
+				ids_query: "#form/service_case_ids",
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts a count_bound repeat with nested config on the single-add schema", () => {
+		const result = generated.addFieldSchema.safeParse({
+			id: "iterations",
+			kind: "repeat",
+			label: "Iterations",
+			repeat: {
+				mode: "count_bound",
+				count: "#form/desired_count",
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("requires `mode` inside the nested repeat config (no silent default)", () => {
+		// A `repeat` object without `mode` should fail to parse — the
+		// schema-level enforcement is what makes the `flatFieldToField`
+		// reshape safe. SA omitting mode surfaces as a parse error
+		// rather than a silent fallback to user_controlled.
+		const result = generated.addFieldSchema.safeParse({
+			id: "iterations",
+			kind: "repeat",
+			label: "Iterations",
+			repeat: { count: "#form/desired_count" },
+		});
+		expect(result.success).toBe(false);
 	});
 });

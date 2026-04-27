@@ -139,8 +139,9 @@ export const addFieldTool = {
 			//     LLM-mangled expressions.
 			//   - Case-type property defaulting: if `case_property` + the
 			//     catalog has an entry, seed `kind` / `label` / `hint` /
-			//     `required` / `validate` / `validate_msg` / `options` from
-			//     the catalog wherever the payload left them unset.
+			//     `required` / the nested `validate: { expr, msg? }` object /
+			//     `options` from the catalog wherever the payload left them
+			//     unset.
 			//   - Preload auto-default: on case-loading forms, a field whose
 			//     `case_property` matches the module's case type (and isn't
 			//     `case_name`) gets `default_value = "#case/{id}"`.

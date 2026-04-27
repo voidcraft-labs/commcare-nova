@@ -57,6 +57,16 @@ Controls post-submit navigation. Three user-facing values: `app_home`, `module`,
 
 `form_links` on a form enables conditional navigation: `condition?` (XPath) + `target` (form or module by uuid) + optional `datums`. First matching condition wins; `post_submit` is the fallback. Fully validated.
 
+### Repeat modes
+
+Three modes via `repeat_mode` discriminator, each emits different wire shape:
+
+- **`user_controlled`** — bare `<repeat nodeset="...">`. Runtime adds/removes instances.
+- **`count_bound`** — `<repeat nodeset="..." jr:count="<XPath>" jr:noAddRemove="true()">`. JavaRosa evaluates `jr:count` ONCE at form load; cardinality is frozen even when the XPath's dependencies change. CommCare/JavaRosa spec — not a Nova choice.
+- **`query_bound`** — Vellum's "model iteration" pattern. Data section nests `<item>` under the parent (`<id ids="" count="" current_index="" vellum:role="Repeat"><item id="" index="" jr:template="">…</item></id>`); body's `<repeat>` targets `<id>/item`; four `<setvalue>` elements seed `@ids`/`@count` (xforms-ready, OR jr-insert when nested inside another repeat) and `@index`/`@id` (jr-insert always); a `<bind nodeset="<id>/@current_index" calculate="count(<id>/item)"/>` drives the per-iteration index. Same one-time-eval freeze as count_bound.
+
+`children`'s bind paths pick up the extra `/item` segment in query_bound — `childParentPath` rewrite in `xform/builder.ts` propagates this everywhere downstream.
+
 ## CommCare HQ upload
 
 Upload creates a new app each time — HQ has no atomic update API. The HQ base URL is hardcoded (prevents SSRF). User API keys are KMS-encrypted at rest via `./encryption`. Domain slugs are validated against HQ's legacy regex to prevent path traversal in the import URL.
