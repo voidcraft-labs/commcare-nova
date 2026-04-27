@@ -23,6 +23,7 @@ import {
 	DocsPage,
 	DocsTitle,
 } from "fumadocs-ui/layouts/docs/page";
+import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { source } from "@/lib/docs/source";
@@ -65,12 +66,23 @@ export default async function Page({ params }: PageProps) {
 
 	const MDX = page.data.body;
 
+	/* `createRelativeLink` rewrites href values that point at sibling
+	 * `.mdx` files into the correct routed URL for the current page.
+	 * Required because the docs site mounts at `/docs` in dev and `/`
+	 * (the docs subdomain root) in prod — hardcoded absolute hrefs would
+	 * break in dev. Authors write `[Link](./other.mdx)`; this resolves
+	 * it through the same loader fumadocs uses for sidebar/nav links.
+	 * Server-component-only API. */
 	return (
 		<DocsPage toc={page.data.toc}>
 			<DocsTitle>{page.data.title}</DocsTitle>
 			<DocsDescription>{page.data.description}</DocsDescription>
 			<DocsBody>
-				<MDX components={getMDXComponents()} />
+				<MDX
+					components={getMDXComponents({
+						a: createRelativeLink(source, page),
+					})}
+				/>
 			</DocsBody>
 		</DocsPage>
 	);
