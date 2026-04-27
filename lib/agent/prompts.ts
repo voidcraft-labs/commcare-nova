@@ -215,6 +215,14 @@ Child case creation always happens from forms in the parent module — do **not*
 
 If a hidden field would just copy another name-shaped property into \`case_name\`, you have a duplicate — collapse it.
 
+### Empty-Label Groups
+
+Groups are structural containers — folders for fields. A group with a non-empty \`label\` renders as a visible section with the label as its header. A group with an empty \`label\` renders **invisibly** at runtime — same purpose at the data-model layer, no visual chrome.
+
+Use empty-label groups to disambiguate two fields that would otherwise collide as siblings. The most common case: two hidden fields that share an \`id\` because field \`id\` = case property name (e.g., a follow-up form that sets \`last_visit_date\` on both the primary case and a related case). Wrapping each in its own empty-label group makes them cousins — different parents — which CommCare allows. Set \`case_property\` on each hidden field to the right case type.
+
+For visible logical grouping, always give the group a label.
+
 Always validate when generation is complete.
 
 ---

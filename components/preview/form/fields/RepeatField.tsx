@@ -161,7 +161,17 @@ export function RepeatField({
 						</span>
 
 						<div className="min-w-0 flex-1">
-							{field.label ? (
+							{/* Repeats extend `containerFieldBase` (label optional).
+							 *  When set, render the title; when empty/absent, render
+							 *  nothing in the title slot — the surrounding chrome
+							 *  (chevron, "Repeat" badge, border) stays so the user
+							 *  can still operate the repeat (Add/Remove + instance
+							 *  dividers below). Edit-mode rendering surfaces an
+							 *  "Untitled repeat" affordance via `GroupBracket` so
+							 *  authors can give it a title; preview mode (this
+							 *  component) reflects what the end user sees and
+							 *  shows no placeholder. */}
+							{field.label && (
 								/* Matches TextEditable's idle wrapper padding in
 								 *  edit mode for flipbook parity; see the note
 								 *  in `GroupField`. */
@@ -173,10 +183,6 @@ export function RepeatField({
 										className={FIELD_STYLES.label}
 									/>
 								</div>
-							) : (
-								<span className="text-xs italic text-nova-text-muted">
-									Untitled repeat
-								</span>
 							)}
 						</div>
 					</div>

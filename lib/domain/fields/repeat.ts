@@ -7,13 +7,23 @@
 // Like group, repeat does not write to the case directly. Only `relevant`
 // is meaningful at the container level; individual child fields carry their
 // own validation/logic as usual.
+//
+// **Empty-label repeats are valid.** Repeats extend `containerFieldBase`
+// (label optional) rather than `fieldBaseSchema` (label required). A
+// non-empty label renders as the section-header title; an empty/absent
+// label drops the title text but keeps the surrounding chrome (border,
+// chevron, "Repeat" badge) and the iteration UI (instance dividers,
+// Add/Remove for user-controlled mode) — that chrome is functional, not
+// decorative. The wire emitter (`lib/commcare/xform/builder.ts`) skips
+// the `<label>` element for empty-label containers so the XForm doesn't
+// carry a dangling itext reference.
 
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema } from "./base";
+import { containerFieldBase } from "./base";
 
-export const repeatFieldSchema = fieldBaseSchema.extend({
+export const repeatFieldSchema = containerFieldBase.extend({
 	kind: z.literal("repeat"),
 	relevant: z.string().optional(),
 });

@@ -156,8 +156,11 @@ export function useSearchFilter(query: string): SearchResult | null {
 						if (!field) continue;
 						const fieldPath = fpath(field.id, parentPath);
 
-						// `label` is absent on the `hidden` kind — guard before reading.
-						const fieldLabel = "label" in field ? field.label : "";
+						// `label` is absent on the `hidden` kind and optional on
+						// `group` (empty/absent label = transparent group), so the
+						// `in` narrowing isn't enough — coerce `undefined` to "".
+						const fieldLabel =
+							"label" in field && field.label ? field.label : "";
 						const labelIndices = findMatchIndices(fieldLabel, q);
 						const idIndices = findMatchIndices(field.id, q);
 

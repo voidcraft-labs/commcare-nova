@@ -85,10 +85,11 @@ export const FieldRow = memo(function FieldRow({
 			: collapsed.has(fieldPath));
 	const labelIndices = searchResult?.matchMap?.get(fieldPath);
 	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
-	// `label` is absent from the `hidden` field kind — guard every access with
-	// a `"label" in field` narrowing so the tree row still renders for hidden
-	// fields (id-only display).
-	const fieldLabel = "label" in field ? field.label : "";
+	// `label` is absent from `hidden` and optional on `group` (empty/absent
+	// label = transparent group). The `in` narrowing alone leaves `string |
+	// undefined`, so coerce `undefined` to "" — the tree row still renders
+	// for those kinds with the id-only display path below.
+	const fieldLabel = "label" in field && field.label ? field.label : "";
 	const showIdMatch = !!(idIndices && fieldLabel);
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
 	const displayText = fieldLabel || field.id;

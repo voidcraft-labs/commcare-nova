@@ -158,6 +158,30 @@ const InteractiveField = memo(function InteractiveField({
 	const path = `${prefix}/${fieldId}`;
 	const fieldPath = fpath(fieldId, parentPath);
 
+	// Transparent group: an empty/absent label means the group has no UI
+	// chrome at runtime — matches CommCare's behavior for unlabeled
+	// `<group>` elements. Render the children inline at the same depth as
+	// the group's siblings (so visible children appear flush with the
+	// surrounding form structure, not inside an empty section); hidden-
+	// only contents disappear entirely. We skip the outer `mb-6` wrapper
+	// too — siblings of the parent contribute their own row spacing, so
+	// the transparent group adds zero visual footprint.
+	//
+	// Edit-mode rendering still surfaces empty-labeled groups via
+	// `VirtualFormList` → `GroupBracket` so authors can select and edit
+	// them; this transparency only applies to interactive/preview mode.
+	if (field.kind === "group" && !field.label) {
+		return (
+			<InteractiveFormRenderer
+				parentEntityId={field.uuid}
+				prefix={path}
+				parentPath={fieldPath}
+				depth={depth}
+				leadingGap={false}
+			/>
+		);
+	}
+
 	const showInvalid = state.touched && !state.valid;
 
 	// Discriminated union narrowing on `field.kind` so each branch sees

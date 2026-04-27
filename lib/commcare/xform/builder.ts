@@ -578,6 +578,20 @@ function buildFieldParts(
 		// Re-indent child body elements so the nested structure renders
 		// cleanly. Repeats wrap their children in an extra `<group>`; the
 		// indentation offsets account for both layouts.
+		//
+		// `<label>` is gated on a truthy `label`. Container kinds
+		// (`group`, `repeat`) extend `containerFieldBase` (label
+		// optional); when label is empty/absent, the itext entry isn't
+		// registered (line ~506), so emitting an unconditional
+		// `<label ref="jr:itext('${id}-label')"/>` would produce a
+		// dangling reference that `validateXFormXml` flags as
+		// `XFORM_MISSING_ITEXT`. Skipping the element entirely is also
+		// what CommCare expects for transparent structural containers —
+		// the runtime renders nothing for an unlabeled group/repeat
+		// header.
+		const labelLine = label
+			? `\n      <label ref="jr:itext('${field.id}-label')"/>`
+			: "";
 		if (field.kind === "repeat") {
 			const indentedChildren = childBody.map((el) => {
 				const lines = el.split("\n");
@@ -587,7 +601,7 @@ function buildFieldParts(
 			});
 			const innerLines = indentedChildren.join("\n");
 			bodyElements.push(
-				`<group ref="${nodePath}">\n      <label ref="jr:itext('${field.id}-label')"/>\n      <repeat nodeset="${nodePath}">\n${innerLines}\n      </repeat>\n    </group>`,
+				`<group ref="${nodePath}">${labelLine}\n      <repeat nodeset="${nodePath}">\n${innerLines}\n      </repeat>\n    </group>`,
 			);
 		} else {
 			const indentedChildren = childBody.map((el) => {
@@ -597,8 +611,16 @@ function buildFieldParts(
 				return lines.join("\n");
 			});
 			const innerLines = indentedChildren.join("\n");
+			// `appearance="field-list"` is a CommCare semantic that drives
+			// single-page rendering of the group's children. For a labelled
+			// group it's Nova's default; for an empty-label (transparent)
+			// group, dropping the attribute matches the "no visual impact"
+			// runtime semantic — there's no group chrome to anchor a
+			// field-list layout against, so leaving it on would assert a
+			// layout posture the author didn't ask for.
+			const appearanceAttr = label ? ' appearance="field-list"' : "";
 			bodyElements.push(
-				`<group ref="${nodePath}" appearance="field-list">\n      <label ref="jr:itext('${field.id}-label')"/>\n${innerLines}\n    </group>`,
+				`<group ref="${nodePath}"${appearanceAttr}>${labelLine}\n${innerLines}\n    </group>`,
 			);
 		}
 		return;

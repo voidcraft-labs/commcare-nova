@@ -200,30 +200,34 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 
 							<div className="min-w-0 flex-1">
 								{/* GroupBracket always receives a container field (group
-								 *  or repeat). Both kinds carry `label` on the domain
-								 *  schema, but TypeScript's union narrows here via the
-								 *  container-kind check in the enclosing block. Guard
-								 *  with `in` so the narrowing is explicit. */}
-								{"label" in q && q.label ? (
-									<TextEditable
-										value={q.label}
-										onSave={
-											saveField ? (v) => saveField("label", v) : undefined
-										}
-										fieldType="label"
-									>
+								 *  or repeat). Both kinds carry an OPTIONAL `label`
+								 *  (containerFieldBase) — empty/absent label means the
+								 *  container is transparent at runtime, but the author
+								 *  still needs an inline affordance to give it one. We
+								 *  always render `TextEditable` and let it activate on
+								 *  click; the children below render a labelled
+								 *  `LabelContent` when set, or the muted "Untitled..."
+								 *  placeholder when empty. The placeholder is INSIDE
+								 *  `TextEditable` so a click on the placeholder opens
+								 *  the inline editor with an empty buffer. */}
+								<TextEditable
+									value={"label" in q && q.label ? q.label : ""}
+									onSave={saveField ? (v) => saveField("label", v) : undefined}
+									fieldType="label"
+								>
+									{"label" in q && q.label ? (
 										<LabelContent
 											label={q.label}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
 											className={FIELD_STYLES.label}
 										/>
-									</TextEditable>
-								) : (
-									<span className="text-xs italic text-nova-text-muted">
-										Untitled {isRepeat ? "repeat" : "group"}
-									</span>
-								)}
+									) : (
+										<span className="text-xs italic text-nova-text-muted">
+											Untitled {isRepeat ? "repeat" : "group"}
+										</span>
+									)}
+								</TextEditable>
 							</div>
 						</div>
 						{/* Containers (group/repeat) carry no `hint` in the domain

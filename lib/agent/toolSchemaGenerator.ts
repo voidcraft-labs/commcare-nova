@@ -90,7 +90,15 @@ const FIELD_DOCS = {
 		"Human-friendly label shown to the end user. Supports hashtag " +
 		"references (`#case/prop`, `#form/path`, `#user/prop`) and " +
 		"markdown. Do NOT use {curly_brace} template syntax — unsupported. " +
-		'Pass "" (empty string) for hidden fields, which have no label.',
+		'Pass "" (empty string) for `hidden` fields (which never render). ' +
+		'Pass "" for `group` to make the group transparent at runtime ' +
+		"(no chrome, children render at the parent's depth) — useful for " +
+		"disambiguating two hidden fields that share an id by giving them " +
+		'distinct parents. Pass "" for `repeat` to drop the title text but ' +
+		"keep the chrome and iteration controls (the user still needs them " +
+		"to add/remove instances). For every other kind (`text`, `int`, " +
+		"`single_select`, etc.), the label is required and must be a " +
+		"non-empty human-readable string.",
 	hint: "Help text rendered below the input.",
 	required:
 		'XPath expression — "true()" for always-required, or a conditional ' +
