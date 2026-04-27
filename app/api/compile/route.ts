@@ -1,5 +1,5 @@
+import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { v4 as uuidv4 } from "uuid";
 import { AutoFixer } from "@/lib/agent";
 import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 		const buffer = compileCcz(hqJson, doc.appName, docWithParent);
 
 		// Store buffer for download.
-		const compileId = uuidv4();
+		const compileId = randomUUID();
 		await saveCcz(compileId, buffer);
 
 		return NextResponse.json({
