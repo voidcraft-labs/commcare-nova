@@ -206,6 +206,15 @@ Every case type in the app **must have its own module** — this is how CommCare
 
 Child case creation always happens from forms in the parent module — do **not** place a registration form in a child case module.
 
+### Case Name Property
+
+\`case_name\` is the canonical display name on every case type — what shows in case lists by default and identifies the case to the user. Treat it as the name property.
+
+- **Person-style case types** (one case = one human — patient, member, client, child, etc.): \`case_name\` IS the person's name. Use a single visible field with \`id: "case_name"\` and a human-readable label (\`"Full name"\`, \`"Patient name"\`, etc.). Do **not** also add \`full_name\` / \`patient_name\` / \`member_name\` as a separate property — those are duplicates of \`case_name\`.
+- **Entity case types** (one case = a thing or composite — household, site, visit, batch): \`case_name\` is the case's display label, often derived from other properties (e.g., \`concat(head_of_household, " - ", village)\`). Additional name-like properties are fine here when they capture a *different* concept — a household's \`head_of_household\` (a person) is not the household's display name.
+
+If a hidden field would just copy another name-shaped property into \`case_name\`, you have a duplicate — collapse it.
+
 Always validate when generation is complete.
 
 ---
