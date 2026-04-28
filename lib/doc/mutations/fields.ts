@@ -2,8 +2,8 @@ import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
-	fieldRegistry,
 	fieldSchema,
+	getConvertibleTypes,
 	reconcileFieldForKind,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -510,7 +510,7 @@ export function applyFieldMutation(
 			//     order slot" invariant enforced everywhere else.
 			// The convertTargets list in each kind's FieldKindMetadata is the
 			// single source of truth for which swaps are semantically valid.
-			const allowed = fieldRegistry[field.kind].convertTargets;
+			const allowed = getConvertibleTypes(field.kind);
 			if (!allowed.includes(mut.toKind)) {
 				log.warn(
 					`convertField: ${field.kind} cannot convert to ${mut.toKind}`,

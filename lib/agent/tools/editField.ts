@@ -35,7 +35,7 @@
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { fieldRegistry } from "@/lib/domain";
+import { getConvertibleTypes } from "@/lib/domain";
 import {
 	renameFieldMutations,
 	resolveFieldByIndex,
@@ -197,7 +197,7 @@ export const editFieldTool = {
 			// allowed by the source kind's `convertTargets` list.
 			if (newKind && newKind !== resolved.field.kind) {
 				const fromKind = resolved.field.kind;
-				const allowed = fieldRegistry[fromKind].convertTargets;
+				const allowed = getConvertibleTypes(fromKind);
 				if (!allowed.includes(newKind)) {
 					return {
 						kind: "mutate" as const,

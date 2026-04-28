@@ -32,7 +32,6 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
-import { FieldTypeList } from "@/components/builder/FieldTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -482,7 +481,12 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 
 								<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
-								{/* Convert Type — submenu with conversion targets */}
+								{/* Convert Type — submenu with conversion targets. When the
+								 *  current kind has no convert targets, the trigger
+								 *  collapses to a disabled item rather than disappearing,
+								 *  matching the move up/down precedent above: the row
+								 *  stays in place so the menu's vertical rhythm doesn't
+								 *  shift between kinds. */}
 								{canConvert ? (
 									<Menu.SubmenuRoot>
 										<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
@@ -506,30 +510,33 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 												sideOffset={4}
 											>
 												<Menu.Popup className={MENU_POPUP_CLS}>
-													{/* `convertField` dispatches a single atomic mutation — the reducer
-													 *  swaps the kind and reconciles per-kind properties via `fieldSchema`.
-													 *  The dedicated mutation keeps undo history + event logging clean
-													 *  versus a generic write that would rely on schema stripping. */}
-													<FieldTypeList
-														types={conversionTargets}
-														activeType={field.kind}
-														onSelect={(next) =>
-															convertField(asUuid(selectedUuid), next)
-														}
-													/>
+													{/* `convertField` dispatches a single atomic mutation:
+													 *  the reducer swaps the kind and reconciles per-kind
+													 *  properties via `fieldSchema`, keeping undo history
+													 *  and event logging clean. */}
+													{conversionTargets.map((target) => {
+														const targetMeta = fieldRegistry[target];
+														return (
+															<MenuItem
+																key={target}
+																icon={targetMeta.icon}
+																label={targetMeta.label}
+																onClick={() =>
+																	convertField(asUuid(selectedUuid), target)
+																}
+															/>
+														);
+													})}
 												</Menu.Popup>
 											</Menu.Positioner>
 										</Menu.Portal>
 									</Menu.SubmenuRoot>
 								) : (
-									<Tooltip content="This field type doesn't support conversion">
-										<MenuItem
-											icon={tablerArrowsExchange}
-											label="Convert Type"
-											disabled
-											onClick={() => {}}
-										/>
-									</Tooltip>
+									<MenuItem
+										icon={tablerArrowsExchange}
+										label="Convert Type"
+										disabled
+									/>
 								)}
 
 								{/* Duplicate */}
@@ -561,7 +568,9 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 
 // ── Reusable menu item ──────────────────────────────────────────────────
 
-/** Single menu item with icon, label, and optional keyboard shortcut hint. */
+/** Single menu item with icon, label, and optional keyboard shortcut hint.
+ *  `onClick` is optional so disabled items can omit it — the helper drops
+ *  any handler whenever `disabled` is true regardless of what callers pass. */
 function MenuItem({
 	icon,
 	label,
@@ -573,7 +582,7 @@ function MenuItem({
 	label: string;
 	shortcut?: string;
 	disabled?: boolean;
-	onClick: () => void;
+	onClick?: () => void;
 }) {
 	return (
 		<Menu.Item

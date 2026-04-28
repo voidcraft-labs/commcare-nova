@@ -54,7 +54,26 @@ export type FieldKindMetadata<K extends FieldKind> = {
 	isStructural: boolean;
 	isContainer: boolean;
 	saDocs: string;
-	convertTargets: readonly FieldKind[];
+	/**
+	 * Sibling kinds this kind can be converted into. The type excludes
+	 * `K` so a kind cannot list itself as a target — the compiler error
+	 * fires at the metadata declaration site, before any consumer.
+	 *
+	 * Three runtime consumers read the list:
+	 *   - The FieldHeader convert-type submenu renders one row per
+	 *     target.
+	 *   - The `editField` SA tool gates kind changes against
+	 *     `getConvertibleTypes(fromKind)` and lists the allowed targets
+	 *     back in the rejection message when the pair is invalid.
+	 *   - The `convertField` reducer mutation enforces the same gate as
+	 *     the authoritative second layer.
+	 *
+	 * The SA's `editField.kind` enum exposes every kind in `fieldKinds`,
+	 * not just the per-kind targets — the runtime gate is what surfaces
+	 * an unsupported pair as a tool error rather than a compile-time
+	 * impossibility.
+	 */
+	convertTargets: readonly Exclude<FieldKind, K>[];
 };
 
 /**
