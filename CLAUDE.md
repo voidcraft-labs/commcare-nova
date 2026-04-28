@@ -8,7 +8,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - AI: Vercel AI SDK — `ToolLoopAgent`, streamed UI messages, `useChat`
 - State: Zustand scoped per-buildId · doc store with zundo undo/redo
 - DB: Firestore · Encryption: Cloud KMS
-- Auth: Better Auth + admin plugin. OAuth domain restriction lives on the GCP consent screen, not app code
+- Auth: Better Auth + admin plugin. Sign-in is gated by an email-domain allowlist in `lib/auth.ts` (`databaseHooks.user.create.before`); the GCP OAuth consent screen narrows it further at the Workspace-customer level
 - Use `motion/react` for animation (NOT `framer-motion`)
 - Use `@base-ui/react` for floating elements (no raw `@floating-ui/react` in app code)
 - Biome + Lefthook pre-commit · Vitest
