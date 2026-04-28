@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { useState } from "react";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
+import { SIGN_IN_ERROR } from "@/lib/auth-errors";
 
 /** Google "G" logo for the sign-in button. Inline SVG to avoid external dependencies. */
 function GoogleLogo({ size = 18 }: { size?: number }) {
@@ -43,29 +44,23 @@ interface LandingProps {
 }
 
 /**
- * Map a Better Auth callback error string to a user-facing message.
+ * Map a Better Auth callback error code to a user-facing message.
  *
- * Better Auth's OAuth callback redirector serializes the `APIError`
- * message by replacing spaces with underscores (see Better Auth's
- * `callback.mjs`). For our domain-allowlist rejection — the message
- * we control via `databaseHooks.user.create.before` in `lib/auth.ts`
- * — we recognize the prefix and undo that serialization so the user
- * sees the original sentence.
+ * The `?error=…` value is either a code Nova explicitly emitted (one
+ * of `SIGN_IN_ERROR`, matched by exact equality against the imported
+ * constant — typos on either side fail at build time) or some other
+ * code from Better Auth's internal protocol surface that we do not
+ * control. We do not pattern-match the latter; everything outside our
+ * own code list collapses to a single generic sentence rather than
+ * leaking protocol-level identifiers to the UI.
  *
- * The `state_*` / `please_restart_the_process` family corresponds to
- * a lost or mismatched OAuth state cookie — the actionable user fix
- * is to retry from a fresh tab, so we surface that hint rather than
- * the opaque generic. Everything else (`unable_to_create_user`,
- * `internal_server_error`, network/provider failures) collapses to
- * a single generic message rather than leaking protocol-level codes.
+ * The user-facing prose lives only here, never in `lib/auth.ts`. The
+ * hook throws codes; this function owns the words.
  */
 function formatSignInError(raw: string | null): string | null {
 	if (!raw) return null;
-	if (raw.startsWith("Sign-in_is_restricted")) {
-		return raw.replace(/_/g, " ");
-	}
-	if (raw.startsWith("state_") || raw === "please_restart_the_process") {
-		return "Your sign-in session expired. Please try again in a fresh tab.";
+	if (raw === SIGN_IN_ERROR.domainRejected) {
+		return "Sign-in is restricted to authorized Dimagi accounts.";
 	}
 	return "Sign-in failed. Please try again.";
 }

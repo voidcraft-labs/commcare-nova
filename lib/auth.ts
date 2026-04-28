@@ -25,6 +25,7 @@ import { APIError } from "better-auth/api";
 import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import { Firestore as AdminFirestore } from "firebase-admin/firestore";
+import { SIGN_IN_ERROR } from "./auth-errors";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
 
@@ -327,8 +328,15 @@ function createAuth() {
 									domain: domain ?? "(none)",
 								},
 							);
+							/* The `message` here is the URL-safe code from
+							 * `lib/auth-errors.ts`, not a user-facing sentence —
+							 * Better Auth puts this string into the redirect URL,
+							 * and the landing page maps the code back to prose
+							 * after importing the same constant. Keeping the prose
+							 * out of this file keeps producer and consumer linked
+							 * by a single typed value. */
 							throw new APIError("FORBIDDEN", {
-								message: "Sign-in is restricted to authorized Dimagi accounts.",
+								message: SIGN_IN_ERROR.domainRejected,
 							});
 						}
 						return { data: user };
