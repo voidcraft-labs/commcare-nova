@@ -21,6 +21,14 @@ export function useAuth() {
 		authClient.signIn.social({
 			provider: "google",
 			callbackURL: "/",
+			/* Errors raised inside Better Auth's OAuth callback (notably the
+			 * email-domain rejection from `databaseHooks.user.create.before` in
+			 * `lib/auth.ts`, but also any state/code/network failure) redirect
+			 * to `errorCallbackURL` with `?error=…` appended. Pointing it at
+			 * `/` keeps rejected users on the landing page where the message
+			 * surfaces inline, instead of Better Auth's default `${baseURL}/error`
+			 * — a route that does not exist in this app and would 404. */
+			errorCallbackURL: "/",
 		});
 
 	const signOut = () =>

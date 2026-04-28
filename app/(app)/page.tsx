@@ -8,10 +8,20 @@ import { userHasApps } from "@/lib/db/apps";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
 
+interface HomePageProps {
+	/** Next.js 16 search params arrive async. The only key consulted here is
+	 * `error`, populated by Better Auth's `errorCallbackURL` when sign-in is
+	 * rejected (most often by the email-domain hook in `lib/auth.ts`). */
+	searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
 /**
  * Root page — three branches, zero redirects:
  *
- * 1. Unauthenticated → Landing page with Google OAuth sign-in.
+ * 1. Unauthenticated → Landing page with Google OAuth sign-in. If the URL
+ *    carries `?error=…` (set by Better Auth when an OAuth attempt is
+ *    rejected), the message is forwarded to the landing page so it can
+ *    render an inline banner.
  * 2. Authenticated, no apps → Get-started prompt (rendered immediately,
  *    no Suspense skeleton) linking to `/build/new`.
  * 3. Authenticated, has apps → App list skeleton streams via Suspense
@@ -23,10 +33,14 @@ import { Landing } from "./landing";
  * The `userHasApps` existence check (`limit(1)`) runs before the
  * Suspense boundary so new users never see the app-list skeleton.
  */
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: HomePageProps) {
 	const session = await getSession();
 
-	if (!session) return <Landing />;
+	if (!session) {
+		const params = await searchParams;
+		const errorParam = typeof params.error === "string" ? params.error : null;
+		return <Landing signInError={errorParam} />;
+	}
 
 	const hasApps = await userHasApps(session.user.id);
 

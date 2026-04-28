@@ -26,6 +26,7 @@ import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { MCP_RESOURCE_URL } from "./hostnames";
+import { log } from "./logger";
 
 /**
  * OAuth scopes Nova's authorization server can grant.
@@ -280,9 +281,23 @@ function createAuth() {
 		databaseHooks: {
 			user: {
 				create: {
-					before: async (user) => {
+					before: async (user, _ctx) => {
 						const domain = user.email?.toLowerCase().split("@").at(-1);
 						if (!domain || !ALLOWED_EMAIL_DOMAINS.has(domain)) {
+							/* Audit trail for the access gate. Logged at WARNING so a
+							 * misconfigured allowlist (typo, missing domain) shows up
+							 * in Cloud Logging without being lost in INFO noise.
+							 * Email is included because Cloud Logging is access-controlled
+							 * and this is the only persistent record of a rejected
+							 * attempt — without it, diagnosing a locked-out legitimate
+							 * user means reconstructing the redirect URL from screenshots. */
+							log.warn(
+								"[auth] Sign-in rejected: email domain not in allowlist",
+								{
+									email: user.email ?? "(missing)",
+									domain: domain ?? "(none)",
+								},
+							);
 							throw new APIError("FORBIDDEN", {
 								message: "Sign-in is restricted to authorized Dimagi accounts.",
 							});

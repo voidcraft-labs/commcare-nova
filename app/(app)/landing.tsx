@@ -35,16 +35,46 @@ function GoogleLogo({ size = 18 }: { size?: number }) {
 	);
 }
 
+interface LandingProps {
+	/** Sign-in error forwarded from `?error=…`, set by Better Auth when an
+	 * OAuth attempt is rejected (e.g. by the email-domain hook in
+	 * `lib/auth.ts`). `null` when there is no error to surface. */
+	signInError: string | null;
+}
+
+/**
+ * Map a Better Auth callback error string to a user-facing message.
+ *
+ * Better Auth's OAuth callback redirector serializes the `APIError`
+ * message by replacing spaces with underscores (see Better Auth's
+ * `callback.mjs`). For our domain-allowlist rejection — the message
+ * we control via `databaseHooks.user.create.before` in `lib/auth.ts`
+ * — we recognize the prefix and undo that serialization so the user
+ * sees the original sentence. Anything else (state mismatch, network
+ * failure, provider error) is collapsed to a generic message rather
+ * than leaking protocol-level codes to the UI.
+ */
+function formatSignInError(raw: string | null): string | null {
+	if (!raw) return null;
+	if (raw.startsWith("Sign-in_is_restricted")) {
+		return raw.replace(/_/g, " ");
+	}
+	return "Sign-in failed. Please try again.";
+}
+
 /**
  * Landing page client component — Google OAuth sign-in.
  *
  * Rendered by the root page when the user is not authenticated.
  * Sign-in is restricted to the email-domain allowlist enforced by
- * `databaseHooks.user.create.before` in `lib/auth.ts`.
+ * `databaseHooks.user.create.before` in `lib/auth.ts`. When that hook
+ * rejects an attempt, Better Auth redirects back here with `?error=…`
+ * and the message is surfaced as an inline banner.
  */
-export function Landing() {
+export function Landing({ signInError }: LandingProps) {
 	const { signIn } = useAuth();
 	const [signingIn, setSigningIn] = useState(false);
+	const errorMessage = formatSignInError(signInError);
 
 	/** Google OAuth entry — sign in and redirect to builder on success. */
 	const signInWithGoogle = async () => {
@@ -76,6 +106,18 @@ export function Landing() {
 				>
 					Build CommCare apps from conversation
 				</motion.p>
+
+				{errorMessage && (
+					<motion.div
+						initial={{ opacity: 0, y: -8 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.4 }}
+						role="alert"
+						className="w-full rounded-lg border border-nova-rose/30 bg-nova-rose/10 px-4 py-3 text-sm text-nova-rose"
+					>
+						{errorMessage}
+					</motion.div>
+				)}
 
 				<motion.div
 					initial={{ opacity: 0, y: 10 }}
