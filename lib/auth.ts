@@ -21,6 +21,7 @@
  */
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import { Firestore as AdminFirestore } from "firebase-admin/firestore";
@@ -79,6 +80,26 @@ export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
 	"nova.hq.read",
 	"nova.hq.write",
 ] as const;
+
+/**
+ * Email-domain allowlist for first-party sign-in.
+ *
+ * The set of company domains Nova accepts during OAuth user creation.
+ * Hardcoded as a code constant rather than env-driven for two reasons:
+ * this is the production access gate, so a typo in a deployment env var
+ * would be a security failure; and adding or removing a domain is a
+ * deliberate decision that warrants a code review, not an ops tweak.
+ *
+ * The set is kept lowercase so the comparison in `databaseHooks` below
+ * can lowercase the incoming email and use a single straight `Set.has`
+ * check — Google emails are case-preserving but case-insensitive for
+ * matching, so a user signing in as `User@Dimagi.com` must hit the
+ * same allowlist entry as `user@dimagi.com`.
+ */
+const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
+	"dimagi.com",
+	"dimagi-ai.com",
+]);
 
 let _authDb: AdminFirestore | null = null;
 
@@ -222,6 +243,53 @@ function createAuth() {
 			google: {
 				clientId: process.env.GOOGLE_CLIENT_ID ?? "",
 				clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+			},
+		},
+
+		/**
+		 * Email-domain gate for OAuth sign-in.
+		 *
+		 * Better Auth's `databaseHooks.user.create.before` fires inside
+		 * the OAuth callback handler — after Google's tokens have been
+		 * verified and userinfo fetched, but BEFORE the `auth_users` row
+		 * is written, the `auth_accounts` link is created, or any session
+		 * is established. Throwing `APIError` aborts the entire callback
+		 * chain, so a rejected user leaves no Firestore trace and never
+		 * receives a session cookie. There is no in-between window where
+		 * a non-allowlisted user is partially signed in.
+		 *
+		 * The hook only fires on user creation, not on subsequent
+		 * sign-ins of an existing account. That is deliberate: the
+		 * allowlist polices who can be ADMITTED. Once an account
+		 * exists in `auth_users`, ban/role-based revocation is the
+		 * mechanism for removing access (handled by the admin plugin).
+		 *
+		 * Domain extraction takes the substring after the LAST `@`,
+		 * which is the correct boundary for any RFC-shaped email and
+		 * defuses degenerate inputs like quoted local-parts. Casing is
+		 * normalized to lowercase before the allowlist check (see the
+		 * comment on `ALLOWED_EMAIL_DOMAINS`).
+		 *
+		 * This hook is the single source of truth for the sign-in
+		 * domain policy. The OAuth consent screen at the GCP level may
+		 * narrow the set further (an Internal-mode screen rejects
+		 * non-Workspace users before they ever reach this code), but
+		 * Nova's own gate must independently enforce the allowlist
+		 * regardless of the consent-screen configuration.
+		 */
+		databaseHooks: {
+			user: {
+				create: {
+					before: async (user) => {
+						const domain = user.email?.toLowerCase().split("@").at(-1);
+						if (!domain || !ALLOWED_EMAIL_DOMAINS.has(domain)) {
+							throw new APIError("FORBIDDEN", {
+								message: "Sign-in is restricted to authorized Dimagi accounts.",
+							});
+						}
+						return { data: user };
+					},
+				},
 			},
 		},
 

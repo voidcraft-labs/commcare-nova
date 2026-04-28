@@ -1,8 +1,10 @@
 /**
  * Auth utilities for API route handlers and Server Components.
  *
- * All routes require authenticated sessions (@dimagi.com Google OAuth).
- * The server-side ANTHROPIC_API_KEY is used for all LLM calls.
+ * All routes require authenticated sessions (Google OAuth, restricted
+ * to the email-domain allowlist enforced by the `databaseHooks` block
+ * in `lib/auth.ts`). The server-side ANTHROPIC_API_KEY is used for all
+ * LLM calls.
  *
  * User identity is Better Auth's built-in `session.user.id` — always
  * present on valid sessions, no custom session fields needed.

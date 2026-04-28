@@ -39,7 +39,8 @@ function GoogleLogo({ size = 18 }: { size?: number }) {
  * Landing page client component — Google OAuth sign-in.
  *
  * Rendered by the root page when the user is not authenticated.
- * All users must sign in with a @dimagi.com Google account.
+ * Sign-in is restricted to the email-domain allowlist enforced by
+ * `databaseHooks.user.create.before` in `lib/auth.ts`.
  */
 export function Landing() {
 	const { signIn } = useAuth();
