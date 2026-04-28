@@ -50,14 +50,22 @@ interface LandingProps {
  * `callback.mjs`). For our domain-allowlist rejection — the message
  * we control via `databaseHooks.user.create.before` in `lib/auth.ts`
  * — we recognize the prefix and undo that serialization so the user
- * sees the original sentence. Anything else (state mismatch, network
- * failure, provider error) is collapsed to a generic message rather
- * than leaking protocol-level codes to the UI.
+ * sees the original sentence.
+ *
+ * The `state_*` / `please_restart_the_process` family corresponds to
+ * a lost or mismatched OAuth state cookie — the actionable user fix
+ * is to retry from a fresh tab, so we surface that hint rather than
+ * the opaque generic. Everything else (`unable_to_create_user`,
+ * `internal_server_error`, network/provider failures) collapses to
+ * a single generic message rather than leaking protocol-level codes.
  */
 function formatSignInError(raw: string | null): string | null {
 	if (!raw) return null;
 	if (raw.startsWith("Sign-in_is_restricted")) {
 		return raw.replace(/_/g, " ");
+	}
+	if (raw.startsWith("state_") || raw === "please_restart_the_process") {
+		return "Your sign-in session expired. Please try again in a fresh tab.";
 	}
 	return "Sign-in failed. Please try again.";
 }
@@ -112,8 +120,19 @@ export function Landing({ signInError }: LandingProps) {
 						initial={{ opacity: 0, y: -8 }}
 						animate={{ opacity: 1, y: 0 }}
 						transition={{ duration: 0.4 }}
-						role="alert"
-						className="w-full rounded-lg border border-nova-rose/30 bg-nova-rose/10 px-4 py-3 text-sm text-nova-rose"
+						/* `role="status"` (== `aria-live="polite"`) — this banner is
+						 * server-rendered into the initial HTML when `?error=…` is
+						 * present, so by the time a screen reader reaches it the
+						 * content is part of normal page flow. `role="alert"` would
+						 * `aria-live="assertive"` and interrupt mid-sentence, which
+						 * is the wrong semantic for first-paint static content. */
+						role="status"
+						/* Body text uses `text-nova-text` rather than `text-nova-rose`
+						 * for WCAG AA contrast against the `bg-nova-rose/10` tint —
+						 * the rose color sits ~4:1 on the composite background, just
+						 * below the 4.5:1 threshold for normal text. The rose border
+						 * + tint still convey the error semantic visually. */
+						className="w-full rounded-lg border border-nova-rose/30 bg-nova-rose/10 px-4 py-3 text-sm text-nova-text"
 					>
 						{errorMessage}
 					</motion.div>

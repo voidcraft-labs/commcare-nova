@@ -248,6 +248,26 @@ function createAuth() {
 		},
 
 		/**
+		 * Global redirect target for API errors that bubble out of the
+		 * Better Auth router without a per-call `errorCallbackURL`.
+		 *
+		 * The OAuth callback redirector reads each request's
+		 * `errorCallbackURL` from state (set by the client's
+		 * `signIn.social({ errorCallbackURL: "/" })` call), and falls
+		 * back to this global URL when state is missing or the per-call
+		 * URL is dropped — see Better Auth issues #5518/#4694/#1580 for
+		 * known paths where the per-call URL is silently ignored.
+		 *
+		 * The default is `${baseURL}/error`, which Nova does not own;
+		 * pointing it at `/` keeps every error redirect on the landing
+		 * page (which knows how to surface `?error=…`) rather than
+		 * 404-ing through to a route that does not exist.
+		 */
+		onAPIError: {
+			errorURL: "/",
+		},
+
+		/**
 		 * Email-domain gate for OAuth sign-in.
 		 *
 		 * Better Auth's `databaseHooks.user.create.before` fires inside
@@ -277,6 +297,15 @@ function createAuth() {
 		 * non-Workspace users before they ever reach this code), but
 		 * Nova's own gate must independently enforce the allowlist
 		 * regardless of the consent-screen configuration.
+		 *
+		 * The hook applies to every user-creation path on the adapter,
+		 * including the admin plugin's `/admin/create-user` endpoint —
+		 * an admin cannot seat a user with an out-of-allowlist email.
+		 * That is intentional: admin tooling here manages users who
+		 * have already arrived through OAuth, not external invitees.
+		 * If invite-by-admin for non-Dimagi addresses is ever needed,
+		 * `ctx.path === "/admin/create-user"` is the discriminator that
+		 * would let that path bypass the gate.
 		 */
 		databaseHooks: {
 			user: {
