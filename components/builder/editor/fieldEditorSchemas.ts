@@ -15,6 +15,7 @@
 import { CasePropertyEditor } from "@/components/builder/editor/fields/CasePropertyEditor";
 import { OptionsEditor } from "@/components/builder/editor/fields/OptionsEditor";
 import { RequiredEditor } from "@/components/builder/editor/fields/RequiredEditor";
+import { ALWAYS_REQUIRED } from "@/components/builder/editor/fields/requiredState";
 import { TextEditor } from "@/components/builder/editor/fields/TextEditor";
 import { XPathEditor } from "@/components/builder/editor/fields/XPathEditor";
 import type {
@@ -70,19 +71,39 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 	};
 }
 
-function requiredEntry<F extends Field>(): {
-	key: "required" & keyof F;
+// `required` is the one editor whose "added but empty" state is
+// meaningless — a freshly-added Required toggle that's off conveys no
+// user intent. `valueOnAdd: ALWAYS_REQUIRED` makes the pill click write
+// the always-required sentinel directly, so the toggle lands on the
+// moment the user clicks "+ Required". The pending-activation +
+// autoFocus dance still applies to text/XPath entries that legitimately
+// start empty.
+//
+// `F extends Field & { required?: string }` is purely a type-resolution
+// aid: it lets `valueOnAdd: F["required"]` and the body's
+// `field.required` access typecheck cleanly without scattered
+// `"required" & keyof F` widening or `field as F & {…}` casts. It does
+// NOT prevent call-site misuse — TS treats absence of an optional
+// property as structurally satisfying it, so `requiredEntry<GroupField>()`
+// would still compile. The runtime contract that `required` only wires
+// into kinds that actually carry it is enforced by convention (each
+// kind's schema only includes the entries its domain type supports) and
+// by the registry-wide `valueOnAdd` test in `FieldEditorPanel.test.tsx`.
+function requiredEntry<F extends Field & { required?: string }>(): {
+	key: "required";
 	component: typeof RequiredEditor;
 	label: string;
 	addable: true;
 	visible: (field: F) => boolean;
+	valueOnAdd: F["required"];
 } {
 	return {
-		key: "required" as "required" & keyof F,
+		key: "required",
 		component: RequiredEditor,
 		label: "Required",
 		addable: true,
-		visible: (field) => !!(field as F & { required?: string }).required,
+		visible: (field) => !!field.required,
+		valueOnAdd: ALWAYS_REQUIRED,
 	};
 }
 

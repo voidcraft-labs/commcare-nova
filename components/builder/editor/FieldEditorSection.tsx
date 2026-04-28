@@ -133,7 +133,25 @@ export function FieldEditorSection<F extends Field>({
 							<AddPropertyButton
 								key={entry.key as string}
 								label={entry.label}
-								onClick={() => activate(entry.key as string)}
+								// Two pill-click flows. Entries with `valueOnAdd`
+								// (e.g. the Required toggle) write the on-state
+								// directly — adding the property already encodes
+								// the user's intent, so an empty editor + manual
+								// flip would just be two clicks for one
+								// decision. Entries without it (XPath / text
+								// editors) take the pending-activation path so
+								// the empty editor mounts in autoFocus mode and
+								// the user can immediately start typing.
+								onClick={() => {
+									if (entry.valueOnAdd !== undefined) {
+										setKey(
+											entry.key as keyof F & string,
+											entry.valueOnAdd as F[keyof F & string],
+										);
+										return;
+									}
+									activate(entry.key as string);
+								}}
 							/>
 						))}
 					</div>

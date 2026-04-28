@@ -146,6 +146,15 @@ export type XPathStringKeys<F extends Field> = {
  *
  * `addable` is opt-in. Required-by-spec keys (e.g. `calculate` on hidden)
  * stay always-visible and never collapse into an add-affordance.
+ *
+ * `valueOnAdd` opts the entry out of the empty-editor + pending-focus
+ * dance: when the user clicks the Add Property pill, the section writes
+ * this value directly instead of activating an empty editor in autoFocus
+ * mode. Use this for boolean-shaped properties (e.g. `required`) where
+ * "the user added the property" unambiguously means "turn it on" — an
+ * empty editor + manual toggle requires two clicks to express one
+ * intent. Leave undefined for text/XPath entries where the user must
+ * type a real value into the editor.
  */
 export type FieldEditorEntry<F extends Field> = {
 	[K in keyof F]: {
@@ -154,6 +163,7 @@ export type FieldEditorEntry<F extends Field> = {
 		label: string;
 		visible?: (field: F) => boolean;
 		addable?: boolean;
+		valueOnAdd?: F[K];
 	};
 }[keyof F];
 
