@@ -93,8 +93,30 @@ export const updateFormInputSchema = z.object({
 					"Set for forms with a quiz/test. Omit for content-only forms.",
 				),
 			deliver_unit: z
-				.object({ id: z.string().optional(), name: z.string() })
-				.optional(),
+				.object({
+					id: z.string().optional(),
+					name: z.string(),
+					entity_id: z
+						.string()
+						.optional()
+						.describe(
+							"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
+								"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default when the unit of payment is the FLW's daily aggregate. " +
+								"Override when one paid delivery corresponds to a specific beneficiary, case, or site rather than a daily aggregate. The expression must produce the same value across all forms in the same payment unit for the same delivery target — that's how Connect links a multi-form payment unit (e.g. registration + followup + close) into one CompletedWork. Examples: `#case/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture the beneficiary identifier directly, `concat(#case/household_id, '-', #form/visit_date)` when one paid delivery is one household visit on one date.",
+						),
+					entity_name: z
+						.string()
+						.optional()
+						.describe(
+							"XPath that resolves to a human-readable label Connect shows in dashboards for this delivery. Display-only; doesn't affect dedup or payment. " +
+								"Omit to fall back to `#user/username` — the FLW's username, fine when no more meaningful identifier is available. " +
+								"Override to surface a more useful label: a beneficiary name (`#case/case_name`), a location label, or any human-readable identifier captured in the form.",
+						),
+				})
+				.optional()
+				.describe(
+					"Set for forms in a Connect deliver app. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
+				),
 			task: z
 				.object({
 					id: z.string().optional(),
