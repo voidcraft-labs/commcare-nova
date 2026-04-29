@@ -439,4 +439,70 @@ describe("updateFormTool deliver_unit", () => {
 			entity_name: "#form/loc_id/market_name",
 		});
 	});
+
+	it("accepts SA-supplied entity_id and entity_name and lands them on the doc verbatim", async () => {
+		/* The schema exposes entity_id and entity_name as optional
+		 * inputs so the SA can override the wire defaults for
+		 * workflows that need a different dedup key — case-based
+		 * deliveries (`#case/case_id`), per-beneficiary deliveries,
+		 * site-keyed deliveries, etc. The SA's expression must reach
+		 * the doc verbatim; the wire emitter's `||` fallback only
+		 * activates on absence/empty, so a non-empty SA value wins. */
+		const doc = makeDeliverDocWithoutConnect();
+		const { ctx } = makeTestContext();
+
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: {
+					deliver_unit: {
+						name: "Beneficiary visit",
+						entity_id: "#case/case_id",
+						entity_name: "#case/case_name",
+					},
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		const finalForm = result.newDoc.forms[FORM_A];
+		expect(finalForm?.connect?.deliver_unit).toEqual({
+			name: "Beneficiary visit",
+			entity_id: "#case/case_id",
+			entity_name: "#case/case_name",
+		});
+	});
+
+	it("schema accepts a partial deliver_unit with only entity_id set (entity_name still falls through to wire default)", async () => {
+		/* Partial-override case: SA wants a custom dedup key but is
+		 * fine with the default display label. Both fields are
+		 * independently optional; setting one doesn't force the
+		 * other. */
+		const doc = makeDeliverDocWithoutConnect();
+		const { ctx } = makeTestContext();
+
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: {
+					deliver_unit: {
+						name: "Site visit",
+						entity_id: "#form/site_id",
+					},
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		const finalForm = result.newDoc.forms[FORM_A];
+		expect(finalForm?.connect?.deliver_unit).toEqual({
+			name: "Site visit",
+			entity_id: "#form/site_id",
+		});
+		expect(finalForm?.connect?.deliver_unit?.entity_name).toBeUndefined();
+	});
 });
