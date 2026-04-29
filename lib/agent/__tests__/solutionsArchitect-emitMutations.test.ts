@@ -332,6 +332,48 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		});
 	});
 
+	it("generateScaffold carries per-form post_submit through to the addForm mutation", async () => {
+		/* `post_submit` is on the per-form scaffold schema and must reach
+		 * the constructed `Form` entity. Companion to the `connect` test
+		 * above — same dead-schema-field shape, same assertion shape.
+		 * Locks the construction site against silently dropping any
+		 * scalar SA-set form property. */
+		const emptyDoc = makeEmptyDoc();
+		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
+
+		await runTool(sa, "generateScaffold", {
+			app_name: "Visit Tracker",
+			description: "Survey-only flow",
+			connect_type: "",
+			modules: [
+				{
+					name: "Visits",
+					case_type: null,
+					case_list_only: false,
+					purpose: "Capture vendor visits",
+					forms: [
+						{
+							name: "Vendor visit",
+							type: "survey",
+							purpose: "Visit form",
+							post_submit: "module",
+							formDesign: "Vendor + photo",
+						},
+					],
+				},
+			],
+		});
+
+		const events = mutationEvents(writer);
+		const addFormMut = events
+			.flatMap((e) => e.mutations)
+			.find((m) => m.kind === "addForm") as
+			| Extract<Mutation, { kind: "addForm" }>
+			| undefined;
+		expect(addFormMut).toBeDefined();
+		expect(addFormMut?.form.postSubmit).toBe("module");
+	});
+
 	it("addModule emits data-mutations with module-scoped stage; survey-only module is silent", async () => {
 		// Fixture's MOD_A has caseType "patient" and accepts column writes;
 		// MOD_B is survey-only (no caseType) and should emit nothing.
