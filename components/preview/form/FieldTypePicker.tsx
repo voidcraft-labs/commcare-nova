@@ -139,10 +139,13 @@ export function FieldTypePickerPopup({
 			// Build a partial Field in the domain shape. We cast through the
 			// no-uuid partial the hook accepts — the union narrows on `kind`,
 			// so each variant's allowed properties are enforced at dispatch.
+			// Label mirrors the kind's human-readable name from the registry
+			// (e.g. "New Text", "New Single Select") so a freshly-added field
+			// is self-describing without forcing the user to retype the obvious.
 			const newField = {
 				id: newId,
 				kind,
-				label: "New Field",
+				label: `New ${fieldRegistry[kind].label}`,
 				...(defaultOptions ? { options: defaultOptions } : {}),
 			} as unknown as Omit<Field, "uuid">;
 
