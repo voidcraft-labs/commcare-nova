@@ -55,11 +55,11 @@ export function DeliverConfig({
 
 	const updateDeliverUnit = useCallback(
 		(field: string, value: string) => {
-			const current = connect.deliver_unit ?? {
-				name: "",
-				entity_id: "",
-				entity_name: "",
-			};
+			/* Defensive fallback for the rare case the deliver_unit was
+			 * stripped between render and edit. Only `name` is required
+			 * on the domain shape; `entity_id` / `entity_name` are
+			 * optional and default at wire-emit time. */
+			const current = connect.deliver_unit ?? { name: "" };
 			save({ ...connect, deliver_unit: { ...current, [field]: value } });
 		},
 		[connect, save],
@@ -151,7 +151,13 @@ export function DeliverConfig({
 								<LabeledXPathField
 									label="Entity ID"
 									required
-									value={du.entity_id}
+									/* `entity_id` is optional in the domain — the
+									 * wire layer substitutes the canonical default
+									 * XPath when absent. The editor shows `""`
+									 * for unset state; the user typing a value
+									 * persists it, leaving blank keeps the wire
+									 * default in effect. */
+									value={du.entity_id ?? ""}
 									onSave={(v) => {
 										if (v.trim()) updateDeliverUnit("entity_id", v);
 									}}
@@ -160,7 +166,7 @@ export function DeliverConfig({
 								<LabeledXPathField
 									label="Entity Name"
 									required
-									value={du.entity_name}
+									value={du.entity_name ?? ""}
 									onSave={(v) => {
 										if (v.trim()) updateDeliverUnit("entity_name", v);
 									}}

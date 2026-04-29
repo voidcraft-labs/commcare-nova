@@ -52,6 +52,31 @@ const RENDER_OPTS = {
 } as const;
 
 /**
+ * Default XPath expression substituted for a Connect deliver_unit's
+ * `entity_id` bind when the doc carries no explicit value.
+ *
+ * Connect uses `entity_id` to deduplicate visits per worker. The
+ * canonical default — `concat(#user/username, '-', today())` — yields
+ * one logical entity per (FLW, day) pair, the dominant pattern across
+ * deliver-app workflows. The doc type leaves `entity_id` optional so
+ * a custom expression can override; the bind emitter falls back to
+ * this constant when the doc didn't supply one.
+ *
+ * Exported so tests can assert on the exact XPath the emitter writes.
+ */
+export const DEFAULT_DELIVER_ENTITY_ID = "concat(#user/username, '-', today())";
+
+/**
+ * Default XPath expression substituted for a Connect deliver_unit's
+ * `entity_name` bind when the doc carries no explicit value.
+ *
+ * `#user/username` is the safe label fallback when the form has no
+ * obvious case-side naming property to point at. Same emit-time-only
+ * fallback contract as {@link DEFAULT_DELIVER_ENTITY_ID}.
+ */
+export const DEFAULT_DELIVER_ENTITY_NAME = "#user/username";
+
+/**
  * Bare-hashtag pattern for label / hint prose.
  *
  * Label text is natural language, NOT XPath — markdown syntax like `**`
@@ -216,8 +241,17 @@ function buildConnectBlocks(
 	if (connect.deliver_unit) {
 		const du = connect.deliver_unit;
 		const duId = du.id || "connect_deliver";
-		instances.scanXPath(du.entity_id);
-		instances.scanXPath(du.entity_name);
+		// `entity_id` / `entity_name` are optional in the domain — when
+		// the doc carries an explicit value (a custom XPath the SA or a
+		// UI panel set), use it; otherwise emit the canonical defaults
+		// so CCHQ's build pipeline never sees `calculate=""` (which it
+		// rejects). This is the single home for the Connect-deliver
+		// XPath defaults — sibling to the existing `du.id ||
+		// "connect_deliver"` fallback two lines up.
+		const entityId = du.entity_id || DEFAULT_DELIVER_ENTITY_ID;
+		const entityName = du.entity_name || DEFAULT_DELIVER_ENTITY_NAME;
+		instances.scanXPath(entityId);
+		instances.scanXPath(entityName);
 		dataElements.push(
 			`<${duId} vellum:role="ConnectDeliverUnit">` +
 				`<deliver xmlns="${CONNECT_XMLNS}" id="${duId}">` +
@@ -229,8 +263,8 @@ function buildConnectBlocks(
 		);
 		binds.push(
 			`<bind vellum:nodeset="#form/${duId}" nodeset="/data/${duId}"/>`,
-			`<bind nodeset="/data/${duId}/deliver/entity_id" calculate="${escapeXml(expandHashtags(du.entity_id))}"/>`,
-			`<bind nodeset="/data/${duId}/deliver/entity_name" calculate="${escapeXml(expandHashtags(du.entity_name))}"/>`,
+			`<bind nodeset="/data/${duId}/deliver/entity_id" calculate="${escapeXml(expandHashtags(entityId))}"/>`,
+			`<bind nodeset="/data/${duId}/deliver/entity_name" calculate="${escapeXml(expandHashtags(entityName))}"/>`,
 		);
 	}
 

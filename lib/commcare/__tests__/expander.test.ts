@@ -2507,6 +2507,111 @@ describe("Connect learn-only expansion", () => {
 	});
 });
 
+// ── Deliver-unit entity-XPath defaults (Bug 2 wire-emit coverage) ─────
+//
+// `deliver_unit.entity_id` and `entity_name` are optional in the
+// domain (`lib/domain/forms.ts`). The XForm builder substitutes the
+// canonical XPath defaults when the doc carries no explicit value —
+// this is the single home for those defaults. Without the wire-time
+// fallback, an SA `update_form` that only sets `name` would produce a
+// `<bind … calculate=""/>` and CCHQ would reject the upload with an
+// XPath parse error (the original failure mode in
+// voidcraft-labs/nova-plugin#1).
+
+describe("Connect deliver_unit entity defaults", () => {
+	const deliverWithoutEntityFields = buildDoc({
+		appName: "DeliverDefaults",
+		connectType: "deliver",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Vendor visit",
+						type: "survey",
+						connect: {
+							deliver_unit: {
+								id: "vendor_visit",
+								name: "Vendor visit",
+								// entity_id / entity_name omitted — exercise the
+								// wire-time fallback.
+							},
+						},
+						fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],
+					},
+				],
+			},
+		],
+	});
+
+	it("emits the canonical entity_id/entity_name defaults when the doc carries no explicit values", () => {
+		const hq = expandDoc(deliverWithoutEntityFields);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// Match the binds by their target nodeset and assert the
+		// calculate carries a non-empty XPath that originated from the
+		// canonical defaults — `today()` for entity_id (from
+		// `concat(#user/username, '-', today())`) and the `#user/...`
+		// expansion for entity_name. We don't pin the full expanded
+		// XPath because `expandHashtags` is allowed to evolve (it
+		// already differs for case-loading vs survey contexts); the
+		// load-bearing assertion is "the calculate is non-empty and
+		// derived from the SA-invisible defaults".
+		const idBindMatch = xml.match(
+			/<bind nodeset="\/data\/vendor_visit\/deliver\/entity_id" calculate="([^"]+)"\/>/,
+		);
+		expect(idBindMatch).not.toBeNull();
+		expect(idBindMatch?.[1]).toContain("today()");
+		expect(idBindMatch?.[1]).toContain("username");
+
+		const nameBindMatch = xml.match(
+			/<bind nodeset="\/data\/vendor_visit\/deliver\/entity_name" calculate="([^"]+)"\/>/,
+		);
+		expect(nameBindMatch).not.toBeNull();
+		expect(nameBindMatch?.[1]).toContain("username");
+	});
+
+	it("preserves an explicit entity_id/entity_name when the doc carries them", () => {
+		const customDoc = buildDoc({
+			appName: "DeliverCustom",
+			connectType: "deliver",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Vendor visit",
+							type: "survey",
+							connect: {
+								deliver_unit: {
+									id: "vendor_visit",
+									name: "Vendor visit",
+									entity_id: "uuid()",
+									entity_name: "'manual override'",
+								},
+							},
+							fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(customDoc);
+		const xml: string = Object.values(hq._attachments)[0] as string;
+
+		// Custom expressions land on the binds verbatim — the wire
+		// layer's `||` fallback only activates on falsy (undefined /
+		// empty) values.
+		expect(xml).toContain(
+			'<bind nodeset="/data/vendor_visit/deliver/entity_id" calculate="uuid()"/>',
+		);
+		expect(xml).toContain(
+			'<bind nodeset="/data/vendor_visit/deliver/entity_name" calculate="\'manual override\'"/>',
+		);
+	});
+});
+
 // ── Case-property rename pipeline regression ──────────────────────────
 //
 // `renameField` cascades through sibling fields' XPath references — the

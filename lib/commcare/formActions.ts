@@ -33,6 +33,10 @@ import {
 } from "@/lib/domain";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 import { readFieldString } from "./fieldProps";
+import {
+	DEFAULT_DELIVER_ENTITY_ID,
+	DEFAULT_DELIVER_ENTITY_NAME,
+} from "./xform/builder";
 
 /**
  * Locate a field by bare id under `parentUuid`, returning both the
@@ -296,9 +300,19 @@ export function buildCaseReferencesLoad(
 	}
 	if (connect?.deliver_unit) {
 		const duId = connect.deliver_unit.id || "connect_deliver";
-		const idH = extractHashtags([connect.deliver_unit.entity_id]);
+		// Match the XForm builder: substitute the canonical defaults
+		// when the doc carries no explicit entity expression. Keeps the
+		// session preload's hashtag set in sync with what the bind
+		// emitter actually writes — otherwise the runtime would see the
+		// default XPath but not the `#user/...` hashtags that need
+		// preloading.
+		const entityId =
+			connect.deliver_unit.entity_id || DEFAULT_DELIVER_ENTITY_ID;
+		const entityName =
+			connect.deliver_unit.entity_name || DEFAULT_DELIVER_ENTITY_NAME;
+		const idH = extractHashtags([entityId]);
 		if (idH.length > 0) load[`/data/${duId}/deliver/entity_id`] = idH;
-		const nameH = extractHashtags([connect.deliver_unit.entity_name]);
+		const nameH = extractHashtags([entityName]);
 		if (nameH.length > 0) load[`/data/${duId}/deliver/entity_name`] = nameH;
 	}
 

@@ -281,6 +281,58 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
+	it("generateScaffold carries per-form connect through to the addForm mutation (Bug 1 root)", async () => {
+		/* The autobuild miss in voidcraft-labs/nova-plugin#1 stemmed
+		 * from no scaffold-time slot for per-form Connect. Now that
+		 * `connect` is on the per-form scaffold schema, an SA call
+		 * that supplies it must end up on the constructed `Form`
+		 * entity carried by the matching `addForm` mutation — without
+		 * this assertion, a regression that drops `sf.connect` from
+		 * `setScaffoldMutations` (the same shape as the `post_submit`
+		 * dead-field bug) would slip past silently. */
+		const emptyDoc = makeEmptyDoc();
+		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
+
+		await runTool(sa, "generateScaffold", {
+			app_name: "Vendor Visits",
+			description: "Connect deliver app",
+			connect_type: "deliver",
+			modules: [
+				{
+					name: "Visits",
+					case_type: null,
+					case_list_only: false,
+					purpose: "Capture vendor visits for payment",
+					forms: [
+						{
+							name: "Vendor visit",
+							type: "survey",
+							purpose: "Visit form",
+							formDesign: "Vendor + photo",
+							connect: {
+								deliver_unit: { name: "Vendor visit" },
+							},
+						},
+					],
+				},
+			],
+		});
+
+		const events = mutationEvents(writer);
+		// Locate the addForm mutation in the scaffold batch (each
+		// event carries an array; the scaffold batch contains
+		// setAppName, setConnectType, addModule, then addForm).
+		const addFormMut = events
+			.flatMap((e) => e.mutations)
+			.find((m) => m.kind === "addForm") as
+			| Extract<Mutation, { kind: "addForm" }>
+			| undefined;
+		expect(addFormMut).toBeDefined();
+		expect(addFormMut?.form.connect?.deliver_unit).toEqual({
+			name: "Vendor visit",
+		});
+	});
+
 	it("addModule emits data-mutations with module-scoped stage; survey-only module is silent", async () => {
 		// Fixture's MOD_A has caseType "patient" and accepts column writes;
 		// MOD_B is survey-only (no caseType) and should emit nothing.

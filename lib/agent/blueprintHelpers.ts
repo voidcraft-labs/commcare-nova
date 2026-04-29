@@ -493,13 +493,26 @@ export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
 
 		for (const sf of sm.forms) {
 			const formUuid = asUuid(crypto.randomUUID());
+			/* Build the Form entity field-by-field with explicit
+			 * assignment for optional properties. Each `if` is a named
+			 * decision the reader can audit top-to-bottom — vs. the
+			 * conditional-spread idiom (`...(cond && {k: v})`), which
+			 * obscures whether a key actually lands on the literal. */
 			const formEntity: Form = {
 				uuid: formUuid,
 				id: slugifyFormId(sf.name),
 				name: sf.name,
 				type: sf.type,
-				...(sf.purpose !== undefined && { purpose: sf.purpose }),
 			};
+			if (sf.purpose !== undefined) formEntity.purpose = sf.purpose;
+			if (sf.connect !== undefined) {
+				/* `normalizeConnectConfig` strips empty sub-configs so an
+				 * SA-supplied `{}` (zero opt-ins) lands as absent rather
+				 * than as an empty marker on the form. Same contract as
+				 * `addFormMutations` and `updateFormMutations`. */
+				const normalized = normalizeConnectConfig(sf.connect);
+				if (normalized !== undefined) formEntity.connect = normalized;
+			}
 			muts.push({ kind: "addForm", moduleUuid, form: formEntity });
 		}
 	}

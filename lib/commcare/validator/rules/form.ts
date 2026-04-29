@@ -572,9 +572,35 @@ function connectValidation(
 	form: Form,
 	ctx: FormContext,
 ): ValidationError[] {
-	if (!doc.connectType || !form.connect) return [];
+	if (!doc.connectType) return [];
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
+
+	// A Connect-typed app expects every form to carry a `connect` block —
+	// the per-form sub-config is what feeds `<learn:module>` / `<deliver>`
+	// markers into the CCZ that Connect's sync endpoints scan. A missing
+	// block silently strips the form from Connect's view; CCHQ accepts the
+	// upload but the opportunity gets stuck without payment units. Flag it
+	// here so the validator catches the autobuild miss at the same gate as
+	// every other surface (interactive build, MCP edit, manual import).
+	if (!form.connect) {
+		const guidance =
+			doc.connectType === "learn"
+				? "Add a learn_module (educational content), an assessment (quiz/test), or both via update_form."
+				: "Add a deliver_unit and/or task via update_form.";
+		errors.push(
+			validationError(
+				"CONNECT_FORM_MISSING_BLOCK",
+				"form",
+				`"${ctx.formName}" is in a Connect ${doc.connectType} app but has no Connect configuration. ${guidance}`,
+				loc,
+			),
+		);
+		// Skip downstream sub-config checks — they all dereference
+		// `form.connect`, and we'd just produce a redundant cascade of
+		// errors that all resolve once the missing block lands.
+		return errors;
+	}
 
 	if (
 		doc.connectType === "learn" &&
@@ -605,26 +631,52 @@ function connectValidation(
 		);
 	}
 
-	const connectXPaths: Array<[string, string]> = [];
-	if (form.connect.assessment?.user_score) {
-		connectXPaths.push([
-			"Connect assessment user_score",
-			form.connect.assessment.user_score,
-		]);
+	// Per-XPath checks for the Connect expressions the bind emitter
+	// renders as `calculate="…"`. Each value gets two checks:
+	//   1. Explicit empty string → `CONNECT_EMPTY_XPATH`. CCHQ's build
+	//      pipeline rejects `<bind … calculate=""/>` outright. `undefined`
+	//      is NOT an error — the wire layer
+	//      (`lib/commcare/xform/builder.ts`) substitutes the canonical
+	//      defaults for missing `entity_id` / `entity_name`. Only the
+	//      explicit-empty-string state is a smell, indicating something
+	//      wrote a deliberate blank.
+	//   2. Unquoted string literal → `CONNECT_UNQUOTED_XPATH`. Same shape
+	//      as the existing field-level rule: a bare word without quotes
+	//      parses as an XPath identifier, not a literal value.
+	type ConnectXPath = { label: string; expr: string | undefined };
+	const connectXPaths: ConnectXPath[] = [];
+	if (form.connect.assessment) {
+		// `user_score` is required in the domain — never undefined here.
+		connectXPaths.push({
+			label: "Connect assessment user_score",
+			expr: form.connect.assessment.user_score,
+		});
 	}
-	if (form.connect.deliver_unit?.entity_id) {
-		connectXPaths.push([
-			"Connect deliver entity_id",
-			form.connect.deliver_unit.entity_id,
-		]);
+	if (form.connect.deliver_unit) {
+		connectXPaths.push(
+			{
+				label: "Connect deliver entity_id",
+				expr: form.connect.deliver_unit.entity_id,
+			},
+			{
+				label: "Connect deliver entity_name",
+				expr: form.connect.deliver_unit.entity_name,
+			},
+		);
 	}
-	if (form.connect.deliver_unit?.entity_name) {
-		connectXPaths.push([
-			"Connect deliver entity_name",
-			form.connect.deliver_unit.entity_name,
-		]);
-	}
-	for (const [label, expr] of connectXPaths) {
+	for (const { label, expr } of connectXPaths) {
+		if (expr === undefined) continue; // wire layer fills the default
+		if (expr.trim().length === 0) {
+			errors.push(
+				validationError(
+					"CONNECT_EMPTY_XPATH",
+					"form",
+					`"${ctx.formName}" ${label} is empty. CommCare HQ rejects builds with empty calculate expressions on Connect bindings — set a valid XPath or remove the sub-config.`,
+					loc,
+				),
+			);
+			continue;
+		}
 		const bare = detectUnquotedStringLiteral(expr);
 		if (bare) {
 			errors.push(

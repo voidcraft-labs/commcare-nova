@@ -989,3 +989,166 @@ describe("form_links validation", () => {
 		expect(errors.filter((e) => e.code.startsWith("FORM_LINK"))).toEqual([]);
 	});
 });
+
+// ── Connect rules ──────────────────────────────────────────────────
+
+describe("connect rules", () => {
+	/* Build a minimal Connect-typed app fixture with one survey form and
+	 * either an explicit per-form connect block or none at all. Survey
+	 * is the simplest form type — no case-type plumbing required, so the
+	 * fixture isolates the Connect rules from unrelated registration /
+	 * close-form gates. */
+	function connectDoc(spec: {
+		connectType: "learn" | "deliver";
+		formConnect?: BlueprintDoc["forms"][string]["connect"];
+	}): BlueprintDoc {
+		return buildDoc({
+			appName: "Connect App",
+			connectType: spec.connectType,
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "First Form",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q1", label: "Q" })],
+							...(spec.formConnect !== undefined && {
+								connect: spec.formConnect,
+							}),
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("flags a Connect-typed app whose form has no connect block (Bug 1)", () => {
+		/* The autobuild miss reported in voidcraft-labs/nova-plugin#1:
+		 * `connect_type: "deliver"` lands on the app but the SA never
+		 * loops back to attach a per-form `connect.deliver_unit`. CCHQ
+		 * accepts the upload — it has no concept of "Connect form" — but
+		 * Connect's `extract_deliver_unit` finds zero markers in the CCZ
+		 * and the opportunity gets stuck. Validator must catch this at
+		 * upload-prep time. */
+		const doc = connectDoc({ connectType: "deliver" });
+		const errors = runValidation(doc);
+		const missingBlock = errors.filter(
+			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+		);
+		expect(missingBlock).toHaveLength(1);
+		expect(missingBlock[0].message).toContain("Connect deliver app");
+		expect(missingBlock[0].message).toContain("First Form");
+	});
+
+	it("guidance text differs by connectType so the SA picks the right sub-config", () => {
+		/* The error message tells the SA which sub-config to add. For a
+		 * learn app the SA may pick learn_module, assessment, or both; for
+		 * a deliver app it's deliver_unit and/or task. The two messages
+		 * must be distinguishable on `connectType` so the SA's prompt
+		 * doesn't have to fall back to inferring from the app's name. */
+		const learnDoc = connectDoc({ connectType: "learn" });
+		const deliverDoc = connectDoc({ connectType: "deliver" });
+		const learnMsg = runValidation(learnDoc).find(
+			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+		)?.message;
+		const deliverMsg = runValidation(deliverDoc).find(
+			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+		)?.message;
+		expect(learnMsg).toContain("learn_module");
+		expect(learnMsg).toContain("assessment");
+		expect(deliverMsg).toContain("deliver_unit");
+		expect(deliverMsg).toContain("task");
+	});
+
+	it("does not double-fire CONNECT_MISSING_DELIVER when the whole connect block is absent", () => {
+		/* When `form.connect` is absent we only emit the higher-level
+		 * `CONNECT_FORM_MISSING_BLOCK` error and skip downstream sub-
+		 * config checks. Otherwise the SA would see two errors for the
+		 * same root cause, both of which dissolve once it adds the
+		 * missing block. */
+		const doc = connectDoc({ connectType: "deliver" });
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
+			false,
+		);
+		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
+	});
+
+	it("flags empty entity_id as CONNECT_EMPTY_XPATH (Bug 3 defense-in-depth)", () => {
+		/* Belt-and-suspenders for Bug 2. With Bug 2 fixed at the
+		 * `update_form` layer, a doc reaching validation should never
+		 * carry an empty entity_id — but if a regression slips through
+		 * or a non-SA path produces one, the validator catches it before
+		 * the upload hits CCHQ. Without this rule the doc serializes to
+		 * `<bind nodeset=".../entity_id" calculate=""/>` which CCHQ's
+		 * build pipeline rejects with a cryptic XPath parse error. */
+		const doc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: {
+					id: "vendor",
+					name: "Visit",
+					entity_id: "",
+					entity_name: "#user/username",
+				},
+			},
+		});
+		const errors = runValidation(doc);
+		const empty = errors.filter((e) => e.code === "CONNECT_EMPTY_XPATH");
+		expect(empty).toHaveLength(1);
+		expect(empty[0].message).toContain("entity_id");
+	});
+
+	it("flags empty entity_name as CONNECT_EMPTY_XPATH", () => {
+		const doc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: {
+					id: "vendor",
+					name: "Visit",
+					entity_id: "concat(#user/username, '-', today())",
+					entity_name: "",
+				},
+			},
+		});
+		const errors = runValidation(doc);
+		const empty = errors.filter((e) => e.code === "CONNECT_EMPTY_XPATH");
+		expect(empty).toHaveLength(1);
+		expect(empty[0].message).toContain("entity_name");
+	});
+
+	it("flags empty assessment user_score as CONNECT_EMPTY_XPATH", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				assessment: { id: "quiz", user_score: "" },
+			},
+		});
+		const errors = runValidation(doc);
+		const empty = errors.filter((e) => e.code === "CONNECT_EMPTY_XPATH");
+		expect(empty).toHaveLength(1);
+		expect(empty[0].message).toContain("user_score");
+	});
+
+	it("does not flag a fully populated deliver_unit", () => {
+		/* Sanity check: the rule fires only on empties. A fully
+		 * populated deliver_unit should pass cleanly without spurious
+		 * CONNECT_EMPTY_XPATH or CONNECT_FORM_MISSING_BLOCK errors. */
+		const doc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: {
+					id: "vendor",
+					name: "Visit",
+					entity_id: "concat(#user/username, '-', today())",
+					entity_name: "#user/username",
+				},
+			},
+		});
+		const errors = runValidation(doc).filter((e) =>
+			e.code.startsWith("CONNECT_"),
+		);
+		expect(errors).toEqual([]);
+	});
+});
