@@ -206,6 +206,62 @@ function validationOnNonInputType(
 	];
 }
 
+/**
+ * Repeat fields in `count_bound` and `query_bound` modes carry an XPath
+ * expression that the wire emitter writes into a JavaRosa-parsed
+ * attribute (`jr:count` and the `<setvalue value="join(' ', …)">` pair
+ * respectively). JavaRosa's XPath parser rejects empty input outright —
+ * an empty `jr:count=""` produces "Bad node:
+ * org.javarosa.xpath.parser.ast.ASTNodeAbstractExpr", and a malformed
+ * `join(' ', )` setvalue is a syntax error. The wire emitter writes
+ * these unconditionally, so the only place to catch the configuration
+ * error is here.
+ *
+ * `user_controlled` repeats have no XPath field — the runtime adds
+ * iterations via UI — so they're skipped.
+ */
+function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
+	if (field.kind !== "repeat") return [];
+	const errors: ValidationError[] = [];
+	const loc = {
+		moduleUuid: ctx.moduleUuid,
+		moduleName: ctx.moduleName,
+		formUuid: ctx.formUuid,
+		formName: ctx.formName,
+		fieldUuid: field.uuid,
+		fieldId: field.id,
+	};
+
+	if (field.repeat_mode === "count_bound") {
+		const expr = field.repeat_count;
+		if (typeof expr !== "string" || expr.trim().length === 0) {
+			errors.push(
+				validationError(
+					"EMPTY_REPEAT_COUNT",
+					"field",
+					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations — a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count. CommCare HQ rejects builds whose \`jr:count\` attribute parses to an empty XPath, so leaving this blank breaks the upload.`,
+					{ ...loc, field: "repeat_count" },
+					{ field: "repeat_count" },
+				),
+			);
+		}
+	} else if (field.repeat_mode === "query_bound") {
+		const expr = field.data_source?.ids_query;
+		if (typeof expr !== "string" || expr.trim().length === 0) {
+			errors.push(
+				validationError(
+					"EMPTY_IDS_QUERY",
+					"field",
+					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over — typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`. CommCare HQ rejects builds with malformed setvalue expressions, so leaving this blank breaks the upload.`,
+					{ ...loc, field: "ids_query" },
+					{ field: "ids_query" },
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 	if (XML_ELEMENT_NAME_REGEX.test(field.id)) return [];
 	return [
@@ -232,6 +288,7 @@ const FIELD_RULES = [
 	unquotedStringLiteral,
 	invalidFieldId,
 	validationOnNonInputType,
+	emptyRepeatXPath,
 ];
 
 /**

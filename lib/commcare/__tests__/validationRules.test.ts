@@ -493,6 +493,142 @@ describe("field rules", () => {
 			false,
 		);
 	});
+
+	// `count_bound` and `query_bound` repeats carry XPath expressions
+	// the wire emitter writes into JavaRosa-parsed attributes (`jr:count`,
+	// the query setvalue pair). JavaRosa rejects empty input outright, so
+	// an empty repeat_count or ids_query produces a CCHQ build rejection
+	// with a cryptic `ASTNodeAbstractExpr` error. The validator catches
+	// the configuration error here so the SA gets an actionable message
+	// before upload.
+
+	it("flags count_bound repeat with empty repeat_count", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "visits",
+					label: "Visits",
+					repeat_mode: "count_bound",
+					repeat_count: "",
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		const empty = errors.filter((e) => e.code === "EMPTY_REPEAT_COUNT");
+		expect(empty).toHaveLength(1);
+		expect(empty[0].message).toContain("visits");
+		expect(empty[0].message).toContain("repeat_count");
+	});
+
+	it("flags query_bound repeat with empty ids_query", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "open_cases",
+					label: "Open cases",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "" },
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		const empty = errors.filter((e) => e.code === "EMPTY_IDS_QUERY");
+		expect(empty).toHaveLength(1);
+		expect(empty[0].message).toContain("open_cases");
+		expect(empty[0].message).toContain("ids_query");
+	});
+
+	it("does not flag count_bound repeat with valid repeat_count", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "visits",
+					label: "Visits",
+					repeat_mode: "count_bound",
+					repeat_count: "5",
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(false);
+	});
+
+	it("does not flag query_bound repeat with valid ids_query", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "open_cases",
+					label: "Open cases",
+					repeat_mode: "query_bound",
+					data_source: {
+						ids_query:
+							"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
+					},
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(false);
+	});
+
+	it("does not flag user_controlled repeats (no XPath field)", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "members",
+					label: "Members",
+					repeat_mode: "user_controlled",
+					children: [f({ kind: "text", id: "name", label: "Name" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(false);
+		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(false);
+	});
+
+	// Whitespace-only inputs hit JavaRosa's parser the same as empty
+	// strings — the lexer consumes the whitespace and produces zero
+	// tokens, so `verifyBaseExpr` rejects with the same "Bad node"
+	// error. The rule uses `.trim().length === 0` to cover this; the
+	// tests pin the contract so a future refactor that drops `trim()`
+	// regresses visibly.
+
+	it("flags count_bound repeat with whitespace-only repeat_count", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "visits",
+					label: "Visits",
+					repeat_mode: "count_bound",
+					repeat_count: "   ",
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(true);
+	});
+
+	it("flags query_bound repeat with whitespace-only ids_query", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "open_cases",
+					label: "Open cases",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "\n\t" },
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(true);
+	});
 });
 
 // ── Fix registry ───────────────────────────────────────────────────
