@@ -100,10 +100,9 @@ export const updateFormInputSchema = z.object({
 						.string()
 						.optional()
 						.describe(
-							"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Two visits with the SAME entity_id from the SAME FLW collapse into the same CompletedWork; different entity_ids produce separate CompletedWorks. " +
-								"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default for daily-aggregate workflows. " +
-								"Override when the form represents per-beneficiary, per-case, or per-site work: e.g. `#case/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture a beneficiary identifier directly, or a hidden field that concats stable identifiers (e.g. `concat(#case/household_id, '-', #form/visit_date)`). " +
-								"Multi-form payment-unit constraint: if the payment unit aggregates several forms (e.g. registration + followup + close), the entity_id expression must produce the SAME value across all those forms for the same target — otherwise they don't link into one CompletedWork.",
+							"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
+								"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default when the unit of payment is the FLW's daily aggregate. " +
+								"Override when one paid delivery corresponds to a specific beneficiary, case, or site rather than a daily aggregate. The expression must produce the same value across all forms in the same payment unit for the same delivery target — that's how Connect links a multi-form payment unit (e.g. registration + followup + close) into one CompletedWork. Examples: `#case/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture the beneficiary identifier directly, `concat(#case/household_id, '-', #form/visit_date)` when one paid delivery is one household visit on one date.",
 						),
 					entity_name: z
 						.string()
