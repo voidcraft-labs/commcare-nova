@@ -666,3 +666,457 @@ describe("runValidation with deep validation", () => {
 		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
 	});
 });
+
+// ── Repeat-mode XPath deep validation ──────────────────────────────
+//
+// `repeat_count` (count_bound) and `data_source.ids_query` (query_bound)
+// are XPath expressions the wire emitter writes into JavaRosa-parsed
+// attributes. Empty values are caught by the field-rule layer
+// (`EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY`); these tests pin that
+// non-empty malformed expressions are caught by the deep XPath
+// validator with the same `XPATH_SYNTAX` / `UNKNOWN_FUNCTION` /
+// `INVALID_REF` codes the field-level XPath fields produce — so an SA
+// editing a repeat field gets the same actionable error class as
+// editing a calculate or relevant.
+
+describe("runValidation deep XPath on repeat fields", () => {
+	it("catches syntax errors in count_bound repeat_count", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "count_bound",
+									repeat_count: "if(true(, 1, 2)",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
+	});
+
+	it("catches unknown functions in count_bound repeat_count", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "count_bound",
+									repeat_count: "noSuchFunction(5)",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
+	});
+
+	it("catches syntax errors in query_bound ids_query", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "open_cases",
+									label: "Open cases",
+									repeat_mode: "query_bound",
+									data_source: { ids_query: "instance('casedb')//[bad" },
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
+	});
+
+	it("catches unknown functions in query_bound ids_query", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "open_cases",
+									label: "Open cases",
+									repeat_mode: "query_bound",
+									data_source: { ids_query: "boguscall(#case/x)" },
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
+	});
+
+	it("does not produce deep XPath errors for valid count_bound repeat_count", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "desired_count",
+									calculate: "5",
+								}),
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "count_bound",
+									repeat_count: "#form/desired_count",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const xpathRelated = errors.filter(
+			(e) =>
+				(e.code === "XPATH_SYNTAX" ||
+					e.code === "UNKNOWN_FUNCTION" ||
+					e.code === "INVALID_REF") &&
+				e.location.fieldId === "visits",
+		);
+		expect(xpathRelated).toEqual([]);
+	});
+
+	it("does not produce deep XPath errors for valid query_bound ids_query", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "open_cases",
+									label: "Open cases",
+									repeat_mode: "query_bound",
+									data_source: {
+										ids_query:
+											"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
+									},
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const xpathRelated = errors.filter(
+			(e) =>
+				(e.code === "XPATH_SYNTAX" ||
+					e.code === "UNKNOWN_FUNCTION" ||
+					e.code === "INVALID_REF") &&
+				e.location.fieldId === "open_cases",
+		);
+		expect(xpathRelated).toEqual([]);
+	});
+
+	it("whitespace-only repeat_count fires only the empty rule, not deep XPath", () => {
+		// The empty-rule layer (`EMPTY_REPEAT_COUNT`) trims whitespace,
+		// so it catches `"   "` cleanly. The deep validator's gate must
+		// match — without trim symmetry, whitespace double-reports
+		// (empty rule + a synthetic deep error from `validateXPath`'s
+		// truthy-guarded parser). The deep filter checks the full set
+		// of XPath error codes so a future change emitting a different
+		// code on whitespace doesn't slip past.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "count_bound",
+									repeat_count: "   ",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const visitErrs = errors.filter((e) => e.location.fieldId === "visits");
+		expect(visitErrs.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(true);
+		const deepCodes: ReadonlySet<string> = new Set([
+			"XPATH_SYNTAX",
+			"UNKNOWN_FUNCTION",
+			"INVALID_REF",
+			"INVALID_CASE_REF",
+			"WRONG_ARITY",
+			"TYPE_ERROR",
+			"CYCLE",
+		]);
+		expect(visitErrs.some((e) => deepCodes.has(e.code))).toBe(false);
+	});
+
+	it("whitespace-only ids_query fires only the empty rule, not deep XPath", () => {
+		// Symmetric to the count_bound whitespace test above. Same
+		// trim-symmetry contract on the query_bound side.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "open_cases",
+									label: "Open cases",
+									repeat_mode: "query_bound",
+									data_source: { ids_query: "\n\t " },
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const caseErrs = errors.filter((e) => e.location.fieldId === "open_cases");
+		expect(caseErrs.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(true);
+		const deepCodes: ReadonlySet<string> = new Set([
+			"XPATH_SYNTAX",
+			"UNKNOWN_FUNCTION",
+			"INVALID_REF",
+			"INVALID_CASE_REF",
+			"WRONG_ARITY",
+			"TYPE_ERROR",
+			"CYCLE",
+		]);
+		expect(caseErrs.some((e) => deepCodes.has(e.code))).toBe(false);
+	});
+
+	it("catches references to nonexistent paths in repeat_count", () => {
+		// `validateXPath` resolves `#form/...` and `/data/...` references
+		// against the form's path set. A reference to a field that
+		// doesn't exist surfaces as INVALID_REF — same code class an
+		// equivalent typo on a `calculate` would produce.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "count_bound",
+									repeat_count: "/data/nonexistent_field",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.some(
+				(e) => e.code === "INVALID_REF" && e.location.fieldId === "visits",
+			),
+		).toBe(true);
+	});
+
+	it("catches references to nonexistent paths in ids_query", () => {
+		// Symmetric to the count_bound INVALID_REF case above. The SA
+		// editing a query_bound repeat should get the same error class
+		// as editing a count_bound one — same `validateXPath` path, same
+		// `INVALID_REF` code, same humanization through
+		// `FIELD_NAMES["ids_query"]`.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "open_cases",
+									label: "Open cases",
+									repeat_mode: "query_bound",
+									data_source: {
+										ids_query: "/data/nonexistent_field",
+									},
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.some(
+				(e) => e.code === "INVALID_REF" && e.location.fieldId === "open_cases",
+			),
+		).toBe(true);
+	});
+
+	it("user_controlled repeats produce no deep XPath errors from the new branch", () => {
+		// The discriminant guard `repeat_mode === "count_bound" |
+		// "query_bound"` is load-bearing — `user_controlled` repeats
+		// have no XPath field, so the new branch must skip them
+		// cleanly. Without this assertion, a regression that drops the
+		// discriminant check (and accidentally calls `validateXPath`
+		// on something that doesn't exist) would slip past the other
+		// tests.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "members",
+									label: "Members",
+									repeat_mode: "user_controlled",
+									children: [f({ kind: "text", id: "name", label: "Name" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const memberErrs = errors.filter((e) => e.location.fieldId === "members");
+		const deepCodes: ReadonlySet<string> = new Set([
+			"XPATH_SYNTAX",
+			"UNKNOWN_FUNCTION",
+			"INVALID_REF",
+			"INVALID_CASE_REF",
+			"WRONG_ARITY",
+			"TYPE_ERROR",
+			"CYCLE",
+		]);
+		expect(memberErrs.some((e) => deepCodes.has(e.code))).toBe(false);
+	});
+
+	it("humanized error message names the user-facing field label", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "count_bound",
+									repeat_count: "if(true(, 1, 2)",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const syntaxErr = errors.find(
+			(e) => e.code === "XPATH_SYNTAX" && e.location.fieldId === "visits",
+		);
+		expect(syntaxErr).toBeDefined();
+		expect(syntaxErr?.message).toContain("repeat count");
+	});
+});

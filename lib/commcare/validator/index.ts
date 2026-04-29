@@ -241,6 +241,59 @@ function validateTreeXPath(
 				);
 			}
 		}
+		// Repeat-mode XPath fields. `repeat_count` lives only on the
+		// count_bound variant of the discriminated repeat union, and
+		// `data_source.ids_query` only on query_bound — neither fits the
+		// flat `XPATH_FIELDS` reader (one is variant-specific, the other
+		// is nested). Discriminated-union narrowing handles both. Empty
+		// values are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY`
+		// at the field-rule layer; the length check here skips them so
+		// the SA doesn't see double-reporting on a single empty value.
+		// Error keys stay flat (`repeat_count`, `ids_query`) so the
+		// runner's `\w+` decode regex matches; the human-friendly key →
+		// label map in `runner.ts` translates them for the user.
+		if (node.field.kind === "repeat") {
+			// Both branches use `typeof === "string" && trim().length > 0`
+			// to match the empty-rule layer's defensive shape exactly:
+			// trim catches whitespace-only inputs the same way the empty
+			// rule does (so the SA never sees double-reporting on
+			// whitespace), and the typeof guard defends against partial
+			// or hand-built docs that bypass Zod — fixture builders, the
+			// replay hydrator, recovery scripts — and could land here
+			// with `repeat_mode` set but the matching XPath field
+			// undefined. Without the typeof guard, `.trim()` on
+			// undefined throws and kills `validateBlueprintDeep`
+			// mid-walk, dropping every error already collected.
+			if (node.field.repeat_mode === "count_bound") {
+				const repeatCount = node.field.repeat_count;
+				if (typeof repeatCount === "string" && repeatCount.trim().length > 0) {
+					const xpathErrors = validateXPath(
+						repeatCount,
+						validPaths,
+						caseProperties,
+					);
+					for (const err of xpathErrors) {
+						errors.push(
+							`Field "${node.field.id}" in "${formName}": repeat_count expression error — ${err.message}`,
+						);
+					}
+				}
+			} else if (node.field.repeat_mode === "query_bound") {
+				const idsQuery = node.field.data_source?.ids_query;
+				if (typeof idsQuery === "string" && idsQuery.trim().length > 0) {
+					const xpathErrors = validateXPath(
+						idsQuery,
+						validPaths,
+						caseProperties,
+					);
+					for (const err of xpathErrors) {
+						errors.push(
+							`Field "${node.field.id}" in "${formName}": ids_query expression error — ${err.message}`,
+						);
+					}
+				}
+			}
+		}
 		if (node.children) {
 			validateTreeXPath(
 				node.children,

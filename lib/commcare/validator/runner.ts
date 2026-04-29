@@ -146,6 +146,13 @@ const FIELD_NAMES: Record<string, string> = {
 	calculate: "calculated value",
 	default_value: "default value",
 	required: "required condition",
+	// Repeat-mode XPath fields validated by `validateTreeXPath` in
+	// `./index.ts`. The deep validator emits flat keys (`repeat_count`,
+	// `ids_query`) so the regex decoder above matches; this map
+	// translates them back into user-facing labels in the rendered
+	// error message.
+	repeat_count: "repeat count",
+	ids_query: "data source query",
 };
 
 /** Convert terse XPath error messages into helpful, human-friendly ones. */
