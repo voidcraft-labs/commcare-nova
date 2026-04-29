@@ -58,6 +58,8 @@ export type ValidationErrorCode =
 	| "UNQUOTED_STRING_LITERAL"
 	| "INVALID_FIELD_ID"
 	| "VALIDATION_ON_NON_INPUT_KIND"
+	| "EMPTY_REPEAT_COUNT"
+	| "EMPTY_IDS_QUERY"
 	// Case list column
 	| "INVALID_COLUMN_FIELD"
 	// XForm output (post-expansion)
