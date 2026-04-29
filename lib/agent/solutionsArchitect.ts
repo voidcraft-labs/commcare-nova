@@ -105,6 +105,55 @@ export function createSolutionsArchitect(
 	 * the CommCare validator. */
 	let doc: BlueprintDoc = initialDoc;
 
+	/* Promise-chain mutex serializing every tool execution within this
+	 * agent instance.
+	 *
+	 * The AI SDK invokes parallel `tool_use` blocks from one assistant
+	 * turn concurrently via `Promise.all(toolCalls.map(...))`. Without a
+	 * serializer, each branch reads the same pre-batch `doc` snapshot
+	 * inside its wrapped `execute` and the last branch's `doc = newDoc`
+	 * clobbers the others — earlier mutations stream to the wire
+	 * correctly but vanish from the SA's own working state, and the SA's
+	 * next read tool reports them as missing.
+	 *
+	 * Every wrapped tool body enters `serial(...)`, which appends to a
+	 * single `chain` promise. Each tool's body therefore runs strictly
+	 * after the previous tool's body resolved, so reads observe the doc
+	 * as left by the previous write and dependent batches (e.g. addFields
+	 * creating a group + addFields targeting it as parent) compose
+	 * correctly.
+	 *
+	 * Order in which branches enter `serial()` matches model-emit order
+	 * only because every branch traverses an identical async path —
+	 * same number of awaits between `Promise.all`'s synchronous dispatch
+	 * and the inner `tool.execute` call — so microtask FIFO drains in
+	 * the order branches were created. Per-branch variance in that path
+	 * (a tool-call lifecycle hook that awaits on branch-specific I/O,
+	 * a telemetry integration whose handler awaits, or a future SDK
+	 * change that inserts extra awaits on some branches) can reorder
+	 * branches relative to model-emit order. The data-loss case is
+	 * still prevented under reordering — each tool always sees a
+	 * coherent `doc` — but a parent-id lookup might miss a sibling
+	 * created earlier in the same parallel batch. If you add tool-call
+	 * lifecycle hooks or telemetry, re-verify the microtask-equivalence
+	 * property.
+	 *
+	 * Both `then` handlers swallow their value (success result and
+	 * rejection alike) so the chain stays a `Promise<void>` and a failing
+	 * tool doesn't poison the chain for subsequent calls; the `next`
+	 * promise still rejects to its caller, preserving error visibility at
+	 * the AI SDK boundary (it's converted to a `tool-error` content
+	 * part). */
+	let chain: Promise<void> = Promise.resolve();
+	function serial<T>(fn: () => Promise<T>): Promise<T> {
+		const next = chain.then(fn);
+		chain = next.then(
+			() => {},
+			() => {},
+		);
+		return next;
+	}
+
 	/**
 	 * Wrap an extracted mutating-tool module into the AI SDK tool-shape
 	 * the `ToolLoopAgent` expects.
@@ -148,14 +197,19 @@ export function createSolutionsArchitect(
 			description: t.description,
 			inputSchema: t.inputSchema,
 			...(t.strict !== undefined && { strict: t.strict }),
-			execute: async (input: I) => {
-				/* `kind: "mutate"` discriminator is internal to the shared
-				 * tool contract — the chat-side AI SDK tool surface only
-				 * sees `result`. Destructure-and-discard. */
-				const { mutations, newDoc, result } = await t.execute(input, ctx, doc);
-				if (mutations.length > 0) doc = newDoc;
-				return result;
-			},
+			execute: (input: I) =>
+				serial(async () => {
+					/* `kind: "mutate"` discriminator is internal to the shared
+					 * tool contract — the chat-side AI SDK tool surface only
+					 * sees `result`. Destructure-and-discard. */
+					const { mutations, newDoc, result } = await t.execute(
+						input,
+						ctx,
+						doc,
+					);
+					if (mutations.length > 0) doc = newDoc;
+					return result;
+				}),
 		};
 	}
 
@@ -182,13 +236,14 @@ export function createSolutionsArchitect(
 		return {
 			description: t.description,
 			inputSchema: t.inputSchema,
-			execute: async (input: I) => {
-				/* `kind: "read"` discriminator is internal to the shared
-				 * tool contract — the AI SDK tool surface sees the bare
-				 * `data`. Unwrap. */
-				const { data } = await t.execute(input, ctx, doc);
-				return data;
-			},
+			execute: (input: I) =>
+				serial(async () => {
+					/* `kind: "read"` discriminator is internal to the shared
+					 * tool contract — the AI SDK tool surface sees the bare
+					 * `data`. Unwrap. */
+					const { data } = await t.execute(input, ctx, doc);
+					return data;
+				}),
 		};
 	}
 
@@ -257,38 +312,39 @@ export function createSolutionsArchitect(
 		validateApp: tool({
 			description: validateAppTool.description,
 			inputSchema: validateAppTool.inputSchema,
-			execute: async (input) => {
-				const result = await validateAppTool.execute(input, ctx, doc);
-				// Advance the working doc unconditionally — `validateAndFix`
-				// returns the post-loop doc even on failure so later tool
-				// calls see whatever partial fixes the registry applied
-				// before stopping.
-				doc = result.doc;
+			execute: (input) =>
+				serial(async () => {
+					const result = await validateAppTool.execute(input, ctx, doc);
+					// Advance the working doc unconditionally — `validateAndFix`
+					// returns the post-loop doc even on failure so later tool
+					// calls see whatever partial fixes the registry applied
+					// before stopping.
+					doc = result.doc;
 
-				if (result.success) {
-					const persistable = toPersistableDoc(doc);
-					ctx.emit("data-done", {
-						doc: persistable,
-						hqJson: result.hqJson ?? {},
-						success: true,
-					});
-					/* Flip the app record to its final state (fire-and-forget).
-					 * The app doc was created at the start of the request by
-					 * the route handler; `ctx.appId` is always present by
-					 * construction. `completeApp` accepts `PersistableDoc`,
-					 * so we pass the already-computed persistable value.
-					 * `ctx.usage.runId` is the shared run id the event log
-					 * already carries. */
-					completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
-						log.error("[validateApp] app update failed", err),
-					);
-					return { success: true as const };
-				}
-				return {
-					success: false as const,
-					errors: result.errors ?? [],
-				};
-			},
+					if (result.success) {
+						const persistable = toPersistableDoc(doc);
+						ctx.emit("data-done", {
+							doc: persistable,
+							hqJson: result.hqJson ?? {},
+							success: true,
+						});
+						/* Flip the app record to its final state (fire-and-forget).
+						 * The app doc was created at the start of the request by
+						 * the route handler; `ctx.appId` is always present by
+						 * construction. `completeApp` accepts `PersistableDoc`,
+						 * so we pass the already-computed persistable value.
+						 * `ctx.usage.runId` is the shared run id the event log
+						 * already carries. */
+						completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
+							log.error("[validateApp] app update failed", err),
+						);
+						return { success: true as const };
+					}
+					return {
+						success: false as const,
+						errors: result.errors ?? [],
+					};
+				}),
 		}),
 	};
 
