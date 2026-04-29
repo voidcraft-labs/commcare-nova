@@ -483,10 +483,12 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 
 								{/* Convert Type — submenu with conversion targets. When the
 								 *  current kind has no convert targets, the trigger
-								 *  collapses to a disabled item rather than disappearing,
-								 *  matching the move up/down precedent above: the row
-								 *  stays in place so the menu's vertical rhythm doesn't
-								 *  shift between kinds. */}
+								 *  collapses to a disabled item with an explanatory
+								 *  tooltip rather than disappearing, so the menu's
+								 *  vertical rhythm stays stable across kinds and the
+								 *  user learns *why* the affordance is unavailable for
+								 *  this type rather than wondering whether they missed
+								 *  it. */}
 								{canConvert ? (
 									<Menu.SubmenuRoot>
 										<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
@@ -532,11 +534,13 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 										</Menu.Portal>
 									</Menu.SubmenuRoot>
 								) : (
-									<MenuItem
-										icon={tablerArrowsExchange}
-										label="Convert Type"
-										disabled
-									/>
+									<Tooltip content="This field type doesn't support conversion">
+										<MenuItem
+											icon={tablerArrowsExchange}
+											label="Convert Type"
+											disabled
+										/>
+									</Tooltip>
 								)}
 
 								{/* Duplicate */}
