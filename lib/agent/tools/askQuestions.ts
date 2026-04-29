@@ -42,6 +42,6 @@ export type AskQuestionsInput = z.infer<typeof askQuestionsInputSchema>;
  */
 export const askQuestionsTool = {
 	description:
-		"Ask the user clarifying questions about their app requirements. Up to 5 questions per call — call as many times as needed. Most requests need several rounds. Don't rush to generate; an app built on assumptions is worse than one that took extra questions to get right.",
+		"Ask the user clarifying questions when something is genuinely ambiguous. Up to 5 questions per call — call as many times as needed. Questions are for ambiguity, not a default: when the request is concrete enough to act on, narrate what you're about to do in your reply and proceed instead of asking.",
 	inputSchema: askQuestionsInputSchema,
 };
