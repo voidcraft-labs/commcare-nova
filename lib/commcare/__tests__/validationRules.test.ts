@@ -590,6 +590,45 @@ describe("field rules", () => {
 		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(false);
 		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(false);
 	});
+
+	// Whitespace-only inputs hit JavaRosa's parser the same as empty
+	// strings — the lexer consumes the whitespace and produces zero
+	// tokens, so `verifyBaseExpr` rejects with the same "Bad node"
+	// error. The rule uses `.trim().length === 0` to cover this; the
+	// tests pin the contract so a future refactor that drops `trim()`
+	// regresses visibly.
+
+	it("flags count_bound repeat with whitespace-only repeat_count", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "visits",
+					label: "Visits",
+					repeat_mode: "count_bound",
+					repeat_count: "   ",
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(true);
+	});
+
+	it("flags query_bound repeat with whitespace-only ids_query", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "repeat",
+					id: "open_cases",
+					label: "Open cases",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "\n\t" },
+					children: [f({ kind: "text", id: "note", label: "Note" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(true);
+	});
 });
 
 // ── Fix registry ───────────────────────────────────────────────────
