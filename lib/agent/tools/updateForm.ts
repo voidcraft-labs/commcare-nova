@@ -76,7 +76,11 @@ export const updateFormInputSchema = z.object({
 					id: z.string().optional(),
 					name: z.string(),
 					description: z.string(),
-					time_estimate: z.number(),
+					// Match the domain's `connectLearnModuleSchema`:
+					// positive integer minutes. The reducer doesn't
+					// re-parse patches via Zod, so the SA-facing schema
+					// is the only gate against invalid values.
+					time_estimate: z.number().int().positive(),
 				})
 				.optional()
 				.describe(

@@ -281,15 +281,14 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("generateScaffold carries per-form connect through to the addForm mutation (Bug 1 root)", async () => {
-		/* The autobuild miss in voidcraft-labs/nova-plugin#1 stemmed
-		 * from no scaffold-time slot for per-form Connect. Now that
-		 * `connect` is on the per-form scaffold schema, an SA call
-		 * that supplies it must end up on the constructed `Form`
-		 * entity carried by the matching `addForm` mutation — without
-		 * this assertion, a regression that drops `sf.connect` from
-		 * `setScaffoldMutations` (the same shape as the `post_submit`
-		 * dead-field bug) would slip past silently. */
+	it("generateScaffold carries per-form connect through to the addForm mutation", async () => {
+		/* `connect` is on the per-form scaffold schema, so an SA
+		 * generateScaffold call that supplies it must end up on the
+		 * constructed `Form` entity carried by the matching `addForm`
+		 * mutation. Without this assertion, a regression that drops
+		 * `sf.connect` in `setScaffoldMutations` — the same dead-
+		 * schema-field shape that can hit any SA-facing field on the
+		 * scaffold form — would slip past silently. */
 		const emptyDoc = makeEmptyDoc();
 		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
 

@@ -174,3 +174,5 @@ Model IDs, pricing, and SA model/reasoning settings live in one file as code con
 - A state stash preserves form-level connect configs across app-level mode switches (learn ↔ deliver) so toggling off/on doesn't lose work.
 - Content-based sub-config assignment for learn apps (educational → learn module only; quiz → assessment only; combined → both) is enforced by the SA prompt.
 - Sub-configs are independent; learn and deliver apps each require ≥1 sub-config.
+- Per-form `connect` is on the `generateScaffold` schema so the SA fills it in one tool call. Validator's `CONNECT_FORM_MISSING_BLOCK` error fires on Connect-typed apps where a form has no connect block — the fallback that catches the omission across every surface.
+- Wire-format defaults for configurable-but-rarely-customized XPath fields (`deliver_unit.entity_id` / `entity_name`) live at `lib/commcare/connectDefaults.ts` and run at bind-emit time only. The doc tracks what was explicitly set; the wire layer fills the rest. Same pattern for any future Connect field with this shape — don't scatter defaults across the agent layer or validate time.

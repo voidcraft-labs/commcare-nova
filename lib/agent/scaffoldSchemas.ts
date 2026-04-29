@@ -179,7 +179,14 @@ export const scaffoldModulesSchema = z.object({
 									id: z.string().optional(),
 									name: z.string(),
 									description: z.string(),
-									time_estimate: z.number(),
+									// Match the domain's `connectLearnModuleSchema`:
+									// time estimate is in minutes and must be a
+									// positive integer. The reducer applies the
+									// patch via `Object.assign` without a Zod
+									// re-parse, so the SA-facing schema is the
+									// only gate against `0` / negatives / floats
+									// landing on the persisted doc.
+									time_estimate: z.number().int().positive(),
 								})
 								.optional()
 								.describe(

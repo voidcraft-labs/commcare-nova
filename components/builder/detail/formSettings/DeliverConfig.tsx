@@ -65,6 +65,26 @@ export function DeliverConfig({
 		[connect, save],
 	);
 
+	/**
+	 * Clear an optional field on the deliver_unit by removing the key
+	 * outright (rather than writing `""`, which would trip the
+	 * `CONNECT_EMPTY_XPATH` validator). Result: the user clears the
+	 * editor → the field becomes absent on the doc → the wire-emit
+	 * fallback substitutes the canonical default XPath. This is what
+	 * makes "leave blank → wire default applies" reachable from the UI.
+	 */
+	const clearDeliverField = useCallback(
+		(field: "entity_id" | "entity_name") => {
+			if (!connect.deliver_unit) return;
+			const { [field]: _removed, ...rest } = connect.deliver_unit;
+			save({
+				...connect,
+				deliver_unit: rest as NonNullable<ConnectConfig["deliver_unit"]>,
+			});
+		},
+		[connect, save],
+	);
+
 	const updateTask = useCallback(
 		(field: string, value: string) => {
 			const current = connect.task ?? { name: "", description: "" };
@@ -83,13 +103,18 @@ export function DeliverConfig({
 				save({ ...connect, deliver_unit: restored });
 			} else {
 				const { deliverId } = defaultIds();
+				/* Seed only the user-semantic fields. `entity_id` and
+				 * `entity_name` are intentionally left undefined so the
+				 * wire-emit fallback in `lib/commcare/xform/builder.ts`
+				 * is the single home for the canonical default XPath
+				 * expressions — duplicating those literals here would
+				 * silently bake stale strings into the persisted doc if
+				 * the canonical defaults ever evolve. */
 				save({
 					...connect,
 					deliver_unit: {
 						id: deliverId,
 						name: form?.name ?? "",
-						entity_id: "concat(#user/username, '-', today())",
-						entity_name: "#user/username",
 					},
 				});
 			}
@@ -150,25 +175,28 @@ export function DeliverConfig({
 								/>
 								<LabeledXPathField
 									label="Entity ID"
-									required
-									/* `entity_id` is optional in the domain — the
-									 * wire layer substitutes the canonical default
-									 * XPath when absent. The editor shows `""`
-									 * for unset state; the user typing a value
-									 * persists it, leaving blank keeps the wire
-									 * default in effect. */
+									/* No `required` flag: the field is optional
+									 * on the domain and the wire layer
+									 * substitutes the canonical default XPath
+									 * when the doc carries no explicit value.
+									 * Marking required would tell the user a
+									 * lie. Saving an empty value clears the key
+									 * outright (via `clearDeliverField`) so the
+									 * wire-emit fallback kicks in — writing
+									 * `""` would trip `CONNECT_EMPTY_XPATH`. */
 									value={du.entity_id ?? ""}
 									onSave={(v) => {
 										if (v.trim()) updateDeliverUnit("entity_id", v);
+										else clearDeliverField("entity_id");
 									}}
 									getLintContext={getLintContext}
 								/>
 								<LabeledXPathField
 									label="Entity Name"
-									required
 									value={du.entity_name ?? ""}
 									onSave={(v) => {
 										if (v.trim()) updateDeliverUnit("entity_name", v);
+										else clearDeliverField("entity_name");
 									}}
 									getLintContext={getLintContext}
 								/>

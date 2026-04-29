@@ -346,32 +346,30 @@ describe("updateFormTool partial connect-config updates", () => {
 	});
 });
 
-// ── updateForm deliver_unit default-population (bug 2 regression) ──────
+// ── updateForm deliver_unit ───────────────────────────────────────────
 
 /**
  * Build a Deliver-typed fixture with no per-form connect block — the
- * canonical Bug 1 starting state. The SA's first move on this fixture
- * is to call `update_form` with `connect.deliver_unit.name`; the test
- * assertions below pin the post-mutation invariant: the doc must be
- * CCHQ-buildable immediately, with the system-derived `entity_id` and
- * `entity_name` populated to their canonical default expressions.
+ * starting state when the SA is about to attach `deliver_unit` to a
+ * form for the first time. The SA's call shape is `update_form` with
+ * `connect.deliver_unit.name`; the test assertions below pin the
+ * post-mutation invariant: the doc carries only what the SA supplied,
+ * with `entity_id` / `entity_name` left absent for the wire-emit
+ * fallback to substitute at bind time.
  */
 function makeDeliverDocWithoutConnect(): BlueprintDoc {
 	const doc = makeFixtureDoc();
 	return { ...doc, connectType: "deliver" };
 }
 
-describe("updateFormTool deliver_unit (bug 2 regression)", () => {
-	it("lands deliver_unit with only the SA-supplied fields; no empty entity_id/entity_name injected", async () => {
-		/* Bug 2 (voidcraft-labs/nova-plugin#1). Pre-fix
-		 * `buildConnectConfig` injected `entity_id: ""` /
-		 * `entity_name: ""` whenever the SA seeded a fresh
-		 * deliver_unit. Those empties serialized to
-		 * `<bind … calculate=""/>` which CCHQ rejects. Post-fix the
-		 * domain schema accepts deliver_unit without entity fields and
-		 * the XForm builder substitutes the canonical defaults at
-		 * emit time, so the doc only carries what the SA actually
-		 * supplied — single mutation, no entity fields on the form. */
+describe("updateFormTool deliver_unit", () => {
+	it("lands deliver_unit with only the SA-supplied fields; no entity_id/entity_name injected", async () => {
+		/* `buildConnectConfig` is a structural merge — it must not
+		 * invent system-derived values. `entity_id` / `entity_name`
+		 * are absent on the input; they remain absent on the doc.
+		 * The XForm builder substitutes the canonical defaults at
+		 * emit time. Writing empties at the agent layer would produce
+		 * `<bind … calculate=""/>` which CCHQ rejects. */
 		const doc = makeDeliverDocWithoutConnect();
 		const { ctx } = makeTestContext();
 
@@ -395,14 +393,13 @@ describe("updateFormTool deliver_unit (bug 2 regression)", () => {
 	});
 
 	it("preserves an existing custom entity_id/entity_name through a partial re-patch", async () => {
-		/* When a deliver_unit already has explicit XPath expressions
-		 * — set via direct doc edit, a future UI panel, or a future
-		 * SA tool that exposes those fields — a follow-up
+		/* When a deliver_unit already carries explicit XPath
+		 * expressions — set via direct doc edit, a UI panel, or a
+		 * future SA tool that exposes those fields — a follow-up
 		 * `update_form` that touches only `name` must leave the
-		 * entity expressions alone. The structural merge in
-		 * `buildConnectConfig` (`{...existing.deliver_unit,
-		 * ...input.deliver_unit}`) handles this without any defaulting
-		 * logic. */
+		 * entity expressions alone. The structural merge
+		 * (`{...existing.deliver_unit, ...input.deliver_unit}`)
+		 * handles this without any defaulting logic. */
 		const docBase = makeDeliverDocWithoutConnect();
 		const seeded: BlueprintDoc = {
 			...docBase,

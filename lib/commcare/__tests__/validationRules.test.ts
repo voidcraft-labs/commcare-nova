@@ -1023,14 +1023,14 @@ describe("connect rules", () => {
 		});
 	}
 
-	it("flags a Connect-typed app whose form has no connect block (Bug 1)", () => {
-		/* The autobuild miss reported in voidcraft-labs/nova-plugin#1:
-		 * `connect_type: "deliver"` lands on the app but the SA never
-		 * loops back to attach a per-form `connect.deliver_unit`. CCHQ
-		 * accepts the upload — it has no concept of "Connect form" — but
-		 * Connect's `extract_deliver_unit` finds zero markers in the CCZ
-		 * and the opportunity gets stuck. Validator must catch this at
-		 * upload-prep time. */
+	it("flags a Connect-typed app whose form has no connect block", () => {
+		/* When `connect_type` lands on the app but a form has no
+		 * per-form `connect`, CCHQ still accepts the upload — it has
+		 * no concept of "Connect form" — but Connect's
+		 * `extract_deliver_unit` / `extract_learn_module` find zero
+		 * markers in the CCZ and the opportunity is unusable. Validator
+		 * must catch this before upload-prep so the SA / caller can
+		 * attach the missing block via `update_form`. */
 		const doc = connectDoc({ connectType: "deliver" });
 		const errors = runValidation(doc);
 		const missingBlock = errors.filter(
@@ -1075,14 +1075,14 @@ describe("connect rules", () => {
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
 	});
 
-	it("flags empty entity_id as CONNECT_EMPTY_XPATH (Bug 3 defense-in-depth)", () => {
-		/* Belt-and-suspenders for Bug 2. With Bug 2 fixed at the
-		 * `update_form` layer, a doc reaching validation should never
-		 * carry an empty entity_id — but if a regression slips through
-		 * or a non-SA path produces one, the validator catches it before
-		 * the upload hits CCHQ. Without this rule the doc serializes to
-		 * `<bind nodeset=".../entity_id" calculate=""/>` which CCHQ's
-		 * build pipeline rejects with a cryptic XPath parse error. */
+	it("flags an explicit empty entity_id as CONNECT_EMPTY_XPATH", () => {
+		/* `entity_id` undefined is fine — the wire layer substitutes
+		 * the canonical default expression. An explicit empty string
+		 * is a smell: it means an upstream caller deliberately wrote a
+		 * blank, and CCHQ would reject the resulting
+		 * `<bind nodeset=".../entity_id" calculate=""/>` with an XPath
+		 * parse error. The validator surfaces the smell so callers
+		 * either set a real expression or remove the field. */
 		const doc = connectDoc({
 			connectType: "deliver",
 			formConnect: {

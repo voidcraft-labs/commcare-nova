@@ -2507,16 +2507,14 @@ describe("Connect learn-only expansion", () => {
 	});
 });
 
-// ── Deliver-unit entity-XPath defaults (Bug 2 wire-emit coverage) ─────
+// ── Deliver-unit entity-XPath defaults ────────────────────────────────
 //
-// `deliver_unit.entity_id` and `entity_name` are optional in the
-// domain (`lib/domain/forms.ts`). The XForm builder substitutes the
-// canonical XPath defaults when the doc carries no explicit value —
-// this is the single home for those defaults. Without the wire-time
-// fallback, an SA `update_form` that only sets `name` would produce a
-// `<bind … calculate=""/>` and CCHQ would reject the upload with an
-// XPath parse error (the original failure mode in
-// voidcraft-labs/nova-plugin#1).
+// `deliver_unit.entity_id` and `entity_name` are optional in the domain
+// (`lib/domain/forms.ts`). The XForm builder substitutes the canonical
+// XPath defaults when the doc carries no explicit value — this is the
+// single home for those defaults. Without the wire-time fallback the
+// emitter would write `<bind … calculate=""/>` and CCHQ would reject
+// the upload with an XPath parse error.
 
 describe("Connect deliver_unit entity defaults", () => {
 	const deliverWithoutEntityFields = buildDoc({

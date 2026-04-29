@@ -12,7 +12,6 @@ import type {
 	ConnectConfig,
 	ConnectLearnModule,
 	ConnectType,
-	ConnectType as DomainConnectType,
 	Uuid,
 } from "@/lib/domain";
 import { deriveConnectDefaults } from "../connectConfig";
@@ -443,7 +442,7 @@ describe("Connect XForm export", () => {
  * field content, so tests inline minimal field sets where needed.
  */
 function makeConnectValidationDoc(
-	connectType: DomainConnectType,
+	connectType: ConnectType,
 	connect: ConnectConfig | undefined,
 	formName = "Form",
 	extraFields: FormSpec["fields"] = [],
