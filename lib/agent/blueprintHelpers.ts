@@ -497,7 +497,12 @@ export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
 			 * assignment for optional properties. Each `if` is a named
 			 * decision the reader can audit top-to-bottom — vs. the
 			 * conditional-spread idiom (`...(cond && {k: v})`), which
-			 * obscures whether a key actually lands on the literal. */
+			 * obscures whether a key actually lands on the literal. The
+			 * SA-facing scaffold schema (`scaffoldModulesSchema`) declares
+			 * every property the SA can set; each one needs a matching
+			 * read here. A missing read silently drops the field on the
+			 * persisted doc — the kind of bug that's invisible until a
+			 * downstream consumer notices the wrong default behavior. */
 			const formEntity: Form = {
 				uuid: formUuid,
 				id: slugifyFormId(sf.name),
@@ -505,6 +510,7 @@ export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
 				type: sf.type,
 			};
 			if (sf.purpose !== undefined) formEntity.purpose = sf.purpose;
+			if (sf.post_submit !== undefined) formEntity.postSubmit = sf.post_submit;
 			if (sf.connect !== undefined) {
 				/* `normalizeConnectConfig` strips empty sub-configs so an
 				 * SA-supplied `{}` (zero opt-ins) lands as absent rather
