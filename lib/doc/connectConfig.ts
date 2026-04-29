@@ -8,6 +8,11 @@
  * defaulted field is present when rules fire.
  *
  * Operates directly on `BlueprintDoc` — no wire-format round-trip.
+ *
+ * Scope: this module owns Layer 2 (validate-time) defaults. Wire-emit
+ * defaults for fields like `deliver_unit.entity_id` /
+ * `deliver_unit.entity_name` live alongside the bind emitter in
+ * `lib/commcare/xform/builder.ts`.
  */
 import { toSnakeId } from "@/lib/commcare";
 import type {
@@ -161,8 +166,11 @@ export function deriveConnectDefaults({
 			const du = { ...next.deliver_unit };
 			du.id ??= modSlug;
 			du.name ||= form.name;
-			du.entity_id ||= "concat(#user/username, '-', today())";
-			du.entity_name ||= "#user/username";
+			// `entity_id` / `entity_name` are wire-emit defaults — see
+			// `lib/commcare/xform/builder.ts`. Layer 2 doesn't fill them
+			// because doing so would persist a wire-format choice into
+			// the doc; the doc tracks what the user/agent set, the
+			// emitter handles the rest.
 			next.deliver_unit = du;
 		}
 		if (next.task) {

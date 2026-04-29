@@ -31,6 +31,7 @@ import {
 	type Field,
 	type Uuid,
 } from "@/lib/domain";
+import { effectiveDeliverEntities } from "./connectDefaults";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 import { readFieldString } from "./fieldProps";
 
@@ -296,9 +297,16 @@ export function buildCaseReferencesLoad(
 	}
 	if (connect?.deliver_unit) {
 		const duId = connect.deliver_unit.id || "connect_deliver";
-		const idH = extractHashtags([connect.deliver_unit.entity_id]);
+		// `effectiveDeliverEntities` is the single source of truth for
+		// the wire-fallback policy. The bind emitter calls the same
+		// helper, so the load map's hashtag set always matches what the
+		// runtime will evaluate from those binds.
+		const { entityId, entityName } = effectiveDeliverEntities(
+			connect.deliver_unit,
+		);
+		const idH = extractHashtags([entityId]);
 		if (idH.length > 0) load[`/data/${duId}/deliver/entity_id`] = idH;
-		const nameH = extractHashtags([connect.deliver_unit.entity_name]);
+		const nameH = extractHashtags([entityName]);
 		if (nameH.length > 0) load[`/data/${duId}/deliver/entity_name`] = nameH;
 	}
 

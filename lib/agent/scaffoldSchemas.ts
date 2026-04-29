@@ -172,6 +172,59 @@ export const scaffoldModulesSchema = z.object({
 						.describe(
 							'Where the user goes after submitting. Defaults to "previous" for followup forms, "app_home" for registration/survey. Only set to override.',
 						),
+					connect: z
+						.object({
+							learn_module: z
+								.object({
+									id: z.string().optional(),
+									name: z.string(),
+									description: z.string(),
+									// Match the domain's `connectLearnModuleSchema`:
+									// time estimate is in minutes and must be a
+									// positive integer. The reducer applies the
+									// patch via `Object.assign` without a Zod
+									// re-parse, so the SA-facing schema is the
+									// only gate against `0` / negatives / floats
+									// landing on the persisted doc.
+									time_estimate: z.number().int().positive(),
+								})
+								.optional()
+								.describe(
+									"Set on forms with educational/training content. Omit on quiz-only forms.",
+								),
+							assessment: z
+								.object({
+									id: z.string().optional(),
+									user_score: z.string(),
+								})
+								.optional()
+								.describe(
+									"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
+								),
+							deliver_unit: z
+								.object({
+									id: z.string().optional(),
+									name: z.string(),
+								})
+								.optional()
+								.describe(
+									"Set on every form in a Connect deliver app. Connect's deliver-unit picker reads these from the released CCZ.",
+								),
+							task: z
+								.object({
+									id: z.string().optional(),
+									name: z.string(),
+									description: z.string(),
+								})
+								.optional()
+								.describe(
+									"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
+								),
+						})
+						.optional()
+						.describe(
+							"Per-form Connect config. REQUIRED on every form when the app's `connect_type` is `learn` or `deliver`; omit entirely on standard apps. Pick sub-configs by content: `learn_module` for educational content, `assessment` for quizzes, `deliver_unit` for every deliver-app form, optional `task` for delivery descriptions.",
+						),
 					formDesign: z
 						.string()
 						.describe(

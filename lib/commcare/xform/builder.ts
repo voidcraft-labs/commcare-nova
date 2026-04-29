@@ -35,6 +35,7 @@ import {
 	supportsValidation,
 	VELLUM_HASHTAG_TRANSFORMS,
 } from "@/lib/commcare";
+import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import type {
 	BlueprintDoc,
@@ -216,8 +217,14 @@ function buildConnectBlocks(
 	if (connect.deliver_unit) {
 		const du = connect.deliver_unit;
 		const duId = du.id || "connect_deliver";
-		instances.scanXPath(du.entity_id);
-		instances.scanXPath(du.entity_name);
+		// `entity_id` / `entity_name` are optional in the domain.
+		// `effectiveDeliverEntities` resolves them against the canonical
+		// defaults — same helper the session-preload builder calls, so
+		// the bind XML and the case-references load map agree on which
+		// XPaths actually run at form-fill time.
+		const { entityId, entityName } = effectiveDeliverEntities(du);
+		instances.scanXPath(entityId);
+		instances.scanXPath(entityName);
 		dataElements.push(
 			`<${duId} vellum:role="ConnectDeliverUnit">` +
 				`<deliver xmlns="${CONNECT_XMLNS}" id="${duId}">` +
@@ -229,8 +236,8 @@ function buildConnectBlocks(
 		);
 		binds.push(
 			`<bind vellum:nodeset="#form/${duId}" nodeset="/data/${duId}"/>`,
-			`<bind nodeset="/data/${duId}/deliver/entity_id" calculate="${escapeXml(expandHashtags(du.entity_id))}"/>`,
-			`<bind nodeset="/data/${duId}/deliver/entity_name" calculate="${escapeXml(expandHashtags(du.entity_name))}"/>`,
+			`<bind nodeset="/data/${duId}/deliver/entity_id" calculate="${escapeXml(expandHashtags(entityId))}"/>`,
+			`<bind nodeset="/data/${duId}/deliver/entity_name" calculate="${escapeXml(expandHashtags(entityName))}"/>`,
 		);
 	}
 

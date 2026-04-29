@@ -345,3 +345,98 @@ describe("updateFormTool partial connect-config updates", () => {
 		});
 	});
 });
+
+// ── updateForm deliver_unit ───────────────────────────────────────────
+
+/**
+ * Build a Deliver-typed fixture with no per-form connect block — the
+ * starting state when the SA is about to attach `deliver_unit` to a
+ * form for the first time. The SA's call shape is `update_form` with
+ * `connect.deliver_unit.name`; the test assertions below pin the
+ * post-mutation invariant: the doc carries only what the SA supplied,
+ * with `entity_id` / `entity_name` left absent for the wire-emit
+ * fallback to substitute at bind time.
+ */
+function makeDeliverDocWithoutConnect(): BlueprintDoc {
+	const doc = makeFixtureDoc();
+	return { ...doc, connectType: "deliver" };
+}
+
+describe("updateFormTool deliver_unit", () => {
+	it("lands deliver_unit with only the SA-supplied fields; no entity_id/entity_name injected", async () => {
+		/* `buildConnectConfig` is a structural merge — it must not
+		 * invent system-derived values. `entity_id` / `entity_name`
+		 * are absent on the input; they remain absent on the doc.
+		 * The XForm builder substitutes the canonical defaults at
+		 * emit time. Writing empties at the agent layer would produce
+		 * `<bind … calculate=""/>` which CCHQ rejects. */
+		const doc = makeDeliverDocWithoutConnect();
+		const { ctx } = makeTestContext();
+
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: {
+					deliver_unit: { name: "Vendor visit" },
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations).toHaveLength(1);
+		const finalForm = result.newDoc.forms[FORM_A];
+		expect(finalForm?.connect?.deliver_unit).toEqual({
+			name: "Vendor visit",
+		});
+	});
+
+	it("preserves an existing custom entity_id/entity_name through a partial re-patch", async () => {
+		/* When a deliver_unit already carries explicit XPath
+		 * expressions — set via direct doc edit, a UI panel, or a
+		 * future SA tool that exposes those fields — a follow-up
+		 * `update_form` that touches only `name` must leave the
+		 * entity expressions alone. The structural merge
+		 * (`{...existing.deliver_unit, ...input.deliver_unit}`)
+		 * handles this without any defaulting logic. */
+		const docBase = makeDeliverDocWithoutConnect();
+		const seeded: BlueprintDoc = {
+			...docBase,
+			forms: {
+				[FORM_A]: {
+					...docBase.forms[FORM_A],
+					connect: {
+						deliver_unit: {
+							id: "vendor_visit",
+							name: "Vendor visit",
+							entity_id: "concat(#form/loc_id, '-', uuid())",
+							entity_name: "#form/loc_id/market_name",
+						},
+					},
+				} as Form,
+			},
+		};
+		const { ctx } = makeTestContext();
+
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: {
+					deliver_unit: { name: "Vendor visit (updated)" },
+				},
+			},
+			ctx,
+			seeded,
+		);
+
+		const finalForm = result.newDoc.forms[FORM_A];
+		expect(finalForm?.connect?.deliver_unit).toEqual({
+			id: "vendor_visit",
+			name: "Vendor visit (updated)",
+			entity_id: "concat(#form/loc_id, '-', uuid())",
+			entity_name: "#form/loc_id/market_name",
+		});
+	});
+});

@@ -8,9 +8,14 @@
  *
  * Every nullable key follows the convention the store's
  * `updateFormMutations` helper establishes: omitted → leave alone,
- * `null` → clear, a value → set. Connect-config patches go through the
- * local `buildConnectConfig` helper which preserves system-derived
- * fields (`entity_id`, `entity_name`) the SA should never set directly.
+ * `null` → clear, a value → set. Connect-config patches go through
+ * `buildConnectConfig`, a structural partial-update merge: each
+ * sub-config the SA explicitly supplied is merged with the matching
+ * existing sub-config; the others pass through unchanged. No defaults
+ * are invented at this layer — the domain schema accepts the partial
+ * shapes (e.g. `deliver_unit` without `entity_id`/`entity_name`) and
+ * the wire-emit layer (`lib/commcare/xform/builder.ts`) supplies the
+ * canonical XPath fallbacks at bind time.
  *
  * Three exit branches:
  *
@@ -71,7 +76,11 @@ export const updateFormInputSchema = z.object({
 					id: z.string().optional(),
 					name: z.string(),
 					description: z.string(),
-					time_estimate: z.number(),
+					// Match the domain's `connectLearnModuleSchema`:
+					// positive integer minutes. The reducer doesn't
+					// re-parse patches via Zod, so the SA-facing schema
+					// is the only gate against invalid values.
+					time_estimate: z.number().int().positive(),
 				})
 				.optional()
 				.describe(
@@ -83,8 +92,16 @@ export const updateFormInputSchema = z.object({
 				.describe(
 					"Set for forms with a quiz/test. Omit for content-only forms.",
 				),
-			deliver_unit: z.object({ name: z.string() }).optional(),
-			task: z.object({ name: z.string(), description: z.string() }).optional(),
+			deliver_unit: z
+				.object({ id: z.string().optional(), name: z.string() })
+				.optional(),
+			task: z
+				.object({
+					id: z.string().optional(),
+					name: z.string(),
+					description: z.string(),
+				})
+				.optional(),
 		})
 		.nullable()
 		.optional()
@@ -100,19 +117,17 @@ export type UpdateFormResult = string | { error: string };
 
 /**
  * Merge the SA's partial connect-config input into a full
- * `ConnectConfig`. Preserves every system-derived field the SA doesn't
- * know about (`entity_id`, `entity_name`) from the existing form
- * config; the SA only ever supplies the user-semantic fields
- * (`learn_module`, `assessment`, `deliver_unit.name`, `task`).
+ * `ConnectConfig`. Pure structural merge: keys absent from `input` are
+ * copied verbatim from `existing`. Keys present on `input` overlay the
+ * matching existing sub-config (`existing.learn_module` ←
+ * `input.learn_module`, etc.). Returns `null` only when the SA's input
+ * is explicitly `null` — the caller uses that as the "clear Connect
+ * config" signal.
  *
- * **Partial-update contract.** Only keys the SA explicitly provided on
- * `input` are touched on the output — every other sub-config is copied
- * verbatim from `existing`. A call like
- * `{ assessment: { user_score: "…" } }` leaves `learn_module`,
- * `deliver_unit`, and `task` on the existing form untouched; the SA
- * never has to round-trip the full connect config just to patch one
- * sub-config. Returns `null` only when the SA's input is explicitly
- * `null` — the caller uses that as the "clear Connect config" signal.
+ * No defaults are invented here. `deliver_unit` may land without
+ * `entity_id`/`entity_name` — that's a normal state of the domain
+ * type, and the XForm builder substitutes the canonical XPath defaults
+ * when emitting the binds.
  */
 function buildConnectConfig(
 	input: NonNullable<UpdateFormInput["connect"]> | null,
@@ -127,12 +142,7 @@ function buildConnectConfig(
 		out.assessment = { ...existing?.assessment, ...input.assessment };
 	}
 	if (input.deliver_unit !== undefined) {
-		out.deliver_unit = {
-			...existing?.deliver_unit,
-			...input.deliver_unit,
-			entity_id: existing?.deliver_unit?.entity_id ?? "",
-			entity_name: existing?.deliver_unit?.entity_name ?? "",
-		};
+		out.deliver_unit = { ...existing?.deliver_unit, ...input.deliver_unit };
 	}
 	if (input.task !== undefined) {
 		out.task = { ...existing?.task, ...input.task };

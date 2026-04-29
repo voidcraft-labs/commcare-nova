@@ -105,8 +105,15 @@ const connectAssessmentSchema = z.object({
 const connectDeliverUnitSchema = z.object({
 	id: z.string().optional(),
 	name: z.string(),
-	entity_id: z.string(),
-	entity_name: z.string(),
+	// `entity_id` / `entity_name` are XPath expressions consumed only by
+	// the XForm bind emitter. Either side may set them (the SA can opt
+	// into custom expressions; a UI panel could let a user override),
+	// but if absent the wire layer in `lib/commcare/xform/builder.ts`
+	// emits the canonical defaults at bind time. Optional here matches
+	// what's true: the doc tracks what was set, the wire layer fills
+	// the rest.
+	entity_id: z.string().optional(),
+	entity_name: z.string().optional(),
 });
 const connectTaskSchema = z.object({
 	id: z.string().optional(),

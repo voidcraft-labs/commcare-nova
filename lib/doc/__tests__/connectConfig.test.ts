@@ -12,7 +12,6 @@ import type {
 	ConnectConfig,
 	ConnectLearnModule,
 	ConnectType,
-	ConnectType as DomainConnectType,
 	Uuid,
 } from "@/lib/domain";
 import { deriveConnectDefaults } from "../connectConfig";
@@ -205,7 +204,16 @@ describe("deriveConnectDefaults", () => {
 		expect(next?.assessment?.user_score).toBe("50");
 	});
 
-	it("fills deliver_unit defaults when deliver_unit is present", () => {
+	it("fills deliver_unit `id` and `name` defaults; entity fields are wire-emit-only and remain unset on the doc", () => {
+		/* Layer-2 (`deriveConnectDefaults`) fills the user-semantic
+		 * fields the SA might have left blank — `id` from the module
+		 * slug, `name` from the form name. It does NOT fill
+		 * `entity_id` / `entity_name`: those are wire-format fallbacks
+		 * (see `DEFAULT_DELIVER_ENTITY_ID` / `DEFAULT_DELIVER_ENTITY_NAME`
+		 * in `lib/commcare/xform/builder.ts`) and Layer 2 keeps them
+		 * out of the persisted doc so the canonical default expression
+		 * lives in exactly one place. The `lib/commcare/__tests__/...`
+		 * XForm-builder test asserts the wire side. */
 		const { doc, formUuid } = buildConnectDoc({
 			connectType: "deliver",
 			formName: "Weekly Report",
@@ -223,8 +231,8 @@ describe("deriveConnectDefaults", () => {
 		expect(next?.deliver_unit).toEqual({
 			id: "main",
 			name: "Weekly Report",
-			entity_id: "concat(#user/username, '-', today())",
-			entity_name: "#user/username",
+			entity_id: "",
+			entity_name: "",
 		});
 	});
 
@@ -434,7 +442,7 @@ describe("Connect XForm export", () => {
  * field content, so tests inline minimal field sets where needed.
  */
 function makeConnectValidationDoc(
-	connectType: DomainConnectType,
+	connectType: ConnectType,
 	connect: ConnectConfig | undefined,
 	formName = "Form",
 	extraFields: FormSpec["fields"] = [],
