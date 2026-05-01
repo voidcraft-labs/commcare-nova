@@ -23,23 +23,47 @@
 
 import type { CaseProperty, CaseType } from "@/lib/domain";
 
-// CommCare's geopoint wire format: "lat lon" (space-separated decimals,
-// each optionally negative, with optional fractional parts). Mirrors
-// XForm's geopoint binding so the same string round-trips through HQ
-// and the local case database without reformatting. Pulled out as a
-// constant because the predicate type checker and the SQL compiler
-// will eventually reach for the same regex.
-const GEOPOINT_PATTERN = "^-?\\d+\\.?\\d*\\s-?\\d+\\.?\\d*$";
+// CommCare's geopoint wire format: four space-separated decimals —
+// `latitude longitude altitude accuracy`. Verified against
+// `corehq/ex-submodules/couchforms/geopoint.py`:
+//   - line 44: `input_string.split(' ')` — splits on a literal single
+//     ASCII space (NOT `\s`), so tabs and newlines are not accepted.
+//   - line 48: the strict path requires exactly 4 elements; the
+//     2-element flexible path is reserved for case-search Geocoder
+//     input boxes, NOT stored case data, so we reject 2-element
+//     payloads here.
+//   - lines 55-65: `_to_decimal` calls Decimal(n) on each element,
+//     which accepts scientific notation (e.g. `1.23e5`, `-1.23E-5`).
+// Range checks (`-90 <= lat <= 90`, `-180 <= lon <= 180`) live at
+// `_validate_range` (lines 68-71); regex can't express ranges cheaply
+// and that's an application-layer concern. Altitude/accuracy may
+// degenerate to NaN-as-decimal at the application layer but on the
+// wire they arrive as decimal strings, so the regex doesn't need a
+// `NaN` literal alternation.
+//
+// Build the pattern from a `DECIMAL` fragment so the four-element
+// repetition is obvious at a glance and so future tweaks (e.g.
+// permitting Geocoder's 2-element form on a different code path)
+// stay structural rather than copy-pasted.
+const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
+const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
 
 /**
  * The top-level shape: a closed object whose keys are the case type's
  * property names. `additionalProperties: false` is load-bearing — the
  * write-side validator's whole job is rejecting payloads that try to
  * land properties the blueprint never declared.
+ *
+ * Note on requiredness: the schema is a closed object (rejects unknown
+ * keys) but emits no `required` array — every declared property is
+ * implicitly optional. Schema changes don't migrate existing case
+ * rows, so a property added to the blueprint can be absent from older
+ * rows without invalidating them. The closed shape rejects *unknown*
+ * keys, not missing known keys.
  */
-export type JsonSchema = {
+export type CaseTypeJsonSchema = {
 	type: "object";
-	properties: Record<string, PropertySchema>;
+	properties: Record<string, CaseTypePropertyJsonSchema>;
 	additionalProperties: false;
 };
 
@@ -52,7 +76,7 @@ export type JsonSchema = {
  * emitter never produces an inconsistent combination because each arm
  * of the switch sets at most one of those fields.
  */
-export type PropertySchema =
+export type CaseTypePropertyJsonSchema =
 	| { type: "string"; format?: string; enum?: string[]; pattern?: string }
 	| { type: "integer" }
 	| { type: "number" }
@@ -65,8 +89,8 @@ export type PropertySchema =
  * order (object insertion order), which downstream snapshot tests can
  * rely on.
  */
-export function caseTypeToJsonSchema(caseType: CaseType): JsonSchema {
-	const properties: Record<string, PropertySchema> = {};
+export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
+	const properties: Record<string, CaseTypePropertyJsonSchema> = {};
 	for (const prop of caseType.properties) {
 		properties[prop.name] = propertyToSchema(prop);
 	}
@@ -81,20 +105,25 @@ export function caseTypeToJsonSchema(caseType: CaseType): JsonSchema {
  * Map a single `CaseProperty` to its JSON Schema shape.
  *
  * Empty-options behavior for select kinds: when `prop.options` is
- * undefined or empty, the emitted schema carries `enum: []`, which
- * matches no string at all. That's intentional — a select property is
- * only valid to write to once it has options, so reflecting the
- * blueprint's "no options yet" state as an unsatisfiable schema lets
- * the write-side validator reject placeholder rows the same way it
- * rejects any other invalid value. Silently dropping the `enum`
- * constraint would defeat that.
+ * undefined or empty, the emitted schema falls back to a permissive
+ * shape — `{ type: "string" }` for `single_select`, `{ type: "array",
+ * items: { type: "string" } }` for `multi_select`. Two reasons it
+ * doesn't emit `enum: []`:
+ *   1. Ajv 8 (and other strict validators) reject empty-enum schemas
+ *      at compile time; emitting `enum: []` would block ALL writes
+ *      against the case type rather than just writes to this property.
+ *   2. The "fail closed until configured" intent is reasonable but
+ *      placed at the wrong layer — mid-edit blueprints don't carry
+ *      real authored data, so locking the validator against them
+ *      creates spurious breakage. Once the author configures options,
+ *      the emitted schema tightens automatically.
  *
  * Default for missing data_type: `casePropertySchema.data_type` is
  * `.optional()` in `lib/domain/blueprint.ts`. We treat the absent
  * variant as `text` here — same treatment the rest of the system
  * gives to legacy properties that predate the data_type field.
  */
-function propertyToSchema(prop: CaseProperty): PropertySchema {
+function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
 	switch (prop.data_type) {
 		case undefined:
 		case "text":
@@ -110,18 +139,19 @@ function propertyToSchema(prop: CaseProperty): PropertySchema {
 		case "datetime":
 			return { type: "string", format: "date-time" };
 		case "single_select":
-			return {
-				type: "string",
-				enum: (prop.options ?? []).map((o) => o.value),
-			};
+			return prop.options && prop.options.length > 0
+				? { type: "string", enum: prop.options.map((o) => o.value) }
+				: { type: "string" };
 		case "multi_select":
-			return {
-				type: "array",
-				items: {
-					type: "string",
-					enum: (prop.options ?? []).map((o) => o.value),
-				},
-			};
+			return prop.options && prop.options.length > 0
+				? {
+						type: "array",
+						items: {
+							type: "string",
+							enum: prop.options.map((o) => o.value),
+						},
+					}
+				: { type: "array", items: { type: "string" } };
 		case "geopoint":
 			return { type: "string", pattern: GEOPOINT_PATTERN };
 		default: {

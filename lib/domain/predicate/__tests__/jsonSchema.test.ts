@@ -6,6 +6,13 @@
 // generator produces is the contract enforced at the case database's
 // write boundary; a regression here would silently let mistyped
 // payloads land on disk.
+//
+// The geopoint test compiles the emitted regex and exercises it against
+// real CommCare wire-format strings (4 space-separated decimals, single
+// ASCII space) sourced from `corehq/ex-submodules/couchforms/geopoint.py`.
+// Asserting the literal pattern string would be tautological with the
+// implementation; running it as a regex catches format bugs that a
+// snapshot can't.
 
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -93,12 +100,21 @@ describe("caseTypeToJsonSchema", () => {
 		});
 	});
 
-	it("emits an empty enum when a select property has no options yet", () => {
+	it("emits a permissive schema when a select property has no options yet", () => {
 		// A blueprint can briefly hold a select property with no options
-		// (mid-edit, partial generation). The generator faithfully reflects
-		// that state — `enum: []` matches nothing, which is the correct
-		// downstream behavior: writes against an unconfigured select are
-		// rejected until the blueprint is filled in.
+		// (mid-edit, partial generation). The generator falls back to a
+		// permissive shape — `{ type: "string" }` for single, `{ type:
+		// "array", items: { type: "string" } }` for multi — rather than
+		// emitting `enum: []`. Two reasons:
+		//   1. Ajv 8 (and other strict JSON Schema validators) reject
+		//      empty-enum schemas at compile time, which would block ALL
+		//      writes against the case type rather than just writes to
+		//      this property.
+		//   2. The "fail closed until configured" intent is reasonable
+		//      but the wrong layer for it; mid-edit blueprints aren't
+		//      receiving real authored data, so locking the validator
+		//      against them creates more breakage than it prevents. Once
+		//      options are configured the schema tightens automatically.
 		const ct: CaseType = {
 			name: "patient",
 			properties: [
@@ -116,25 +132,52 @@ describe("caseTypeToJsonSchema", () => {
 			],
 		};
 		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties.status).toEqual({
-			type: "string",
-			enum: [],
-		});
+		expect(schema.properties.status).toEqual({ type: "string" });
 		expect(schema.properties.languages).toEqual({
 			type: "array",
-			items: { type: "string", enum: [] },
+			items: { type: "string" },
 		});
 	});
 
-	it("maps geopoint to a string with the CommCare pattern", () => {
+	it("emits a geopoint pattern that matches CommCare's 4-element wire format", () => {
+		// Verified against `corehq/ex-submodules/couchforms/geopoint.py`:
+		//   - line 44: `input_string.split(' ')` — literal single ASCII
+		//     space, NOT \s, so tabs and newlines are not accepted.
+		//   - line 48: strict path requires exactly 4 elements
+		//     (latitude, longitude, altitude, accuracy).
+		//   - lines 55-65: `_to_decimal` calls Decimal(n), which accepts
+		//     scientific notation; very small sci-notation values round
+		//     to 0 but still parse.
+		// Lat/lon range checks live in `_validate_range` (lines 68-71)
+		// and are an application-layer concern; the regex handles shape
+		// only.
 		const ct: CaseType = {
 			name: "clinic",
 			properties: [{ name: "location", label: "Loc", data_type: "geopoint" }],
 		};
-		expect(caseTypeToJsonSchema(ct).properties.location).toEqual({
-			type: "string",
-			pattern: "^-?\\d+\\.?\\d*\\s-?\\d+\\.?\\d*$",
-		});
+		const schema = caseTypeToJsonSchema(ct);
+		const propSchema = schema.properties.location;
+		if (propSchema.type !== "string" || !propSchema.pattern) {
+			throw new Error("expected string + pattern for geopoint property");
+		}
+		const re = new RegExp(propSchema.pattern);
+
+		// Real CommCare wire-format values (lat lon altitude accuracy).
+		expect(re.test("14.719783 -17.459261 0 0")).toBe(true);
+		expect(re.test("-13.1058758 39.8739394 375.73 18.76")).toBe(true);
+		expect(re.test("0 0 0 0")).toBe(true);
+		// Scientific notation (CCHQ's _to_decimal accepts it).
+		expect(re.test("1.23e-5 2.0E10 0 0")).toBe(true);
+		expect(re.test("1e5 -1.23E-5 0 0")).toBe(true);
+
+		// Things the regex must reject.
+		expect(re.test("14.7 -17.4")).toBe(false); // 2 elements (flexible-mode only)
+		expect(re.test("14.7 -17.4 0")).toBe(false); // 3 elements
+		expect(re.test("14.7 -17.4 0 0 0")).toBe(false); // 5 elements
+		expect(re.test("14.7,-17.4,0,0")).toBe(false); // commas
+		expect(re.test("14.7\t-17.4 0 0")).toBe(false); // tab not allowed
+		expect(re.test("abc def 0 0")).toBe(false); // non-numeric
+		expect(re.test("")).toBe(false);
 	});
 
 	it("defaults a property without data_type to string", () => {
