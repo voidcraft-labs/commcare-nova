@@ -209,7 +209,7 @@ describe("predicate schema", () => {
 	// Numeric structural constraint. A negative radius is geometrically
 	// meaningless and would propagate to two compilers (XPath/CSQL and
 	// Kysely) that don't share a rejection layer — same logic that
-	// defends `.min(1)` on collection slots applies.
+	// defends the tuple-with-rest shape on collection slots applies.
 
 	it("rejects within-distance with a negative distance", () => {
 		expect(() =>
@@ -579,11 +579,11 @@ describe("relationPath schema", () => {
 	});
 
 	it("rejects an ancestor path with empty via", () => {
-		// `.min(1)` is the operative defense: an empty `via` collapses
-		// the path to `self` semantics but parses as a different kind,
-		// which would silently disagree with the type checker and the
-		// emitters. Reject at parse time rather than letting the
-		// degenerate flow through downstream layers.
+		// Tuple-with-rest is the operative defense: an empty `via`
+		// collapses the path to `self` semantics but parses as a
+		// different kind, which would silently disagree with the type
+		// checker and the emitters. Reject at parse time rather than
+		// letting the degenerate flow through downstream layers.
 		expect(() =>
 			relationPathSchema.parse({ kind: "ancestor", via: [] }),
 		).toThrow();
@@ -786,6 +786,41 @@ describe("propertyRef with via (relational read)", () => {
 			right: { kind: "literal", value: "active" },
 		});
 		expect(result.kind).toBe("eq");
+	});
+
+	it("parses a propertyRef with via: any-relation through a comparison", () => {
+		// `any-relation` rounds out the propertyRef-with-via coverage:
+		// the other three kinds (`ancestor`, `self`, `subcase`) each
+		// have an end-to-end test above. The shape below encodes "use
+		// the `linked` index regardless of direction (CHILD or
+		// EXTENSION) to reach a `referral` case and read `linked_id`
+		// on it" — the typical authored shape when the index direction
+		// isn't fixed at authoring time. This test pins the structural
+		// composition of `any-relation` inside propertyRef.via, locking
+		// against a future divergence where the schema accepted the
+		// kind standalone but rejected it inside a property-ref slot.
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: {
+				kind: "prop",
+				caseType: "patient",
+				property: "linked_id",
+				via: {
+					kind: "any-relation",
+					identifier: "linked",
+					ofCaseType: "referral",
+				},
+			},
+			right: { kind: "literal", value: "abc-123" },
+		});
+		expect(result.kind).toBe("eq");
+		if (result.kind === "eq" && result.left.kind === "prop") {
+			expect(result.left.via).toEqual({
+				kind: "any-relation",
+				identifier: "linked",
+				ofCaseType: "referral",
+			});
+		}
 	});
 });
 

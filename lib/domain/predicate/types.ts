@@ -102,6 +102,72 @@ export const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  */
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+// ---------- Identifier-field schema helpers ----------
+//
+// Every identifier slot in the AST (case types, properties, search-input
+// names, user-data fields, relation identifiers, etc.) reduces to one
+// of three shapes: case-type vocabulary (`CASE_TYPE_PATTERN`), case-
+// property vocabulary (`CASE_PROPERTY_PATTERN`), or XML element-name
+// vocabulary (`XML_ELEMENT_NAME_PATTERN`). The case-property and case-
+// type vocabularies happen to share a regex today but their domain
+// roles are distinct, so each gets its own helper — a future
+// divergence in CCHQ's vocabulary doesn't have to scan every
+// `z.string().regex(...)` call.
+//
+// Each helper takes a `label` parameter that customizes the parse-error
+// message for the field's domain role. Centralizing the message
+// templates here means a phrasing change applies everywhere at once
+// rather than drifting across ten call sites; centralizing the regex
+// reference means adding a new identifier slot is one helper call
+// rather than a copy-pasted three-line `.regex(...)` block.
+
+/**
+ * Builder for a Zod string-with-regex schema constrained to XML
+ * element-name vocabulary — search-input names, user-context fields,
+ * and relation identifiers all draw from this closed set. Hyphens are
+ * NOT permitted; see the JSDoc on `XML_ELEMENT_NAME_PATTERN` for the
+ * vocabulary divergence rationale.
+ */
+const xmlElementNameField = (label: string) =>
+	z
+		.string()
+		.regex(
+			XML_ELEMENT_NAME_PATTERN,
+			`${label} must start with a letter or underscore and contain only letters, digits, or underscores.`,
+		);
+
+/**
+ * Builder for a Zod string-with-regex schema constrained to CommCare
+ * case-type vocabulary — case-type names and the `throughCaseType` /
+ * `ofCaseType` qualifiers on relation paths all draw from this set.
+ * Hyphens are permitted (the divergence from XML element names);
+ * see the JSDoc on `CASE_TYPE_PATTERN` for the vocabulary rationale.
+ */
+const caseTypeField = (label: string) =>
+	z
+		.string()
+		.regex(
+			CASE_TYPE_PATTERN,
+			`${label} must start with a letter and contain only letters, digits, underscores, or hyphens.`,
+		);
+
+/**
+ * Builder for a Zod string-with-regex schema constrained to CommCare
+ * case-property vocabulary. The pattern is presently identical to
+ * `CASE_TYPE_PATTERN` (both admit hyphens), but the role is distinct
+ * enough — case types name the schema, properties name a field within
+ * a case — that drift in either vocabulary should not silently change
+ * the other. Each helper carries the role-specific error message; if
+ * the patterns ever diverge, the change lands in one place per role.
+ */
+const casePropertyField = (label: string) =>
+	z
+		.string()
+		.regex(
+			CASE_PROPERTY_PATTERN,
+			`${label} must start with a letter and contain only letters, digits, underscores, or hyphens.`,
+		);
+
 // ---------- Relation paths (cross-case-type traversal) ----------
 //
 // `RelationPath` is the typed structural equivalent of CommCare's
@@ -150,19 +216,8 @@ export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * to keep emitter interpolation safe.
  */
 export const relationStepSchema = z.object({
-	identifier: z
-		.string()
-		.regex(
-			XML_ELEMENT_NAME_PATTERN,
-			"Relation identifier must start with a letter or underscore and contain only letters, digits, or underscores.",
-		),
-	throughCaseType: z
-		.string()
-		.regex(
-			CASE_TYPE_PATTERN,
-			"throughCaseType must start with a letter and contain only letters, digits, underscores, or hyphens.",
-		)
-		.optional(),
+	identifier: xmlElementNameField("Relation identifier"),
+	throughCaseType: caseTypeField("throughCaseType").optional(),
 });
 export type RelationStep = z.infer<typeof relationStepSchema>;
 
@@ -177,9 +232,9 @@ export type RelationStep = z.infer<typeof relationStepSchema>;
  *     the chain (e.g. `[{ identifier: "parent" }, { identifier: "host" }]`
  *     for "host of parent"). Maps to CCHQ's `ancestor-exists` server-side
  *     and to the `instance('casedb')/.../[@case_id =
- *     current()/index/<rel>]` join pattern on-device. The `.min(1)`
- *     constraint rules out the empty walk that would silently collapse
- *     to `self`.
+ *     current()/index/<rel>]` join pattern on-device. The
+ *     tuple-with-rest shape on `via` rules out the empty walk that
+ *     would silently collapse to `self`.
  *   - `subcase` — walk down via the reverse index. `identifier` is the
  *     index name on the *child* case pointing back at the current case;
  *     `ofCaseType` narrows resolution inside the subcase filter so the
@@ -196,39 +251,31 @@ export const relationPathSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("self") }),
 	z.object({
 		kind: z.literal("ancestor"),
-		via: z.array(relationStepSchema).min(1),
+		// Tuple-with-rest is the Zod 4 idiom for non-empty arrays
+		// (Zod issue #5253 / v4 migration guide). Compared with
+		// `z.array(T).min(1)`, the tuple form infers as
+		// `[T, ...T[]]` rather than `T[]`, which lets construction-
+		// site object literals like `{ kind: "ancestor", via: [] }`
+		// fail at compile time rather than at parse time. Indexed
+		// access on the resulting type still yields `T` under the
+		// project's current `tsconfig` (no `noUncheckedIndexedAccess`),
+		// so the runtime parse rejection is what enforces non-empty
+		// at read sites — but the construction-site distinction is
+		// real and is locked by the
+		// `typeCheckNonEmptyConstructionSite` block in the builders
+		// test file. The same pattern guards `andSchema.clauses`,
+		// `orSchema.clauses`, and `inSchema.values` below.
+		via: z.tuple([relationStepSchema], relationStepSchema),
 	}),
 	z.object({
 		kind: z.literal("subcase"),
-		identifier: z
-			.string()
-			.regex(
-				XML_ELEMENT_NAME_PATTERN,
-				"Subcase identifier must start with a letter or underscore and contain only letters, digits, or underscores.",
-			),
-		ofCaseType: z
-			.string()
-			.regex(
-				CASE_TYPE_PATTERN,
-				"ofCaseType must start with a letter and contain only letters, digits, underscores, or hyphens.",
-			)
-			.optional(),
+		identifier: xmlElementNameField("Subcase identifier"),
+		ofCaseType: caseTypeField("ofCaseType").optional(),
 	}),
 	z.object({
 		kind: z.literal("any-relation"),
-		identifier: z
-			.string()
-			.regex(
-				XML_ELEMENT_NAME_PATTERN,
-				"Relation identifier must start with a letter or underscore and contain only letters, digits, or underscores.",
-			),
-		ofCaseType: z
-			.string()
-			.regex(
-				CASE_TYPE_PATTERN,
-				"ofCaseType must start with a letter and contain only letters, digits, underscores, or hyphens.",
-			)
-			.optional(),
+		identifier: xmlElementNameField("Relation identifier"),
+		ofCaseType: caseTypeField("ofCaseType").optional(),
 	}),
 ]);
 export type RelationPath = z.infer<typeof relationPathSchema>;
@@ -265,18 +312,8 @@ export type RelationPath = z.infer<typeof relationPathSchema>;
  */
 export const propertyRefSchema = z.object({
 	kind: z.literal("prop"),
-	caseType: z
-		.string()
-		.regex(
-			CASE_TYPE_PATTERN,
-			"Case type must start with a letter and contain only letters, digits, underscores, or hyphens.",
-		),
-	property: z
-		.string()
-		.regex(
-			CASE_PROPERTY_PATTERN,
-			"Property name must start with a letter and contain only letters, digits, underscores, or hyphens.",
-		),
+	caseType: caseTypeField("Case type"),
+	property: casePropertyField("Property name"),
 	via: relationPathSchema.optional(),
 });
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
@@ -295,12 +332,7 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
  */
 export const searchInputRefSchema = z.object({
 	kind: z.literal("input"),
-	name: z
-		.string()
-		.regex(
-			XML_ELEMENT_NAME_PATTERN,
-			"Search input name must start with a letter or underscore and contain only letters, digits, or underscores.",
-		),
+	name: xmlElementNameField("Search input name"),
 });
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 
@@ -315,12 +347,7 @@ export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
  */
 export const userContextRefSchema = z.object({
 	kind: z.literal("user"),
-	field: z
-		.string()
-		.regex(
-			XML_ELEMENT_NAME_PATTERN,
-			"User-context field must start with a letter or underscore and contain only letters, digits, or underscores.",
-		),
+	field: xmlElementNameField("User-context field"),
 });
 export type UserContextRef = z.infer<typeof userContextRefSchema>;
 
@@ -393,10 +420,11 @@ const comparisonSchema = z.object({
  * chain on the case-list side and SQL `IN (...)` on the runtime side —
  * both demand a static value list.
  *
- * `values` is `.min(1)`: an empty `in(...)` is trivially false at every
- * target and is virtually always an authoring bug (e.g. a filter UI
- * that bound to an unset variable). Reject at the AST layer so
- * downstream compilers don't have to encode the policy.
+ * `values` is non-empty (tuple-with-rest): an empty `in(...)` is
+ * trivially false at every target and is virtually always an
+ * authoring bug (e.g. a filter UI that bound to an unset variable).
+ * Reject at the AST layer so downstream compilers don't have to
+ * encode the policy.
  *
  * The `.refine` rejecting all-null `values` defends a structural
  * degenerate: a list of nothing-but-null collapses on every wire to
@@ -410,9 +438,19 @@ const comparisonSchema = z.object({
 const inSchema = z.object({
 	kind: z.literal("in"),
 	left: termSchema,
+	// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
+	// `Literal[]`. Construction-site object literals like
+	// `{ kind: "in", left: ..., values: [] }` fail at compile time
+	// rather than only at parse. Indexed access on the resulting
+	// type still yields `Literal` under the project's current
+	// `tsconfig` (no `noUncheckedIndexedAccess`), so the runtime
+	// parse rejection is what enforces non-empty at read sites.
+	// The `.refine()` below (rejecting all-null lists) runs after
+	// the tuple-arity check so a malformed shape fails on arity
+	// first; both checks are independent and both run on every
+	// parse.
 	values: z
-		.array(literalSchema)
-		.min(1)
+		.tuple([literalSchema], literalSchema)
 		.refine(
 			(values) => values.some((v) => v.value !== null),
 			"in.values must contain at least one non-null value",
@@ -500,21 +538,41 @@ const fuzzySchema = z.object({
 // and lets each operator's contract live next to its discriminator
 // declaration.
 
-// `clauses` on `andSchema` and `orSchema` is `.min(1)`: an empty `and`
+// `clauses` on `andSchema` and `orSchema` is non-empty: an empty `and`
 // trivially evaluates to `true` and an empty `or` trivially evaluates
 // to `false` — neither is useful and both almost always indicate an
 // authoring bug (e.g. a filter UI that produced no clauses). Reject at
 // the AST layer rather than surfacing tautologies/contradictions to
 // downstream consumers.
+//
+// Both use the Zod 4 tuple-with-rest idiom rather than
+// `z.array(...).min(1)`. The inferred type is
+// `[Predicate, ...Predicate[]]` rather than `Predicate[]`, which lets
+// construction-site object literals like
+// `{ kind: "and", clauses: [] }` fail at compile time. (Indexed access
+// on the resulting type still yields `Predicate` under the project's
+// current `tsconfig` because `noUncheckedIndexedAccess` is not enabled,
+// so the runtime parse rejection is what enforces non-empty at read
+// sites; the construction-site distinction is what tuple-with-rest
+// adds at the type layer.) Both tuple slots wrap their predicate
+// reference in `z.lazy(...)` for the same reason the original
+// `.min(1)` form did — see the recursive-shape note above for why
+// the discriminated-union recursion has to go through `z.lazy`.
 
 const andSchema = z.object({
 	kind: z.literal("and"),
-	clauses: z.array(z.lazy(() => predicateSchema)).min(1),
+	clauses: z.tuple(
+		[z.lazy(() => predicateSchema)],
+		z.lazy(() => predicateSchema),
+	),
 });
 
 const orSchema = z.object({
 	kind: z.literal("or"),
-	clauses: z.array(z.lazy(() => predicateSchema)).min(1),
+	clauses: z.tuple(
+		[z.lazy(() => predicateSchema)],
+		z.lazy(() => predicateSchema),
+	),
 });
 
 const notSchema = z.object({
@@ -567,8 +625,14 @@ export type Predicate =
 	| z.infer<typeof inSchema>
 	| z.infer<typeof withinDistanceSchema>
 	| z.infer<typeof fuzzySchema>
-	| { kind: "and"; clauses: Predicate[] }
-	| { kind: "or"; clauses: Predicate[] }
+	// `clauses` is non-empty: tuple-with-rest in the schema (`andSchema`
+	// / `orSchema`) and the matching `[Predicate, ...Predicate[]]` here
+	// share one definition of "at least one clause" between the runtime
+	// schema and the hand-declared TS shape. A consumer that reads
+	// `p.clauses[0]` after narrowing on `kind` gets `Predicate`, not
+	// `Predicate | undefined`.
+	| { kind: "and"; clauses: [Predicate, ...Predicate[]] }
+	| { kind: "or"; clauses: [Predicate, ...Predicate[]] }
 	| { kind: "not"; clause: Predicate }
 	| {
 			kind: "when-input-present";

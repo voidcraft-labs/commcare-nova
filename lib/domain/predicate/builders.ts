@@ -228,9 +228,9 @@ export function selfPath(): Extract<RelationPath, { kind: "self" }> {
  * Constructs an ancestor walk. Variadic with a required first step:
  * the schema rejects an empty `via` array (a zero-step ancestor walk
  * collapses to `self` semantics but parses as a different kind, so
- * the schema's `.min(1)` rules it out). The compile-time error from
- * the required first parameter is louder than the runtime parse
- * failure — the same logic as `and` / `or` / `isIn` above.
+ * the schema's tuple-with-rest shape rules it out). The compile-time
+ * error from the required first parameter is louder than the runtime
+ * parse failure — the same logic as `and` / `or` / `isIn` above.
  *
  * Multi-hop walks compose by chaining `relationStep(...)` arguments —
  * `ancestorPath(relationStep("parent"), relationStep("host"))`
@@ -324,9 +324,15 @@ export const lte = comparison("lte");
 /**
  * Constructs `left ∈ values`. Variadic with a required first value
  * so the builder cannot construct an empty-list `in` predicate
- * (which the schema rejects via `.min(1)`). The compile-time error
- * is louder than the parse-time one — callers see the failure in
- * their editor, not from a deferred test run.
+ * (which the schema rejects via the tuple-with-rest shape on
+ * `inSchema.values`). The compile-time error is louder than the
+ * parse-time one — callers see the failure in their editor, not from
+ * a deferred test run.
+ *
+ * The runtime `[first, ...rest]` literal infers as
+ * `[Literal, ...Literal[]]`, matching the tuple-with-rest shape on the
+ * schema; consumers reading `p.values[0]` after parse get a guaranteed
+ * `Literal` rather than `Literal | undefined`.
  */
 export function isIn(
 	left: Term,
@@ -339,8 +345,9 @@ export function isIn(
 // ---------- Logical ----------
 //
 // `and` and `or` mirror the same first-required pattern as `isIn` —
-// the schema's `.min(1)` on `clauses` becomes a compile-time error.
-// `not` is unary so the constraint is moot.
+// the tuple-with-rest shape on `andSchema.clauses` / `orSchema.clauses`
+// becomes a compile-time error at the variadic signature. `not` is
+// unary so the constraint is moot.
 
 /**
  * Constructs a conjunction. Variadic with a required first clause:

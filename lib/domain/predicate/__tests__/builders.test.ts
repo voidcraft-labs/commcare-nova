@@ -50,7 +50,12 @@ import {
 	whenInput,
 	within,
 } from "../builders";
-import { predicateSchema, relationPathSchema } from "../types";
+import {
+	type Predicate,
+	predicateSchema,
+	type RelationPath,
+	relationPathSchema,
+} from "../types";
 
 describe("predicate builders", () => {
 	it("constructs a nested and(eq, gt) predicate", () => {
@@ -203,9 +208,9 @@ describe("predicate builders", () => {
 	// Variadic-with-required-first boundary check. The single-clause
 	// case is the smallest valid input; verifying it parses confirms
 	// the spread-into-array path works at the lower bound of the
-	// schema's `.min(1)` constraint.
+	// schema's tuple-with-rest shape.
 
-	it("accepts a single-clause and / or / isIn (variadic min-1 boundary)", () => {
+	it("accepts a single-clause and / or / isIn (tuple-with-rest boundary)", () => {
 		const single = eq(prop("patient", "status"), literal("open"));
 		const a = and(single);
 		const o = or(single);
@@ -419,3 +424,58 @@ function typeCheckComparisonNarrowing(): void {
 	}
 }
 void typeCheckComparisonNarrowing;
+
+/* --- Empty-collection construction-site lock --------------------------
+ *
+ * `and`, `or`, `isIn`, and `ancestorPath` return shapes whose schema
+ * enforces non-emptiness via Zod 4's tuple-with-rest idiom
+ * (`z.tuple([T], T)` infers as `[T, ...T[]]`). At construction sites,
+ * the tuple shape rejects empty-array literals at compile time —
+ * `{ kind: "and", clauses: [] }` is `Predicate[]`-acceptable but not
+ * `[Predicate, ...Predicate[]]`-acceptable. The directives below pin
+ * that distinction so a regression to `z.array(T).min(1)` surfaces as
+ * an unused `@ts-expect-error` (TS2578).
+ *
+ * Note on scope: this block does NOT lock the indexed-access form
+ * `result.clauses[0]`. Without `noUncheckedIndexedAccess` enabled in
+ * the project's `tsconfig.json`, both `T[]` and `[T, ...T[]]` index-
+ * access to `T` (not `T | undefined`), so an indexed-access assertion
+ * would not differentiate between the two schema shapes — it would
+ * pass under both. The construction-site form is the only one that
+ * actually fires under the project's current strictness configuration.
+ */
+function typeCheckNonEmptyConstructionSite(): void {
+	const neverRun = false;
+	if (neverRun) {
+		// `@ts-expect-error` suppresses the error on the following
+		// line. The TS error lands on the property line carrying the
+		// empty literal (the `clauses: []` / `values: []` / `via: []`
+		// line), so the directive is placed directly above each.
+		const _emptyAnd: Extract<Predicate, { kind: "and" }> = {
+			kind: "and",
+			// @ts-expect-error — `clauses: []` violates the tuple-with-rest non-empty shape
+			clauses: [],
+		};
+		const _emptyOr: Extract<Predicate, { kind: "or" }> = {
+			kind: "or",
+			// @ts-expect-error — `clauses: []` violates the tuple-with-rest non-empty shape
+			clauses: [],
+		};
+		const _emptyIn: Extract<Predicate, { kind: "in" }> = {
+			kind: "in",
+			left: { kind: "literal", value: 0 },
+			// @ts-expect-error — `values: []` violates the tuple-with-rest non-empty shape
+			values: [],
+		};
+		const _emptyAncestor: Extract<RelationPath, { kind: "ancestor" }> = {
+			kind: "ancestor",
+			// @ts-expect-error — `via: []` violates the tuple-with-rest non-empty shape
+			via: [],
+		};
+		void _emptyAnd;
+		void _emptyOr;
+		void _emptyIn;
+		void _emptyAncestor;
+	}
+}
+void typeCheckNonEmptyConstructionSite;
