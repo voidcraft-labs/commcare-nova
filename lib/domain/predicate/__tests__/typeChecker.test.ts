@@ -26,6 +26,8 @@ import {
 	isIn,
 	literal,
 	lt,
+	matchAll,
+	matchNone,
 	not,
 	or,
 	prop,
@@ -647,5 +649,51 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 			expect(result.errors[0].path).toEqual(["property"]);
 			expect(result.errors[0].message).toMatch(/text/i);
 		}
+	});
+});
+
+// `match-all` and `match-none` are nullary discriminator-only
+// sentinels — by construction well-typed, no operands and no
+// operator-specific semantic rule. The walker accepts them silently
+// and recurses no further. The composition test is the load-bearing
+// one: a sentinel embedded inside `and(...)` must not crash the walk
+// when the recursion reaches the sentinel arm. Without the dedicated
+// arm in `walk`, the grouped throwing fall-through would turn every
+// composed predicate that includes a sentinel into a runtime crash.
+describe("checkPredicate — sentinel predicates", () => {
+	it("accepts match-all standalone", () => {
+		expect(checkPredicate(matchAll(), ctx).ok).toBe(true);
+	});
+
+	it("accepts match-none standalone", () => {
+		expect(checkPredicate(matchNone(), ctx).ok).toBe(true);
+	});
+
+	it("accepts match-all composed inside an and", () => {
+		// The composition path is the bug-prevention case: the walker
+		// recurses through `and` into the sentinel arm, so a throwing
+		// arm here would surface as a crash on every composed
+		// predicate that includes the identity element.
+		const p = and(matchAll(), eq(prop("patient", "name"), literal("Alice")));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts match-none composed inside an or", () => {
+		// Symmetric to the and-with-match-all case: the absorbing
+		// element appears as a clause inside `or`, the walker recurses
+		// through `or` into the sentinel arm. Pinning the symmetric
+		// case keeps the per-sentinel handling explicit rather than
+		// implied by the match-all test.
+		const p = or(matchNone(), eq(prop("patient", "name"), literal("Alice")));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts match-all wrapped in not", () => {
+		// `not(matchAll)` is a recursion through the unary wrapper —
+		// the walker re-enters `walk` on the wrapped clause, which
+		// dispatches into the sentinel arm. Without the dedicated
+		// sentinel arm, this would crash inside `not`.
+		const p = not(matchAll());
+		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 });

@@ -491,9 +491,7 @@ export function whenInput(
 //   - `exists` / `missing` accept an optional `where` predicate that
 //     filters the related cases at the destination scope. When
 //     omitted, the predicate degenerates to "any related case exists"
-//     / "no related case exists" (CCHQ subcase wire form natively
-//     supports the no-filter shape; the ancestor wire form synthesizes
-//     `match-all()` at emit time — see `existsSchema` JSDoc).
+//     / "no related case exists" at the AST layer.
 //
 // Both `exists` / `missing` follow the same absent-not-undefined
 // contract `prop()` / `relationStep()` use: when `where` is omitted,
@@ -530,10 +528,10 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * accepts any term — property reference, search-input reference,
  * user-context reference, literal — so authors can ask "is the
  * property unset" / "is the input unset" / "is the user-data field
- * unset" alongside the structurally permitted but
- * type-checker-rejected literal form. The semantic rule "left must
- * not be a literal" lives in `typeChecker.ts`, not here, so the AST
- * stays structurally permissive.
+ * unset" alongside the meaningless-but-structurally-permitted literal
+ * form. The schema does not reject `is-null(literal(...))`; that
+ * rejection is a type-checker rule and is not implemented in the
+ * current checker.
  */
 export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
 	return { kind: "is-null", left };
@@ -617,15 +615,11 @@ export function between(
  * degenerates to "any related case exists along `via`."
  *
  * The optional `where` predicate evaluates in the destination scope
- * of the relation walk. The type checker uses `via`'s
- * `throughCaseType` / `ofCaseType` qualifiers to resolve property
- * references inside `where` against the destination case-type schema.
- *
- * Wire mapping note: CCHQ's `subcase-exists` natively accepts the
- * one-argument (no-filter) form; CCHQ's `ancestor-exists` requires a
- * filter argument and the wire emitter synthesizes a `match-all()`
- * filter for the no-`where` AST shape. See `existsSchema` JSDoc in
- * `types.ts` for the full source citations.
+ * of the relation walk. `via`'s `throughCaseType` / `ofCaseType`
+ * qualifiers are the schema-level hooks a type-checker rule uses to
+ * resolve property references inside `where` against the destination
+ * case-type schema; the structural shape is settled here, the
+ * resolution rule lives in the type checker.
  *
  * Returns the precise per-kind shape so call-site narrowing on `kind`
  * exposes `via` and `where` directly, the same convention as `not()`
@@ -647,8 +641,7 @@ export function exists(
  *
  * Symmetric with `exists`: same `via` / `where` shape, same
  * destination-scope resolution rules, same absent-not-undefined
- * contract on `where`. The wire emitter lowers `missing(via, where)`
- * to `not(exists(via, where))` on every CCHQ target.
+ * contract on `where`.
  */
 export function missing(
 	via: RelationPath,

@@ -537,15 +537,13 @@ const fuzzySchema = z.object({
 //
 // `match-all` and `match-none` are the boolean-algebra identity and
 // absorbing elements — always-true and always-false predicates that
-// carry no payload other than their discriminator. The wire forms are
-// CCHQ's zero-arg `match-all()` / `match-none()` registered at
+// carry no payload other than their discriminator. CCHQ exposes the
+// same pair as zero-arg query functions registered at
 // `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`
 // and implemented at
 // `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:162-177`
 // (each implementation rejects any argument with an
-// `XPathFunctionException`). On the on-device dialect they lower to
-// `true()` / `false()`; on the SQL target they lower to a no-op
-// `WHERE TRUE` / `WHERE FALSE`.
+// `XPathFunctionException`).
 //
 // They exist as first-class AST nodes so a UI surface or reducer can
 // produce a well-typed "empty filter" / "no matches" predicate without
@@ -560,22 +558,20 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 
 // ---------- Null-check predicate ----------
 //
-// `is-null` is the structural "left is unset" predicate. The wire
-// targets each lower it to a more idiomatic form than a literal-null
-// comparison: on-device CCHQ matches an unset case property as the
-// empty string (`@status = ''`); the SQL target matches as
-// `properties->>'status' IS NULL` once empty-string-coerce-to-null is
-// applied. Either lowering works only because the AST already carries
-// the canonical form here — without it, every emitter would have to
-// recognise `eq(prop, literal(null))` as a special case and rewrite
-// it.
+// `is-null` is the structural "left is unset" predicate — the
+// canonical form a UI surface or compiler reaches for when asking
+// "does the property carry a value?" Authoring it as a first-class
+// AST node (rather than `eq(prop, literal(null))`) keeps the
+// "is unset" intent explicit at every layer, so consumers don't have
+// to recognise an alternate encoding to detect the canonical
+// existence query.
 //
 // `left` is `termSchema`, not `propertyRefSchema`, so authors can
 // express "is the input X unset" or "is the user's region unset"
-// alongside the canonical "is the property unset" shape. The type
-// checker rejects `is-null(literal(...))` because a literal is never
-// unset by definition; the constraint lives at the type-checker layer
-// rather than the schema so the AST stays structurally permissive.
+// alongside the canonical "is the property unset" shape. The schema
+// accepts `is-null(literal(...))` (a meaningless predicate, since
+// literals can't be "unset"); rejecting that shape is a type-checker
+// rule and is not implemented in the current checker.
 
 const isNullSchema = z.object({
 	kind: z.literal("is-null"),
@@ -586,18 +582,11 @@ const isNullSchema = z.object({
 //
 // `between` is the structural range predicate — bounded interval on
 // `left` with optional lower / upper bounds and per-bound inclusivity
-// flags. The on-device + CSQL targets have no native `between`
-// operator and lower this to `and(gte, lte)` (with the comparison
-// operators picked to honor inclusivity); the SQL target emits
-// `BETWEEN ... AND ...` directly when both bounds are present and
-// inclusive, and falls back to `>=` / `<=` / `>` / `<` when not.
-//
-// Authoring the structural form keeps the inclusivity intent explicit
-// at the AST node and lets every emitter pick its dialect's idiom. A
-// hand-written `and(gte, lte)` would force a future "show all
-// configured ranges" UI to recognise the conjunction shape, which
-// crosses the abstraction boundary; keeping the structural form
-// keeps the UI on the AST shape it already understands.
+// flags. Authoring the structural form (rather than a hand-written
+// `and(gte, lte)`) keeps the inclusivity intent explicit at the AST
+// node and lets a "show all configured ranges" UI surface match on
+// `kind: "between"` directly rather than having to recognise the
+// conjunction shape.
 //
 // `lower` / `upper` are optional `termSchema` (so a search-input or
 // session-user reference can drive either bound). The
@@ -608,6 +597,18 @@ const isNullSchema = z.object({
 // bound is equivalent to "always true" and the canonical shape for
 // "always true" is `match-all`, so accepting the all-absent form
 // would silently produce a duplicate representation.
+//
+// Bound ordering: when both bounds are literal-typed and `lower >
+// upper`, the predicate is trivially false. The schema does NOT
+// reject this case at parse time because bounds may also be
+// search-input or user-context refs whose values aren't known until
+// runtime — adding a literal-pair-only refinement here would either
+// miss the term-pair case (silent wrong-answer in the runtime path)
+// or reject term-pair shapes the schema must accept. Detection of
+// the literal-pair impossibility is a type-checker rule (it has the
+// type information to recognise the literal pair); the term-pair
+// case is a runtime check. The schema's role here is structural
+// only.
 
 const betweenSchema = z
 	.object({
@@ -730,27 +731,23 @@ const whenInputPresentSchema = z.object({
 // predicate degenerates to "any related case exists" / "no related
 // case exists".
 //
-// CCHQ wire mapping:
-//   - `subcase` walks → `subcase-exists('rel', <where>)` /
-//     `not(subcase-exists(...))`. CCHQ's `subcase-exists` natively
-//     accepts a one-or-two-argument form
-//     (`commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`,
-//     filter-optional check at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`),
-//     so the no-`where` AST shape lowers cleanly to the
-//     one-argument form.
-//   - `ancestor` walks → `ancestor-exists('parent/host', <where>)` /
-//     `not(ancestor-exists(...))`. CCHQ's `ancestor-exists`
-//     unconditionally requires a filter
-//     (`commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`
-//     calls `confirm_args_count(node, 2)`), so the no-`where` AST
-//     shape synthesizes a `match-all()` filter at wire emission time.
+// CCHQ exposes the corresponding query functions in two spots:
+//   - `subcase-exists` at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`.
+//     It accepts a one-or-two-argument form — the filter argument is
+//     optional per the parser at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`.
+//   - `ancestor-exists` at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`.
+//     It unconditionally requires two arguments (the implementation
+//     calls `confirm_args_count(node, 2)`).
 //
-// The asymmetry — subcase optional-filter native, ancestor requiring
-// the synthesized filter — is a wire-emitter concern; the AST keeps
-// `where` optional uniformly across both kinds because the semantic
-// contract ("filter the related cases by an additional predicate") is
-// the same across kinds and emitters compensate per-target.
+// The asymmetry — `subcase-exists` accepting the no-filter shape,
+// `ancestor-exists` not — sits at the CCHQ wire boundary, not at this
+// AST. The schema keeps `where` optional uniformly across both kinds
+// because the AST-level semantic contract ("filter the related cases
+// by an additional predicate") is the same regardless of how each
+// downstream wire target represents it.
 //
 // `where` is recursive (a nested predicate evaluated in the
 // destination scope), so it goes through the same

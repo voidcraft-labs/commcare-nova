@@ -855,15 +855,13 @@ describe("propertyRef with via (relational read)", () => {
 // (always-true) and absorbing (always-false) elements of the boolean
 // algebra so a UI surface or a reducer can produce a well-typed
 // "empty filter" / "no matches" predicate without picking an arbitrary
-// tautology / contradiction encoding. The wire forms are CCHQ's
-// zero-arg `match-all()` / `match-none()` registered at
+// tautology / contradiction encoding. CCHQ exposes the same pair as
+// zero-arg query functions registered at
 // `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`
 // and implemented at
 // `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:162-177`
 // (each implementation rejects any argument with an
-// `XPathFunctionException`). On the on-device dialect they lower to
-// `true()` / `false()`; on the SQL target they lower to a no-op
-// `WHERE TRUE` / `WHERE FALSE`.
+// `XPathFunctionException`).
 describe("sentinel predicates", () => {
 	it("parses match-all", () => {
 		const result = predicateSchema.parse({ kind: "match-all" });
@@ -888,21 +886,18 @@ describe("sentinel predicates", () => {
 	});
 });
 
-// `is-null` is the structural "left is unset" predicate. The wire
-// targets each have a more idiomatic form than a literal-null
-// comparison: on-device CCHQ matches an unset case property as the
-// empty string (`@status = ''`); the SQL target matches as
-// `properties->>'status' IS NULL` once empty-string-coerce-to-null
-// is applied. Either lowering is correct only because the AST
-// already carries the canonical form here — without it, every
-// emitter would have to recognise `eq(prop, literal(null))` as a
-// special case and rewrite it.
+// `is-null` is the structural "left is unset" predicate — the
+// canonical form a UI surface or compiler reaches for when asking
+// "does the property carry a value?" Authoring it as a first-class
+// AST node (rather than `eq(prop, literal(null))`) keeps the
+// "is unset" intent explicit at every layer.
 //
 // The `left` slot is `termSchema`, not `propertyRefSchema`, so authors
 // can ask "is the input X unset" or "is the user's region unset"
-// alongside the canonical "is the property unset" shape. The type
-// checker rejects `is-null(literal(...))` (a literal is never unset
-// by definition); that lives in `typeChecker.ts`, not in the schema.
+// alongside the canonical "is the property unset" shape. The schema
+// accepts `is-null(literal(...))` (a meaningless predicate, since
+// literals can't be "unset"); rejecting that shape is a type-checker
+// rule and is not implemented in the current checker.
 describe("is-null predicate", () => {
 	it("parses is-null with a property reference", () => {
 		const result = predicateSchema.parse({
@@ -928,13 +923,14 @@ describe("is-null predicate", () => {
 		expect(result.kind).toBe("is-null");
 	});
 
-	it("parses is-null with a literal (schema accepts; type checker rejects)", () => {
-		// The schema is structural only; the type checker enforces the
-		// "left must not be a literal" rule at check time. Pinning the
-		// schema-side acceptance keeps the layering explicit — a future
-		// refactor that tightened the schema to reject literal `left`
-		// would trip this test and force the constraint to land in one
-		// well-defined place.
+	it("parses is-null with a literal (schema is structurally permissive)", () => {
+		// The schema accepts every Term variant in `left`, including
+		// literals. `is-null(literal(...))` is meaningless (literals
+		// can't be "unset") but parses cleanly here; the rejection of
+		// that shape is a type-checker rule and is not implemented in
+		// the current checker. Pinning the schema-side acceptance keeps
+		// the layering explicit — a future refactor that tightened the
+		// schema to reject literal `left` would trip this test.
 		const result = predicateSchema.parse({
 			kind: "is-null",
 			left: { kind: "literal", value: "x" },
@@ -947,15 +943,12 @@ describe("is-null predicate", () => {
 	});
 });
 
-// `between` is the structural range predicate. A bounded range is two
-// comparisons (`gte(prop, lower)` and `lte(prop, upper)` for the
-// closed case); a half-open range is one comparison plus an open
-// upper or lower bound. Authoring the structural form keeps the
-// inclusivity intent explicit and lets every emitter expand to its
-// dialect's idiom — on-device + CSQL targets have no native
-// `between` and expand to `and(gte, lte)`; SQL targets emit
-// `BETWEEN ... AND ...` directly when both bounds are present and
-// inclusive.
+// `between` is the structural range predicate. Authoring the
+// structural form (rather than a hand-written conjunction of two
+// comparisons) keeps the inclusivity intent explicit at the AST
+// node and lets a "show all configured ranges" UI surface match on
+// `kind: "between"` directly rather than recognising the conjunction
+// shape.
 //
 // The `lower`/`upper` slots are optional `termSchema` (so a
 // search-input or session-user reference can drive either bound),
@@ -1077,29 +1070,26 @@ describe("between predicate", () => {
 // scope of the walk. When `where` is absent, the predicate degenerates
 // to "any related case exists" / "no related case exists".
 //
-// CCHQ wire mapping:
-//   - `subcase` walks → `subcase-exists('rel', <where>)` /
-//     `not(subcase-exists(...))`. CCHQ's `subcase-exists` natively
-//     accepts a one-or-two-argument form (`subcase_functions.py:51-62`,
-//     filter-optional check at `subcase_functions.py:207`), so the
-//     no-`where` AST shape lowers cleanly to the one-argument form.
-//   - `ancestor` walks → `ancestor-exists('parent/host', <where>)` /
-//     `not(ancestor-exists(...))`. CCHQ's `ancestor-exists` requires
-//     a filter (`ancestor_functions.py:97-118` calls
-//     `confirm_args_count(node, 2)`), so the no-`where` AST shape
-//     synthesizes a `match-all()` filter at wire emission time.
-//
-// The asymmetry — subcase optional-filter native, ancestor requiring
-// the synthesized filter — is a wire-emitter concern; the AST keeps
-// `where` optional uniformly across both kinds because the semantic
-// contract ("filter the related cases by an additional predicate") is
-// the same and emitters can compensate per-target.
+// CCHQ exposes the corresponding query functions as `subcase-exists`
+// at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`
+// (filter-optional per the parser at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`)
+// and `ancestor-exists` at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`
+// (filter mandatory — the implementation calls
+// `confirm_args_count(node, 2)`). The asymmetry sits at the CCHQ
+// wire boundary, not at this AST: the schema accepts the no-`where`
+// shape uniformly across all four `RelationPath` kinds because the
+// AST-level contract ("filter the related cases by an additional
+// predicate") is the same regardless of how each downstream wire
+// target represents it.
 describe("exists predicate", () => {
 	it("parses exists with a self via and no where", () => {
-		// `self` + no-where is a degenerate shape (always true if the
-		// current case exists) but is structurally permitted; the type
-		// checker rejects degenerates with semantic rules, not the
-		// schema. Pin the structural acceptance.
+		// `self` + no-where is a degenerate shape (always satisfied by
+		// the current case) but the schema permits it structurally —
+		// rejecting semantic degenerates is a type-checker concern, not
+		// a schema concern. Pin the structural acceptance.
 		const result = predicateSchema.parse({
 			kind: "exists",
 			via: { kind: "self" },
@@ -1108,10 +1098,10 @@ describe("exists predicate", () => {
 	});
 
 	it("parses exists with an ancestor via and no where", () => {
-		// "Has a parent case" — the simplest authored shape. Lowers to
-		// `ancestor-exists('parent', match-all())` server-side (the
-		// wire layer synthesizes `match-all()` because CCHQ's
-		// `ancestor-exists` requires a filter argument).
+		// "Has a parent case" — the simplest authored shape. The schema
+		// admits the no-`where` form uniformly across all four
+		// `RelationPath` kinds; what each downstream wire target makes
+		// of the absent filter is handled at that layer.
 		const result = predicateSchema.parse({
 			kind: "exists",
 			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
@@ -1123,8 +1113,13 @@ describe("exists predicate", () => {
 	});
 
 	it("parses exists with a subcase via and no where", () => {
-		// "Has at least one child case via the `parent` index" — lowers
-		// to CCHQ's native one-argument `subcase-exists('parent')` form.
+		// "Has at least one child case via the `parent` index." The
+		// schema accepts the no-`where` shape; CCHQ's `subcase-exists`
+		// happens to be the one CCHQ relational quantifier that admits
+		// a one-argument form natively (per the parser at
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`),
+		// but that's a CCHQ wire-layer fact, not a constraint on the
+		// AST.
 		const result = predicateSchema.parse({
 			kind: "exists",
 			via: { kind: "subcase", identifier: "parent" },
@@ -1133,10 +1128,12 @@ describe("exists predicate", () => {
 	});
 
 	it("parses exists with an any-relation via and no where", () => {
-		// `any-relation` is direction-agnostic; the wire emitter rejects
-		// or rewrites it for CCHQ targets (no native any-relation
-		// operator exists), but the AST accepts it uniformly across the
-		// four kinds.
+		// `any-relation` is direction-agnostic. CCHQ exposes no
+		// equivalent direction-agnostic operator (its server-side
+		// surface offers only `ancestor-exists` and `subcase-exists`),
+		// but the AST accepts the kind uniformly across the four
+		// `RelationPath` shapes — handling for non-CCHQ wire targets
+		// or rewriting for CCHQ targets is a downstream concern.
 		const result = predicateSchema.parse({
 			kind: "exists",
 			via: { kind: "any-relation", identifier: "linked" },
@@ -1147,9 +1144,13 @@ describe("exists predicate", () => {
 	it("parses exists with an ancestor via and a where filter", () => {
 		// "Has a parent case in region 'north'" — the canonical
 		// relational filter. The `where` predicate evaluates in the
-		// destination scope (the parent case), and the type checker
-		// uses `via`'s `throughCaseType` to resolve property references
-		// inside `where`.
+		// destination scope of the walk (the parent case here); the
+		// `throughCaseType` qualifier on each relation step is the
+		// schema-level hook a type-checker rule would use to resolve
+		// property references inside `where` against the destination
+		// scope. The schema accepts the structural shape; checker
+		// rules for `exists` are not implemented in the current
+		// checker.
 		const result = predicateSchema.parse({
 			kind: "exists",
 			via: {
@@ -1215,9 +1216,10 @@ describe("exists predicate", () => {
 
 describe("missing predicate", () => {
 	it("parses missing with an ancestor via and no where", () => {
-		// "Has no parent case" — the simplest authored shape. Lowers to
-		// `not(ancestor-exists('parent', match-all()))` server-side via
-		// the wire emitter's negation + match-all synthesis.
+		// "Has no parent case" — the simplest authored shape. The
+		// schema accepts the absent-`where` form uniformly across
+		// `RelationPath` kinds; what each downstream wire target makes
+		// of the absent filter is handled at that layer.
 		const result = predicateSchema.parse({
 			kind: "missing",
 			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
@@ -1227,8 +1229,8 @@ describe("missing predicate", () => {
 
 	it("parses missing with a subcase via and a where filter", () => {
 		// "Has no child case in status 'active' via the `parent`
-		// index" — the canonical relational anti-filter. Lowers to
-		// `not(subcase-exists('parent', status='active'))`.
+		// index" — the canonical relational anti-filter shape at the
+		// AST layer.
 		const result = predicateSchema.parse({
 			kind: "missing",
 			via: { kind: "subcase", identifier: "parent" },
@@ -1245,9 +1247,10 @@ describe("missing predicate", () => {
 	});
 
 	it("parses missing with a self via and no where", () => {
-		// `self` + no-where is degenerate (always false if the current
-		// case exists) but is structurally permitted; the type checker
-		// rejects semantic degenerates, not the schema.
+		// `self` + no-where is a degenerate shape (never satisfied by
+		// the current case) but the schema permits it structurally —
+		// rejecting semantic degenerates is a type-checker concern,
+		// not a schema concern.
 		const result = predicateSchema.parse({
 			kind: "missing",
 			via: { kind: "self" },

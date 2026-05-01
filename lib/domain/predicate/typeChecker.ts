@@ -251,16 +251,32 @@ function walk(
 			return;
 		case "match-all":
 		case "match-none":
+			// Discriminator-only sentinels — no operands, no operator-
+			// specific semantic rule to defer. By construction these
+			// are well-typed: the schema admits exactly the shape
+			// `{ kind }` and there is nothing to validate beyond that.
+			// The walker accepts them silently and recurses no further
+			// (they have no children). This arm is reachable via
+			// composition (`and(matchAll(), eq(...))` walks `and` →
+			// recurses into `matchAll`); a throw here would crash any
+			// composed predicate that includes a sentinel.
+			return;
 		case "is-null":
 		case "between":
 		case "exists":
 		case "missing":
-			// Type-checker rules for these operators are not implemented.
-			// Throwing rather than silently passing is the safe default —
-			// an unchecked predicate that reached this arm without
-			// per-operator semantic validation would yield false-positive
-			// "type-checks clean" results, exactly the bug the checker
-			// exists to prevent.
+			// Per-operator semantic rules for these kinds (e.g.
+			// `is-null(literal(...))` rejection, `between` operand-type
+			// agreement, `exists`/`missing` destination-scope resolution
+			// of `where`) are not implemented in this checker. Throwing
+			// rather than silently passing is the safe default — an
+			// unchecked predicate that reached this arm would yield
+			// false-positive "type-checks clean" results. The walker
+			// also does NOT recurse into the operator-specific recursive
+			// slots (`exists.where`, `missing.where`, `between.lower` /
+			// `between.upper`, `is-null.left`); recursion belongs with
+			// the per-operator rules so both land together rather than
+			// half-implementing the surface.
 			throw new Error(`checkPredicate: no rules for kind '${p.kind}'`);
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
