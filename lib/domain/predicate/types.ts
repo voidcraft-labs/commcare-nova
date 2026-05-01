@@ -604,10 +604,17 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * driving the match value at runtime. Authors who need a dynamic match
  * value rebuild the predicate when the input changes.
  *
- * `value` is non-empty: `match(prop, "")` is meaningless (every
- * property `starts-with` "" vacuously, every property `fuzzy-match`es
- * "" trivially); reject at the schema layer so downstream emitters
- * never have to encode the policy.
+ * `value` is non-empty: `match(prop, "")` has no useful semantics.
+ * Each CCHQ mode collapses an empty value to a different non-match —
+ * `starts-with` is vacuously true (empty prefix matches every
+ * property), `fuzzy-match` short-circuits to `case_property_missing`
+ * (`case_property_query` in `commcare-hq/corehq/apps/es/case_search.py`,
+ * the `value == ''` arm), `phonetic-match` matches nothing (empty
+ * Elasticsearch `match` produces no tokens to score), `fuzzy-date`
+ * depends on `date_permutations("")`. None expresses what an author
+ * typing `match(prop, "")` intends; the "property is unset" operator
+ * is `is-null(prop)`. Reject at the schema layer so emitters don't
+ * carry per-mode policy.
  */
 const matchSchema = z.object({
 	kind: z.literal("match"),
