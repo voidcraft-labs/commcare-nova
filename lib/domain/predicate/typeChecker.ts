@@ -176,7 +176,7 @@ const FUZZY_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
  * fix-and-retry cycles.
  *
  * Throws synchronously when the walk reaches a kind without dedicated
- * semantic rules — currently `is-null`, `between`, `exists`, `missing`.
+ * semantic rules — `is-null`, `between`, `exists`, `missing`.
  * The throw also fires when one of those kinds is nested inside a
  * logical wrapper (`and` / `or` / `not` / `when-input-present`) —
  * e.g. `and(eq(...), isNull(...))` — because the walker recurses

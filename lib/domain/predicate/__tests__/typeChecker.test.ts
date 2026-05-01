@@ -19,6 +19,7 @@ import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
+	anyRelationPath,
 	between,
 	dateLiteral,
 	eq,
@@ -804,6 +805,27 @@ describe("checkPredicate — prop.via routing", () => {
 			expect(result.errors[0].message).toMatch(
 				/via.*relation walks?|destination scope/i,
 			);
+		}
+	});
+
+	it("reports an error on prop with an any-relation via", () => {
+		// `any-relation` is the third non-self kind. The walker
+		// branches uniformly on `term.via.kind !== "self"`, so a
+		// regression that special-cased one kind without breaking
+		// the others would slip past the ancestor + subcase tests
+		// alone. Pinning all three non-self kinds locks the union
+		// rather than implying it from any one case.
+		const p = eq(
+			prop("patient", "linked_id", anyRelationPath("linked", "referral")),
+			literal("abc-123"),
+		);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/via.*relation walks?|destination scope/i,
+			);
+			expect(result.errors[0].path).toEqual(["left"]);
 		}
 	});
 

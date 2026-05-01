@@ -497,6 +497,14 @@ const inSchema = z.object({
  * truth. Adding a unit (e.g. `"meters"`) here automatically expands
  * the builder's accepted argument set rather than silently letting
  * the builder reject what the schema accepts.
+ *
+ * The two-element list is a deliberate Nova narrowing of CCHQ's wider
+ * unit vocabulary. CCHQ accepts nine units (`miles`, `yards`, `feet`,
+ * `inch`, `kilometers`, `meters`, `centimeters`, `millimeters`,
+ * `nauticalmiles` per
+ * `commcare-hq/corehq/apps/es/queries.py:22-23`); Nova exposes the
+ * two imperial/metric anchor units. Authors who need other units
+ * coerce upstream of the AST.
  */
 const DISTANCE_UNITS = ["miles", "kilometers"] as const;
 export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
