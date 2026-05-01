@@ -300,13 +300,12 @@ export function fuzzy(
 /**
  * Constructs a "when input is present" wrapper. The wrapped predicate
  * applies only if the named search input is set at runtime; otherwise
- * the wrapper is a no-op. The body slot is named `clause` (not
- * `then`) to parallel `notSchema.clause` — both arms wrap a predicate
- * as a structural argument, not a continuation, and using one name for
- * "the wrapped predicate" across operators helps readers tracing AST
- * traversals. "clause" also reads more accurately than "then" for an
- * operator that doesn't model conditional execution at the
- * JavaScript-control-flow level. See `whenInputPresentSchema` in
+ * the wrapper is a no-op. The body slot is named `clause` to parallel
+ * `notSchema.clause`: both arms wrap a single predicate as a
+ * structural argument (not an imperative continuation), so the field
+ * name reads the same way across the two operators that share that
+ * shape. Reading semantics: `clause` is the predicate that runs only
+ * when the trigger input is set. See `whenInputPresentSchema` in
  * `types.ts` for the same rationale at the schema layer.
  *
  * The first parameter is `inputRef` (not `input`) to avoid shadowing

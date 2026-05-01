@@ -372,15 +372,11 @@ const notSchema = z.object({
  * because the wire targets emit different scaffolding (XPath
  * conditional include vs. SQL guarded subquery).
  *
- * The slot is named `clause` (paralleling `notSchema.clause`) rather
- * than `then`. Both arms wrap a predicate as a structural argument,
- * not a continuation, so naming them identically helps readers tracing
- * AST traversals — every operator that holds one wrapped predicate
- * uses the same field name. "clause" is also semantically more
- * accurate than "then" here: the slot holds the operator's structural
- * argument, not a then-branch in any imperative-control-flow sense, and
- * "then" would visually collide with `if/then/else` reading cues for
- * readers expecting conditional execution semantics.
+ * The slot is named `clause` to parallel `notSchema.clause`: both arms
+ * wrap a single predicate as a structural argument (not an imperative
+ * continuation), so the field name reads the same way across the two
+ * operators that share that shape. Reading semantics: `clause` is the
+ * predicate that runs only when the trigger input is set.
  */
 const whenInputPresentSchema = z.object({
 	kind: z.literal("when-input-present"),

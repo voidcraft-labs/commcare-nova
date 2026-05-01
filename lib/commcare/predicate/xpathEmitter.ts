@@ -61,11 +61,12 @@
 //     `lib/commcare/xpath/grammar.lezer.grammar:128-131` admits both
 //     single- and double-quoted string literals as `concat()`
 //     arguments.
-//   - Double-quoted CSQL string literals — see
-//     `docs/case_search_query_language.rst:417` for the canonical
-//     post-`concat()` CSQL string example, where every property
-//     value is double-quoted (`@case_type = "service"`,
-//     `@status != "closed"`, etc.).
+//   - Double-quoted CSQL string literals — CSQL admits both single-
+//     and double-quoted string literals. See
+//     `docs/case_search_query_language.rst:417` for an example of a
+//     CSQL predicate string emitted from a wire-side `concat()`
+//     wrapper, where every property value is double-quoted
+//     (`@case_type = "service"`, `@status != "closed"`, etc.).
 
 import type {
 	ComparisonKind,

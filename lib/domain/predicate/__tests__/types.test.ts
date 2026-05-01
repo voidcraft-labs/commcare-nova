@@ -114,8 +114,8 @@ describe("predicate schema", () => {
 	// whose recursion goes through `z.lazy(() => predicateSchema)`. The
 	// `and` and `or` tests above exercise two of them; the explicit
 	// `not(...)` and `when-input-present(...)` tests below cover the
-	// other two. These also pin the field name `clause` (not `then`)
-	// so any revert to the rejected `then` name fails CI immediately.
+	// other two. These also pin the field name `clause` so any rename
+	// — to `then` or any other identifier — fails CI immediately.
 
 	it("parses a not(...) wrapping a comparison", () => {
 		const result = predicateSchema.parse({
