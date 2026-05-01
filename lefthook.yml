@@ -16,3 +16,11 @@ pre-push:
       run: npx @biomejs/biome check --error-on-warnings --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {push_files}
     forbidden-identifiers:
       run: npx tsx scripts/check-forbidden-identifiers.ts
+    # Whole-project type-check. Runs at pre-push (not pre-commit) because
+    # tsc scans the full project and is too slow to gate every commit, but
+    # fast enough to gate before publishing. Generates fumadocs's `.source/`
+    # first so `lib/docs/source.ts`'s `@/.source/server` import resolves.
+    # This is the enforcement surface for `@ts-expect-error` directives in
+    # test files — without it, those directives are advisory only.
+    typecheck:
+      run: npm run typecheck

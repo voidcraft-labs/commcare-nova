@@ -94,12 +94,12 @@ describe("predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	// Coverage parity for builders that lacked a dedicated test before.
-	// `userField` is exported but only structurally implied through
-	// other builders; pinning it here prevents a silent rename/removal
-	// from passing CI. `isIn` likewise needs an explicit happy-path
-	// test (the variadic-with-required-first contract is tested
-	// separately via the type-level guard at the bottom of this file).
+	// Each exported builder gets at least one explicit happy-path test
+	// here: silent rename or removal of any export must not pass CI.
+	// `userField` and `isIn` would otherwise be only structurally
+	// implied via other builders' arguments. (The `isIn`
+	// variadic-with-required-first contract is locked separately by
+	// the type-level guard at the bottom of this file.)
 
 	it("constructs a userField reference round-tripping inside a comparison", () => {
 		const t = userField("region");
@@ -121,12 +121,11 @@ describe("predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	// Parameterized comparison coverage. The original tests only
-	// exercised `eq` and `gt` directly; the other four shared the same
-	// curried helper and risked silent drift if the helper's per-kind
-	// return-type pinning broke. Exercising all six in a single
-	// parameterized test keeps the file compact while pinning each
-	// kind's `kind` discriminator and round-trip parse.
+	// All six comparison operators share one curried helper, so a
+	// regression in the helper's per-kind return-type pinning could
+	// silently widen any one of them. Exercising all six in a single
+	// parameterized test pins each kind's `kind` discriminator and
+	// round-trip parse without restating six near-identical bodies.
 
 	it.each([
 		"eq",
@@ -161,10 +160,16 @@ describe("predicate builders", () => {
 /* --- Type-level tests -------------------------------------------------
  *
  * Compile-time regression lock for the variadic-with-required-first
- * contract on `and`, `or`, and `isIn`. If any of these builders are
- * loosened to plain `...args: T[]`, the `@ts-expect-error` directives
- * stop matching a real TypeScript error and the test file fails to
- * compile — Vitest treats the broken transform as a test failure.
+ * contract on `and`, `or`, and `isIn`. The `@ts-expect-error`
+ * directives below are the assertions: each one expects a real
+ * TypeScript error on the call beneath it. If any builder is loosened
+ * to plain `...args: T[]`, the matching call becomes valid, the
+ * directive becomes unused, and TypeScript emits TS2578.
+ *
+ * Enforcement surface: `npm run typecheck`, wired into lefthook
+ * pre-push. The push fails before the change lands. Vitest itself does
+ * not type-check sources by default, so the runtime test runner is not
+ * the gate here — the type checker is.
  *
  * Calls are guarded behind a `neverRun` branch so the references don't
  * execute at runtime — the directives ARE the assertions, not any

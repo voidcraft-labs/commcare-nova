@@ -8,6 +8,7 @@
 		"start": "next start",
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
+		"typecheck": "fumadocs-mdx && tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test vitest run --no-file-parallelism integration.test.ts'"
