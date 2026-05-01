@@ -231,4 +231,60 @@ describe("predicate schema", () => {
 			}),
 		).toThrow();
 	});
+
+	// Positive-path coverage parity. Three variants in the file lacked
+	// happy-path parse tests:
+	//   - `user` term: only structurally implied by sibling terms; this
+	//     test pins both the term shape and that it flows correctly
+	//     through a comparison's `right` slot via nested narrowing.
+	//   - `in` operator: had only empty-array + ill-shaped negative
+	//     tests; this test confirms a non-empty literal list parses.
+	//   - `fuzzy` operator: had only the non-prop-property negative
+	//     test; this test confirms the canonical happy-path shape
+	//     parses.
+	// Without these, a future rename like `field` → `fieldName` on
+	// `userContextRefSchema` (or any happy-path field rename on `in` /
+	// `fuzzy`) wouldn't trip a single existing test.
+
+	it("parses a user-field reference inside a comparison", () => {
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: { kind: "prop", caseType: "patient", property: "region" },
+			right: { kind: "user", field: "assigned_region" },
+		});
+		expect(result.kind).toBe("eq");
+		if (result.kind === "eq") {
+			expect(result.right.kind).toBe("user");
+			if (result.right.kind === "user") {
+				expect(result.right.field).toBe("assigned_region");
+			}
+		}
+	});
+
+	it("parses an in(...) with a non-empty literal list", () => {
+		const result = predicateSchema.parse({
+			kind: "in",
+			left: { kind: "prop", caseType: "patient", property: "status" },
+			values: [
+				{ kind: "literal", value: "open" },
+				{ kind: "literal", value: "active" },
+			],
+		});
+		expect(result.kind).toBe("in");
+		if (result.kind === "in") {
+			expect(result.values).toHaveLength(2);
+		}
+	});
+
+	it("parses a fuzzy(...) match", () => {
+		const result = predicateSchema.parse({
+			kind: "fuzzy",
+			property: { kind: "prop", caseType: "patient", property: "name" },
+			value: "alice",
+		});
+		expect(result.kind).toBe("fuzzy");
+		if (result.kind === "fuzzy") {
+			expect(result.value).toBe("alice");
+		}
+	});
 });
