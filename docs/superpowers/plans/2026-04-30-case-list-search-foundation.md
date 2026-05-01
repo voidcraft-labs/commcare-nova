@@ -84,14 +84,18 @@ The shipped `lib/commcare/predicate/xpathEmitter.ts` is **deprecated and removed
 
 These tasks extend types.ts, builders.ts, and typeChecker.ts with operators the shipped emitter doesn't reference. No file deletions; everything appends to the discriminated union and the switch statements. The implementor is familiar with these patterns from tasks 2–6.
 
-### Task A1: Add Predicate AST kinds for sentinels, null check, range, and relations
+### Task A1: Add Predicate AST kinds for sentinels, null check, range, and relations — SHIPPED
 
-**Files:**
-- Modify: `lib/domain/predicate/types.ts`
-- Modify: `lib/domain/predicate/builders.ts`
-- Test: `lib/domain/predicate/__tests__/types.test.ts`, `builders.test.ts`
+Shipped across commits `027732a4` → `84a092ec` → `777aca61` → `207bcdff` → `033c73fe` → `cd32cd63` → `663b0267`.
 
-New Zod schemas added to the Predicate union:
+**Files modified:**
+- `lib/domain/predicate/types.ts`
+- `lib/domain/predicate/builders.ts`
+- `lib/domain/predicate/typeChecker.ts`
+- `lib/commcare/predicate/xpathEmitter.ts` (defensive throw arms; file slated for B6 deletion)
+- `lib/domain/predicate/__tests__/{types,builders,typeChecker}.test.ts`
+
+**Schemas that landed** (match the v2 spec's Predicate AST family):
 
 ```ts
 const matchAllSchema = z.object({ kind: z.literal("match-all") });
@@ -104,41 +108,55 @@ const betweenSchema = z.object({
   upper: termSchema.optional(),
   lowerInclusive: z.boolean(),
   upperInclusive: z.boolean(),
-}).refine((v) => v.lower !== undefined || v.upper !== undefined, "between must have at least one bound");
-
+}).refine(
+  (v) => v.lower !== undefined || v.upper !== undefined,
+  "between must have at least one bound (lower or upper)",
+);
 const existsSchema = z.object({
   kind: z.literal("exists"),
   via: relationPathSchema,
-  where: predicateSchema.optional(),
+  where: z.lazy(() => predicateSchema).optional(),
 });
 const missingSchema = z.object({
   kind: z.literal("missing"),
   via: relationPathSchema,
-  where: predicateSchema.optional(),
+  where: z.lazy(() => predicateSchema).optional(),
 });
 ```
 
-`relationPathSchema` is added to types.ts as well (see Task A3 for its shape).
+`Predicate` union extended with two non-recursive arms (`match-all`, `match-none`, `is-null`, `between`) and two recursive arms (`exists`, `missing`). Drift guard extended with `_ExistsArm` and `_MissingArm` (each strips `where` before structural equality).
 
-Builders:
+**Builders that landed:**
 
 ```ts
-export const matchAll = (): Predicate => ({ kind: "match-all" });
-export const matchNone = (): Predicate => ({ kind: "match-none" });
-export const isNull = (left: Term): Predicate => ({ kind: "is-null", left });
-export const between = (left: Term, opts: { lower?: Term; upper?: Term; lowerInclusive?: boolean; upperInclusive?: boolean }): Predicate => ({ ... });
-export const exists = (via: RelationPath, where?: Predicate): Predicate => ({ ... });
-export const missing = (via: RelationPath, where?: Predicate): Predicate => ({ ... });
+export const matchAll = (): Extract<Predicate, { kind: "match-all" }> => /* discriminator-only */
+export const matchNone = (): Extract<Predicate, { kind: "match-none" }> => /* discriminator-only */
+export const isNull = (left: Term): Extract<Predicate, { kind: "is-null" }> => /* leaf */
+export function between(left: Term, opts: BetweenOptions): Extract<Predicate, { kind: "between" }>
+  // lowerInclusive / upperInclusive default to true (mathematical [lower, upper])
+  // absent-not-undefined contract: omitted bounds produce no key on the result
+export const exists = (via: RelationPath, where?: Predicate): Extract<Predicate, { kind: "exists" }> => /* absent-where */
+export const missing = (via: RelationPath, where?: Predicate): Extract<Predicate, { kind: "missing" }> => /* absent-where */
 ```
 
-Tests cover round-trip parse, builder construction, refinement enforcement (between with no bounds rejected, exists/missing with invalid path rejected).
+**Type-checker policy that landed** (encoded in `walk()`'s switch):
 
-Steps:
-- [ ] Write failing tests for each new schema (round-trip parse + builder construction)
-- [ ] Add Zod schemas to `types.ts`, extend `predicateSchema` discriminated union
-- [ ] Add to `Predicate` TS type (handle the recursive arms via the existing `z.lazy` + hand-declared-arm pattern; drift guard updates)
-- [ ] Add builders to `builders.ts`
-- [ ] Run tests, commit
+- `match-all` / `match-none` — return cleanly. By construction nullary discriminator-only sentinels are well-typed.
+- `is-null` / `between` / `exists` / `missing` — throw with `Error("checkPredicate: no rules for kind '<kind>'")`. The throw is the structural defense — silently passing kinds without dedicated semantic rules would produce false-positive "type-checks clean" verdicts on unchecked predicates. The throw fires both directly and through wrapper recursion (`and(eq(...), isNull(...))`). The four kinds are listed in `checkPredicate`'s public JSDoc so callers can scope inputs or handle the throw. Task A5 lands the rules and removes the throw arm + the JSDoc paragraph + the throw-arm tests in one change.
+
+**`prop.via` resolution policy** (related correctness fix, not strictly A1 but landed in A1's commit chain):
+
+- `resolveTermType`'s `case "prop":` arm emits a `CheckError` (not throw) when `term.via` is present and not `{ kind: "self" }`. The originating-scope check still runs structurally; the destination-scope check requires Task A5's destination-scope resolution rule. The error path is `[..., "left"]` (or "right"); the message names "via" and "destination scope" so the editor can route the highlight. Closes the silent-accept gap that the throw-on-unimplemented policy was supposed to prevent.
+
+**Deviations from the v2 plan's outline above (all principled):**
+
+1. **Per-kind narrowed return types** on builders (`Extract<Predicate, { kind: "..." }>`) instead of the wide `Predicate` union. Callers narrowing on `kind` after a builder call get per-variant fields directly.
+2. **Absent-not-undefined contract** on every optional slot (`between.lower`/`upper`, `exists.where`, `missing.where`). Builders construct objects without materializing the slot key when omitted, preserving round-trip equality.
+3. **`between` defaults `lowerInclusive`/`upperInclusive` to `true`** when omitted, matching the mathematical [lower, upper] convention. Documented with the absent-bounds contract together.
+4. **Schema-level `lower > upper` for literal-typed bounds is intentionally accepted** — bounds may be Term refs (search-input, user-context) whose values aren't known at parse time. The type checker (Task A5) is the right place to detect literal-pair impossibility; runtime checking handles the term-pair case. Documented in `betweenSchema`'s JSDoc.
+5. **`xpathEmitter.ts` got per-kind defensive throw arms** for the six new kinds. Strictly out of A1's file list, but the file's existing exhaustiveness pattern doesn't have a `never` default, so adding new arms to `Predicate` without matching emitter cases breaks compile. Throws (with clear "no emission for kind" messages) keep the build green. The file is deleted in B6; the throw arms are temporary scaffolding.
+6. **CCHQ source citations on the new schemas** verified at production code (not test mocks): `match-all`/`match-none` registry at `corehq/apps/case_search/xpath_functions/__init__.py:52-53`; implementations at `query_functions.py:162-177`; `subcase-exists` at `subcase_functions.py:51-62` with optional-filter check at `:207`; `ancestor-exists` at `ancestor_functions.py:97-118` with mandatory 2-arg confirm.
+7. **`DISTANCE_UNITS` (Task 2) Nova-narrowing note added** — CCHQ accepts nine units (`miles`, `kilometers`, `yards`, `feet`, `inch`, `meters`, `centimeters`, `millimeters`, `nauticalmiles` per `commcare-hq/corehq/apps/es/queries.py:22-23`); Nova exposes only the imperial/metric anchors. Documented in the schema-level JSDoc.
 
 ### Task A2: Add Predicate AST kinds for multi-select-contains and match (text-match modes)
 

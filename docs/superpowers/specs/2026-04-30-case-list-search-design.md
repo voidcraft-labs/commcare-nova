@@ -108,7 +108,15 @@ type Predicate =
   // Set membership over scalars (or-of-eq)
   | { kind: "in"; left: Term; values: Literal[] }
 
-  // Range — first-class for date-range search inputs
+  // Range — first-class for date-range search inputs.
+  // At least one of `lower` / `upper` is required (refined by the schema).
+  // Builders default `lowerInclusive` / `upperInclusive` to true (mathematical
+  // [lower, upper] convention). When both bounds are literal-typed and
+  // `lower > upper`, the predicate is trivially false; the schema does NOT
+  // reject this at parse time because bounds may be Term refs (search-input,
+  // user-context) whose values are unknown until runtime. The type checker
+  // detects the literal-pair impossibility; runtime checking handles
+  // term-pair shapes.
   | { kind: "between"; left: Term; lower?: Term; upper?: Term; lowerInclusive: boolean; upperInclusive: boolean }
 
   // Null check — first-class so it doesn't compile to `prop = ''` footguns silently
