@@ -52,10 +52,11 @@
 //     at `corehq/apps/app_manager/tests/data/suite/suite-advanced-autoselect-user.xml:12`.
 //   - `concat('a', "'", 'b')` as the embedded-quote escape — XPath 1.0
 //     has no string-escape syntax, so the portable form switches to
-//     `concat()` with alternating quote styles. `concat()` is a core
-//     XPath 1.0 function and is accepted unmodified by the CommCare
-//     XPath dialect; the project's own grammar tests round-trip the
-//     same form (`lib/commcare/__tests__/deepValidation.test.ts:24`).
+//     `concat()` with alternating quote styles. The CommCare XPath
+//     grammar at `lib/commcare/xpath/grammar.lezer.grammar:128-131`
+//     admits both single- and double-quoted string literals as
+//     argument shapes, so `concat()` accepts mixed-quote arguments
+//     directly.
 
 import type {
 	ComparisonKind,
@@ -223,11 +224,20 @@ function emitTerm(term: Term, _ctx: EmissionContext): string {
 			// Reserved CommCare case properties are addressed with the
 			// `@` prefix in both case-list-filter and csql contexts;
 			// see RESERVED_CASE_ATTRIBUTES for the source citations.
-			// The case-type qualifier (`term.caseType`) doesn't reach
-			// the wire — it scopes the AST for the type checker but
-			// the surrounding nodeset (case-list-filter) or the
-			// search context (csql) determines which case type the
-			// query runs against at execution time.
+			//
+			// The case-type qualifier (`term.caseType`) is dropped at
+			// this layer — every property reference emits the same
+			// wire form regardless of which case type the AST names.
+			// The wire-correct case type is whichever one the
+			// surrounding nodeset (case-list-filter) or search context
+			// (csql) selects at execution time. The type checker does
+			// NOT verify that `term.caseType` matches that surrounding
+			// context, so callers are responsible for keeping the AST
+			// qualifier aligned with the wire scope where the
+			// predicate is dropped. Cross-case-type traversal (parent
+			// or host index navigation) is a separate AST shape with
+			// its own wire form; the bare property reference always
+			// resolves against the immediate surrounding scope.
 			if (RESERVED_CASE_ATTRIBUTES.has(term.property)) {
 				return `@${term.property}`;
 			}
@@ -244,15 +254,15 @@ function emitTerm(term: Term, _ctx: EmissionContext): string {
 
 /**
  * Compile a primitive literal to its wire form. Numbers emit as
- * unquoted XPath numbers (integers and floats both serialize via
- * `String(n)`, which produces the canonical decimal form). Booleans
- * emit as the strings `'true'` / `'false'`; CommCare's case-property
- * storage isn't strongly typed and the wire form a boolean takes
- * depends on what the originating form wrote, so authors who need a
- * different canonicalization (`'1'` / `'0'`, `'yes'` / `'no'`) coerce
- * upstream by passing a string literal explicitly. `null` emits as
- * the empty string `''` because XPath compares an absent attribute
- * equal to `''`, so `<prop> = ''` is the natural "is unset" form.
+ * unquoted XPath numbers via `emitNumericLiteral` — see that helper
+ * for the scientific-notation handling. Booleans emit as the strings
+ * `'true'` / `'false'`; CommCare's case-property storage isn't
+ * strongly typed and the wire form a boolean takes depends on what
+ * the originating form wrote, so authors who need a different
+ * canonicalization (`'1'` / `'0'`, `'yes'` / `'no'`) coerce upstream
+ * by passing a string literal explicitly. `null` emits as the empty
+ * string `''` because XPath compares an absent attribute equal to
+ * `''`, so `<prop> = ''` is the natural "is unset" form.
  *
  * Strings emit as single-quoted XPath strings; an embedded single
  * quote forces a `concat()` fallback because XPath 1.0 has no
@@ -265,7 +275,7 @@ function emitTerm(term: Term, _ctx: EmissionContext): string {
  */
 function emitLiteral(value: string | number | boolean | null): string {
 	if (value === null) return "''";
-	if (typeof value === "number") return String(value);
+	if (typeof value === "number") return emitNumericLiteral(value);
 	if (typeof value === "boolean") return value ? "'true'" : "'false'";
 	if (!value.includes("'")) return `'${value}'`;
 	const parts = value.split("'");
@@ -275,4 +285,56 @@ function emitLiteral(value: string | number | boolean | null): string {
 		if (i < parts.length - 1) args.push(`"'"`);
 	}
 	return `concat(${args.join(", ")})`;
+}
+
+/**
+ * Compile a numeric literal to its wire form, avoiding scientific
+ * notation. CommCare's XPath grammar admits decimal literals only —
+ * `digit+ ('.' digit*)? | '.' digit+` per
+ * `lib/commcare/xpath/grammar.lezer.grammar:133-136` — and rejects
+ * exponent syntax. JavaScript's `String(n)` switches to exponent
+ * form for very small magnitudes (below ~1e-6) and very large ones
+ * (at or above 1e21), which would parse-fail downstream.
+ *
+ * The function early-returns the canonical `String(n)` for any
+ * number whose decimal form is already non-exponent. That preserves
+ * the shortest round-trip form (e.g. `String(3.14)` is the literal
+ * `"3.14"`, not the `toFixed(20)` artifact
+ * `"3.14000000000000012434"`) for every value an author would
+ * realistically type. Only when `String(n)` produces exponent form
+ * does the function reformat by parsing the mantissa and exponent
+ * out of the string and shifting the decimal point manually,
+ * producing an exact decimal expansion of the IEEE-754 double's
+ * `String(n)` form without `toFixed`'s precision-related truncation
+ * at the limits.
+ *
+ * The schema layer (`z.number()` in `lib/domain/predicate/types.ts`)
+ * rejects `NaN` and `±Infinity`, so this helper is only ever called
+ * with finite numbers.
+ */
+function emitNumericLiteral(n: number): string {
+	const s = String(n);
+	if (!s.includes("e") && !s.includes("E")) return s;
+	// `String(n)` for any finite double in exponent form matches
+	// `^(-)?<int>(\.<frac>)?[eE][+-]?<exp>$`. Parse the components
+	// and rebuild as a non-exponent decimal by sliding the decimal
+	// point `exp` places. The combined `<int><frac>` digit sequence
+	// is the significand; the decimal point lands at position
+	// `int.length + exp` in that sequence, with leading or trailing
+	// zeros padded as needed.
+	const match = s.match(/^(-)?(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+	if (!match) return s;
+	const sign = match[1] ?? "";
+	const intPart = match[2];
+	const fracPart = match[3] ?? "";
+	const exp = Number.parseInt(match[4], 10);
+	const digits = intPart + fracPart;
+	const decimalPos = intPart.length + exp;
+	if (decimalPos >= digits.length) {
+		return `${sign}${digits}${"0".repeat(decimalPos - digits.length)}`;
+	}
+	if (decimalPos > 0) {
+		return `${sign}${digits.slice(0, decimalPos)}.${digits.slice(decimalPos)}`;
+	}
+	return `${sign}0.${"0".repeat(-decimalPos)}${digits}`;
 }

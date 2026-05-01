@@ -61,12 +61,59 @@ describe("emitXPath — comparison operators", () => {
 	});
 
 	it("emits eq with a decimal literal preserving the fractional part", () => {
-		// Numeric literals serialize via `String(n)`, which produces
-		// the canonical decimal form for non-integer numbers. Pinning
-		// `3.14` here guards against a regression that switched to
-		// `n.toFixed(0)` or any other lossy serialization.
+		// Numeric literals whose `String(n)` form is already
+		// non-exponent emit verbatim, so `3.14` round-trips as
+		// `3.14`. Pinning the exact form here guards against a
+		// regression that swapped in `toFixed(20)` or any other
+		// lossy serialization that would surface as visual artifacts
+		// like `3.14000000000000012434`.
 		const p = eq(prop("patient", "weight_kg"), literal(3.14));
 		expect(emitXPath(p, "case-list-filter")).toBe("weight_kg = 3.14");
+	});
+
+	it("emits very small decimal literals without scientific notation", () => {
+		// JavaScript's `String(n)` switches to exponent form below
+		// roughly 1e-6, but CommCare's XPath grammar admits decimal
+		// literals only — `digit+ ('.' digit*)? | '.' digit+` per
+		// `lib/commcare/xpath/grammar.lezer.grammar:133-136` — so
+		// emitting `1e-7` would parse-fail downstream. The emitter
+		// reformats by sliding the IEEE-754 mantissa's decimal point
+		// rather than rounding through `toFixed`, so the wire form
+		// is the exact decimal expansion of `String(0.0000001)`.
+		const p = eq(prop("patient", "ratio"), literal(0.0000001));
+		expect(emitXPath(p, "case-list-filter")).toBe("ratio = 0.0000001");
+	});
+
+	it("emits very large numeric literals without scientific notation", () => {
+		// Counterpart to the very-small case: `String(n)` switches
+		// to exponent form at and above 1e21, so an integer-valued
+		// `1.5e21` would emit as `1.5e+21` and parse-fail. The
+		// reformatter slides the mantissa's decimal point past the
+		// trailing zeros to produce a fully expanded decimal.
+		const p = eq(prop("patient", "big"), literal(1.5e21));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"big = 1500000000000000000000",
+		);
+	});
+
+	it("emits negative numeric literals with the leading minus sign", () => {
+		// The numeric reformatter preserves the sign through the
+		// mantissa-shifting path. Pin the negative case so a
+		// regression that dropped the sign during reformatting (for
+		// either the in-range or exponent path) surfaces here rather
+		// than as a wrong-sign comparison at runtime.
+		expect(
+			emitXPath(
+				eq(prop("patient", "delta"), literal(-3.14)),
+				"case-list-filter",
+			),
+		).toBe("delta = -3.14");
+		expect(
+			emitXPath(
+				eq(prop("patient", "tiny"), literal(-1e-10)),
+				"case-list-filter",
+			),
+		).toBe("tiny = -0.0000000001");
 	});
 
 	it("emits neq", () => {

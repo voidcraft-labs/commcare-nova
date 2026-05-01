@@ -36,6 +36,67 @@
 import { z } from "zod";
 import { casePropertyDataTypeSchema } from "../blueprint";
 
+// ---------- Identifier patterns ----------
+//
+// Property names, search-input names, user-data field names, and case
+// types all flow through the wire emitters as raw identifiers (e.g.
+// `eq(prop("patient", "status"), ...)` becomes `@status = '...'` on
+// the XPath wire). The emitter does not quote or escape these
+// identifiers — it interpolates them directly — so any character
+// rejected by CommCare's identifier vocabulary at the schema layer
+// would otherwise reach the wire as broken or attacker-controlled
+// XPath. Reject at parse time rather than relying on each emitter
+// to re-defend the boundary.
+//
+// The patterns below are deliberately inlined rather than imported
+// from `lib/commcare/identifierValidation`. The `noRestrictedImports`
+// rule in `biome.json` denies `lib/domain` direct access to
+// `lib/commcare/*`, and the convention is that `lib/commcare`
+// crosses the boundary in one direction only — domain → commcare at
+// emission time. The patterns themselves are simple regex strings,
+// not CommCare logic; a boundary-crossing import here would buy a
+// shared declaration site at the cost of inverting the package
+// graph for two regular expressions.
+//
+// Patterns mirror the constants in `lib/commcare/constants.ts`
+// (CASE_TYPE_REGEX / CASE_PROPERTY_REGEX / XML_ELEMENT_NAME_REGEX) —
+// any divergence between this file and that one is a bug in this
+// file, since `lib/commcare` is the source of truth for CommCare's
+// identifier vocabulary. A drift guard sits at the bottom of this
+// section to flag accidental relaxation here.
+
+/**
+ * Permitted shape of a CommCare case type identifier — leading
+ * letter, then letters/digits/underscores/hyphens. Mirrors
+ * `CASE_TYPE_REGEX` in `lib/commcare/constants.ts`.
+ */
+const CASE_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+
+/**
+ * Permitted shape of a case property name addressed in a predicate
+ * AST. Mirrors `CASE_PROPERTY_REGEX` in `lib/commcare/constants.ts`
+ * (same shape as case types: leading letter, then
+ * letters/digits/underscores/hyphens). Hyphens are permitted because
+ * existing CommCare deployments routinely store properties with
+ * hyphenated names (e.g. `external-id`); the wire emitter treats
+ * them as opaque identifiers.
+ */
+const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+
+/**
+ * Permitted shape of an XML element name — a search-input name and
+ * a user-data field name both surface as XML element-style
+ * identifiers in their resolved wire forms (`<input>/<field
+ * @name='...'>` and `/session/user/data/<field>` respectively), so
+ * each must conform to XML's element-name rules: leading letter or
+ * underscore, then letters/digits/underscores. Hyphens are NOT
+ * permitted here — that's the difference from
+ * `CASE_PROPERTY_PATTERN` and matches the divergence in
+ * `lib/commcare/constants.ts` between `XML_ELEMENT_NAME_REGEX` and
+ * `CASE_PROPERTY_REGEX`.
+ */
+const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 // ---------- Terms (anything that resolves to a value) ----------
 //
 // Terms are the leaves of the AST. They never contain predicates and so
@@ -49,11 +110,28 @@ import { casePropertyDataTypeSchema } from "../blueprint";
  * primary case type and a related parent (`patient` → `clinic`), so the
  * AST records WHICH case type the property lives on rather than relying
  * on positional context.
+ *
+ * Both `caseType` and `property` are constrained to CommCare's
+ * identifier vocabulary at the schema layer — see the
+ * "Identifier patterns" comment above for why. The emitter
+ * interpolates these directly into XPath strings, so any character
+ * outside the permitted set would either fail downstream parsing or
+ * (worse) inject attacker-controlled syntax.
  */
 export const propertyRefSchema = z.object({
 	kind: z.literal("prop"),
-	caseType: z.string(),
-	property: z.string(),
+	caseType: z
+		.string()
+		.regex(
+			CASE_TYPE_PATTERN,
+			"Case type must start with a letter and contain only letters, digits, underscores, or hyphens.",
+		),
+	property: z
+		.string()
+		.regex(
+			CASE_PROPERTY_PATTERN,
+			"Property name must start with a letter and contain only letters, digits, underscores, or hyphens.",
+		),
 });
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
 
@@ -62,10 +140,21 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
  * case-search screen. Resolved at compile time by mapping `name` to the
  * search input's runtime value (XPath: `instance('commcaresession')...`
  * or similar; SQL: a bound parameter).
+ *
+ * `name` is constrained to XML element-name vocabulary (no hyphens) —
+ * the wire form `<input>/<field @name='...'>` makes the name surface
+ * as an XML attribute value, but downstream code paths that derive
+ * structural identifiers from the input name still rely on element-
+ * name shape, so the schema rejects hyphens here.
  */
 export const searchInputRefSchema = z.object({
 	kind: z.literal("input"),
-	name: z.string(),
+	name: z
+		.string()
+		.regex(
+			XML_ELEMENT_NAME_PATTERN,
+			"Search input name must start with a letter or underscore and contain only letters, digits, or underscores.",
+		),
 });
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 
@@ -73,10 +162,19 @@ export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
  * Reference to a field on the current session user (e.g. their assigned
  * region, their role). Compiled to `instance('commcaresession')/.../user/data/<field>`
  * on the XPath side and to a request-context parameter on the SQL side.
+ *
+ * `field` is constrained to XML element-name vocabulary because the
+ * wire form `/session/user/data/<field>` places the field as a
+ * literal XML element name in the path step.
  */
 export const userContextRefSchema = z.object({
 	kind: z.literal("user"),
-	field: z.string(),
+	field: z
+		.string()
+		.regex(
+			XML_ELEMENT_NAME_PATTERN,
+			"User-context field must start with a letter or underscore and contain only letters, digits, or underscores.",
+		),
 });
 export type UserContextRef = z.infer<typeof userContextRefSchema>;
 

@@ -352,4 +352,116 @@ describe("predicate schema", () => {
 		});
 		expect(nested.kind).toBe("and");
 	});
+
+	// Identifier-vocabulary rejection. The wire emitters interpolate
+	// `caseType`, `property`, `name`, and `field` directly into XPath
+	// strings without quoting or escaping, so any character outside
+	// CommCare's identifier vocabulary would either fail downstream
+	// parsing or (worse) inject attacker-controlled syntax. The
+	// schema layer rejects malformed identifiers at parse time so
+	// every emitter and compiler can rely on the constraint without
+	// re-defending it. The block below covers each identifier slot
+	// with a representative malformed value (the embedded-quote +
+	// XPath-suffix shape from the case-list-search threat model);
+	// other rejection cases (leading digit, internal space, empty
+	// string) are structurally equivalent and surface at the same
+	// `.regex()` defense.
+
+	it("rejects prop with an XPath-injection-shaped property name", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: {
+					kind: "prop",
+					caseType: "patient",
+					property: "name'); injected",
+				},
+				right: { kind: "literal", value: "x" },
+			}),
+		).toThrow();
+	});
+
+	it("rejects prop with an XPath-injection-shaped case type", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: {
+					kind: "prop",
+					caseType: "patient' or 1=1",
+					property: "name",
+				},
+				right: { kind: "literal", value: "x" },
+			}),
+		).toThrow();
+	});
+
+	it("rejects input with a name containing internal whitespace", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "name" },
+				right: { kind: "input", name: "bad name with spaces" },
+			}),
+		).toThrow();
+	});
+
+	it("rejects user-context ref with a field containing punctuation", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "name" },
+				right: { kind: "user", field: "field/with/slashes" },
+			}),
+		).toThrow();
+	});
+
+	it("rejects prop with an empty property name", () => {
+		// The regex anchors require at least one character matching
+		// the leading-letter class; an empty string can't satisfy
+		// the anchor + leading-class combination, so the negative
+		// case is locked here against a future relaxation that
+		// dropped the leading-character requirement.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "" },
+				right: { kind: "literal", value: "x" },
+			}),
+		).toThrow();
+	});
+
+	it("rejects input whose name has a hyphen (XML element-name vocabulary)", () => {
+		// `name` on a search input maps to an XML attribute value at
+		// the wire layer, but downstream code paths derive structural
+		// identifiers from the input name and rely on the
+		// no-hyphen XML element-name shape (mirroring
+		// `XML_ELEMENT_NAME_REGEX` in `lib/commcare/constants.ts`).
+		// `caseType` and `property` admit hyphens; this test is the
+		// asymmetry pin between the two vocabularies.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "name" },
+				right: { kind: "input", name: "name-with-hyphen" },
+			}),
+		).toThrow();
+	});
+
+	it("accepts prop with a hyphenated property name", () => {
+		// Property names mirror `CASE_PROPERTY_REGEX` and admit
+		// hyphens — existing CommCare deployments routinely store
+		// properties like `external-id`. Pin the positive case so a
+		// future tightening that aligned property names with the
+		// stricter XML-element-name rules trips this test.
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: {
+				kind: "prop",
+				caseType: "patient",
+				property: "external-id",
+			},
+			right: { kind: "literal", value: "abc" },
+		});
+		expect(result.kind).toBe("eq");
+	});
 });
