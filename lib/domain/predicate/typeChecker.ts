@@ -58,15 +58,13 @@ export type SearchInputDecl = {
 /**
  * The schema-derived context the checker validates a predicate against.
  * Composed at the call site from the blueprint (`caseTypes`) and the
- * search-screen's declared inputs (`knownInputs`). `currentCaseType` is
- * carried for downstream consumers that need it (e.g. the SQL compiler's
- * default-table resolution); the type checker itself reads it only for
- * future operator coverage that may default an unqualified property
- * reference to the current case type.
+ * search-screen's declared inputs (`knownInputs`). Property references
+ * carry their own `caseType` qualifier on `PropertyRef`, so the
+ * checker has no notion of a "current" case type — every reference
+ * resolves against `caseTypes` directly by name.
  */
 export type TypeContext = {
 	caseTypes: CaseType[];
-	currentCaseType: string;
 	knownInputs: SearchInputDecl[];
 };
 
@@ -115,10 +113,9 @@ export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
  * compatibility table in `typesCompatible`.
  *
  * Kept module-private — never exposed on the AST, never appears in
- * `CheckError.message`, never returned by a public function. The leading
- * underscore is the convention for "internal type sentinel" and pairs
- * with `casePropertyDataTypes` in the blueprint to keep the public
- * surface clean.
+ * `CheckError.message`, never returned by a public function. The
+ * `describe(...)` helper renders it as `"null"` for any error
+ * message that would otherwise interpolate the resolved type.
  */
 const ANY_TYPE = "_any" as const;
 
@@ -207,28 +204,32 @@ function walk(
 			// wrappers — same shape as `when-input-present` below — so
 			// every wrapping operator's path segment uniformly identifies
 			// "the operator" then "the slot inside it."
-			walk(p.clause, ctx, errors, [...path, "not", "clause"]);
+			walk(p.clause, ctx, errors, [...path, p.kind, "clause"]);
 			return;
-		case "when-input-present":
-			// Descend into the wrapped clause so any comparison-rule
-			// violations inside it surface here. Validating the `input`
-			// reference itself against `ctx.knownInputs` is a separate
-			// concern from descending into the wrapped clause; the
-			// dispatch arm for that check stays colocated with this
-			// kind so both responsibilities for `when-input-present`
-			// live in one place.
-			walk(p.clause, ctx, errors, [...path, "when-input-present", "clause"]);
+		case "when-input-present": {
+			// Validate the trigger input against `ctx.knownInputs`. Without
+			// this check, an undeclared trigger silently passes — the
+			// wrapped clause type-checks fine, the trigger never resolves
+			// at runtime, and the predicate becomes a permanent no-op
+			// (the wrapped clause is gated on a value that never appears).
+			// The error attaches to `[..., kind, "input"]` to mirror the
+			// wrapped-clause path that follows.
+			const inputDecl = ctx.knownInputs.find((i) => i.name === p.input.name);
+			if (!inputDecl) {
+				errors.push({
+					path: [...path, p.kind, "input"],
+					message: `Unknown search input '${p.input.name}'.`,
+				});
+			}
+			walk(p.clause, ctx, errors, [...path, p.kind, "clause"]);
 			return;
+		}
 		case "in":
 		case "within-distance":
 		case "fuzzy":
 			// These kinds carry no nested predicates and their structural
-			// shape is validated at parse time, so descending without
-			// inspection is safe. Per-operator semantic checks
-			// (membership-value type, geo-property type, fuzzy-property
-			// type) belong in their own dispatch arms, colocated with
-			// the kind's case label so the dispatch table stays the
-			// single index for "what does this checker do for kind X."
+			// shape is validated at parse time; the walker descends past
+			// them without further inspection.
 			return;
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
@@ -369,14 +370,10 @@ function resolveTermType(
 		case "user":
 			// User-context refs resolve to text by convention. CommCare's
 			// `instance('commcaresession')/session/user/data/<field>` returns a
-			// string at the XPath/CSQL layer, and authors who need typed
-			// comparisons against a user field today coerce upstream of the
-			// type checker. Symmetric with `SearchInputDecl`'s optional
-			// `data_type`, this convention can be relaxed by extending
-			// `UserContextRef` to carry a declared type — that's a
-			// deliberate non-goal at the foundation stage. (CCHQ wire
-			// example: see references to `#session/user/data/...` in
-			// `corehq/apps/app_manager/tests/test_suite_remote_request.py`.)
+			// string at the XPath/CSQL layer; the type checker treats user
+			// fields as text without an opt-out path. Authors who need
+			// typed comparisons against a user field today coerce
+			// upstream.
 			return "text";
 		case "literal":
 			return literalType(term);

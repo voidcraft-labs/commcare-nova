@@ -25,8 +25,10 @@ import {
 	literal,
 	lt,
 	not,
+	or,
 	prop,
 	userField,
+	whenInput,
 } from "../builders";
 import { checkPredicate } from "../typeChecker";
 
@@ -61,7 +63,6 @@ const PATIENT: CaseType = {
 // stays readable.
 const ctx = {
 	caseTypes: [PATIENT],
-	currentCaseType: "patient",
 	knownInputs: [],
 };
 
@@ -264,6 +265,65 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/type mismatch/i);
 			expect(result.errors[0].path).toEqual(["not", "clause"]);
+		}
+	});
+
+	// `or` shares the multi-clause path convention with `and`; pinning
+	// the `["or", N]` shape on a non-zero index locks both halves of the
+	// convention — the operator-name segment and the array index — for
+	// the second multi-clause arm. The failing clause is at index 1, so
+	// a regression that mis-indexed (e.g. always emitted 0) would be
+	// visible here.
+	it("propagates errors from inside or(...) with index-segmented paths", () => {
+		const goodComparison = eq(prop("patient", "name"), literal("Alice"));
+		const badComparison = eq(prop("patient", "age"), literal("forty-two"));
+		const wrapped = or(goodComparison, badComparison);
+		const result = checkPredicate(wrapped, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["or", 1]);
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
+	});
+
+	// `when-input-present` recurses into its wrapped clause under the
+	// unary-wrapper convention `[operator-name, "clause"]`. Pinning the
+	// path here parallels the `not` test above and locks the second of
+	// the two unary wrappers.
+	it("propagates errors from inside when-input-present's clause", () => {
+		const ctxWithInput = {
+			...ctx,
+			knownInputs: [{ kind: "input" as const, name: "phone" }],
+		};
+		const p = whenInput(
+			input("phone"),
+			eq(prop("patient", "age"), literal("forty-two")),
+		);
+		const result = checkPredicate(p, ctxWithInput);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["when-input-present", "clause"]);
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
+	});
+
+	// `when-input-present`'s trigger input must itself be declared in
+	// `ctx.knownInputs`. Without this check, an undeclared trigger
+	// silently passes — the wrapped clause type-checks fine, the
+	// trigger never resolves at runtime, and the predicate becomes a
+	// permanent no-op. The error path mirrors the wrapped-clause
+	// convention but identifies the operator's `input` slot rather
+	// than its `clause` slot.
+	it("rejects when-input-present with an undeclared trigger input", () => {
+		const p = whenInput(
+			input("undeclared"),
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["when-input-present", "input"]);
+			expect(result.errors[0].message).toMatch(/unknown search input/i);
 		}
 	});
 });
