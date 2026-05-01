@@ -75,4 +75,68 @@ describe("predicate schema", () => {
 			}),
 		).toThrow();
 	});
+
+	// Recursive-arm coverage. The four logical/conditional arms are the
+	// load-bearing piece of `types.ts` — they're the only operators
+	// whose recursion goes through `z.lazy(() => predicateSchema)`. The
+	// `and` test above exercises one of them; the explicit `not(...)`
+	// and `when-input-present(...)` tests below cover the other two
+	// (the `or(...)` shape is identical to `and(...)`). These also
+	// pin the field name `clause` (not `then`) so any revert to
+	// the rejected `then` name fails CI immediately.
+
+	it("parses a not(...) wrapping a comparison", () => {
+		const result = predicateSchema.parse({
+			kind: "not",
+			clause: {
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "status" },
+				right: { kind: "literal", value: "closed" },
+			},
+		});
+		expect(result.kind).toBe("not");
+		if (result.kind === "not") {
+			expect(result.clause.kind).toBe("eq");
+		}
+	});
+
+	it("parses a when-input-present(...) wrapping a comparison", () => {
+		const result = predicateSchema.parse({
+			kind: "when-input-present",
+			input: { kind: "input", name: "phone" },
+			clause: {
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "phone" },
+				right: { kind: "input", name: "phone" },
+			},
+		});
+		expect(result.kind).toBe("when-input-present");
+		if (result.kind === "when-input-present") {
+			expect(result.clause.kind).toBe("eq");
+		}
+	});
+
+	// Empty-collection rejection. An empty `and` evaluates to `true`,
+	// an empty `or` evaluates to `false`, and an empty `in` is
+	// trivially false — none of these are useful in practice and
+	// virtually always indicate an authoring bug. Reject at the AST
+	// layer so downstream compilers never have to encode the policy.
+
+	it("rejects an empty and(...)", () => {
+		expect(() => predicateSchema.parse({ kind: "and", clauses: [] })).toThrow();
+	});
+
+	it("rejects an empty or(...)", () => {
+		expect(() => predicateSchema.parse({ kind: "or", clauses: [] })).toThrow();
+	});
+
+	it("rejects an empty in(...)", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "in",
+				left: { kind: "prop", caseType: "patient", property: "status" },
+				values: [],
+			}),
+		).toThrow();
+	});
 });

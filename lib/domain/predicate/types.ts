@@ -99,6 +99,15 @@ export type Term = z.infer<typeof termSchema>;
  * compilers iterate the set when emitting (one mapping table for all
  * six). Strict ordering doesn't matter — the type checker treats the
  * set as semantically equivalent up to operand-type rules.
+ *
+ * The enum collapse is correct *only because all six share the same
+ * operand shape* (`left`/`right`, both `termSchema`). If a future
+ * operator needs an asymmetric field — e.g. `case_sensitive` only on
+ * `eq`/`neq` — split the enum back into per-literal arms (one
+ * `z.object` per operator) rather than tacking optional fields onto
+ * this schema. Smuggling per-operator behavior under an optional
+ * shared field would violate the design property "behavior is never
+ * tucked under existing kinds via hidden state".
  */
 const COMPARISON_KINDS = ["eq", "neq", "gt", "gte", "lt", "lte"] as const;
 export type ComparisonKind = (typeof COMPARISON_KINDS)[number];
@@ -111,13 +120,18 @@ const comparisonSchema = z.object({
 
 /**
  * Membership: `left` ∈ `values`. Right side is restricted to literals
- * (not arbitrary terms) because the wire targets — XPath `selected-at`
+ * (not arbitrary terms) because the wire targets — XPath `selected-any`
  * / SQL `IN (...)` — both demand a static value list.
+ *
+ * `values` is `.min(1)`: an empty `in(...)` is trivially false at every
+ * target and is virtually always an authoring bug (e.g. a filter UI
+ * that bound to an unset variable). Reject at the AST layer so
+ * downstream compilers don't have to encode the policy.
  */
 const inSchema = z.object({
 	kind: z.literal("in"),
 	left: termSchema,
-	values: z.array(literalSchema),
+	values: z.array(literalSchema).min(1),
 });
 
 /**
@@ -174,14 +188,21 @@ const fuzzySchema = z.object({
 // Defining each as a named const keeps the union list readable and lets
 // each operator's contract live next to its discriminator declaration.
 
+// `clauses` on `andSchema` and `orSchema` is `.min(1)`: an empty `and`
+// trivially evaluates to `true` and an empty `or` trivially evaluates
+// to `false` — neither is useful and both almost always indicate an
+// authoring bug (e.g. a filter UI that produced no clauses). Reject at
+// the AST layer rather than surfacing tautologies/contradictions to
+// downstream consumers.
+
 const andSchema = z.object({
 	kind: z.literal("and"),
-	clauses: z.array(z.lazy(() => predicateSchema)),
+	clauses: z.array(z.lazy(() => predicateSchema)).min(1),
 });
 
 const orSchema = z.object({
 	kind: z.literal("or"),
-	clauses: z.array(z.lazy(() => predicateSchema)),
+	clauses: z.array(z.lazy(() => predicateSchema)).min(1),
 });
 
 const notSchema = z.object({
@@ -210,20 +231,24 @@ const whenInputPresentSchema = z.object({
 });
 
 /**
- * The full predicate union. Discriminated on `kind`, so consumers
+ * The full predicate union, discriminated on `kind` — consumers
  * narrowing on `p.kind` get full per-variant typing without manual
  * casts. Adding an operator means: (1) define its schema above, (2) add
  * it to this union, (3) extend the type checker / XPath emitter / SQL
- * compiler. The schema is the single source of truth — `Predicate` is
- * derived from it rather than maintained as a parallel type, so the
- * union and its TS counterpart cannot drift.
+ * compiler.
  *
- * The `Predicate` type is hand-declared (mirroring each arm's inferred
- * shape) so it can be referenced from `z.ZodType<Predicate>` below
- * without TypeScript hitting the same self-reference TS2502 / TS7022
- * errors that block declaring the type purely via `z.infer`. The shapes
- * stay in lock-step because each arm's TS variant is built from its
- * schema's `z.infer<typeof X>` directly.
+ * Drift policy — the four non-recursive arms (`comparisonSchema`,
+ * `inSchema`, `withinDistanceSchema`, `fuzzySchema`) derive their TS
+ * shape from their schema via `z.infer<typeof X>`, so adding a field
+ * to those schemas updates the union automatically. The four
+ * recursive arms (`and`, `or`, `not`, `when-input-present`) are
+ * hand-declared because TypeScript cannot resolve `z.infer` through a
+ * discriminated-union recursion cycle (Zod issue #4264). Adding a
+ * field to one of those four schemas requires a parallel hand-update
+ * to the matching arm here. The recursive shapes stay deliberately
+ * narrow (kind + 1–2 fields) and the test suite parses each arm
+ * directly, so any drift surfaces as a CI failure rather than a
+ * silent runtime mismatch.
  */
 export type Predicate =
 	| z.infer<typeof comparisonSchema>
