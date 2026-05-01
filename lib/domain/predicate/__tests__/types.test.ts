@@ -56,6 +56,28 @@ describe("predicate schema", () => {
 		expect(result.kind).toBe("and");
 	});
 
+	it("parses a nested or/eq predicate", () => {
+		const result = predicateSchema.parse({
+			kind: "or",
+			clauses: [
+				{
+					kind: "eq",
+					left: { kind: "prop", caseType: "patient", property: "status" },
+					right: { kind: "literal", value: "open" },
+				},
+				{
+					kind: "eq",
+					left: { kind: "prop", caseType: "patient", property: "status" },
+					right: { kind: "literal", value: "active" },
+				},
+			],
+		});
+		expect(result.kind).toBe("or");
+		if (result.kind === "or") {
+			expect(result.clauses).toHaveLength(2);
+		}
+	});
+
 	it("parses a within-distance predicate", () => {
 		const result = predicateSchema.parse({
 			kind: "within-distance",
@@ -79,11 +101,10 @@ describe("predicate schema", () => {
 	// Recursive-arm coverage. The four logical/conditional arms are the
 	// load-bearing piece of `types.ts` — they're the only operators
 	// whose recursion goes through `z.lazy(() => predicateSchema)`. The
-	// `and` test above exercises one of them; the explicit `not(...)`
-	// and `when-input-present(...)` tests below cover the other two
-	// (the `or(...)` shape is identical to `and(...)`). These also
-	// pin the field name `clause` (not `then`) so any revert to
-	// the rejected `then` name fails CI immediately.
+	// `and` and `or` tests above exercise two of them; the explicit
+	// `not(...)` and `when-input-present(...)` tests below cover the
+	// other two. These also pin the field name `clause` (not `then`)
+	// so any revert to the rejected `then` name fails CI immediately.
 
 	it("parses a not(...) wrapping a comparison", () => {
 		const result = predicateSchema.parse({

@@ -242,10 +242,11 @@ const notSchema = z.object({
  * conditional include vs. SQL guarded subquery).
  *
  * The slot is named `clause` (paralleling `notSchema`) rather than
- * `then` to avoid the Promise-thenable footgun that Biome's
- * `noThenProperty` rule guards against — any parsed predicate
- * accidentally returned from an async function would otherwise have its
- * `.then` invoked by JavaScript's await machinery and silently break.
+ * `then` because a parsed predicate accidentally returned from an
+ * async function would have its `.then` invoked by JavaScript's await
+ * machinery and silently break — picking a different name eliminates
+ * the footgun structurally rather than relying on every caller to
+ * remember it.
  */
 const whenInputPresentSchema = z.object({
 	kind: z.literal("when-input-present"),
