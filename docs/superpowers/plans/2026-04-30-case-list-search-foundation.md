@@ -29,7 +29,7 @@ The implementor (working in `.worktrees/case-foundation` on branch `feat/case-li
 
 **What v2 explicitly supersedes from shipped work (tasks below):**
 - The single-emitter-with-context-branch shape — split into three per-dialect visitors. The shipped emitter's `EmissionContext = "case-list-filter" | "csql"` branch in one function is structurally wrong; the on-device dialect supports a strict subset of CSQL functions, not the same set with different escape rules. Verified at `commcare-core/.../ASTNodeFunctionCall.java:113-269` and `commcare-hq/.../xpath_functions/__init__.py:39-54`.
-- The `in` operator's emission to `selected-any` for multi-value cases in case-list-filter context — broken on Android (CSQL-only function in an on-device dialect). Already partially fixed in commit `f3be64f3` (or-of-eq for case-list filter), but the multi-select-vs-scalar dispatch needs the new `multi-select-contains` operator to land cleanly.
+- The `in` operator's emission to `selected-any` for multi-value cases in case-list-filter context — broken on Android (CSQL-only function in an on-device dialect). Already partially fixed by the `isIn or-of-=` commit on this branch (or-of-eq for case-list filter), but the multi-select-vs-scalar dispatch needs the new `multi-select-contains` operator to land cleanly.
 - The `fuzzy` operator's emission to case-list-filter context — same problem; CSQL-only.
 - `within-distance` operator emission to case-list-filter context — same problem.
 
