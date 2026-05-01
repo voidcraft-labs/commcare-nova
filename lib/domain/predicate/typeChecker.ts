@@ -27,10 +27,10 @@
 // clause of `when-input-present` recurse so violations inside them
 // surface here, with paths threading the operator name and (for the
 // multi-clause arms) the array index. Per-operator semantic checks
-// for membership (`in`), geo (`within-distance`), and phonetic
-// (`fuzzy`) — membership-value compatibility, geopoint-property
-// requirement, text-property requirement — belong in dedicated
-// dispatch arms and are not part of this checker's current shape.
+// (membership-value compatibility on `in`, geopoint-property
+// requirement on `within-distance`, text-property requirement on
+// `fuzzy`) belong in dedicated dispatch arms and are not performed
+// by this checker.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { ComparisonKind, Literal, Predicate, Term } from "./types";
@@ -71,33 +71,40 @@ export type TypeContext = {
 };
 
 /**
- * Path segments locating the offending node inside the predicate AST.
- * The walker emits paths under one consistent convention so consumers
- * (the editor's highlight logic, debug output) can decode them
- * uniformly:
+ * Path locating where in the predicate AST a CheckError occurred.
+ * Consumers walk the AST in parallel with the path to land on the
+ * offending node — at each step the consumer knows the current
+ * operator from the AST, so the path encodes only "which slot or
+ * which child" at each level.
  *
- *   - Comparison operands — `[..., "left"]` / `[..., "right"]`. The
- *     comparison operator itself doesn't add a segment; resolution
- *     errors land directly on the operand.
- *   - Comparison operator-level errors (ordered-types check,
- *     compatibility mismatch) — emitted on the predicate's own path,
- *     no operator-name segment, since the verdict belongs to the
- *     comparison node itself.
- *   - Unary wrappers (`not`, `when-input-present`) — `[..., "<kind>",
- *     "clause"]`. The operator name + field name shape disambiguates
- *     a clause inside `not` from a clause inside a sibling `when-
- *     input-present` and signals which slot inside the operator the
- *     error came from.
- *   - Multi-clause wrappers (`and`, `or`) — `[..., "<kind>", <index>]`.
- *     The operator name disambiguates between sibling collections;
- *     the numeric index identifies the failing clause within. Number
- *     segments only ever appear as array indices — string-then-number
- *     uniformly means "the n-th element of that collection."
+ * Segments come in two shapes, one per operator family:
  *
- * Consumers branching on segment shape can therefore use a uniform
- * rule: if the next segment is a number, it's an array index;
- * otherwise it's a field or operator name. The trade-off keeps paths
- * short and human-readable in the editor's debug output.
+ *   1. Recursive wrappers — `and`, `or`, `not`, `when-input-present`
+ *      — push their `kind` first, then either an array index
+ *      (`and` / `or`) or a slot name (`not` → `["not", "clause"]`,
+ *      `when-input-present` →
+ *      `["when-input-present", "input" | "clause"]`). Nested errors
+ *      accumulate operator names as the walker descends, so
+ *      `["and", 0, "or", 1, "not", "clause", "left"]` means "the
+ *      left operand of the comparison wrapped by `not`, which is
+ *      the second clause of the `or`, which is the first clause of
+ *      the `and`." Recursive wrappers carry their kind because their
+ *      operands are themselves predicates that can recursively emit
+ *      paths — without the kind segment, an error from inside a
+ *      nested `or` would be indistinguishable from one in a sibling
+ *      `and`.
+ *
+ *   2. Leaf-like operators — comparisons, `in`, `within-distance`,
+ *      `fuzzy` — push only the operand slot name (`left`, `right`,
+ *      `property`, `center`). Their operands are terms, not nested
+ *      predicates, so paths don't accumulate operator names through
+ *      descent. The parent's path already disambiguates which
+ *      operator the slot belongs to: a consumer walking the AST in
+ *      parallel knows the current operator at every level.
+ *
+ * Operator-level errors (e.g. "Operator 'gt' requires ordered
+ * types") attach to the predicate's own path with no slot suffix, so
+ * a top-level `gt` failing the ordered check carries `path: []`.
  */
 export type CheckPath = (string | number)[];
 export type CheckError = { path: CheckPath; message: string };
@@ -401,25 +408,15 @@ function resolveTermType(
  *   2. `null` value — resolves to the internal `_any` sentinel so it
  *      compares against any declared property type. See `ANY_TYPE`'s
  *      JSDoc for the rationale.
- *   3. JS runtime type — for untyped literals, infer from the JS value:
- *      strings become `text`, numbers split int / decimal via
+ *   3. JS runtime type — for untyped literals, infer from the JS
+ *      value: strings become `text`, numbers split int / decimal via
  *      `Number.isInteger` (so the numeric-promotion rule in
  *      `typesCompatible` handles `int` / `decimal` interchangeably),
- *      booleans become `text`. Boolean-as-text matches CommCare's
- *      case-block XML wire form: in
- *      `corehq/ex-submodules/casexml/apps/case/mock/case_block.py`,
- *      `_DictToXML.fmt` is a typed dispatch — it returns the value
- *      unchanged for already-text strings, decodes bytes, formats
- *      datetimes through `json_format_datetime`, and only otherwise
- *      runs `six.text_type(value)` on values that match
- *      `(numbers.Number, date)`. Python booleans take that last
- *      branch (since `bool` subclasses `int`, which is a
- *      `numbers.Number`), producing the literal strings `"True"` /
- *      `"False"` on the wire. So this checker resolving boolean
- *      literals to `text` matches the wire form authors will see.
- *      The XForm / CSQL value-coercion layer above the case-block
- *      boundary may apply further normalization at evaluation time;
- *      this checker does not depend on its exact form.
+ *      booleans become `text` (CommCare has no Boolean data type, so
+ *      booleans coerce to one of the available buckets and `text` is
+ *      the only viable target — wire encoding decisions, e.g.
+ *      `"True"` vs `"true"` vs `"1"`, live at the wire-emit boundary,
+ *      not here).
  */
 function literalType(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;

@@ -335,11 +335,25 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 
 // ---------- Drift guard ----------
 //
-// Compile-time check that each hand-written recursive arm of `Predicate`
-// matches its schema's inferred shape. If a field is added or removed
-// on one of the recursive schemas without a parallel update to the
-// matching union arm above, this `_driftGuard` block fails to
-// type-check and CI catches it.
+// `_driftGuard` compares each recursive arm's non-recursive structural
+// surface against its schema's `z.infer`. The recursive slots
+// themselves (`clauses` on `and` / `or`, `clause` on `not` /
+// `when-input-present`) cannot be compared via `z.infer` — through
+// `z.lazy`, the inferred shape of the payload widens unpredictably
+// across TS versions. So each arm is stripped of its recursive slot
+// before comparison.
+//
+// Today, three of the four arms (`and`, `or`, `not`) have only their
+// `kind` discriminator left after the strip, so the guard for those
+// reduces to "the discriminator string matches itself." Only
+// `when-input-present` has a non-discriminator non-recursive field
+// (`input: SearchInputRef`), so it carries the actual structural
+// check. The guard's value is forward-looking: if any future change
+// adds a non-recursive field to one of these schemas (e.g.
+// `andSchema` gains a `short_circuit?: boolean`), the corresponding
+// arm's hand-declared shape must update or the guard fails. Catches
+// additions, removals, and renames of non-recursive fields — exactly
+// the drift path that the recursive-slot strip leaves uncovered.
 //
 // `_TypesEqual` is the standard TypeScript-FP pattern for strict
 // structural equality (two types are considered equal iff a
@@ -350,14 +364,11 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 // is conservative: it treats `b?: number` as a structurally distinct
 // type from "field absent", so optional additions/removals trip it.
 //
-// The recursive slots themselves (`clauses`, `clause`) cannot be
-// compared via `z.infer` — through `z.lazy`, the inferred shape of the
-// payload widens unpredictably across TS versions. So each arm is
-// stripped of its recursive slot before comparison. The recursive
-// slot's CONTENT is pinned by parse tests in the adjacent test file
-// (`not(...)` and `when-input-present(...)` parse nested predicates),
-// so the only escape route this guard misses — a payload-shape change
-// reachable only through recursion — is caught there.
+// The recursive slot's CONTENT is pinned by parse tests in the
+// adjacent test file (`not(...)` and `when-input-present(...)` parse
+// nested predicates), so the only escape route this guard misses —
+// a payload-shape change reachable only through recursion — is
+// caught there.
 
 type _TypesEqual<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
@@ -380,11 +391,14 @@ type _WhenInputPresentInferred = Omit<
 	"clause"
 >;
 
-// `_driftGuard` is intentionally unused at runtime — its sole purpose
-// is to fail type-check when the hand-written `Predicate` arms drift
-// from their schemas. The leading `_` opts it out of the
-// `noUnusedVariables` lint by convention; the assignment must remain
-// because removing it loses the type-check site.
+// `_driftGuard` is kept as a `const` declaration so the type assertion
+// has a binding site — the four arm equality checks are evaluated at
+// the binding's annotated type. If any of them resolves to `false`,
+// the `{ and: true, or: true, not: true, whenInputPresent: true }`
+// initializer fails to assign to the annotated type and CI catches
+// it. Removing the const would lose the type-check site; the
+// `_` prefix follows the convention for "type assertion that has no
+// runtime role" in this codebase.
 const _driftGuard: {
 	and: _TypesEqual<_AndArm, _AndInferred>;
 	or: _TypesEqual<_OrArm, _OrInferred>;
