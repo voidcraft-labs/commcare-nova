@@ -541,19 +541,16 @@ describe("emitXPath — special operators", () => {
 		expect(emitXPath(p, "csql")).toBe(`fuzzy-match(name, "O'Brien")`);
 	});
 
-	it("emits when-input-present as if(count(input), then, true()) with the boolean-context fallback", () => {
-		// CCHQ's canonical `if(count(input), <then-string>, <fallback-string>)`
-		// pattern at `docs/case_search_query_language.rst:299-303`
-		// constructs a STRING-VALUED expression — both branches are
-		// string literals ultimately parsed as CSQL. Our emitter
-		// drops directly into a BOOLEAN predicate position
-		// (`[<filter>]` for case-list-filter, `_xpath_query` body
-		// for csql), where XPath's boolean coercion of `''` is
-		// `false`, and a `''` fallback would silently exclude every
-		// case when the input is unset. The correct boolean-context
-		// no-op is `true()`, so AND-combining the wrapper with other
-		// clauses leaves them unchanged on input-unset and applies
-		// the wrapped clause on input-present.
+	it("emits when-input-present as if(count(input), then, true()) in case-list-filter context", () => {
+		// case-list-filter drops the predicate directly into a
+		// casedb XPath nodeset (`instance('casedb')/casedb/case[<this>]`),
+		// where CommCare's XPath dialect supports `if` and `count`.
+		// The fallback is `true()` (not `''`): XPath's boolean
+		// coercion of `''` is `false`, which would silently exclude
+		// every case when the trigger input is unset. `true()` is
+		// the AND-chain identity element, so AND-combining the
+		// wrapper with sibling clauses leaves them unchanged on
+		// input-unset and applies the wrapped clause on input-set.
 		const p = whenInput(
 			input("name_query"),
 			eq(prop("patient", "name"), input("name_query")),
@@ -561,6 +558,28 @@ describe("emitXPath — special operators", () => {
 		expect(emitXPath(p, "case-list-filter")).toBe(
 			"if(count(instance('search-input:results')/input/field[@name='name_query']), name = instance('search-input:results')/input/field[@name='name_query'], true())",
 		);
+	});
+
+	it("throws in csql context for when-input-present (wire wrapper handles conditionality)", () => {
+		// CSQL has no native conditional construct: `if` and
+		// `count` are absent from both CSQL function whitelists at
+		// `corehq/apps/case_search/xpath_functions/__init__.py:27-50`.
+		// CCHQ's canonical pattern at
+		// `docs/case_search_query_language.rst:299-303` keeps the
+		// conditionality OUTSIDE the CSQL string — an outer XPath
+		// `if(count(<input>), <CSQL-A>, <CSQL-B>)` chooses between
+		// two pre-built CSQL strings, neither of which contains the
+		// conditional itself. The emitter therefore cannot encode
+		// `when-input-present` in csql context at this layer, and
+		// throws to surface the requirement loudly. The wire-
+		// wrapping layer that builds the outer XPath emits two
+		// distinct CSQL strings (one with the input substituted,
+		// one without) and selects between them at runtime.
+		const p = whenInput(
+			input("name_query"),
+			eq(prop("patient", "name"), input("name_query")),
+		);
+		expect(() => emitXPath(p, "csql")).toThrow(/csql context/i);
 	});
 
 	it("emits when-input-present with a logical-conjunction inner clause", () => {
@@ -584,14 +603,15 @@ describe("emitXPath — special operators", () => {
 
 	it.each(
 		CONTEXTS,
-	)("emits each special operator identically across contexts when no quotes are present (%s)", (ctx) => {
-		// Quote-free inputs hit the operator arms identically
-		// across both contexts. Pinning the cross-context
-		// invariance here protects against a regression that
-		// branched the operator emission itself on context (the
-		// emitter's documented divergence is concentrated in the
-		// string-literal escape path; the operator forms
-		// themselves are identical at this layer).
+	)("emits selected-any / within-distance / fuzzy-match identically across contexts when no quotes are present (%s)", (ctx) => {
+		// `selected-any`, `within-distance`, and `fuzzy-match` are
+		// CCHQ wire functions admitted by both case-list-filter
+		// XPath and CSQL's function whitelists, so their bare-token
+		// (quote-free) emission is identical across both contexts.
+		// `when-input-present` is excluded from this invariance
+		// because CSQL has no `if` / `count` and the emitter throws
+		// in csql context — that divergence is pinned in its own
+		// test above.
 		expect(
 			emitXPath(
 				isIn(prop("patient", "tags"), literal("open"), literal("active")),

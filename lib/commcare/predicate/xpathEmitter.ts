@@ -78,18 +78,25 @@
 //   - `fuzzy-match(prop, 'value')` — see
 //     `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`
 //     for the 2-arg signature.
-//   - `if(count(<input>), <then>, true())` for `when-input-present` —
-//     the `if(count(input), ..., '')` pattern in the docs at
-//     `docs/case_search_query_language.rst:299-303` builds a
+//   - `if(count(<input>), <then>, true())` for `when-input-present`
+//     in case-list-filter context only. CommCare's case-list
+//     XPath dialect supports `if` and `count`, but the docs
+//     example at `case_search_query_language.rst:299-303` is a
 //     STRING-VALUED expression where both branches are filter
-//     strings later parsed as CSQL. This emitter drops directly
-//     into a boolean predicate position (`[<filter>]` for
-//     case-list-filter, `_xpath_query` body for csql), where
-//     XPath's boolean coercion of `''` is `false` — a `''`
-//     fallback would silently exclude every case when the input
-//     is unset. `true()` is the correct boolean-context no-op
-//     fallback so the wrapper leaves AND-combined sibling clauses
-//     unchanged on input-unset.
+//     strings later parsed as CSQL — a different surface from the
+//     boolean predicate position this emitter targets. `true()`
+//     (not `''`) is the correct boolean-context fallback because
+//     XPath's boolean coercion of `''` is `false`, which would
+//     silently exclude every case on input-unset; `true()` is the
+//     AND-chain identity element. CSQL has no native conditional
+//     construct (`if` and `count` are absent from both CSQL
+//     function whitelists at
+//     `corehq/apps/case_search/xpath_functions/__init__.py:27-50`),
+//     so the emitter throws on `when-input-present` in csql
+//     context — the wire-wrapping layer that builds the outer
+//     XPath must emit two distinct CSQL strings (one with the
+//     input substituted, one without) and select between them at
+//     runtime, matching the docs-example pattern.
 
 import type {
 	ComparisonKind,
@@ -291,22 +298,45 @@ function emitPredicate(
 		case "when-input-present": {
 			// Conditional-include wrapper. The wrapped clause runs
 			// only if the named search input is present at runtime;
-			// otherwise the wrapper is a no-op. CCHQ's docs show the
-			// `if(count(input), <then>, <fallback>)` shape at
-			// `case_search_query_language.rst:299-303`, but the
-			// docs example builds a STRING (both branches are
-			// filter strings later parsed as CSQL). This emitter
-			// drops directly into a boolean predicate position, so
-			// the fallback must be the boolean-context no-op:
-			// XPath's boolean coercion of `''` is `false`, which
-			// would silently exclude every case on input-unset.
-			// `true()` is the correct fallback — AND-combining the
-			// wrapper with sibling clauses leaves them unchanged
-			// when the input is unset and applies the wrapped
-			// clause when the input is present. The inner clause
-			// recurses with `parentPrec: 0` because the function-
-			// call argument position is its own grouping boundary,
-			// so no outer parens wrap a logical-operator inner.
+			// otherwise the wrapper is a no-op.
+			//
+			// CSQL has no native conditional construct: `if` and
+			// `count` are absent from both `XPATH_VALUE_FUNCTIONS`
+			// (8 functions) and `XPATH_QUERY_FUNCTIONS` (14
+			// functions) at
+			// `corehq/apps/case_search/xpath_functions/__init__.py:27-50`.
+			// CCHQ's canonical conditional pattern at
+			// `docs/case_search_query_language.rst:299-303` handles
+			// the conditionality OUTSIDE the CSQL string — an XPath
+			// `if(count(<input>), <CSQL-string-A>, <CSQL-string-B>)`
+			// chooses between two pre-built CSQL strings, neither
+			// of which contains `if` or `count` itself. The CSQL
+			// emitter therefore cannot encode `when-input-present`
+			// at this layer; the wire-wrapping layer that builds
+			// the outer XPath must emit two distinct CSQL strings
+			// (one with the input substituted, one without) and
+			// select between them at runtime.
+			if (ctx === "csql") {
+				throw new Error(
+					"emitXPath: when-input-present cannot be emitted directly in csql context. " +
+						"The wire-wrapping layer must handle conditionality by emitting separate " +
+						"CSQL strings for input-set and input-unset states.",
+				);
+			}
+			// case-list-filter: the predicate drops directly into a
+			// casedb XPath nodeset (`instance('casedb')/casedb/case[<this>]`),
+			// where CommCare's XPath dialect supports `if` and
+			// `count`. The fallback is `true()` (not `''`): XPath's
+			// boolean coercion of `''` is `false`, which would
+			// silently exclude every case on input-unset. `true()`
+			// is the no-op identity for AND-chained clauses, so
+			// AND-combining the wrapper with sibling clauses leaves
+			// them unchanged when the trigger input is unset and
+			// applies the wrapped clause when it is set. The inner
+			// clause recurses with `parentPrec: 0` because the
+			// function-call argument position is its own grouping
+			// boundary, so no outer parens wrap a logical-operator
+			// inner.
 			const inputExpr = emitTerm(p.input, ctx);
 			const thenExpr = emitPredicate(p.clause, ctx, 0);
 			return `if(count(${inputExpr}), ${thenExpr}, true())`;
