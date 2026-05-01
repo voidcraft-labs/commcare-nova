@@ -243,11 +243,15 @@ export type RelationStep = z.infer<typeof relationStepSchema>;
  *     type checker can resolve property references at the destination
  *     scope without re-walking the relationship graph at check time.
  *     Maps to CCHQ's `subcase-exists`/`subcase-count`.
- *   - `any-relation` — generic relation by identifier, direction
- *     unknown at authoring time. Compiles to a `case_indices.identifier`
- *     lookup without the direction-narrowing constraint that
- *     `ancestor` / `subcase` apply. Useful for custom indices where the
- *     author hasn't committed to a relationship-id.
+ *   - `any-relation` — direction-agnostic relation by identifier.
+ *     Models the case where authoring time hasn't committed to CHILD
+ *     vs EXTENSION semantics — e.g. a custom index whose direction
+ *     isn't known until runtime. On the Postgres target, this compiles
+ *     to a `case_indices.identifier` lookup that matches both
+ *     directions. CCHQ's on-device and CSQL function sets expose only
+ *     direction-specific operators (`ancestor-exists` / `subcase-exists`),
+ *     so the representability checker rejects this kind for those
+ *     targets — `any-relation` is preview-only at the CCHQ wire boundary.
  */
 export const relationPathSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("self") }),
