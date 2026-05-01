@@ -547,8 +547,9 @@ describe("relationPath schema", () => {
 		// and the on-device `instance('casedb')/casedb/case[@case_id =
 		// current()/index/parent]` join pattern. The on-device runtime
 		// build site for `<index>/<identifier>` is
-		// `commcare-core/.../CaseChildElement.java:233-240`; the CSQL
-		// path is verified at
+		// `CaseChildElement.buildIndexTreeElement` in
+		// `commcare-core/src/main/java/org/commcare/cases/instance/`; the
+		// CSQL path is verified at
 		// `commcare-hq/.../ancestor_functions.py:39-94`. The single-hop
 		// shape is the most common authored form (parent → patient).
 		const result = relationPathSchema.parse({

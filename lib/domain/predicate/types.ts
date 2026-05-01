@@ -176,12 +176,15 @@ const casePropertyField = (label: string) =>
 // graph without committing to a particular wire form: emitters lower it
 // to `instance('casedb')/casedb/case[@case_id = current()/index/<rel>]`
 // for the on-device dialect — each `<rel>` resolves at runtime against
-// the per-case `<index>` TreeElement built at
-// `commcare-core/src/main/java/org/commcare/cases/instance/CaseChildElement.java:233-240`,
-// where one named child is added per index identifier, making
-// `current()/index/<identifier>` a real XPath path step at evaluation
-// time. The CSQL dialect lowers to `ancestor-exists(parent/host, ...)` /
-// `subcase-exists('parent', ...)` per
+// the per-case `<index>` TreeElement built by `buildIndexTreeElement`
+// in `commcare-core/src/main/java/org/commcare/cases/instance/CaseChildElement.java`
+// (the index-loop adds one named TreeElement child per `CaseIndex`,
+// using `i.getName()` as the element name — that's what makes
+// `current()/index/<identifier>` resolvable as an XPath path step at
+// evaluation time). The symbol anchor is the durable reference here;
+// upstream line numbers drift across versions. The CSQL dialect lowers
+// to `ancestor-exists(parent/host, ...)` / `subcase-exists('parent',
+// ...)` per
 // `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`,
 // `ancestor_functions.py:39-94`, and `subcase_functions.py:51-62`.
 // The Postgres dialect lowers to a JOIN on the `case_indices` table.
@@ -212,7 +215,7 @@ const casePropertyField = (label: string) =>
  * `identifier` is constrained to XML element-name vocabulary because
  * the wire form `current()/index/<identifier>` places the identifier
  * as an XML element-name path step. The on-device runtime build site
- * for that path step is `CaseChildElement.java:233-240` (cited at the
+ * is `CaseChildElement.buildIndexTreeElement` (cited at the
  * file-level RelationPath comment), where each index identifier
  * surfaces as a named child of the per-case `<index>` TreeElement.
  * The CCHQ ES traversal is verified at
