@@ -208,16 +208,18 @@ const casePropertyField = (label: string) =>
  *
  * `identifier` is constrained to XML element-name vocabulary because
  * the wire form `current()/index/<identifier>` places the identifier as
- * an XML element-name path step (see the on-device dispatch at
- * `commcare-core/src/main/java/org/javarosa/xpath/parser/ast/ASTNodeFunctionCall.java`
- * and the CCHQ ES traversal at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:39-94`).
+ * an XML element-name path step. The on-device join pattern is
+ * verified at
+ * `commcare-core/src/main/java/org/commcare/cases/query/queryset/DerivedCaseQueryLookup.java:18`
+ * (cited at the file-level RelationPath comment); the CCHQ ES
+ * traversal is verified at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:39-94`.
  * `throughCaseType` is constrained to CommCare's case-type vocabulary
  * to keep emitter interpolation safe.
  */
 export const relationStepSchema = z.object({
 	identifier: xmlElementNameField("Relation identifier"),
-	throughCaseType: caseTypeField("throughCaseType").optional(),
+	throughCaseType: caseTypeField("Through case type").optional(),
 });
 export type RelationStep = z.infer<typeof relationStepSchema>;
 
@@ -270,12 +272,12 @@ export const relationPathSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("subcase"),
 		identifier: xmlElementNameField("Subcase identifier"),
-		ofCaseType: caseTypeField("ofCaseType").optional(),
+		ofCaseType: caseTypeField("Of case type").optional(),
 	}),
 	z.object({
 		kind: z.literal("any-relation"),
 		identifier: xmlElementNameField("Relation identifier"),
-		ofCaseType: caseTypeField("ofCaseType").optional(),
+		ofCaseType: caseTypeField("Of case type").optional(),
 	}),
 ]);
 export type RelationPath = z.infer<typeof relationPathSchema>;
