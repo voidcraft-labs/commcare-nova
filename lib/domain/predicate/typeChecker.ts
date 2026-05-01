@@ -178,14 +178,16 @@ const FUZZY_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
  * Throws synchronously when the walk reaches a predicate of kind
  * `is-null`, `between`, `exists`, or `missing` — per-operator semantic
  * rules for those four kinds are not implemented in the current
- * checker. The throw is deliberate: silently passing those kinds
- * would produce false-positive "type-checks clean" verdicts on
- * unchecked predicates, the exact failure mode the checker exists to
- * prevent. Callers either handle the throw or scope inputs to the
- * implemented kinds. The throw also fires on a sentinel/comparison
- * predicate that nests one of those four kinds (e.g.
- * `and(eq(...), isNull(...))`), because the walker recurses through
- * the wrapper before it dispatches.
+ * checker. The throw also fires when one of those four kinds is nested
+ * inside a logical wrapper (`and` / `or` / `not` / `when-input-present`)
+ * — e.g. `and(eq(...), isNull(...))` — because the walker recurses
+ * through the wrapper's clauses before it dispatches on the inner
+ * kind.
+ *
+ * The throw is deliberate: silently passing those kinds would produce
+ * false-positive "type-checks clean" verdicts on unchecked predicates,
+ * the exact failure mode the checker exists to prevent. Callers either
+ * handle the throw or scope inputs to the implemented kinds.
  */
 export function checkPredicate(
 	predicate: Predicate,
