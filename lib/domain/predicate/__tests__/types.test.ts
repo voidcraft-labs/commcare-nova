@@ -12,7 +12,18 @@
 //      the schema rejects ill-formed input rather than silently coercing.
 
 import { describe, expect, it } from "vitest";
-import { predicateSchema, termSchema } from "../types";
+import {
+	CASE_PROPERTY_REGEX,
+	CASE_TYPE_REGEX,
+	XML_ELEMENT_NAME_REGEX,
+} from "@/lib/commcare/constants";
+import {
+	CASE_PROPERTY_PATTERN,
+	CASE_TYPE_PATTERN,
+	predicateSchema,
+	termSchema,
+	XML_ELEMENT_NAME_PATTERN,
+} from "../types";
 
 describe("term schema", () => {
 	it("parses a property reference", () => {
@@ -463,5 +474,37 @@ describe("predicate schema", () => {
 			right: { kind: "literal", value: "abc" },
 		});
 		expect(result.kind).toBe("eq");
+	});
+});
+
+// Drift guard for the inlined identifier patterns in `types.ts`. The
+// patterns are inlined there because the `noRestrictedImports` rule
+// in `biome.json` denies `lib/domain` direct access to
+// `lib/commcare/*` at runtime — the boundary keeps `lib/commcare` as
+// the one-way emission target and prevents domain types from
+// depending on CommCare's wire vocabulary at the source-graph level.
+//
+// Tests are exempt from that boundary (`biome.json:61` excludes
+// `**/__tests__/**`), so this block crosses the boundary at test
+// time only and asserts that the inlined patterns' `.source` field
+// equals the source-of-truth constants in `lib/commcare/constants`.
+// If `lib/commcare`'s identifier vocabulary changes, the test fails
+// until the inlined copies in `types.ts` are updated to match. The
+// `.source` comparison is the right shape because two `RegExp`
+// instances are object-identity-distinct even when constructed from
+// the same literal; comparing the underlying pattern strings is the
+// only structural-equality check available without depending on
+// runtime-equivalence semantics.
+describe("inlined identifier patterns match lib/commcare/constants source-of-truth", () => {
+	it("CASE_TYPE_PATTERN matches CASE_TYPE_REGEX", () => {
+		expect(CASE_TYPE_PATTERN.source).toBe(CASE_TYPE_REGEX.source);
+	});
+
+	it("CASE_PROPERTY_PATTERN matches CASE_PROPERTY_REGEX", () => {
+		expect(CASE_PROPERTY_PATTERN.source).toBe(CASE_PROPERTY_REGEX.source);
+	});
+
+	it("XML_ELEMENT_NAME_PATTERN matches XML_ELEMENT_NAME_REGEX", () => {
+		expect(XML_ELEMENT_NAME_PATTERN.source).toBe(XML_ELEMENT_NAME_REGEX.source);
 	});
 });

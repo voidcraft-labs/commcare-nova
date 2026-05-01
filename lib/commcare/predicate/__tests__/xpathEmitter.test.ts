@@ -32,9 +32,11 @@ import { describe, expect, it } from "vitest";
 import {
 	and,
 	eq,
+	fuzzy,
 	gt,
 	gte,
 	input,
+	isIn,
 	literal,
 	lt,
 	lte,
@@ -43,6 +45,8 @@ import {
 	or,
 	prop,
 	userField,
+	whenInput,
+	within,
 } from "@/lib/domain/predicate/builders";
 import { type EmissionContext, emitXPath } from "../xpathEmitter";
 
@@ -387,5 +391,34 @@ describe("emitXPath — string-literal escape", () => {
 		// filter or strip one quote type upstream.
 		const p = eq(prop("patient", "name"), literal(`it's "quoted"`));
 		expect(() => emitXPath(p, "csql")).toThrow(/no portable escape/i);
+	});
+});
+
+describe("emitXPath — operators without an emission arm", () => {
+	// `in`, `within-distance`, `fuzzy`, and `when-input-present` are
+	// listed explicitly in the predicate switch so the union stays
+	// exhaustive at compile time — adding a new AST kind without an
+	// emission arm becomes a TypeScript error rather than a runtime
+	// fall-through. The arm itself throws at runtime, and this test
+	// pins that throw contract so a regression that silently emitted
+	// the wrong wire form (e.g. via a `default:` fallback or a partial
+	// implementation) trips here rather than reaching the wire. Both
+	// contexts are covered because the throw lives in `emitPredicate`,
+	// which precedes any context-specific arm.
+
+	it.each(
+		(
+			[
+				isIn(prop("patient", "status"), literal("open")),
+				within(prop("clinic", "location"), literal("40.7,-74.0"), 50, "miles"),
+				fuzzy(prop("patient", "name"), "alice"),
+				whenInput(
+					input("name_query"),
+					eq(prop("patient", "name"), input("name_query")),
+				),
+			] as const
+		).flatMap((p) => CONTEXTS.map((ctx) => ({ p, ctx }) as const)),
+	)("throws for kind '$p.kind' in $ctx context", ({ p, ctx }) => {
+		expect(() => emitXPath(p, ctx)).toThrow(/no emission arm/i);
 	});
 });

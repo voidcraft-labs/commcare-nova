@@ -49,8 +49,8 @@ import { casePropertyDataTypeSchema } from "../blueprint";
 // to re-defend the boundary.
 //
 // The patterns below are deliberately inlined rather than imported
-// from `lib/commcare/identifierValidation`. The `noRestrictedImports`
-// rule in `biome.json` denies `lib/domain` direct access to
+// from `lib/commcare/constants`. The `noRestrictedImports` rule in
+// `biome.json` denies `lib/domain` direct access to
 // `lib/commcare/*`, and the convention is that `lib/commcare`
 // crosses the boundary in one direction only — domain → commcare at
 // emission time. The patterns themselves are simple regex strings,
@@ -58,19 +58,24 @@ import { casePropertyDataTypeSchema } from "../blueprint";
 // shared declaration site at the cost of inverting the package
 // graph for two regular expressions.
 //
-// Patterns mirror the constants in `lib/commcare/constants.ts`
-// (CASE_TYPE_REGEX / CASE_PROPERTY_REGEX / XML_ELEMENT_NAME_REGEX) —
-// any divergence between this file and that one is a bug in this
-// file, since `lib/commcare` is the source of truth for CommCare's
-// identifier vocabulary. A drift guard sits at the bottom of this
-// section to flag accidental relaxation here.
+// `lib/commcare/constants.ts` is the source of truth for CommCare's
+// identifier vocabulary. The patterns here mirror its
+// `CASE_TYPE_REGEX` / `CASE_PROPERTY_REGEX` / `XML_ELEMENT_NAME_REGEX`
+// constants. A drift guard in
+// `__tests__/types.test.ts` crosses the boundary at test time
+// (where the `noRestrictedImports` rule does not apply per
+// `biome.json:61`) and asserts the inlined patterns' `.source`
+// equals the canonical constants' `.source`. If the source-of-truth
+// constants are updated, the test fails until the inlined copies
+// here are updated to match. Each pattern is exported below so the
+// guard test can compare it.
 
 /**
  * Permitted shape of a CommCare case type identifier — leading
  * letter, then letters/digits/underscores/hyphens. Mirrors
  * `CASE_TYPE_REGEX` in `lib/commcare/constants.ts`.
  */
-const CASE_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+export const CASE_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 /**
  * Permitted shape of a case property name addressed in a predicate
@@ -81,7 +86,7 @@ const CASE_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  * hyphenated names (e.g. `external-id`); the wire emitter treats
  * them as opaque identifiers.
  */
-const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+export const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 /**
  * Permitted shape of an XML element name — a search-input name and
@@ -95,7 +100,7 @@ const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  * `lib/commcare/constants.ts` between `XML_ELEMENT_NAME_REGEX` and
  * `CASE_PROPERTY_REGEX`.
  */
-const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 // ---------- Terms (anything that resolves to a value) ----------
 //
