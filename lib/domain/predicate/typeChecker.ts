@@ -3,34 +3,31 @@
 // Schema-driven type checker for the predicate AST. `checkPredicate(p,
 // ctx)` walks a Predicate against a TypeContext (the blueprint's
 // CaseType schema and the search inputs in scope) and produces either
-// Ok or a list of typed errors. Each error carries a path that locates
-// the offending node so the editor can highlight the failing card
-// without having to reparse the AST itself.
+// Ok or a list of typed errors with paths so the editor can highlight
+// the offending card without having to reparse the AST itself.
 //
 // Why a separate type-check pass from `predicateSchema.parse(...)`: the
 // Zod schema enforces structural validity (the AST is well-formed) but
-// not semantic validity (the operands have compatible data types, the
-// referenced property exists on the named case type, the named search
-// input is declared at this site). Those rules require the blueprint's
+// not semantic validity. Semantic checks require the blueprint's
 // `CaseType` schema as a side input — they can't be encoded in the AST
 // schema itself, which knows nothing about which case types exist. The
 // split keeps the AST schema independent of any particular blueprint
 // and concentrates the schema-driven rules in this one walker.
 //
-// Walk dispatch: comparison operators (`eq` / `neq` / `gt` / `gte` /
-// `lt` / `lte`) check operand-type compatibility against the resolution
-// rules below. Logical wrappers (`and` / `or` / `not`) recurse into
-// their child clauses, threading the operator name and (for the
-// multi-clause arms) the array index into the error path so a
-// violation buried inside a logical wrapper still surfaces with a
-// precise location. `when-input-present` recurses into its wrapped
-// `clause`. Membership (`in`), geo (`within-distance`), and fuzzy
-// (`fuzzy`) carry no nested predicates and their structural shape is
-// validated at parse time, so the walker descends past them without
-// further inspection. Any per-operator semantic check belongs in its
-// own dispatch arm, colocated with the kind's case label, so adding a
-// rule extends the dispatch table rather than threading a new branch
-// through the comparison-rule code.
+// Coverage is per-operator and intentionally not uniform across kinds.
+// Operand-level resolution (referenced property exists on the named
+// case type, named search input is declared, operand types are
+// compatible) runs for the comparison operators (`eq` / `neq` / `gt` /
+// `gte` / `lt` / `lte`) and for the trigger-input slot of
+// `when-input-present`. Logical wrappers (`and` / `or` / `not`) and
+// the wrapped clause of `when-input-present` recurse so violations
+// inside them surface here, with paths threading the operator name
+// and (for the multi-clause arms) the array index. Membership (`in`),
+// geo (`within-distance`), and phonetic (`fuzzy`) operators descend
+// without operand inspection — their per-operator semantic checks
+// (membership-value compatibility, geopoint-property requirement,
+// text-property requirement) belong in dedicated dispatch arms and
+// are not part of this checker's current shape.
 
 import type {
 	CaseProperty,
@@ -48,9 +45,15 @@ import type { ComparisonKind, Literal, Predicate, Term } from "./types";
  * widens or narrows the comparison-rule check at this input's use site
  * — when omitted, the input defaults to `text`, which is CommCare's
  * default for properties without an explicit type.
+ *
+ * Distinct from the AST `SearchInputRef` (the `input("name")` term
+ * built by the predicate). `SearchInputRef` is on the predicate side
+ * and discriminates with `kind: "input"` to participate in the
+ * `Term` discriminated union; `SearchInputDecl` is on the context
+ * side and is looked up by `name` only, so it carries no
+ * discriminator.
  */
 export type SearchInputDecl = {
-	kind: "input";
 	name: string;
 	data_type?: CaseProperty["data_type"];
 };
@@ -393,15 +396,21 @@ function resolveTermType(
  *      strings become `text`, numbers split int / decimal via
  *      `Number.isInteger` (so the numeric-promotion rule in
  *      `typesCompatible` handles `int` / `decimal` interchangeably),
- *      booleans become `text`. Boolean-as-text is consistent with the
- *      case-block XML wire format, where every property value is
- *      stringified at serialization (see
- *      corehq/ex-submodules/casexml/apps/case/mock/case_block.py:246-256
- *      — `_DictToXML.fmt` runs `six.text_type(value)` on every
- *      non-`None` non-bytes value, including booleans). The XForm /
- *      CSQL value-coercion layer above the case-block boundary may
- *      apply further normalization at evaluation time; this checker
- *      does not depend on its exact form.
+ *      booleans become `text`. Boolean-as-text matches CommCare's
+ *      case-block XML wire form: in
+ *      `corehq/ex-submodules/casexml/apps/case/mock/case_block.py`,
+ *      `_DictToXML.fmt` is a typed dispatch — it returns the value
+ *      unchanged for already-text strings, decodes bytes, formats
+ *      datetimes through `json_format_datetime`, and only otherwise
+ *      runs `six.text_type(value)` on values that match
+ *      `(numbers.Number, date)`. Python booleans take that last
+ *      branch (since `bool` subclasses `int`, which is a
+ *      `numbers.Number`), producing the literal strings `"True"` /
+ *      `"False"` on the wire. So this checker resolving boolean
+ *      literals to `text` matches the wire form authors will see.
+ *      The XForm / CSQL value-coercion layer above the case-block
+ *      boundary may apply further normalization at evaluation time;
+ *      this checker does not depend on its exact form.
  */
 function literalType(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;

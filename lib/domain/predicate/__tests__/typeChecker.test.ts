@@ -109,6 +109,21 @@ describe("checkPredicate — comparison operators", () => {
 		}
 	});
 
+	// The ordered-types check is `!leftOrdered || !rightOrdered`. The
+	// previous test's left operand is text and short-circuits the `||`
+	// before the right side is evaluated; pinning the right-side branch
+	// requires an int (ordered) left operand and a text (unordered) right
+	// operand. Without this test, a regression that dropped the
+	// `!rightOrdered` half of the conjunction would slip through.
+	it("rejects gt with text on the right side (right-side ordered check)", () => {
+		const p = gt(prop("patient", "age"), literal("M"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/not ordered/i);
+		}
+	});
+
 	it("accepts lt on date with a typed dateLiteral", () => {
 		const p = lt(prop("patient", "dob"), dateLiteral("2000-01-01"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
@@ -139,9 +154,7 @@ describe("checkPredicate — comparison operators", () => {
 	it("accepts input ref against int prop when input is declared", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [
-				{ kind: "input", name: "min_age", data_type: "int" } as const,
-			],
+			knownInputs: [{ name: "min_age", data_type: "int" as const }],
 		};
 		const p = gt(prop("patient", "age"), input("min_age"));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
@@ -293,7 +306,7 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	it("propagates errors from inside when-input-present's clause", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ kind: "input" as const, name: "phone" }],
+			knownInputs: [{ name: "phone" }],
 		};
 		const p = whenInput(
 			input("phone"),
