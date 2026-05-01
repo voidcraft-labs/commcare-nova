@@ -254,12 +254,13 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	it("rejects fuzzy whose property is not a prop reference", () => {
+	it("rejects match whose property is not a prop reference", () => {
 		expect(() =>
 			predicateSchema.parse({
-				kind: "fuzzy",
+				kind: "match",
 				property: { kind: "input", name: "name_query" },
 				value: "alice",
+				mode: "fuzzy",
 			}),
 		).toThrow();
 	});
@@ -305,12 +306,12 @@ describe("predicate schema", () => {
 	//     through a comparison's `right` slot via nested narrowing.
 	//   - `in` operator: had only empty-array + ill-shaped negative
 	//     tests; this test confirms a non-empty literal list parses.
-	//   - `fuzzy` operator: had only the non-prop-property negative
+	//   - `match` operator: had only the non-prop-property negative
 	//     test; this test confirms the canonical happy-path shape
 	//     parses.
 	// Without these, a future rename like `field` → `fieldName` on
 	// `userContextRefSchema` (or any happy-path field rename on `in` /
-	// `fuzzy`) wouldn't trip a single existing test.
+	// `match`) wouldn't trip a single existing test.
 
 	it("parses a user-field reference inside a comparison", () => {
 		const result = predicateSchema.parse({
@@ -342,16 +343,160 @@ describe("predicate schema", () => {
 		}
 	});
 
-	it("parses a fuzzy(...) match", () => {
+	it("parses a match(...) predicate with mode: fuzzy", () => {
 		const result = predicateSchema.parse({
-			kind: "fuzzy",
+			kind: "match",
 			property: { kind: "prop", caseType: "patient", property: "name" },
 			value: "alice",
+			mode: "fuzzy",
 		});
-		expect(result.kind).toBe("fuzzy");
-		if (result.kind === "fuzzy") {
+		expect(result.kind).toBe("match");
+		if (result.kind === "match") {
 			expect(result.value).toBe("alice");
+			expect(result.mode).toBe("fuzzy");
 		}
+	});
+
+	// Each match mode dispatches to a different CCHQ wire form on the
+	// CSQL target — `fuzzy-match` (verified at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:91-98`),
+	// `phonetic-match` (line 84-89), `fuzzy-date` (line 101-115), and
+	// `starts-with` (line 31-35). Pinning each mode through round-trip
+	// parse locks the discriminator-only payload (`{ property, value,
+	// mode }`) for every variant; a regression that dropped one mode
+	// from the enum would surface here rather than at the emitter.
+	it.each([
+		"fuzzy",
+		"phonetic",
+		"fuzzy-date",
+		"starts-with",
+	] as const)("parses a match(...) with mode: %s", (mode) => {
+		const result = predicateSchema.parse({
+			kind: "match",
+			property: { kind: "prop", caseType: "patient", property: "name" },
+			value: "alice",
+			mode,
+		});
+		expect(result.kind).toBe("match");
+		if (result.kind === "match") {
+			expect(result.mode).toBe(mode);
+		}
+	});
+
+	it("rejects match with an unknown mode", () => {
+		// `mode` is `z.enum([...four values])` — any string outside the
+		// declared set rejects at parse time. Pin one out-of-set name so
+		// a future widening to `z.string()` would trip this test.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "match",
+				property: { kind: "prop", caseType: "patient", property: "name" },
+				value: "alice",
+				mode: "regex",
+			}),
+		).toThrow();
+	});
+
+	it("rejects match with an empty value (z.string().min(1))", () => {
+		// Match is meaningless against an empty string at every wire
+		// target — every property "starts-with" empty, every property
+		// "fuzzy-matches" empty, etc. Reject at the schema layer so
+		// downstream emitters never have to encode the policy.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "match",
+				property: { kind: "prop", caseType: "patient", property: "name" },
+				value: "",
+				mode: "fuzzy",
+			}),
+		).toThrow();
+	});
+
+	it("rejects match with no mode", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "match",
+				property: { kind: "prop", caseType: "patient", property: "name" },
+				value: "alice",
+			}),
+		).toThrow();
+	});
+
+	// `multi-select-contains` is the typed structural shape for CCHQ's
+	// `selected-any` / `selected-all` query functions (registered at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43-44`).
+	// The `quantifier` discriminator distinguishes the two; the schema
+	// keeps them in one operator so a UI surface or reducer toggling
+	// "any of" ↔ "all of" doesn't have to reshape the parent object.
+	it("parses a multi-select-contains predicate with quantifier: any", () => {
+		const result = predicateSchema.parse({
+			kind: "multi-select-contains",
+			property: { kind: "prop", caseType: "patient", property: "tags" },
+			values: [
+				{ kind: "literal", value: "vip" },
+				{ kind: "literal", value: "urgent" },
+			],
+			quantifier: "any",
+		});
+		expect(result.kind).toBe("multi-select-contains");
+		if (result.kind === "multi-select-contains") {
+			expect(result.quantifier).toBe("any");
+			expect(result.values).toHaveLength(2);
+		}
+	});
+
+	it("parses a multi-select-contains predicate with quantifier: all", () => {
+		const result = predicateSchema.parse({
+			kind: "multi-select-contains",
+			property: { kind: "prop", caseType: "patient", property: "tags" },
+			values: [{ kind: "literal", value: "vip" }],
+			quantifier: "all",
+		});
+		expect(result.kind).toBe("multi-select-contains");
+		if (result.kind === "multi-select-contains") {
+			expect(result.quantifier).toBe("all");
+		}
+	});
+
+	it("rejects multi-select-contains with an empty values list", () => {
+		// Tuple-with-rest enforces non-empty: an empty values list is
+		// trivially false at every wire target ("contains any of nothing"
+		// / "contains all of nothing") and is virtually always an
+		// authoring bug.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "multi-select-contains",
+				property: { kind: "prop", caseType: "patient", property: "tags" },
+				values: [],
+				quantifier: "any",
+			}),
+		).toThrow();
+	});
+
+	it("rejects multi-select-contains with an unknown quantifier", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "multi-select-contains",
+				property: { kind: "prop", caseType: "patient", property: "tags" },
+				values: [{ kind: "literal", value: "vip" }],
+				quantifier: "majority",
+			}),
+		).toThrow();
+	});
+
+	it("rejects multi-select-contains whose property is not a prop reference", () => {
+		// Like `match` and `within-distance`, the property slot is
+		// constrained to a direct property reference — multi-select
+		// containment against a literal or input is meaningless at
+		// every wire target.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "multi-select-contains",
+				property: { kind: "input", name: "tag_filter" },
+				values: [{ kind: "literal", value: "vip" }],
+				quantifier: "any",
+			}),
+		).toThrow();
 	});
 
 	// Deep recursive-arm coverage. The drift guard at the bottom of

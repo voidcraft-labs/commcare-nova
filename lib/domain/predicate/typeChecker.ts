@@ -20,20 +20,24 @@
 // resolve to their data type) runs uniformly across every operator
 // that carries term operands — comparisons, the trigger-input slot of
 // `when-input-present`, and the term operands of `in` /
-// `within-distance` / `fuzzy`. Operand-type compatibility (the
-// "comparable types" check between resolved operand types) runs for
-// the comparison operators (`eq` / `neq` / `gt` / `gte` / `lt` /
-// `lte`) and for `in`'s membership values (every literal in `values`
-// is checked for type compatibility against `left`'s resolved type).
-// Per-operator semantic checks beyond resolution + compatibility run
-// in dedicated arms: `within-distance` requires the `property` slot
-// to resolve to `geopoint` and the `center` slot to resolve to
-// `geopoint` or `text` (the wire-form coordinate string is text);
-// `fuzzy` requires the `property` slot to resolve to one of the
-// text-shaped data types (`text` / `single_select` / `multi_select`).
-// Logical wrappers (`and` / `or` / `not`) and the wrapped clause of
-// `when-input-present` recurse so violations inside them surface
-// here, with paths threading the operator name and (for the
+// `within-distance` / `match` / `multi-select-contains`. Operand-type
+// compatibility (the "comparable types" check between resolved operand
+// types) runs for the comparison operators (`eq` / `neq` / `gt` /
+// `gte` / `lt` / `lte`) and for `in`'s and `multi-select-contains`'s
+// membership values (every literal in `values` is checked for type
+// compatibility against the resolved property type). Per-operator
+// semantic checks beyond resolution + compatibility run in dedicated
+// arms: `within-distance` requires the `property` slot to resolve to
+// `geopoint` and the `center` slot to resolve to `geopoint` or `text`
+// (the wire-form coordinate string is text); `match` requires the
+// `property` slot to resolve to one of the text-shaped data types
+// (`text` / `single_select` / `multi_select`) across all four modes;
+// `multi-select-contains` requires the `property` slot to resolve to
+// `multi_select` specifically (a Nova authoring policy stricter than
+// CCHQ's wire-layer dispatch — see `checkMultiSelectContains` for the
+// rationale). Logical wrappers (`and` / `or` / `not`) and the wrapped
+// clause of `when-input-present` recurse so violations inside them
+// surface here, with paths threading the operator name and (for the
 // multi-clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
@@ -99,12 +103,13 @@ export type TypeContext = {
  *      `and`.
  *
  *   2. Leaf-like operators — comparisons, `in`, `within-distance`,
- *      `fuzzy` — push only the operand slot name (`left`, `right`,
- *      `property`, `center`). Their operands are terms, not nested
- *      predicates, so paths don't accumulate operator names through
- *      descent. The parent's path already disambiguates which
- *      operator the slot belongs to: a consumer walking the AST in
- *      parallel knows the current operator at every level.
+ *      `match`, `multi-select-contains` — push only the operand slot
+ *      name (`left`, `right`, `property`, `center`, `values`). Their
+ *      operands are terms, not nested predicates, so paths don't
+ *      accumulate operator names through descent. The parent's path
+ *      already disambiguates which operator the slot belongs to: a
+ *      consumer walking the AST in parallel knows the current
+ *      operator at every level.
  *
  * Operator-level errors (e.g. "Operator 'gt' requires ordered
  * types") attach to the predicate's own path with no slot suffix, so
@@ -157,10 +162,17 @@ const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"time",
 ]);
 
-// Property types fuzzy match accepts. Text-shaped types pass through
-// CCHQ's case_property_query (used by both fuzzy_match and selected
-// queries), so fuzzy matches dispatch identically across them.
-const FUZZY_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
+// Property types the `match` operator accepts across all four modes
+// (`fuzzy` / `phonetic` / `fuzzy-date` / `starts-with`). Text-shaped
+// types pass through CCHQ's `case_property_query` (used by
+// `fuzzy-match`, `_selected_query`, and `fuzzy-date` per
+// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-115`)
+// and `case_property_starts_with` (used by `starts-with` per
+// `commcare-hq/corehq/apps/es/case_search.py:312-323`). Both functions
+// dispatch text / single_select / multi_select through the same
+// underlying ES path on the `PROPERTY_VALUE` / `PROPERTY_VALUE_EXACT`
+// field, so the allow-list is shared across every match mode.
+const MATCH_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"text",
 	"single_select",
 	"multi_select",
@@ -259,8 +271,11 @@ function walk(
 		case "within-distance":
 			checkWithinDistance(p, ctx, errors, path);
 			return;
-		case "fuzzy":
-			checkFuzzy(p, ctx, errors, path);
+		case "match":
+			checkMatch(p, ctx, errors, path);
+			return;
+		case "multi-select-contains":
+			checkMultiSelectContains(p, ctx, errors, path);
 			return;
 		case "match-all":
 		case "match-none":
@@ -378,14 +393,14 @@ function describe(t: ResolvedType): string {
 
 // ---------- Per-operator semantic checks ----------
 //
-// `in`, `within-distance`, and `fuzzy` each carry an operator-specific
-// rule beyond term resolution and the comparison-level compatibility
-// table. Each helper is responsible for both resolving its operands
-// (so unknown-property / unknown-input errors surface uniformly with
-// comparisons) and applying the rule's semantic constraint. Helpers
-// operate on the `Predicate` arm directly so the operand slot names
-// in error paths come from the AST shape, not from a string the
-// helper invents.
+// `in`, `within-distance`, `match`, and `multi-select-contains` each
+// carry an operator-specific rule beyond term resolution and the
+// comparison-level compatibility table. Each helper is responsible
+// for both resolving its operands (so unknown-property / unknown-input
+// errors surface uniformly with comparisons) and applying the rule's
+// semantic constraint. Helpers operate on the `Predicate` arm directly
+// so the operand slot names in error paths come from the AST shape,
+// not from a string the helper invents.
 //
 // `when-input-present` has no semantic constraint beyond
 // trigger-input resolution and clause recursion — both performed
@@ -482,17 +497,22 @@ function checkWithinDistance(
 }
 
 /**
- * Text-shape requirement on `fuzzy.property`. CommCare's wire layer
- * (`case_property_query(..., fuzzy=True)` at
- * corehq/apps/es/case_search.py:237) dispatches Elasticsearch's
- * `queries.fuzzy(value, PROPERTY_VALUE, ...)` against the property's
- * stored string value regardless of declared type, so this rule isn't
- * a CCHQ structural enforcement — it's a Nova UX policy. Fuzzy
- * matching against an int, a decimal, a date, or a geopoint produces
- * no useful semantics (edit-distance is defined on character strings,
- * not on numeric / temporal / coordinate values), and the type
- * checker rejects those property types so the author can't construct
- * a predicate that compiles but never produces a useful match.
+ * Text-shape requirement on `match.property` across all four modes
+ * (`fuzzy` / `phonetic` / `fuzzy-date` / `starts-with`). CommCare's
+ * wire layer dispatches every mode through `case_property_query` (for
+ * `fuzzy-match` / `_selected_query` / `fuzzy-date` per
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-115`)
+ * or `case_property_starts_with` (for `starts-with` per
+ * `commcare-hq/corehq/apps/es/case_search.py:312-323`). Both reach the
+ * same property-value field on the Elasticsearch index regardless of
+ * declared type, so this rule isn't a CCHQ structural enforcement —
+ * it's a Nova UX policy. Text-match semantics against an int, a
+ * decimal, a date, or a geopoint produce no useful results (edit-
+ * distance, phonetic equivalence, and prefix matching are all defined
+ * on character strings, not on numeric / temporal / coordinate
+ * values); the type checker rejects those property types so the
+ * author can't construct a predicate that compiles but never produces
+ * a useful match.
  *
  * Why text-shaped types — `text`, `single_select`, `multi_select` —
  * pass the allow-list: on CCHQ's wire, single-select values serialize
@@ -500,14 +520,16 @@ function checkWithinDistance(
  * in the same property-value field that text uses
  * (`selected-any(tags, "vip urgent")` is the canonical multi-select
  * filter shape, and `_selected_query` at
- * corehq/apps/case_search/xpath_functions/query_functions.py:46
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`
  * dispatches all three through the same `case_property_query` that
- * fuzzy match itself uses). Fuzzy matching against a select property
- * therefore matches by the same Elasticsearch mechanism as fuzzy
- * matching against a text property.
+ * `fuzzy-match` itself uses). Text-matching against a select property
+ * therefore matches by the same Elasticsearch mechanism as
+ * text-matching against a text property — the allow-list is identical
+ * across the four modes; narrowing any one mode to text-only would
+ * diverge from CCHQ's shared dispatch.
  */
-function checkFuzzy(
-	p: Extract<Predicate, { kind: "fuzzy" }>,
+function checkMatch(
+	p: Extract<Predicate, { kind: "match" }>,
 	ctx: TypeContext,
 	errors: CheckError[],
 	path: CheckPath,
@@ -518,19 +540,81 @@ function checkFuzzy(
 	]);
 	// `ANY_TYPE` is structurally unreachable for a `PropertyRef` today,
 	// but the explicit guard pins the invariant at the type system: a
-	// future widening of the fuzzy schema's operand or of
+	// future widening of the match schema's operand or of
 	// `resolveTermType`'s null handling fails the
 	// `CasePropertyDataType`-typed `has` lookup at compile time
 	// instead of silently treating `_any` as "passes the allow-list."
 	if (
 		propType !== undefined &&
 		propType !== ANY_TYPE &&
-		!FUZZY_PROPERTY_TYPES.has(propType)
+		!MATCH_PROPERTY_TYPES.has(propType)
 	) {
 		errors.push({
 			path: [...path, "property"],
-			message: `fuzzy match requires a text-typed property (text, single_select, or multi_select); got '${describe(propType)}'.`,
+			message: `match requires a text-typed property (text, single_select, or multi_select); got '${describe(propType)}'.`,
 		});
+	}
+}
+
+/**
+ * Multi-select-only property requirement on
+ * `multi-select-contains.property`, plus per-value type compatibility
+ * across `values`. CCHQ's wire layer dispatches `selected-any` /
+ * `selected-all` through `_selected_query` →
+ * `case_property_query(..., multivalue_mode='or' | 'and')` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`,
+ * and that path accepts text / single_select / multi_select uniformly.
+ * The Nova rule is stricter: only a `multi_select` property has the
+ * structural notion of "contains" (multi-token storage, per-token
+ * containment), so routing single_select or text through this
+ * operator is virtually always an authoring bug — the author meant
+ * `match` (for substring / fuzzy semantics) or `eq` (for exact match).
+ * Reject everything but `multi_select` so the typed AST steers
+ * authors to the operator whose semantics actually fit.
+ *
+ * Per-value compatibility reuses the same `typesCompatible` table
+ * comparisons and `in` use, so the widenings (null-as-universal,
+ * select-to-text) carry over: a `null` literal in `values` is the
+ * structural is-unset filter and compares-compatible against
+ * `multi_select`. Each value's path threads its index so the editor
+ * highlights the failing chip independently — same convention as `in`.
+ */
+function checkMultiSelectContains(
+	p: Extract<Predicate, { kind: "multi-select-contains" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const propType = resolveTermType(p.property, ctx, errors, [
+		...path,
+		"property",
+	]);
+	if (
+		propType !== undefined &&
+		propType !== ANY_TYPE &&
+		propType !== "multi_select"
+	) {
+		errors.push({
+			path: [...path, "property"],
+			message: `multi-select-contains requires a multi_select-typed property; got '${describe(propType)}'.`,
+		});
+		// Property-rule rejection short-circuits the per-value
+		// compatibility pass: every value would re-emit a downstream
+		// "not comparable with <wrong-type>" error and bury the real
+		// cause. The author needs to see the property-shape mismatch
+		// first; per-value mismatches surface naturally once the
+		// property type is fixed.
+		return;
+	}
+	if (propType === undefined) return;
+	for (let i = 0; i < p.values.length; i++) {
+		const valType = literalType(p.values[i]);
+		if (!typesCompatible(propType, valType)) {
+			errors.push({
+				path: [...path, "values", i],
+				message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(propType)}'.`,
+			});
+		}
 	}
 }
 

@@ -532,15 +532,102 @@ const withinDistanceSchema = z.object({
 });
 
 /**
- * Phonetic / fuzzy match. Like `within-distance`, the left side must be
- * a direct property reference — fuzzy match against a literal or input
- * is meaningless. The right side is a string (not a term) because the
- * operator is unambiguously textual at every target.
+ * Approximate text match against a property's stored string value. The
+ * `mode` discriminator selects one of four CCHQ wire forms — each
+ * mapping to a CCHQ query function registered at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`:
+ *
+ *   - `fuzzy` → `fuzzy-match` (Elasticsearch `queries.fuzzy` against
+ *     `PROPERTY_VALUE`, edit-distance match)
+ *     — `query_functions.py:91-98`.
+ *   - `phonetic` → `phonetic-match` (Soundex / metaphone-style match
+ *     via `sounds_like_text_query`)
+ *     — `query_functions.py:84-89`.
+ *   - `fuzzy-date` → `fuzzy-date` (digit-permutation date match for
+ *     transposed YYYY-MM-DD inputs)
+ *     — `query_functions.py:101-115`.
+ *   - `starts-with` → `starts-with` (`case_property_starts_with` →
+ *     `prefix` filter on `PROPERTY_VALUE_EXACT`)
+ *     — `query_functions.py:31-35` and `case_search.py:312-323`.
+ *
+ * The four modes share one operator (rather than four sibling
+ * predicates) so the UI surface and the SA write the same shape and
+ * toggle the dispatch via the discriminator. The single-operator design
+ * also lets reductions / rewrites match on `kind: "match"` once
+ * regardless of mode.
+ *
+ * Like `within-distance`, the `property` slot is constrained to a
+ * direct property reference — text match against a literal or input is
+ * meaningless. `value` is a string (not a term) because every mode is
+ * unambiguously textual at every target. `value` is non-empty:
+ * `match(prop, "")` is meaningless (every property `starts-with` ""
+ * vacuously, every property `fuzzy-match`es "" trivially); reject at
+ * the schema layer so downstream emitters never have to encode the
+ * policy.
  */
-const fuzzySchema = z.object({
-	kind: z.literal("fuzzy"),
+const matchSchema = z.object({
+	kind: z.literal("match"),
 	property: propertyRefSchema,
-	value: z.string(),
+	value: z.string().min(1),
+	mode: z.enum(["fuzzy", "phonetic", "fuzzy-date", "starts-with"]),
+});
+
+/**
+ * `MatchMode` is the closed set of CCHQ text-match wire dispatches.
+ * Derived from `matchSchema`'s enum so the builder's `mode` parameter
+ * shares one source of truth with the schema — adding a mode here
+ * automatically widens the builder's accepted argument set rather than
+ * requiring parallel maintenance.
+ */
+export type MatchMode = z.infer<typeof matchSchema>["mode"];
+
+/**
+ * Multi-select containment predicate — "the multi_select property
+ * contains some / all of these tokens." The `quantifier` discriminator
+ * picks between CCHQ's `selected-any` (any token matches) and
+ * `selected-all` (every token matches), both registered at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43-44`
+ * and dispatched through `_selected_query` →
+ * `case_property_query(..., multivalue_mode='or' | 'and')` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`.
+ *
+ * The schema keeps both quantifiers in one operator (rather than two
+ * sibling predicates) so a UI surface or reducer toggling "any of" ↔
+ * "all of" doesn't have to reshape the parent object. Reductions /
+ * rewrites that care about either quantifier match on `kind:
+ * "multi-select-contains"` once and dispatch on the payload field.
+ *
+ * `property` is constrained to a direct property reference — multi-
+ * select containment against a literal or input has no useful
+ * semantics. `values` is a non-empty list of literals (not arbitrary
+ * terms) because both wire forms — `selected-any(prop, 'v1 v2')` /
+ * expanded `selected(prop, 'v1') or selected(prop, 'v2')` on-device —
+ * demand a static value list. Each literal carries the per-token value
+ * a `selected*` call dispatches against the multi_select's stored
+ * space-separated tokens.
+ *
+ * Empty-list rejection: the schema's tuple-with-rest shape rejects an
+ * empty `values`. An empty `multi-select-contains` is trivially true
+ * for `quantifier: "all"` (vacuous universal) and trivially false for
+ * `quantifier: "any"` (vacuous existential), neither of which is a
+ * useful authored predicate. The canonical authoring shape for "always
+ * true" is `match-all` and for "always false" is `match-none`; reject
+ * at the schema layer so downstream consumers don't see degenerate
+ * payloads.
+ */
+const multiSelectContainsSchema = z.object({
+	kind: z.literal("multi-select-contains"),
+	property: propertyRefSchema,
+	// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
+	// `Literal[]` — the same shape `inSchema.values` uses. Construction-
+	// site object literals like `{ kind: "multi-select-contains", ...,
+	// values: [] }` fail at compile time rather than at parse. Indexed
+	// access on the resulting type still yields `Literal` under the
+	// project's current `tsconfig` (no `noUncheckedIndexedAccess`), so
+	// the runtime parse rejection is what enforces non-empty at read
+	// sites.
+	values: z.tuple([literalSchema], literalSchema),
+	quantifier: z.enum(["any", "all"]),
 });
 
 // ---------- Sentinel predicates ----------
@@ -788,25 +875,26 @@ const missingSchema = z.object({
  * compiler.
  *
  * Drift policy — non-recursive arms (`comparisonSchema`, `inSchema`,
- * `withinDistanceSchema`, `fuzzySchema`, `matchAllSchema`,
- * `matchNoneSchema`, `isNullSchema`, `betweenSchema`) derive their TS
- * shape from their schema via `z.infer<typeof X>`, so adding a field
- * to those schemas updates the union automatically. Recursive arms
- * (`and`, `or`, `not`, `when-input-present`, `exists`, `missing`) are
- * hand-declared because TypeScript cannot resolve `z.infer` through a
- * discriminated-union recursion cycle (Zod issue #4264). Adding a
- * field to one of the recursive schemas requires a parallel
- * hand-update to the matching arm here. Any required-field drift
- * surfaces as a CI failure (the schema rejects predicates that don't
- * supply the field; the test suite parses each arm). Optional-field
- * drift on the recursive arms is caught by the structural assertion
- * at the bottom of this file.
+ * `withinDistanceSchema`, `matchSchema`, `multiSelectContainsSchema`,
+ * `matchAllSchema`, `matchNoneSchema`, `isNullSchema`, `betweenSchema`)
+ * derive their TS shape from their schema via `z.infer<typeof X>`, so
+ * adding a field to those schemas updates the union automatically.
+ * Recursive arms (`and`, `or`, `not`, `when-input-present`, `exists`,
+ * `missing`) are hand-declared because TypeScript cannot resolve
+ * `z.infer` through a discriminated-union recursion cycle (Zod issue
+ * #4264). Adding a field to one of the recursive schemas requires a
+ * parallel hand-update to the matching arm here. Any required-field
+ * drift surfaces as a CI failure (the schema rejects predicates that
+ * don't supply the field; the test suite parses each arm). Optional-
+ * field drift on the recursive arms is caught by the structural
+ * assertion at the bottom of this file.
  */
 export type Predicate =
 	| z.infer<typeof comparisonSchema>
 	| z.infer<typeof inSchema>
 	| z.infer<typeof withinDistanceSchema>
-	| z.infer<typeof fuzzySchema>
+	| z.infer<typeof matchSchema>
+	| z.infer<typeof multiSelectContainsSchema>
 	| z.infer<typeof matchAllSchema>
 	| z.infer<typeof matchNoneSchema>
 	| z.infer<typeof isNullSchema>
@@ -839,7 +927,8 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 		comparisonSchema,
 		inSchema,
 		withinDistanceSchema,
-		fuzzySchema,
+		matchSchema,
+		multiSelectContainsSchema,
 		matchAllSchema,
 		matchNoneSchema,
 		isNullSchema,

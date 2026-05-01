@@ -24,16 +24,18 @@ import {
 	dateLiteral,
 	eq,
 	exists,
-	fuzzy,
 	gt,
 	input,
 	isIn,
 	isNull,
 	literal,
 	lt,
+	match,
 	matchAll,
 	matchNone,
 	missing,
+	multiSelectAll,
+	multiSelectAny,
 	not,
 	or,
 	prop,
@@ -54,7 +56,7 @@ import { checkPredicate } from "../typeChecker";
 // verify they don't widen across each other and to exercise each
 // ordered-temporal arm of `ORDERED_TYPES`), single_select and
 // multi_select (string-coerced, with options — covers both arms of the
-// fuzzy text-shaped allow-list and the select-to-text widening).
+// match text-shaped allow-list and the select-to-text widening).
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
@@ -405,15 +407,15 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	});
 });
 
-describe("checkPredicate — operand resolution on in / within-distance / fuzzy", () => {
-	// `in`, `within-distance`, and `fuzzy` resolve their term operands
-	// uniformly with comparison operators so unknown-property /
-	// unknown-case-type / unknown-input errors surface the same way no
-	// matter which operator the bad term sits under. The per-operator
-	// semantic checks (membership-value compatibility on `in`, geopoint-
-	// property requirement on `within-distance`, text-property
-	// requirement on `fuzzy`) are separate concerns and not covered
-	// here.
+describe("checkPredicate — operand resolution on in / within-distance / match / multi-select-contains", () => {
+	// `in`, `within-distance`, `match`, and `multi-select-contains`
+	// resolve their term operands uniformly with comparison operators so
+	// unknown-property / unknown-case-type / unknown-input errors surface
+	// the same way no matter which operator the bad term sits under. The
+	// per-operator semantic checks (membership-value compatibility on
+	// `in`, geopoint-property requirement on `within-distance`, text-
+	// property requirement on `match`, multi_select-only requirement on
+	// `multi-select-contains`) are separate concerns and not covered here.
 	it("rejects in(...) with an unknown property reference", () => {
 		const p = isIn(prop("patient", "bogus"), literal("x"));
 		const result = checkPredicate(p, ctx);
@@ -446,8 +448,18 @@ describe("checkPredicate — operand resolution on in / within-distance / fuzzy"
 		}
 	});
 
-	it("rejects fuzzy(...) with an unknown property reference", () => {
-		const p = fuzzy(prop("patient", "bogus"), "alice");
+	it("rejects match(...) with an unknown property reference", () => {
+		const p = match(prop("patient", "bogus"), "alice", "fuzzy");
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/unknown property/i);
+		}
+	});
+
+	it("rejects multi-select-contains(...) with an unknown property reference", () => {
+		const p = multiSelectAny(prop("patient", "bogus"), literal("vip"));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -579,29 +591,47 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 	});
 });
 
-describe("checkPredicate — fuzzy text-shape requirement", () => {
-	// CCHQ's `fuzzy_match` resolves to
-	// `case_property_query(..., fuzzy=True)` (corehq/apps/es/case_search.py:237),
-	// which dispatches Elasticsearch's `queries.fuzzy(value, PROPERTY_VALUE,
-	// ...)` against the property's stored string value. CommCare's wire
-	// layer accepts the call against any property, but fuzzy matching
-	// against a non-text shape (an int, a date) has no useful semantics
-	// — the edit-distance metric is defined on character strings, not
-	// on numeric or temporal values. The Nova type checker rejects
-	// non-text-shaped properties as a UX policy so the author can't
-	// author a predicate that would compile but never produce a useful
-	// match. `single_select` and `multi_select` are stored as text
-	// under the hood (the schema layer enforces the enum constraint via
-	// `jsonSchema.ts`, not at the wire), so they're accepted alongside
-	// `text`.
+describe("checkPredicate — match text-shape requirement", () => {
+	// `match` carries a `mode` discriminator across four CCHQ wire forms
+	// — `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `starts-with`.
+	// All four resolve to `case_property_query` /
+	// `case_property_starts_with` / `sounds_like_text_query` against the
+	// property's stored string value (verified at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:31-115`
+	// and `commcare-hq/corehq/apps/es/case_search.py:237-340`). CommCare's
+	// wire layer accepts the call against any property, but text-match
+	// semantics against a non-text shape (an int, a date) have no useful
+	// meaning — edit-distance / phonetic-equivalence / prefix matching
+	// are all defined on character strings, not on numeric or temporal
+	// values. The Nova type checker rejects non-text-shaped properties
+	// as a UX policy so the author can't author a predicate that would
+	// compile but never produce a useful match. `single_select` and
+	// `multi_select` are stored as text under the hood (`_selected_query`
+	// at `query_functions.py:46-51` dispatches all three through
+	// `case_property_query`), so they're accepted alongside `text`.
+	//
+	// The allow-list is identical across the four modes — narrowing
+	// `starts-with` or `phonetic` to text-only would diverge from CCHQ's
+	// shared `case_property_query` dispatch and break valid authoring
+	// shapes against single_select / multi_select properties.
 
-	it("accepts fuzzy on a text property", () => {
-		const p = fuzzy(prop("patient", "name"), "alice");
+	it.each([
+		"fuzzy",
+		"phonetic",
+		"fuzzy-date",
+		"starts-with",
+	] as const)("accepts match on a text property (mode: %s)", (mode) => {
+		const p = match(prop("patient", "name"), "alice", mode);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	it("accepts fuzzy on a single_select property", () => {
-		const p = fuzzy(prop("patient", "status"), "ope");
+	it.each([
+		"fuzzy",
+		"phonetic",
+		"fuzzy-date",
+		"starts-with",
+	] as const)("accepts match on a single_select property (mode: %s)", (mode) => {
+		const p = match(prop("patient", "status"), "ope", mode);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -609,8 +639,13 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 	// from `single_select` at the wire — pinning both arms of the
 	// text-shaped allow-list locks the rule against a regression that
 	// dropped one without breaking the other.
-	it("accepts fuzzy on a multi_select property", () => {
-		const p = fuzzy(prop("patient", "tags"), "vip");
+	it.each([
+		"fuzzy",
+		"phonetic",
+		"fuzzy-date",
+		"starts-with",
+	] as const)("accepts match on a multi_select property (mode: %s)", (mode) => {
+		const p = match(prop("patient", "tags"), "vip", mode);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -620,17 +655,27 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 	// this table, a regression that loosened the allow-list to "anything
 	// except numeric" would slip through — only the int and geopoint
 	// arms would fail. The table closes that gap by iterating the full
-	// rejected set; adding a new non-text data type to the blueprint
-	// later requires extending this list as the visible signal that the
-	// fuzzy rule needs an explicit decision for the new type.
-	it.each([
+	// rejected set across all four modes; adding a new non-text data type
+	// to the blueprint later requires extending this list as the visible
+	// signal that the match rule needs an explicit decision for the new
+	// type.
+	const REJECTED_NON_TEXT_PROPS = [
 		{ propName: "age", dataType: "int" },
 		{ propName: "weight_kg", dataType: "decimal" },
 		{ propName: "dob", dataType: "date" },
 		{ propName: "last_seen", dataType: "datetime" },
 		{ propName: "appointment_time", dataType: "time" },
-	] as const)("rejects fuzzy on a $dataType property", ({ propName }) => {
-		const p = fuzzy(prop("patient", propName), "alice");
+	] as const;
+	const ALL_MODES = ["fuzzy", "phonetic", "fuzzy-date", "starts-with"] as const;
+	it.each(
+		REJECTED_NON_TEXT_PROPS.flatMap((prop) =>
+			ALL_MODES.map((mode) => ({ ...prop, mode })),
+		),
+	)("rejects match on a $dataType property (mode: $mode)", ({
+		propName,
+		mode,
+	}) => {
+		const p = match(prop("patient", propName), "alice", mode);
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -644,13 +689,15 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 	// fixture deliberately omits a geopoint to keep the comparison-rule
 	// matrix unaffected by it). Tested separately rather than in the
 	// table above so the fixture switch is visible in the test name.
-	// A fuzzy match against the wire-form `"lat lon"` coordinate string
-	// is meaningless — the edit-distance metric isn't defined on a
+	// A match against the wire-form `"lat lon"` coordinate string is
+	// meaningless — none of the four match metrics is defined on a
 	// structured pair of floats. Pinning the rejection here locks the
 	// rule against a regression that widened the allow-list to "anything
 	// stored as text on the wire."
-	it("rejects fuzzy on a geopoint property", () => {
-		const p = fuzzy(prop("patient", "location"), "40.7 -74.0");
+	it.each(
+		ALL_MODES,
+	)("rejects match on a geopoint property (mode: %s)", (mode) => {
+		const p = match(prop("patient", "location"), "40.7 -74.0", mode);
 		const result = checkPredicate(p, ctxWithGeo);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -658,6 +705,109 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 			expect(result.errors[0].path).toEqual(["property"]);
 			expect(result.errors[0].message).toMatch(/text/i);
 		}
+	});
+});
+
+describe("checkPredicate — multi-select-contains property requirement", () => {
+	// `multi-select-contains` is the typed structural shape for CCHQ's
+	// `selected-any` / `selected-all` query functions. The dispatch at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`
+	// (`_selected_query` calls `case_property_query`) accepts text /
+	// single_select / multi_select properties uniformly, but the *Nova*
+	// authoring-time policy is stricter: only a multi_select property
+	// has the structural notion of "contains" (multi-token storage,
+	// per-token containment). Routing single_select or text through
+	// `multi-select-contains` is virtually always an authoring bug
+	// (e.g. the author meant `match` or `eq`), so the type checker
+	// rejects everything but multi_select. Authors who genuinely want
+	// "field contains a value" against a non-multi_select property use
+	// `match(..., starts-with)` or a comparison.
+
+	it.each([
+		"any",
+		"all",
+	] as const)("accepts multi-select-contains on a multi_select property (quantifier: %s)", (quantifier) => {
+		const p =
+			quantifier === "any"
+				? multiSelectAny(prop("patient", "tags"), literal("vip"))
+				: multiSelectAll(prop("patient", "tags"), literal("vip"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	// Parameterized rejection across every non-multi_select data type
+	// (text, single_select, ordered numerics, temporals, geopoint).
+	// Without iterating the full set, a regression that loosened the
+	// allow-list to "anything text-shaped" (the looser allow-list `match`
+	// uses) would slip through — text and single_select would silently
+	// pass while int / decimal / date would still fail. The table closes
+	// that gap.
+	const REJECTED_NON_MULTI_SELECT = [
+		{ propName: "name", dataType: "text" },
+		{ propName: "status", dataType: "single_select" },
+		{ propName: "age", dataType: "int" },
+		{ propName: "weight_kg", dataType: "decimal" },
+		{ propName: "dob", dataType: "date" },
+		{ propName: "last_seen", dataType: "datetime" },
+		{ propName: "appointment_time", dataType: "time" },
+	] as const;
+	it.each(
+		REJECTED_NON_MULTI_SELECT,
+	)("rejects multi-select-contains on a $dataType property", ({ propName }) => {
+		const p = multiSelectAny(prop("patient", propName), literal("x"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			// Property-rule errors attach to the operator's `property`
+			// path, parallel to `match` and `within-distance`.
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/multi_select/i);
+		}
+	});
+
+	it("rejects multi-select-contains on a geopoint property", () => {
+		const p = multiSelectAny(
+			prop("patient", "location"),
+			literal("40.7 -74.0"),
+		);
+		const result = checkPredicate(p, ctxWithGeo);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/multi_select/i);
+		}
+	});
+
+	// Each value in `values` is type-checked against the property's
+	// resolved type. The membership-compatibility table reuses
+	// `typesCompatible` so the same widenings apply (null-as-universal,
+	// select-to-text). Pinning a per-value mismatch locks the per-value
+	// path-tracking convention, parallel to `in`.
+	it("rejects multi-select-contains when a value's type doesn't match the property", () => {
+		const p = multiSelectAny(
+			prop("patient", "tags"),
+			literal(42), // numeric literal against multi_select (string-coerced)
+		);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			// One error, on `values[0]`. Property-side stays valid (the
+			// property exists and is multi_select).
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["values", 0]);
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
+	});
+
+	it("accepts a null literal in the values list (null-as-universal carries over)", () => {
+		// Null literals resolve to the internal `_any` sentinel and are
+		// compatible with every property type — the same widening that
+		// applies to `in` and to comparison operators.
+		const p = multiSelectAny(
+			prop("patient", "tags"),
+			literal(null),
+			literal("vip"),
+		);
+		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 });
 

@@ -32,7 +32,6 @@ import {
 	datetimeLiteral,
 	eq,
 	exists,
-	fuzzy,
 	gt,
 	gte,
 	input,
@@ -41,9 +40,12 @@ import {
 	literal,
 	lt,
 	lte,
+	match,
 	matchAll,
 	matchNone,
 	missing,
+	multiSelectAll,
+	multiSelectAny,
 	neq,
 	not,
 	or,
@@ -102,20 +104,20 @@ describe("predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	it("constructs or(not(...), fuzzy(...))", () => {
+	it("constructs or(not(...), match(...))", () => {
 		const p = or(
 			not(eq(prop("patient", "status"), literal("closed"))),
-			fuzzy(prop("patient", "name"), "alice"),
+			match(prop("patient", "name"), "alice", "fuzzy"),
 		);
 		expect(p.kind).toBe("or");
 		expect(p.clauses[0].kind).toBe("not");
-		expect(p.clauses[1].kind).toBe("fuzzy");
+		expect(p.clauses[1].kind).toBe("match");
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
 	// Each exported builder gets at least one explicit happy-path test
 	// here: silent rename or removal of any export must not pass CI.
-	// `userField`, `isIn`, and `fuzzy` would otherwise be only
+	// `userField`, `isIn`, and `match` would otherwise be only
 	// structurally implied via other builders' arguments or composite
 	// tests. (The `isIn` variadic-with-required-first contract is
 	// locked separately by the type-level guard at the bottom of this
@@ -141,10 +143,57 @@ describe("predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	it("constructs a fuzzy match predicate", () => {
-		const p = fuzzy(prop("patient", "name"), "alice");
-		expect(p.kind).toBe("fuzzy");
+	// `match` carries a `mode` discriminator across the four CCHQ
+	// text-match variants (`fuzzy` / `phonetic` / `fuzzy-date` /
+	// `starts-with`). Each mode round-trips through the schema with
+	// the same `{ property, value, mode }` payload — pin all four so
+	// any silent narrowing of the enum on either side (builder or
+	// schema) trips the table.
+	it.each([
+		"fuzzy",
+		"phonetic",
+		"fuzzy-date",
+		"starts-with",
+	] as const)("constructs a match predicate with mode: %s", (mode) => {
+		const p = match(prop("patient", "name"), "alice", mode);
+		expect(p.kind).toBe("match");
 		expect(p.value).toBe("alice");
+		expect(p.mode).toBe(mode);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	// `multi-select-contains` builders pin the quantifier discriminator
+	// at the call site — `multiSelectAny` always sets `quantifier: "any"`
+	// and `multiSelectAll` always sets `quantifier: "all"`. The variadic-
+	// with-required-first signature mirrors `isIn` / `and` / `or` so
+	// callers cannot construct an empty values list at the type layer.
+	it("multiSelectAny constructs a single-value predicate with quantifier: any", () => {
+		const p = multiSelectAny(prop("patient", "tags"), literal("vip"));
+		expect(p.kind).toBe("multi-select-contains");
+		expect(p.quantifier).toBe("any");
+		expect(p.values).toHaveLength(1);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("multiSelectAny constructs a multi-value predicate", () => {
+		const p = multiSelectAny(
+			prop("patient", "tags"),
+			literal("vip"),
+			literal("urgent"),
+		);
+		expect(p.values).toHaveLength(2);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("multiSelectAll constructs a predicate with quantifier: all", () => {
+		const p = multiSelectAll(
+			prop("patient", "tags"),
+			literal("vip"),
+			literal("urgent"),
+		);
+		expect(p.kind).toBe("multi-select-contains");
+		expect(p.quantifier).toBe("all");
+		expect(p.values).toHaveLength(2);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
@@ -517,6 +566,15 @@ function typeCheckVariadicMinOne(): void {
 		void or();
 		// @ts-expect-error — isIn requires a left term and at least one literal
 		void isIn(prop("patient", "status"));
+		// `multiSelectAny` / `multiSelectAll` require at least one literal
+		// in `values`. The schema's tuple-with-rest shape rejects an empty
+		// array at parse time; the variadic-with-required-first signature
+		// lifts the rejection to the type layer so the failure surfaces at
+		// the call site rather than at runtime.
+		// @ts-expect-error — multiSelectAny requires at least one literal
+		void multiSelectAny(prop("patient", "tags"));
+		// @ts-expect-error — multiSelectAll requires at least one literal
+		void multiSelectAll(prop("patient", "tags"));
 	}
 }
 /* Reference the guard so lint doesn't flag it as unused — the
@@ -614,10 +672,21 @@ function typeCheckNonEmptyConstructionSite(): void {
 			// @ts-expect-error — `via: []` violates the tuple-with-rest non-empty shape
 			via: [],
 		};
+		const _emptyMultiSelect: Extract<
+			Predicate,
+			{ kind: "multi-select-contains" }
+		> = {
+			kind: "multi-select-contains",
+			property: { kind: "prop", caseType: "patient", property: "tags" },
+			// @ts-expect-error — `values: []` violates the tuple-with-rest non-empty shape
+			values: [],
+			quantifier: "any",
+		};
 		void _emptyAnd;
 		void _emptyOr;
 		void _emptyIn;
 		void _emptyAncestor;
+		void _emptyMultiSelect;
 	}
 }
 void typeCheckNonEmptyConstructionSite;

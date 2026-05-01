@@ -20,14 +20,16 @@
 // cross-context invariance test below pins that path against future
 // per-context drift in the non-string layers. (5) per-operator
 // output for the four special operators (`isIn` / `within` /
-// `fuzzy` / `whenInput`), each pinning the wire signature plus the
+// `match` / `whenInput`), each pinning the wire signature plus the
 // operator-specific edge cases — single-vs-multi `isIn` collapse,
 // or-of-equalities preservation of whitespace / null / numeric
 // values, literal-vs-input `within-distance.center`, the
-// distance: 0 boundary, embedded-quote escape reuse for
-// `fuzzy-match`, the `true()` boolean-context fallback in
-// case-list-filter for `when-input-present`, and the csql throw
-// when `when-input-present` would emit unsupported `if` / `count`
+// distance: 0 boundary, the `match` operator's defensive throw
+// (per-dialect emission lands in the visitor split — this single-
+// context emitter has no per-mode emission rules), the `true()`
+// boolean-context fallback in case-list-filter for
+// `when-input-present`, and the csql throw when
+// `when-input-present` would emit unsupported `if` / `count`
 // inside CSQL.
 //
 // Operand-emission tests for non-quote-related cases use the
@@ -42,7 +44,6 @@ import { describe, expect, it } from "vitest";
 import {
 	and,
 	eq,
-	fuzzy,
 	gt,
 	gte,
 	input,
@@ -50,6 +51,8 @@ import {
 	literal,
 	lt,
 	lte,
+	match,
+	multiSelectAny,
 	neq,
 	not,
 	or,
@@ -408,7 +411,7 @@ describe("emitXPath — special operators", () => {
 	// `isIn` expands to a plain equality (single value) or an
 	// or-of-equalities (multi-value), keeping value-equality set
 	// membership semantics continuous across list size.
-	// `within-distance` and `fuzzy-match` map to their CCHQ wire
+	// `within-distance` maps to its CCHQ wire
 	// signatures (verified against
 	// `corehq/apps/case_search/xpath_functions/query_functions.py`).
 	// `whenInput` wraps its clause in `if(count(<input>), <then>, true())`
@@ -581,23 +584,41 @@ describe("emitXPath — special operators", () => {
 		);
 	});
 
-	it("emits fuzzy as fuzzy-match(prop, 'value')", () => {
-		// CCHQ's `fuzzy-match(prop, value)` is 2-arg with the
-		// property first and the match value second (verified at
-		// `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`).
-		// The match value flows through `emitStringLiteral` for
-		// per-context escape consistency with the comparison operators.
-		const p = fuzzy(prop("patient", "name"), "alice");
-		expect(emitXPath(p, "case-list-filter")).toBe("fuzzy-match(name, 'alice')");
+	// The single-context emitter has no per-mode emission rules for
+	// `match` — per-dialect emission moves to the visitor split (where
+	// the case-list-filter dialect emits `starts-with` directly and
+	// rejects the other modes; the CSQL dialect dispatches each mode to
+	// its CCHQ wire form). The defensive throw here keeps the
+	// exhaustiveness surface sound until the visitor split lands. Each
+	// of the four modes is exercised so a regression that silently
+	// dispatched any one of them through this emitter would surface as a
+	// passing-when-it-should-throw test.
+	it.each([
+		["case-list-filter" as const, "fuzzy" as const],
+		["case-list-filter" as const, "phonetic" as const],
+		["case-list-filter" as const, "fuzzy-date" as const],
+		["case-list-filter" as const, "starts-with" as const],
+		["csql" as const, "fuzzy" as const],
+		["csql" as const, "phonetic" as const],
+		["csql" as const, "fuzzy-date" as const],
+		["csql" as const, "starts-with" as const],
+	])("throws on match (mode: %s) in %s context", (ctx, mode) => {
+		const p = match(prop("patient", "name"), "alice", mode);
+		expect(() => emitXPath(p, ctx)).toThrow(/match/i);
 	});
 
-	it("emits fuzzy with an embedded single quote via the escape pipeline (csql)", () => {
-		// CSQL's value-function whitelist excludes `concat()`, so
-		// the emitter switches to a double-quoted wrap when the
-		// match value contains a single quote — matching the
-		// comparison-operator escape divergence pinned above.
-		const p = fuzzy(prop("patient", "name"), "O'Brien");
-		expect(emitXPath(p, "csql")).toBe(`fuzzy-match(name, "O'Brien")`);
+	it("throws on multi-select-contains in both contexts", () => {
+		// Same defensive-throw rationale as `match` — per-dialect
+		// emission lands in the visitor split. The case-list-filter
+		// dialect expands single-value `selected(prop, 'v')` and
+		// multi-value to OR/AND of `selected()`; the CSQL dialect emits
+		// `selected-any` / `selected-all` directly. This single-context
+		// emitter has no rule for either path.
+		const p = multiSelectAny(prop("patient", "tags"), literal("vip"));
+		expect(() => emitXPath(p, "case-list-filter")).toThrow(
+			/multi-select-contains/i,
+		);
+		expect(() => emitXPath(p, "csql")).toThrow(/multi-select-contains/i);
 	});
 
 	it("emits when-input-present as if(count(input), then, true()) in case-list-filter context", () => {
@@ -662,15 +683,17 @@ describe("emitXPath — special operators", () => {
 
 	it.each(
 		CONTEXTS,
-	)("emits isIn / within-distance / fuzzy-match identically across contexts when no quotes are present (%s)", (ctx) => {
-		// Multi-value `isIn` (or-of-equalities), `within-distance`,
-		// and `fuzzy-match` are wire forms admitted by both
-		// case-list-filter XPath and CSQL, so their bare-token
-		// (quote-free) emission is identical across both contexts.
-		// `when-input-present` is excluded from this invariance
-		// because CSQL has no `if` / `count` and the emitter throws
-		// in csql context — that divergence is pinned in its own
-		// test above.
+	)("emits isIn / within-distance identically across contexts when no quotes are present (%s)", (ctx) => {
+		// Multi-value `isIn` (or-of-equalities) and `within-distance` are
+		// wire forms admitted by both case-list-filter XPath and CSQL, so
+		// their bare-token (quote-free) emission is identical across both
+		// contexts. `when-input-present` is excluded from this invariance
+		// because CSQL has no `if` / `count` and the emitter throws in
+		// csql context — that divergence is pinned in its own test above.
+		// `match` and `multi-select-contains` are excluded because the
+		// single-context emitter has no per-mode / per-quantifier
+		// emission rules for either; per-dialect emission lands in the
+		// visitor split.
 		expect(
 			emitXPath(
 				isIn(prop("patient", "tags"), literal("open"), literal("active")),
@@ -683,8 +706,5 @@ describe("emitXPath — special operators", () => {
 				ctx,
 			),
 		).toBe("within-distance(location, '40.7,-74.0', 50, 'miles')");
-		expect(emitXPath(fuzzy(prop("patient", "name"), "alice"), ctx)).toBe(
-			"fuzzy-match(name, 'alice')",
-		);
 	});
 });

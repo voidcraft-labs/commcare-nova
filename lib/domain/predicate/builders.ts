@@ -42,6 +42,7 @@ import type {
 	ComparisonKind,
 	DistanceUnit,
 	Literal,
+	MatchMode,
 	Predicate,
 	PropertyRef,
 	RelationPath,
@@ -404,10 +405,10 @@ export function or(
  *
  * Parameter-naming policy: builder parameter names track AST field
  * names where possible (`clause` here, `clause` on `whenInput`,
- * `property`/`value` on `fuzzy`) so readers see the same identifier
- * at every layer from authored predicate to wire emission. The one
- * principled exception is `whenInput`'s `inputRef` parameter —
- * naming it `input` to match the AST field would shadow the
+ * `property`/`value`/`mode` on `match`) so readers see the same
+ * identifier at every layer from authored predicate to wire emission.
+ * The one principled exception is `whenInput`'s `inputRef` parameter
+ * — naming it `input` to match the AST field would shadow the
  * term-builder export `input` in this same file. Foundation code
  * structurally prevents footguns rather than relying on "the shadow
  * is currently safe" to hold across edits, so the parameter takes
@@ -417,7 +418,7 @@ export function not(clause: Predicate): Extract<Predicate, { kind: "not" }> {
 	return { kind: "not", clause };
 }
 
-// ---------- Geo / fuzzy / conditional ----------
+// ---------- Geo / text-match / multi-select / conditional ----------
 
 /**
  * Constructs a geo "within distance" predicate. The `property` slot
@@ -440,17 +441,70 @@ export function within(
 }
 
 /**
- * Constructs a phonetic / fuzzy match. Like `within`, the left side
- * must be a direct property reference — fuzzy match against a
- * literal or input is meaningless. The match value is a plain
- * string (not a term) because the operator is unambiguously textual
- * at every wire target.
+ * Constructs an approximate text-match predicate against a property's
+ * stored string value. The `mode` discriminator selects one of CCHQ's
+ * four text-match wire forms — `fuzzy-match` / `phonetic-match` /
+ * `fuzzy-date` / `starts-with`. See `matchSchema` in `types.ts` for
+ * the per-mode CCHQ source citations.
+ *
+ * Like `within`, the `property` slot is constrained to a direct
+ * property reference — text match against a literal or input has no
+ * useful semantics. The match `value` is a plain string (not a term)
+ * because every mode is unambiguously textual at every wire target.
  */
-export function fuzzy(
+export function match(
 	property: PropertyRef,
 	value: string,
-): Extract<Predicate, { kind: "fuzzy" }> {
-	return { kind: "fuzzy", property, value };
+	mode: MatchMode,
+): Extract<Predicate, { kind: "match" }> {
+	return { kind: "match", property, value, mode };
+}
+
+/**
+ * Constructs a multi-select containment predicate with `quantifier:
+ * "any"` — the property contains any of the supplied values. Maps to
+ * CCHQ's `selected-any` (CSQL) or to OR-of-`selected()` (on-device
+ * dialect). See `multiSelectContainsSchema` in `types.ts` for the
+ * full contract and CCHQ source citations.
+ *
+ * Variadic-with-required-first signature: the schema rejects an empty
+ * `values` list, and a compile-time error is louder than a runtime
+ * parse failure — the same pattern as `and` / `or` / `isIn` /
+ * `ancestorPath`. The runtime `[first, ...rest]` literal infers as
+ * `[Literal, ...Literal[]]`, matching the tuple-with-rest shape on
+ * the schema.
+ */
+export function multiSelectAny(
+	property: PropertyRef,
+	first: Literal,
+	...rest: Literal[]
+): Extract<Predicate, { kind: "multi-select-contains" }> {
+	return {
+		kind: "multi-select-contains",
+		property,
+		values: [first, ...rest],
+		quantifier: "any",
+	};
+}
+
+/**
+ * Constructs a multi-select containment predicate with `quantifier:
+ * "all"` — the property contains every supplied value. Maps to CCHQ's
+ * `selected-all` (CSQL) or to AND-of-`selected()` (on-device dialect).
+ * Symmetric with `multiSelectAny`: same shape, same variadic-with-
+ * required-first signature, same parse-rejection on empty values.
+ */
+export function multiSelectAll(
+	property: PropertyRef,
+	first: Literal,
+	...rest: Literal[]
+): Extract<Predicate, { kind: "multi-select-contains" }> {
+	return {
+		kind: "multi-select-contains",
+		property,
+		values: [first, ...rest],
+		quantifier: "all",
+	};
 }
 
 /**

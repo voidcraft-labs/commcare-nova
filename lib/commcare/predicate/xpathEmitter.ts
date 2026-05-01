@@ -34,12 +34,17 @@
 // without changing the public signature.
 //
 // Comparison, logical, and special operators each have a direct
-// wire form emitted here. The four special operators (`in` /
-// `within-distance` / `fuzzy` / `when-input-present`) compile to
-// CCHQ case-search functions plus a conditional-include wrapper;
-// the operator-arm comments below cite the production code at
+// wire form emitted here. The supported special operators (`in` /
+// `within-distance` / `when-input-present`) compile to CCHQ case-
+// search functions plus a conditional-include wrapper; the
+// operator-arm comments below cite the production code at
 // `corehq/apps/case_search/xpath_functions/query_functions.py` for
-// each function's wire signature.
+// each function's wire signature. The `match` and
+// `multi-select-contains` operators are recognised by the
+// exhaustiveness switch but not emitted by this single-context
+// emitter — both carry a per-mode / per-quantifier dispatch whose
+// per-dialect wire form belongs in the visitor split, so the arms
+// here throw to keep the type-system exhaustiveness surface sound.
 //
 // CCHQ wire-form citations (production paths in commcare-hq):
 //
@@ -83,9 +88,6 @@
 //     see `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
 //     for the 4-arg signature (property, coordinate string parsed
 //     as `GeoPoint.from_string`, distance number, unit identifier).
-//   - `fuzzy-match(prop, 'value')` — see
-//     `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`
-//     for the 2-arg signature.
 //   - `if(count(<input>), <then>, true())` for `when-input-present`
 //     in case-list-filter context only. CommCare's case-list
 //     XPath dialect supports `if` and `count`, but the docs
@@ -305,16 +307,41 @@ function emitPredicate(
 			// (`miles` | `kilometers`), so it interpolates directly
 			// inside single quotes without an escape pass.
 			return `within-distance(${emitTerm(p.property, ctx)}, ${emitTerm(p.center, ctx)}, ${emitNumericLiteral(p.distance)}, '${p.unit}')`;
-		case "fuzzy":
-			// Phonetic / fuzzy match. CCHQ's wire form is
-			// `fuzzy-match(prop, 'value')` per
-			// `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`.
-			// The match value is a plain string in the AST (not a
-			// term), but the wire emission still goes through
-			// `emitStringLiteral` so an embedded single quote falls
-			// back to the per-context escape — `concat()` for
-			// case-list-filter, double-quoted wrap for csql.
-			return `fuzzy-match(${emitTerm(p.property, ctx)}, ${emitStringLiteral(p.value, ctx)})`;
+		case "match":
+		case "multi-select-contains":
+			// `match` and `multi-select-contains` carry per-mode /
+			// per-quantifier dispatches whose per-dialect wire form
+			// diverges sharply between case-list-filter and CSQL
+			// contexts:
+			//
+			//   - `match` mode `starts-with` is emittable in
+			//     case-list-filter (`starts-with(prop, 'v')`); the
+			//     other three modes (`fuzzy`, `phonetic`, `fuzzy-date`)
+			//     are CSQL-only — verified at
+			//     `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`,
+			//     where the on-device dispatcher registers no handler
+			//     for `fuzzy-match` / `phonetic-match` / `fuzzy-date`.
+			//     CSQL emits each mode via its named wire function
+			//     (`fuzzy-match` / `phonetic-match` / `fuzzy-date` /
+			//     `starts-with` per
+			//     `commcare-hq/.../xpath_functions/__init__.py:39-54`).
+			//
+			//   - `multi-select-contains` quantifier `any` single-value
+			//     is `selected(prop, 'v')` in both contexts;
+			//     quantifier `any` multi-value expands to OR-of-
+			//     `selected()` on-device but emits as one
+			//     `selected-any(prop, 'v1 v2')` call in CSQL;
+			//     quantifier `all` expands to AND-of-`selected()` on-
+			//     device and to `selected-all(prop, 'v1 v2')` in CSQL.
+			//
+			// The single-context emitter has no rule for either
+			// dispatch — encoding the per-mode and per-quantifier
+			// branches here would require duplicating the visitor-
+			// split logic in a structure this emitter is being
+			// retired in favor of. The defensive throw keeps the
+			// exhaustiveness surface sound; per-dialect emission lands
+			// in the per-dialect visitors.
+			throw new Error(`emitPredicate: no emission for kind '${p.kind}'`);
 		case "when-input-present": {
 			// Conditional-include wrapper. The wrapped clause runs
 			// only if the named search input is present at runtime;
