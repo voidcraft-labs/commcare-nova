@@ -2,32 +2,36 @@
 //
 // Compile a predicate AST to a CommCare-compatible XPath/CSQL string.
 //
-// Two emission contexts are exposed:
+// Two emission contexts diverge in their string-literal escape
+// strategy because the available escape mechanisms differ at each
+// surface:
 //
-//   - case-list-filter — predicate dropped inside the case-list nodeset
-//     (e.g. `instance('casedb')/casedb/case[...][<this>]`). Property
-//     references resolve against the surrounding `<case>` element; the
-//     reserved CommCare attributes (`case_id`, `case_type`, `owner_id`,
-//     `status`) are stored as XML attributes on `<case>` and require
-//     the `@` prefix to address.
-//   - csql — predicate placed inside a `_xpath_query` value during case
-//     search. Property references resolve against the case-search
-//     index; the same four reserved system metadata names are
-//     registered with the `@` prefix so a bare `case_type` would
-//     silently fall through to a user-defined-property lookup with no
-//     match.
+//   - case-list-filter — the emitted string is dropped directly into
+//     a case-list nodeset predicate
+//     (e.g. `instance('casedb')/casedb/case[<this>]`). Standard XPath
+//     1.0 is in scope, including string-building functions like
+//     `concat()`, so embedded single quotes resolve via a
+//     `concat('part', "'", 'part')` fallback that the XPath 1.0
+//     grammar admits directly.
+//   - csql — the emitted string is the inner predicate inside a CSQL
+//     `_xpath_query` value evaluated by ElasticSearch. CSQL's
+//     value-function whitelist excludes `concat()` (verified at
+//     `corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
+//     where `XPATH_VALUE_FUNCTIONS` lists 8 functions and `concat`
+//     is not among them; comparison-RHS values pass through
+//     `unwrap_value` at `corehq/apps/case_search/dsl_utils.py:32-40`,
+//     which raises `CaseFilterError` on any function name outside
+//     that whitelist). The emitter therefore switches between
+//     single- and double-quoted string literals to handle embedded
+//     quotes and rejects values containing both quote styles because
+//     no portable inline escape exists in CSQL.
 //
-// The reserved-attribute set converges across both contexts: `<case>`'s
-// XML attribute set in the casedb restore output equals CSQL's system-
-// metadata keyset. The emitter therefore prefixes uniformly rather
-// than branching on context. (See RESERVED_CASE_ATTRIBUTES below for
-// the source citations.)
-//
-// Both contexts share every operator emission and quoting rule; they
-// diverge only at the wire-wrapping layer outside this file. The
-// emitter still threads the context through every recursive call so
-// any operator arm whose wire form is context-dependent can branch on
-// it without changing the public signature.
+// Comparison + logical operator emission, identifier rules, the
+// reserved-attribute prefix set, and numeric-literal handling are
+// identical across both contexts; divergence is concentrated in the
+// string-literal escape path. The emitter threads the context
+// through every recursive call so the literal-escape arm can branch
+// without changing the public signature.
 //
 // Comparison and logical operators have direct wire forms emitted
 // here. The special operators (`in` / `within-distance` / `fuzzy` /
@@ -50,13 +54,18 @@
 //     `corehq/apps/app_manager/xpath_validator/tests.py:38` (the
 //     canonical commcare_location_id example) and the suite fixture
 //     at `corehq/apps/app_manager/tests/data/suite/suite-advanced-autoselect-user.xml:12`.
-//   - `concat('a', "'", 'b')` as the embedded-quote escape — XPath 1.0
-//     has no string-escape syntax, so the portable form switches to
-//     `concat()` with alternating quote styles. The CommCare XPath
-//     grammar at `lib/commcare/xpath/grammar.lezer.grammar:128-131`
-//     admits both single- and double-quoted string literals as
-//     argument shapes, so `concat()` accepts mixed-quote arguments
-//     directly.
+//   - `concat('a', "'", 'b')` as the case-list-filter embedded-quote
+//     escape — XPath 1.0 has no string-escape syntax, so the portable
+//     form switches to `concat()` with alternating quote styles. The
+//     CommCare XPath grammar at
+//     `lib/commcare/xpath/grammar.lezer.grammar:128-131` admits both
+//     single- and double-quoted string literals as `concat()`
+//     arguments.
+//   - Double-quoted CSQL string literals — see
+//     `docs/case_search_query_language.rst:417` for the canonical
+//     post-`concat()` CSQL string example, where every property
+//     value is double-quoted (`@case_type = "service"`,
+//     `@status != "closed"`, etc.).
 
 import type {
 	ComparisonKind,
@@ -92,26 +101,31 @@ const COMPARISON_OPS: Record<ComparisonKind, string> = {
 };
 
 /**
- * The four CommCare case properties stored as XML attributes on
- * `<case>` in the casedb restore output, addressed with the `@`
- * prefix in XPath. The same four names (with the `@` prefix) are
- * also the keys CCHQ registers in its CSQL system-metadata index, so
- * the prefix applies uniformly across both emission contexts here —
- * a bare `status` in CSQL silently degrades to a user-property lookup
- * with no match.
+ * The four CommCare case properties that CCHQ stores as XML
+ * attributes on `<case>` in the casedb restore output. XPath
+ * accesses them via the `@` prefix because that is the syntax for
+ * addressing XML attributes; the `@` is not a generic CommCare
+ * convention but a literal XML-attribute access.
+ *
+ * CSQL recognizes these same four names with the `@` prefix in
+ * `INDEXED_METADATA_BY_KEY`, routing them as system metadata rather
+ * than user properties — so a bare `case_type` in CSQL silently
+ * degrades to a user-property lookup with no match. The other six
+ * CSQL system-metadata keys (`name`, `case_name`, `external_id`,
+ * `date_opened`, `closed_on`, `last_modified`) are registered
+ * without the prefix and appear on the wire as `<case>` child
+ * elements (case-list-filter) or as bare names (CSQL); they are
+ * deliberately not in this set.
  *
  * Sources (production code, not tests):
  *
  *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py:240-245`
  *     — `CaseDBXMLGenerator.get_root_element()` sets exactly these
- *     four as XML attributes on `<case>`; everything else (`name`,
- *     `last_modified`, `external_id`, `date_opened`, custom
- *     properties) is emitted as a child element.
- *   - `corehq/apps/case_search/const.py:53-72` —
- *     `INDEXED_METADATA_BY_KEY` lists the same four names with the
- *     `@` prefix; the other system metadata keys (`name`,
- *     `case_name`, `external_id`, `date_opened`, `closed_on`,
- *     `last_modified`) are registered bare.
+ *     four as XML attributes on `<case>`; everything else is
+ *     emitted as a child element.
+ *   - `corehq/apps/case_search/const.py:53-103` —
+ *     `INDEXED_METADATA_BY_KEY` registers ten system metadata keys;
+ *     the four below carry the `@` prefix, the other six do not.
  */
 const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
 	"case_id",
@@ -213,12 +227,10 @@ function emitPredicate(
  * than constructed via a path builder — this is the one place where
  * the emitter speaks the literal CommCare vocabulary, and putting the
  * paths inline keeps the wire form readable next to the citations in
- * the file header. The `_ctx` argument carries the emission context so
- * any operator arm whose wire form depends on context (e.g. a
- * surface-specific quoting rule) can consult it without changing this
- * signature.
+ * the file header. `ctx` flows through to the `literal` arm so the
+ * string-escape strategy can branch on context.
  */
-function emitTerm(term: Term, _ctx: EmissionContext): string {
+function emitTerm(term: Term, ctx: EmissionContext): string {
 	switch (term.kind) {
 		case "prop": {
 			// Reserved CommCare case properties are addressed with the
@@ -248,7 +260,7 @@ function emitTerm(term: Term, _ctx: EmissionContext): string {
 		case "user":
 			return `instance('commcaresession')/session/user/data/${term.field}`;
 		case "literal":
-			return emitLiteral(term.value);
+			return emitLiteral(term.value, ctx);
 	}
 }
 
@@ -264,20 +276,57 @@ function emitTerm(term: Term, _ctx: EmissionContext): string {
  * string `''` because XPath compares an absent attribute equal to
  * `''`, so `<prop> = ''` is the natural "is unset" form.
  *
- * Strings emit as single-quoted XPath strings; an embedded single
- * quote forces a `concat()` fallback because XPath 1.0 has no
- * string-escape syntax. The fallback alternates single- and
- * double-quoted segments so the embedded quote stays unambiguous to
- * the parser. The fallback always emits the boundary segments even
- * when they're empty (e.g. a value of `"'"` produces
- * `concat('', "'", '')`) so the segment count tracks the input quote
- * count predictably.
+ * String literals delegate to `emitStringLiteral` because the escape
+ * strategy depends on the emission context — case-list-filter has
+ * `concat()` available as the alternating-quote fallback, while CSQL
+ * does not.
  */
-function emitLiteral(value: string | number | boolean | null): string {
+function emitLiteral(
+	value: string | number | boolean | null,
+	ctx: EmissionContext,
+): string {
 	if (value === null) return "''";
 	if (typeof value === "number") return emitNumericLiteral(value);
 	if (typeof value === "boolean") return value ? "'true'" : "'false'";
-	if (!value.includes("'")) return `'${value}'`;
+	return emitStringLiteral(value, ctx);
+}
+
+/**
+ * Compile a string literal to its wire form, branching on context
+ * for the embedded-quote escape:
+ *
+ *   - When the value contains no single quote, both contexts emit
+ *     `'<value>'` — the common case, with no divergence.
+ *   - In `case-list-filter`, an embedded single quote falls back to
+ *     `concat('part', "'", 'part')`. XPath 1.0 has no string-escape
+ *     syntax, so the alternating-quote concat is the portable form
+ *     the grammar at
+ *     `lib/commcare/xpath/grammar.lezer.grammar:128-131` admits.
+ *     The fallback always emits boundary segments even when empty
+ *     (e.g. a value of `"'"` produces `concat('', "'", '')`) so the
+ *     segment count tracks the input quote count predictably.
+ *   - In `csql`, `concat()` is not in the value-function whitelist
+ *     (see file header), so the emitter switches to a double-quoted
+ *     literal `"<value>"` when the value contains a single quote.
+ *     If the value contains BOTH a single and a double quote, no
+ *     portable inline escape exists — `concat()` is unavailable and
+ *     XPath 1.0 string literals can carry only one of the two quote
+ *     styles. The emitter throws rather than emit broken wire output;
+ *     authors must split such values into a different filter shape
+ *     or strip one of the quote types upstream.
+ */
+function emitStringLiteral(value: string, ctx: EmissionContext): string {
+	const hasSingleQuote = value.includes("'");
+	if (!hasSingleQuote) return `'${value}'`;
+	if (ctx === "csql") {
+		const hasDoubleQuote = value.includes('"');
+		if (hasDoubleQuote) {
+			throw new Error(
+				`emitXPath: CSQL has no portable escape for a string literal containing both ' and ". Got: ${JSON.stringify(value)}.`,
+			);
+		}
+		return `"${value}"`;
+	}
 	const parts = value.split("'");
 	const args: string[] = [];
 	for (let i = 0; i < parts.length; i++) {

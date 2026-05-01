@@ -9,19 +9,22 @@
 //
 // Coverage spans four concentric layers: (1) per-operator output for
 // every comparison + logical kind landing in this emitter, (2) operand
-// emission for each term variant (prop / input / user / literal,
-// including the embedded-quote concat fallback and the
-// reserved-attribute `@` prefix), (3) the precedence invariant that
-// and-of-or wraps the inner or in parens, (4) cross-context
-// invariance — comparison and logical operator emission produces
-// identical strings under both `case-list-filter` and `csql` even
-// after the reserved-attribute prefix logic, since the reserved set
-// converges across both contexts in CCHQ.
+// emission for each term variant (prop / input / user / literal),
+// (3) the precedence invariant that and-of-or wraps the inner or in
+// parens, (4) per-context divergence in the string-literal escape
+// path — case-list-filter uses `concat()` for embedded single
+// quotes; csql lacks `concat()` in its value-function whitelist and
+// switches between single- and double-quoted literals, throwing on
+// both-quote-styles values. Quote-free literals emit identically
+// across both contexts; the cross-context invariance test below
+// pins that path against future per-context drift in the
+// non-string layers.
 //
-// Operand-emission tests use the user-defined property `name` rather
-// than `status` to keep the focus on operator behavior; the
-// reserved-attribute prefix logic is exercised by its own dedicated
-// describe block parameterized over both contexts.
+// Operand-emission tests for non-quote-related cases use the
+// user-defined property `name` rather than `status` to keep the
+// focus on operator behavior; the reserved-attribute prefix logic
+// is exercised by its own dedicated describe block parameterized
+// over both contexts.
 //
 // CCHQ citations for the emitted forms are in xpathEmitter.ts.
 
@@ -167,44 +170,6 @@ describe("emitXPath — comparison operators", () => {
 		expect(emitXPath(p, "case-list-filter")).toBe("name = ''");
 	});
 
-	it("escapes single quotes in string literals via concat()", () => {
-		// XPath 1.0 has no string-escape syntax: a literal embedding a
-		// single quote inside a single-quoted string cannot be expressed
-		// directly. The portable form switches to concat() with
-		// alternating single- and double-quoted segments. Pinning the
-		// exact concat shape here also locks the segment ordering so a
-		// regression that rebuilt the string in some other order would
-		// surface as a fixture mismatch rather than a silent encoding
-		// drift.
-		const p = eq(prop("patient", "name"), literal("O'Brien"));
-		expect(emitXPath(p, "case-list-filter")).toBe(
-			`name = concat('O', "'", 'Brien')`,
-		);
-	});
-
-	it("emits concat with empty boundary segments for a quote-only literal", () => {
-		// A literal containing nothing but a single quote splits into
-		// two empty string halves around the quote. Emitting empty
-		// boundary segments keeps the segment count predictable
-		// (`n + 1` segments for `n` quotes) so reasoning about the
-		// concat output stays uniform regardless of where the quotes
-		// sit in the source string.
-		const p = eq(prop("patient", "name"), literal("'"));
-		expect(emitXPath(p, "case-list-filter")).toBe(`name = concat('', "'", '')`);
-	});
-
-	it("emits concat with multiple consecutive embedded quotes", () => {
-		// Two quotes in a row produce three string segments separated
-		// by two literal-quote separators. The middle segment is
-		// empty; emitting it keeps the segment count consistent with
-		// the single-quote case and avoids a special branch that would
-		// only fire on adjacent quotes.
-		const p = eq(prop("patient", "note"), literal("a''b"));
-		expect(emitXPath(p, "case-list-filter")).toBe(
-			`note = concat('a', "'", '', "'", 'b')`,
-		);
-	});
-
 	it("emits user-context refs against session/user/data", () => {
 		const p = eq(prop("patient", "region"), userField("commcare_location_id"));
 		expect(emitXPath(p, "case-list-filter")).toBe(
@@ -307,33 +272,120 @@ describe("emitXPath — logical operators", () => {
 	});
 });
 
-describe("emitXPath — context invariance", () => {
-	// Comparison and logical operator emission produces identical
-	// strings under both contexts even after the reserved-attribute
-	// prefix logic, because the reserved set converges across both
-	// contexts in CCHQ (see RESERVED_CASE_ATTRIBUTES citations in
-	// xpathEmitter.ts). This test exercises a representative
-	// predicate that hits every term variant and every operator kind
-	// at this layer, including `status` (a reserved attribute) and
-	// `name` (a user-defined property), so a regression that
-	// introduced any per-context divergence at the operator or term
-	// layer surfaces here as a string mismatch.
-	it("emits identical output for case-list-filter and csql at the operator layer", () => {
+describe("emitXPath — string-literal escape", () => {
+	// String literals are the one place where the two contexts
+	// diverge, because the available escape mechanisms differ:
+	// case-list-filter has XPath 1.0's `concat()` available; csql's
+	// value-function whitelist excludes it (see file header for the
+	// CCHQ source citations). Each test below pins one cell of the
+	// divergence matrix or the both-quotes-rejection path that has
+	// no portable escape in csql.
+
+	it("emits a quote-free string identically across both contexts", () => {
+		// For values without any embedded quote, both contexts wrap
+		// the value in single quotes — no divergence. Pinning a
+		// non-trivial multi-clause predicate here also locks the
+		// quote-free path of the string-escape branch against future
+		// per-context drift in the surrounding operator layer.
 		const p = and(
+			eq(prop("patient", "name"), literal("Alice")),
 			or(
-				eq(prop("patient", "status"), literal("open")),
-				eq(prop("patient", "status"), literal("active")),
-			),
-			not(
-				and(
-					gte(prop("patient", "age"), literal(18)),
-					lt(prop("patient", "age"), literal(65)),
-					neq(prop("patient", "name"), literal("O'Brien")),
-					eq(prop("patient", "owner_id"), userField("commcare_location_id")),
-					eq(prop("patient", "name"), input("name_query")),
-				),
+				gt(prop("patient", "age"), literal(18)),
+				eq(prop("patient", "owner_id"), userField("commcare_location_id")),
 			),
 		);
 		expect(emitXPath(p, "csql")).toBe(emitXPath(p, "case-list-filter"));
+	});
+
+	it("emits embedded single quote with concat() in case-list-filter context", () => {
+		// XPath 1.0 in the case-list nodeset has `concat()` available,
+		// so an embedded single quote splits into alternating
+		// single-quoted and double-quoted segments. The exact concat
+		// shape is pinned here so a regression that rebuilt the
+		// string in some other order surfaces as a fixture mismatch
+		// rather than silent encoding drift.
+		const p = eq(prop("patient", "name"), literal("O'Brien"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			`name = concat('O', "'", 'Brien')`,
+		);
+	});
+
+	it("emits embedded single quote with double-quoted string in csql context", () => {
+		// CSQL's value-function whitelist excludes `concat()`, so the
+		// emitter switches the wrapping quote style to double when
+		// the value contains a single quote. CSQL admits both quote
+		// styles for string literals — see
+		// `docs/case_search_query_language.rst:417` for the canonical
+		// post-`concat()` CSQL string with double-quoted property
+		// values.
+		const p = eq(prop("patient", "name"), literal("O'Brien"));
+		expect(emitXPath(p, "csql")).toBe(`name = "O'Brien"`);
+	});
+
+	it("emits a quote-only string with concat() in case-list-filter context", () => {
+		// A literal containing nothing but a single quote splits
+		// into two empty string halves around the quote. Emitting
+		// empty boundary segments keeps the segment count predictable
+		// (`n + 1` segments for `n` quotes) so reasoning about the
+		// concat output stays uniform regardless of where the quotes
+		// sit in the source string.
+		const p = eq(prop("patient", "name"), literal("'"));
+		expect(emitXPath(p, "case-list-filter")).toBe(`name = concat('', "'", '')`);
+	});
+
+	it("emits multiple consecutive embedded quotes in case-list-filter context", () => {
+		// Two quotes in a row produce three string segments separated
+		// by two literal-quote separators. The middle segment is
+		// empty; emitting it keeps the segment count consistent with
+		// the single-quote case and avoids a special branch that
+		// would only fire on adjacent quotes.
+		const p = eq(prop("patient", "note"), literal("a''b"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			`note = concat('a', "'", '', "'", 'b')`,
+		);
+	});
+
+	it("emits a quote-only string with double-quoted wrap in csql context", () => {
+		// Mirror of the case-list-filter quote-only test above. The
+		// double-quoted wrap is a single concise wire form, in
+		// contrast with the case-list-filter path's empty-bookended
+		// `concat()`.
+		const p = eq(prop("patient", "name"), literal("'"));
+		expect(emitXPath(p, "csql")).toBe(`name = "'"`);
+	});
+
+	it("emits embedded double quote with single-quoted wrap in both contexts", () => {
+		// A value containing only a double quote is wrapped in
+		// single quotes in both contexts — no escape needed. Pinning
+		// the both-contexts identity here is the asymmetry pin to
+		// the embedded-single-quote case which DOES diverge.
+		const p = eq(prop("patient", "name"), literal('say "hello"'));
+		const expected = `name = 'say "hello"'`;
+		expect(emitXPath(p, "case-list-filter")).toBe(expected);
+		expect(emitXPath(p, "csql")).toBe(expected);
+	});
+
+	it("emits both-quote-styles via concat() in case-list-filter context", () => {
+		// Even when a value contains both ' and ", case-list-filter
+		// can still emit a portable wire form because `concat()` is
+		// available: the value is split on single quote, each segment
+		// is single-quoted (with any embedded double quote sitting
+		// inside the single-quoted segment unchanged), and the
+		// quote separator interleaves between segments.
+		const p = eq(prop("patient", "name"), literal(`it's "quoted"`));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			`name = concat('it', "'", 's "quoted"')`,
+		);
+	});
+
+	it("throws in csql when a string literal contains both ' and \"", () => {
+		// CSQL has no portable inline escape that handles both quote
+		// styles in the same literal: `concat()` is not in the
+		// value-function whitelist, and XPath 1.0 string literals
+		// can carry only one quote style. The emitter throws rather
+		// than emit broken wire output; authors must restructure the
+		// filter or strip one quote type upstream.
+		const p = eq(prop("patient", "name"), literal(`it's "quoted"`));
+		expect(() => emitXPath(p, "csql")).toThrow(/no portable escape/i);
 	});
 });
