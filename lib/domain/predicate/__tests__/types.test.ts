@@ -21,6 +21,7 @@ import {
 	CASE_PROPERTY_PATTERN,
 	CASE_TYPE_PATTERN,
 	predicateSchema,
+	relationPathSchema,
 	termSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "../types";
@@ -505,6 +506,284 @@ describe("predicate schema", () => {
 				property: "external-id",
 			},
 			right: { kind: "literal", value: "abc" },
+		});
+		expect(result.kind).toBe("eq");
+	});
+});
+
+// `relationPathSchema` describes how a property reference reaches across
+// the case-relationship graph — the typed structural equivalent of
+// CommCare's `index/parent/host/...` slash-strings. The four kinds
+// (`self`, `ancestor`, `subcase`, `any-relation`) capture direction
+// (no-traversal / up via parent or host index / down via reverse index /
+// ambiguous) without committing to CommCare's relationship-id encoding
+// (CHILD = 1, EXTENSION = 2 at
+// `commcare-hq/corehq/form_processor/models/cases.py:1085-1090`). The
+// `identifier` slot carries the user-named index (`parent`, `host`, or
+// custom names) and the `throughCaseType` / `ofCaseType` slots carry
+// optional case-type qualifiers used by the type checker to narrow
+// property resolution inside `exists` / `count` filters. This block
+// locks the wire-shape for each kind and the invariants downstream
+// emitters and the SA-facing tool surface rely on.
+describe("relationPath schema", () => {
+	it("parses a self path", () => {
+		// `self` is the no-traversal base case — the predicate runs in
+		// the current case-type scope. It carries no slots beyond the
+		// discriminator; pinning that here prevents a future "nullable
+		// payload" relaxation from landing silently.
+		const result = relationPathSchema.parse({ kind: "self" });
+		expect(result.kind).toBe("self");
+	});
+
+	it("parses a single-hop ancestor path", () => {
+		// `ancestor` matches CCHQ's `ancestor-exists(parent, ...)` form
+		// and the on-device `instance('casedb')/casedb/case[@case_id =
+		// current()/index/parent]` join pattern verified at
+		// `commcare-core/.../DerivedCaseQueryLookup.java:18` and
+		// `commcare-hq/.../ancestor_functions.py:39-94`. The single-hop
+		// shape is the most common authored form (parent → patient).
+		const result = relationPathSchema.parse({
+			kind: "ancestor",
+			via: [{ identifier: "parent" }],
+		});
+		expect(result.kind).toBe("ancestor");
+		if (result.kind === "ancestor") {
+			expect(result.via).toHaveLength(1);
+			expect(result.via[0].identifier).toBe("parent");
+		}
+	});
+
+	it("parses a multi-hop ancestor path", () => {
+		// `via: RelationStep[]` represents the slash-separated chain in
+		// CCHQ's `ancestor-exists` first argument — `host/parent` walks
+		// up two levels. Multi-hop paths are supported by both CCHQ's
+		// server-side `walk_ancestor_hierarchy` (loops over each step)
+		// and the on-device join pattern (each step compiles to a
+		// nested `instance('casedb')` predicate). Each step's optional
+		// `throughCaseType` is the type-checker's destination-scope
+		// narrowing hint at that step. The schema is structural; this
+		// test exercises only the acceptance shape.
+		const result = relationPathSchema.parse({
+			kind: "ancestor",
+			via: [
+				{ identifier: "parent", throughCaseType: "household" },
+				{ identifier: "host" },
+			],
+		});
+		expect(result.kind).toBe("ancestor");
+		if (result.kind === "ancestor") {
+			expect(result.via).toHaveLength(2);
+			expect(result.via[0].throughCaseType).toBe("household");
+			expect(result.via[1].throughCaseType).toBeUndefined();
+		}
+	});
+
+	it("rejects an ancestor path with empty via", () => {
+		// `.min(1)` is the operative defense: an empty `via` collapses
+		// the path to `self` semantics but parses as a different kind,
+		// which would silently disagree with the type checker and the
+		// emitters. Reject at parse time rather than letting the
+		// degenerate flow through downstream layers.
+		expect(() =>
+			relationPathSchema.parse({ kind: "ancestor", via: [] }),
+		).toThrow();
+	});
+
+	it("parses a subcase path", () => {
+		// `subcase` matches CCHQ's `subcase-exists('parent', ...)` form
+		// at `commcare-hq/.../subcase_functions.py:51-62`. The
+		// `identifier` is the index name ON THE CHILD case pointing
+		// back at the current (parent) case. `ofCaseType` narrows
+		// type-checker resolution inside the subcase filter; this
+		// test pins structural acceptance.
+		const result = relationPathSchema.parse({
+			kind: "subcase",
+			identifier: "parent",
+			ofCaseType: "visit",
+		});
+		expect(result.kind).toBe("subcase");
+		if (result.kind === "subcase") {
+			expect(result.identifier).toBe("parent");
+			expect(result.ofCaseType).toBe("visit");
+		}
+	});
+
+	it("parses a subcase path without ofCaseType", () => {
+		// `ofCaseType` is optional — authors who don't know the case
+		// type at the destination (or who want the union of all
+		// pointing cases) omit it. Keep the no-qualifier shape
+		// structurally accepted.
+		const result = relationPathSchema.parse({
+			kind: "subcase",
+			identifier: "parent",
+		});
+		expect(result.kind).toBe("subcase");
+		if (result.kind === "subcase") {
+			expect(result.ofCaseType).toBeUndefined();
+		}
+	});
+
+	it("parses an any-relation path", () => {
+		// `any-relation` covers cases where the direction (child vs
+		// extension; up vs down) isn't known at authoring time —
+		// e.g. a custom index identifier where the author wants a
+		// relation regardless of relationship-id. Maps to the same
+		// underlying `case_indices.identifier` lookup, just without
+		// the direction-narrowing constraint.
+		const result = relationPathSchema.parse({
+			kind: "any-relation",
+			identifier: "linked",
+			ofCaseType: "referral",
+		});
+		expect(result.kind).toBe("any-relation");
+	});
+
+	it("rejects a relation step with an XPath-injection-shaped identifier", () => {
+		// Same identifier-vocabulary defense the existing predicate
+		// schema applies to property and case-type names: the wire
+		// emitters interpolate `identifier` directly into XPath
+		// (`current()/index/<identifier>`), so any character outside
+		// CommCare's identifier vocabulary would either fail
+		// downstream parsing or inject attacker-controlled syntax.
+		// Reject at the schema layer.
+		expect(() =>
+			relationPathSchema.parse({
+				kind: "ancestor",
+				via: [{ identifier: "parent') or 1=1" }],
+			}),
+		).toThrow();
+	});
+
+	it("rejects a subcase identifier with whitespace", () => {
+		expect(() =>
+			relationPathSchema.parse({
+				kind: "subcase",
+				identifier: "with whitespace",
+			}),
+		).toThrow();
+	});
+
+	it("rejects a subcase ofCaseType with slash", () => {
+		expect(() =>
+			relationPathSchema.parse({
+				kind: "subcase",
+				identifier: "parent",
+				ofCaseType: "ref/erral",
+			}),
+		).toThrow();
+	});
+
+	it("rejects an unknown relation-path kind", () => {
+		// `cousin` is not in the discriminated union of permitted kinds
+		// (`self` / `ancestor` / `subcase` / `any-relation`). The schema
+		// rejects at parse time so downstream emitters never see a
+		// kind they have no arm for.
+		expect(() =>
+			relationPathSchema.parse({ kind: "cousin", identifier: "parent" }),
+		).toThrow();
+	});
+});
+
+// `propertyRefSchema` carries an optional `via: RelationPath` slot — the
+// relational read. With `via` present, the property reference resolves
+// against the case at the destination of the relation walk; with `via`
+// absent, it resolves against the current case-type scope (the
+// historical behavior). Both shapes must parse cleanly through the
+// surrounding `predicateSchema` so existing comparisons keep working
+// while the relational read becomes available.
+describe("propertyRef with via (relational read)", () => {
+	it("parses a comparison whose left side reads through an ancestor relation", () => {
+		// The canonical case: an authored predicate compares a
+		// property on a *parent* case to a literal — e.g. a search
+		// predicate over `patient` whose filter says
+		// "the household this patient lives in is in region X." The
+		// relation walks up via the `parent` index to the
+		// `household` case type and reads `region` there.
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: {
+				kind: "prop",
+				caseType: "patient",
+				property: "region",
+				via: {
+					kind: "ancestor",
+					via: [{ identifier: "parent", throughCaseType: "household" }],
+				},
+			},
+			right: { kind: "literal", value: "north" },
+		});
+		expect(result.kind).toBe("eq");
+		if (result.kind === "eq" && result.left.kind === "prop") {
+			expect(result.left.via).toBeDefined();
+			expect(result.left.via?.kind).toBe("ancestor");
+		}
+	});
+
+	it("parses a property reference without via (no traversal)", () => {
+		// Backward-compat lock: the historical no-`via` shape must
+		// still parse and round-trip without the optional slot
+		// surfacing as `via: undefined`. The shape below is exactly
+		// what every existing builder call site produces; if the
+		// schema's `.optional()` started materializing the absent
+		// key, the assertion below would fail.
+		const input = {
+			kind: "eq" as const,
+			left: {
+				kind: "prop" as const,
+				caseType: "patient",
+				property: "status",
+			},
+			right: { kind: "literal" as const, value: "open" },
+		};
+		const result = predicateSchema.parse(input);
+		expect(result).toEqual(input);
+		if (result.kind === "eq" && result.left.kind === "prop") {
+			expect("via" in result.left).toBe(false);
+		}
+	});
+
+	it("parses a property reference with a self via (no-op traversal)", () => {
+		// `self` is the explicit "no traversal" form. It exists
+		// alongside the absent-`via` shape so that a UI surface
+		// editing a relational read can flip the kind without
+		// having to reshape the parent object — e.g. the user
+		// switches from `ancestor` to `self` and back. Both shapes
+		// resolve to the same effective behavior; the schema
+		// accepts both.
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: {
+				kind: "prop",
+				caseType: "patient",
+				property: "status",
+				via: { kind: "self" },
+			},
+			right: { kind: "literal", value: "open" },
+		});
+		expect(result.kind).toBe("eq");
+	});
+
+	it("parses a property reference with a subcase via", () => {
+		// Reading a property on a subcase from the parent's scope.
+		// The shape below says: "from the current `household` case,
+		// reach the `patient` cases that point at this household via
+		// the `parent` index, and read `status` on those." The
+		// quantifier (any/all/count) is encoded by the surrounding
+		// predicate operator (e.g. `exists` / `count`); the path
+		// slot itself is purely structural.
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: {
+				kind: "prop",
+				caseType: "household",
+				property: "status",
+				via: {
+					kind: "subcase",
+					identifier: "parent",
+					ofCaseType: "patient",
+				},
+			},
+			right: { kind: "literal", value: "active" },
 		});
 		expect(result.kind).toBe("eq");
 	});

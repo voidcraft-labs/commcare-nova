@@ -44,6 +44,8 @@ import type {
 	Literal,
 	Predicate,
 	PropertyRef,
+	RelationPath,
+	RelationStep,
 	SearchInputRef,
 	Term,
 	UserContextRef,
@@ -62,9 +64,25 @@ import type {
  * because a search-detail predicate may reach across a related parent
  * case type (e.g. `patient` → `clinic`), so the AST records WHICH case
  * type the property lives on rather than relying on positional context.
+ *
+ * `via` is the optional relational-read slot — pass an `ancestorPath` /
+ * `subcasePath` / `anyRelationPath` / `selfPath` to reach a property
+ * on a related case rather than the current one. When omitted, the
+ * constructed object intentionally has NO `via` key (not
+ * `via: undefined`) so existing equality assertions like
+ * `expect(predicateSchema.parse(p)).toEqual(p)` continue to hold —
+ * Zod's `.optional()` strips absent keys on parse, and a builder that
+ * materialized `via: undefined` would silently break the round-trip
+ * shape pin downstream tests rely on.
  */
-export function prop(caseType: string, property: string): PropertyRef {
-	return { kind: "prop", caseType, property };
+export function prop(
+	caseType: string,
+	property: string,
+	via?: RelationPath,
+): PropertyRef {
+	return via === undefined
+		? { kind: "prop", caseType, property }
+		: { kind: "prop", caseType, property, via };
 }
 
 /**
@@ -151,6 +169,115 @@ export function datetimeLiteral(value: string): Literal {
  */
 export function timeLiteral(value: string): Literal {
 	return { kind: "literal", value, data_type: "time" };
+}
+
+// ---------- Relation-path builders ----------
+//
+// `RelationPath` is a discriminated union of four kinds — `self`,
+// `ancestor`, `subcase`, `any-relation` — covering the typed
+// equivalents of CommCare's slash-separated index strings. Each
+// builder pins one discriminator so the constructed value narrows
+// precisely on `kind` at the call site, and each returns the
+// per-kind shape rather than the wider `RelationPath` union for the
+// same reason `eq` returns `ComparisonPredicate<"eq">` rather than the
+// wider comparison arm: callers narrowing on `kind` after a builder
+// call get the per-variant fields directly.
+//
+// The `RelationStep` shape is shared by `ancestor`'s `via` array; the
+// `relationStep` builder is a thin object constructor that pins the
+// field name `identifier` so callers don't accidentally use `name` or
+// `id` (which would silently parse-reject downstream). `relationStep`
+// also follows the same absent-not-undefined contract as `prop`'s
+// `via` slot — when `throughCaseType` is omitted, the returned object
+// has no `throughCaseType` key, matching the schema's
+// `.optional()` strip behavior on parse.
+
+/**
+ * Constructs one step in an ancestor-path walk. The optional
+ * `throughCaseType` is a type-checker narrowing hint used inside
+ * `exists` / `count` filter resolution; it's structural here and
+ * carries no runtime impact.
+ *
+ * Following the convention shared with `prop`'s `via` slot: when
+ * `throughCaseType` is undefined, the returned object omits the key
+ * entirely rather than materializing `throughCaseType: undefined`. This
+ * keeps round-trip equality assertions (`expect(parse(p)).toEqual(p)`)
+ * stable, since Zod's `.optional()` strips absent keys on parse.
+ */
+export function relationStep(
+	identifier: string,
+	throughCaseType?: string,
+): RelationStep {
+	return throughCaseType === undefined
+		? { identifier }
+		: { identifier, throughCaseType };
+}
+
+/**
+ * Constructs the no-traversal relation path. `selfPath()` and an
+ * absent `via` slot on a property reference are semantically
+ * equivalent; the explicit form exists so a UI surface editing a
+ * relational read can flip the kind to/from `self` without reshaping
+ * the parent object.
+ */
+export function selfPath(): Extract<RelationPath, { kind: "self" }> {
+	return { kind: "self" };
+}
+
+/**
+ * Constructs an ancestor walk. Variadic with a required first step:
+ * the schema rejects an empty `via` array (a zero-step ancestor walk
+ * collapses to `self` semantics but parses as a different kind, so
+ * the schema's `.min(1)` rules it out). The compile-time error from
+ * the required first parameter is louder than the runtime parse
+ * failure — the same logic as `and` / `or` / `isIn` above.
+ *
+ * Multi-hop walks compose by chaining `relationStep(...)` arguments —
+ * `ancestorPath(relationStep("parent"), relationStep("host"))`
+ * encodes "host of parent" and compiles to nested `instance('casedb')`
+ * joins on-device or to chained `walk_ancestor_hierarchy` steps in
+ * CSQL. Each step's `throughCaseType` narrows the type checker's
+ * property resolution at that step's destination scope so a chained
+ * walk through heterogeneously-typed cases stays well-typed.
+ */
+export function ancestorPath(
+	first: RelationStep,
+	...rest: RelationStep[]
+): Extract<RelationPath, { kind: "ancestor" }> {
+	return { kind: "ancestor", via: [first, ...rest] };
+}
+
+/**
+ * Constructs a subcase relation. `identifier` is the index name on
+ * the *child* case pointing back at the current case (e.g. `parent`
+ * for the canonical "households contain patients via the patient's
+ * `parent` index" relationship). `ofCaseType` narrows resolution
+ * inside subcase filter clauses; omit it when the destination case
+ * type is unconstrained or unknown at authoring time.
+ */
+export function subcasePath(
+	identifier: string,
+	ofCaseType?: string,
+): Extract<RelationPath, { kind: "subcase" }> {
+	return ofCaseType === undefined
+		? { kind: "subcase", identifier }
+		: { kind: "subcase", identifier, ofCaseType };
+}
+
+/**
+ * Constructs a direction-agnostic relation. Compiles to a
+ * `case_indices.identifier` lookup without committing to the
+ * relationship-id (CHILD or EXTENSION); useful for custom indices
+ * where direction isn't known at authoring time. Same
+ * `ofCaseType` shape as `subcasePath` — omitted when not needed.
+ */
+export function anyRelationPath(
+	identifier: string,
+	ofCaseType?: string,
+): Extract<RelationPath, { kind: "any-relation" }> {
+	return ofCaseType === undefined
+		? { kind: "any-relation", identifier }
+		: { kind: "any-relation", identifier, ofCaseType };
 }
 
 // ---------- Comparison builders ----------

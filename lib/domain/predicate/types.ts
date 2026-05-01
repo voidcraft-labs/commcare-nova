@@ -102,6 +102,137 @@ export const CASE_PROPERTY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  */
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+// ---------- Relation paths (cross-case-type traversal) ----------
+//
+// `RelationPath` is the typed structural equivalent of CommCare's
+// slash-separated index strings (`parent`, `parent/host`, etc.). It
+// records HOW a property reference reaches across the case-relationship
+// graph without committing to a particular wire form: emitters lower it
+// to `instance('casedb')/casedb/case[@case_id = current()/index/<rel>]`
+// for the on-device dialect (see
+// `commcare-core/src/main/java/org/commcare/cases/query/queryset/DerivedCaseQueryLookup.java:18`),
+// to `ancestor-exists(parent/host, ...)` / `subcase-exists('parent', ...)`
+// for the CSQL dialect (see
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`,
+// `ancestor_functions.py:39-94`, `subcase_functions.py:51-62`), and to a
+// JOIN on the `case_indices` table for the Postgres dialect.
+//
+// The four kinds (`self`, `ancestor`, `subcase`, `any-relation`) capture
+// the direction of the walk — no traversal, up via parent/host index,
+// down via reverse index, or unknown direction. They do NOT encode
+// CommCare's relationship-id (CHILD = 1, EXTENSION = 2 at
+// `commcare-hq/corehq/form_processor/models/cases.py:1085-1090`); the
+// `identifier` slot carries the user-named index (`parent`, `host`, or
+// custom) and the relationship-id is derived at the case-store layer
+// when the AST is lowered to SQL.
+//
+// `throughCaseType` (on `RelationStep`) and `ofCaseType` (on `subcase` /
+// `any-relation`) are case-type narrowing hints. They let the type
+// checker resolve property references inside the destination scope of
+// an `exists` / `count` filter without re-walking the relationship
+// graph at check time. Both are optional — authors can omit them and
+// the type checker falls back to the broadest plausible scope.
+
+/**
+ * One step in a relation walk — the index name plus an optional
+ * case-type narrowing hint. `RelationStep[]` represents a multi-hop
+ * ancestor chain; the chain's first step originates at the current
+ * case-type scope and each subsequent step originates at the destination
+ * of the previous step.
+ *
+ * `identifier` is constrained to XML element-name vocabulary because
+ * the wire form `current()/index/<identifier>` places the identifier as
+ * an XML element-name path step (see the on-device dispatch at
+ * `commcare-core/src/main/java/org/javarosa/xpath/parser/ast/ASTNodeFunctionCall.java`
+ * and the CCHQ ES traversal at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:39-94`).
+ * `throughCaseType` is constrained to CommCare's case-type vocabulary
+ * to keep emitter interpolation safe.
+ */
+export const relationStepSchema = z.object({
+	identifier: z
+		.string()
+		.regex(
+			XML_ELEMENT_NAME_PATTERN,
+			"Relation identifier must start with a letter or underscore and contain only letters, digits, or underscores.",
+		),
+	throughCaseType: z
+		.string()
+		.regex(
+			CASE_TYPE_PATTERN,
+			"throughCaseType must start with a letter and contain only letters, digits, underscores, or hyphens.",
+		)
+		.optional(),
+});
+export type RelationStep = z.infer<typeof relationStepSchema>;
+
+/**
+ * Typed traversal across the case-relationship graph. The four kinds:
+ *
+ *   - `self` — no traversal; the predicate runs in the current
+ *     case-type scope. Distinct from absent-`via` on a property
+ *     reference so that a UI surface can flip a relational read to/from
+ *     the no-traversal form without reshaping the parent object.
+ *   - `ancestor` — walk up via the parent/host index chain. `via` is
+ *     the chain (e.g. `[{ identifier: "parent" }, { identifier: "host" }]`
+ *     for "host of parent"). Maps to CCHQ's `ancestor-exists` server-side
+ *     and to the `instance('casedb')/.../[@case_id =
+ *     current()/index/<rel>]` join pattern on-device. The `.min(1)`
+ *     constraint rules out the empty walk that would silently collapse
+ *     to `self`.
+ *   - `subcase` — walk down via the reverse index. `identifier` is the
+ *     index name on the *child* case pointing back at the current case;
+ *     `ofCaseType` narrows resolution inside the subcase filter so the
+ *     type checker can resolve property references at the destination
+ *     scope without re-walking the relationship graph at check time.
+ *     Maps to CCHQ's `subcase-exists`/`subcase-count`.
+ *   - `any-relation` — generic relation by identifier, direction
+ *     unknown at authoring time. Compiles to a `case_indices.identifier`
+ *     lookup without the direction-narrowing constraint that
+ *     `ancestor` / `subcase` apply. Useful for custom indices where the
+ *     author hasn't committed to a relationship-id.
+ */
+export const relationPathSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("self") }),
+	z.object({
+		kind: z.literal("ancestor"),
+		via: z.array(relationStepSchema).min(1),
+	}),
+	z.object({
+		kind: z.literal("subcase"),
+		identifier: z
+			.string()
+			.regex(
+				XML_ELEMENT_NAME_PATTERN,
+				"Subcase identifier must start with a letter or underscore and contain only letters, digits, or underscores.",
+			),
+		ofCaseType: z
+			.string()
+			.regex(
+				CASE_TYPE_PATTERN,
+				"ofCaseType must start with a letter and contain only letters, digits, underscores, or hyphens.",
+			)
+			.optional(),
+	}),
+	z.object({
+		kind: z.literal("any-relation"),
+		identifier: z
+			.string()
+			.regex(
+				XML_ELEMENT_NAME_PATTERN,
+				"Relation identifier must start with a letter or underscore and contain only letters, digits, or underscores.",
+			),
+		ofCaseType: z
+			.string()
+			.regex(
+				CASE_TYPE_PATTERN,
+				"ofCaseType must start with a letter and contain only letters, digits, underscores, or hyphens.",
+			)
+			.optional(),
+	}),
+]);
+export type RelationPath = z.infer<typeof relationPathSchema>;
+
 // ---------- Terms (anything that resolves to a value) ----------
 //
 // Terms are the leaves of the AST. They never contain predicates and so
@@ -122,6 +253,15 @@ export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * interpolates these directly into XPath strings, so any character
  * outside the permitted set would either fail downstream parsing or
  * (worse) inject attacker-controlled syntax.
+ *
+ * `via` is the optional relational-read slot. When present, the
+ * property resolves at the destination of the relation walk rather
+ * than against the current case-type scope; when absent, the
+ * resolution is local. Absence and `{ kind: "self" }` are
+ * semantically equivalent — the schema accepts both shapes so a UI
+ * surface editing a relational read can flip the kind without
+ * reshaping the parent object. See the JSDoc on `relationPathSchema`
+ * for the full set of supported walks.
  */
 export const propertyRefSchema = z.object({
 	kind: z.literal("prop"),
@@ -137,6 +277,7 @@ export const propertyRefSchema = z.object({
 			CASE_PROPERTY_PATTERN,
 			"Property name must start with a letter and contain only letters, digits, underscores, or hyphens.",
 		),
+	via: relationPathSchema.optional(),
 });
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
 

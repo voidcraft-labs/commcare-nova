@@ -24,7 +24,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	ancestorPath,
 	and,
+	anyRelationPath,
 	dateLiteral,
 	datetimeLiteral,
 	eq,
@@ -40,12 +42,15 @@ import {
 	not,
 	or,
 	prop,
+	relationStep,
+	selfPath,
+	subcasePath,
 	timeLiteral,
 	userField,
 	whenInput,
 	within,
 } from "../builders";
-import { predicateSchema } from "../types";
+import { predicateSchema, relationPathSchema } from "../types";
 
 describe("predicate builders", () => {
 	it("constructs a nested and(eq, gt) predicate", () => {
@@ -208,6 +213,132 @@ describe("predicate builders", () => {
 		expect(predicateSchema.parse(a)).toEqual(a);
 		expect(predicateSchema.parse(o)).toEqual(o);
 		expect(predicateSchema.parse(i)).toEqual(i);
+	});
+
+	// `prop()` carries an optional `via: RelationPath` parameter — the
+	// relational read. Backward-compat is the load-bearing assertion:
+	// callers that don't pass `via` must produce exactly the same
+	// shape they used to (no `via` key, not `via: undefined`). The
+	// builder uses a conditional construction shape rather than a
+	// `via ?? undefined` assignment so the existing `expect(...).toEqual`
+	// shape-pin tests above continue to hold.
+
+	it("constructs a prop with no via (backward-compat shape)", () => {
+		const p = prop("patient", "age");
+		expect(p).toEqual({ kind: "prop", caseType: "patient", property: "age" });
+		// The `via` key must be ABSENT, not present-with-undefined.
+		// Existing tests in this file use `expect(predicateSchema.parse(p)).toEqual(p)`
+		// shape pins; if `via: undefined` started materializing on the
+		// constructed object, the round-trip equality could silently
+		// break. Lock the absence here.
+		expect("via" in p).toBe(false);
+	});
+
+	it("constructs a prop with an ancestor via", () => {
+		// Canonical relational read shape: `prop(caseType, property,
+		// ancestorPath(...))`. The builder threads the relation path
+		// onto the constructed object so the schema's
+		// `propertyRefSchema.via` slot resolves to the typed
+		// structure rather than a stringy slash-path.
+		const p = prop("patient", "region", ancestorPath(relationStep("parent")));
+		expect(p.via?.kind).toBe("ancestor");
+		// Round-trip via a comparison so the prop flows through
+		// `predicateSchema` (terms don't parse standalone).
+		const wrapped = eq(p, literal("north"));
+		expect(predicateSchema.parse(wrapped)).toEqual(wrapped);
+	});
+});
+
+// `relationPath` family is the typed structural equivalent of CommCare's
+// `index/parent/host/...` slash-strings. Each builder pins one
+// discriminator (`self`, `ancestor`, `subcase`, `any-relation`) and
+// returns the precise variant shape so call-site narrowing on `kind`
+// works without re-narrowing.
+describe("relationPath builders", () => {
+	it("selfPath() constructs the no-traversal kind", () => {
+		const p = selfPath();
+		expect(p).toEqual({ kind: "self" });
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("relationStep() constructs a single hop with optional throughCaseType", () => {
+		// `relationStep` is a thin object constructor — the value
+		// lives in pinning the field name `identifier` so callers
+		// don't accidentally use `name` or `id`. The optional
+		// `throughCaseType` is the type-checker narrowing hint that
+		// resolves the destination scope at this step.
+		const a = relationStep("parent");
+		expect(a).toEqual({ identifier: "parent" });
+		// `throughCaseType` must be ABSENT, not undefined, so
+		// downstream consumers' `?? `-checks behave consistently
+		// with the schema's `.optional()` strip behavior on parse.
+		expect("throughCaseType" in a).toBe(false);
+
+		const b = relationStep("parent", "household");
+		expect(b).toEqual({ identifier: "parent", throughCaseType: "household" });
+	});
+
+	it("ancestorPath() constructs a single-hop ancestor path", () => {
+		const p = ancestorPath(relationStep("parent"));
+		expect(p.kind).toBe("ancestor");
+		expect(p.via).toHaveLength(1);
+		expect(p.via[0].identifier).toBe("parent");
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("ancestorPath() constructs a multi-hop ancestor path", () => {
+		// Multi-hop paths compile to nested `instance('casedb')`
+		// joins on-device and to chained `walk_ancestor_hierarchy`
+		// steps in CSQL. The variadic shape lets authors compose
+		// chains without manual array construction.
+		const p = ancestorPath(
+			relationStep("parent", "household"),
+			relationStep("host"),
+		);
+		expect(p.via).toHaveLength(2);
+		expect(p.via[0]).toEqual({
+			identifier: "parent",
+			throughCaseType: "household",
+		});
+		expect(p.via[1]).toEqual({ identifier: "host" });
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("subcasePath() constructs a subcase relation", () => {
+		const p = subcasePath("parent", "patient");
+		expect(p).toEqual({
+			kind: "subcase",
+			identifier: "parent",
+			ofCaseType: "patient",
+		});
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("subcasePath() omits ofCaseType when not provided", () => {
+		const p = subcasePath("parent");
+		expect(p).toEqual({ kind: "subcase", identifier: "parent" });
+		// Same absent-not-undefined contract as `prop`'s `via`
+		// slot — the schema strips absent optionals on parse, so
+		// callers' equality assertions need the constructed shape
+		// to omit the key when it's not set.
+		expect("ofCaseType" in p).toBe(false);
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("anyRelationPath() constructs a direction-agnostic relation", () => {
+		const p = anyRelationPath("linked", "referral");
+		expect(p).toEqual({
+			kind: "any-relation",
+			identifier: "linked",
+			ofCaseType: "referral",
+		});
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("anyRelationPath() omits ofCaseType when not provided", () => {
+		const p = anyRelationPath("linked");
+		expect(p).toEqual({ kind: "any-relation", identifier: "linked" });
+		expect("ofCaseType" in p).toBe(false);
 	});
 });
 
