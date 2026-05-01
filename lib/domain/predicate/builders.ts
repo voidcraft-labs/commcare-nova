@@ -243,10 +243,13 @@ export function fuzzy(
  * Constructs a "when input is present" wrapper. The wrapped predicate
  * applies only if the named search input is set at runtime; otherwise
  * the wrapper is a no-op. The body slot is named `clause` (not
- * `then`) because a parsed predicate accidentally returned from an
- * async function would have its `.then` invoked by JS's await
- * machinery and silently break — picking a different name eliminates
- * the footgun structurally.
+ * `then`) to parallel `notSchema.clause` — both arms wrap a predicate
+ * as a structural argument, not a continuation, and using one name for
+ * "the wrapped predicate" across operators helps readers tracing AST
+ * traversals. "clause" also reads more accurately than "then" for an
+ * operator that doesn't model conditional execution at the
+ * JavaScript-control-flow level. See `whenInputPresentSchema` in
+ * `types.ts` for the same rationale at the schema layer.
  *
  * The first parameter is `inputRef` (not `input`) to avoid shadowing
  * the term-builder export `input` declared above in this file. See

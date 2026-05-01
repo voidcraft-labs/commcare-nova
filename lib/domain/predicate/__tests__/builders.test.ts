@@ -190,3 +190,47 @@ function typeCheckVariadicMinOne(): void {
 /* Reference the guard so lint doesn't flag it as unused — the
  * directives inside are what the compiler enforces. */
 void typeCheckVariadicMinOne;
+
+/* --- Per-kind comparison narrowing lock -------------------------------
+ *
+ * The `comparison` curried factory's reason for existing is to produce
+ * six per-kind narrowed constructors — `eq` returns
+ * `ComparisonPredicate<"eq">`, not `ComparisonPredicate<ComparisonKind>`.
+ * Without this lock, a regression that widened the factory's return
+ * type generic (e.g. annotating the inner function's return as
+ * `ComparisonPredicate<ComparisonKind>`) would silently collapse all
+ * six exports back to one shape and call-site narrowing would be lost.
+ *
+ * The form is "assign a value of type `ReturnType<typeof <op>>["kind"]`
+ * to a variable typed as the literal kind." If the factory widens, the
+ * source type becomes `ComparisonKind` and the narrow target rejects
+ * it → TS2322 fires. The mirror direction `<literal> satisfies
+ * <return-kind>` does NOT catch this regression: `"eq" satisfies
+ * ComparisonKind` is trivially valid because `"eq"` extends
+ * `ComparisonKind`. The assignment direction is the asymmetric one,
+ * which is what we need.
+ *
+ * Same `npm run typecheck` enforcement surface as the variadic block
+ * above: lefthook pre-push runs it before the push lands.
+ */
+function typeCheckComparisonNarrowing(): void {
+	const neverRun = false;
+	if (neverRun) {
+		// One assertion per export. If the curried factory regresses,
+		// every line below fires; one would suffice but six is explicit
+		// about the intended six-way narrowing the factory promises.
+		const _eq: "eq" = null as unknown as ReturnType<typeof eq>["kind"];
+		const _neq: "neq" = null as unknown as ReturnType<typeof neq>["kind"];
+		const _gt: "gt" = null as unknown as ReturnType<typeof gt>["kind"];
+		const _gte: "gte" = null as unknown as ReturnType<typeof gte>["kind"];
+		const _lt: "lt" = null as unknown as ReturnType<typeof lt>["kind"];
+		const _lte: "lte" = null as unknown as ReturnType<typeof lte>["kind"];
+		void _eq;
+		void _neq;
+		void _gt;
+		void _gte;
+		void _lt;
+		void _lte;
+	}
+}
+void typeCheckComparisonNarrowing;
