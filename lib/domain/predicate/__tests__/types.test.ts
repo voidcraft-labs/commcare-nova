@@ -139,4 +139,96 @@ describe("predicate schema", () => {
 			}),
 		).toThrow();
 	});
+
+	// Numeric structural constraint. A negative radius is geometrically
+	// meaningless and would propagate to two compilers (XPath/CSQL and
+	// Kysely) that don't share a rejection layer — same logic that
+	// defends `.min(1)` on collection slots applies.
+
+	it("rejects within-distance with a negative distance", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "clinic", property: "location" },
+				center: { kind: "input", name: "user_location" },
+				distance: -10,
+				unit: "miles",
+			}),
+		).toThrow();
+	});
+
+	// Shape-pin tests for the two operators that constrain a slot to a
+	// specific term subtype rather than a full `termSchema`. These
+	// constraints are documented in the schema's JSDoc; pinning them in
+	// CI prevents a future "loosen the constraint silently" diff from
+	// landing without the test going red.
+
+	it("rejects within-distance whose property is not a prop reference", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "within-distance",
+				// literal value where a prop reference is required
+				property: { kind: "literal", value: "40.7,-74.0" },
+				center: { kind: "input", name: "user_location" },
+				distance: 50,
+				unit: "miles",
+			}),
+		).toThrow();
+	});
+
+	it("rejects within-distance with an unknown unit", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "clinic", property: "location" },
+				center: { kind: "input", name: "user_location" },
+				distance: 50,
+				unit: "meters",
+			}),
+		).toThrow();
+	});
+
+	it("rejects fuzzy whose property is not a prop reference", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "fuzzy",
+				property: { kind: "input", name: "name_query" },
+				value: "alice",
+			}),
+		).toThrow();
+	});
+
+	it("rejects when-input-present whose input is not an input reference", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "when-input-present",
+				// prop reference where an input reference is required
+				input: { kind: "prop", caseType: "patient", property: "phone" },
+				clause: {
+					kind: "eq",
+					left: { kind: "prop", caseType: "patient", property: "phone" },
+					right: { kind: "literal", value: "555" },
+				},
+			}),
+		).toThrow();
+	});
+
+	// Missing-required-field symmetry tests. The `eq missing right` test
+	// above pins one comparison-arm omission; these pin the same defense
+	// for the recursive arms whose `clause` slot is required. Without
+	// these, `notSchema.clause` and `whenInputPresentSchema.clause` could
+	// silently become optional in a future refactor.
+
+	it("rejects not(...) with no clause", () => {
+		expect(() => predicateSchema.parse({ kind: "not" })).toThrow();
+	});
+
+	it("rejects when-input-present(...) with no clause", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "when-input-present",
+				input: { kind: "input", name: "phone" },
+			}),
+		).toThrow();
+	});
 });

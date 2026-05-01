@@ -11,6 +11,14 @@
 // running locally) AND drive an editing UI. A string-only representation
 // would force a parser at every boundary; storing the AST keeps each
 // surface as a one-way emitter and locks the semantics in one place.
+// Concretely, this is the structural defense against the
+// accretion-and-untyped-strings pattern that produced CommCare HQ's
+// case-search XPath dialect over 25 years — every new capability there
+// became another function added to the same untyped expression
+// language. By forcing every authored predicate through this typed
+// AST, that pattern is structurally prevented here. (See the design
+// spec at docs/superpowers/specs/2026-04-30-case-list-search-design.md
+// "Design properties — the quality bar" for the full rationale.)
 //
 // The AST uses Zod-discriminated unions on a `kind` field, matching
 // Nova's existing patterns (see `lib/domain/fields/index.ts` for the
@@ -141,12 +149,18 @@ const inSchema = z.object({
  * those shapes don't make geometric sense), but `center` is a
  * full term so a search-input geopoint or a session user location
  * can drive the query.
+ *
+ * `distance` is `.nonnegative()` — a negative radius is geometrically
+ * meaningless and would propagate to two compilers (XPath/CSQL and
+ * Kysely) that don't share a rejection layer. Reject at the AST. Zod
+ * 4's `z.number()` already rejects `NaN` and `±Infinity`, so the only
+ * structural concern left here is the sign.
  */
 const withinDistanceSchema = z.object({
 	kind: z.literal("within-distance"),
 	property: propertyRefSchema,
 	center: termSchema,
-	distance: z.number(),
+	distance: z.number().nonnegative(),
 	unit: z.enum(["miles", "kilometers"]),
 });
 
@@ -165,28 +179,37 @@ const fuzzySchema = z.object({
 // ---------- Recursive predicate operators ----------
 //
 // `and`, `or`, `not`, and `when-input-present` reference the predicate
-// union itself. The Zod 4 getter pattern is preferred for self-recursive
-// objects (`Category` referencing `Category`), but here the cycle goes
-// through a `z.discriminatedUnion(...)` rather than a single object —
-// each operator schema needs to reference `predicateSchema` (the union),
-// not itself. Forward-referencing a `const` from inside an object getter
-// fails because the union doesn't exist yet during arm declaration; the
-// getter return-type annotation has to name `predicateSchema`, which is
-// declared later, and TypeScript reports a circular-mapped-type error.
+// union itself. Two distinct constraints converge here:
 //
-// `z.lazy(() => ...)` is the documented Zod 4 fallback for recursion
-// through unions/arrays, so each recursive arm wraps its predicate slot
-// in `z.lazy`. The explicit `z.ZodType<Predicate>` annotation on
-// `predicateSchema` lets the compiler resolve the cycle: the schema's
-// runtime shape is built bottom-up at first parse, and the type
-// annotation tells TypeScript what value the lazy callbacks will
-// eventually deliver.
+//   1. Runtime — Zod 4's getter pattern (the documented v4 idiom for
+//      self-referential objects, e.g. `Category` referencing
+//      `Category`) fails when the recursion goes through a
+//      `z.discriminatedUnion(...)`. The union's constructor eagerly
+//      reads each member's shape to build the discriminator-to-arm
+//      lookup table, and the cycle never resolves because the union
+//      doesn't exist yet when the arms are declared.
+//      `z.lazy(() => predicateSchema)` defers the access until the
+//      first parse, after `predicateSchema`'s `const` binding is
+//      complete, so the cycle resolves at use time.
+//      (Zod issue #4264.)
 //
-// Why one schema per recursive operator instead of inlining them in the
-// `discriminatedUnion(...)` call: `z.discriminatedUnion` requires each
-// member to be a single object schema carrying the discriminant key.
-// Defining each as a named const keeps the union list readable and lets
-// each operator's contract live next to its discriminator declaration.
+//   2. TypeScript — TypeScript cannot resolve `z.infer` through a
+//      recursive union; recent versions either collapse the chain to
+//      `any` or reject the whole expression as a circular mapped type
+//      (Zod issue #5035 details the TS 5.9+ behavior). The four
+//      recursive arms of `Predicate` are therefore hand-declared, and
+//      `predicateSchema` carries an explicit `z.ZodType<Predicate>`
+//      annotation so the schema's runtime shape and the hand-declared
+//      type stay reconciled. The drift guard at the bottom of this
+//      file catches divergence between the hand-declared arms and the
+//      schemas' inferred shapes.
+//
+// Why one schema per recursive operator instead of inlining them in
+// the `discriminatedUnion(...)` call: `z.discriminatedUnion` requires
+// each member to be a single object schema carrying the discriminant
+// key. Defining each as a named const keeps the union list readable
+// and lets each operator's contract live next to its discriminator
+// declaration.
 
 // `clauses` on `andSchema` and `orSchema` is `.min(1)`: an empty `and`
 // trivially evaluates to `true` and an empty `or` trivially evaluates
@@ -240,15 +263,15 @@ const whenInputPresentSchema = z.object({
  * Drift policy — the four non-recursive arms (`comparisonSchema`,
  * `inSchema`, `withinDistanceSchema`, `fuzzySchema`) derive their TS
  * shape from their schema via `z.infer<typeof X>`, so adding a field
- * to those schemas updates the union automatically. The four
- * recursive arms (`and`, `or`, `not`, `when-input-present`) are
- * hand-declared because TypeScript cannot resolve `z.infer` through a
+ * to those schemas updates the union automatically. The four recursive
+ * arms (`and`, `or`, `not`, `when-input-present`) are hand-declared
+ * because TypeScript cannot resolve `z.infer` through a
  * discriminated-union recursion cycle (Zod issue #4264). Adding a
  * field to one of those four schemas requires a parallel hand-update
- * to the matching arm here. The recursive shapes stay deliberately
- * narrow (kind + 1–2 fields) and the test suite parses each arm
- * directly, so any drift surfaces as a CI failure rather than a
- * silent runtime mismatch.
+ * to the matching arm here. Any required-field drift surfaces as a CI
+ * failure (the schema rejects predicates that don't supply the field;
+ * the test suite parses each arm). Optional-field drift is caught by
+ * the structural assertion at the bottom of this file.
  */
 export type Predicate =
 	| z.infer<typeof comparisonSchema>
@@ -277,3 +300,70 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 		whenInputPresentSchema,
 	],
 );
+
+// ---------- Drift guard ----------
+//
+// Compile-time check that each hand-written recursive arm of `Predicate`
+// matches its schema's inferred shape. If a field is added or removed
+// on one of the recursive schemas without a parallel update to the
+// matching union arm above, this `_driftGuard` block fails to
+// type-check and CI catches it.
+//
+// `_TypesEqual` is the standard TypeScript-FP pattern for strict
+// structural equality (two types are considered equal iff a
+// conditional indexing through one matches the other identically).
+// Bidirectional `extends` is too loose — `{ a: string } extends
+// { a: string; b?: number }` and the reverse are both true, so plain
+// `extends` would silently allow optional-field drift. `_TypesEqual`
+// is conservative: it treats `b?: number` as a structurally distinct
+// type from "field absent", so optional additions/removals trip it.
+//
+// The recursive slots themselves (`clauses`, `clause`) cannot be
+// compared via `z.infer` — through `z.lazy`, the inferred shape of the
+// payload widens unpredictably across TS versions. So each arm is
+// stripped of its recursive slot before comparison. The recursive
+// slot's CONTENT is pinned by parse tests in the adjacent test file
+// (`not(...)` and `when-input-present(...)` parse nested predicates),
+// so the only escape route this guard misses — a payload-shape change
+// reachable only through recursion — is caught there.
+
+type _TypesEqual<X, Y> =
+	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
+		? true
+		: false;
+
+type _AndArm = Omit<Extract<Predicate, { kind: "and" }>, "clauses">;
+type _OrArm = Omit<Extract<Predicate, { kind: "or" }>, "clauses">;
+type _NotArm = Omit<Extract<Predicate, { kind: "not" }>, "clause">;
+type _WhenInputPresentArm = Omit<
+	Extract<Predicate, { kind: "when-input-present" }>,
+	"clause"
+>;
+
+type _AndInferred = Omit<z.infer<typeof andSchema>, "clauses">;
+type _OrInferred = Omit<z.infer<typeof orSchema>, "clauses">;
+type _NotInferred = Omit<z.infer<typeof notSchema>, "clause">;
+type _WhenInputPresentInferred = Omit<
+	z.infer<typeof whenInputPresentSchema>,
+	"clause"
+>;
+
+// `_driftGuard` is intentionally unused at runtime — its sole purpose
+// is to fail type-check when the hand-written `Predicate` arms drift
+// from their schemas. The leading `_` opts it out of the
+// `noUnusedVariables` lint by convention; the assignment must remain
+// because removing it loses the type-check site.
+const _driftGuard: {
+	and: _TypesEqual<_AndArm, _AndInferred>;
+	or: _TypesEqual<_OrArm, _OrInferred>;
+	not: _TypesEqual<_NotArm, _NotInferred>;
+	whenInputPresent: _TypesEqual<
+		_WhenInputPresentArm,
+		_WhenInputPresentInferred
+	>;
+} = {
+	and: true,
+	or: true,
+	not: true,
+	whenInputPresent: true,
+};
