@@ -143,6 +143,18 @@ const inSchema = z.object({
 });
 
 /**
+ * Distance units accepted by `within-distance`. Pattern mirrors
+ * `COMPARISON_KINDS` above: a local `as const` tuple feeds the schema
+ * via `z.enum(...)`, and the exported `DistanceUnit` type derives from
+ * it so the builder's `unit` parameter shares this single source of
+ * truth. Adding a unit (e.g. `"meters"`) here automatically expands
+ * the builder's accepted argument set rather than silently letting
+ * the builder reject what the schema accepts.
+ */
+const DISTANCE_UNITS = ["miles", "kilometers"] as const;
+export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
+
+/**
  * Geo predicate: include cases whose `property` (a geopoint) lies
  * within `distance` of `center`. `property` is constrained to a direct
  * property reference (the geopoint can't be a literal or an input —
@@ -161,7 +173,7 @@ const withinDistanceSchema = z.object({
 	property: propertyRefSchema,
 	center: termSchema,
 	distance: z.number().nonnegative(),
-	unit: z.enum(["miles", "kilometers"]),
+	unit: z.enum(DISTANCE_UNITS),
 });
 
 /**

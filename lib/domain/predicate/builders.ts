@@ -40,6 +40,7 @@
 
 import type {
 	ComparisonKind,
+	DistanceUnit,
 	Literal,
 	Predicate,
 	PropertyRef,
@@ -186,6 +187,17 @@ export function or(
  * the schema), not `body` or `inner`, to keep the builder name and
  * the AST field name aligned for readers tracing values from
  * authored predicates to the wire emitter.
+ *
+ * Parameter-naming policy: builder parameter names track AST field
+ * names where possible (`clause` here, `clause` on `whenInput`,
+ * `property`/`value` on `fuzzy`) so readers see the same identifier
+ * at every layer from authored predicate to wire emission. The one
+ * principled exception is `whenInput`'s `inputRef` parameter —
+ * naming it `input` to match the AST field would shadow the
+ * term-builder export `input` in this same file. Foundation code
+ * structurally prevents footguns rather than relying on "the shadow
+ * is currently safe" to hold across edits, so the parameter takes
+ * a non-shadowing name even at the cost of one layer of mismatch.
  */
 export function not(clause: Predicate): Extract<Predicate, { kind: "not" }> {
 	return { kind: "not", clause };
@@ -208,7 +220,7 @@ export function within(
 	property: PropertyRef,
 	center: Term,
 	distance: number,
-	unit: "miles" | "kilometers",
+	unit: DistanceUnit,
 ): Extract<Predicate, { kind: "within-distance" }> {
 	return { kind: "within-distance", property, center, distance, unit };
 }
@@ -236,17 +248,14 @@ export function fuzzy(
  * machinery and silently break — picking a different name eliminates
  * the footgun structurally.
  *
- * The first parameter is named `input` to match the AST field name
- * `input` — the policy from `not` (builder parameter names align
- * with AST field names so readers can trace values from authored
- * predicates to wire emission) applies here too. The parameter
- * shadows the term-builder export `input` within this body; the
- * shadow is local and safe because the term builder is never called
- * inside this function.
+ * The first parameter is `inputRef` (not `input`) to avoid shadowing
+ * the term-builder export `input` declared above in this file. See
+ * the parameter-naming policy comment on `not` for the full
+ * rationale.
  */
 export function whenInput(
-	input: SearchInputRef,
+	inputRef: SearchInputRef,
 	clause: Predicate,
 ): Extract<Predicate, { kind: "when-input-present" }> {
-	return { kind: "when-input-present", input, clause };
+	return { kind: "when-input-present", input: inputRef, clause };
 }
