@@ -157,26 +157,10 @@ const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"time",
 ]);
 
-/**
- * Data types whose property values can be fuzzy-matched. Text-shaped
- * types pass through CCHQ's `fuzzy_match` (which dispatches
- * `case_property_query(..., fuzzy=True)`) as plain Elasticsearch
- * fuzzy queries against the same string-typed `PROPERTY_VALUE` field
- * — see `checkFuzzy`'s JSDoc for the wire-layer citation chain.
- * Other types (numeric, temporal, geopoint) have no meaningful
- * approximate-string match, so the type checker rejects them at
- * authoring time rather than silently constructing predicates that
- * compile but never produce a useful match.
- *
- * Typed as `ReadonlySet<ResolvedType>` rather than
- * `ReadonlySet<CasePropertyDataType>` so the `has(propType)` lookup
- * accepts the resolved type directly without an upfront narrow — the
- * `_any` null sentinel can't reach a property's resolved type
- * (`resolveTermType` returns `data_type ?? "text"` for property
- * refs), so widening the set's element type doesn't admit any
- * runtime member that's structurally invalid for it.
- */
-const FUZZY_PROPERTY_TYPES: ReadonlySet<ResolvedType> = new Set([
+// Property types fuzzy match accepts. Text-shaped types pass through
+// CCHQ's case_property_query (used by both fuzzy_match and selected
+// queries), so fuzzy matches dispatch identically across them.
+const FUZZY_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"text",
 	"single_select",
 	"multi_select",
@@ -491,7 +475,17 @@ function checkFuzzy(
 		...path,
 		"property",
 	]);
-	if (propType !== undefined && !FUZZY_PROPERTY_TYPES.has(propType)) {
+	// `ANY_TYPE` is structurally unreachable for a `PropertyRef` today,
+	// but the explicit guard pins the invariant at the type system: a
+	// future widening of the fuzzy schema's operand or of
+	// `resolveTermType`'s null handling fails the
+	// `CasePropertyDataType`-typed `has` lookup at compile time
+	// instead of silently treating `_any` as "passes the allow-list."
+	if (
+		propType !== undefined &&
+		propType !== ANY_TYPE &&
+		!FUZZY_PROPERTY_TYPES.has(propType)
+	) {
 		errors.push({
 			path: [...path, "property"],
 			message: `fuzzy match requires a text-typed property (text, single_select, or multi_select); got '${describe(propType)}'.`,
@@ -553,21 +547,35 @@ function resolveTermType(
 			// User-context refs resolve to text by convention. CommCare's
 			// `instance('commcaresession')/session/user/data/<field>` returns a
 			// string at the XPath/CSQL layer; the type checker treats user
-			// fields as text without an opt-out path. Authors who need
-			// typed comparisons against a user field today coerce
-			// upstream.
+			// fields as text without an opt-out path. The only resolution
+			// path is text; any typed coercion happens upstream of the
+			// predicate.
 			return "text";
 		case "literal":
 			return literalType(term);
+		default: {
+			// Exhaustiveness assertion — a future widening of `Term`
+			// (e.g. adding a `kind: "function"` arm for computed
+			// expressions) without a parallel arm here would otherwise
+			// silently fall through to `undefined`, looking the same as
+			// a legitimate resolution failure to every caller. The
+			// `never` assertion catches the omission at compile time;
+			// the runtime throw guards untyped boundaries that bypass
+			// the type system.
+			const _exhaustive: never = term;
+			throw new Error(
+				`resolveTermType: unhandled term kind ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
 /**
  * Map a literal to its data type. Three resolution sources, in order:
  *   1. `lit.data_type` — explicit, set by the typed builders
- *      (`dateLiteral` / `datetimeLiteral` / `timeLiteral` /
- *      future-typed-literal-builders). Wins unconditionally because
- *      the author has already declared the semantic type.
+ *      (`dateLiteral` / `datetimeLiteral` / `timeLiteral`). Wins
+ *      unconditionally because the author has already declared the
+ *      semantic type.
  *   2. `null` value — resolves to the internal `_any` sentinel so it
  *      compares against any declared property type. See `ANY_TYPE`'s
  *      JSDoc for the rationale.
