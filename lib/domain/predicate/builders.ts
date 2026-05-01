@@ -17,6 +17,18 @@
 // check is strictly more useful than at parse: the failure surfaces in
 // the editor, not in a CI run.
 //
+// Each builder also returns a precise per-operator type rather than the
+// full `Predicate` union. Callers narrowing on `kind` after a builder
+// call would be forced to either re-narrow with an `if` block or accept
+// a widened type they can't access fields on; returning the precise arm
+// makes `and(...).clauses`, `not(...).clause`, etc. directly accessible
+// at the call site. Comparison builders use a small `ComparisonPredicate<K>`
+// generic because `Extract<Predicate, { kind: "eq" }>` resolves to
+// `never` — the schema collapses all six comparison kinds into one arm
+// via `z.enum(COMPARISON_KINDS)`, so per-kind extraction can't reach
+// them. The generic shape is structurally identical to the schema's
+// comparison arm and is provably assignable to `Predicate`.
+//
 // Distance constraint trade-off: `within`'s `distance` is plain
 // `number`. TypeScript can't cheaply express "non-negative number" (it
 // requires a branded subtype with a runtime guard at every
@@ -45,11 +57,10 @@ import type {
 // the return type narrows precisely on the call site.
 
 /**
- * Constructs a property reference. The `caseType` qualifier is
- * mandatory — see `propertyRefSchema` in `types.ts` for why
- * positional context isn't enough (a search-detail predicate can
- * reach across a parent case type, so the AST records WHICH case
- * type the property lives on).
+ * Constructs a property reference. The `caseType` qualifier is required
+ * because a search-detail predicate may reach across a related parent
+ * case type (e.g. `patient` → `clinic`), so the AST records WHICH case
+ * type the property lives on rather than relying on positional context.
  */
 export function prop(caseType: string, property: string): PropertyRef {
 	return { kind: "prop", caseType, property };
@@ -88,18 +99,32 @@ export function literal(value: string | number | boolean | null): Literal {
 // All six comparison operators share an identical structural shape
 // (`{ kind, left, right }`), so they're constructed via a curried
 // helper rather than restating the body six times. The factory takes
-// the comparison kind and returns a binary function; calling it
-// produces a fully-typed `Predicate` because the schema's
-// `comparisonSchema` collapses all six kinds into one shape.
+// the comparison kind and returns a binary function that produces a
+// per-kind narrowed value.
+//
+// `ComparisonPredicate<K>` exists because `Extract<Predicate, { kind:
+// "eq" }>` resolves to `never` — the schema's `comparisonSchema`
+// collapses all six kinds into one arm via `z.enum(COMPARISON_KINDS)`,
+// so the union has a single comparison arm with `kind: ComparisonKind`
+// rather than per-kind arms. Defining the per-kind shape here, with
+// the same `{ kind, left, right }` structure as `comparisonSchema`,
+// gives each builder a precise return type that's still assignable to
+// `Predicate`.
 //
 // (See the JSDoc on `COMPARISON_KINDS` / `comparisonSchema` in
 // `types.ts` for why this collapse is correct only as long as all six
 // share the same operand shape — if a future operator needs an
 // asymmetric field, this curried helper has to split.)
 
+type ComparisonPredicate<K extends ComparisonKind> = {
+	kind: K;
+	left: Term;
+	right: Term;
+};
+
 const comparison =
-	(kind: ComparisonKind) =>
-	(left: Term, right: Term): Predicate => ({ kind, left, right });
+	<K extends ComparisonKind>(kind: K) =>
+	(left: Term, right: Term): ComparisonPredicate<K> => ({ kind, left, right });
 
 export const eq = comparison("eq");
 export const neq = comparison("neq");
@@ -121,7 +146,7 @@ export function isIn(
 	left: Term,
 	first: Literal,
 	...rest: Literal[]
-): Predicate {
+): Extract<Predicate, { kind: "in" }> {
 	return { kind: "in", left, values: [first, ...rest] };
 }
 
@@ -137,7 +162,10 @@ export function isIn(
  * `true`), and a compile-time error is preferable to a runtime
  * parse failure.
  */
-export function and(first: Predicate, ...rest: Predicate[]): Predicate {
+export function and(
+	first: Predicate,
+	...rest: Predicate[]
+): Extract<Predicate, { kind: "and" }> {
 	return { kind: "and", clauses: [first, ...rest] };
 }
 
@@ -146,7 +174,10 @@ export function and(first: Predicate, ...rest: Predicate[]): Predicate {
  * the schema rejects an empty `or` (which evaluates trivially to
  * `false`), so the builder demands at least one argument.
  */
-export function or(first: Predicate, ...rest: Predicate[]): Predicate {
+export function or(
+	first: Predicate,
+	...rest: Predicate[]
+): Extract<Predicate, { kind: "or" }> {
 	return { kind: "or", clauses: [first, ...rest] };
 }
 
@@ -156,7 +187,7 @@ export function or(first: Predicate, ...rest: Predicate[]): Predicate {
  * the AST field name aligned for readers tracing values from
  * authored predicates to the wire emitter.
  */
-export function not(clause: Predicate): Predicate {
+export function not(clause: Predicate): Extract<Predicate, { kind: "not" }> {
 	return { kind: "not", clause };
 }
 
@@ -178,7 +209,7 @@ export function within(
 	center: Term,
 	distance: number,
 	unit: "miles" | "kilometers",
-): Predicate {
+): Extract<Predicate, { kind: "within-distance" }> {
 	return { kind: "within-distance", property, center, distance, unit };
 }
 
@@ -189,7 +220,10 @@ export function within(
  * string (not a term) because the operator is unambiguously textual
  * at every wire target.
  */
-export function fuzzy(property: PropertyRef, value: string): Predicate {
+export function fuzzy(
+	property: PropertyRef,
+	value: string,
+): Extract<Predicate, { kind: "fuzzy" }> {
 	return { kind: "fuzzy", property, value };
 }
 
@@ -197,14 +231,22 @@ export function fuzzy(property: PropertyRef, value: string): Predicate {
  * Constructs a "when input is present" wrapper. The wrapped predicate
  * applies only if the named search input is set at runtime; otherwise
  * the wrapper is a no-op. The body slot is named `clause` (not
- * `then`) — see the JSDoc on `whenInputPresentSchema` in `types.ts`
- * for the runtime rationale (a parsed predicate accidentally returned
- * from an async function would have its `.then` invoked by JS's
- * await machinery and silently break).
+ * `then`) because a parsed predicate accidentally returned from an
+ * async function would have its `.then` invoked by JS's await
+ * machinery and silently break — picking a different name eliminates
+ * the footgun structurally.
+ *
+ * The first parameter is named `input` to match the AST field name
+ * `input` — the policy from `not` (builder parameter names align
+ * with AST field names so readers can trace values from authored
+ * predicates to wire emission) applies here too. The parameter
+ * shadows the term-builder export `input` within this body; the
+ * shadow is local and safe because the term builder is never called
+ * inside this function.
  */
 export function whenInput(
-	inputRef: SearchInputRef,
+	input: SearchInputRef,
 	clause: Predicate,
-): Predicate {
-	return { kind: "when-input-present", input: inputRef, clause };
+): Extract<Predicate, { kind: "when-input-present" }> {
+	return { kind: "when-input-present", input, clause };
 }
