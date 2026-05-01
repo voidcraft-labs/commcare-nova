@@ -41,7 +41,13 @@
 // multi-clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
-import type { ComparisonKind, Literal, Predicate, Term } from "./types";
+import type {
+	ComparisonKind,
+	Literal,
+	MatchMode,
+	Predicate,
+	Term,
+} from "./types";
 
 // ---------- Types ----------
 
@@ -166,11 +172,12 @@ const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 //
 // CCHQ's underlying Elasticsearch index stores every case property's
 // value as text on the `PROPERTY_VALUE` field
-// (`commcare-hq/corehq/apps/es/case_search.py:237`), so the wire layer
-// accepts every match mode against any property regardless of declared
-// type. The Nova type checker is stricter: each mode has a per-mode
-// allow-list, rejecting property types where the mode's semantics
-// produce no useful results.
+// (`commcare-hq/corehq/apps/es/case_search.py:50`, defined as
+// `f'{CASE_PROPERTIES_PATH}.{VALUE}'`), so the wire layer accepts
+// every match mode against any property regardless of declared type.
+// The Nova type checker is stricter: each mode has a per-mode allow-
+// list, rejecting property types where the mode's semantics produce
+// no useful results.
 //
 // Three of the four modes — `fuzzy`, `phonetic`, `starts-with` — match
 // by approximate-string semantics (edit-distance, phonetic
@@ -179,7 +186,7 @@ const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 // the allow-list narrows to text-shaped properties. Per-mode CCHQ
 // dispatch:
 //
-//   - `fuzzy-match` (`commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:91-98`)
+//   - `fuzzy-match` (`commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:92-98`)
 //     calls `case_property_query(..., fuzzy=True)`.
 //   - `phonetic-match` (`query_functions.py:84-89`) calls
 //     `sounds_like_text_query` (`case_search.py:305`).
@@ -210,6 +217,24 @@ const MATCH_PROPERTY_TYPES_TEXT_SHAPED: ReadonlySet<CasePropertyDataType> =
 	new Set(["text", "single_select", "multi_select"]);
 const MATCH_PROPERTY_TYPES_FUZZY_DATE: ReadonlySet<CasePropertyDataType> =
 	new Set(["text", "single_select", "multi_select", "date", "datetime"]);
+
+// Per-mode allow-list lookup. `Record<MatchMode, ...>` is exhaustive at
+// the type layer: adding a fifth match mode without an entry here is a
+// compile-time error rather than a silent fall-through to the default
+// allow-list. The `as const` shape on `MATCH_MODES` makes the
+// `MatchMode` union the closed key set, so this Record can't admit a
+// stray key. Keying by mode also makes the per-mode dispatch readable
+// at a glance — every mode's allow-list is one row in this table
+// rather than chained ternaries.
+const MATCH_PROPERTY_TYPES_BY_MODE: Record<
+	MatchMode,
+	ReadonlySet<CasePropertyDataType>
+> = {
+	fuzzy: MATCH_PROPERTY_TYPES_TEXT_SHAPED,
+	phonetic: MATCH_PROPERTY_TYPES_TEXT_SHAPED,
+	"fuzzy-date": MATCH_PROPERTY_TYPES_FUZZY_DATE,
+	"starts-with": MATCH_PROPERTY_TYPES_TEXT_SHAPED,
+};
 
 // ---------- Top-level walker ----------
 
@@ -564,10 +589,11 @@ function checkMatch(
 		...path,
 		"property",
 	]);
-	const allowList =
-		p.mode === "fuzzy-date"
-			? MATCH_PROPERTY_TYPES_FUZZY_DATE
-			: MATCH_PROPERTY_TYPES_TEXT_SHAPED;
+	// `Record<MatchMode, ...>` indexed-access guarantees a defined
+	// allow-list for every mode at compile time — adding a mode without
+	// a `MATCH_PROPERTY_TYPES_BY_MODE` entry is a TS error, so the
+	// dispatch is exhaustive without a runtime `default: never` arm.
+	const allowList = MATCH_PROPERTY_TYPES_BY_MODE[p.mode];
 	// `ANY_TYPE` is structurally unreachable for a `PropertyRef` today,
 	// but the explicit guard pins the invariant at the type system: a
 	// future widening of the match schema's operand or of
@@ -624,6 +650,14 @@ function checkMultiSelectContains(
 		...path,
 		"property",
 	]);
+	// `ANY_TYPE` is structurally unreachable for a `PropertyRef` today
+	// (only literal `null` resolves to the sentinel), but the explicit
+	// guard pins the invariant at the type system: a future widening of
+	// the multi-select-contains schema's operand or of
+	// `resolveTermType`'s null handling fails the
+	// `CasePropertyDataType`-typed equality check at compile time
+	// instead of silently treating `_any` as "is multi_select." Same
+	// rationale as the parallel guard in `checkMatch`.
 	if (
 		propType !== undefined &&
 		propType !== ANY_TYPE &&

@@ -360,7 +360,7 @@ describe("predicate schema", () => {
 
 	// Each match mode dispatches to a different CCHQ wire form on the
 	// CSQL target — `fuzzy-match` (verified at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:91-98`),
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:92-98`),
 	// `phonetic-match` (line 84-89), `fuzzy-date` (line 101-113), and
 	// `starts-with` (line 31-35). Pinning each mode through round-trip
 	// parse locks the discriminator-only payload (`{ property, value,
@@ -422,7 +422,7 @@ describe("predicate schema", () => {
 
 	// `multi-select-contains` is the typed structural shape for CCHQ's
 	// `selected-any` / `selected-all` query functions (registered at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43-44`).
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:44-45`).
 	// The `quantifier` discriminator distinguishes the two; the schema
 	// keeps them in one operator so a UI surface or reducer toggling
 	// "any of" ↔ "all of" doesn't have to reshape the parent object.
@@ -495,6 +495,42 @@ describe("predicate schema", () => {
 				quantifier: "any",
 			}),
 		).toThrow();
+	});
+
+	// All-null rejection mirrors the `inSchema` defense above. Both wire
+	// targets collapse an all-null `multi-select-contains` to a
+	// duplicated "is unset" check — see the source citations on
+	// `multiSelectContainsSchema`'s `.refine(...)` for the per-target
+	// dispatch — so the canonical authoring shape for the same intent is
+	// `is-null(prop)`, not a token list of nulls.
+	it("rejects multi-select-contains where every value is null", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "multi-select-contains",
+				property: { kind: "prop", caseType: "patient", property: "tags" },
+				values: [
+					{ kind: "literal", value: null },
+					{ kind: "literal", value: null },
+				],
+				quantifier: "any",
+			}),
+		).toThrow();
+	});
+
+	// Mixed null + non-null lists are accepted because they encode the
+	// meaningful "is unset OR / AND has token X" predicate. Pinning the
+	// positive case keeps the rejection narrow to the all-null shape.
+	it("accepts multi-select-contains with a single null value alongside non-null values", () => {
+		const result = predicateSchema.parse({
+			kind: "multi-select-contains",
+			property: { kind: "prop", caseType: "patient", property: "tags" },
+			values: [
+				{ kind: "literal", value: null },
+				{ kind: "literal", value: "vip" },
+			],
+			quantifier: "any",
+		});
+		expect(result.kind).toBe("multi-select-contains");
 	});
 
 	// Deep recursive-arm coverage. The drift guard at the bottom of

@@ -546,7 +546,7 @@ const withinDistanceSchema = z.object({
  *
  *   - `fuzzy` → `fuzzy-match` (Elasticsearch `queries.fuzzy` against
  *     `PROPERTY_VALUE`, edit-distance match)
- *     — `query_functions.py:91-98`.
+ *     — `query_functions.py:92-98`.
  *   - `phonetic` → `phonetic-match` (Soundex / metaphone-style match
  *     via `sounds_like_text_query`)
  *     — `query_functions.py:84-89`.
@@ -571,7 +571,7 @@ export type MatchMode = (typeof MATCH_MODES)[number];
  * `COMPARISON_KINDS` / `DISTANCE_UNITS`. `any` maps to CCHQ's
  * `selected-any` (any token matches); `all` maps to `selected-all`
  * (every token matches). Both registered at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43-44`
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:44-45`
  * and dispatched through `_selected_query` →
  * `case_property_query(..., multivalue_mode='or' | 'and')` at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`.
@@ -636,34 +636,62 @@ const matchSchema = z.object({
  * true" is `match-all` and for "always false" is `match-none`; reject
  * at the schema layer so downstream consumers don't see degenerate
  * payloads.
+ *
+ * All-null-list rejection: same defense `inSchema.values` carries.
+ * Both wire targets collapse an all-null list to a duplicated "is
+ * unset" predicate (the canonical `is-null(prop)` shape), so reject
+ * here too. Source citations live next to the `.refine(...)` call
+ * below.
  */
-const multiSelectContainsSchema = z.object({
-	kind: z.literal("multi-select-contains"),
-	property: propertyRefSchema,
-	// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
-	// `Literal[]` — the same shape `inSchema.values` uses. Construction-
-	// site object literals like `{ kind: "multi-select-contains", ...,
-	// values: [] }` fail at compile time rather than at parse. Indexed
-	// access on the resulting type still yields `Literal` under the
-	// project's current `tsconfig` (no `noUncheckedIndexedAccess`), so
-	// the runtime parse rejection is what enforces non-empty at read
-	// sites.
+const multiSelectContainsSchema = z
+	.object({
+		kind: z.literal("multi-select-contains"),
+		property: propertyRefSchema,
+		// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
+		// `Literal[]` — the same shape `inSchema.values` uses.
+		// Construction-site object literals like
+		// `{ kind: "multi-select-contains", ..., values: [] }` fail at
+		// compile time rather than at parse. Indexed access on the
+		// resulting type still yields `Literal` under the project's
+		// current `tsconfig` (no `noUncheckedIndexedAccess`), so the
+		// runtime parse rejection is what enforces non-empty at read
+		// sites.
+		values: z.tuple([literalSchema], literalSchema),
+		quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
+	})
+	// All-null rejection mirrors `inSchema.values`'s defense: both wire
+	// targets collapse an all-null list to a duplicated "is unset"
+	// predicate, which is what the canonical `is-null(prop)` shape
+	// expresses cleanly.
 	//
-	// Note the deliberate asymmetry with `inSchema.values`. That schema
-	// has a `.refine(...)` rejecting all-null lists because every wire
-	// emission collapses an `in(prop, [null, null, ...])` to a chain of
-	// `(prop = '' or prop = '' or ...)` — a duplicated "is unset" check,
-	// almost certainly an authoring bug. `multi-select-contains` has a
-	// different wire form: an all-null list emits as `selected(prop,
-	// '')` (single-value) or OR-of-`selected(prop, '')` calls (multi-
-	// value), which expresses "the multi-select contains the empty
-	// token" — a real (if unusual) CCHQ query against multi_select
-	// properties whose option set permits an empty token. The
-	// `inSchema` rejection rationale doesn't carry over, so this schema
-	// doesn't refine.
-	values: z.tuple([literalSchema], literalSchema),
-	quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
-});
+	// CSQL: `case_property_query(name, '', multivalue_mode=...)`
+	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py:245-246`
+	// to `case_property_missing(name)` — "the property is missing" —
+	// before reaching the multivalue tokenization branch. Every null
+	// literal lowers to the wire-form empty string at the term emitter,
+	// so an all-null list never reaches the `selected-any` /
+	// `selected-all` per-token logic; the entire predicate is a single
+	// "is missing" check duplicated by `quantifier`'s OR / AND.
+	//
+	// On-device: `XPathSelectedFunc.multiSelected` at
+	// `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathSelectedFunc.java:38-54`
+	// trims the candidate token before searching: with the candidate
+	// trimming to the empty string, the substring test
+	// `(" " + s1 + " ").contains(" " + "" + " ")` reduces to
+	// `(" " + s1 + " ").contains("  ")`, which is true iff `s1` is the
+	// empty string — i.e., the property is unset. OR / AND of identical
+	// "property is unset" terms collapses to one "is unset" check.
+	//
+	// Both targets emit a duplicated "is unset" predicate for an all-
+	// null shape, almost certainly an authoring bug; the canonical
+	// shape for the same intent is `is-null(prop)`. Reject at the AST
+	// layer so downstream consumers don't have to encode the policy.
+	// Mixed null + non-null lists are accepted because they encode the
+	// meaningful "is unset OR / AND has token X" predicate.
+	.refine(
+		(s) => s.values.some((v) => v.value !== null),
+		"multi-select-contains.values must contain at least one non-null value",
+	);
 
 // ---------- Sentinel predicates ----------
 //

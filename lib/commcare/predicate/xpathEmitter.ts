@@ -316,7 +316,7 @@ function emitPredicate(
 			//     (`starts-with(prop, 'v')`); the other three modes
 			//     (`fuzzy`, `phonetic`, `fuzzy-date`) are CSQL-only —
 			//     verified at
-			//     `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`,
+			//     `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-268`,
 			//     where the on-device dispatcher registers no handler
 			//     for `fuzzy-match` / `phonetic-match` / `fuzzy-date`.
 			//     CSQL emits each mode via its named wire function
