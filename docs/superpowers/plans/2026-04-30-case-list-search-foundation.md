@@ -158,48 +158,94 @@ export const missing = (via: RelationPath, where?: Predicate): Extract<Predicate
 6. **CCHQ source citations on the new schemas** verified at production code (not test mocks): `match-all`/`match-none` registry at `corehq/apps/case_search/xpath_functions/__init__.py:52-53`; implementations at `query_functions.py:162-177`; `subcase-exists` at `subcase_functions.py:51-62` with optional-filter check at `:207`; `ancestor-exists` at `ancestor_functions.py:97-118` with mandatory 2-arg confirm.
 7. **`DISTANCE_UNITS` (Task 2) Nova-narrowing note added** — CCHQ accepts nine units (`miles`, `kilometers`, `yards`, `feet`, `inch`, `meters`, `centimeters`, `millimeters`, `nauticalmiles` per `commcare-hq/corehq/apps/es/queries.py:22-23`); Nova exposes only the imperial/metric anchors. Documented in the schema-level JSDoc.
 
-### Task A2: Add Predicate AST kinds for multi-select-contains and match (text-match modes)
+### Task A2: Add Predicate AST kinds for multi-select-contains and match (text-match modes) — SHIPPED
 
-**Files:** same as A1.
+Shipped across commits `063deab6` → `faad7821` → `f6a28730` → `0d8a8fb9` → `7b10fded` → `f734c02f`.
 
-`multi-select-contains` and `match` replace the v1 plan's separate `selected` / `selected-any` / `selected-all` operators (which v1 also missed) and the v1 plan's `fuzzy` operator (which the implementor shipped under that name).
+**Files modified:**
+- `lib/domain/predicate/types.ts`
+- `lib/domain/predicate/builders.ts`
+- `lib/domain/predicate/typeChecker.ts`
+- `lib/commcare/predicate/xpathEmitter.ts`
+- `lib/domain/predicate/__tests__/types.test.ts`
+- `lib/domain/predicate/__tests__/builders.test.ts`
+- `lib/domain/predicate/__tests__/typeChecker.test.ts`
+
+**Schemas that landed:**
 
 ```ts
-const multiSelectContainsSchema = z.object({
-  kind: z.literal("multi-select-contains"),
-  property: propertyRefSchema,
-  values: z.array(literalSchema).min(1),
-  quantifier: z.enum(["any", "all"]),
-});
-
 const matchSchema = z.object({
   kind: z.literal("match"),
   property: propertyRefSchema,
   value: z.string().min(1),
-  mode: z.enum(["fuzzy", "phonetic", "fuzzy-date", "starts-with"]),
+  mode: z.enum(MATCH_MODES),
 });
+
+const multiSelectContainsSchema = z.object({
+  kind: z.literal("multi-select-contains"),
+  property: propertyRefSchema,
+  values: z.tuple([literalSchema], literalSchema),  // non-empty
+  quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
+}).refine(/* reject all-null values list — collapses to is-null on both wire targets */);
 ```
 
-The shipped `fuzzy` schema is **replaced directly** by `match(prop, val, mode: "fuzzy")` — no deprecation alias, no migration helper. The shipped AST has not been persisted in production, so there is no migration debt. Sweep the typeChecker, builders, tests, and emitter call sites in one change.
+The shipped `fuzzy` schema was **replaced directly** by `match(prop, val, mode: "fuzzy")` with no deprecation alias and no migration helper — the AST has not been persisted in production. Call sites in builders, type checker, emitter, and tests were swept in one change; the standalone `fuzzy` schema and `fuzzyMatch` builder are gone.
 
-The shipped typeChecker's allow-list for `fuzzy` (currently `text` / `single_select` / `multi_select` per `FUZZY_PROPERTY_TYPES` at the shipped `lib/domain/predicate/typeChecker.ts:162-167`, with rationale citing `commcare-hq/.../xpath_functions/query_functions.py:46-51` where `_selected_query` dispatches all three through `case_property_query`) is the **correct** allow-list and survives unchanged. The new `match` operator inherits this allow-list across all four modes (`fuzzy`, `phonetic`, `fuzzy-date`, `starts-with`). Do not narrow it to `text` only.
-
-Builders:
+**Closed sets pulled to module-top constants:**
 
 ```ts
-export const matches = (property: PropertyRef, value: string, mode: MatchMode): Predicate => ({ ... });
-export const multiSelectAny = (property: PropertyRef, values: Literal[]): Predicate => ({ ... });
-export const multiSelectAll = (property: PropertyRef, values: Literal[]): Predicate => ({ ... });
+export const MATCH_MODES = ["fuzzy", "phonetic", "fuzzy-date", "starts-with"] as const;
+export type MatchMode = (typeof MATCH_MODES)[number];
+
+export const MULTI_SELECT_QUANTIFIERS = ["any", "all"] as const;
+export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
 ```
 
-Tests cover construction + round-trip.
+Both follow the `COMPARISON_KINDS` / `DISTANCE_UNITS` pattern already established by Task 2 — single source of truth feeds both the schema's `z.enum(...)` and the builder's parameter type, so adding a mode/quantifier widens both surfaces in one edit.
 
-Steps:
-- [ ] Write failing tests for `multi-select-contains` + `match` schemas
-- [ ] Add schemas, extend union, update Predicate type
-- [ ] Add builders
-- [ ] Replace shipped `fuzzy` schema directly with `match` (rewrite call sites in tests + emitter; delete `fuzzy` schema)
-- [ ] Run tests, commit
+**Builders that landed:**
+
+```ts
+export const matches = (property: PropertyRef, value: string, mode: MatchMode):
+  Extract<Predicate, { kind: "match" }> => /* ... */;
+
+export const multiSelectAny = (property: PropertyRef, first: Literal, ...rest: Literal[]):
+  Extract<Predicate, { kind: "multi-select-contains" }> => /* variadic-with-required-first */;
+
+export const multiSelectAll = (property: PropertyRef, first: Literal, ...rest: Literal[]):
+  Extract<Predicate, { kind: "multi-select-contains" }> => /* variadic-with-required-first */;
+```
+
+The variadic-with-required-first signature on the multi-select builders mirrors A3's `ancestorPath` and the existing `and` / `or` / `isIn` pattern: it lifts `.min(1)` non-emptiness into the type system and rejects empty calls at compile time.
+
+**Type-checker allow-list — `MATCH_PROPERTY_TYPES_BY_MODE`:**
+
+The shipped allow-list for the deleted `fuzzy` operator (`text` / `single_select` / `multi_select`, citing `_selected_query` at `commcare-hq/.../xpath_functions/query_functions.py:46-51`) was the right shape for three of the four modes but too narrow for `fuzzy-date`. CCHQ's `fuzzy-date` accepts `date` and `datetime` properties in addition to text — narrowing to text-only would defeat the operator on typed properties. Shipped as a `Record<MatchMode, ReadonlySet<...>>` for exhaustiveness:
+
+```ts
+const MATCH_PROPERTY_TYPES_BY_MODE: Record<MatchMode, ReadonlySet<...>> = {
+  "fuzzy":       new Set(["text", "single_select", "multi_select"]),
+  "phonetic":    new Set(["text", "single_select", "multi_select"]),
+  "starts-with": new Set(["text", "single_select", "multi_select"]),
+  "fuzzy-date":  new Set(["text", "single_select", "multi_select", "date", "datetime"]),
+};
+```
+
+The exhaustive `Record` shape forces every `MatchMode` addition to declare its allow-list explicitly rather than fall through to a default; missing modes are a compile error.
+
+**Deviations from the v2 plan's outline above (all principled improvements):**
+
+1. **`MATCH_PROPERTY_TYPES_BY_MODE` per-mode allow-list** instead of one shared `MATCH_PROPERTY_TYPES` set. The plan above said the shipped allow-list "survives unchanged" across all four modes; that was wrong for `fuzzy-date`, which CCHQ accepts on date/datetime properties. The Record shape encodes per-mode dispatch and keeps modes from silently sharing the wrong narrowing.
+2. **`z.tuple([T], T)` non-emptiness on `values`** (matching A3's `ancestor` `via`, A1's `and`/`or` clauses, `inSchema.values`) instead of `.min(1)` — lifts the constraint into the inferred type.
+3. **All-null values rejection on `multi-select-contains`** via `.refine(...)`. Both wire targets collapse a list of nulls to a duplicated "is unset" predicate (`case_search.py:245-246` in CCHQ short-circuits to `case_property_missing`; `XPathSelectedFunc.java:38-54` in commcare-core's on-device path reduces empty trim to is-empty), so reject at the schema layer and direct authors to the canonical `is-null(prop)` operator.
+4. **`match.value: z.string().min(1)`** with rationale grounded in CCHQ's per-mode collapse of empty values (different non-match per mode — vacuous prefix for `starts-with`, `case_property_missing` for `fuzzy-match`, no-token-match for `phonetic-match`, `date_permutations("")` undefined for `fuzzy-date`) rather than a uniform "trivially true" framing. Authors who want is-unset semantics use `is-null(prop)`.
+5. **Variadic-with-required-first builders** (`multiSelectAny(prop, first, ...rest)` / `multiSelectAll(prop, first, ...rest)`) instead of the v2 plan's `(prop, values: Literal[])`. Catches empty calls at compile time and matches the A3 / A1 pattern.
+6. **Per-kind narrowed return types** (`Extract<Predicate, { kind: "match" }>` and `Extract<Predicate, { kind: "multi-select-contains" }>`) on builders — same pattern A3 established for relation-path builders.
+7. **Comment-attribution sweep across the recursive arms** of `checkPredicate` after the reviewer caught a stale claim about `_selected_query` being used by all match modes (it dispatches `selected-any` and `selected-all` only; each `match` mode has its own dispatch function in `xpath_functions/`). Citations corrected to the per-mode dispatcher in `query_functions.py`.
+
+**Multi-select asymmetry — documented in JSDoc:**
+
+`selected-any` and `selected-all` look symmetric on the surface (both quantify `selected(prop, v)` over a values list) but CCHQ-side empty-list semantics diverge: `selected-any(prop, '')` returns false for every case (vacuous existential) while `selected-all(prop, '')` returns true for every case (vacuous universal). Nova's schema rejects empty lists at parse time so the asymmetry never reaches the wire, but the rationale is documented in `multiSelectContainsSchema`'s JSDoc so that B-stage emitter authors don't reintroduce the gap.
 
 ### Task A3: Add RelationPath structure — SHIPPED
 
