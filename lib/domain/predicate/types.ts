@@ -574,9 +574,10 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // `left` is `termSchema`, not `propertyRefSchema`, so authors can
 // express "is the input X unset" or "is the user's region unset"
 // alongside the canonical "is the property unset" shape. The schema
-// accepts `is-null(literal(...))` (a meaningless predicate, since
-// literals can't be "unset"); rejecting that shape is a type-checker
-// rule and is not implemented in the current checker.
+// is intentionally structural-only: it admits every Term variant in
+// `left` (including the meaningless `is-null(literal(...))` shape,
+// which can't be "unset" by definition). Whether a checker rejects
+// the literal shape is a type-checker concern, not a schema concern.
 
 const isNullSchema = z.object({
 	kind: z.literal("is-null"),

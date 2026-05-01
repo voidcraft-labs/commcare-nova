@@ -175,19 +175,18 @@ const FUZZY_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
  * pass rather than forcing the author through one-error-at-a-time
  * fix-and-retry cycles.
  *
- * Throws synchronously when the walk reaches a predicate of kind
- * `is-null`, `between`, `exists`, or `missing` — per-operator semantic
- * rules for those four kinds are not implemented in the current
- * checker. The throw also fires when one of those four kinds is nested
- * inside a logical wrapper (`and` / `or` / `not` / `when-input-present`)
- * — e.g. `and(eq(...), isNull(...))` — because the walker recurses
+ * Throws synchronously when the walk reaches a kind without dedicated
+ * semantic rules — currently `is-null`, `between`, `exists`, `missing`.
+ * The throw also fires when one of those kinds is nested inside a
+ * logical wrapper (`and` / `or` / `not` / `when-input-present`) —
+ * e.g. `and(eq(...), isNull(...))` — because the walker recurses
  * through the wrapper's clauses before it dispatches on the inner
  * kind.
  *
- * The throw is deliberate: silently passing those kinds would produce
- * false-positive "type-checks clean" verdicts on unchecked predicates,
- * the exact failure mode the checker exists to prevent. Callers either
- * handle the throw or scope inputs to the implemented kinds.
+ * Throwing prevents those kinds from silently producing false-positive
+ * "type-checks clean" verdicts on unchecked predicates, the exact
+ * failure mode the checker exists to prevent. Callers either handle
+ * the throw or scope inputs to the kinds with rules.
  */
 export function checkPredicate(
 	predicate: Predicate,
@@ -279,18 +278,17 @@ function walk(
 		case "between":
 		case "exists":
 		case "missing":
-			// Per-operator semantic rules for these kinds (e.g.
-			// `is-null(literal(...))` rejection, `between` operand-type
-			// agreement, `exists`/`missing` destination-scope resolution
-			// of `where`) are not implemented in this checker. Throwing
-			// rather than silently passing is the safe default — an
-			// unchecked predicate that reached this arm would yield
-			// false-positive "type-checks clean" results. The walker
-			// also does NOT recurse into the operator-specific recursive
-			// slots (`exists.where`, `missing.where`, `between.lower` /
-			// `between.upper`, `is-null.left`); recursion belongs with
-			// the per-operator rules so both land together rather than
-			// half-implementing the surface.
+			// These four kinds have no dedicated semantic rules in this
+			// checker; the walker throws to prevent silent type-clean
+			// verdicts on unchecked predicates (the failure mode the
+			// checker itself exists to prevent). The walker also does
+			// not recurse into these kinds' operand slots
+			// (`exists.where` / `missing.where` for predicate
+			// recursion, `between.lower` / `between.upper` /
+			// `is-null.left` for term resolution) — operand walking
+			// belongs with the per-kind rule that interprets those
+			// operands, so both move together rather than walking
+			// without a rule to apply at the leaves.
 			throw new Error(`checkPredicate: no rules for kind '${p.kind}'`);
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`

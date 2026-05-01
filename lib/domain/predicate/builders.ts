@@ -529,9 +529,9 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * user-context reference, literal — so authors can ask "is the
  * property unset" / "is the input unset" / "is the user-data field
  * unset" alongside the meaningless-but-structurally-permitted literal
- * form. The schema does not reject `is-null(literal(...))`; that
- * rejection is a type-checker rule and is not implemented in the
- * current checker.
+ * form. Whether a checker rejects the literal shape is a type-checker
+ * concern; the builder + schema accept it uniformly across every
+ * Term variant.
  */
 export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
 	return { kind: "is-null", left };

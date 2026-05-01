@@ -895,9 +895,10 @@ describe("sentinel predicates", () => {
 // The `left` slot is `termSchema`, not `propertyRefSchema`, so authors
 // can ask "is the input X unset" or "is the user's region unset"
 // alongside the canonical "is the property unset" shape. The schema
-// accepts `is-null(literal(...))` (a meaningless predicate, since
-// literals can't be "unset"); rejecting that shape is a type-checker
-// rule and is not implemented in the current checker.
+// is intentionally structural-only: it admits every Term variant in
+// `left` (including the meaningless `is-null(literal(...))` shape,
+// which can't be "unset" by definition). Whether a checker rejects
+// the literal shape is a type-checker concern, not a schema concern.
 describe("is-null predicate", () => {
 	it("parses is-null with a property reference", () => {
 		const result = predicateSchema.parse({
@@ -926,11 +927,11 @@ describe("is-null predicate", () => {
 	it("parses is-null with a literal (schema is structurally permissive)", () => {
 		// The schema accepts every Term variant in `left`, including
 		// literals. `is-null(literal(...))` is meaningless (literals
-		// can't be "unset") but parses cleanly here; the rejection of
-		// that shape is a type-checker rule and is not implemented in
-		// the current checker. Pinning the schema-side acceptance keeps
-		// the layering explicit — a future refactor that tightened the
-		// schema to reject literal `left` would trip this test.
+		// can't be "unset" by definition) but parses cleanly here;
+		// rejecting the literal shape is a type-checker concern, not
+		// a schema concern. Pinning the schema-side acceptance keeps
+		// the layering explicit — a refactor that tightened the schema
+		// to reject literal `left` would trip this test.
 		const result = predicateSchema.parse({
 			kind: "is-null",
 			left: { kind: "literal", value: "x" },
@@ -1146,11 +1147,11 @@ describe("exists predicate", () => {
 		// relational filter. The `where` predicate evaluates in the
 		// destination scope of the walk (the parent case here); the
 		// `throughCaseType` qualifier on each relation step is the
-		// schema-level hook a type-checker rule would use to resolve
+		// schema-level hook a type-checker rule uses to resolve
 		// property references inside `where` against the destination
-		// scope. The schema accepts the structural shape; checker
-		// rules for `exists` are not implemented in the current
-		// checker.
+		// scope. The schema accepts the structural shape; whether a
+		// checker walks `where` is a checker concern, not a schema
+		// concern.
 		const result = predicateSchema.parse({
 			kind: "exists",
 			via: {

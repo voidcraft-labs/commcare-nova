@@ -704,31 +704,46 @@ describe("checkPredicate — sentinel predicates", () => {
 });
 
 // The dispatch arm in `walk` throws on `is-null` / `between` /
-// `exists` / `missing` because per-operator semantic rules for these
-// kinds are not implemented in the current checker. These tests pin
-// the throw so a regression to silent-pass — the failure mode the
-// checker itself exists to prevent — produces a CI failure rather
-// than false-positive type-clean verdicts on unchecked predicates.
+// `exists` / `missing` — these four kinds have no dedicated semantic
+// rules in this checker, and throwing prevents them from silently
+// producing false-positive type-clean verdicts on unchecked
+// predicates (the failure mode the checker itself exists to prevent).
 // The error-message regex is matched loosely against the kind name
 // so phrasing changes around the kind don't trip the lock.
-describe("checkPredicate — operators with deferred semantic rules", () => {
-	it("throws on is-null until rules land", () => {
+describe("checkPredicate — kinds without dedicated semantic rules throw", () => {
+	it("throws on is-null", () => {
 		const p = isNull(prop("patient", "name"));
 		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'is-null'/);
 	});
 
-	it("throws on between until rules land", () => {
+	it("throws on between", () => {
 		const p = between(prop("patient", "age"), { lower: literal(18) });
 		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'between'/);
 	});
 
-	it("throws on exists until rules land", () => {
+	it("throws on exists", () => {
 		const p = exists(subcasePath("parent"));
 		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'exists'/);
 	});
 
-	it("throws on missing until rules land", () => {
+	it("throws on missing", () => {
 		const p = missing(subcasePath("parent"));
 		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'missing'/);
+	});
+
+	it("throws when a kind without dedicated rules is composed inside a logical wrapper", () => {
+		// The JSDoc on `checkPredicate` documents this case explicitly.
+		// The walker recurses through `and` / `or` / `not` /
+		// `when-input-present` before dispatching, so a kind without
+		// dedicated rules nested inside a wrapper triggers the same
+		// throw as the standalone case. Pinning the canonical
+		// `and(eq, isNull)` shape locks the wrapper-recursion contract;
+		// pinning every wrapper × kind pair would be overkill, but the
+		// shape called out in the JSDoc is load-bearing.
+		const p = and(
+			eq(prop("patient", "name"), literal("Alice")),
+			isNull(prop("patient", "name")),
+		);
+		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'is-null'/);
 	});
 });
