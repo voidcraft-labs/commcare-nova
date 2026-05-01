@@ -527,10 +527,17 @@ describe("predicate schema", () => {
 // emitters and the SA-facing tool surface rely on.
 describe("relationPath schema", () => {
 	it("parses a self path", () => {
-		// `self` is the no-traversal base case — the predicate runs in
-		// the current case-type scope. It carries no slots beyond the
-		// discriminator; pinning that here prevents a future "nullable
-		// payload" relaxation from landing silently.
+		// Pins the discriminator-only happy path: `self` is the
+		// no-traversal shape the type checker treats as identity. The
+		// kind name `"self"` round-trips cleanly through the schema, so
+		// a silent rename to `"identity"` (or any other reshaping of
+		// the no-traversal arm) trips this test.
+		// (Strip semantics on the Zod object are not asserted here —
+		// the default mode strips unknown keys silently, so a payload
+		// with extra slots would still parse to the same
+		// discriminator-only shape. An explicit-no-extras lock would
+		// require `z.strictObject`, which the rest of the file's
+		// schemas don't use.)
 		const result = relationPathSchema.parse({ kind: "self" });
 		expect(result.kind).toBe("self");
 	});
@@ -538,8 +545,10 @@ describe("relationPath schema", () => {
 	it("parses a single-hop ancestor path", () => {
 		// `ancestor` matches CCHQ's `ancestor-exists(parent, ...)` form
 		// and the on-device `instance('casedb')/casedb/case[@case_id =
-		// current()/index/parent]` join pattern verified at
-		// `commcare-core/.../DerivedCaseQueryLookup.java:18` and
+		// current()/index/parent]` join pattern. The on-device runtime
+		// build site for `<index>/<identifier>` is
+		// `commcare-core/.../CaseChildElement.java:233-240`; the CSQL
+		// path is verified at
 		// `commcare-hq/.../ancestor_functions.py:39-94`. The single-hop
 		// shape is the most common authored form (parent → patient).
 		const result = relationPathSchema.parse({

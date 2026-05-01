@@ -175,13 +175,16 @@ const casePropertyField = (label: string) =>
 // records HOW a property reference reaches across the case-relationship
 // graph without committing to a particular wire form: emitters lower it
 // to `instance('casedb')/casedb/case[@case_id = current()/index/<rel>]`
-// for the on-device dialect (see
-// `commcare-core/src/main/java/org/commcare/cases/query/queryset/DerivedCaseQueryLookup.java:18`),
-// to `ancestor-exists(parent/host, ...)` / `subcase-exists('parent', ...)`
-// for the CSQL dialect (see
+// for the on-device dialect — each `<rel>` resolves at runtime against
+// the per-case `<index>` TreeElement built at
+// `commcare-core/src/main/java/org/commcare/cases/instance/CaseChildElement.java:233-240`,
+// where one named child is added per index identifier, making
+// `current()/index/<identifier>` a real XPath path step at evaluation
+// time. The CSQL dialect lowers to `ancestor-exists(parent/host, ...)` /
+// `subcase-exists('parent', ...)` per
 // `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`,
-// `ancestor_functions.py:39-94`, `subcase_functions.py:51-62`), and to a
-// JOIN on the `case_indices` table for the Postgres dialect.
+// `ancestor_functions.py:39-94`, and `subcase_functions.py:51-62`.
+// The Postgres dialect lowers to a JOIN on the `case_indices` table.
 //
 // The four kinds (`self`, `ancestor`, `subcase`, `any-relation`) capture
 // the direction of the walk — no traversal, up via parent/host index,
@@ -207,12 +210,12 @@ const casePropertyField = (label: string) =>
  * of the previous step.
  *
  * `identifier` is constrained to XML element-name vocabulary because
- * the wire form `current()/index/<identifier>` places the identifier as
- * an XML element-name path step. The on-device join pattern is
- * verified at
- * `commcare-core/src/main/java/org/commcare/cases/query/queryset/DerivedCaseQueryLookup.java:18`
- * (cited at the file-level RelationPath comment); the CCHQ ES
- * traversal is verified at
+ * the wire form `current()/index/<identifier>` places the identifier
+ * as an XML element-name path step. The on-device runtime build site
+ * for that path step is `CaseChildElement.java:233-240` (cited at the
+ * file-level RelationPath comment), where each index identifier
+ * surfaces as a named child of the per-case `<index>` TreeElement.
+ * The CCHQ ES traversal is verified at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:39-94`.
  * `throughCaseType` is constrained to CommCare's case-type vocabulary
  * to keep emitter interpolation safe.
@@ -244,14 +247,15 @@ export type RelationStep = z.infer<typeof relationStepSchema>;
  *     scope without re-walking the relationship graph at check time.
  *     Maps to CCHQ's `subcase-exists`/`subcase-count`.
  *   - `any-relation` — direction-agnostic relation by identifier.
- *     Models the case where authoring time hasn't committed to CHILD
- *     vs EXTENSION semantics — e.g. a custom index whose direction
- *     isn't known until runtime. On the Postgres target, this compiles
- *     to a `case_indices.identifier` lookup that matches both
- *     directions. CCHQ's on-device and CSQL function sets expose only
- *     direction-specific operators (`ancestor-exists` / `subcase-exists`),
- *     so the representability checker rejects this kind for those
- *     targets — `any-relation` is preview-only at the CCHQ wire boundary.
+ *     Models the case where authoring time can't commit to CHILD vs
+ *     EXTENSION semantics (e.g. a custom index whose direction isn't
+ *     known until runtime). On the Postgres target, this compiles to
+ *     a `case_indices.identifier` lookup that matches both directions.
+ *     CCHQ's on-device and CSQL function sets expose only
+ *     direction-specific operators (`ancestor-exists` /
+ *     `subcase-exists`), so this kind has no direct CCHQ wire form;
+ *     any consumer compiling to a CCHQ target rejects or rewrites
+ *     `any-relation` into a direction-specific kind.
  */
 export const relationPathSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("self") }),
