@@ -182,7 +182,21 @@ describe("predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	it("multiSelectAll constructs a predicate with quantifier: all", () => {
+	it("multiSelectAll constructs a single-value predicate with quantifier: all", () => {
+		// Tuple-with-rest boundary: the smallest valid input. The
+		// rest-spread path in the builder (`[first, ...rest]`) reduces
+		// to a single-element array when `rest` is empty; pinning that
+		// shape parses through the schema without quantifier-coupled
+		// behavior changes. Symmetric with `multiSelectAny`'s single-
+		// value test above.
+		const p = multiSelectAll(prop("patient", "tags"), literal("vaccinated"));
+		expect(p.kind).toBe("multi-select-contains");
+		expect(p.quantifier).toBe("all");
+		expect(p.values).toHaveLength(1);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("multiSelectAll constructs a multi-value predicate", () => {
 		const p = multiSelectAll(
 			prop("patient", "tags"),
 			literal("vip"),

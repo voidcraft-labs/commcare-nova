@@ -592,12 +592,22 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  *
  * Like `within-distance`, the `property` slot is constrained to a
  * direct property reference — text match against a literal or input is
- * meaningless. `value` is a string (not a term) because every mode is
- * unambiguously textual at every target. `value` is non-empty:
- * `match(prop, "")` is meaningless (every property `starts-with` ""
- * vacuously, every property `fuzzy-match`es "" trivially); reject at
- * the schema layer so downstream emitters never have to encode the
- * policy.
+ * meaningless.
+ *
+ * `value` is a string (not a term) — the predicate captures a static
+ * match value baked at construction time. CCHQ's wire layer accepts
+ * runtime substitution of search-input refs / user-context fields via
+ * `unwrap_value` (`commcare-hq/corehq/apps/case_search/dsl_utils.py`),
+ * so widening `value: termSchema` would have a wire target. The
+ * narrowing here is a deliberate Nova-side AST scope decision — v1
+ * authors reconstruct the predicate per input change rather than
+ * driving the match value at runtime. Authors who need a dynamic match
+ * value rebuild the predicate when the input changes.
+ *
+ * `value` is non-empty: `match(prop, "")` is meaningless (every
+ * property `starts-with` "" vacuously, every property `fuzzy-match`es
+ * "" trivially); reject at the schema layer so downstream emitters
+ * never have to encode the policy.
  */
 const matchSchema = z.object({
 	kind: z.literal("match"),
@@ -642,6 +652,21 @@ const matchSchema = z.object({
  * unset" predicate (the canonical `is-null(prop)` shape), so reject
  * here too. Source citations live next to the `.refine(...)` call
  * below.
+ *
+ * Wire-side whitespace tokenization on `values`: CCHQ's `selected-any`
+ * / `selected-all` tokenize the values argument by whitespace at the
+ * wire layer (`case_property_text_query` docstring at
+ * `commcare-hq/corehq/apps/es/case_search.py:294-296` — "If the value
+ * has multiple words, they will be OR'd together in this query"). A
+ * literal like `"foo bar"` emits as `selected-any(prop, 'foo bar')`
+ * and is expanded by CCHQ to "contains any of {foo, bar}" rather than
+ * "contains the literal token 'foo bar'". Multi-select option values
+ * rarely contain whitespace by convention, so this surfaces as a
+ * caveat rather than a schema-level rejection — option vocabularies
+ * legitimately can contain whitespace, and authors who need
+ * space-bearing matches construct an `or`-of-`eq` predicate against
+ * the property's `_value` storage rather than routing through
+ * `multi-select-contains`.
  */
 const multiSelectContainsSchema = z
 	.object({
