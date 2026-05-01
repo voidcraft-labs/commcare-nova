@@ -203,4 +203,18 @@ describe("caseTypeToJsonSchema", () => {
 		};
 		expect(caseTypeToJsonSchema(ct).additionalProperties).toBe(false);
 	});
+
+	it("emits a closed schema with no properties for an empty case type", () => {
+		// Boundary case: a freshly-created case type with no properties yet
+		// emits a schema that admits no writes (empty properties +
+		// additionalProperties:false). This is the right behavior — a case
+		// type without any declared fields shouldn't accept arbitrary blobs
+		// — and pinning it prevents a regression that, e.g., omits
+		// additionalProperties when properties is empty.
+		expect(caseTypeToJsonSchema({ name: "x", properties: [] })).toEqual({
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		});
+	});
 });
