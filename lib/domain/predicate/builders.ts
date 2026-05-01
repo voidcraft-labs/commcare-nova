@@ -90,9 +90,47 @@ export function userField(field: string): UserContextRef {
  * first-class so the type checker can validate compatibility with
  * the referenced property's data type without round-tripping through
  * string parsing.
+ *
+ * For temporal values — date, datetime, time — use the typed builders
+ * (`dateLiteral`, `datetimeLiteral`, `timeLiteral`) below instead. Their
+ * wire form is a string, but typing them as plain text via this builder
+ * would force the type checker to either format-sniff or reject ordered
+ * comparisons against date-typed properties; the typed builders set
+ * `data_type` explicitly so the AST carries the author's intent.
  */
 export function literal(value: string | number | boolean | null): Literal {
 	return { kind: "literal", value };
+}
+
+/**
+ * Constructs a date-typed literal. The runtime value is a string (ISO
+ * `YYYY-MM-DD` is the conventional form, though strict format validation
+ * lives at the wire-emit layer); `data_type: "date"` declares the
+ * semantic type so a comparison like
+ * `lt(prop("patient", "dob"), dateLiteral("2000-01-01"))` resolves under
+ * the type checker's ordered-types rule rather than falling through to
+ * text.
+ */
+export function dateLiteral(value: string): Literal {
+	return { kind: "literal", value, data_type: "date" };
+}
+
+/**
+ * Constructs a datetime-typed literal. Same shape and rationale as
+ * `dateLiteral`; the wire format is `YYYY-MM-DDTHH:MM:SS` (or a
+ * timezoned variant), validated strictly at wire-emit time.
+ */
+export function datetimeLiteral(value: string): Literal {
+	return { kind: "literal", value, data_type: "datetime" };
+}
+
+/**
+ * Constructs a time-typed literal. Same shape and rationale as
+ * `dateLiteral`; the wire format is `HH:MM[:SS]`, validated strictly at
+ * wire-emit time.
+ */
+export function timeLiteral(value: string): Literal {
+	return { kind: "literal", value, data_type: "time" };
 }
 
 // ---------- Comparison builders ----------

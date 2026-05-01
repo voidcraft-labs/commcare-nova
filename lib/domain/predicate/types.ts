@@ -34,6 +34,7 @@
 // annotation. The block below the operators explains why.
 
 import { z } from "zod";
+import { casePropertyDataTypeSchema } from "../blueprint";
 
 // ---------- Terms (anything that resolves to a value) ----------
 //
@@ -84,10 +85,25 @@ export type UserContextRef = z.infer<typeof userContextRefSchema>;
  * (rather than serialized to strings) so the type checker can validate
  * compatibility with the referenced property's data type without
  * round-tripping through string parsing.
+ *
+ * The optional `data_type` lets a literal carry its semantic type
+ * explicitly — load-bearing for date / datetime / time literals, whose
+ * wire form is a string and whose JS runtime type is therefore
+ * indistinguishable from any other text. With `data_type` set, the type
+ * checker uses the declared type directly; without it, the checker
+ * infers from the JS runtime type. Authors construct typed literals via
+ * `dateLiteral` / `datetimeLiteral` / `timeLiteral` in `builders.ts`
+ * rather than setting the field by hand.
+ *
+ * Re-using `casePropertyDataTypeSchema` from the blueprint keeps the
+ * literal's declarable type set identical to a property's declarable
+ * type set — adding a property data type expands literals at the same
+ * time, no parallel maintenance.
  */
 export const literalSchema = z.object({
 	kind: z.literal("literal"),
 	value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+	data_type: casePropertyDataTypeSchema.optional(),
 });
 export type Literal = z.infer<typeof literalSchema>;
 

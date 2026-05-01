@@ -25,6 +25,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	and,
+	dateLiteral,
+	datetimeLiteral,
 	eq,
 	fuzzy,
 	gt,
@@ -38,6 +40,7 @@ import {
 	not,
 	or,
 	prop,
+	timeLiteral,
 	userField,
 	whenInput,
 	within,
@@ -126,6 +129,49 @@ describe("predicate builders", () => {
 		const p = fuzzy(prop("patient", "name"), "alice");
 		expect(p.kind).toBe("fuzzy");
 		expect(p.value).toBe("alice");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	// Null literal round-trip. `literal(null)` is the structural sentinel
+	// for the is-unset filter (the type checker resolves it as
+	// universally compatible — see typeChecker.ts). Locking the
+	// schema-side accept here ensures the runtime invariant holds across
+	// the full builder → parse → check chain, not just at the type-check
+	// layer.
+	it("round-trips a null literal through predicateSchema", () => {
+		const p = eq(prop("patient", "name"), literal(null));
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	// Typed literal builders. Each declares its semantic data_type
+	// explicitly so the type checker resolves the literal as the
+	// declared type rather than falling back to text inference. The
+	// round-trip parse confirms the schema accepts the optional
+	// `data_type` field, and the explicit `data_type` assertion guards
+	// against a future builder rename / regression that drops the field.
+	it("constructs a date-typed literal carrying data_type: 'date'", () => {
+		const t = dateLiteral("2000-01-01");
+		expect(t.kind).toBe("literal");
+		expect(t.value).toBe("2000-01-01");
+		expect(t.data_type).toBe("date");
+		// Round-trip via a comparison so the literal flows through
+		// `predicateSchema` (terms don't parse standalone via the
+		// predicate schema).
+		const p = eq(prop("patient", "dob"), t);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a datetime-typed literal carrying data_type: 'datetime'", () => {
+		const t = datetimeLiteral("2000-01-01T00:00:00");
+		expect(t.data_type).toBe("datetime");
+		const p = eq(prop("patient", "dob"), t);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a time-typed literal carrying data_type: 'time'", () => {
+		const t = timeLiteral("12:30");
+		expect(t.data_type).toBe("time");
+		const p = eq(prop("patient", "dob"), t);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 

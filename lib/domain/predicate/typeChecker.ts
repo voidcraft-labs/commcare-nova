@@ -1,10 +1,11 @@
 // lib/domain/predicate/typeChecker.ts
 //
-// Schema-driven type checker for the predicate AST. Walks a Predicate
-// against a TypeContext (derived from the blueprint's CaseType schema and
-// the declared search inputs in scope) and produces either Ok or a list
-// of typed errors. Errors carry paths so the UI can highlight the
-// offending card.
+// Schema-driven type checker for the predicate AST. `checkPredicate(p,
+// ctx)` walks a Predicate against a TypeContext (the blueprint's
+// CaseType schema and the search inputs in scope) and produces either
+// Ok or a list of typed errors. Each error carries a path that locates
+// the offending node so the editor can highlight the failing card
+// without having to reparse the AST itself.
 //
 // Why a separate type-check pass from `predicateSchema.parse(...)`: the
 // Zod schema enforces structural validity (the AST is well-formed) but
@@ -13,17 +14,25 @@
 // input is declared at this site). Those rules require the blueprint's
 // `CaseType` schema as a side input — they can't be encoded in the AST
 // schema itself, which knows nothing about which case types exist. The
-// split keeps the AST schema independent of any particular blueprint and
-// concentrates the schema-driven rules in this one walker.
+// split keeps the AST schema independent of any particular blueprint
+// and concentrates the schema-driven rules in this one walker.
 //
-// This file lands the base structure plus comparison operators. Logical
-// (`and`/`or`/`not`), membership (`in`), geo (`within-distance`), fuzzy,
-// and conditional (`when-input-present`) operators are added by Tasks 5
-// and 6, which extend the dispatch in `walk` and add per-operator
-// helpers below. Forward-declared kinds reach the `default:` arm of
-// `walk` and are silently accepted at this stage.
+// Walk dispatch: comparison operators check operand-type compatibility;
+// logical wrappers (`and` / `or` / `not`) recurse into their child
+// clauses so a violation buried inside a logical wrapper still
+// surfaces; `when-input-present` recurses into its wrapped clause
+// (input-existence checks for that operator are layered in alongside
+// the membership / geo / fuzzy operators in follow-up changes).
+// Membership / geo / fuzzy currently descend without inspection — they
+// have no nested predicate sub-trees that can carry comparison-rule
+// violations, so descending without inspection is structurally safe at
+// this stage; per-operator semantic checks land in subsequent changes.
 
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import type {
+	CaseProperty,
+	CasePropertyDataType,
+	CaseType,
+} from "@/lib/domain";
 import type { ComparisonKind, Literal, Predicate, Term } from "./types";
 
 // ---------- Types ----------
@@ -58,16 +67,45 @@ export type TypeContext = {
 };
 
 /**
- * Path segments locating the offending operand inside the predicate AST.
- * String segments are field names (`"left"`, `"right"`, `"clause"`);
- * number segments are array indices (e.g. inside an `and`'s `clauses`
- * array). The editor surface uses this path to highlight the failing
- * card without having to reparse the AST itself.
+ * Path segments locating the offending node inside the predicate AST.
+ * The segments mix two conventions, both consumed by the editor's
+ * highlight logic:
+ *   - Field names: `"left"`, `"right"`, `"clause"` — index into
+ *     single-slot operator fields (comparison operands, `not`'s body).
+ *   - Operator names + index: `"and"` / `"or"` followed by a numeric
+ *     index — locate the failing clause inside a multi-clause logical
+ *     wrapper. The operator-name prefix is required because nested
+ *     `and(or(...), ...)` would otherwise ambiguate which collection
+ *     the index refers to.
+ *
+ * Consumers that walk the path to find the AST node must therefore
+ * branch on whether a string segment is a field name or an operator
+ * name. The trade-off keeps paths short and human-readable in the
+ * editor's debug output.
  */
 export type CheckPath = (string | number)[];
 export type CheckError = { path: CheckPath; message: string };
 
 export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
+
+/**
+ * Internal sentinel for the `null` literal — comparable against any
+ * declared property type. Authors writing
+ * `eq(prop("patient", "age"), literal(null))` are asking "is this
+ * property unset", which is a valid predicate at every wire target;
+ * resolving the null literal to a concrete data type would force a
+ * spurious type-mismatch error every time. The sentinel short-circuits
+ * both the ordered-types check in `checkComparison` and the
+ * compatibility table in `typesCompatible`.
+ *
+ * Kept module-private — never exposed on the AST, never appears in
+ * `CheckError.message`, never returned by a public function. The leading
+ * underscore is the convention for "internal type sentinel" and pairs
+ * with `casePropertyDataTypes` in the blueprint to keep the public
+ * surface clean.
+ */
+const ANY_TYPE = "_any" as const;
+type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
 
 /**
  * Data types whose values support a total order — `gt`/`gte`/`lt`/`lte`
@@ -79,8 +117,13 @@ export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
  * fuzzy match, a starts-with comparison, etc.) is preferable to
  * silently emitting a lexicographic compare.
  */
-const ORDERED_TYPES: ReadonlySet<NonNullable<CaseProperty["data_type"]>> =
-	new Set(["int", "decimal", "date", "datetime", "time"]);
+const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
+	"int",
+	"decimal",
+	"date",
+	"datetime",
+	"time",
+]);
 
 // ---------- Top-level walker ----------
 
@@ -101,19 +144,14 @@ export function checkPredicate(
 }
 
 /**
- * Recursive dispatch on the predicate's discriminator. Each operator
- * gets its own helper rather than one giant switch body — keeps each
- * operator's rules colocated with its dedicated function and makes
- * later tasks' additions a parallel pattern.
- *
- * Exhaustiveness trade-off: the `default:` branch is currently a silent
- * no-op so the comparison-only checker doesn't false-positive against
- * forward-declared kinds (`and`, `or`, `not`, `in`, `within-distance`,
- * `fuzzy`, `when-input-present`). Once Tasks 5 and 6 land, every kind
- * has a dedicated arm and `default:` should become a `never`-style
- * exhaustiveness assertion (`const _exhaustive: never = p`) so adding
- * a new operator forces a parallel update here. Until then, a `never`
- * assertion would block intermediate task commits.
+ * Recursive dispatch on the predicate's discriminator. Comparison
+ * operators run their dedicated check; logical wrappers recurse into
+ * their child predicates so a violation buried inside an `and` / `or` /
+ * `not` / `when-input-present` wrapper still surfaces at this stage.
+ * The exhaustiveness assertion in `default:` forces every new operator
+ * added to `Predicate` to either get its own arm here or be explicitly
+ * forwarded — silent miscompilation (a new kind silently bypassing all
+ * checks) is impossible.
  */
 function walk(
 	p: Predicate,
@@ -129,9 +167,52 @@ function walk(
 		case "lt":
 		case "lte":
 			checkComparison(p.kind, p.left, p.right, ctx, errors, path);
-			break;
-		default:
-			break;
+			return;
+		case "and":
+		case "or":
+			// Each clause path is `[...path, kind, index]` so the editor
+			// can disambiguate a clause inside `and(...)` from a clause
+			// inside a sibling `or(...)`. The kind segment also signals
+			// to the path consumer that the next number is an array index.
+			// Indexed `for` (rather than `forEach`) is the cleanest shape
+			// that satisfies Biome's `useIterableCallbackReturn` rule
+			// against returning a value from a `forEach` callback while
+			// still threading the array index into the recursion.
+			for (let i = 0; i < p.clauses.length; i++) {
+				walk(p.clauses[i], ctx, errors, [...path, p.kind, i]);
+			}
+			return;
+		case "not":
+			walk(p.clause, ctx, errors, [...path, "not"]);
+			return;
+		case "when-input-present":
+			// Descend into the wrapped clause so any comparison-rule
+			// violations inside it surface at this stage. The
+			// input-existence check (verifying `p.input.name` resolves
+			// against `ctx.knownInputs`) lands alongside the membership /
+			// geo / fuzzy semantic checks in subsequent coverage.
+			walk(p.clause, ctx, errors, [...path, "when-input-present", "clause"]);
+			return;
+		case "in":
+		case "within-distance":
+		case "fuzzy":
+			// Per-operator semantic checks land in subsequent coverage.
+			// Descending past these kinds without inspection is
+			// structurally safe at this stage: their structural shape is
+			// validated at parse time by the schema, and none of them
+			// carry nested predicate sub-trees that could hide a
+			// comparison-rule violation a recursion would catch.
+			return;
+		default: {
+			// Exhaustiveness assertion — adding a new kind to `Predicate`
+			// without a parallel arm here breaks the build. The runtime
+			// throw guards the same invariant for any payload that reaches
+			// this branch via untyped boundaries.
+			const _exhaustive: never = p;
+			throw new Error(
+				`checkPredicate: unhandled predicate kind ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
@@ -141,23 +222,26 @@ function walk(
  * Apply the comparison-operand rules:
  *   1. Both operands' types must resolve. If either operand fails to
  *      resolve (e.g. unknown property, unknown input), `resolveTermType`
- *      pushes the failure and returns `undefined`. We bail before the
- *      compatibility check so the author isn't bombarded with a
- *      cascading "type mismatch" error on top of the real one.
+ *      pushes the failure on the operand's own path and returns
+ *      `undefined`. We bail before the compatibility check so the
+ *      author isn't bombarded with a cascading "type mismatch" error
+ *      on top of the real one.
  *   2. For ordering operators (`gt`/`gte`/`lt`/`lte`), both sides must
- *      be in `ORDERED_TYPES`. Strings, selects, and geopoints are
- *      explicitly rejected — see the constant's JSDoc for why.
+ *      be in `ORDERED_TYPES` (or be the `_any` null-sentinel). Strings,
+ *      selects, and geopoints are explicitly rejected — see
+ *      `ORDERED_TYPES`'s JSDoc for why.
  *   3. The two resolved types must be comparable per `typesCompatible`.
  *      The compatibility table widens a small set of pairs (numeric
- *      promotion, select-to-text) to keep the type checker out of the
- *      author's way for the most common shapes; everything else fails.
+ *      promotion, select-to-text, null-to-anything) to keep the type
+ *      checker out of the author's way for the most common shapes;
+ *      everything else fails.
  *
- * Errors accrue on the predicate's own path (`path`), not the operand's
- * (`[...path, "left"]`). The author thinks of "this comparison is
- * wrong", not "the right operand of this comparison is wrong" — we
- * surface the verdict on the comparison itself for clarity, and the
- * operand-resolution errors below already carry their own per-side
- * paths.
+ * The verdict from rules 2 and 3 attaches to the predicate's own path
+ * (`path`), not the operand's (`[...path, "left"]`). The author thinks
+ * "this comparison is wrong," not "the right operand of this
+ * comparison is wrong" — the comparison-level error is the more
+ * actionable framing, and the operand-resolution errors above already
+ * carry their own per-side paths when the failure is operand-local.
  */
 function checkComparison(
 	kind: ComparisonKind,
@@ -172,10 +256,16 @@ function checkComparison(
 	if (leftType === undefined || rightType === undefined) return;
 
 	if (kind !== "eq" && kind !== "neq") {
-		if (!ORDERED_TYPES.has(leftType) || !ORDERED_TYPES.has(rightType)) {
+		// `_any` (the null sentinel) bypasses the ordered-types check —
+		// `gt(prop, literal(null))` is meaningless but treated as "type
+		// is compatible, evaluator handles the null-coercion at runtime"
+		// rather than a type-checker rejection.
+		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
+		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
+		if (!leftOrdered || !rightOrdered) {
 			errors.push({
 				path,
-				message: `Operator '${kind}' requires ordered types (int, decimal, date, datetime, time); got '${leftType}' and '${rightType}'. Strings are not ordered.`,
+				message: `Operator '${kind}' requires ordered types (int, decimal, date, datetime, time); got '${describe(leftType)}' and '${describe(rightType)}'. Strings are not ordered.`,
 			});
 			return;
 		}
@@ -184,9 +274,19 @@ function checkComparison(
 	if (!typesCompatible(leftType, rightType)) {
 		errors.push({
 			path,
-			message: `Type mismatch: '${leftType}' and '${rightType}' are not comparable.`,
+			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
 		});
 	}
+}
+
+/**
+ * Render a `ResolvedType` for inclusion in a user-facing error message.
+ * Hides the internal `_any` sentinel — null literals appear as `null`
+ * in the author's source, so that's the friendliest framing in the
+ * error too.
+ */
+function describe(t: ResolvedType): string {
+	return t === ANY_TYPE ? "null" : t;
 }
 
 // ---------- Term resolution ----------
@@ -198,16 +298,16 @@ function checkComparison(
  * compatibility check (see `checkComparison`'s early-return) so the
  * author sees only the real cause, not a cascading mismatch.
  *
- * `prop.data_type ?? "text"` mirrors `propertyToSchema` in
- * `jsonSchema.ts`: when the blueprint omits a data type, the property
- * is treated as text — CommCare's default for unannotated properties.
+ * `data_type ?? "text"` mirrors `propertyToSchema` in `jsonSchema.ts`:
+ * when the blueprint omits a data type, the property is treated as
+ * text — CommCare's default for unannotated properties.
  */
 function resolveTermType(
 	term: Term,
 	ctx: TypeContext,
 	errors: CheckError[],
 	path: CheckPath,
-): NonNullable<CaseProperty["data_type"]> | undefined {
+): ResolvedType | undefined {
 	switch (term.kind) {
 		case "prop": {
 			const ct = ctx.caseTypes.find((c) => c.name === term.caseType);
@@ -248,8 +348,7 @@ function resolveTermType(
 			// corehq/apps/app_manager/tests/test_suite_remote_request.py:898,
 			// which compares `#session/user/data/is_supervisor` to `'n'`).
 			// If an author needs a numeric comparison against a user field,
-			// they need to coerce at a layer above this one; here we honor
-			// the wire reality.
+			// they need to coerce at a layer above this one.
 			return "text";
 		case "literal":
 			return literalType(term);
@@ -257,51 +356,49 @@ function resolveTermType(
 }
 
 /**
- * Map a literal's runtime value to its data type. Numeric literals are
- * narrowed to `int` vs `decimal` via `Number.isInteger` so an `eq` that
- * compares a `decimal` property to `42` (an int literal) still passes
- * via the numeric-promotion rule in `typesCompatible`, while a `decimal`
- * compared to `42.5` resolves precisely.
- *
- * String literals get a structural ISO-format sniff so an author writing
- * `lt(prop("patient", "dob"), literal("2000-01-01"))` resolves the
- * literal as `date` and passes the ordering rule. Without this, every
- * date / datetime / time literal would resolve to `text`, the
- * comparison would fail the `ORDERED_TYPES` check, and the author would
- * be forced to invent a non-string literal kind for what is normally a
- * one-liner. The strict format enforcement (range checks, leap-day
- * validity, etc.) lives at the schema-emit layer in `jsonSchema.ts`;
- * here we only need enough structure to pick the right comparison
- * rule, and the patterns below are the cheapest signal that suffices.
- *
- * Booleans and `null` both resolve to `text`. CommCare booleans on the
- * wire are text-encoded (`'true'` / `'false'`), and `null` is comparable
- * against any text-typed property as a sentinel for "unset". The two
- * unusual cases share the `text` resolution so the comparison rules
- * don't have to special-case either.
+ * Map a literal to its data type. Three resolution sources, in order:
+ *   1. `lit.data_type` — explicit, set by the typed builders
+ *      (`dateLiteral` / `datetimeLiteral` / `timeLiteral` /
+ *      future-typed-literal-builders). Wins unconditionally because
+ *      the author has already declared the semantic type.
+ *   2. `null` value — resolves to the internal `_any` sentinel so it
+ *      compares against any declared property type. See `ANY_TYPE`'s
+ *      JSDoc for the rationale.
+ *   3. JS runtime type — for untyped literals, infer from the JS value:
+ *      strings become `text`, numbers split int / decimal via
+ *      `Number.isInteger` (so the numeric-promotion rule in
+ *      `typesCompatible` handles `int` / `decimal` interchangeably),
+ *      booleans become `text`. Boolean-as-text is consistent with the
+ *      case-block XML wire format, where every property value is
+ *      stringified at serialization (see
+ *      corehq/ex-submodules/casexml/apps/case/mock/case_block.py:246-256
+ *      — `_DictToXML.fmt` runs `six.text_type(value)` on every
+ *      non-`None` non-bytes value, including booleans). The XForm /
+ *      CSQL value-coercion layer above the case-block boundary may
+ *      apply further normalization at evaluation time; this checker
+ *      does not depend on its exact form.
  */
-
-// ISO-shape sniffs for string literals. Loose by design — the strict
-// format validators run at wire-emission time. Anchored at both ends so
-// embedded matches (e.g. a comment field that happens to contain a date
-// substring) don't false-positive.
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T/;
-const ISO_TIME = /^\d{2}:\d{2}(:\d{2})?$/;
-
-function literalType(lit: Literal): NonNullable<CaseProperty["data_type"]> {
+function literalType(lit: Literal): ResolvedType {
+	if (lit.data_type) return lit.data_type;
+	if (lit.value === null) return ANY_TYPE;
 	switch (typeof lit.value) {
 		case "string":
-			if (ISO_DATETIME.test(lit.value)) return "datetime";
-			if (ISO_DATE.test(lit.value)) return "date";
-			if (ISO_TIME.test(lit.value)) return "time";
 			return "text";
 		case "number":
 			return Number.isInteger(lit.value) ? "int" : "decimal";
 		case "boolean":
 			return "text";
-		case "object":
-			return "text"; // null
+		default: {
+			// Unreachable at runtime — `literalSchema.value` is
+			// `string | number | boolean | null` and null is handled
+			// above. The `never` assertion catches a future schema
+			// widening (e.g. accepting bigint / date) that misses a
+			// parallel arm here.
+			const _exhaustive: never = lit.value;
+			throw new Error(
+				`literalType: unhandled literal value type ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
@@ -309,16 +406,21 @@ function literalType(lit: Literal): NonNullable<CaseProperty["data_type"]> {
 
 /**
  * Decide whether two resolved types may participate in a comparison.
- * Three classes of widening are in play:
- *   1. Numeric promotion — `int` and `decimal` compare freely. Authors
+ * Four classes of widening are in play:
+ *   1. Null-as-universal — the `_any` sentinel (the resolved type for
+ *      a `null` literal) is compatible with every declared type.
+ *      Authors writing `eq(prop, literal(null))` are filtering for
+ *      "this property is unset," which is a valid predicate at every
+ *      wire target; rejecting it would force a spurious workaround.
+ *   2. Numeric promotion — `int` and `decimal` compare freely. Authors
  *      writing `eq(prop("patient", "age"), literal(42))` against a
  *      decimal-typed `age` would otherwise see a spurious mismatch.
- *   2. Select-to-text — `single_select` and `multi_select` are
+ *   3. Select-to-text — `single_select` and `multi_select` are
  *      string-typed under the hood (the schema layer enforces the
  *      enum constraint via `jsonSchema.ts`, not at predicate-check
  *      time), so a literal text comparison against an option's value
  *      is the natural pattern.
- *   3. Same-type — every other pair must match exactly. Date kinds
+ *   4. Same-type — every other pair must match exactly. Date kinds
  *      (`date`, `datetime`, `time`) intentionally don't widen across
  *      each other; the wire targets handle them with distinct
  *      functions, and conflating them produces ambiguous results.
@@ -328,10 +430,8 @@ function literalType(lit: Literal): NonNullable<CaseProperty["data_type"]> {
  * because the explicit per-pair statements read more clearly than a
  * "canonicalize then compare" detour.
  */
-function typesCompatible(
-	a: NonNullable<CaseProperty["data_type"]>,
-	b: NonNullable<CaseProperty["data_type"]>,
-): boolean {
+function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
+	if (a === ANY_TYPE || b === ANY_TYPE) return true;
 	if (a === b) return true;
 	// int / decimal are mutually comparable.
 	if ((a === "int" || a === "decimal") && (b === "int" || b === "decimal"))

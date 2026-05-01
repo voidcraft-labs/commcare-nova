@@ -27,22 +27,31 @@ const casePropertyMappingSchema = z.object({
 });
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>;
 
+// The data types a case property may declare. Exported as a readonly
+// tuple so every consumer that reasons about case-property typing — the
+// predicate AST, the JSON Schema emitter, the SQL compiler — shares
+// one enumeration rather than maintaining parallel copies. The Zod enum
+// is built from the tuple via `z.enum(...)` so the runtime schema and
+// the static union stay in lockstep: adding a variant to the tuple
+// expands both surfaces in one edit.
+export const casePropertyDataTypes = [
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"single_select",
+	"multi_select",
+	"geopoint",
+] as const;
+export type CasePropertyDataType = (typeof casePropertyDataTypes)[number];
+export const casePropertyDataTypeSchema = z.enum(casePropertyDataTypes);
+
 const casePropertySchema = z.object({
 	name: z.string(),
 	label: z.string(),
-	data_type: z
-		.enum([
-			"text",
-			"int",
-			"decimal",
-			"date",
-			"time",
-			"datetime",
-			"single_select",
-			"multi_select",
-			"geopoint",
-		])
-		.optional(),
+	data_type: casePropertyDataTypeSchema.optional(),
 	hint: z.string().optional(),
 	required: z.string().optional(),
 	validation: z.string().optional(),
