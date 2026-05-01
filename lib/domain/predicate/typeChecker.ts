@@ -23,14 +23,18 @@
 // `within-distance` / `fuzzy`. Operand-type compatibility (the
 // "comparable types" check between resolved operand types) runs for
 // the comparison operators (`eq` / `neq` / `gt` / `gte` / `lt` /
-// `lte`). Logical wrappers (`and` / `or` / `not`) and the wrapped
-// clause of `when-input-present` recurse so violations inside them
-// surface here, with paths threading the operator name and (for the
-// multi-clause arms) the array index. Per-operator semantic checks
-// (membership-value compatibility on `in`, geopoint-property
-// requirement on `within-distance`, text-property requirement on
-// `fuzzy`) belong in dedicated dispatch arms and are not performed
-// by this checker.
+// `lte`) and for `in`'s membership values (every literal in `values`
+// is checked for type compatibility against `left`'s resolved type).
+// Per-operator semantic checks beyond resolution + compatibility run
+// in dedicated arms: `within-distance` requires the `property` slot
+// to resolve to `geopoint` and the `center` slot to resolve to
+// `geopoint` or `text` (the wire-form coordinate string is text);
+// `fuzzy` requires the `property` slot to resolve to one of the
+// text-shaped data types (`text` / `single_select` / `multi_select`).
+// Logical wrappers (`and` / `or` / `not`) and the wrapped clause of
+// `when-input-present` recurse so violations inside them surface
+// here, with paths threading the operator name and (for the
+// multi-clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { ComparisonKind, Literal, Predicate, Term } from "./types";
@@ -228,27 +232,13 @@ function walk(
 			walk(p.clause, ctx, errors, [...path, p.kind, "clause"]);
 			return;
 		case "in":
-			// Resolve `left` so unknown-property / unknown-case-type /
-			// unknown-input errors surface uniformly with comparison
-			// operators. The membership compatibility check between `left`
-			// and `values[i]` is a per-operator semantic check separate
-			// from term resolution and not performed here.
-			resolveTermType(p.left, ctx, errors, [...path, "left"]);
+			checkIn(p, ctx, errors, path);
 			return;
 		case "within-distance":
-			// Resolve both term operands. The geopoint-property
-			// requirement (that `property` resolves to a `geopoint`-typed
-			// data type) is a per-operator semantic check separate from
-			// term resolution and not performed here.
-			resolveTermType(p.property, ctx, errors, [...path, "property"]);
-			resolveTermType(p.center, ctx, errors, [...path, "center"]);
+			checkWithinDistance(p, ctx, errors, path);
 			return;
 		case "fuzzy":
-			// Resolve `property`. The text-property requirement (that
-			// `property` resolves to a `text`-typed data type) is a
-			// per-operator semantic check separate from term resolution
-			// and not performed here.
-			resolveTermType(p.property, ctx, errors, [...path, "property"]);
+			checkFuzzy(p, ctx, errors, path);
 			return;
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
@@ -334,6 +324,149 @@ function checkComparison(
  */
 function describe(t: ResolvedType): string {
 	return t === ANY_TYPE ? "null" : t;
+}
+
+// ---------- Per-operator semantic checks ----------
+//
+// `in`, `within-distance`, and `fuzzy` each carry an operator-specific
+// rule beyond term resolution and the comparison-level compatibility
+// table. Each helper is responsible for both resolving its operands
+// (so unknown-property / unknown-input errors surface uniformly with
+// comparisons) and applying the rule's semantic constraint. Helpers
+// operate on the `Predicate` arm directly so the operand slot names
+// in error paths come from the AST shape, not from a string the
+// helper invents.
+
+/**
+ * Membership compatibility check for `in`. Each value in `values` is
+ * checked against `left`'s resolved type via the same `typesCompatible`
+ * table that comparison operators use. Sharing the table is a Nova
+ * design choice — the same widenings (numeric promotion,
+ * select-to-text, null-as-universal) carry over to membership so
+ * authors don't relearn compatibility per operator.
+ *
+ * If `left` fails to resolve (unknown property, unknown input), the
+ * resolution error is already pushed onto `path/left` by
+ * `resolveTermType`; the early return prevents a cascade of "type
+ * mismatch" errors from each value in the list once the left side is
+ * already broken.
+ *
+ * Errors per offending value carry their index so the editor highlights
+ * each failing chip independently. Accumulating rather than
+ * short-circuiting matches the comparison-level "every error in one
+ * pass" contract — the editor surfaces the full set in one render.
+ */
+function checkIn(
+	p: Extract<Predicate, { kind: "in" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const leftType = resolveTermType(p.left, ctx, errors, [...path, "left"]);
+	if (leftType === undefined) return;
+	for (let i = 0; i < p.values.length; i++) {
+		const valType = literalType(p.values[i]);
+		if (!typesCompatible(leftType, valType)) {
+			errors.push({
+				path: [...path, "values", i],
+				message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(leftType)}'.`,
+			});
+		}
+	}
+}
+
+/**
+ * Property + center type check for `within-distance`. The property
+ * slot must resolve to `geopoint` because CCHQ's
+ * `case_property_geo_distance` (corehq/apps/es/case_search.py:386)
+ * queries the `PROPERTY_GEOPOINT_VALUE` field — only properties stored
+ * as a geopoint participate in the geo-distance query. The center
+ * slot's allow-list is `geopoint | text`: a typed-geopoint search
+ * input is the natural shape, but CCHQ also accepts a wire-form
+ * coordinate string (`"lat lon altitude accuracy"`, parsed via
+ * `GeoPoint.from_string(..., flexible=True)` at
+ * corehq/apps/case_search/xpath_functions/query_functions.py:60),
+ * which carries through Nova's pipeline as a `text`-typed literal.
+ *
+ * Both operands resolve unconditionally (no early return on
+ * property-side failure) so the editor surfaces every per-operand
+ * error in one pass. If property-side resolution fails entirely
+ * (unknown property), the resolution error already covers it; the
+ * additional geopoint-requirement error only fires when resolution
+ * succeeds and the resolved type is non-geopoint.
+ */
+function checkWithinDistance(
+	p: Extract<Predicate, { kind: "within-distance" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const propType = resolveTermType(p.property, ctx, errors, [
+		...path,
+		"property",
+	]);
+	if (propType !== undefined && propType !== "geopoint") {
+		errors.push({
+			path: [...path, "property"],
+			message: `within-distance requires a geopoint property; got '${describe(propType)}'.`,
+		});
+	}
+	const centerType = resolveTermType(p.center, ctx, errors, [
+		...path,
+		"center",
+	]);
+	if (
+		centerType !== undefined &&
+		centerType !== "geopoint" &&
+		centerType !== "text"
+	) {
+		errors.push({
+			path: [...path, "center"],
+			message: `within-distance center must resolve to a geopoint or a text-encoded coordinate string; got '${describe(centerType)}'.`,
+		});
+	}
+}
+
+/**
+ * Text-shape requirement on `fuzzy.property`. CommCare's wire layer
+ * (`case_property_query(..., fuzzy=True)` at
+ * corehq/apps/es/case_search.py:237) dispatches Elasticsearch's
+ * `queries.fuzzy(value, PROPERTY_VALUE, ...)` against the property's
+ * stored string value regardless of declared type, so this rule isn't
+ * a CCHQ structural enforcement — it's a Nova UX policy. Fuzzy
+ * matching against an int, a decimal, a date, or a geopoint produces
+ * no useful semantics (edit-distance is defined on character strings,
+ * not on numeric / temporal / coordinate values), and the type
+ * checker rejects those property types so the author can't construct
+ * a predicate that compiles but never produces a useful match.
+ *
+ * The allow-list is `text | single_select | multi_select`. The two
+ * select kinds are stored as plain text on the wire (the schema
+ * layer's `jsonSchema.ts` enforces the enum constraint, not the
+ * predicate checker), so a fuzzy match against a select property
+ * matches the same way it matches a text property.
+ */
+function checkFuzzy(
+	p: Extract<Predicate, { kind: "fuzzy" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const propType = resolveTermType(p.property, ctx, errors, [
+		...path,
+		"property",
+	]);
+	if (
+		propType !== undefined &&
+		propType !== "text" &&
+		propType !== "single_select" &&
+		propType !== "multi_select"
+	) {
+		errors.push({
+			path: [...path, "property"],
+			message: `fuzzy match requires a text-typed property (text, single_select, or multi_select); got '${describe(propType)}'.`,
+		});
+	}
 }
 
 // ---------- Term resolution ----------

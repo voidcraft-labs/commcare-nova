@@ -37,12 +37,13 @@ import {
 import { checkPredicate } from "../typeChecker";
 
 // Single fixture reused across every test. Includes one property of
-// each data-type family exercised by the comparison-rule matrix: text
+// each data-type family exercised by the type-rule matrix: text
 // (unordered), int (ordered numeric), decimal (numeric promotion
 // counterpart), date / datetime / time (three temporal kinds — used to
 // verify they don't widen across each other and to exercise each
-// ordered-temporal arm of `ORDERED_TYPES`), and single_select
-// (string-coerced, with options).
+// ordered-temporal arm of `ORDERED_TYPES`), single_select and
+// multi_select (string-coerced, with options — covers both arms of the
+// fuzzy text-shaped allow-list and the select-to-text widening).
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
@@ -65,6 +66,15 @@ const PATIENT: CaseType = {
 				{ value: "closed", label: "Closed" },
 			],
 		},
+		{
+			name: "tags",
+			label: "Tags",
+			data_type: "multi_select",
+			options: [
+				{ value: "vip", label: "VIP" },
+				{ value: "urgent", label: "Urgent" },
+			],
+		},
 	],
 };
 
@@ -74,6 +84,29 @@ const PATIENT: CaseType = {
 const ctx = {
 	caseTypes: [PATIENT],
 	knownInputs: [],
+};
+
+// Geopoint-extended fixture used by the within-distance describe block.
+// The base PATIENT fixture omits a geopoint property because the
+// comparison-operator tests don't exercise geo, and adding one to the
+// shared fixture would force every comparison test to acknowledge it.
+// `ctxWithGeo` derives from `ctx` so the within-distance tests share
+// the rest of the property set without divergence from the base.
+const ctxWithGeo = {
+	...ctx,
+	caseTypes: [
+		{
+			...PATIENT,
+			properties: [
+				...PATIENT.properties,
+				{
+					name: "location",
+					label: "Location",
+					data_type: "geopoint" as const,
+				},
+			],
+		},
+	],
 };
 
 describe("checkPredicate — comparison operators", () => {
@@ -409,6 +442,192 @@ describe("checkPredicate — operand resolution on in / within-distance / fuzzy"
 		if (!result.ok) {
 			expect(result.errors[0].path).toEqual(["property"]);
 			expect(result.errors[0].message).toMatch(/unknown property/i);
+		}
+	});
+});
+
+describe("checkPredicate — in operator membership compatibility", () => {
+	// `in` requires every literal in `values` to be type-compatible with
+	// `left`'s resolved type. The check reuses the same `typesCompatible`
+	// table that comparison operators use, so the widenings (numeric
+	// promotion, select-to-text, null-as-universal) carry over and
+	// authors don't have to relearn the rule per operator.
+
+	it("accepts isIn with type-compatible string literals on a single_select property", () => {
+		const p = isIn(
+			prop("patient", "status"),
+			literal("open"),
+			literal("closed"),
+		);
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts isIn with int literals on an int property", () => {
+		const p = isIn(prop("patient", "age"), literal(18), literal(21));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	// The first literal mismatches (string against int); the second
+	// matches. The error path identifies the offending value's index so
+	// the editor highlights the bad chip without flagging the whole
+	// `in(...)` card. Pinning the index also locks the convention that
+	// one error per offending value accumulates rather than a single
+	// "first-bad" error short-circuiting the rest.
+	it("rejects isIn when a literal's type doesn't match the property", () => {
+		const p = isIn(prop("patient", "age"), literal("eighteen"), literal(42));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["values", 0]);
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
+	});
+
+	// Null-as-universal carries over from comparison: a `null` literal
+	// in the values list is the structural is-unset filter and must
+	// compare-compatible against every property type. Without this,
+	// authors writing `isIn(prop, [literal(null), literal("active")])`
+	// to express "unset OR active" would see a spurious mismatch.
+	it("accepts a null literal in the values list against a typed property", () => {
+		const p = isIn(prop("patient", "age"), literal(null), literal(42));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+});
+
+describe("checkPredicate — within-distance geopoint requirement", () => {
+	// `within-distance` resolves to CCHQ's `case_property_geo_distance`
+	// (corehq/apps/es/case_search.py:386), which queries the
+	// `PROPERTY_GEOPOINT_VALUE` field — only properties stored as a
+	// geopoint participate. The center may be a wire-form coordinate
+	// string (`"lat lon altitude accuracy"` per
+	// corehq/apps/case_search/xpath_functions/query_functions.py:60,
+	// where CCHQ parses the center via `GeoPoint.from_string(...,
+	// flexible=True)`) or a typed-geopoint search input, so the
+	// allow-list for the center slot is `geopoint | text`.
+
+	it("accepts within-distance with a geopoint property and a text-literal center", () => {
+		const p = within(
+			prop("patient", "location"),
+			literal("40.7 -74.0 0 0"),
+			50,
+			"miles",
+		);
+		expect(checkPredicate(p, ctxWithGeo).ok).toBe(true);
+	});
+
+	it("accepts within-distance with a geopoint property and a typed-geopoint search input as center", () => {
+		const ctxWithGeoInput = {
+			...ctxWithGeo,
+			knownInputs: [{ name: "user_loc", data_type: "geopoint" as const }],
+		};
+		const p = within(
+			prop("patient", "location"),
+			input("user_loc"),
+			50,
+			"miles",
+		);
+		expect(checkPredicate(p, ctxWithGeoInput).ok).toBe(true);
+	});
+
+	// Property-side rejection: a non-geopoint property cannot back the
+	// geo-distance query. The error path identifies the property slot
+	// so the editor highlights the operand card directly. The operator
+	// resolves the term first (no unknown-property error here — `name`
+	// exists), then the semantic check rejects the type mismatch.
+	it("rejects within-distance when the property is not geopoint", () => {
+		const p = within(
+			prop("patient", "name"),
+			literal("40.7 -74.0 0 0"),
+			50,
+			"miles",
+		);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/geopoint/i);
+		}
+	});
+
+	// Center-side rejection: a numeric literal isn't a wire-form
+	// coordinate string and isn't a geopoint, so the center slot's
+	// allow-list rejects it. Property-side stays valid (geopoint), so
+	// only the center slot emits an error and the path identifies it
+	// independently.
+	it("rejects within-distance when the center isn't geopoint or text", () => {
+		const p = within(prop("patient", "location"), literal(42), 50, "miles");
+		const result = checkPredicate(p, ctxWithGeo);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["center"]);
+			expect(result.errors[0].message).toMatch(/geopoint|text/i);
+		}
+	});
+});
+
+describe("checkPredicate — fuzzy text-shape requirement", () => {
+	// CCHQ's `fuzzy_match` resolves to
+	// `case_property_query(..., fuzzy=True)` (corehq/apps/es/case_search.py:237),
+	// which dispatches Elasticsearch's `queries.fuzzy(value, PROPERTY_VALUE,
+	// ...)` against the property's stored string value. CommCare's wire
+	// layer accepts the call against any property, but fuzzy matching
+	// against a non-text shape (an int, a date) has no useful semantics
+	// — the edit-distance metric is defined on character strings, not
+	// on numeric or temporal values. The Nova type checker rejects
+	// non-text-shaped properties as a UX policy so the author can't
+	// author a predicate that would compile but never produce a useful
+	// match. `single_select` and `multi_select` are stored as text
+	// under the hood (the schema layer enforces the enum constraint via
+	// `jsonSchema.ts`, not at the wire), so they're accepted alongside
+	// `text`.
+
+	it("accepts fuzzy on a text property", () => {
+		const p = fuzzy(prop("patient", "name"), "alice");
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts fuzzy on a single_select property", () => {
+		const p = fuzzy(prop("patient", "status"), "ope");
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	// `multi_select` is stored as text and structurally indistinguishable
+	// from `single_select` at the wire — pinning both arms of the
+	// text-shaped allow-list locks the rule against a regression that
+	// dropped one without breaking the other.
+	it("accepts fuzzy on a multi_select property", () => {
+		const p = fuzzy(prop("patient", "tags"), "vip");
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("rejects fuzzy on an int property", () => {
+		const p = fuzzy(prop("patient", "age"), "alice");
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/text/i);
+		}
+	});
+
+	// `geopoint` is stored as text on the wire (the `"lat lon"` string)
+	// but a fuzzy match against a coordinate string is meaningless —
+	// the edit-distance metric isn't defined on a structured pair of
+	// floats. Pinning the rejection here locks the rule against a
+	// regression that widened the allow-list to "anything stored as
+	// text on the wire."
+	it("rejects fuzzy on a geopoint property", () => {
+		const p = fuzzy(prop("patient", "location"), "40.7 -74.0");
+		const result = checkPredicate(p, ctxWithGeo);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/text/i);
 		}
 	});
 });
