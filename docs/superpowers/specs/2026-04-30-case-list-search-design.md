@@ -3,7 +3,7 @@
 **Status:** Draft (v2 — supersedes v1)
 **Date:** 2026-05-01
 **Authors:** Braxton Perry, Claude
-**Supersedes:** v1 of this same file dated 2026-04-30, which had structural gaps in operator coverage, conflated wire targets, and miscategorized calculated columns. This v2 is the result of an independent design pass plus advisor pressure-test that surfaced the v1 gaps.
+**Supersedes:** v1 of this same file dated 2026-04-30, which had structural gaps in operator coverage, conflated wire targets, and miscategorized calculated columns. This v2 is the result of an independent design pass plus advisor pressure-test that surfaced the v1 gaps, plus a follow-up Opus review that surfaced additional gaps still present after the first v2 draft.
 
 ## Overview
 
@@ -135,9 +135,11 @@ type ValueExpression =
   | { kind: "double"; value: ValueExpression }          // forced numeric coercion
   | { kind: "arith"; op: "+"|"-"|"*"|"div"|"mod"; left: ValueExpression; right: ValueExpression }
   | { kind: "concat"; parts: ValueExpression[] }
+  | { kind: "coalesce"; values: ValueExpression[] }     // first non-empty value; fallback chain
   | { kind: "if"; cond: Predicate; then: ValueExpression; else: ValueExpression }
   | { kind: "switch"; on: ValueExpression; cases: { when: Literal; then: ValueExpression }[]; fallback: ValueExpression }
-  | { kind: "count"; via: RelationPath; where?: Predicate }   // value, not predicate
+  | { kind: "count"; via: RelationPath; where?: Predicate }     // value, not predicate
+  | { kind: "unwrap-list"; value: ValueExpression }              // unpack JSON-encoded array (CSQL value function)
   | { kind: "format-date"; date: ValueExpression; pattern: "short" | "long" | "iso" | string }
 ```
 
@@ -173,8 +175,8 @@ The compiler dispatches to one of three visitors per emission. Each visitor has 
 
 | Target | Where it appears | Operator vocabulary |
 |---|---|---|
-| **Case-list filter** | `<detail nodeset="instance('casedb')/casedb/case[@case_type='X'][<filter>]">` on Android, Web Apps, every platform | Plain XPath 1.0 + `selected()` (single-value form) + standard XPath function set (`if`, `count`, `today`, `now`, `date-add`, `format-date`, `concat`, `not`, comparison, logical, `starts-with`). Relational queries via `instance('casedb')` joins, **not** via `subcase-exists`/`ancestor-exists`. |
-| **CSQL `_xpath_query`** | `<data key="_xpath_query" ref="'<csql>'"/>` inside `<remote-request>/<query>`, evaluated server-side by Elasticsearch | Full CCHQ extension set: `selected-any`, `selected-all`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`, plus everything in case-list-filter. Verified at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`. |
+| **Case-list filter** | `<detail nodeset="instance('casedb')/casedb/case[@case_type='X'][<filter>]">` on Android, Web Apps, every platform | Plain XPath 1.0 + `selected()` (single-value form) + standard XPath function set verified at `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`: `today`, `now`, `date`, `format-date`, `if`, `count`, `cond`, `coalesce`, `concat`, `not`, `starts-with`, comparison, logical. **`date-add` is NOT in the on-device dispatcher** — it falls through to `XPathCustomRuntimeFunc` and the case-list-filter context does not register a handler for it. Date arithmetic on-device uses XPath operators on date values (`date(prop) + days`); month/year arithmetic is unrepresentable. Relational queries via `instance('casedb')` joins, **not** via `subcase-exists`/`ancestor-exists`. |
+| **CSQL `_xpath_query`** | `<data key="_xpath_query" ref="'<csql>'"/>` inside `<remote-request>/<query>`, evaluated server-side by Elasticsearch | Two distinct CSQL function sets, verified at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py`. **Query functions** (predicate-position, lines 39-54): `selected`, `selected-any`, `selected-all`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`, `not`, `starts-with`, `=`, `!=`, `<`, `<=`, `>`, `>=`. **Value functions** (term-position, lines 27-36): `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`. **No `if`/`switch`/`count`/`arith`/`concat` inside the CSQL value** — these must be hoisted into the on-device wrapper that builds the `_xpath_query` string. The hoisting pass walks the AST, lifts conditionals/aggregations/concatenations out of the CSQL fragment, and leaves only predicate-and-value-function-position nodes inside the quoted CSQL. `subcase-count` is recognized only as the LHS of a binary comparison (`commcare-hq/.../filter_dsl.py:89-95`); `count(...)` outside a top-level comparison is unrepresentable in CSQL. |
 | **Post-ES search filter** | `<search_filter>` on the case-search config — runs on the device against the truncated 500-result ES response | Same vocabulary as case-list-filter (on-device dialect). CCHQ uses this for cross-property comparisons unavailable on the server side. The 500-result truncation makes it last-resort. |
 
 The on-device vs. CSQL function-set asymmetry is verified in source: on-device case-list dispatch is `commcare-core/src/main/java/org/javarosa/xpath/parser/ast/ASTNodeFunctionCall.java:113-269`. Functions outside the case (`if`, `count`, comparison, logical, `selected`, the standard XPath set) fall through to `XPathCustomRuntimeFunc` at line 267, which dispatches via `IFunctionHandler` — and the case-list-filter context does not register `selected-any` / `fuzzy-match` / `within-distance` / `subcase-exists` / `ancestor-exists` / `match-all` / `match-none` with that handler. **The result of emitting any CSQL function into the case-list-filter context is a runtime XPath evaluation failure on Android.** This is the bug the implementor's current `xpathEmitter.ts` ships (sends `selected-any` to the case-list-filter context for multi-value `in`); Plan 1's revision fixes it.
@@ -256,15 +258,37 @@ A BEFORE INSERT/UPDATE trigger on `cases` validates `properties` against the sch
 
 Application-layer validation runs the **same JSON Schema** in TypeScript before every write, so the same code validates the same data in tests and production. The trigger is a defense-in-depth backstop; the primary validator is application-layer.
 
-#### Schema migration story
+#### Schema synchronization mechanism
 
-When the blueprint changes a property's `data_type` (e.g., a property was `text`, now declared `int`), existing rows in `cases.properties` may have values that no longer fit the new schema. Three approaches; we pick (3):
+`case_type_schemas` is a derived artifact of the blueprint's `CaseType.properties[].data_type`. Whenever the blueprint mutates in any way that affects a case-type's property surface — a `data_type` change, a property addition, a property removal, a property rename, an option add/remove on a `single_select`/`multi_select` — the case-type's row in `case_type_schemas` is regenerated and upserted. The sync is **synchronous on the blueprint write path** (not a background job), so the database always reflects the blueprint's current schema before any case-store write evaluates against it.
 
-- (1) Reject the schema change. Operationally rigid; user can't iterate.
-- (2) Allow the schema change; let read-time casts fail loudly. Brittle; fails at unpredictable user-visible moments.
-- (3) **Migrate or quarantine on schema change.** When a property's `data_type` changes, run a one-shot migration that tries to re-cast each existing row's value. Successes update; failures move to a `cases_quarantine` audit table with the original value and the failed-cast reason. The validator surfaces quarantined rows to the author. This is the spec's commitment.
+The sync is owned by the blueprint-write pipeline (Plan 3 wires this up at the Module schema mutator). The case-store interface exposes `syncSchemaForCaseType(appId, caseType)`, which reads the blueprint, regenerates the JSON Schema via the Plan 1 generator, and upserts. Mutation paths that change the blueprint call this before returning success.
 
-The migration runs in the application layer (not in a Postgres trigger) so it can quarantine rather than reject. The case-store interface gains a `migrateProperty(appId, caseType, property, fromType, toType)` operation called by the blueprint-edit pipeline when a `data_type` changes.
+#### Schema migration policy
+
+When a blueprint change makes existing case rows incompatible with the new schema, the case-store applies one of three policies depending on the change:
+
+| Change | Policy |
+|---|---|
+| Property added | No-op for existing rows; new rows must include the property if `required` (else allowed absent) |
+| Property removed | Existing values for the removed property remain in JSONB until next write of the row, then dropped. Validator flags the orphaned values for cleanup |
+| Property renamed | Atomic rename: existing rows have the old key copied to the new key in the same write transaction. The `migrateProperty` interface handles this case |
+| `data_type` changed | Migrate-or-quarantine: try to re-cast each existing value; successes update in place, failures move to `cases_quarantine` with the original value + failure reason |
+| `single_select`/`multi_select` option added | No-op for existing rows |
+| `single_select`/`multi_select` option removed | Existing rows with the removed value move to `cases_quarantine` (the value is no longer in the option set; loud failure rather than silent acceptance) |
+
+All migrations run in the application layer (not in Postgres triggers) so they can quarantine rather than reject. The case-store interface exposes:
+
+```ts
+migrateProperty(args: {
+  appId: string; caseType: string; property: string;
+  change: { kind: "rename"; from: string; to: string }
+        | { kind: "retype"; fromType: PropertyDataType; toType: PropertyDataType }
+        | { kind: "narrow-options"; removedOptions: string[] }
+}): Promise<MigrationReport>
+```
+
+`MigrationReport` includes counts of migrated, quarantined, and skipped rows plus the per-row failure reasons for any quarantined items. The validator surfaces quarantined rows to the author with a "review and resolve" affordance.
 
 #### Bidirectional typing
 
@@ -324,15 +348,22 @@ The Predicate and Expression ASTs are persisted in Firestore alongside the bluep
 
 ## Authoring surfaces
 
-### One surface, no mode picker (open question — see below)
+### One surface, no mode picker — locked
 
-CommCare exposes four workflow modes (Normal / Search First / See More / Skip to Default Results) controlled by two orthogonal booleans on the wire (`auto_launch`, `default_search`). The booleans only meaningfully affect Web Apps; Android always shows the case list first regardless. "Search First" is, in the user's earlier framing, "a screen-real-estate compromise from the mobile-shaped era of the web client."
+CommCare exposes four workflow modes (Normal / Search First / See More / Skip to Default Results) controlled by two orthogonal booleans on the wire (`auto_launch`, `default_search`). The booleans only meaningfully affect Web Apps; Android always shows the case list first regardless. The four modes are CCHQ's compromise between two backends and 25 years of accumulated UX choices; they are not a primitive Nova authoring should reproduce.
 
-V1 plan: Nova does not expose workflow modes to the author. The author configures one coherent surface, and we compile per-platform per content (split-screen if the deploy supports it; skip-to-results if defaults-only and no inputs; search-first as fallback when split-screen unavailable but inputs are configured).
+Nova does not expose workflow modes to the author. There is no mode picker, no escape hatch, no toggle. The author configures one coherent surface (case list with optional filters, sorts, columns, search inputs, and default filters); the export adapter compiles per-platform from the configured content.
 
-**Open question (deferred to user review on this v2):** the inference-from-content rule is fragile when an author's intent doesn't match content. CCHQ apps configure Search First explicitly for cases like "clerical worker searching domain-wide cases where they have no cases assigned" — pure inference flags this as Skip-to-Default-Results when the author wanted Search First. The independent design pass argued for an explicit author-facing setting at the module level: "where should the user start — local cases, search inputs, or default results?" — three options, no inference.
+**The principle:** Nova owns the authoring layer; the export layer translates to CCHQ's wire shape. CCHQ's mode picker is a CCHQ authoring-UX problem — solving it correctly there is CCHQ's job. Importing the picker into Nova replicates the underlying confusion. If a Nova-authored app produces a different (sometimes worse) UX on Web Apps than a hand-authored CCHQ app would, that's a CCHQ-side UX cost we accept rather than degrade Nova's authoring experience to match.
 
-The user previously locked "no mode picker." This v2 surfaces the trade-off explicitly because the inference rule's failure mode is silent (user gets a workflow they didn't configure, no obvious override). User to decide on review.
+**Compilation by platform:**
+- **Mobile** — always emits as a normal case-list module with inline list filtering. Mobile always shows the case list first regardless of any wire flag.
+- **Web** — compilation depends on what the author configured AND deploy capability:
+  - On deploys with `SPLIT_SCREEN_CASE_SEARCH` enabled, emits the modern split-screen UX (filters in sidebar, results in main panel). This is the preferred target.
+  - On deploys without split-screen, emits as a normal list-first module (`auto_launch=false, default_search=false`) regardless of whether search inputs are configured. The user sees their local case list first; if they need to search, they hit the search button. This is more user-respectful than search-first because it does not force a user to fill a search form before learning whether they have any local cases at all.
+  - Skip-to-results (`auto_launch=true, default_search=true`) is emitted only when the author has configured default filters AND zero search inputs (signaling intent: "show default-filtered results immediately; the user has no inputs to type"). This is content-derived, not author-toggled.
+
+The author never makes a per-platform decision. The compiler picks the closest CCHQ-supported emission from configured content. Per-platform divergence is surfaced visually in the Platform Divergence Panel (Plan 4) — authors see at edit time what their app will look like on each platform.
 
 ### Case list config UI — three sections, all AST-backed
 
@@ -443,11 +474,13 @@ The Zod schema in code only has the new shape from day one of the spec landing. 
 
 ## Open verification gates
 
-- **Cloud SQL extension allowlist** for `pg_jsonschema`. If unavailable, fall back to PL/pgSQL validator.
-- **CommCare wire-level resolution of `auto_launch=true`** — implementation reads the HQ-side suite emitter directly before locking emission code.
-- **`inline_search` real wire behavior** — verify against `commcare-hq` source before assuming any specific compilation.
-- **`case_indices` materialization policy** — start with Option B (direct edges + recursive CTE); profile after V1 ships, switch to Option A if CTE cost dominates.
-- **Existing apps that have columns referencing non-existent case properties** — confirm during dry-run that no live apps have catastrophic mismatches.
+Each gate below is a concrete blocking check that must pass before the corresponding plan task is marked complete. Each gate names the task that owns it and the action the task takes if the gate fails.
+
+- **Cloud SQL extension allowlist for `pg_jsonschema`.** Owned by Plan 1 Task C2-pre. The task runs `gcloud sql instances describe ... --format='value(databaseFlags)'` against the staging instance and queries Postgres `pg_available_extensions`. If `pg_jsonschema` is not present, the task switches the trigger implementation to the PL/pgSQL fallback (architecture identical; implementation different). Do not write the trigger before the gate runs.
+- **CommCare wire-level resolution of `auto_launch=true`.** Owned by Plan 4 Task 9. Before locking emission code, the task reads `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py` and confirms how `auto_launch` propagates to the suite XML for both case-search and callout contexts (different semantics).
+- **`inline_search` real wire behavior.** Owned by Plan 4 Task 9. Read `commcare-hq` source for the `inline_search` flag's effect on `instance('results')` vs `instance('results:inline')` before emitting the search-input refs.
+- **`case_indices` materialization policy.** Owned by Plan 1 Task C5. Start with Option B (direct edges + recursive CTE); profile after V1 ships using `EXPLAIN ANALYZE` against representative datasets; switch to Option A if CTE cost dominates. Both options are within the same architectural commitment; the task ships with Option B.
+- **Existing apps that have columns referencing non-existent case properties.** Owned by Plan 3 Task 15. The migration script's dry-run mode reports references that don't resolve; review before running live.
 
 ## Testing strategy
 
@@ -466,17 +499,16 @@ The Zod schema in code only has the new shape from day one of the spec landing. 
 - **`case_indices` row-count growth** — start with Option B (direct edges + recursive CTE) for write predictability; switch to Option A if CTE cost dominates. Both within the same architectural commitment.
 - **Cross-platform divergence confusion** — representability checker surfaces unrepresentable + lossy AST shapes per dialect at authoring time, not upload time.
 - **Existing app migration** — one-shot script, dry-run first, no permanent migration code in runtime; broken references after migration become validator warnings.
+- **Spec drift from implementation** — the spec lives at `docs/superpowers/specs/2026-04-30-case-list-search-design.md` and must move with the code. Any PR touching `lib/domain/predicate`, `lib/domain/expression`, `lib/commcare/predicate`, `lib/commcare/expression`, `lib/case-store`, or the case-list/search authoring UI must include a one-line "Spec touchpoints" note in the PR description naming the affected spec sections (or "no spec impact"). The CLAUDE.md files in each package list the spec as the source of design truth; the per-PR check ties refresh discipline to the existing review flow rather than to a calendar.
 
-## Effort honesty
+## Scope shape (not effort)
 
-This is foundational work — months, not weeks. Honest scope across all 5 plans:
+This is foundational work that ships across five separately-reviewable, separately-testable plans. None of it is "inventing a database, query language, or storage engine" — all of it is writing focused domain-specific compilers, type checkers, and a typed UI surface fitted to the domain. Each plan ships independently; subsequent plans depend on prior plans but produce reviewable software on their own.
 
-- **Plan 1 (Foundation):** ~20 days
-- **Plan 2 (Case data layer):** ~8 days
-- **Plan 3 (Case list authoring):** ~20 days
-- **Plan 4 (Search authoring):** ~17 days
-- **Plan 5 (Preview search execution):** ~13 days
+- **Plan 1 (Foundation):** Predicate AST + Expression AST + type checker + JSON Schema generator + three wire emitters + Postgres compiler + testcontainers infra + Cloud SQL extension allowlist gate.
+- **Plan 2 (Case data layer):** `CaseStore` interface + `InMemoryCaseStore` + `HeuristicCaseGenerator` + parity tests.
+- **Plan 3 (Case list authoring):** Module schema + migration script + case-list config UI + SA tools + validator + wire emission for short/long detail.
+- **Plan 4 (Search authoring):** Module schema for search + search config UI + SA tools + platform-aware compilation + wire emission for `<remote-request>` + claim.
+- **Plan 5 (Preview search execution):** Preview surface + split-screen search + inline filter + form write-through.
 
-**Total: ~78 days of focused engineering effort.** Roughly 16-20 weeks of calendar time at typical utilization. Each plan ships separately-reviewable, separately-testable software. None of it is "inventing a database, query language, or storage engine"; all of it is writing focused domain-specific compilers, type checkers, and a typed UI surface fitted to our domain.
-
-The v1 of this spec estimated 1100 LOC for Plan 1 — that was wrong (off by ~5x for that plan alone). The v2 estimate above reflects what the work actually costs once the AST is correctly scoped and the three wire dialects are dispatched as separate visitors.
+The v1 of this spec made an effort estimate that was off by ~5x for Plan 1 alone. The v2 estimates were no more reliable — agentic execution velocity and the iteration tightness of typed-AST work both make conventional day-counts misleading. Effort estimates are removed from this spec and from all five plans.

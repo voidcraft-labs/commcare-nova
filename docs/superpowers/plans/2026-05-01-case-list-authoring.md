@@ -62,6 +62,15 @@ scripts/migrate-case-list-config.ts                      # one-shot operator-run
 
 ## Tasks
 
+### Task 0: Platform toggle (moved here from Plan 5)
+
+**Files:** `lib/preview/engine/platformSimulator.ts`, `components/builder/preview/PlatformToggle.tsx`, tests.
+
+Move what was Plan 5 Task 1 here. Plans 3 and 4 both have live-preview surfaces that need to render against a chosen platform; without the toggle present from Plan 3 onward, the live preview defaults to one platform's rendering and the author can't see lossy on-Android expansions or web-vs-mobile divergence at edit time. Default to "Web with split-screen" (the most-permissive target). Plan 4's PlatformDivergencePanel reuses this toggle. Plan 5's preview surface composition reuses it again.
+
+Tests: toggling re-derives the WireShape from Plan 4 Task 8's `compileForPlatform` (note: Task 8 is a Plan 4 task; Plan 3 imports the function once Plan 4 ships, but the toggle UI itself can ship in Plan 3 with a stub `compileForPlatform` that returns Web/split-screen by default).
+
+
 ### Task 1: Extend `Module` schema with typed `caseListConfig`
 
 **Files:** `lib/domain/modules.ts`, `lib/domain/migrations/2026-list-config.ts`, `__tests__/`.
@@ -93,9 +102,10 @@ interface CaseListConfig {
 
 The migration script at `scripts/migrate-case-list-config.ts` reads each app doc in Firestore, transforms `{ field, header }[]` into `Column[]` with `kind: "plain"`, leaves `filter` / `calculatedColumns` / `searchInputs` empty, writes back. Idempotent. Operator-run, archived after run (per the spec's migration policy).
 
-Tests: schema parse, migration script idempotent on fixture docs.
+The Module schema mutator wires `CaseStore.syncSchemaForCaseType(appId, caseType)` (Plan 2 Task 1) into every blueprint mutation that affects a case-type's property surface (`data_type` change, property add/remove/rename, option add/remove). The sync runs synchronously on the blueprint write path before the mutation returns success. For changes requiring data migration (retype, narrow-options, rename), the mutator additionally calls `migrateProperty` — sync first, then migrate, so the migration evaluates against the current schema.
 
-**Effort:** 1 day. **Dependencies:** Plan 1 Predicate AST + Expression AST.
+Tests: schema parse, migration script idempotent on fixture docs, blueprint mutation triggers `syncSchemaForCaseType`, retype mutation triggers `migrateProperty` after sync.
+
 
 ### Task 2: Predicate card editor
 
@@ -118,7 +128,6 @@ Editor schemas live as a declarative table mirroring the field editor pattern at
 
 Tests: building common predicates round-trips through the AST; rejecting type-mismatched literals shows inline error; drag-drop reordering preserves AST structure.
 
-**Effort:** 5 days. **Dependencies:** Plan 1 Predicate AST + type checker, existing pragmatic-drag-and-drop infrastructure.
 
 ### Task 3: Expression card editor
 
@@ -138,7 +147,6 @@ Same shape as Task 2 but for ValueExpressions. Calculated-column UX is a sub-mod
 
 Tests: same shape as predicate editor.
 
-**Effort:** 3 days. **Dependencies:** Plan 1 Expression AST + type checker, Task 2 (predicate editor reused inside `if` / `switch` / `count`).
 
 ### Task 4: Column editor (per-format-kind)
 
@@ -148,7 +156,6 @@ Discriminated UI per `ColumnKind`. Plain shows `field` picker + header input. Da
 
 Tests: each kind round-trips through the schema; invalid combinations (e.g., Late Flag on a non-date property) surface inline errors.
 
-**Effort:** 2 days. **Dependencies:** Task 1 schema.
 
 ### Task 5: Sort key editor
 
@@ -158,7 +165,6 @@ Multi-key, drag-orderable list. Each key has source (property pick / calculated 
 
 Tests: round-trip; conflicting types surface as errors (sorting an `int` property as Date type).
 
-**Effort:** 1 day. **Dependencies:** Task 1.
 
 ### Task 6: Display section composition
 
@@ -168,7 +174,6 @@ Shell that mounts `ColumnEditor` (drag-orderable column list) + `SortKeyEditor` 
 
 Tests: editing a column updates the preview; reordering columns reorders the preview; adding a calculated column shows the computed values.
 
-**Effort:** 2 days. **Dependencies:** Tasks 1, 3, 4, 5 + Plan 2's CaseStore.
 
 ### Task 7: Filters section composition
 
@@ -178,7 +183,6 @@ Mounts `PredicateCardEditor` for the always-on filter. Live-preview panel re-run
 
 Tests: editing the filter updates the result count and visible rows; clearing the filter shows all cases.
 
-**Effort:** 1 day. **Dependencies:** Task 2.
 
 ### Task 8: Search Inputs section composition
 
@@ -188,7 +192,6 @@ List of input definitions. Per-input: type picker (text / select / date / date-r
 
 Tests: round-trip; type-coupling warnings (a `Date` input declared on a text property surfaces a warning).
 
-**Effort:** 2 days. **Dependencies:** Tasks 2, 3.
 
 ### Task 9: SA tools
 
@@ -198,7 +201,6 @@ One tool per surface: `setCaseListColumns`, `setCaseListFilter`, `setCaseListSor
 
 Tests: schema parse via `scripts/test-schema.ts`; each tool's effect on the doc verified via integration test against a fixture blueprint.
 
-**Effort:** 3 days. **Dependencies:** Task 1 + Plan 1 AST.
 
 ### Task 10: Validator rules
 
@@ -214,7 +216,6 @@ Five new rules:
 
 Tests: each rule fires on bad input, doesn't fire on good input. Cross-rule integration: a multi-writer property with conflicting kinds surfaces one error per writer.
 
-**Effort:** 2 days. **Dependencies:** Task 1 + Plan 1 checker.
 
 ### Task 11: Wire emission — case-list short detail
 
@@ -236,7 +237,6 @@ Filter: not emitted in `<detail>` (it's a nodeset filter on the `<entry>`'s sess
 
 Tests: golden-file comparisons against expected suite XML for each format kind. Cross-check fragment structure against `commcare-hq/.../tests/data/suite/` fixtures.
 
-**Effort:** 3 days. **Dependencies:** Task 1 + Plan 1 case-list-filter emitter + expression emitter.
 
 ### Task 12: Wire emission — case-list long detail
 
@@ -248,7 +248,6 @@ Static tabs included; nodeset-driven related-case tabs deferred to follow-up spe
 
 Tests: golden-file comparisons.
 
-**Effort:** 1 day. **Dependencies:** Task 11.
 
 ### Task 13: Wire emission — nodeset filter on entry
 
@@ -260,7 +259,6 @@ When `caseListConfig.filter` is `match-all` or absent, no filter is appended.
 
 Tests: golden-file comparison; verifies the filter precedence (`@case_type` filter always first, then user filter).
 
-**Effort:** 0.5 days. **Dependencies:** Task 1 + Plan 1 case-list-filter emitter.
 
 ### Task 14: Plan 3 integration test
 
@@ -268,7 +266,6 @@ Tests: golden-file comparison; verifies the filter precedence (`@case_type` filt
 
 End-to-end: build a fixture blueprint with case-list-config; run the validator; emit suite XML; compare against golden file; run preview rendering against `InMemoryCaseStore` and verify the rendered case list matches expected.
 
-**Effort:** 1 day. **Dependencies:** All prior + Plan 2.
 
 ### Task 15: Migration script run + archive
 
@@ -276,7 +273,6 @@ End-to-end: build a fixture blueprint with case-list-config; run the validator; 
 
 Execute the migration in a dry-run against prod Firestore; review diff; execute live; archive script. This is operator work, not a code task — but worth scheduling in the plan so it doesn't get missed.
 
-**Effort:** 0.5 days operator time. **Dependencies:** Task 1.
 
 ---
 
@@ -303,6 +299,6 @@ Execute the migration in a dry-run against prod Firestore; review diff; execute 
 - [ ] Migration script dry-run produces no surprises
 - [ ] No `TODO` / `FIXME` in new code
 
-## Effort estimate
+## Plan shape
 
-~20 days. The bulk of cost is in the card-based UI (Tasks 2 + 3 = 8 days) — the typed predicate / expression UX is the user-facing differentiator and warrants the investment.
+The bulk of work is in the card-based UI (Tasks 2 + 3, the predicate and expression card editors) — the typed predicate / expression UX is the user-facing differentiator. Tasks 6, 7, 8 compose the three sections of the case-list config panel. Tasks 9, 10 ship the SA tools and validator rules. Tasks 11, 12, 13 emit suite XML for the case list nodeset + short detail + long detail. Task 14 is the integration test; Task 15 is the operator-run migration.

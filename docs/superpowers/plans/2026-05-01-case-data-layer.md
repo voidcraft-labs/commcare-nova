@@ -53,11 +53,17 @@ lib/preview/engine/
 
 **Files:** `lib/case-store/store.ts`, `__tests__/store.test.ts`
 
-Define the single seam used by every consumer. Methods: `query` (predicate + sort + limit + offset), `insert`, `update`, `close`, `getById`, `traverse` (RelationPath walk), `migrateProperty` (schema migration with quarantine). Return shapes use `Promise<...>` even for in-memory implementations so the Postgres swap is invisible.
+Define the single seam used by every consumer. Methods:
+- `query` (predicate + sort + limit + offset)
+- `insert`, `update`, `close`, `getById`
+- `traverse` (RelationPath walk)
+- `syncSchemaForCaseType(appId, caseType)` — re-derives the JSON Schema from the current blueprint and upserts the `case_type_schemas` row. Called by the blueprint-write pipeline (Plan 3 wires it). Synchronous on the write path so the database always reflects the blueprint's current schema before any case-store write evaluates against it.
+- `migrateProperty(appId, caseType, property, change)` — schema-migration policy per the spec. `change` is a discriminated union: `rename` (atomic key-copy in same transaction), `retype` (migrate-or-quarantine), `narrow-options` (existing rows with removed values move to `cases_quarantine`).
 
-Tests: an interface-compliance harness as a reusable suite — every implementation runs it and gets the same coverage. Validates that `query` honors `predicate`, `sort`, `limit`, `offset`; `insert` populates `case_indices` for parent linkages; `update` preserves untouched properties; `close` marks `closed_on` and excludes from default queries.
+Return shapes use `Promise<...>` even for in-memory implementations so the Postgres swap is invisible. `migrateProperty` returns a `MigrationReport` with counts of migrated, quarantined, skipped rows plus per-row failure reasons for any quarantined items.
 
-**Effort:** 0.5 days. **Dependencies:** Plan 1 Term + Predicate AST.
+Tests: an interface-compliance harness as a reusable suite — every implementation runs it and gets the same coverage. Validates that `query` honors `predicate`, `sort`, `limit`, `offset`; `insert` populates `case_indices` for parent linkages; `update` preserves untouched properties; `close` marks `closed_on` and excludes from default queries; `syncSchemaForCaseType` upserts the right shape; `migrateProperty` rename / retype / narrow-options paths each behave correctly.
+
 
 ### Task 2: `InMemoryCaseStore` skeleton
 
@@ -67,7 +73,6 @@ Map-keyed-by-app, holds `cases` and `case_indices` arrays. `insert` / `update` /
 
 Tests: round-trip a case, then traverse its parent. Multi-app isolation (an insert into app A doesn't show up in queries against app B). Update preserves untouched properties.
 
-**Effort:** 1 day. **Dependencies:** Task 1.
 
 ### Task 3: In-memory predicate evaluator
 
@@ -79,7 +84,6 @@ Operator coverage: every Plan 1 Predicate operator (sentinels, logical, comparis
 
 Tests: each operator evaluated against fixture cases. Cross-check against Plan 1's Kysely compiler output via parity tests in Task 9.
 
-**Effort:** 2 days. **Dependencies:** Tasks 1, 2 + Plan 1 Predicate AST.
 
 ### Task 4: In-memory expression evaluator
 
@@ -89,7 +93,6 @@ Same shape as Task 3 but for ValueExpressions. Operator coverage: every Plan 1 V
 
 Tests: each operator's value evaluation. `count` exercises Task 5's relation walker.
 
-**Effort:** 1 day. **Dependencies:** Tasks 1, 2 + Plan 1 Expression AST.
 
 ### Task 5: In-memory relation walker
 
@@ -101,7 +104,6 @@ Walks RelationPath against the in-memory `case_indices` representation. Self →
 
 Tests: each RelationPath shape resolves correctly. Multi-hop ancestors. Subcase queries return the right cases. Any-relation excludes neither child nor extension.
 
-**Effort:** 1.5 days. **Dependencies:** Tasks 1, 2.
 
 ### Task 6: `HeuristicCaseGenerator`
 
@@ -119,7 +121,6 @@ Default count 30 per case type. Generates parent linkages from the case-type rel
 
 Tests: deterministic output (same seed → same data); valid against the case-type's JSON schema (Plan 1 generator); parent linkages create `case_indices` rows; the relation walker can traverse them.
 
-**Effort:** 2 days. **Dependencies:** Tasks 1, 2, 5 + Plan 1 JSON Schema generator.
 
 ### Task 7: Form preview write-through
 
@@ -129,7 +130,6 @@ Routes form completion through `CaseStore`. `deriveFromForm` extracts the case o
 
 Tests: completing a registration form inserts the right shape; followup updates the bound case; close marks closed.
 
-**Effort:** 1 day. **Dependencies:** Tasks 1, 2, 6 + existing `deriveCaseConfig`.
 
 ### Task 8: Reset preview data
 
@@ -139,17 +139,15 @@ Two reset modes: per-session reset (auto on tab close) + explicit "Reset preview
 
 Tests: reset clears all cases for the app; re-seed produces deterministic data matching the previous seed.
 
-**Effort:** 0.5 days. **Dependencies:** Tasks 1, 2, 6.
 
 ### Task 9: Cross-implementation parity tests
 
 **Files:** `lib/case-store/__tests__/parity.test.ts`.
 
-For a battery of golden AST fixtures, run Plan 1's Postgres compiler against a testcontainers Postgres instance + the InMemoryCaseStore. Assert the result sets are identical. Catches divergence between the two implementations early; the parity guard becomes a regression net for both.
+For a battery of golden AST fixtures, run Plan 1's Postgres compiler against the testcontainers Postgres harness (built in Plan 1 Task C7.5) + the InMemoryCaseStore. Assert the result sets are identical. Catches divergence between the two implementations early; the parity guard becomes a regression net for both.
 
 Tests: every Plan 1 operator + a handful of complex compositions (relational + expression-with-count + nested when-input-present).
 
-**Effort:** 1 day. **Dependencies:** All prior + Plan 1 Postgres compiler + testcontainers infra.
 
 ### Task 10: Replace `lib/preview/engine/dummyData.ts` with `caseDataBinding.ts`
 
@@ -159,7 +157,6 @@ Tests: every Plan 1 operator + a handful of complex compositions (relational + e
 
 Tests: existing dummyData tests pass against the new binding (rename + minor adjust). Existing CaseListScreen rendering continues to work.
 
-**Effort:** 1 day. **Dependencies:** Tasks 1, 2, 6, 7.
 
 ### Task 11: Barrel exports + CLAUDE.md
 
@@ -167,7 +164,6 @@ Tests: existing dummyData tests pass against the new binding (rename + minor adj
 
 Document the interface contract, the in-memory vs Postgres swap-pattern, and the parity-test discipline.
 
-**Effort:** 0.5 days. **Dependencies:** All prior.
 
 ---
 
@@ -187,6 +183,6 @@ Document the interface contract, the in-memory vs Postgres swap-pattern, and the
 - [ ] Existing CaseListScreen still renders against the new binding (Task 10)
 - [ ] No `TODO` / `FIXME` in `lib/case-store/`
 
-## Effort estimate
+## Plan shape
 
-~8 days. Plan 2 is mid-weight: smaller than the foundation (which has the AST + three emitters + compiler), larger than the visual / preview-only work.
+Plan 2 is mid-weight relative to the program: smaller than the foundation (which has the AST + three emitters + compiler), larger than the visual / preview-only work. Tasks 1-2 establish the interface; 3-5 build the in-memory evaluator family that mirrors Plan 1's Postgres compiler structure operator-by-operator; 6-7 wire sample data and form completion; 8 ships reset; 9 establishes the cross-implementation parity guard; 10-11 swap the dummyData consumer and finalize barrels.

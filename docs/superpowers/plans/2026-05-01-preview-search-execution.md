@@ -42,15 +42,14 @@ lib/preview/engine/
 
 ## Tasks
 
-### Task 1: Platform simulator + toggle
+### Task 1: Wire platform toggle to full preview surface
 
-**Files:** `lib/preview/engine/platformSimulator.ts`, `components/builder/preview/PlatformToggle.tsx`, tests.
+**Files:** `components/builder/preview/PreviewSurface.tsx`, tests.
 
-Author picks Android or Web; Web sub-toggles for "with split-screen" vs "without." The simulator passes the chosen `PlatformContext` to Plan 4's `compileForPlatform` to produce a `WireShape`; the preview surface renders the shape.
+The platform toggle was introduced in Plan 3 Task 0 (so case-list authoring's live previews could render against a chosen platform). Plan 5 wires the same toggle into the full preview surface composition, including the split-screen search and inline filter renderings introduced in Tasks 4 and 5.
 
-Tests: toggling re-derives the shape; toggling re-renders the surface.
+Tests: toggling on the preview surface re-renders the full composition; the toggle state is shared with Plan 3's editing-screen previews (one source of truth).
 
-**Effort:** 1 day. **Dependencies:** Plan 4 Task 8.
 
 ### Task 2: Case-list binding
 
@@ -60,7 +59,6 @@ Translates `caseListConfig` + current platform-context + current search-input va
 
 Tests: filtering and sort behave correctly; calculated columns evaluate; search inputs filter live.
 
-**Effort:** 2 days. **Dependencies:** Plan 1 + Plan 2 + Plan 3.
 
 ### Task 3: Web — case-list screen
 
@@ -70,7 +68,6 @@ Renders the case list with calculated columns + sort + filter applied. Web-shape
 
 Tests: golden-output rendering against fixture cases.
 
-**Effort:** 2 days. **Dependencies:** Tasks 1, 2 + Plan 3.
 
 ### Task 4: Web — split-screen search
 
@@ -80,7 +77,6 @@ When the platform-context produces split-screen, render filters in a left sideba
 
 Tests: typing filters results; clearing inputs reverts to default-filter-only results.
 
-**Effort:** 4 days. **Dependencies:** Tasks 1, 2, 3 + Plan 4 search config.
 
 ### Task 5: Android — case-list with inline filter
 
@@ -90,7 +86,6 @@ Mobile-shape: case list with inline filter at the top. The filter applies via th
 
 Tests: typing in the inline filter narrows results; the lossy expansion debug panel shows the expanded XPath.
 
-**Effort:** 2 days. **Dependencies:** Tasks 1, 2.
 
 ### Task 6: Form preview write-through wiring
 
@@ -100,7 +95,6 @@ When a preview form completes, route through Plan 2's `writeThrough`. The case l
 
 Tests: registration form adds a case to the list; followup form's update shows in the list; close removes the case from default-open queries.
 
-**Effort:** 2 days. **Dependencies:** Plan 2 Task 7 + Tasks 3, 5.
 
 ### Task 7: Reset preview data UI
 
@@ -110,7 +104,6 @@ Wires Plan 2's `reset` to a button. Resets store, re-seeds via `HeuristicCaseGen
 
 Tests: button triggers reset; rendering reflects the regenerated data.
 
-**Effort:** 0.5 days. **Dependencies:** Plan 2 Task 8.
 
 ### Task 8: Plan 5 integration test
 
@@ -118,7 +111,6 @@ Tests: button triggers reset; rendering reflects the regenerated data.
 
 End-to-end: build a fixture blueprint with full caseListConfig + caseSearchConfig; mount the preview surface; toggle platforms; verify each platform's rendering matches the WireShape; complete a form; verify the case persists through subsequent queries.
 
-**Effort:** 2 days. **Dependencies:** All prior + Plans 1-4.
 
 ---
 
@@ -139,15 +131,15 @@ End-to-end: build a fixture blueprint with full caseListConfig + caseSearchConfi
 - [ ] Manual smoke: full registration → search → followup workflow round-trips through preview
 - [ ] Platform toggle visibly changes the rendered UX between Android and Web
 
-## Effort estimate
+## Plan shape
 
-~13 days. Bulk of the cost is in the split-screen search screen (Task 4 = 4 days) and the form-completion / write-through wiring (Task 6 = 2 days). After Plan 5 ships, the case-list-and-search foundation is end-to-end testable in the builder.
+The bulk of work is in the split-screen search screen (Task 4) and the form-completion / write-through wiring (Task 6). After Plan 5 ships, the case-list-and-search foundation is end-to-end testable in the builder.
 
 ---
 
 ## Program-level summary (after Plan 5 ships)
 
-Total program effort across Plans 1-5: ~78 days of focused engineering. Calendar time at typical utilization: ~16-20 weeks.
+The five plans together produce: typed Predicate AST + typed Expression AST, three per-dialect wire emitters, Postgres compiler via Kysely, in-memory `CaseStore` with parity-tested evaluators, schema-driven sample data generator, case-list authoring UI with typed cards + wire emission for short/long detail, case-search authoring UI + wire emission for `<remote-request>`, platform-aware compilation, and a preview surface with platform toggle, split-screen search, inline filter, and write-through forms. Each plan ships separately-reviewable, separately-testable software.
 
 What ships:
 - Typed Predicate AST + Expression AST (Plan 1)

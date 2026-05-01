@@ -162,7 +162,9 @@ const matchSchema = z.object({
 });
 ```
 
-The shipped `fuzzy` schema becomes a deprecated alias that maps `fuzzy(prop, "v")` → `match(prop, "v", mode: "fuzzy")` at parse time. A migration helper in `lib/domain/predicate/migrations.ts` rewrites old AST shapes if any have been persisted (none should have been, since the AST hasn't shipped to production).
+The shipped `fuzzy` schema is **replaced directly** by `match(prop, val, mode: "fuzzy")` — no deprecation alias, no migration helper. The shipped AST has not been persisted in production, so there is no migration debt. Sweep the typeChecker, builders, tests, and emitter call sites in one change.
+
+The shipped typeChecker's allow-list for `fuzzy` (currently `text` / `single_select` / `multi_select` per `FUZZY_PROPERTY_TYPES` at the shipped `lib/domain/predicate/typeChecker.ts:162-167`, with rationale citing `commcare-hq/.../xpath_functions/query_functions.py:46-51` where `_selected_query` dispatches all three through `case_property_query`) is the **correct** allow-list and survives unchanged. The new `match` operator inherits this allow-list across all four modes (`fuzzy`, `phonetic`, `fuzzy-date`, `starts-with`). Do not narrow it to `text` only.
 
 Builders:
 
@@ -172,14 +174,13 @@ export const multiSelectAny = (property: PropertyRef, values: Literal[]): Predic
 export const multiSelectAll = (property: PropertyRef, values: Literal[]): Predicate => ({ ... });
 ```
 
-Tests cover construction + round-trip + the deprecated-`fuzzy` migration helper. Drop the existing `fuzzy` schema entirely after the alias migration is in place.
+Tests cover construction + round-trip.
 
 Steps:
 - [ ] Write failing tests for `multi-select-contains` + `match` schemas
 - [ ] Add schemas, extend union, update Predicate type
 - [ ] Add builders
-- [ ] Replace shipped `fuzzy` schema with deprecation alias; add migration helper
-- [ ] Update existing `fuzzy` tests to use `matches(prop, val, "fuzzy")`
+- [ ] Replace shipped `fuzzy` schema directly with `match` (rewrite call sites in tests + emitter; delete `fuzzy` schema)
 - [ ] Run tests, commit
 
 ### Task A3: Add RelationPath structure
@@ -267,7 +268,7 @@ Per-operator rules:
 - `between` — `left` and any provided bounds must be ordered types (int/decimal/date/datetime/time); types must agree.
 - `exists` / `missing` — `via` is type-checked against the case-type schema; `where` (if present) is type-checked recursively in the destination scope (resolved via `via`).
 - `multi-select-contains` — `property` must be `multi_select`-typed; values must be members of the option set if declared.
-- `match` — `property` must be `text`-typed (not `multi_select`; matching against a multi-select column is meaningless without selecting which value to match).
+- `match` — `property` must be a text-shaped type. The allow-list is `text` / `single_select` / `multi_select` (the same set as `FUZZY_PROPERTY_TYPES` in the shipped `typeChecker.ts:162-167`, and the same set CCHQ's `case_property_query` accepts at `commcare-hq/.../xpath_functions/query_functions.py:46-51`). All four modes (`fuzzy`, `phonetic`, `fuzzy-date`, `starts-with`) share this allow-list. Do not narrow.
 - `compare` (existing, but extended) — operands resolved via the new `via` slot on `case-property`.
 
 Steps:
@@ -285,7 +286,7 @@ Steps:
 - Create: `lib/domain/expression/typeChecker.ts`
 - Test: `lib/domain/expression/__tests__/`
 
-Schemas for the Expression family per the spec — `today`, `now`, `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `if`, `switch`, `count`, `format-date`, plus the `term` lifter.
+Schemas for the Expression family per the spec — `today`, `now`, `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `coalesce`, `if`, `switch`, `count`, `unwrap-list`, `format-date`, plus the `term` lifter.
 
 Type-checker rules:
 - `today` returns `date`; `now` returns `datetime`.
@@ -294,9 +295,11 @@ Type-checker rules:
 - `double` accepts any term; returns decimal.
 - `arith` operands must be numeric; result type follows int×int=int, mixed=decimal.
 - `concat` parts cast to text; result is text.
+- `coalesce` values must agree on type (after empty-string-coerce-to-null); result is the agreed type. Empty `values` array is rejected.
 - `if`: cond is Predicate, then/else types must agree.
 - `switch`: on is value; cases.when literals match `on`'s type; cases.then types must agree with each other and with fallback.
 - `count` returns int.
+- `unwrap-list` accepts text; returns a sequence type. The sequence type is V1's only sequence-producing operator; downstream operators that consume it (currently only `multi-select-contains` via the CSQL emitter's `selected-any(prop, unwrap-list(...))` pattern) must accept it.
 - `format-date` accepts date/datetime; returns text.
 
 Steps per sub-section:
@@ -383,31 +386,50 @@ Steps:
 - [ ] Add throw branches for CSQL-only operators with clear error messages
 - [ ] Run tests, commit
 
-### Task B3: Build the CSQL visitor with `concat()` wrapping
+### Task B3: Build the CSQL visitor with hoisting + `concat()` wrapping
 
 **Files:**
 - Create: `lib/commcare/predicate/csqlEmitter.ts`
-- Test: `__tests__/csqlEmitter.test.ts`
+- Create: `lib/commcare/predicate/csqlHoist.ts`
+- Test: `__tests__/csqlEmitter.test.ts`, `csqlHoist.test.ts`
 
-Operator coverage (full CCHQ extension set):
-- Everything in B2 +
-- `multi-select-contains` quantifier=any: `selected-any(prop, 'v1 v2')` (no expansion)
-- `multi-select-contains` quantifier=all: `selected-all(prop, 'v1 v2')`
-- `match` mode=fuzzy: `fuzzy-match(prop, 'v')`
-- `match` mode=phonetic: `phonetic-match(prop, 'v')`
-- `match` mode=fuzzy-date: `fuzzy-date(prop, 'v')`
-- `within-distance`: `within-distance(prop, '<lat lon>', dist, 'unit')`
-- `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')` (multi-hop slashes)
-- `exists` subcase: `subcase-exists('rel', '<csql filter>')`
+CCHQ's CSQL function vocabulary is split into two disjoint sets, verified at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py`:
+- **Query functions** (predicate-position; lines 39-54): `selected`, `selected-any`, `selected-all`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`, `not`, `starts-with`, `=`, `!=`, `<`, `<=`, `>`, `>=`.
+- **Value functions** (term-position; lines 27-36): `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`.
 
-**Critical:** the emitter wraps its output in `concat(...)` unconditionally — even for inputs-free CSQL — so the wire layer is structurally simpler. Every CSQL value is a `concat()` template; downstream code reads one shape.
+Conditionals (`if`, `switch`), aggregations (`count` outside top-level comparison), arithmetic (`arith`), and string concatenation (`concat`) are **not** in either set. They cannot appear inside the CSQL fragment; they must be hoisted into the on-device XPath wrapper that builds the `_xpath_query` string.
 
-The wrapping logic walks the AST, identifies runtime-instance interpolation points (input refs, session-user refs, session-context refs), lifts them out as `concat()` arguments. Constant string parts become quoted string literals; runtime parts become path expressions. Result: `concat('case_type = ', "'patient'", ' and name = ', instance('search-input...')/...)`.
+**`csqlHoist.ts` performs the hoisting pass** as a separate AST → AST transformation before emission:
+- Walks the predicate AST.
+- For each `if` / `switch` / `arith` / `concat` / non-comparison `count` node found in a position the CSQL emitter cannot represent, lifts the node into a wrapper expression and replaces it in the inner AST with a synthetic input ref (so the inner emission sees a stable interpolation point).
+- The wrapper output is what gets emitted into `<data key="_xpath_query" ref="...">` — it's an on-device XPath expression that builds the CSQL fragment string. Plan 4's wire emission consumes the wrapper expression, not the bare CSQL fragment.
+
+`subcase-count` is recognized only as the LHS of a binary comparison (`commcare-hq/.../filter_dsl.py:89-95`); the hoisting pass treats `count(...)` outside a top-level comparison as unrepresentable and emits a representability error rather than hoisting it (CSQL has no value-context home for it).
+
+**Operator coverage of the CSQL emission visitor** (after hoisting):
+- Comparison + logical (from B2 patterns, `not` from CSQL's query function set).
+- `multi-select-contains` quantifier=any: `selected-any(prop, 'v1 v2')`.
+- `multi-select-contains` quantifier=all: `selected-all(prop, 'v1 v2')`.
+- `multi-select-contains` quantifier=any single value: `selected(prop, 'v')` (`commcare-hq/.../xpath_functions/__init__.py:43` aliases `selected` to `selected-any` server-side; we emit the alias for readability).
+- `match` mode=fuzzy: `fuzzy-match(prop, 'v')`.
+- `match` mode=phonetic: `phonetic-match(prop, 'v')`.
+- `match` mode=fuzzy-date: `fuzzy-date(prop, 'v')`.
+- `match` mode=starts-with: `starts-with(prop, 'v')`.
+- `within-distance`: `within-distance(prop, '<lat lon>', dist, 'unit')`.
+- `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')` (multi-hop slashes).
+- `exists` subcase: `subcase-exists('rel', '<csql filter>')`.
+- `match-all` / `match-none`: emit `match-all()` / `match-none()`.
+- `is-null`: `prop = ''`.
+- `between`: expand to `and(gte, lte)`.
+- Value functions allowed inside terms: `today`, `now`, `date`, `date-add`, `datetime`, `datetime-add`, `double`, `unwrap-list` (CCHQ's value-function set, verified above).
+
+**`concat()` wrapping**: the emitter wraps its output in `concat(...)` unconditionally — every CSQL value is a `concat()` template; downstream code reads one shape. The wrapping pass walks the post-emission string, identifies runtime-instance interpolation points (input refs, session-user refs, session-context refs from the hoisting pass's synthetic inputs), and lifts them as `concat()` arguments. Constant string parts become quoted string literals; runtime parts become path expressions.
 
 Steps:
-- [ ] Write failing tests for CSQL-specific operators (multi-select-contains quantifier=any/all, match modes, within-distance, exists shapes)
-- [ ] Write failing tests for `concat()` wrapping (input-free output is `concat('...')`; input-bearing output lifts inputs)
-- [ ] Implement visitor with wrapping pass
+- [ ] Write failing tests for the hoisting pass: every `if`/`switch`/`arith`/`concat`/`count` node in non-representable positions surfaces as a hoist or a representability error
+- [ ] Implement `csqlHoist.ts`
+- [ ] Write failing tests for the emitter (CSQL-specific operators, the CCHQ value-function set, concat() wrapping shape)
+- [ ] Implement `csqlEmitter.ts`
 - [ ] Run tests, commit
 
 ### Task B4: Build the post-ES search-filter visitor
@@ -441,8 +463,22 @@ export function validateRepresentability(ast: Predicate, target: WireTarget): Re
 ```
 
 Walk the AST. For each node, check against a per-target operator table:
-- Unrepresentable: case-list-filter target with `match` mode≠starts-with; case-list-filter with `within-distance`; case-list-filter with `multi-select-contains` quantifier=all (lossy at scale); etc.
-- Lossy: case-list-filter with `multi-select-contains` quantifier=any multi-value (expands to OR); case-list-filter with multi-hop `exists` (expands to nested joins).
+
+**Unrepresentable on case-list-filter target:**
+- `match` mode∈{fuzzy, phonetic, fuzzy-date} — CSQL-only; no on-device equivalent.
+- `within-distance` — CSQL-only.
+- `date-add` value expression — `date-add` is **not** in `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`'s on-device dispatcher (it falls through to `XPathCustomRuntimeFunc`, and the case-list-filter context registers no handler for it). Date arithmetic with day-only intervals can be emitted as XPath operator arithmetic (`date(prop) + days`); month/year arithmetic is unrepresentable on-device.
+
+**Unrepresentable on CSQL target:**
+- `if` / `switch` / `arith` / `concat` value expressions appearing inside a position the hoisting pass cannot lift (e.g., inside `subcase-exists`'s filter argument). The hoisting pass produces a representability error in this case.
+- `count(...)` value expression outside a top-level binary comparison — `subcase-count` is recognized in CSQL only as the LHS of a comparison (`commcare-hq/.../filter_dsl.py:89-95`); standalone `count(...)` has no value-context home.
+
+**Unrepresentable on search-filter target:** same set as case-list-filter (the post-ES dialect mirrors on-device).
+
+**Lossy on case-list-filter:**
+- `multi-select-contains` quantifier=any multi-value: expands to OR-of-`selected()` (still works; slower than CSQL's native `selected-any`).
+- `multi-select-contains` quantifier=all: expands to AND-of-`selected()`.
+- Multi-hop `exists` — expands to nested `instance('casedb')` joins (works; performs worse with depth).
 
 Returns a list of issues with paths so the UI can highlight the offending card.
 
@@ -476,12 +512,38 @@ Steps:
 - Create: `lib/commcare/expression/csqlEmitter.ts`
 - Test: `__tests__/`
 
-Both emitters cover: `today`, `now`, `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `if`, `switch` (nested-`if` expansion), `format-date`, `count` (uses the relational join expansion for case-list, `subcase-count`/`ancestor-exists`-comparison-form for CSQL), term lifter.
+The two emitters cover **different operator sets** because the dialects support different functions.
+
+**case-list-filter emitter** (on-device dispatcher at `commcare-core/.../ASTNodeFunctionCall.java:113-269` registers `today`, `now`, `date`, `format-date`, `if`, `count`, `cond`, `coalesce`, `concat`, plus standard XPath operators):
+- `today`, `now`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `coalesce`, `if`, `switch` (nested-`if` expansion), `format-date`, `count` (uses relational join expansion against `instance('casedb')`), term lifter.
+- `date-add`: emit only when `interval === "days"` and `quantity` is a numeric literal — compiles to XPath operator arithmetic `date(prop) + days_n`. For other intervals (months/years) or non-literal quantities, surface as **unrepresentable** (the representability checker catches this earlier; the emitter throws as a defense).
+- `unwrap-list`: unrepresentable on-device.
+
+**csql emitter** (CCHQ value-function set at `commcare-hq/.../xpath_functions/__init__.py:27-36`: `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`):
+- `today`, `now`, `date-coerce` (emits as `date(...)`), `datetime-coerce` (emits as `datetime(...)`), `double`, `date-add` (all interval kinds; CSQL supports them natively), `unwrap-list`, `format-date`, term lifter.
+- `if`, `switch`, `arith`, `concat`, `coalesce`, `count`: **not emitted by this visitor**. Plan 1 Task B3's hoisting pass lifts them into the on-device wrapper that builds the `_xpath_query` string before the CSQL emitter sees the AST. If the visitor encounters one, it throws (defense; the hoist pass should have caught it).
 
 Steps:
-- [ ] Write failing tests per operator per dialect
+- [ ] Write failing tests per operator per dialect, including the asymmetric coverage explicitly (`date-add` representability gates on case-list-filter; hoisted operators throw on CSQL)
 - [ ] Implement
 - [ ] Run tests, commit
+
+### Task C2-pre: Cloud SQL extension allowlist gate (verification)
+
+**Files:**
+- Create: `scripts/verify-cloud-sql-extensions.ts`
+- Document: `docs/superpowers/specs/2026-04-30-case-list-search-design.md` "Open verification gates" section
+
+Before any case-store code touches the trigger contract, verify whether `pg_jsonschema` is on Cloud SQL's extension allowlist. The script connects to the staging Cloud SQL instance, runs `SELECT * FROM pg_available_extensions WHERE name = 'pg_jsonschema'`, and reports the result. PostGIS, pg_trgm, fuzzystrmatch are also checked (used by the Postgres compiler).
+
+If `pg_jsonschema` is unavailable, the trigger implementation in Plan 2 falls back to a PL/pgSQL validator that calls a JSON-Schema-validation library compiled to PL/pgSQL (or a from-scratch PL/pgSQL implementation of the subset we use). The architecture is identical from the application's perspective; the choice is recorded in this gate's output.
+
+Steps:
+- [ ] Write the verification script
+- [ ] Run against staging; record the output in a sibling file `docs/superpowers/specs/cloud-sql-extension-availability.md`
+- [ ] If `pg_jsonschema` unavailable: schedule a Plan 2 task addendum for the PL/pgSQL fallback implementation
+- [ ] Commit script + output
+
 
 ### Task C2: Kysely Database type definitions
 
@@ -560,6 +622,21 @@ Steps:
 - [ ] Wire delegation through compileTerm
 - [ ] Run tests, commit
 
+### Task C7.5: Postgres test infrastructure
+
+**Files:**
+- `package.json` — add `@testcontainers/postgresql` dev dependency
+- Create: `lib/case-store/sql/__tests__/setup.ts` — testcontainers boot + extension install + schema bootstrap
+- Test: validate the harness boots a container, installs `pg_trgm` / `fuzzystrmatch` / `postgis` (and `pg_jsonschema` if the C2-pre gate confirmed availability), seeds the schema from the JSON Schema generator, and accepts a smoke `INSERT` + `SELECT` round-trip.
+
+Plan 1 introduces this infrastructure (rather than Plan 2) because Plan 1 needs to validate the AST → Kysely compiler against a real Postgres at unit-test time. Plan 2 Task 9 inherits this harness for cross-implementation parity tests; without it Plan 2 Task 9's stated 1-day estimate would balloon by the missing infra cost.
+
+Steps:
+- [ ] Install `@testcontainers/postgresql`
+- [ ] Implement boot helper that builds the container, runs the schema, returns a Kysely instance
+- [ ] Test: container boots, extensions present, schema bootstrapped, smoke round-trip succeeds
+- [ ] Run tests, commit
+
 ### Task C8: Barrel exports + CLAUDE.md updates
 
 **Files:**
@@ -582,6 +659,8 @@ Steps:
 - [ ] Cross-check: every operator from the spec's V1-IN list has type-checker, three wire emitters (where representable), and Postgres compiler coverage. Build a coverage matrix as a docs artifact.
 - [ ] Cross-check: every issue in `representability.ts` traces back to a tested case in the wire emitter throw-or-skip behavior.
 
-## Effort estimate
+## Plan shape
 
-~20 days of focused engineering (matches the spec's effort honesty section). Existing implementor's 33 commits cover roughly 4-5 days of equivalent v1 work; the remaining ~15-16 days cover Group A extensions + Group B reconciliation + Group C compiler + tests.
+Three groups of tasks. Group A extends the shipped AST + type checker; Group B supersedes the broken emitter by splitting into per-dialect visitors and adds the CSQL hoisting pass; Group C lands the Postgres compiler with testcontainers infra and the Cloud SQL extension allowlist gate. Tasks within each group can run in dependency order; Groups A and B are largely additive on shipped work and can in principle interleave; Group C depends on Group A's full operator set being in place.
+
+The implementor's 33 shipped commits cover the comparison + logical + initial special-operator coverage at the AST + type-checker layers; what's left is everything called out in the v2 corrections above.

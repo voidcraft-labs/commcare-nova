@@ -76,23 +76,21 @@ interface CaseSearchConfig {
   searchAgainButtonLabel?: string;
   searchButtonDisplayCondition?: Predicate;   // hide/show search button
 
-  // Workflow
-  workflowMode?: WorkflowMode;                // OPEN QUESTION (see spec v2 § "open question")
-  // V1: omit; compiler infers from content. V2 if author-explicit, this enum drives it.
+  // No `workflowMode` field. The author does not choose a workflow mode;
+  // the compiler infers per-platform from configured content per the spec's
+  // "One surface, no mode picker — locked" section. CCHQ's mode-picker is a
+  // CCHQ authoring-UX artifact we explicitly reject.
 
   // Custom sort
   customSortProperties?: SortKey[];
   sortByRelevance?: boolean;                  // toggle for commcare_search_score sort
 }
-
-type WorkflowMode = "list-first" | "search-first" | "skip-to-results" | "split-screen";
 ```
 
 `searchInputs` already lives on `caseListConfig` from Plan 3 — shared between the case-list inline-search experience and the search-config screen.
 
 Tests: schema parse; round-trip through Zod.
 
-**Effort:** 1 day. **Dependencies:** Plan 1 AST, Plan 3 Task 1 (case-list-config schema).
 
 ### Task 2: Default Filters section UI
 
@@ -102,7 +100,6 @@ Reuses Plan 3 Task 2's `PredicateCardEditor`. Adds a runtime-context affordance 
 
 Tests: round-trip; input-ref scoping.
 
-**Effort:** 1 day. **Dependencies:** Plan 3's PredicateCardEditor.
 
 ### Task 3: Claim section UI
 
@@ -112,7 +109,6 @@ Predicate input for the claim condition. Toggle for `dontClaimAlreadyOwned`. Val
 
 Tests: round-trip; preview accuracy.
 
-**Effort:** 0.5 days. **Dependencies:** Plan 3's PredicateCardEditor + ExpressionCardEditor.
 
 ### Task 4: Display section UI
 
@@ -122,7 +118,6 @@ Plain text inputs for title, subtitle (with markdown preview), empty-list text, 
 
 Tests: round-trip; markdown rendering preview.
 
-**Effort:** 0.5 days. **Dependencies:** Task 1.
 
 ### Task 5: Platform divergence panel UI
 
@@ -132,7 +127,6 @@ Renders, side-by-side, what the search experience will look like on Android (alw
 
 Tests: each per-platform scenario shows the right UX preview; representability issues surface in the right panel.
 
-**Effort:** 2 days. **Dependencies:** Plan 1 representability + Task 1.
 
 ### Task 6: Search Inputs — cross-section binding
 
@@ -142,7 +136,6 @@ Plan 3's SearchInputsSection lives at the case-list config level (because it's s
 
 Tests: editing inputs from either surface updates the same module data.
 
-**Effort:** 0.5 days. **Dependencies:** Plan 3 Task 8.
 
 ### Task 7: SA tools
 
@@ -152,7 +145,6 @@ Tests: editing inputs from either surface updates the same module data.
 
 Tests: schema parse via `scripts/test-schema.ts`; tool effects on fixture blueprints.
 
-**Effort:** 2 days. **Dependencies:** Task 1 + Plan 1 AST.
 
 ### Task 8: Platform-aware compilation decision tree
 
@@ -170,17 +162,15 @@ type WireShape = {
 export function compileForPlatform(config: CaseSearchConfig, ctx: PlatformContext): WireShape;
 ```
 
-Decision tree:
-1. If `config.workflowMode` is explicitly set → use it directly (post-V2-decision).
-2. If `ctx.platform === "android"` → always `{ autoLaunch: false, defaultSearch: false, inlineSearch: true, splitScreen: false }`. Mobile is always case-list-first regardless.
-3. If `ctx.platform === "web"`:
-   - If `ctx.flags.splitScreenAvailable` → `{ autoLaunch: false, defaultSearch: false, inlineSearch: true, splitScreen: true }`. The modern UX.
-   - Else if `config.searchInputs.length === 0` → `{ autoLaunch: true, defaultSearch: true, inlineSearch: false, splitScreen: false }`. Skip-to-results: no inputs to fill.
-   - Else → `{ autoLaunch: true, defaultSearch: false, inlineSearch: false, splitScreen: false }`. Search-first fallback.
+Decision tree (no author override; pure inference from content + platform):
+1. If `ctx.platform === "android"` → always `{ autoLaunch: false, defaultSearch: false, inlineSearch: true, splitScreen: false }`. Mobile is always case-list-first regardless.
+2. If `ctx.platform === "web"`:
+   - If `ctx.flags.splitScreenAvailable` → `{ autoLaunch: false, defaultSearch: false, inlineSearch: true, splitScreen: true }`. The modern UX. Filters in sidebar, results in main panel, inline.
+   - Else if `config.defaultFilters !== match-all && config.searchInputs.length === 0` (the case-list config's `searchInputs` field, which is shared with this config per Plan 3 Task 1) → `{ autoLaunch: true, defaultSearch: true, inlineSearch: false, splitScreen: false }`. Skip-to-results. Author intent is clear: default filters configured, no inputs to type, show filtered results immediately.
+   - Else → `{ autoLaunch: false, defaultSearch: false, inlineSearch: false, splitScreen: false }`. List-first (the most user-respectful default). The user sees their local case list first; if they need to search, they hit the search button. We do NOT default to search-first because forcing a user to fill a search form before learning whether they have any local cases at all is worse UX than letting them see the list and search if needed. CCHQ's "Search First" mode exists for the rare clerical-worker case but is the wrong default; if a deploy needs that workflow, that's a CCHQ-side UX cost we accept rather than degrade Nova's authoring.
 
-Tests: each branch hit with a fixture; output asserted.
+Tests: each branch hit with a fixture; output asserted; absence of `workflowMode` confirmed (the field doesn't exist on the schema).
 
-**Effort:** 2 days. **Dependencies:** Task 1.
 
 ### Task 9: `<remote-request>` emission
 
@@ -210,7 +200,6 @@ Default filters compile via Plan 1's CSQL emitter (with `concat()` wrapping). Cl
 
 Tests: golden-file comparisons against fixture suite XML, one per platform × content combination.
 
-**Effort:** 4 days. **Dependencies:** Tasks 1, 8 + Plan 1 CSQL emitter.
 
 ### Task 10: Search prompts emission
 
@@ -220,7 +209,6 @@ Each `SearchInputDef` becomes a `<prompt key=... input=...>`  element with optio
 
 Tests: each input type (text / select / date / date-range / barcode) emits the right XML.
 
-**Effort:** 1 day. **Dependencies:** Plan 3 Task 1 (search input schema), Plan 1 expression emitter.
 
 ### Task 11: Claim emission
 
@@ -232,7 +220,6 @@ If `dontClaimAlreadyOwned` is true, AND the standard claim-only-if-not-owned gua
 
 Tests: golden-file comparisons; toggling `dontClaimAlreadyOwned` modifies `relevant` correctly.
 
-**Effort:** 1 day. **Dependencies:** Plan 1 emitters.
 
 ### Task 12: Validator rules
 
@@ -246,7 +233,6 @@ Tests: golden-file comparisons; toggling `dontClaimAlreadyOwned` modifies `relev
 
 Tests: each rule fires on bad input.
 
-**Effort:** 2 days. **Dependencies:** Task 1 + Plan 1 checker.
 
 ### Task 13: Plan 4 integration test
 
@@ -254,7 +240,6 @@ Tests: each rule fires on bad input.
 
 End-to-end: build a fixture blueprint with case-search-config; run the validator; emit `<remote-request>`; compare against golden file; round-trip via the platform-aware compiler for both Android and Web; verify the WireShape outputs.
 
-**Effort:** 1 day. **Dependencies:** All prior.
 
 ---
 
@@ -280,6 +265,6 @@ End-to-end: build a fixture blueprint with case-search-config; run the validator
 - [ ] Cross-check `<remote-request>` emission against `commcare-hq/.../tests/data/suite/remote_request.xml`
 - [ ] Platform divergence panel correctly previews both Android and Web
 
-## Effort estimate
+## Plan shape
 
-~17 days. Plan 4 is similar weight to Plan 3 — most cost is in the wire emitter (Task 9 = 4 days) and the platform-divergence preview (Task 5 = 2 days), both of which are differentiating features.
+Plan 4 is similar weight to Plan 3 in shape — most work is in the wire emitter (Task 9, `<remote-request>` emission) and the platform-divergence preview (Task 5), both differentiating features. Tasks 1-6 build the schema + UI surfaces; 7 ships SA tools; 8 implements the platform-aware compilation decision tree; 9-11 emit suite XML; 12 runs validators; 13 is the integration test.
