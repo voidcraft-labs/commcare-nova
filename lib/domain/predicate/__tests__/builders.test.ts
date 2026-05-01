@@ -59,6 +59,7 @@ import {
 	within,
 } from "../builders";
 import {
+	MATCH_MODES,
 	type Predicate,
 	predicateSchema,
 	type RelationPath,
@@ -146,15 +147,11 @@ describe("predicate builders", () => {
 	// `match` carries a `mode` discriminator across the four CCHQ
 	// text-match variants (`fuzzy` / `phonetic` / `fuzzy-date` /
 	// `starts-with`). Each mode round-trips through the schema with
-	// the same `{ property, value, mode }` payload — pin all four so
-	// any silent narrowing of the enum on either side (builder or
-	// schema) trips the table.
-	it.each([
-		"fuzzy",
-		"phonetic",
-		"fuzzy-date",
-		"starts-with",
-	] as const)("constructs a match predicate with mode: %s", (mode) => {
+	// the same `{ property, value, mode }` payload — iterating
+	// `MATCH_MODES` shares the source of truth with the schema so any
+	// silent narrowing of the enum on either side (builder or schema)
+	// trips the table.
+	it.each(MATCH_MODES)("constructs a match predicate with mode: %s", (mode) => {
 		const p = match(prop("patient", "name"), "alice", mode);
 		expect(p.kind).toBe("match");
 		expect(p.value).toBe("alice");

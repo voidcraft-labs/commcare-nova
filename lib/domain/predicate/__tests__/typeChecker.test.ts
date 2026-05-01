@@ -48,6 +48,7 @@ import {
 	within,
 } from "../builders";
 import { checkPredicate } from "../typeChecker";
+import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 
 // Single fixture reused across every test. Includes one property of
 // each data-type family exercised by the type-rule matrix: text
@@ -591,46 +592,31 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 	});
 });
 
-describe("checkPredicate — match text-shape requirement", () => {
+describe("checkPredicate — match property-shape requirement", () => {
 	// `match` carries a `mode` discriminator across four CCHQ wire forms
-	// — `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `starts-with`.
-	// All four resolve to `case_property_query` /
-	// `case_property_starts_with` / `sounds_like_text_query` against the
-	// property's stored string value (verified at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:31-115`
-	// and `commcare-hq/corehq/apps/es/case_search.py:237-340`). CommCare's
-	// wire layer accepts the call against any property, but text-match
-	// semantics against a non-text shape (an int, a date) have no useful
-	// meaning — edit-distance / phonetic-equivalence / prefix matching
-	// are all defined on character strings, not on numeric or temporal
-	// values. The Nova type checker rejects non-text-shaped properties
-	// as a UX policy so the author can't author a predicate that would
-	// compile but never produce a useful match. `single_select` and
-	// `multi_select` are stored as text under the hood (`_selected_query`
-	// at `query_functions.py:46-51` dispatches all three through
-	// `case_property_query`), so they're accepted alongside `text`.
-	//
-	// The allow-list is identical across the four modes — narrowing
-	// `starts-with` or `phonetic` to text-only would diverge from CCHQ's
-	// shared `case_property_query` dispatch and break valid authoring
-	// shapes against single_select / multi_select properties.
+	// — `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `starts-with` —
+	// each landing on a different CCHQ ES path. Three of the four modes
+	// share a text-shaped allow-list (text / single_select /
+	// multi_select); the fourth, `fuzzy-date`, widens to additionally
+	// accept date / datetime. The branching rationale lives on the
+	// allow-list constants in `typeChecker.ts`; tests below pin the
+	// per-mode acceptance / rejection matrix.
 
-	it.each([
-		"fuzzy",
-		"phonetic",
-		"fuzzy-date",
-		"starts-with",
-	] as const)("accepts match on a text property (mode: %s)", (mode) => {
+	// Three text-shaped accepts × three text-shaped property kinds
+	// (text / single_select / multi_select). `fuzzy-date` is exercised
+	// separately below because its allow-list is wider.
+	const TEXT_SHAPED_MATCH_MODES = ["fuzzy", "phonetic", "starts-with"] as const;
+
+	it.each(
+		TEXT_SHAPED_MATCH_MODES,
+	)("accepts match on a text property (mode: %s)", (mode) => {
 		const p = match(prop("patient", "name"), "alice", mode);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	it.each([
-		"fuzzy",
-		"phonetic",
-		"fuzzy-date",
-		"starts-with",
-	] as const)("accepts match on a single_select property (mode: %s)", (mode) => {
+	it.each(
+		TEXT_SHAPED_MATCH_MODES,
+	)("accepts match on a single_select property (mode: %s)", (mode) => {
 		const p = match(prop("patient", "status"), "ope", mode);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
@@ -639,26 +625,50 @@ describe("checkPredicate — match text-shape requirement", () => {
 	// from `single_select` at the wire — pinning both arms of the
 	// text-shaped allow-list locks the rule against a regression that
 	// dropped one without breaking the other.
-	it.each([
-		"fuzzy",
-		"phonetic",
-		"fuzzy-date",
-		"starts-with",
-	] as const)("accepts match on a multi_select property (mode: %s)", (mode) => {
+	it.each(
+		TEXT_SHAPED_MATCH_MODES,
+	)("accepts match on a multi_select property (mode: %s)", (mode) => {
 		const p = match(prop("patient", "tags"), "vip", mode);
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	// Parameterized rejection across every non-text-shaped data type the
-	// blueprint can declare (excluding `geopoint`, which lives on the
-	// `ctxWithGeo` fixture and is exercised separately below). Without
-	// this table, a regression that loosened the allow-list to "anything
-	// except numeric" would slip through — only the int and geopoint
-	// arms would fail. The table closes that gap by iterating the full
-	// rejected set across all four modes; adding a new non-text data type
-	// to the blueprint later requires extending this list as the visible
-	// signal that the match rule needs an explicit decision for the new
-	// type.
+	// `fuzzy-date` widens the allow-list to additionally accept date /
+	// datetime properties. CCHQ's `fuzzy_date` (verified at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:101-113`)
+	// is specifically designed to recover from transposed YYYY-MM-DD
+	// inputs, so authors targeting a `date`-typed property must be able
+	// to use the operator without re-declaring the property as text —
+	// otherwise the typed-property model the blueprint already
+	// establishes (typed `dateLiteral` / `datetimeLiteral` builders)
+	// breaks down at the predicate layer. The text-shaped trio also
+	// passes `fuzzy-date` because the underlying ES match runs against
+	// the shared `PROPERTY_VALUE` text field for every property type.
+	it("accepts fuzzy-date match on a date property", () => {
+		const p = match(prop("patient", "dob"), "2024-12-03", "fuzzy-date");
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts fuzzy-date match on a datetime property", () => {
+		const p = match(prop("patient", "last_seen"), "2024-12-03", "fuzzy-date");
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it.each([
+		"name",
+		"status",
+		"tags",
+	] as const)("accepts fuzzy-date match on a text-shaped property ($s)", (propName) => {
+		const p = match(prop("patient", propName), "2024-12-03", "fuzzy-date");
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	// Parameterized rejection across every property type that does NOT
+	// pass the text-shaped trio (excluding `geopoint`, which lives on
+	// the `ctxWithGeo` fixture and is exercised separately below).
+	// `fuzzy-date` is excluded from this rejection pass for `date` /
+	// `datetime` because its allow-list widens to include them — the
+	// rejection table below carves date / datetime out of `fuzzy-date`'s
+	// row while still rejecting them for the other three modes.
 	const REJECTED_NON_TEXT_PROPS = [
 		{ propName: "age", dataType: "int" },
 		{ propName: "weight_kg", dataType: "decimal" },
@@ -666,10 +676,17 @@ describe("checkPredicate — match text-shape requirement", () => {
 		{ propName: "last_seen", dataType: "datetime" },
 		{ propName: "appointment_time", dataType: "time" },
 	] as const;
-	const ALL_MODES = ["fuzzy", "phonetic", "fuzzy-date", "starts-with"] as const;
+
+	// Helper: a (mode, property) row is rejected unless `fuzzy-date`
+	// would accept the date/datetime. Every other combination rejects.
+	const isAccepted = (mode: (typeof MATCH_MODES)[number], dataType: string) =>
+		mode === "fuzzy-date" && (dataType === "date" || dataType === "datetime");
+
 	it.each(
 		REJECTED_NON_TEXT_PROPS.flatMap((prop) =>
-			ALL_MODES.map((mode) => ({ ...prop, mode })),
+			MATCH_MODES.filter((mode) => !isAccepted(mode, prop.dataType)).map(
+				(mode) => ({ ...prop, mode }),
+			),
 		),
 	)("rejects match on a $dataType property (mode: $mode)", ({
 		propName,
@@ -681,7 +698,10 @@ describe("checkPredicate — match text-shape requirement", () => {
 		if (!result.ok) {
 			expect(result.errors).toHaveLength(1);
 			expect(result.errors[0].path).toEqual(["property"]);
-			expect(result.errors[0].message).toMatch(/text/i);
+			// Error message names the offending mode and the
+			// allow-list contents — both load-bearing for the
+			// editor's per-mode highlighting.
+			expect(result.errors[0].message).toMatch(new RegExp(`mode='${mode}'`));
 		}
 	});
 
@@ -693,9 +713,10 @@ describe("checkPredicate — match text-shape requirement", () => {
 	// meaningless — none of the four match metrics is defined on a
 	// structured pair of floats. Pinning the rejection here locks the
 	// rule against a regression that widened the allow-list to "anything
-	// stored as text on the wire."
+	// stored as text on the wire." `fuzzy-date` rejects geopoint too —
+	// its widening covers date / datetime only.
 	it.each(
-		ALL_MODES,
+		MATCH_MODES,
 	)("rejects match on a geopoint property (mode: %s)", (mode) => {
 		const p = match(prop("patient", "location"), "40.7 -74.0", mode);
 		const result = checkPredicate(p, ctxWithGeo);
@@ -703,7 +724,7 @@ describe("checkPredicate — match text-shape requirement", () => {
 		if (!result.ok) {
 			expect(result.errors).toHaveLength(1);
 			expect(result.errors[0].path).toEqual(["property"]);
-			expect(result.errors[0].message).toMatch(/text/i);
+			expect(result.errors[0].message).toMatch(new RegExp(`mode='${mode}'`));
 		}
 	});
 });
@@ -723,10 +744,9 @@ describe("checkPredicate — multi-select-contains property requirement", () => 
 	// "field contains a value" against a non-multi_select property use
 	// `match(..., starts-with)` or a comparison.
 
-	it.each([
-		"any",
-		"all",
-	] as const)("accepts multi-select-contains on a multi_select property (quantifier: %s)", (quantifier) => {
+	it.each(
+		MULTI_SELECT_QUANTIFIERS,
+	)("accepts multi-select-contains on a multi_select property (quantifier: %s)", (quantifier) => {
 		const p =
 			quantifier === "any"
 				? multiSelectAny(prop("patient", "tags"), literal("vip"))

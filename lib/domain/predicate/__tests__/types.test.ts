@@ -20,6 +20,7 @@ import {
 import {
 	CASE_PROPERTY_PATTERN,
 	CASE_TYPE_PATTERN,
+	MATCH_MODES,
 	predicateSchema,
 	relationPathSchema,
 	termSchema,
@@ -360,17 +361,14 @@ describe("predicate schema", () => {
 	// Each match mode dispatches to a different CCHQ wire form on the
 	// CSQL target — `fuzzy-match` (verified at
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:91-98`),
-	// `phonetic-match` (line 84-89), `fuzzy-date` (line 101-115), and
+	// `phonetic-match` (line 84-89), `fuzzy-date` (line 101-113), and
 	// `starts-with` (line 31-35). Pinning each mode through round-trip
 	// parse locks the discriminator-only payload (`{ property, value,
 	// mode }`) for every variant; a regression that dropped one mode
 	// from the enum would surface here rather than at the emitter.
-	it.each([
-		"fuzzy",
-		"phonetic",
-		"fuzzy-date",
-		"starts-with",
-	] as const)("parses a match(...) with mode: %s", (mode) => {
+	// Iterating `MATCH_MODES` shares the source of truth with
+	// `matchSchema` so adding a mode automatically extends the table.
+	it.each(MATCH_MODES)("parses a match(...) with mode: %s", (mode) => {
 		const result = predicateSchema.parse({
 			kind: "match",
 			property: { kind: "prop", caseType: "patient", property: "name" },

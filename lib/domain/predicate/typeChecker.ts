@@ -162,21 +162,54 @@ const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"time",
 ]);
 
-// Property types the `match` operator accepts across all four modes
-// (`fuzzy` / `phonetic` / `fuzzy-date` / `starts-with`). Text-shaped
-// types pass through CCHQ's `case_property_query` (used by
-// `fuzzy-match`, `_selected_query`, and `fuzzy-date` per
-// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-115`)
-// and `case_property_starts_with` (used by `starts-with` per
-// `commcare-hq/corehq/apps/es/case_search.py:312-323`). Both functions
-// dispatch text / single_select / multi_select through the same
-// underlying ES path on the `PROPERTY_VALUE` / `PROPERTY_VALUE_EXACT`
-// field, so the allow-list is shared across every match mode.
-const MATCH_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
-	"text",
-	"single_select",
-	"multi_select",
-]);
+// Match-mode allow-lists.
+//
+// CCHQ's underlying Elasticsearch index stores every case property's
+// value as text on the `PROPERTY_VALUE` field
+// (`commcare-hq/corehq/apps/es/case_search.py:237`), so the wire layer
+// accepts every match mode against any property regardless of declared
+// type. The Nova type checker is stricter: each mode has a per-mode
+// allow-list, rejecting property types where the mode's semantics
+// produce no useful results.
+//
+// Three of the four modes — `fuzzy`, `phonetic`, `starts-with` — match
+// by approximate-string semantics (edit-distance, phonetic
+// equivalence, prefix matching). Those metrics are defined on
+// character strings, not on numeric / temporal / coordinate values, so
+// the allow-list narrows to text-shaped properties. Per-mode CCHQ
+// dispatch:
+//
+//   - `fuzzy-match` (`commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:91-98`)
+//     calls `case_property_query(..., fuzzy=True)`.
+//   - `phonetic-match` (`query_functions.py:84-89`) calls
+//     `sounds_like_text_query` (`case_search.py:305`).
+//   - `starts-with` (`query_functions.py:31-35`) calls
+//     `case_property_starts_with` (`case_search.py:312-323`), a prefix
+//     match on `PROPERTY_VALUE_EXACT`.
+//
+// `fuzzy-date` (`query_functions.py:101-113`) is special. It builds
+// digit-permutation candidates from the input via `date_permutations`
+// and matches them against the same `PROPERTY_VALUE` text field via
+// `case_property_query(..., boost_first=True)`. The operator is
+// specifically designed to recover from transposed YYYY-MM-DD input
+// against date-typed properties — narrowing it to text-only would
+// force authors to declare dates as text to use the operator, which
+// defeats the typed-property model the blueprint already establishes
+// (typed `date` / `datetime` literals via `dateLiteral` /
+// `datetimeLiteral` in `builders.ts`). So `fuzzy-date` widens the
+// allow-list to include `date` and `datetime` in addition to the
+// text-shaped trio.
+//
+// Why text-shaped types — `text`, `single_select`, `multi_select` —
+// pass every mode's allow-list: on CCHQ's wire, single-select values
+// serialize as plain strings and multi-select values as space-
+// separated strings in the same `PROPERTY_VALUE` field text uses, so
+// each match mode reaches the same Elasticsearch mechanism whether
+// the underlying property is text or a select kind.
+const MATCH_PROPERTY_TYPES_TEXT_SHAPED: ReadonlySet<CasePropertyDataType> =
+	new Set(["text", "single_select", "multi_select"]);
+const MATCH_PROPERTY_TYPES_FUZZY_DATE: ReadonlySet<CasePropertyDataType> =
+	new Set(["text", "single_select", "multi_select", "date", "datetime"]);
 
 // ---------- Top-level walker ----------
 
@@ -497,36 +530,29 @@ function checkWithinDistance(
 }
 
 /**
- * Text-shape requirement on `match.property` across all four modes
- * (`fuzzy` / `phonetic` / `fuzzy-date` / `starts-with`). CommCare's
- * wire layer dispatches every mode through `case_property_query` (for
- * `fuzzy-match` / `_selected_query` / `fuzzy-date` per
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-115`)
- * or `case_property_starts_with` (for `starts-with` per
- * `commcare-hq/corehq/apps/es/case_search.py:312-323`). Both reach the
- * same property-value field on the Elasticsearch index regardless of
- * declared type, so this rule isn't a CCHQ structural enforcement —
- * it's a Nova UX policy. Text-match semantics against an int, a
- * decimal, a date, or a geopoint produce no useful results (edit-
- * distance, phonetic equivalence, and prefix matching are all defined
- * on character strings, not on numeric / temporal / coordinate
- * values); the type checker rejects those property types so the
- * author can't construct a predicate that compiles but never produces
- * a useful match.
+ * Property-type requirement on `match.property`, branched per mode.
  *
- * Why text-shaped types — `text`, `single_select`, `multi_select` —
- * pass the allow-list: on CCHQ's wire, single-select values serialize
- * as plain strings and multi-select values as space-separated strings
- * in the same property-value field that text uses
- * (`selected-any(tags, "vip urgent")` is the canonical multi-select
- * filter shape, and `_selected_query` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`
- * dispatches all three through the same `case_property_query` that
- * `fuzzy-match` itself uses). Text-matching against a select property
- * therefore matches by the same Elasticsearch mechanism as
- * text-matching against a text property — the allow-list is identical
- * across the four modes; narrowing any one mode to text-only would
- * diverge from CCHQ's shared dispatch.
+ * Three of the four modes (`fuzzy` / `phonetic` / `starts-with`) use
+ * the text-shaped allow-list — `text` / `single_select` /
+ * `multi_select`. Each mode's CCHQ dispatch reaches the
+ * `PROPERTY_VALUE` Elasticsearch field, which stores every property's
+ * value as text regardless of declared type, but Nova narrows to the
+ * text-shaped trio because edit-distance, phonetic equivalence, and
+ * prefix matching produce no useful results against numeric /
+ * temporal / coordinate values.
+ *
+ * `fuzzy-date` widens the allow-list to additionally accept `date` and
+ * `datetime` properties. CCHQ's `fuzzy_date` is specifically designed
+ * to recover from transposed YYYY-MM-DD inputs against date-typed
+ * properties; narrowing it to text-only would force authors to
+ * declare dates as text to use the operator, which defeats the
+ * typed-property model the blueprint already establishes (typed
+ * `date` / `datetime` literals via `dateLiteral` / `datetimeLiteral`
+ * in `builders.ts`).
+ *
+ * See `MATCH_PROPERTY_TYPES_TEXT_SHAPED` /
+ * `MATCH_PROPERTY_TYPES_FUZZY_DATE` above for the per-mode CCHQ
+ * citations and full rationale.
  */
 function checkMatch(
 	p: Extract<Predicate, { kind: "match" }>,
@@ -538,6 +564,10 @@ function checkMatch(
 		...path,
 		"property",
 	]);
+	const allowList =
+		p.mode === "fuzzy-date"
+			? MATCH_PROPERTY_TYPES_FUZZY_DATE
+			: MATCH_PROPERTY_TYPES_TEXT_SHAPED;
 	// `ANY_TYPE` is structurally unreachable for a `PropertyRef` today,
 	// but the explicit guard pins the invariant at the type system: a
 	// future widening of the match schema's operand or of
@@ -547,11 +577,16 @@ function checkMatch(
 	if (
 		propType !== undefined &&
 		propType !== ANY_TYPE &&
-		!MATCH_PROPERTY_TYPES.has(propType)
+		!allowList.has(propType)
 	) {
+		// Sort the allow-list for stable error output regardless of
+		// iteration order — Set iteration order is insertion order in
+		// V8, but pinning it avoids any future divergence between
+		// Node versions or alternative runtimes.
+		const allowed = [...allowList].sort().join(", ");
 		errors.push({
 			path: [...path, "property"],
-			message: `match requires a text-typed property (text, single_select, or multi_select); got '${describe(propType)}'.`,
+			message: `match mode='${p.mode}' requires a property of type ${allowed}; got '${describe(propType)}'.`,
 		});
 	}
 }

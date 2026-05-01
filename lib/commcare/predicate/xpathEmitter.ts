@@ -40,11 +40,10 @@
 // operator-arm comments below cite the production code at
 // `corehq/apps/case_search/xpath_functions/query_functions.py` for
 // each function's wire signature. The `match` and
-// `multi-select-contains` operators are recognised by the
-// exhaustiveness switch but not emitted by this single-context
-// emitter — both carry a per-mode / per-quantifier dispatch whose
-// per-dialect wire form belongs in the visitor split, so the arms
-// here throw to keep the type-system exhaustiveness surface sound.
+// `multi-select-contains` arms throw because each operator's wire
+// form depends on the emission context (per-mode dispatch for
+// `match`, per-quantifier dispatch for `multi-select-contains`), and
+// per-context dispatch lives in the per-dialect emitter modules.
 //
 // CCHQ wire-form citations (production paths in commcare-hq):
 //
@@ -310,14 +309,13 @@ function emitPredicate(
 		case "match":
 		case "multi-select-contains":
 			// `match` and `multi-select-contains` carry per-mode /
-			// per-quantifier dispatches whose per-dialect wire form
-			// diverges sharply between case-list-filter and CSQL
-			// contexts:
+			// per-quantifier dispatches whose wire form differs across
+			// dialects. Per-mode dispatch for `match`:
 			//
-			//   - `match` mode `starts-with` is emittable in
-			//     case-list-filter (`starts-with(prop, 'v')`); the
-			//     other three modes (`fuzzy`, `phonetic`, `fuzzy-date`)
-			//     are CSQL-only — verified at
+			//   - `starts-with` is emittable in case-list-filter
+			//     (`starts-with(prop, 'v')`); the other three modes
+			//     (`fuzzy`, `phonetic`, `fuzzy-date`) are CSQL-only —
+			//     verified at
 			//     `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`,
 			//     where the on-device dispatcher registers no handler
 			//     for `fuzzy-match` / `phonetic-match` / `fuzzy-date`.
@@ -326,21 +324,19 @@ function emitPredicate(
 			//     `starts-with` per
 			//     `commcare-hq/.../xpath_functions/__init__.py:39-54`).
 			//
-			//   - `multi-select-contains` quantifier `any` single-value
-			//     is `selected(prop, 'v')` in both contexts;
-			//     quantifier `any` multi-value expands to OR-of-
+			// Per-quantifier dispatch for `multi-select-contains`:
+			//
+			//   - `any` single-value is `selected(prop, 'v')` in both
+			//     contexts; `any` multi-value expands to OR-of-
 			//     `selected()` on-device but emits as one
 			//     `selected-any(prop, 'v1 v2')` call in CSQL;
-			//     quantifier `all` expands to AND-of-`selected()` on-
-			//     device and to `selected-all(prop, 'v1 v2')` in CSQL.
+			//     `all` expands to AND-of-`selected()` on-device and to
+			//     `selected-all(prop, 'v1 v2')` in CSQL.
 			//
-			// The single-context emitter has no rule for either
-			// dispatch — encoding the per-mode and per-quantifier
-			// branches here would require duplicating the visitor-
-			// split logic in a structure this emitter is being
-			// retired in favor of. The defensive throw keeps the
-			// exhaustiveness surface sound; per-dialect emission lands
-			// in the per-dialect visitors.
+			// The dialect-specific dispatch lives in the per-dialect
+			// emitter modules; the throws here defend the exhaustiveness
+			// surface — silently accepting either kind would emit a
+			// wrong-dialect string.
 			throw new Error(`emitPredicate: no emission for kind '${p.kind}'`);
 		case "when-input-present": {
 			// Conditional-include wrapper. The wrapped clause runs

@@ -24,13 +24,13 @@
 // operator-specific edge cases — single-vs-multi `isIn` collapse,
 // or-of-equalities preservation of whitespace / null / numeric
 // values, literal-vs-input `within-distance.center`, the
-// distance: 0 boundary, the `match` operator's defensive throw
-// (per-dialect emission lands in the visitor split — this single-
-// context emitter has no per-mode emission rules), the `true()`
-// boolean-context fallback in case-list-filter for
-// `when-input-present`, and the csql throw when
-// `when-input-present` would emit unsupported `if` / `count`
-// inside CSQL.
+// distance: 0 boundary, the `match` and `multi-select-contains`
+// defensive throws (this single-context emitter doesn't carry the
+// per-mode / per-quantifier wire forms; per-dialect emission lives
+// in the per-dialect emitter modules), the `true()` boolean-context
+// fallback in case-list-filter for `when-input-present`, and the
+// csql throw when `when-input-present` would emit unsupported `if`
+// / `count` inside CSQL.
 //
 // Operand-emission tests for non-quote-related cases use the
 // user-defined property `name` rather than `status` to keep the
@@ -61,6 +61,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { MATCH_MODES } from "@/lib/domain/predicate/types";
 import { type EmissionContext, emitXPath } from "../xpathEmitter";
 
 // Both contexts run through the same operator + quoting logic, so
@@ -584,36 +585,30 @@ describe("emitXPath — special operators", () => {
 		);
 	});
 
-	// The single-context emitter has no per-mode emission rules for
-	// `match` — per-dialect emission moves to the visitor split (where
-	// the case-list-filter dialect emits `starts-with` directly and
-	// rejects the other modes; the CSQL dialect dispatches each mode to
-	// its CCHQ wire form). The defensive throw here keeps the
-	// exhaustiveness surface sound until the visitor split lands. Each
-	// of the four modes is exercised so a regression that silently
-	// dispatched any one of them through this emitter would surface as a
-	// passing-when-it-should-throw test.
-	it.each([
-		["case-list-filter" as const, "fuzzy" as const],
-		["case-list-filter" as const, "phonetic" as const],
-		["case-list-filter" as const, "fuzzy-date" as const],
-		["case-list-filter" as const, "starts-with" as const],
-		["csql" as const, "fuzzy" as const],
-		["csql" as const, "phonetic" as const],
-		["csql" as const, "fuzzy-date" as const],
-		["csql" as const, "starts-with" as const],
-	])("throws on match (mode: %s) in %s context", (ctx, mode) => {
+	// `match` arms throw because each mode's wire form differs across
+	// dialects; per-dialect emission lives in the per-dialect emitter
+	// modules. This throw locks the contract that this single-context
+	// emitter doesn't carry the per-mode wire forms — every mode in
+	// every context surfaces as a passing-when-it-should-throw test if
+	// the contract drifts.
+	const MATCH_THROW_CASES = CONTEXTS.flatMap((ctx) =>
+		MATCH_MODES.map((mode) => [ctx, mode] as const),
+	);
+	it.each(
+		MATCH_THROW_CASES,
+	)("throws on match (mode: %s) in %s context", (ctx, mode) => {
 		const p = match(prop("patient", "name"), "alice", mode);
 		expect(() => emitXPath(p, ctx)).toThrow(/match/i);
 	});
 
 	it("throws on multi-select-contains in both contexts", () => {
-		// Same defensive-throw rationale as `match` — per-dialect
-		// emission lands in the visitor split. The case-list-filter
-		// dialect expands single-value `selected(prop, 'v')` and
-		// multi-value to OR/AND of `selected()`; the CSQL dialect emits
-		// `selected-any` / `selected-all` directly. This single-context
-		// emitter has no rule for either path.
+		// `multi-select-contains` follows the same defensive-throw
+		// pattern as `match`: the wire form differs across dialects
+		// (single-value vs multi-value collapse, OR-of-`selected()` vs
+		// `selected-any`/`selected-all`), and per-dialect emission lives
+		// in the per-dialect emitter modules. This throw locks the
+		// contract that this single-context emitter doesn't carry the
+		// per-quantifier wire forms.
 		const p = multiSelectAny(prop("patient", "tags"), literal("vip"));
 		expect(() => emitXPath(p, "case-list-filter")).toThrow(
 			/multi-select-contains/i,
@@ -690,10 +685,10 @@ describe("emitXPath — special operators", () => {
 		// contexts. `when-input-present` is excluded from this invariance
 		// because CSQL has no `if` / `count` and the emitter throws in
 		// csql context — that divergence is pinned in its own test above.
-		// `match` and `multi-select-contains` are excluded because the
-		// single-context emitter has no per-mode / per-quantifier
-		// emission rules for either; per-dialect emission lands in the
-		// visitor split.
+		// `match` and `multi-select-contains` are excluded because this
+		// single-context emitter doesn't carry the per-mode /
+		// per-quantifier wire forms; per-dialect emission lives in the
+		// per-dialect emitter modules.
 		expect(
 			emitXPath(
 				isIn(prop("patient", "tags"), literal("open"), literal("active")),

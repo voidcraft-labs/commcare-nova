@@ -532,9 +532,15 @@ const withinDistanceSchema = z.object({
 });
 
 /**
- * Approximate text match against a property's stored string value. The
- * `mode` discriminator selects one of four CCHQ wire forms — each
- * mapping to a CCHQ query function registered at
+ * Closed set of CCHQ text-match wire dispatches. Pattern mirrors
+ * `COMPARISON_KINDS` and `DISTANCE_UNITS` above: a top-level `as
+ * const` tuple feeds the schema via `z.enum(...)`, and `MatchMode`
+ * derives from it so the builder's `mode` parameter shares this
+ * single source of truth. Adding a mode here automatically widens
+ * the builder's accepted argument set rather than requiring parallel
+ * maintenance.
+ *
+ * Each mode maps to a CCHQ query function registered at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`:
  *
  *   - `fuzzy` → `fuzzy-match` (Elasticsearch `queries.fuzzy` against
@@ -545,10 +551,37 @@ const withinDistanceSchema = z.object({
  *     — `query_functions.py:84-89`.
  *   - `fuzzy-date` → `fuzzy-date` (digit-permutation date match for
  *     transposed YYYY-MM-DD inputs)
- *     — `query_functions.py:101-115`.
+ *     — `query_functions.py:101-113`.
  *   - `starts-with` → `starts-with` (`case_property_starts_with` →
  *     `prefix` filter on `PROPERTY_VALUE_EXACT`)
  *     — `query_functions.py:31-35` and `case_search.py:312-323`.
+ */
+export const MATCH_MODES = [
+	"fuzzy",
+	"phonetic",
+	"fuzzy-date",
+	"starts-with",
+] as const;
+export type MatchMode = (typeof MATCH_MODES)[number];
+
+/**
+ * Closed set of multi-select containment quantifiers. Same
+ * top-level-tuple-feeds-schema pattern as `MATCH_MODES` /
+ * `COMPARISON_KINDS` / `DISTANCE_UNITS`. `any` maps to CCHQ's
+ * `selected-any` (any token matches); `all` maps to `selected-all`
+ * (every token matches). Both registered at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43-44`
+ * and dispatched through `_selected_query` →
+ * `case_property_query(..., multivalue_mode='or' | 'and')` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`.
+ */
+export const MULTI_SELECT_QUANTIFIERS = ["any", "all"] as const;
+export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
+
+/**
+ * Approximate text match against a property's stored string value. The
+ * `mode` discriminator (one of `MATCH_MODES`) selects the CCHQ wire
+ * form — see `MATCH_MODES`'s JSDoc for per-mode source citations.
  *
  * The four modes share one operator (rather than four sibling
  * predicates) so the UI surface and the SA write the same shape and
@@ -569,27 +602,15 @@ const matchSchema = z.object({
 	kind: z.literal("match"),
 	property: propertyRefSchema,
 	value: z.string().min(1),
-	mode: z.enum(["fuzzy", "phonetic", "fuzzy-date", "starts-with"]),
+	mode: z.enum(MATCH_MODES),
 });
-
-/**
- * `MatchMode` is the closed set of CCHQ text-match wire dispatches.
- * Derived from `matchSchema`'s enum so the builder's `mode` parameter
- * shares one source of truth with the schema — adding a mode here
- * automatically widens the builder's accepted argument set rather than
- * requiring parallel maintenance.
- */
-export type MatchMode = z.infer<typeof matchSchema>["mode"];
 
 /**
  * Multi-select containment predicate — "the multi_select property
  * contains some / all of these tokens." The `quantifier` discriminator
- * picks between CCHQ's `selected-any` (any token matches) and
- * `selected-all` (every token matches), both registered at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43-44`
- * and dispatched through `_selected_query` →
- * `case_property_query(..., multivalue_mode='or' | 'and')` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`.
+ * (one of `MULTI_SELECT_QUANTIFIERS`) picks between `selected-any` and
+ * `selected-all`; see `MULTI_SELECT_QUANTIFIERS`'s JSDoc for source
+ * citations.
  *
  * The schema keeps both quantifiers in one operator (rather than two
  * sibling predicates) so a UI surface or reducer toggling "any of" ↔
@@ -627,7 +648,7 @@ const multiSelectContainsSchema = z.object({
 	// the runtime parse rejection is what enforces non-empty at read
 	// sites.
 	values: z.tuple([literalSchema], literalSchema),
-	quantifier: z.enum(["any", "all"]),
+	quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
 });
 
 // ---------- Sentinel predicates ----------
