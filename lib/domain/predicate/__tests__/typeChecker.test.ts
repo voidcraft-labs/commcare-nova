@@ -20,24 +20,29 @@ import {
 	and,
 	dateLiteral,
 	eq,
+	fuzzy,
 	gt,
 	input,
+	isIn,
 	literal,
 	lt,
 	not,
 	or,
 	prop,
+	timeLiteral,
 	userField,
 	whenInput,
+	within,
 } from "../builders";
 import { checkPredicate } from "../typeChecker";
 
 // Single fixture reused across every test. Includes one property of
 // each data-type family exercised by the comparison-rule matrix: text
 // (unordered), int (ordered numeric), decimal (numeric promotion
-// counterpart), date and datetime (two date kinds — used to verify
-// they don't widen across each other), and single_select (string-
-// coerced, with options).
+// counterpart), date / datetime / time (three temporal kinds — used to
+// verify they don't widen across each other and to exercise each
+// ordered-temporal arm of `ORDERED_TYPES`), and single_select
+// (string-coerced, with options).
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
@@ -45,7 +50,12 @@ const PATIENT: CaseType = {
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "weight_kg", label: "Weight", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "last_seen", label: "Last Seen", data_type: "datetime" },
+		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{
+			name: "appointment_time",
+			label: "Appointment time",
+			data_type: "time",
+		},
 		{
 			name: "status",
 			label: "Status",
@@ -126,6 +136,16 @@ describe("checkPredicate — comparison operators", () => {
 
 	it("accepts lt on date with a typed dateLiteral", () => {
 		const p = lt(prop("patient", "dob"), dateLiteral("2000-01-01"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	// Exercises the `time` arm of `ORDERED_TYPES`. Without this, a
+	// regression that special-cased `time` (e.g. dropped it from the
+	// ordered set or mistyped a typed-literal builder) would not fail any
+	// existing test — the `date` and `datetime` arms are independently
+	// covered.
+	it("accepts lt on time with a typed timeLiteral", () => {
+		const p = lt(prop("patient", "appointment_time"), timeLiteral("12:00:00"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
@@ -337,6 +357,58 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 		if (!result.ok) {
 			expect(result.errors[0].path).toEqual(["when-input-present", "input"]);
 			expect(result.errors[0].message).toMatch(/unknown search input/i);
+		}
+	});
+});
+
+describe("checkPredicate — operand resolution on in / within-distance / fuzzy", () => {
+	// `in`, `within-distance`, and `fuzzy` resolve their term operands
+	// uniformly with comparison operators so unknown-property /
+	// unknown-case-type / unknown-input errors surface the same way no
+	// matter which operator the bad term sits under. The per-operator
+	// semantic checks (membership-value compatibility on `in`, geopoint-
+	// property requirement on `within-distance`, text-property
+	// requirement on `fuzzy`) are separate concerns and not covered
+	// here.
+	it("rejects in(...) with an unknown property reference", () => {
+		const p = isIn(prop("patient", "bogus"), literal("x"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(/unknown property/i);
+		}
+	});
+
+	// `within-distance` carries two term operands (`property` and
+	// `center`). Pinning the path on each lets the editor highlight
+	// either operand independently, and the multi-error count locks the
+	// "errors accumulate across operands" contract.
+	it("rejects within-distance(...) with an unknown property and unknown input", () => {
+		const p = within(
+			prop("alien_type", "loc"),
+			input("undeclared"),
+			50,
+			"miles",
+		);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(2);
+			expect(result.errors.map((e) => e.path)).toEqual([
+				["property"],
+				["center"],
+			]);
+		}
+	});
+
+	it("rejects fuzzy(...) with an unknown property reference", () => {
+		const p = fuzzy(prop("patient", "bogus"), "alice");
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].message).toMatch(/unknown property/i);
 		}
 	});
 });

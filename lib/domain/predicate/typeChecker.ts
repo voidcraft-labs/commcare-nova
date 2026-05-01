@@ -15,25 +15,24 @@
 // and concentrates the schema-driven rules in this one walker.
 //
 // Coverage is per-operator and intentionally not uniform across kinds.
-// Operand-level resolution (referenced property exists on the named
-// case type, named search input is declared, operand types are
-// compatible) runs for the comparison operators (`eq` / `neq` / `gt` /
-// `gte` / `lt` / `lte`) and for the trigger-input slot of
-// `when-input-present`. Logical wrappers (`and` / `or` / `not`) and
-// the wrapped clause of `when-input-present` recurse so violations
-// inside them surface here, with paths threading the operator name
-// and (for the multi-clause arms) the array index. Membership (`in`),
-// geo (`within-distance`), and phonetic (`fuzzy`) operators descend
-// without operand inspection — their per-operator semantic checks
-// (membership-value compatibility, geopoint-property requirement,
-// text-property requirement) belong in dedicated dispatch arms and
-// are not part of this checker's current shape.
+// Term resolution (referenced property exists on the named case type,
+// named search input is declared, user-context refs and literals
+// resolve to their data type) runs uniformly across every operator
+// that carries term operands — comparisons, the trigger-input slot of
+// `when-input-present`, and the term operands of `in` /
+// `within-distance` / `fuzzy`. Operand-type compatibility (the
+// "comparable types" check between resolved operand types) runs for
+// the comparison operators (`eq` / `neq` / `gt` / `gte` / `lt` /
+// `lte`). Logical wrappers (`and` / `or` / `not`) and the wrapped
+// clause of `when-input-present` recurse so violations inside them
+// surface here, with paths threading the operator name and (for the
+// multi-clause arms) the array index. Per-operator semantic checks
+// for membership (`in`), geo (`within-distance`), and phonetic
+// (`fuzzy`) — membership-value compatibility, geopoint-property
+// requirement, text-property requirement — belong in dedicated
+// dispatch arms and are not part of this checker's current shape.
 
-import type {
-	CaseProperty,
-	CasePropertyDataType,
-	CaseType,
-} from "@/lib/domain";
+import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { ComparisonKind, Literal, Predicate, Term } from "./types";
 
 // ---------- Types ----------
@@ -55,7 +54,7 @@ import type { ComparisonKind, Literal, Predicate, Term } from "./types";
  */
 export type SearchInputDecl = {
 	name: string;
-	data_type?: CaseProperty["data_type"];
+	data_type?: CasePropertyDataType;
 };
 
 /**
@@ -209,30 +208,40 @@ function walk(
 			// "the operator" then "the slot inside it."
 			walk(p.clause, ctx, errors, [...path, p.kind, "clause"]);
 			return;
-		case "when-input-present": {
-			// Validate the trigger input against `ctx.knownInputs`. Without
-			// this check, an undeclared trigger silently passes — the
+		case "when-input-present":
+			// Resolve the trigger input through the same path the
+			// comparison operators use for their `input(...)` operands —
+			// produces the same "Unknown search input '<name>'." error
+			// shape and lets the editor highlight the trigger card the
+			// same way it highlights any other unresolved input. Without
+			// this check, an undeclared trigger silently passes: the
 			// wrapped clause type-checks fine, the trigger never resolves
-			// at runtime, and the predicate becomes a permanent no-op
-			// (the wrapped clause is gated on a value that never appears).
-			// The error attaches to `[..., kind, "input"]` to mirror the
-			// wrapped-clause path that follows.
-			const inputDecl = ctx.knownInputs.find((i) => i.name === p.input.name);
-			if (!inputDecl) {
-				errors.push({
-					path: [...path, p.kind, "input"],
-					message: `Unknown search input '${p.input.name}'.`,
-				});
-			}
+			// at runtime, and the predicate becomes a permanent no-op.
+			resolveTermType(p.input, ctx, errors, [...path, p.kind, "input"]);
 			walk(p.clause, ctx, errors, [...path, p.kind, "clause"]);
 			return;
-		}
 		case "in":
+			// Resolve `left` so unknown-property / unknown-case-type /
+			// unknown-input errors surface uniformly with comparison
+			// operators. The membership compatibility check between `left`
+			// and `values[i]` is a per-operator semantic check separate
+			// from term resolution and not performed here.
+			resolveTermType(p.left, ctx, errors, [...path, "left"]);
+			return;
 		case "within-distance":
+			// Resolve both term operands. The geopoint-property
+			// requirement (that `property` resolves to a `geopoint`-typed
+			// data type) is a per-operator semantic check separate from
+			// term resolution and not performed here.
+			resolveTermType(p.property, ctx, errors, [...path, "property"]);
+			resolveTermType(p.center, ctx, errors, [...path, "center"]);
+			return;
 		case "fuzzy":
-			// These kinds carry no nested predicates and their structural
-			// shape is validated at parse time; the walker descends past
-			// them without further inspection.
+			// Resolve `property`. The text-property requirement (that
+			// `property` resolves to a `text`-typed data type) is a
+			// per-operator semantic check separate from term resolution
+			// and not performed here.
+			resolveTermType(p.property, ctx, errors, [...path, "property"]);
 			return;
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
