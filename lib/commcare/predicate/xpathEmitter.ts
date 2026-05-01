@@ -33,13 +33,13 @@
 // through every recursive call so the literal-escape arm can branch
 // without changing the public signature.
 //
-// Comparison and logical operators have direct wire forms emitted
-// here. The special operators (`in` / `within-distance` / `fuzzy` /
-// `when-input-present`) have a dedicated arm in the switch that
-// throws — the explicit case keeps exhaustiveness against the
-// predicate union, so adding a new AST kind without an emission arm
-// surfaces as a TypeScript error at this file rather than a runtime
-// fall-through.
+// Comparison, logical, and special operators each have a direct
+// wire form emitted here. The four special operators (`in` /
+// `within-distance` / `fuzzy` / `when-input-present`) compile to
+// CCHQ case-search functions plus a conditional-include wrapper;
+// the operator-arm comments below cite the production code at
+// `corehq/apps/case_search/xpath_functions/query_functions.py` for
+// each function's wire signature.
 //
 // CCHQ wire-form citations (production paths in commcare-hq):
 //
@@ -67,9 +67,33 @@
 //     CSQL predicate string emitted from a wire-side `concat()`
 //     wrapper, where every property value is double-quoted
 //     (`@case_type = "service"`, `@status != "closed"`, etc.).
+//   - `selected-any(prop, 'tok1 tok2')` for multi-value membership
+//     — see `corehq/apps/case_search/xpath_functions/query_functions.py:38-51`
+//     (the function delegates to ES `match` with `operator='or'`,
+//     which tokenizes the value string by whitespace).
+//   - `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` —
+//     see `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
+//     for the 4-arg signature (property, coordinate string parsed
+//     as `GeoPoint.from_string`, distance number, unit identifier).
+//   - `fuzzy-match(prop, 'value')` — see
+//     `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`
+//     for the 2-arg signature.
+//   - `if(count(<input>), <then>, true())` for `when-input-present` —
+//     the `if(count(input), ..., '')` pattern in the docs at
+//     `docs/case_search_query_language.rst:299-303` builds a
+//     STRING-VALUED expression where both branches are filter
+//     strings later parsed as CSQL. This emitter drops directly
+//     into a boolean predicate position (`[<filter>]` for
+//     case-list-filter, `_xpath_query` body for csql), where
+//     XPath's boolean coercion of `''` is `false` — a `''`
+//     fallback would silently exclude every case when the input
+//     is unset. `true()` is the correct boolean-context no-op
+//     fallback so the wrapper leaves AND-combined sibling clauses
+//     unchanged on input-unset.
 
 import type {
 	ComparisonKind,
+	Literal,
 	Predicate,
 	Term,
 } from "@/lib/domain/predicate/types";
@@ -204,22 +228,117 @@ function emitPredicate(
 			// function-call argument list. Pass `parentPrec` of `0` so
 			// the inner never adds redundant grouping.
 			return `not(${emitPredicate(p.clause, ctx, 0)})`;
-		case "in":
+		case "in": {
+			// Membership over a value list. CCHQ's wire form is
+			// `selected-any(prop, '<space-separated tokens>')` per
+			// `corehq/apps/case_search/xpath_functions/query_functions.py:38-51`.
+			// A single-value `in` collapses to plain equality: a
+			// degenerate one-token list adds no information over the
+			// equality form, and `<prop> = '<v>'` is the canonical
+			// CCHQ idiom for one-value matches. Both arms route the
+			// property reference through `emitTerm` so the reserved-
+			// attribute prefix logic (`@status` etc.) and the value
+			// through the per-context string-escape pipeline so
+			// embedded quotes are handled identically to comparison
+			// operators.
+			if (p.values.length === 1) {
+				return `${emitTerm(p.left, ctx)} = ${emitLiteral(p.values[0].value, ctx)}`;
+			}
+			// Multi-value: ES's `match` query tokenizes the value
+			// string by whitespace and OR-combines the resulting
+			// terms (see `case_property_text_query` →
+			// `queries.match` in
+			// `corehq/apps/es/case_search.py:291-302`). The value
+			// list is therefore a single string, not multiple
+			// arguments, and the resulting joined string flows
+			// through `emitStringLiteral` so quote-bearing tokens
+			// pick up the same `concat()` / double-quote-wrap
+			// fallback the comparison-RHS path uses. Empty tokens
+			// (from `null` literals) are filtered before joining
+			// so the wire form never carries doubled-up whitespace
+			// separators.
+			const joined = p.values
+				.map(literalToken)
+				.filter((t) => t !== "")
+				.join(" ");
+			return `selected-any(${emitTerm(p.left, ctx)}, ${emitStringLiteral(joined, ctx)})`;
+		}
 		case "within-distance":
+			// Geo radius filter. CCHQ's wire form is
+			// `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
+			// per `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+			// The distance argument is a bare XPath numeric literal
+			// (not a quoted string) — `GeoPoint.from_string` parses
+			// the coords, then `float(distance)` parses the numeric
+			// argument. Distances therefore route through
+			// `emitNumericLiteral` to dodge the scientific-notation
+			// form that CommCare's XPath grammar rejects (see the
+			// `emitNumericLiteral` JSDoc for the grammar citation).
+			// The unit is a schema-validated enum
+			// (`miles` | `kilometers`), so it interpolates directly
+			// inside single quotes without an escape pass.
+			return `within-distance(${emitTerm(p.property, ctx)}, ${emitTerm(p.center, ctx)}, ${emitNumericLiteral(p.distance)}, '${p.unit}')`;
 		case "fuzzy":
-		case "when-input-present":
-			// Special-operator arm. Listed explicitly (rather than
-			// folded into a default) so the switch is exhaustive
-			// against the predicate union — adding a new AST kind
-			// without a matching emission arm surfaces here as a
-			// TypeScript error at compile time rather than a silent
-			// runtime fall-through. The runtime throw fires only if
-			// the AST passes type checks but no implementation arm
-			// exists for one of these kinds.
-			throw new Error(
-				`emitXPath: operator '${p.kind}' has no emission arm in this module.`,
-			);
+			// Phonetic / fuzzy match. CCHQ's wire form is
+			// `fuzzy-match(prop, 'value')` per
+			// `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`.
+			// The match value is a plain string in the AST (not a
+			// term), but the wire emission still goes through
+			// `emitStringLiteral` so an embedded single quote falls
+			// back to the per-context escape — `concat()` for
+			// case-list-filter, double-quoted wrap for csql.
+			return `fuzzy-match(${emitTerm(p.property, ctx)}, ${emitStringLiteral(p.value, ctx)})`;
+		case "when-input-present": {
+			// Conditional-include wrapper. The wrapped clause runs
+			// only if the named search input is present at runtime;
+			// otherwise the wrapper is a no-op. CCHQ's docs show the
+			// `if(count(input), <then>, <fallback>)` shape at
+			// `case_search_query_language.rst:299-303`, but the
+			// docs example builds a STRING (both branches are
+			// filter strings later parsed as CSQL). This emitter
+			// drops directly into a boolean predicate position, so
+			// the fallback must be the boolean-context no-op:
+			// XPath's boolean coercion of `''` is `false`, which
+			// would silently exclude every case on input-unset.
+			// `true()` is the correct fallback — AND-combining the
+			// wrapper with sibling clauses leaves them unchanged
+			// when the input is unset and applies the wrapped
+			// clause when the input is present. The inner clause
+			// recurses with `parentPrec: 0` because the function-
+			// call argument position is its own grouping boundary,
+			// so no outer parens wrap a logical-operator inner.
+			const inputExpr = emitTerm(p.input, ctx);
+			const thenExpr = emitPredicate(p.clause, ctx, 0);
+			return `if(count(${inputExpr}), ${thenExpr}, true())`;
+		}
 	}
+}
+
+/**
+ * Compile a literal AST node's `value` to its bare token form for
+ * the `selected-any` value list. The value list is a single string
+ * argument to a CCHQ wire function whose ES backend tokenizes by
+ * whitespace (see the `selected-any` arm in `emitPredicate` for the
+ * citation), so each value contributes one whitespace-separated
+ * token rather than its own quoted string literal.
+ *
+ * The bare-token rules differ from the comparison-RHS rules: a
+ * comparison RHS's `null` resolves to `''` (the canonical XPath
+ * "is unset" form), but the same `null` inside a multi-value `in`
+ * is a meaningless token and resolves to the empty string here —
+ * the `selected-any` arm filters those out before joining so the
+ * wire form never carries doubled-up whitespace separators.
+ * Numbers go through `emitNumericLiteral` for exponent-form
+ * avoidance; booleans serialize via `String(b)` so the multi-select
+ * tokens match what an originating CommCare form would have written
+ * for a true/false case property value.
+ */
+function literalToken(lit: Literal): string {
+	const v = lit.value;
+	if (v === null) return "";
+	if (typeof v === "number") return emitNumericLiteral(v);
+	if (typeof v === "boolean") return String(v);
+	return v;
 }
 
 /**

@@ -7,18 +7,24 @@
 // any future change in the emitter that drifts from CommCare's accepted
 // forms surfaces as a test failure.
 //
-// Coverage spans four concentric layers: (1) per-operator output for
-// every comparison + logical kind landing in this emitter, (2) operand
-// emission for each term variant (prop / input / user / literal),
-// (3) the precedence invariant that and-of-or wraps the inner or in
-// parens, (4) per-context divergence in the string-literal escape
-// path — case-list-filter uses `concat()` for embedded single
-// quotes; csql lacks `concat()` in its value-function whitelist and
-// switches between single- and double-quoted literals, throwing on
-// both-quote-styles values. Quote-free literals emit identically
-// across both contexts; the cross-context invariance test below
-// pins that path against future per-context drift in the
-// non-string layers.
+// Coverage spans five concentric layers: (1) per-operator output
+// for every comparison + logical kind landing in this emitter,
+// (2) operand emission for each term variant (prop / input / user /
+// literal), (3) the precedence invariant that and-of-or wraps the
+// inner or in parens, (4) per-context divergence in the
+// string-literal escape path — case-list-filter uses `concat()`
+// for embedded single quotes; csql lacks `concat()` in its
+// value-function whitelist and switches between single- and
+// double-quoted literals, throwing on both-quote-styles values.
+// Quote-free literals emit identically across both contexts; the
+// cross-context invariance test below pins that path against future
+// per-context drift in the non-string layers. (5) per-operator
+// output for the four special operators (`isIn` / `within` /
+// `fuzzy` / `whenInput`), each pinning the CCHQ wire signature plus
+// the operator-specific edge cases — single-vs-multi `isIn` collapse,
+// literal-vs-input `within-distance.center`, embedded-quote escape
+// reuse for `selected-any` / `fuzzy-match`, and the boolean-context
+// `true()` fallback for `when-input-present`.
 //
 // Operand-emission tests for non-quote-related cases use the
 // user-defined property `name` rather than `status` to keep the
@@ -394,31 +400,212 @@ describe("emitXPath — string-literal escape", () => {
 	});
 });
 
-describe("emitXPath — operators without an emission arm", () => {
-	// `in`, `within-distance`, `fuzzy`, and `when-input-present` are
-	// listed explicitly in the predicate switch so the union stays
-	// exhaustive at compile time — adding a new AST kind without an
-	// emission arm becomes a TypeScript error rather than a runtime
-	// fall-through. The arm itself throws at runtime, and this test
-	// pins that throw contract so a regression that silently emitted
-	// the wrong wire form (e.g. via a `default:` fallback or a partial
-	// implementation) trips here rather than reaching the wire. Both
-	// contexts are covered because the throw lives in `emitPredicate`,
-	// which precedes any context-specific arm.
+describe("emitXPath — special operators", () => {
+	// The four special operators emit wire forms that exercise CCHQ
+	// case-search functions (`selected-any`, `within-distance`,
+	// `fuzzy-match`) plus a conditional-include wrapper for optional
+	// search inputs. Each `it` below pins one operator + variation
+	// against the wire signature documented in commcare-hq's
+	// `corehq/apps/case_search/xpath_functions/query_functions.py`.
+
+	it("emits isIn with a single value as a plain equality (reserved attribute)", () => {
+		// Single-value membership reduces to plain equality — the
+		// emitter avoids `selected-any('open')` because a single
+		// space-separated value is a degenerate token list, and the
+		// equality form is the canonical CCHQ idiom for the one-value
+		// case. `status` is a reserved attribute, so the property
+		// reference still flows through `emitTerm` and picks up the
+		// `@` prefix; the test pins both the collapse and the
+		// reserved-attribute prefix path in one assertion.
+		const p = isIn(prop("patient", "status"), literal("open"));
+		expect(emitXPath(p, "case-list-filter")).toBe("@status = 'open'");
+	});
+
+	it("emits isIn with a single value as a plain equality (user-defined property)", () => {
+		// Mirror of the reserved-attribute test above against a
+		// user-defined property — the wire form differs in the prop
+		// reference (no `@` prefix) and pins the bare-name path.
+		const p = isIn(prop("patient", "category"), literal("open"));
+		expect(emitXPath(p, "case-list-filter")).toBe("category = 'open'");
+	});
+
+	it("emits isIn with multiple values via selected-any over a space-separated token list", () => {
+		// CCHQ's `selected-any(prop, value)` parses `value` as a
+		// space-separated list of tokens (verified at
+		// `corehq/apps/case_search/xpath_functions/query_functions.py:38-51`
+		// → `_selected_query` → `case_property_query` →
+		// `case_property_text_query`, which delegates to ES `match`
+		// with `operator='or'` and tokenizes by whitespace). The
+		// joined value flows through the existing string-escape
+		// pipeline so embedded quotes are handled identically to
+		// any other string literal.
+		const p = isIn(prop("patient", "tags"), literal("open"), literal("active"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"selected-any(tags, 'open active')",
+		);
+	});
+
+	it("emits isIn multi-value with a quote-bearing token via the escape pipeline (case-list-filter)", () => {
+		// One token contains a single quote. The joined string
+		// passes through `emitStringLiteral`, so the case-list-filter
+		// context falls back to `concat()` for the embedded-quote
+		// escape — matching the comparison-operator escape behavior
+		// pinned in the string-literal-escape describe block above.
+		const p = isIn(
+			prop("patient", "tags"),
+			literal("O'Brien"),
+			literal("active"),
+		);
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			`selected-any(tags, concat('O', "'", 'Brien active'))`,
+		);
+	});
+
+	it("emits isIn multi-value across both contexts identically when no quotes are present", () => {
+		// Quote-free joined values produce the same wire form across
+		// both contexts; only the embedded-quote escape diverges.
+		const p = isIn(prop("patient", "tags"), literal("open"), literal("active"));
+		expect(emitXPath(p, "csql")).toBe(emitXPath(p, "case-list-filter"));
+	});
+
+	it("emits within-distance with a literal center and miles", () => {
+		// CCHQ's `within-distance(prop, coords, distance, unit)` is
+		// 4-arg with the property first, the coordinate string second,
+		// the distance number third, and the unit identifier last
+		// (verified at
+		// `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`).
+		// The literal coordinate string flows through `emitTerm` →
+		// `emitLiteral` → `emitStringLiteral`, so it picks up the
+		// per-context escape behavior automatically.
+		const p = within(
+			prop("clinic", "location"),
+			literal("40.7,-74.0"),
+			50,
+			"miles",
+		);
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"within-distance(location, '40.7,-74.0', 50, 'miles')",
+		);
+	});
+
+	it("emits within-distance with an input center and kilometers", () => {
+		// The center can be any term, including a search-input ref
+		// resolved at runtime to the user's typed coordinate. Pinning
+		// both the input-term emission path and the `kilometers` unit
+		// here covers the two configuration axes that vary in real use.
+		const p = within(
+			prop("clinic", "location"),
+			input("user_loc"),
+			25,
+			"kilometers",
+		);
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"within-distance(location, instance('search-input:results')/input/field[@name='user_loc'], 25, 'kilometers')",
+		);
+	});
+
+	it("emits within-distance distances without scientific notation", () => {
+		// Distances flow through `emitNumericLiteral`, so very small
+		// or very large radii avoid the `1e-7` / `1.5e+21` exponent
+		// form that CommCare's XPath grammar rejects. Pinning the
+		// reformat path here protects against a regression that
+		// dropped the numeric-helper call and interpolated the raw
+		// `String(n)` value.
+		const p = within(
+			prop("clinic", "location"),
+			literal("40.7,-74.0"),
+			0.0000001,
+			"miles",
+		);
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"within-distance(location, '40.7,-74.0', 0.0000001, 'miles')",
+		);
+	});
+
+	it("emits fuzzy as fuzzy-match(prop, 'value')", () => {
+		// CCHQ's `fuzzy-match(prop, value)` is 2-arg with the
+		// property first and the match value second (verified at
+		// `corehq/apps/case_search/xpath_functions/query_functions.py:92-98`).
+		// The match value flows through `emitStringLiteral` for
+		// per-context escape consistency with the comparison operators.
+		const p = fuzzy(prop("patient", "name"), "alice");
+		expect(emitXPath(p, "case-list-filter")).toBe("fuzzy-match(name, 'alice')");
+	});
+
+	it("emits fuzzy with an embedded single quote via the escape pipeline (csql)", () => {
+		// CSQL's value-function whitelist excludes `concat()`, so
+		// the emitter switches to a double-quoted wrap when the
+		// match value contains a single quote — matching the
+		// comparison-operator escape divergence pinned above.
+		const p = fuzzy(prop("patient", "name"), "O'Brien");
+		expect(emitXPath(p, "csql")).toBe(`fuzzy-match(name, "O'Brien")`);
+	});
+
+	it("emits when-input-present as if(count(input), then, true()) with the boolean-context fallback", () => {
+		// CCHQ's canonical `if(count(input), <then-string>, <fallback-string>)`
+		// pattern at `docs/case_search_query_language.rst:299-303`
+		// constructs a STRING-VALUED expression — both branches are
+		// string literals ultimately parsed as CSQL. Our emitter
+		// drops directly into a BOOLEAN predicate position
+		// (`[<filter>]` for case-list-filter, `_xpath_query` body
+		// for csql), where XPath's boolean coercion of `''` is
+		// `false`, and a `''` fallback would silently exclude every
+		// case when the input is unset. The correct boolean-context
+		// no-op is `true()`, so AND-combining the wrapper with other
+		// clauses leaves them unchanged on input-unset and applies
+		// the wrapped clause on input-present.
+		const p = whenInput(
+			input("name_query"),
+			eq(prop("patient", "name"), input("name_query")),
+		);
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"if(count(instance('search-input:results')/input/field[@name='name_query']), name = instance('search-input:results')/input/field[@name='name_query'], true())",
+		);
+	});
+
+	it("emits when-input-present with a logical-conjunction inner clause", () => {
+		// Pinning the recursive case here — the inner clause is an
+		// `and(...)` whose own emission is exercised in the logical-
+		// operator describe block. The `emitPredicate` recursion
+		// passes `parentPrec: 0` into the inner because the function-
+		// call argument position is its own grouping boundary, so no
+		// outer parens wrap the conjunction.
+		const p = whenInput(
+			input("region"),
+			and(
+				eq(prop("patient", "region"), input("region")),
+				gt(prop("patient", "age"), literal(18)),
+			),
+		);
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"if(count(instance('search-input:results')/input/field[@name='region']), region = instance('search-input:results')/input/field[@name='region'] and age > 18, true())",
+		);
+	});
 
 	it.each(
-		(
-			[
-				isIn(prop("patient", "status"), literal("open")),
+		CONTEXTS,
+	)("emits each special operator identically across contexts when no quotes are present (%s)", (ctx) => {
+		// Quote-free inputs hit the operator arms identically
+		// across both contexts. Pinning the cross-context
+		// invariance here protects against a regression that
+		// branched the operator emission itself on context (the
+		// emitter's documented divergence is concentrated in the
+		// string-literal escape path; the operator forms
+		// themselves are identical at this layer).
+		expect(
+			emitXPath(
+				isIn(prop("patient", "tags"), literal("open"), literal("active")),
+				ctx,
+			),
+		).toBe("selected-any(tags, 'open active')");
+		expect(
+			emitXPath(
 				within(prop("clinic", "location"), literal("40.7,-74.0"), 50, "miles"),
-				fuzzy(prop("patient", "name"), "alice"),
-				whenInput(
-					input("name_query"),
-					eq(prop("patient", "name"), input("name_query")),
-				),
-			] as const
-		).flatMap((p) => CONTEXTS.map((ctx) => ({ p, ctx }) as const)),
-	)("throws for kind '$p.kind' in $ctx context", ({ p, ctx }) => {
-		expect(() => emitXPath(p, ctx)).toThrow(/no emission arm/i);
+				ctx,
+			),
+		).toBe("within-distance(location, '40.7,-74.0', 50, 'miles')");
+		expect(emitXPath(fuzzy(prop("patient", "name"), "alice"), ctx)).toBe(
+			"fuzzy-match(name, 'alice')",
+		);
 	});
 });
