@@ -25,13 +25,14 @@
 // flagship example). New operators are explicit additions to the union;
 // behavior is never tucked under existing kinds via hidden state.
 //
-// Recursive shape note: `and` / `or` / `not` / `when-input-present`
-// reference the predicate union itself. The cycle goes through a
-// `z.discriminatedUnion(...)` (not a single self-referencing object), so
-// the cleanest Zod 4 fallback documented for union recursion applies —
-// each recursive slot wraps its predicate reference in `z.lazy(...)`,
-// and `predicateSchema` carries an explicit `z.ZodType<Predicate>`
-// annotation. The block below the operators explains why.
+// Recursive shape note: `and` / `or` / `not` / `when-input-present` /
+// `exists` / `missing` reference the predicate union themselves. The
+// cycle goes through a `z.discriminatedUnion(...)` (not a single
+// self-referencing object), so the cleanest Zod 4 fallback documented
+// for union recursion applies — each recursive slot wraps its
+// predicate reference in `z.lazy(...)`, and `predicateSchema` carries
+// an explicit `z.ZodType<Predicate>` annotation. The block below the
+// operators explains why.
 
 import { z } from "zod";
 import { casePropertyDataTypeSchema } from "../blueprint";
@@ -647,6 +648,19 @@ const multiSelectContainsSchema = z.object({
 	// project's current `tsconfig` (no `noUncheckedIndexedAccess`), so
 	// the runtime parse rejection is what enforces non-empty at read
 	// sites.
+	//
+	// Note the deliberate asymmetry with `inSchema.values`. That schema
+	// has a `.refine(...)` rejecting all-null lists because every wire
+	// emission collapses an `in(prop, [null, null, ...])` to a chain of
+	// `(prop = '' or prop = '' or ...)` — a duplicated "is unset" check,
+	// almost certainly an authoring bug. `multi-select-contains` has a
+	// different wire form: an all-null list emits as `selected(prop,
+	// '')` (single-value) or OR-of-`selected(prop, '')` calls (multi-
+	// value), which expresses "the multi-select contains the empty
+	// token" — a real (if unusual) CCHQ query against multi_select
+	// properties whose option set permits an empty token. The
+	// `inSchema` rejection rationale doesn't carry over, so this schema
+	// doesn't refine.
 	values: z.tuple([literalSchema], literalSchema),
 	quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
 });
@@ -745,8 +759,14 @@ const betweenSchema = z
 
 // ---------- Recursive predicate operators ----------
 //
-// `and`, `or`, `not`, and `when-input-present` reference the predicate
-// union itself. Two distinct constraints converge here:
+// `and`, `or`, `not`, `when-input-present`, `exists`, and `missing`
+// reference the predicate union themselves. (`exists` and `missing`
+// recurse through their optional `where` slot, which evaluates a
+// nested predicate in the destination scope of `via`; their schemas
+// live in their own block below this one because they share a
+// `via: relationPathSchema` shape, but they go through the same
+// `z.lazy` chain documented here.) Two distinct constraints converge
+// here:
 //
 //   1. Runtime — Zod 4's getter pattern (the documented v4 idiom for
 //      self-referential objects, e.g. `Category` referencing
@@ -763,8 +783,8 @@ const betweenSchema = z
 //   2. TypeScript — TypeScript cannot resolve `z.infer` through a
 //      recursive union; recent versions either collapse the chain to
 //      `any` or reject the whole expression as a circular mapped type
-//      (Zod issue #5035 details the TS 5.9+ behavior). The four
-//      recursive arms of `Predicate` are therefore hand-declared, and
+//      (Zod issue #5035 details the TS 5.9+ behavior). The recursive
+//      arms of `Predicate` are therefore hand-declared, and
 //      `predicateSchema` carries an explicit `z.ZodType<Predicate>`
 //      annotation so the schema's runtime shape and the hand-declared
 //      type stay reconciled. The drift guard at the bottom of this

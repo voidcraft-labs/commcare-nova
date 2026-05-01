@@ -502,10 +502,14 @@ describe("predicate schema", () => {
 	// shapes against hand-declared union arms, so a payload-shape change
 	// reachable only through recursion would slip past it. This test
 	// builds one predicate that nests every recursive arm
-	// (`and` / `or` / `not` / `when-input-present`) inside another and
-	// parses it end-to-end — the schema's `z.lazy(() => predicateSchema)`
-	// resolves through every arm at runtime, so any cross-arm regression
-	// in the lazy chain trips this test.
+	// (`and` / `or` / `not` / `when-input-present` / `exists` /
+	// `missing`) inside another and parses it end-to-end — the schema's
+	// `z.lazy(() => predicateSchema)` resolves through every arm at
+	// runtime, so any cross-arm regression in the lazy chain trips this
+	// test. `exists.where` and `missing.where` go through the same
+	// `z.lazy` indirection as the four logical arms; wrapping the leaf
+	// comparisons in `exists` and `missing` exercises the relational-
+	// quantifier recursion in the same fixture.
 	it("parses a deeply nested predicate exercising every recursive arm", () => {
 		const nested = predicateSchema.parse({
 			kind: "and",
@@ -519,20 +523,35 @@ describe("predicate schema", () => {
 								kind: "when-input-present",
 								input: { kind: "input", name: "x" },
 								clause: {
-									kind: "eq",
-									left: {
-										kind: "prop",
-										caseType: "patient",
-										property: "name",
+									kind: "exists",
+									via: { kind: "subcase", identifier: "parent" },
+									where: {
+										kind: "eq",
+										left: {
+											kind: "prop",
+											caseType: "patient",
+											property: "name",
+										},
+										right: { kind: "literal", value: "Alice" },
 									},
-									right: { kind: "literal", value: "Alice" },
 								},
 							},
 						},
 						{
-							kind: "eq",
-							left: { kind: "prop", caseType: "patient", property: "name" },
-							right: { kind: "literal", value: "Bob" },
+							kind: "missing",
+							via: {
+								kind: "ancestor",
+								via: [{ identifier: "host" }],
+							},
+							where: {
+								kind: "eq",
+								left: {
+									kind: "prop",
+									caseType: "patient",
+									property: "name",
+								},
+								right: { kind: "literal", value: "Bob" },
+							},
 						},
 					],
 				},

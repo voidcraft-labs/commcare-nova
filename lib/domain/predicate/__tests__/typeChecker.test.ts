@@ -657,7 +657,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 		"name",
 		"status",
 		"tags",
-	] as const)("accepts fuzzy-date match on a text-shaped property ($s)", (propName) => {
+	] as const)("accepts fuzzy-date match on a text-shaped property (%s)", (propName) => {
 		const p = match(prop("patient", propName), "2024-12-03", "fuzzy-date");
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
