@@ -850,6 +850,424 @@ describe("propertyRef with via (relational read)", () => {
 	});
 });
 
+// Sentinel predicates `match-all` / `match-none` carry no payload
+// other than their discriminator. They model the structural identity
+// (always-true) and absorbing (always-false) elements of the boolean
+// algebra so a UI surface or a reducer can produce a well-typed
+// "empty filter" / "no matches" predicate without picking an arbitrary
+// tautology / contradiction encoding. The wire forms are CCHQ's
+// zero-arg `match-all()` / `match-none()` registered at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`
+// and implemented at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:162-177`
+// (each implementation rejects any argument with an
+// `XPathFunctionException`). On the on-device dialect they lower to
+// `true()` / `false()`; on the SQL target they lower to a no-op
+// `WHERE TRUE` / `WHERE FALSE`.
+describe("sentinel predicates", () => {
+	it("parses match-all", () => {
+		const result = predicateSchema.parse({ kind: "match-all" });
+		expect(result.kind).toBe("match-all");
+	});
+
+	it("parses match-none", () => {
+		const result = predicateSchema.parse({ kind: "match-none" });
+		expect(result.kind).toBe("match-none");
+	});
+
+	it("rejects match-all with a stray payload field at the schema arm level", () => {
+		// `z.discriminatedUnion` strips unknown keys silently in default
+		// mode, matching the rest of the file's schemas. The pin here
+		// is the discriminator-only round-trip: the parsed value carries
+		// only `kind`, regardless of what the caller passed in.
+		const result = predicateSchema.parse({
+			kind: "match-all",
+			ignored: "value",
+		});
+		expect(result).toEqual({ kind: "match-all" });
+	});
+});
+
+// `is-null` is the structural "left is unset" predicate. The wire
+// targets each have a more idiomatic form than a literal-null
+// comparison: on-device CCHQ matches an unset case property as the
+// empty string (`@status = ''`); the SQL target matches as
+// `properties->>'status' IS NULL` once empty-string-coerce-to-null
+// is applied. Either lowering is correct only because the AST
+// already carries the canonical form here — without it, every
+// emitter would have to recognise `eq(prop, literal(null))` as a
+// special case and rewrite it.
+//
+// The `left` slot is `termSchema`, not `propertyRefSchema`, so authors
+// can ask "is the input X unset" or "is the user's region unset"
+// alongside the canonical "is the property unset" shape. The type
+// checker rejects `is-null(literal(...))` (a literal is never unset
+// by definition); that lives in `typeChecker.ts`, not in the schema.
+describe("is-null predicate", () => {
+	it("parses is-null with a property reference", () => {
+		const result = predicateSchema.parse({
+			kind: "is-null",
+			left: { kind: "prop", caseType: "patient", property: "status" },
+		});
+		expect(result.kind).toBe("is-null");
+	});
+
+	it("parses is-null with a search-input reference", () => {
+		const result = predicateSchema.parse({
+			kind: "is-null",
+			left: { kind: "input", name: "phone" },
+		});
+		expect(result.kind).toBe("is-null");
+	});
+
+	it("parses is-null with a user-context reference", () => {
+		const result = predicateSchema.parse({
+			kind: "is-null",
+			left: { kind: "user", field: "assigned_region" },
+		});
+		expect(result.kind).toBe("is-null");
+	});
+
+	it("parses is-null with a literal (schema accepts; type checker rejects)", () => {
+		// The schema is structural only; the type checker enforces the
+		// "left must not be a literal" rule at check time. Pinning the
+		// schema-side acceptance keeps the layering explicit — a future
+		// refactor that tightened the schema to reject literal `left`
+		// would trip this test and force the constraint to land in one
+		// well-defined place.
+		const result = predicateSchema.parse({
+			kind: "is-null",
+			left: { kind: "literal", value: "x" },
+		});
+		expect(result.kind).toBe("is-null");
+	});
+
+	it("rejects is-null with no left", () => {
+		expect(() => predicateSchema.parse({ kind: "is-null" })).toThrow();
+	});
+});
+
+// `between` is the structural range predicate. A bounded range is two
+// comparisons (`gte(prop, lower)` and `lte(prop, upper)` for the
+// closed case); a half-open range is one comparison plus an open
+// upper or lower bound. Authoring the structural form keeps the
+// inclusivity intent explicit and lets every emitter expand to its
+// dialect's idiom — on-device + CSQL targets have no native
+// `between` and expand to `and(gte, lte)`; SQL targets emit
+// `BETWEEN ... AND ...` directly when both bounds are present and
+// inclusive.
+//
+// The `lower`/`upper` slots are optional `termSchema` (so a
+// search-input or session-user reference can drive either bound),
+// but at least one must be present — a both-bounds-absent shape is
+// equivalent to "true" and authors should write `match-all`
+// explicitly. The `lowerInclusive`/`upperInclusive` slots are
+// required booleans so the inclusivity is always explicit at the AST
+// node and a reader doesn't have to infer the intent from missing
+// fields.
+describe("between predicate", () => {
+	it("parses a both-bounds inclusive range", () => {
+		const result = predicateSchema.parse({
+			kind: "between",
+			left: { kind: "prop", caseType: "patient", property: "age" },
+			lower: { kind: "literal", value: 18 },
+			upper: { kind: "literal", value: 65 },
+			lowerInclusive: true,
+			upperInclusive: true,
+		});
+		expect(result.kind).toBe("between");
+	});
+
+	it("parses a half-open range with only a lower bound", () => {
+		const result = predicateSchema.parse({
+			kind: "between",
+			left: { kind: "prop", caseType: "patient", property: "age" },
+			lower: { kind: "literal", value: 18 },
+			lowerInclusive: true,
+			upperInclusive: true,
+		});
+		expect(result.kind).toBe("between");
+	});
+
+	it("parses a half-open range with only an upper bound", () => {
+		const result = predicateSchema.parse({
+			kind: "between",
+			left: { kind: "prop", caseType: "patient", property: "age" },
+			upper: { kind: "literal", value: 65 },
+			lowerInclusive: true,
+			upperInclusive: true,
+		});
+		expect(result.kind).toBe("between");
+	});
+
+	it("parses a range with mixed inclusivity (closed lower, open upper)", () => {
+		// Inclusivity is per-bound. The pin here locks that the booleans
+		// are independent — a regression that collapsed them into a
+		// single `inclusive` slot would not parse this asymmetric shape.
+		const result = predicateSchema.parse({
+			kind: "between",
+			left: { kind: "prop", caseType: "patient", property: "age" },
+			lower: { kind: "literal", value: 18 },
+			upper: { kind: "literal", value: 65 },
+			lowerInclusive: true,
+			upperInclusive: false,
+		});
+		expect(result.kind).toBe("between");
+		if (result.kind === "between") {
+			expect(result.lowerInclusive).toBe(true);
+			expect(result.upperInclusive).toBe(false);
+		}
+	});
+
+	it("parses a range whose bounds are search-input references", () => {
+		// Bounds are `termSchema`, not literal-only — search-input or
+		// user-context refs drive the bound at runtime. The pin locks
+		// that the schema does NOT narrow `lower`/`upper` to literals
+		// the way `inSchema.values` does (the latter has wire-target
+		// reasons to demand a static list; bounds don't).
+		const result = predicateSchema.parse({
+			kind: "between",
+			left: { kind: "prop", caseType: "patient", property: "age" },
+			lower: { kind: "input", name: "min_age" },
+			upper: { kind: "input", name: "max_age" },
+			lowerInclusive: true,
+			upperInclusive: true,
+		});
+		expect(result.kind).toBe("between");
+	});
+
+	it("rejects a between with no bounds (refinement enforces at-least-one)", () => {
+		// A both-bounds-absent shape is equivalent to "always true"
+		// modulo the type-checker's domain rule; the canonical shape
+		// for "always true" is `match-all`, and accepting an
+		// all-absent `between` would silently produce a duplicate
+		// representation. Reject at parse time.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "between",
+				left: { kind: "prop", caseType: "patient", property: "age" },
+				lowerInclusive: true,
+				upperInclusive: true,
+			}),
+		).toThrow();
+	});
+
+	it("rejects a between missing the inclusivity flags", () => {
+		// `lowerInclusive`/`upperInclusive` are required booleans so the
+		// inclusivity intent is explicit at every AST node. Locking the
+		// rejection here means a future refactor that defaulted them at
+		// the schema layer would have to update this test, surfacing
+		// the implicit-default decision in CR rather than letting it
+		// land silently.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "between",
+				left: { kind: "prop", caseType: "patient", property: "age" },
+				lower: { kind: "literal", value: 18 },
+				upper: { kind: "literal", value: 65 },
+			}),
+		).toThrow();
+	});
+});
+
+// `exists` / `missing` are the relational quantifiers — "at least one
+// related case satisfies `where`" / "no related case satisfies `where`".
+// `via` is a `RelationPath` (the four-kind discriminator from above);
+// `where` is an optional nested predicate evaluated in the destination
+// scope of the walk. When `where` is absent, the predicate degenerates
+// to "any related case exists" / "no related case exists".
+//
+// CCHQ wire mapping:
+//   - `subcase` walks → `subcase-exists('rel', <where>)` /
+//     `not(subcase-exists(...))`. CCHQ's `subcase-exists` natively
+//     accepts a one-or-two-argument form (`subcase_functions.py:51-62`,
+//     filter-optional check at `subcase_functions.py:207`), so the
+//     no-`where` AST shape lowers cleanly to the one-argument form.
+//   - `ancestor` walks → `ancestor-exists('parent/host', <where>)` /
+//     `not(ancestor-exists(...))`. CCHQ's `ancestor-exists` requires
+//     a filter (`ancestor_functions.py:97-118` calls
+//     `confirm_args_count(node, 2)`), so the no-`where` AST shape
+//     synthesizes a `match-all()` filter at wire emission time.
+//
+// The asymmetry — subcase optional-filter native, ancestor requiring
+// the synthesized filter — is a wire-emitter concern; the AST keeps
+// `where` optional uniformly across both kinds because the semantic
+// contract ("filter the related cases by an additional predicate") is
+// the same and emitters can compensate per-target.
+describe("exists predicate", () => {
+	it("parses exists with a self via and no where", () => {
+		// `self` + no-where is a degenerate shape (always true if the
+		// current case exists) but is structurally permitted; the type
+		// checker rejects degenerates with semantic rules, not the
+		// schema. Pin the structural acceptance.
+		const result = predicateSchema.parse({
+			kind: "exists",
+			via: { kind: "self" },
+		});
+		expect(result.kind).toBe("exists");
+	});
+
+	it("parses exists with an ancestor via and no where", () => {
+		// "Has a parent case" — the simplest authored shape. Lowers to
+		// `ancestor-exists('parent', match-all())` server-side (the
+		// wire layer synthesizes `match-all()` because CCHQ's
+		// `ancestor-exists` requires a filter argument).
+		const result = predicateSchema.parse({
+			kind: "exists",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		});
+		expect(result.kind).toBe("exists");
+		if (result.kind === "exists") {
+			expect(result.where).toBeUndefined();
+		}
+	});
+
+	it("parses exists with a subcase via and no where", () => {
+		// "Has at least one child case via the `parent` index" — lowers
+		// to CCHQ's native one-argument `subcase-exists('parent')` form.
+		const result = predicateSchema.parse({
+			kind: "exists",
+			via: { kind: "subcase", identifier: "parent" },
+		});
+		expect(result.kind).toBe("exists");
+	});
+
+	it("parses exists with an any-relation via and no where", () => {
+		// `any-relation` is direction-agnostic; the wire emitter rejects
+		// or rewrites it for CCHQ targets (no native any-relation
+		// operator exists), but the AST accepts it uniformly across the
+		// four kinds.
+		const result = predicateSchema.parse({
+			kind: "exists",
+			via: { kind: "any-relation", identifier: "linked" },
+		});
+		expect(result.kind).toBe("exists");
+	});
+
+	it("parses exists with an ancestor via and a where filter", () => {
+		// "Has a parent case in region 'north'" — the canonical
+		// relational filter. The `where` predicate evaluates in the
+		// destination scope (the parent case), and the type checker
+		// uses `via`'s `throughCaseType` to resolve property references
+		// inside `where`.
+		const result = predicateSchema.parse({
+			kind: "exists",
+			via: {
+				kind: "ancestor",
+				via: [{ identifier: "parent", throughCaseType: "household" }],
+			},
+			where: {
+				kind: "eq",
+				left: { kind: "prop", caseType: "household", property: "region" },
+				right: { kind: "literal", value: "north" },
+			},
+		});
+		expect(result.kind).toBe("exists");
+		if (result.kind === "exists") {
+			expect(result.where?.kind).toBe("eq");
+		}
+	});
+
+	it("parses an exists nested inside another exists (recursion through where)", () => {
+		// `where` references `predicateSchema` via `z.lazy(...)` — a
+		// regression in the lazy chain (e.g. dropping the `z.lazy`
+		// wrapper) would not resolve a recursive `exists`. This test
+		// nests one level deep so the lazy resolution fires at parse
+		// time. The shape is "the patient has a parent case which
+		// itself has a child case in status 'active'" — concrete enough
+		// to track but contrived enough to make the recursion the
+		// load-bearing part.
+		const result = predicateSchema.parse({
+			kind: "exists",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+			where: {
+				kind: "exists",
+				via: { kind: "subcase", identifier: "parent" },
+				where: {
+					kind: "eq",
+					left: { kind: "prop", caseType: "household", property: "status" },
+					right: { kind: "literal", value: "active" },
+				},
+			},
+		});
+		expect(result.kind).toBe("exists");
+		if (result.kind === "exists" && result.where?.kind === "exists") {
+			expect(result.where.where?.kind).toBe("eq");
+		}
+	});
+
+	it("rejects exists with no via", () => {
+		expect(() => predicateSchema.parse({ kind: "exists" })).toThrow();
+	});
+
+	it("rejects exists with an invalid via kind", () => {
+		// Same defense the relationPathSchema applies standalone — the
+		// `via` slot routes through the same discriminated union, so
+		// unknown kinds are rejected at parse time.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "exists",
+				via: { kind: "cousin", identifier: "parent" },
+			}),
+		).toThrow();
+	});
+});
+
+describe("missing predicate", () => {
+	it("parses missing with an ancestor via and no where", () => {
+		// "Has no parent case" — the simplest authored shape. Lowers to
+		// `not(ancestor-exists('parent', match-all()))` server-side via
+		// the wire emitter's negation + match-all synthesis.
+		const result = predicateSchema.parse({
+			kind: "missing",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		});
+		expect(result.kind).toBe("missing");
+	});
+
+	it("parses missing with a subcase via and a where filter", () => {
+		// "Has no child case in status 'active' via the `parent`
+		// index" — the canonical relational anti-filter. Lowers to
+		// `not(subcase-exists('parent', status='active'))`.
+		const result = predicateSchema.parse({
+			kind: "missing",
+			via: { kind: "subcase", identifier: "parent" },
+			where: {
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "status" },
+				right: { kind: "literal", value: "active" },
+			},
+		});
+		expect(result.kind).toBe("missing");
+		if (result.kind === "missing") {
+			expect(result.where?.kind).toBe("eq");
+		}
+	});
+
+	it("parses missing with a self via and no where", () => {
+		// `self` + no-where is degenerate (always false if the current
+		// case exists) but is structurally permitted; the type checker
+		// rejects semantic degenerates, not the schema.
+		const result = predicateSchema.parse({
+			kind: "missing",
+			via: { kind: "self" },
+		});
+		expect(result.kind).toBe("missing");
+	});
+
+	it("parses missing with an any-relation via and no where", () => {
+		const result = predicateSchema.parse({
+			kind: "missing",
+			via: { kind: "any-relation", identifier: "linked" },
+		});
+		expect(result.kind).toBe("missing");
+	});
+
+	it("rejects missing with no via", () => {
+		expect(() => predicateSchema.parse({ kind: "missing" })).toThrow();
+	});
+});
+
 // Drift guard for the inlined identifier patterns in `types.ts`. The
 // patterns are inlined there because the `noRestrictedImports` rule
 // in `biome.json` denies `lib/domain` direct access to

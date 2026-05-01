@@ -361,6 +361,19 @@ function emitPredicate(
 			const thenExpr = emitPredicate(p.clause, ctx, 0);
 			return `if(count(${inputExpr}), ${thenExpr}, true())`;
 		}
+		case "match-all":
+		case "match-none":
+		case "is-null":
+		case "between":
+		case "exists":
+		case "missing":
+			// This single-context emitter has no emission rules for
+			// these operators. The throw keeps the type-system
+			// exhaustiveness surface sound — a fall-through arm would
+			// silently emit `undefined` and break downstream string
+			// concatenation; the throw fails loudly at the call site
+			// instead.
+			throw new Error(`emitPredicate: no emission for kind '${p.kind}'`);
 	}
 }
 

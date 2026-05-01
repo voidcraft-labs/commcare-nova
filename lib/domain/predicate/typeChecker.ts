@@ -249,6 +249,19 @@ function walk(
 		case "fuzzy":
 			checkFuzzy(p, ctx, errors, path);
 			return;
+		case "match-all":
+		case "match-none":
+		case "is-null":
+		case "between":
+		case "exists":
+		case "missing":
+			// Type-checker rules for these operators are not implemented.
+			// Throwing rather than silently passing is the safe default —
+			// an unchecked predicate that reached this arm without
+			// per-operator semantic validation would yield false-positive
+			// "type-checks clean" results, exactly the bug the checker
+			// exists to prevent.
+			throw new Error(`checkPredicate: no rules for kind '${p.kind}'`);
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
 			// without a parallel arm here breaks the build. The runtime

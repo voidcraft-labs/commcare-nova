@@ -476,3 +476,185 @@ export function whenInput(
 ): Extract<Predicate, { kind: "when-input-present" }> {
 	return { kind: "when-input-present", input: inputRef, clause };
 }
+
+// ---------- Sentinel + null-check + range + relational quantifiers ----------
+//
+// The remaining predicate kinds. Each builder is a thin object
+// constructor pinning the discriminator and threading the structural
+// arguments onto the constructed object. Two design decisions worth
+// reading at a glance:
+//
+//   - `between`'s `lowerInclusive` / `upperInclusive` default to `true`
+//     when omitted — the standard mathematical `[lower, upper]`
+//     convention. Authors who want an exclusive bound pass the flag
+//     explicitly.
+//   - `exists` / `missing` accept an optional `where` predicate that
+//     filters the related cases at the destination scope. When
+//     omitted, the predicate degenerates to "any related case exists"
+//     / "no related case exists" (CCHQ subcase wire form natively
+//     supports the no-filter shape; the ancestor wire form synthesizes
+//     `match-all()` at emit time — see `existsSchema` JSDoc).
+//
+// Both `exists` / `missing` follow the same absent-not-undefined
+// contract `prop()` / `relationStep()` use: when `where` is omitted,
+// the constructed object has no `where` key (not `where: undefined`)
+// so round-trip equality checks like
+// `expect(predicateSchema.parse(p)).toEqual(p)` continue to hold.
+
+/**
+ * Constructs the always-true sentinel. Models the boolean-algebra
+ * identity element — useful as the fallback in conditional reductions
+ * (e.g. when a UI surface clears its filter list, the resulting
+ * predicate is `match-all` rather than "no predicate at all").
+ *
+ * Returns the precise per-kind shape rather than the wider `Predicate`
+ * union for the same reason `eq` returns `ComparisonPredicate<"eq">` —
+ * callers narrowing on `kind` get the per-variant fields directly.
+ */
+export function matchAll(): Extract<Predicate, { kind: "match-all" }> {
+	return { kind: "match-all" };
+}
+
+/**
+ * Constructs the always-false sentinel. Models the boolean-algebra
+ * absorbing element — useful as the fallback when a UI surface
+ * resolves to "no matches possible" (e.g. an unsatisfiable
+ * intersection of filters).
+ */
+export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
+	return { kind: "match-none" };
+}
+
+/**
+ * Constructs an `is-null` predicate against a term. The `left` slot
+ * accepts any term — property reference, search-input reference,
+ * user-context reference, literal — so authors can ask "is the
+ * property unset" / "is the input unset" / "is the user-data field
+ * unset" alongside the structurally permitted but
+ * type-checker-rejected literal form. The semantic rule "left must
+ * not be a literal" lives in `typeChecker.ts`, not here, so the AST
+ * stays structurally permissive.
+ */
+export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
+	return { kind: "is-null", left };
+}
+
+/**
+ * Options for the `between` builder. Both bounds are optional but at
+ * least one must be present (the schema's `.refine(...)` rejects the
+ * all-absent shape — TS can't structurally encode "at least one of
+ * two optional fields"); both inclusivity flags default to `true`
+ * (the standard `[lower, upper]` mathematical convention).
+ */
+type BetweenOptions = {
+	lower?: Term;
+	upper?: Term;
+	lowerInclusive?: boolean;
+	upperInclusive?: boolean;
+};
+
+/**
+ * Constructs a range predicate.
+ *
+ * Inclusivity defaults: both `lowerInclusive` and `upperInclusive`
+ * default to `true` when omitted — the standard mathematical
+ * `[lower, upper]` closed-interval convention. Authors who want a
+ * half-open or open interval pass the flag explicitly.
+ *
+ * Bound shape: `lower` and `upper` are full `Term` slots (not just
+ * literals) so a search-input or session-user reference can drive
+ * either bound at runtime. When a bound is omitted, the constructed
+ * object has no key for it (the absent-not-undefined contract from
+ * `prop()` / `relationStep()` applies — Zod's `.optional()` strips
+ * absent keys on parse, so a builder that materialized
+ * `lower: undefined` would silently break downstream round-trip
+ * equality assertions).
+ *
+ * No-bounds rejection: a both-bounds-absent shape is structurally
+ * typeable but parse-rejected. The schema's `.refine(...)` enforces
+ * at-least-one-bound at parse time; this is the same pattern as
+ * `within(prop, center, -10, "miles")` — the builder layer cannot
+ * structurally encode "at least one of two optional fields" in the
+ * type system, so the rejection lives at the schema layer.
+ */
+export function between(
+	left: Term,
+	opts: BetweenOptions,
+): Extract<Predicate, { kind: "between" }> {
+	const lowerInclusive = opts.lowerInclusive ?? true;
+	const upperInclusive = opts.upperInclusive ?? true;
+	// Conditional construction over `??` defaults so an omitted bound
+	// produces no `lower` / `upper` key on the result, matching Zod's
+	// `.optional()` strip behavior on parse. A `lower: opts.lower ??
+	// undefined` shape would materialize the key as undefined and break
+	// the `expect(predicateSchema.parse(p)).toEqual(p)` round-trip
+	// assertions every other builder relies on.
+	const base = {
+		kind: "between" as const,
+		left,
+		lowerInclusive,
+		upperInclusive,
+	};
+	if (opts.lower !== undefined && opts.upper !== undefined) {
+		return { ...base, lower: opts.lower, upper: opts.upper };
+	}
+	if (opts.lower !== undefined) {
+		return { ...base, lower: opts.lower };
+	}
+	if (opts.upper !== undefined) {
+		return { ...base, upper: opts.upper };
+	}
+	// Both bounds absent — structurally typeable but
+	// schema-refinement-rejected. Returning the bare shape lets the
+	// schema's `.refine(...)` produce the canonical at-parse-time
+	// error rather than the builder duplicating the rejection.
+	return base;
+}
+
+/**
+ * Constructs an `exists` predicate — "at least one related case along
+ * `via` satisfies `where`." When `where` is omitted, the predicate
+ * degenerates to "any related case exists along `via`."
+ *
+ * The optional `where` predicate evaluates in the destination scope
+ * of the relation walk. The type checker uses `via`'s
+ * `throughCaseType` / `ofCaseType` qualifiers to resolve property
+ * references inside `where` against the destination case-type schema.
+ *
+ * Wire mapping note: CCHQ's `subcase-exists` natively accepts the
+ * one-argument (no-filter) form; CCHQ's `ancestor-exists` requires a
+ * filter argument and the wire emitter synthesizes a `match-all()`
+ * filter for the no-`where` AST shape. See `existsSchema` JSDoc in
+ * `types.ts` for the full source citations.
+ *
+ * Returns the precise per-kind shape so call-site narrowing on `kind`
+ * exposes `via` and `where` directly, the same convention as `not()`
+ * / `whenInput()` / `and()`.
+ */
+export function exists(
+	via: RelationPath,
+	where?: Predicate,
+): Extract<Predicate, { kind: "exists" }> {
+	return where === undefined
+		? { kind: "exists", via }
+		: { kind: "exists", via, where };
+}
+
+/**
+ * Constructs a `missing` predicate — "no related case along `via`
+ * satisfies `where`." When `where` is omitted, the predicate
+ * degenerates to "no related case exists along `via`."
+ *
+ * Symmetric with `exists`: same `via` / `where` shape, same
+ * destination-scope resolution rules, same absent-not-undefined
+ * contract on `where`. The wire emitter lowers `missing(via, where)`
+ * to `not(exists(via, where))` on every CCHQ target.
+ */
+export function missing(
+	via: RelationPath,
+	where?: Predicate,
+): Extract<Predicate, { kind: "missing" }> {
+	return where === undefined
+		? { kind: "missing", via }
+		: { kind: "missing", via, where };
+}

@@ -533,6 +533,96 @@ const fuzzySchema = z.object({
 	value: z.string(),
 });
 
+// ---------- Sentinel predicates ----------
+//
+// `match-all` and `match-none` are the boolean-algebra identity and
+// absorbing elements — always-true and always-false predicates that
+// carry no payload other than their discriminator. The wire forms are
+// CCHQ's zero-arg `match-all()` / `match-none()` registered at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`
+// and implemented at
+// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:162-177`
+// (each implementation rejects any argument with an
+// `XPathFunctionException`). On the on-device dialect they lower to
+// `true()` / `false()`; on the SQL target they lower to a no-op
+// `WHERE TRUE` / `WHERE FALSE`.
+//
+// They exist as first-class AST nodes so a UI surface or reducer can
+// produce a well-typed "empty filter" / "no matches" predicate without
+// picking an arbitrary tautology / contradiction encoding (e.g.
+// `eq(literal(1), literal(1))` for true). The schemas guarantee that
+// the only way to construct one of these predicates is the canonical
+// shape — a discriminator-only object — so consumers never have to
+// recognise an alternate encoding.
+
+const matchAllSchema = z.object({ kind: z.literal("match-all") });
+const matchNoneSchema = z.object({ kind: z.literal("match-none") });
+
+// ---------- Null-check predicate ----------
+//
+// `is-null` is the structural "left is unset" predicate. The wire
+// targets each lower it to a more idiomatic form than a literal-null
+// comparison: on-device CCHQ matches an unset case property as the
+// empty string (`@status = ''`); the SQL target matches as
+// `properties->>'status' IS NULL` once empty-string-coerce-to-null is
+// applied. Either lowering works only because the AST already carries
+// the canonical form here — without it, every emitter would have to
+// recognise `eq(prop, literal(null))` as a special case and rewrite
+// it.
+//
+// `left` is `termSchema`, not `propertyRefSchema`, so authors can
+// express "is the input X unset" or "is the user's region unset"
+// alongside the canonical "is the property unset" shape. The type
+// checker rejects `is-null(literal(...))` because a literal is never
+// unset by definition; the constraint lives at the type-checker layer
+// rather than the schema so the AST stays structurally permissive.
+
+const isNullSchema = z.object({
+	kind: z.literal("is-null"),
+	left: termSchema,
+});
+
+// ---------- Range predicate ----------
+//
+// `between` is the structural range predicate — bounded interval on
+// `left` with optional lower / upper bounds and per-bound inclusivity
+// flags. The on-device + CSQL targets have no native `between`
+// operator and lower this to `and(gte, lte)` (with the comparison
+// operators picked to honor inclusivity); the SQL target emits
+// `BETWEEN ... AND ...` directly when both bounds are present and
+// inclusive, and falls back to `>=` / `<=` / `>` / `<` when not.
+//
+// Authoring the structural form keeps the inclusivity intent explicit
+// at the AST node and lets every emitter pick its dialect's idiom. A
+// hand-written `and(gte, lte)` would force a future "show all
+// configured ranges" UI to recognise the conjunction shape, which
+// crosses the abstraction boundary; keeping the structural form
+// keeps the UI on the AST shape it already understands.
+//
+// `lower` / `upper` are optional `termSchema` (so a search-input or
+// session-user reference can drive either bound). The
+// `lowerInclusive` / `upperInclusive` slots are required booleans so
+// the inclusivity is always explicit at the AST node and a reader
+// doesn't have to infer from missing fields. The `.refine(...)`
+// rejects the both-bounds-absent shape: a `between` with neither
+// bound is equivalent to "always true" and the canonical shape for
+// "always true" is `match-all`, so accepting the all-absent form
+// would silently produce a duplicate representation.
+
+const betweenSchema = z
+	.object({
+		kind: z.literal("between"),
+		left: termSchema,
+		lower: termSchema.optional(),
+		upper: termSchema.optional(),
+		lowerInclusive: z.boolean(),
+		upperInclusive: z.boolean(),
+	})
+	.refine(
+		(v) => v.lower !== undefined || v.upper !== undefined,
+		"between must have at least one bound (lower or upper)",
+	);
+
 // ---------- Recursive predicate operators ----------
 //
 // `and`, `or`, `not`, and `when-input-present` reference the predicate
@@ -630,6 +720,58 @@ const whenInputPresentSchema = z.object({
 	clause: z.lazy(() => predicateSchema),
 });
 
+// ---------- Relational quantifiers ----------
+//
+// `exists` and `missing` are the relational quantifiers — "at least
+// one related case satisfies `where`" / "no related case satisfies
+// `where`". `via` is a `RelationPath` (the four-kind discriminator
+// declared above); `where` is an optional nested predicate evaluated
+// in the destination scope of the walk. When `where` is absent, the
+// predicate degenerates to "any related case exists" / "no related
+// case exists".
+//
+// CCHQ wire mapping:
+//   - `subcase` walks → `subcase-exists('rel', <where>)` /
+//     `not(subcase-exists(...))`. CCHQ's `subcase-exists` natively
+//     accepts a one-or-two-argument form
+//     (`commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`,
+//     filter-optional check at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`),
+//     so the no-`where` AST shape lowers cleanly to the
+//     one-argument form.
+//   - `ancestor` walks → `ancestor-exists('parent/host', <where>)` /
+//     `not(ancestor-exists(...))`. CCHQ's `ancestor-exists`
+//     unconditionally requires a filter
+//     (`commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`
+//     calls `confirm_args_count(node, 2)`), so the no-`where` AST
+//     shape synthesizes a `match-all()` filter at wire emission time.
+//
+// The asymmetry — subcase optional-filter native, ancestor requiring
+// the synthesized filter — is a wire-emitter concern; the AST keeps
+// `where` optional uniformly across both kinds because the semantic
+// contract ("filter the related cases by an additional predicate") is
+// the same across kinds and emitters compensate per-target.
+//
+// `where` is recursive (a nested predicate evaluated in the
+// destination scope), so it goes through the same
+// `z.lazy(() => predicateSchema)` pattern as `andSchema.clauses` /
+// `notSchema.clause` / `whenInputPresentSchema.clause`. `via`
+// references `relationPathSchema` directly because the relation-path
+// union is fully resolved above this point and carries no
+// `predicateSchema` reference (it never embeds a predicate).
+
+const existsSchema = z.object({
+	kind: z.literal("exists"),
+	via: relationPathSchema,
+	where: z.lazy(() => predicateSchema).optional(),
+});
+
+const missingSchema = z.object({
+	kind: z.literal("missing"),
+	via: relationPathSchema,
+	where: z.lazy(() => predicateSchema).optional(),
+});
+
 /**
  * The full predicate union, discriminated on `kind` — consumers
  * narrowing on `p.kind` get full per-variant typing without manual
@@ -637,24 +779,30 @@ const whenInputPresentSchema = z.object({
  * it to this union, (3) extend the type checker / XPath emitter / SQL
  * compiler.
  *
- * Drift policy — the four non-recursive arms (`comparisonSchema`,
- * `inSchema`, `withinDistanceSchema`, `fuzzySchema`) derive their TS
+ * Drift policy — non-recursive arms (`comparisonSchema`, `inSchema`,
+ * `withinDistanceSchema`, `fuzzySchema`, `matchAllSchema`,
+ * `matchNoneSchema`, `isNullSchema`, `betweenSchema`) derive their TS
  * shape from their schema via `z.infer<typeof X>`, so adding a field
- * to those schemas updates the union automatically. The four recursive
- * arms (`and`, `or`, `not`, `when-input-present`) are hand-declared
- * because TypeScript cannot resolve `z.infer` through a
+ * to those schemas updates the union automatically. Recursive arms
+ * (`and`, `or`, `not`, `when-input-present`, `exists`, `missing`) are
+ * hand-declared because TypeScript cannot resolve `z.infer` through a
  * discriminated-union recursion cycle (Zod issue #4264). Adding a
- * field to one of those four schemas requires a parallel hand-update
- * to the matching arm here. Any required-field drift surfaces as a CI
- * failure (the schema rejects predicates that don't supply the field;
- * the test suite parses each arm). Optional-field drift is caught by
- * the structural assertion at the bottom of this file.
+ * field to one of the recursive schemas requires a parallel
+ * hand-update to the matching arm here. Any required-field drift
+ * surfaces as a CI failure (the schema rejects predicates that don't
+ * supply the field; the test suite parses each arm). Optional-field
+ * drift on the recursive arms is caught by the structural assertion
+ * at the bottom of this file.
  */
 export type Predicate =
 	| z.infer<typeof comparisonSchema>
 	| z.infer<typeof inSchema>
 	| z.infer<typeof withinDistanceSchema>
 	| z.infer<typeof fuzzySchema>
+	| z.infer<typeof matchAllSchema>
+	| z.infer<typeof matchNoneSchema>
+	| z.infer<typeof isNullSchema>
+	| z.infer<typeof betweenSchema>
 	// `clauses` is non-empty: tuple-with-rest in the schema (`andSchema`
 	// / `orSchema`) and the matching `[Predicate, ...Predicate[]]` here
 	// share one definition of "at least one clause" between the runtime
@@ -668,7 +816,14 @@ export type Predicate =
 			kind: "when-input-present";
 			input: SearchInputRef;
 			clause: Predicate;
-	  };
+	  }
+	// `exists` / `missing` are recursive through the optional `where`
+	// slot — a nested predicate evaluated in the destination scope of
+	// `via`. The hand-declared shape mirrors the schema: `where?` is
+	// optional (so the absent-key contract holds across the round-trip)
+	// and `via: RelationPath` carries the structural traversal kind.
+	| { kind: "exists"; via: RelationPath; where?: Predicate }
+	| { kind: "missing"; via: RelationPath; where?: Predicate };
 
 export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 	"kind",
@@ -677,10 +832,16 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 		inSchema,
 		withinDistanceSchema,
 		fuzzySchema,
+		matchAllSchema,
+		matchNoneSchema,
+		isNullSchema,
+		betweenSchema,
 		andSchema,
 		orSchema,
 		notSchema,
 		whenInputPresentSchema,
+		existsSchema,
+		missingSchema,
 	],
 );
 
@@ -689,18 +850,20 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 // `_driftGuard` compares each recursive arm's non-recursive structural
 // surface against its schema's `z.infer`. The recursive slots
 // themselves (`clauses` on `and` / `or`, `clause` on `not` /
-// `when-input-present`) cannot be compared via `z.infer` — through
-// `z.lazy`, the inferred shape of the payload widens unpredictably
-// across TS versions. So each arm is stripped of its recursive slot
-// before comparison.
+// `when-input-present`, `where` on `exists` / `missing`) cannot be
+// compared via `z.infer` — through `z.lazy`, the inferred shape of
+// the payload widens unpredictably across TS versions. So each arm is
+// stripped of its recursive slot before comparison.
 //
-// Today, three of the four arms (`and`, `or`, `not`) have only their
-// `kind` discriminator left after the strip, so the guard for those
-// reduces to "the discriminator string matches itself." Only
-// `when-input-present` has a non-discriminator non-recursive field
-// (`input: SearchInputRef`), so it carries the actual structural
-// check. The guard's value is forward-looking: if any future change
-// adds a non-recursive field to one of these schemas (e.g.
+// Three of the six arms (`and`, `or`, `not`) have only their `kind`
+// discriminator left after the strip, so the guard for those reduces
+// to "the discriminator string matches itself." `when-input-present`
+// retains `input: SearchInputRef` as its non-recursive structural
+// surface; `exists` and `missing` retain `via: RelationPath` (the
+// relation-path union is non-recursive — it never embeds a
+// predicate — so its full structure is part of the compared
+// surface). The guard's value is forward-looking: if any future
+// change adds a non-recursive field to one of these schemas (e.g.
 // `andSchema` gains a `short_circuit?: boolean`), the corresponding
 // arm's hand-declared shape must update or the guard fails. Catches
 // additions, removals, and renames of non-recursive fields — exactly
@@ -716,10 +879,11 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 // type from "field absent", so optional additions/removals trip it.
 //
 // The recursive slot's CONTENT is pinned by parse tests in the
-// adjacent test file (`not(...)` and `when-input-present(...)` parse
-// nested predicates), so the only escape route this guard misses —
-// a payload-shape change reachable only through recursion — is
-// caught there.
+// adjacent test file — `not(...)`, `when-input-present(...)`,
+// `exists(...).where`, and `missing(...).where` each parse nested
+// predicates, so the only escape route this guard misses — a
+// payload-shape change reachable only through recursion — is caught
+// there.
 
 type _TypesEqual<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
@@ -733,6 +897,8 @@ type _WhenInputPresentArm = Omit<
 	Extract<Predicate, { kind: "when-input-present" }>,
 	"clause"
 >;
+type _ExistsArm = Omit<Extract<Predicate, { kind: "exists" }>, "where">;
+type _MissingArm = Omit<Extract<Predicate, { kind: "missing" }>, "where">;
 
 type _AndInferred = Omit<z.infer<typeof andSchema>, "clauses">;
 type _OrInferred = Omit<z.infer<typeof orSchema>, "clauses">;
@@ -741,13 +907,14 @@ type _WhenInputPresentInferred = Omit<
 	z.infer<typeof whenInputPresentSchema>,
 	"clause"
 >;
+type _ExistsInferred = Omit<z.infer<typeof existsSchema>, "where">;
+type _MissingInferred = Omit<z.infer<typeof missingSchema>, "where">;
 
 // `_driftGuard` is kept as a `const` declaration so the type assertion
-// has a binding site — the four arm equality checks are evaluated at
+// has a binding site — the per-arm equality checks are evaluated at
 // the binding's annotated type. If any of them resolves to `false`,
-// the `{ and: true, or: true, not: true, whenInputPresent: true }`
-// initializer fails to assign to the annotated type and CI catches
-// it. Removing the const would lose the type-check site; the
+// the initializer fails to assign to the annotated type and CI
+// catches it. Removing the const would lose the type-check site; the
 // `_` prefix follows the convention for "type assertion that has no
 // runtime role" in this codebase.
 const _driftGuard: {
@@ -758,9 +925,13 @@ const _driftGuard: {
 		_WhenInputPresentArm,
 		_WhenInputPresentInferred
 	>;
+	exists: _TypesEqual<_ExistsArm, _ExistsInferred>;
+	missing: _TypesEqual<_MissingArm, _MissingInferred>;
 } = {
 	and: true,
 	or: true,
 	not: true,
 	whenInputPresent: true,
+	exists: true,
+	missing: true,
 };

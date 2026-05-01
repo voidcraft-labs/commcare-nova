@@ -27,17 +27,23 @@ import {
 	ancestorPath,
 	and,
 	anyRelationPath,
+	between,
 	dateLiteral,
 	datetimeLiteral,
 	eq,
+	exists,
 	fuzzy,
 	gt,
 	gte,
 	input,
 	isIn,
+	isNull,
 	literal,
 	lt,
 	lte,
+	matchAll,
+	matchNone,
+	missing,
 	neq,
 	not,
 	or,
@@ -344,6 +350,142 @@ describe("relationPath builders", () => {
 		const p = anyRelationPath("linked");
 		expect(p).toEqual({ kind: "any-relation", identifier: "linked" });
 		expect("ofCaseType" in p).toBe(false);
+	});
+});
+
+// Sentinel-predicate, is-null, range, and relational-quantifier
+// builders. Each pins one discriminator (the value the builder layer
+// adds over a hand-written object literal: `kind` is set correctly
+// and the surrounding shape parses through the schema). The
+// round-trip parse is the load-bearing assertion in every case —
+// it locks the builder against schema drift the same way the
+// existing comparison + logical builders are locked above.
+describe("sentinel + range + relational predicate builders", () => {
+	it("matchAll() constructs the always-true sentinel", () => {
+		const p = matchAll();
+		expect(p).toEqual({ kind: "match-all" });
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("matchNone() constructs the always-false sentinel", () => {
+		const p = matchNone();
+		expect(p).toEqual({ kind: "match-none" });
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("isNull() constructs an is-null with a property reference", () => {
+		const p = isNull(prop("patient", "status"));
+		expect(p.kind).toBe("is-null");
+		expect(p.left.kind).toBe("prop");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("isNull() accepts any term shape (input / user / literal)", () => {
+		// Pin the parameter type — `Term`, not `PropertyRef`. A future
+		// regression that narrowed the builder's parameter to
+		// `PropertyRef` would not compile against these inputs.
+		const a = isNull(input("phone"));
+		const b = isNull(userField("region"));
+		const c = isNull(literal("x"));
+		expect(predicateSchema.parse(a)).toEqual(a);
+		expect(predicateSchema.parse(b)).toEqual(b);
+		expect(predicateSchema.parse(c)).toEqual(c);
+	});
+
+	it("between() defaults inclusivity to closed bounds when omitted", () => {
+		// Default is `true` for both — the standard mathematical
+		// `[lower, upper]` convention. The pin here locks the default
+		// against silent change; an "open by default" regression would
+		// trip this test.
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+		});
+		expect(p.lowerInclusive).toBe(true);
+		expect(p.upperInclusive).toBe(true);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("between() honors explicit inclusivity flags", () => {
+		// Each flag is independent — a regression that collapsed them
+		// into a single `inclusive` slot would not satisfy both
+		// assertions below.
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+			lowerInclusive: false,
+			upperInclusive: true,
+		});
+		expect(p.lowerInclusive).toBe(false);
+		expect(p.upperInclusive).toBe(true);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("between() omits absent bounds (does not materialize undefined keys)", () => {
+		// Same absent-not-undefined contract as `prop()` / `relationStep()`
+		// / `subcasePath()`. Zod's `.optional()` strips absent keys on
+		// parse, so a builder that materialized `lower: undefined` /
+		// `upper: undefined` would silently break round-trip equality
+		// checks like `expect(predicateSchema.parse(p)).toEqual(p)`.
+		const lowerOnly = between(prop("patient", "age"), {
+			lower: literal(18),
+		});
+		expect("upper" in lowerOnly).toBe(false);
+		expect(predicateSchema.parse(lowerOnly)).toEqual(lowerOnly);
+
+		const upperOnly = between(prop("patient", "age"), {
+			upper: literal(65),
+		});
+		expect("lower" in upperOnly).toBe(false);
+		expect(predicateSchema.parse(upperOnly)).toEqual(upperOnly);
+	});
+
+	it("between() with no bounds parses-rejects via the schema refinement", () => {
+		// TS can't structurally encode "at least one of two optional
+		// fields," so the rejection lives at the schema layer — the
+		// builder constructs whatever the caller passes and the
+		// schema's `.refine(...)` throws. Same shape as
+		// `within(prop, center, -10, "miles")`: builder typeable,
+		// schema rejects.
+		const invalid = between(prop("patient", "age"), {});
+		expect(() => predicateSchema.parse(invalid)).toThrow();
+	});
+
+	it("exists() constructs an exists with no where", () => {
+		const p = exists(ancestorPath(relationStep("parent")));
+		expect(p.kind).toBe("exists");
+		expect("where" in p).toBe(false);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("exists() constructs an exists with a where filter", () => {
+		// Canonical relational filter — "has a parent in region 'north'".
+		// The `where` predicate is whatever predicate the caller passes;
+		// the builder threads it through onto the constructed object.
+		const p = exists(
+			ancestorPath(relationStep("parent", "household")),
+			eq(prop("household", "region"), literal("north")),
+		);
+		expect(p.kind).toBe("exists");
+		expect(p.where?.kind).toBe("eq");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("missing() constructs a missing with no where", () => {
+		const p = missing(ancestorPath(relationStep("parent")));
+		expect(p.kind).toBe("missing");
+		expect("where" in p).toBe(false);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("missing() constructs a missing with a where filter", () => {
+		const p = missing(
+			subcasePath("parent", "patient"),
+			eq(prop("patient", "status"), literal("active")),
+		);
+		expect(p.kind).toBe("missing");
+		expect(p.where?.kind).toBe("eq");
+		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 });
 
