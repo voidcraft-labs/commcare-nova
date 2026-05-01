@@ -15,36 +15,54 @@
 // boundary (one schema per case type per app, keyed there).
 //
 // Why this lives in the predicate package: the predicate type checker
-// (Tasks 4-6) consumes the same `data_type` enum to decide which
-// comparison operators are legal on a property, and the runtime SQL
-// compiler (Tasks 10-11) reads it to pick column types. Keeping the
-// data-type-to-shape mapping here keeps every consumer of `data_type`
-// reasoning about the same bridge between blueprint and runtime.
+// consumes the same `data_type` enum to decide which comparison
+// operators are legal on a property, and the runtime SQL compiler
+// reads it to pick column types. Keeping the data-type-to-shape
+// mapping here keeps every consumer of `data_type` reasoning about
+// the same bridge between blueprint and runtime.
 
 import type { CaseProperty, CaseType } from "@/lib/domain";
 
-// CommCare's geopoint wire format: four space-separated decimals —
-// `latitude longitude altitude accuracy`. Verified against
-// `corehq/ex-submodules/couchforms/geopoint.py`:
-//   - line 44: `input_string.split(' ')` — splits on a literal single
-//     ASCII space (NOT `\s`), so tabs and newlines are not accepted.
-//   - line 48: the strict path requires exactly 4 elements; the
-//     2-element flexible path is reserved for case-search Geocoder
-//     input boxes, NOT stored case data, so we reject 2-element
-//     payloads here.
-//   - lines 55-65: `_to_decimal` calls Decimal(n) on each element,
-//     which accepts scientific notation (e.g. `1.23e5`, `-1.23E-5`).
-// Range checks (`-90 <= lat <= 90`, `-180 <= lon <= 180`) live at
-// `_validate_range` (lines 68-71); regex can't express ranges cheaply
-// and that's an application-layer concern. Altitude/accuracy may
-// degenerate to NaN-as-decimal at the application layer but on the
-// wire they arrive as decimal strings, so the regex doesn't need a
-// `NaN` literal alternation.
+// CommCare's geopoint wire format from XForm GPS submissions: four
+// space-separated decimal numbers — `latitude longitude altitude
+// accuracy`.
+//
+// Pattern verified against CCHQ's own parser test suite at
+// corehq/ex-submodules/couchforms/tests/test_geopoint.py:10-17, which
+// exercises the strict (4-element) and flexible (2-element) acceptance
+// paths. Concrete accepted examples from that test:
+//   '42.3739063 -71.1109113 0.0 886.0'
+//   '-7.130 -41.563 7.53E-4 8.0'
+//   '-7.130 -41.563 -2.2709742188453674E-4 8.0'
+// Splitting + element-count semantics come from the parser at
+// corehq/ex-submodules/couchforms/geopoint.py:44, 48 — `split(' ')` on
+// a literal single ASCII space, then a strict-mode count of exactly 4.
+//
+// We accept:
+//   - 4 space-separated decimals (single ASCII space, not \s — tabs and
+//     newlines are not accepted because CCHQ splits on `' '`).
+//   - Optional sign (`-?`); CCHQ's accepted set does not include leading
+//     `+`, so we don't accept it either.
+//   - Optional fractional part.
+//   - Optional scientific notation `[eE][+-]?<digits>`.
+//
+// We do NOT accept (and CCHQ's accepted set does not include):
+//   - 2-element flexible-mode strings — those come from search inputs
+//     and the case-list search XPath functions, not from stored case
+//     data, so they don't belong on the case-database write path.
+//   - Out-of-range lat/lon — CCHQ's `_validate_range` catches those at
+//     parse time (geopoint.py:68-71); here the schema is structural, so
+//     range enforcement belongs in a downstream layer (the type checker
+//     or a runtime check).
+//   - Bare `NaN` literals — CCHQ rejects these on lat/lon (see
+//     test_geopoint.py:38). Altitude/accuracy on the wire are decimal
+//     numbers; NaN appears only as the in-memory default after a
+//     flexible 2-element parse extends to 4.
 //
 // Build the pattern from a `DECIMAL` fragment so the four-element
 // repetition is obvious at a glance and so future tweaks (e.g.
-// permitting Geocoder's 2-element form on a different code path)
-// stay structural rather than copy-pasted.
+// permitting Geocoder's 2-element form on a different code path) stay
+// structural rather than copy-pasted.
 const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
 const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
 
@@ -120,8 +138,8 @@ export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
  *
  * Default for missing data_type: `casePropertySchema.data_type` is
  * `.optional()` in `lib/domain/blueprint.ts`. We treat the absent
- * variant as `text` here — same treatment the rest of the system
- * gives to legacy properties that predate the data_type field.
+ * variant as `text` here — CommCare's wire default for properties
+ * without an explicit type is text.
  */
 function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
 	switch (prop.data_type) {

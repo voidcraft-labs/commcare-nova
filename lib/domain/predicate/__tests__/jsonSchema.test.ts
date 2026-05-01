@@ -140,17 +140,11 @@ describe("caseTypeToJsonSchema", () => {
 	});
 
 	it("emits a geopoint pattern that matches CommCare's 4-element wire format", () => {
-		// Verified against `corehq/ex-submodules/couchforms/geopoint.py`:
-		//   - line 44: `input_string.split(' ')` — literal single ASCII
-		//     space, NOT \s, so tabs and newlines are not accepted.
-		//   - line 48: strict path requires exactly 4 elements
-		//     (latitude, longitude, altitude, accuracy).
-		//   - lines 55-65: `_to_decimal` calls Decimal(n), which accepts
-		//     scientific notation; very small sci-notation values round
-		//     to 0 but still parse.
-		// Lat/lon range checks live in `_validate_range` (lines 68-71)
-		// and are an application-layer concern; the regex handles shape
-		// only.
+		// Positive and negative cases mirror CCHQ's parser test suite at
+		// corehq/ex-submodules/couchforms/tests/test_geopoint.py — we
+		// accept exactly the strings CCHQ accepts on the strict 4-element
+		// path, and reject every string CCHQ rejects (modulo range
+		// validation, which is an application-layer concern, not regex).
 		const ct: CaseType = {
 			name: "clinic",
 			properties: [{ name: "location", label: "Loc", data_type: "geopoint" }],
@@ -162,22 +156,34 @@ describe("caseTypeToJsonSchema", () => {
 		}
 		const re = new RegExp(propSchema.pattern);
 
-		// Real CommCare wire-format values (lat lon altitude accuracy).
-		expect(re.test("14.719783 -17.459261 0 0")).toBe(true);
-		expect(re.test("-13.1058758 39.8739394 375.73 18.76")).toBe(true);
-		expect(re.test("0 0 0 0")).toBe(true);
-		// Scientific notation (CCHQ's _to_decimal accepts it).
-		expect(re.test("1.23e-5 2.0E10 0 0")).toBe(true);
-		expect(re.test("1e5 -1.23E-5 0 0")).toBe(true);
+		// Real CommCare wire-format values from
+		// corehq/ex-submodules/couchforms/tests/test_geopoint.py:10-17.
+		expect(re.test("42.3739063 -71.1109113 0.0 886.0")).toBe(true);
+		expect(re.test("-7.130 -41.563 7.53E-4 8.0")).toBe(true);
+		expect(re.test("-7.130 -41.563 -2.2709742188453674E-4 8.0")).toBe(true);
+		expect(re.test("-7.130 -41.563 1.2E-3 0")).toBe(true);
+		expect(re.test("-7.130 -41.563 0.0 1.0")).toBe(true);
+		// Lower-case 'e' (CCHQ's _to_decimal accepts both cases).
+		expect(re.test("1.23e-5 2.0e10 0 0")).toBe(true);
 
-		// Things the regex must reject.
-		expect(re.test("14.7 -17.4")).toBe(false); // 2 elements (flexible-mode only)
-		expect(re.test("14.7 -17.4 0")).toBe(false); // 3 elements
+		// Things the regex must reject — values from
+		// corehq/ex-submodules/couchforms/tests/test_geopoint.py:31-39
+		// plus structural negatives (wrong separator, etc).
+		expect(re.test("these are not decimals")).toBe(false);
+		expect(re.test("42.3739063 -71.1109113 0.0 whoops")).toBe(false);
+		expect(re.test("42.3739063 -71.1109113 0.0")).toBe(false); // 3 elements
+		expect(re.test("-7.130 -41.563")).toBe(false); // 2 elements (flexible only)
 		expect(re.test("14.7 -17.4 0 0 0")).toBe(false); // 5 elements
 		expect(re.test("14.7,-17.4,0,0")).toBe(false); // commas
-		expect(re.test("14.7\t-17.4 0 0")).toBe(false); // tab not allowed
-		expect(re.test("abc def 0 0")).toBe(false); // non-numeric
+		expect(re.test("14.7\t-17.4 0 0")).toBe(false); // tab
 		expect(re.test("")).toBe(false);
+		// Forms CCHQ might accept post-parse (range-validated separately)
+		// but that we deliberately do NOT accept at the structural-regex
+		// layer because CCHQ's emission set doesn't include them.
+		expect(re.test("+1.0 -17.4 0 0")).toBe(false); // leading `+`
+		expect(re.test(".5 -17.4 0 0")).toBe(false); // bare leading `.`
+		expect(re.test("5. -17.4 0 0")).toBe(false); // bare trailing `.`
+		expect(re.test("NaN -71.669 0.0 0.0")).toBe(false); // bare NaN
 	});
 
 	it("defaults a property without data_type to string", () => {
