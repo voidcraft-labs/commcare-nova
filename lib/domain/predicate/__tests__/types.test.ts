@@ -663,6 +663,22 @@ describe("relationPath schema", () => {
 		).toThrow();
 	});
 
+	it("rejects a relation-step throughCaseType with whitespace", () => {
+		// `throughCaseType` flows through the same case-type-vocabulary
+		// defense as `caseType` and `ofCaseType` — emitters interpolate
+		// it into XPath / SQL identifier slots without quoting, so
+		// whitespace (or any character outside CommCare's case-type
+		// vocabulary) must be rejected at the schema layer. Symmetric
+		// with the identifier + ofCaseType rejection tests; locks the
+		// per-step qualifier defense against silent relaxation.
+		expect(() =>
+			relationPathSchema.parse({
+				kind: "ancestor",
+				via: [{ identifier: "parent", throughCaseType: "with whitespace" }],
+			}),
+		).toThrow();
+	});
+
 	it("rejects a subcase identifier with whitespace", () => {
 		expect(() =>
 			relationPathSchema.parse({

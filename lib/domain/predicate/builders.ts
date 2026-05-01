@@ -60,20 +60,36 @@ import type {
 // the return type narrows precisely on the call site.
 
 /**
- * Constructs a property reference. The `caseType` qualifier is required
- * because a search-detail predicate may reach across a related parent
- * case type (e.g. `patient` → `clinic`), so the AST records WHICH case
- * type the property lives on rather than relying on positional context.
+ * Constructs a property reference.
+ *
+ * `caseType` names the **originating case-type scope** — the case type
+ * the predicate runs against, NOT the case type the property lives on
+ * when `via` is present. When `via` is absent or `selfPath()`, the
+ * property is read directly on a case of `caseType`. When `via` is a
+ * relation walk, the walk resolves to a destination case type and
+ * `property` is read on that destination.
+ *
+ * Example: a predicate on the `patient` case list filtering by
+ * `region` on the patient's `household` parent —
+ * `prop("patient", "region", ancestorPath(relationStep("parent",
+ * "household")))`. `caseType` is `patient` (originating scope);
+ * `property` is `region` on the `household` destination.
+ *
+ * The `caseType` qualifier is required even with `via` present so the
+ * originating scope is always explicit at the call site — readers see
+ * the predicate's home scope without tracing back through nesting,
+ * and the type checker can resolve the relation walk against that
+ * scope's schema directly. See the JSDoc on `propertyRefSchema` in
+ * `types.ts` for the full contract.
  *
  * `via` is the optional relational-read slot — pass an `ancestorPath` /
  * `subcasePath` / `anyRelationPath` / `selfPath` to reach a property
- * on a related case rather than the current one. When omitted, the
- * constructed object intentionally has NO `via` key (not
- * `via: undefined`) so existing equality assertions like
- * `expect(predicateSchema.parse(p)).toEqual(p)` continue to hold —
- * Zod's `.optional()` strips absent keys on parse, and a builder that
- * materialized `via: undefined` would silently break the round-trip
- * shape pin downstream tests rely on.
+ * on a related case. When omitted, the constructed object intentionally
+ * has NO `via` key (not `via: undefined`) so existing equality
+ * assertions like `expect(predicateSchema.parse(p)).toEqual(p)`
+ * continue to hold — Zod's `.optional()` strips absent keys on parse,
+ * and a builder that materialized `via: undefined` would silently
+ * break the round-trip shape pin downstream tests rely on.
  */
 export function prop(
 	caseType: string,
@@ -265,11 +281,18 @@ export function subcasePath(
 }
 
 /**
- * Constructs a direction-agnostic relation. Compiles to a
- * `case_indices.identifier` lookup without committing to the
- * relationship-id (CHILD or EXTENSION); useful for custom indices
- * where direction isn't known at authoring time. Same
- * `ofCaseType` shape as `subcasePath` — omitted when not needed.
+ * Constructs a direction-agnostic relation. Models the case where
+ * authoring time can't commit to CHILD vs EXTENSION semantics — e.g.
+ * a custom index whose direction isn't known until runtime.
+ *
+ * On the Postgres target, this compiles to a `case_indices.identifier`
+ * lookup that matches both directions. On CCHQ on-device and CSQL
+ * targets, only direction-specific operators (`ancestor-exists` /
+ * `subcase-exists`) exist, so this kind has no direct CCHQ wire form;
+ * any consumer compiling to a CCHQ target rejects or rewrites
+ * `any-relation` into a direction-specific kind.
+ *
+ * Same `ofCaseType` shape as `subcasePath` — omitted when not needed.
  */
 export function anyRelationPath(
 	identifier: string,

@@ -298,11 +298,31 @@ export type RelationPath = z.infer<typeof relationPathSchema>;
 // `kind` and emit the corresponding XPath/SQL node.
 
 /**
- * Reference to a property on a specific case type. The `caseType`
- * qualifier matters: a search-detail predicate may reach across the
- * primary case type and a related parent (`patient` → `clinic`), so the
- * AST records WHICH case type the property lives on rather than relying
- * on positional context.
+ * Reference to a property read from a case in a specific scope.
+ *
+ * `caseType` names the **originating case-type scope** — the case type
+ * the predicate runs against, i.e. the case type at the predicate's
+ * "self" position. It is NOT the case type the property lives on when
+ * `via` is present. When `via` is absent or `{ kind: "self" }`, the
+ * property is read directly on a case of `caseType`. When `via` is a
+ * relation walk (`ancestor` / `subcase` / `any-relation`), the walk
+ * resolves to a destination case type, and `property` is read on that
+ * destination — the type checker uses `via`'s `throughCaseType` /
+ * `ofCaseType` qualifiers to resolve the destination scope at check
+ * time.
+ *
+ * Example: a predicate over the `patient` case list filtering by
+ * `region` on the patient's `household` parent compiles to
+ * `prop("patient", "region", ancestorPath(relationStep("parent",
+ * "household")))`. `caseType` is `patient` (originating scope);
+ * `property` is `region` on the `household` destination reached via
+ * the `parent` index hop.
+ *
+ * The `caseType` qualifier is required even when `via` is present so
+ * the originating scope is always explicit at the AST node — readers
+ * don't have to trace back through nesting to recover it, and the
+ * type checker can resolve the relation walk against the originating
+ * case-type schema directly.
  *
  * Both `caseType` and `property` are constrained to CommCare's
  * identifier vocabulary at the schema layer — see the
@@ -311,14 +331,11 @@ export type RelationPath = z.infer<typeof relationPathSchema>;
  * outside the permitted set would either fail downstream parsing or
  * (worse) inject attacker-controlled syntax.
  *
- * `via` is the optional relational-read slot. When present, the
- * property resolves at the destination of the relation walk rather
- * than against the current case-type scope; when absent, the
- * resolution is local. Absence and `{ kind: "self" }` are
- * semantically equivalent — the schema accepts both shapes so a UI
- * surface editing a relational read can flip the kind without
- * reshaping the parent object. See the JSDoc on `relationPathSchema`
- * for the full set of supported walks.
+ * Absence of `via` and `{ kind: "self" }` are semantically equivalent
+ * — the schema accepts both shapes so a UI surface editing a
+ * relational read can flip the kind without reshaping the parent
+ * object. See the JSDoc on `relationPathSchema` for the full set of
+ * supported walks.
  */
 export const propertyRefSchema = z.object({
 	kind: z.literal("prop"),
