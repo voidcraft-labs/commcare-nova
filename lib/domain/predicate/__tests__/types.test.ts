@@ -308,4 +308,48 @@ describe("predicate schema", () => {
 			expect(result.value).toBe("alice");
 		}
 	});
+
+	// Deep recursive-arm coverage. The drift guard at the bottom of
+	// `types.ts` strips recursive slots before comparing schema-inferred
+	// shapes against hand-declared union arms, so a payload-shape change
+	// reachable only through recursion would slip past it. This test
+	// builds one predicate that nests every recursive arm
+	// (`and` / `or` / `not` / `when-input-present`) inside another and
+	// parses it end-to-end — the schema's `z.lazy(() => predicateSchema)`
+	// resolves through every arm at runtime, so any cross-arm regression
+	// in the lazy chain trips this test.
+	it("parses a deeply nested predicate exercising every recursive arm", () => {
+		const nested = predicateSchema.parse({
+			kind: "and",
+			clauses: [
+				{
+					kind: "or",
+					clauses: [
+						{
+							kind: "not",
+							clause: {
+								kind: "when-input-present",
+								input: { kind: "input", name: "x" },
+								clause: {
+									kind: "eq",
+									left: {
+										kind: "prop",
+										caseType: "patient",
+										property: "name",
+									},
+									right: { kind: "literal", value: "Alice" },
+								},
+							},
+						},
+						{
+							kind: "eq",
+							left: { kind: "prop", caseType: "patient", property: "name" },
+							right: { kind: "literal", value: "Bob" },
+						},
+					],
+				},
+			],
+		});
+		expect(nested.kind).toBe("and");
+	});
 });

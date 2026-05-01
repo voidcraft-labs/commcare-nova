@@ -24,6 +24,7 @@ import {
 	input,
 	literal,
 	lt,
+	not,
 	prop,
 	userField,
 } from "../builders";
@@ -247,6 +248,22 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 			// failing clause. The kind segment disambiguates a clause
 			// inside `and(...)` from a clause inside a sibling `or(...)`.
 			expect(result.errors[0].path).toEqual(["and", 0]);
+		}
+	});
+
+	// `not` uses the unary-wrapper path convention (`[operator-name,
+	// field-name]`), parallel to `when-input-present`. Pinning the
+	// `["not", "clause"]` shape locks the convention against a regression
+	// to the old operator-name-only form (`["not"]`), which would have
+	// made `not` the only wrapping operator emitting a path that didn't
+	// also identify which slot inside the operator the error came from.
+	it("propagates errors from inside not(...) with a clause-segmented path", () => {
+		const p = not(eq(prop("patient", "age"), literal("forty-two")));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+			expect(result.errors[0].path).toEqual(["not", "clause"]);
 		}
 	});
 });

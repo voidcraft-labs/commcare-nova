@@ -17,16 +17,20 @@
 // split keeps the AST schema independent of any particular blueprint
 // and concentrates the schema-driven rules in this one walker.
 //
-// Walk dispatch: comparison operators check operand-type compatibility;
-// logical wrappers (`and` / `or` / `not`) recurse into their child
-// clauses so a violation buried inside a logical wrapper still
-// surfaces; `when-input-present` recurses into its wrapped clause
-// (input-existence checks for that operator are layered in alongside
-// the membership / geo / fuzzy operators in follow-up changes).
-// Membership / geo / fuzzy currently descend without inspection — they
-// have no nested predicate sub-trees that can carry comparison-rule
-// violations, so descending without inspection is structurally safe at
-// this stage; per-operator semantic checks land in subsequent changes.
+// Walk dispatch: comparison operators (`eq` / `neq` / `gt` / `gte` /
+// `lt` / `lte`) check operand-type compatibility against the resolution
+// rules below. Logical wrappers (`and` / `or` / `not`) recurse into
+// their child clauses, threading the operator name and (for the
+// multi-clause arms) the array index into the error path so a
+// violation buried inside a logical wrapper still surfaces with a
+// precise location. `when-input-present` recurses into its wrapped
+// `clause`. Membership (`in`), geo (`within-distance`), and fuzzy
+// (`fuzzy`) carry no nested predicates and their structural shape is
+// validated at parse time, so the walker descends past them without
+// further inspection. Any per-operator semantic check belongs in its
+// own dispatch arm, colocated with the kind's case label, so adding a
+// rule extends the dispatch table rather than threading a new branch
+// through the comparison-rule code.
 
 import type {
 	CaseProperty,
@@ -68,20 +72,32 @@ export type TypeContext = {
 
 /**
  * Path segments locating the offending node inside the predicate AST.
- * The segments mix two conventions, both consumed by the editor's
- * highlight logic:
- *   - Field names: `"left"`, `"right"`, `"clause"` — index into
- *     single-slot operator fields (comparison operands, `not`'s body).
- *   - Operator names + index: `"and"` / `"or"` followed by a numeric
- *     index — locate the failing clause inside a multi-clause logical
- *     wrapper. The operator-name prefix is required because nested
- *     `and(or(...), ...)` would otherwise ambiguate which collection
- *     the index refers to.
+ * The walker emits paths under one consistent convention so consumers
+ * (the editor's highlight logic, debug output) can decode them
+ * uniformly:
  *
- * Consumers that walk the path to find the AST node must therefore
- * branch on whether a string segment is a field name or an operator
- * name. The trade-off keeps paths short and human-readable in the
- * editor's debug output.
+ *   - Comparison operands — `[..., "left"]` / `[..., "right"]`. The
+ *     comparison operator itself doesn't add a segment; resolution
+ *     errors land directly on the operand.
+ *   - Comparison operator-level errors (ordered-types check,
+ *     compatibility mismatch) — emitted on the predicate's own path,
+ *     no operator-name segment, since the verdict belongs to the
+ *     comparison node itself.
+ *   - Unary wrappers (`not`, `when-input-present`) — `[..., "<kind>",
+ *     "clause"]`. The operator name + field name shape disambiguates
+ *     a clause inside `not` from a clause inside a sibling `when-
+ *     input-present` and signals which slot inside the operator the
+ *     error came from.
+ *   - Multi-clause wrappers (`and`, `or`) — `[..., "<kind>", <index>]`.
+ *     The operator name disambiguates between sibling collections;
+ *     the numeric index identifies the failing clause within. Number
+ *     segments only ever appear as array indices — string-then-number
+ *     uniformly means "the n-th element of that collection."
+ *
+ * Consumers branching on segment shape can therefore use a uniform
+ * rule: if the next segment is a number, it's an array index;
+ * otherwise it's a field or operator name. The trade-off keeps paths
+ * short and human-readable in the editor's debug output.
  */
 export type CheckPath = (string | number)[];
 export type CheckError = { path: CheckPath; message: string };
@@ -105,6 +121,12 @@ export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
  * surface clean.
  */
 const ANY_TYPE = "_any" as const;
+
+// Internal-only resolved type. The `_any` member is the null-sentinel
+// described above and must never appear on a public surface — do not
+// export this type. Public callers consume the type checker via
+// `CheckResult` (which pre-formats sentinels into user-readable
+// strings via `describe(...)` before they reach `CheckError.message`).
 type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
 
 /**
@@ -147,7 +169,7 @@ export function checkPredicate(
  * Recursive dispatch on the predicate's discriminator. Comparison
  * operators run their dedicated check; logical wrappers recurse into
  * their child predicates so a violation buried inside an `and` / `or` /
- * `not` / `when-input-present` wrapper still surfaces at this stage.
+ * `not` / `when-input-present` wrapper surfaces with a precise path.
  * The exhaustiveness assertion in `default:` forces every new operator
  * added to `Predicate` to either get its own arm here or be explicitly
  * forwarded — silent miscompilation (a new kind silently bypassing all
@@ -174,34 +196,39 @@ function walk(
 			// can disambiguate a clause inside `and(...)` from a clause
 			// inside a sibling `or(...)`. The kind segment also signals
 			// to the path consumer that the next number is an array index.
-			// Indexed `for` (rather than `forEach`) is the cleanest shape
-			// that satisfies Biome's `useIterableCallbackReturn` rule
-			// against returning a value from a `forEach` callback while
-			// still threading the array index into the recursion.
+			// Indexed for-loop so the path threads through the array index
+			// without detouring through forEach.
 			for (let i = 0; i < p.clauses.length; i++) {
 				walk(p.clauses[i], ctx, errors, [...path, p.kind, i]);
 			}
 			return;
 		case "not":
-			walk(p.clause, ctx, errors, [...path, "not"]);
+			// Path convention: `[operator-name, field-name]` for unary
+			// wrappers — same shape as `when-input-present` below — so
+			// every wrapping operator's path segment uniformly identifies
+			// "the operator" then "the slot inside it."
+			walk(p.clause, ctx, errors, [...path, "not", "clause"]);
 			return;
 		case "when-input-present":
 			// Descend into the wrapped clause so any comparison-rule
-			// violations inside it surface at this stage. The
-			// input-existence check (verifying `p.input.name` resolves
-			// against `ctx.knownInputs`) lands alongside the membership /
-			// geo / fuzzy semantic checks in subsequent coverage.
+			// violations inside it surface here. Validating the `input`
+			// reference itself against `ctx.knownInputs` is a separate
+			// concern from descending into the wrapped clause; the
+			// dispatch arm for that check stays colocated with this
+			// kind so both responsibilities for `when-input-present`
+			// live in one place.
 			walk(p.clause, ctx, errors, [...path, "when-input-present", "clause"]);
 			return;
 		case "in":
 		case "within-distance":
 		case "fuzzy":
-			// Per-operator semantic checks land in subsequent coverage.
-			// Descending past these kinds without inspection is
-			// structurally safe at this stage: their structural shape is
-			// validated at parse time by the schema, and none of them
-			// carry nested predicate sub-trees that could hide a
-			// comparison-rule violation a recursion would catch.
+			// These kinds carry no nested predicates and their structural
+			// shape is validated at parse time, so descending without
+			// inspection is safe. Per-operator semantic checks
+			// (membership-value type, geo-property type, fuzzy-property
+			// type) belong in their own dispatch arms, colocated with
+			// the kind's case label so the dispatch table stays the
+			// single index for "what does this checker do for kind X."
 			return;
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
@@ -340,15 +367,16 @@ function resolveTermType(
 			return decl.data_type ?? "text";
 		}
 		case "user":
-			// User-context refs always resolve to text. The
-			// `instance('commcaresession')/session/user/data/<field>` lookup
-			// returns string values regardless of how the author intends to
-			// use them — CCHQ's own suite generation tests bind these refs
-			// into XPath string comparisons against literal strings (see
-			// corehq/apps/app_manager/tests/test_suite_remote_request.py:898,
-			// which compares `#session/user/data/is_supervisor` to `'n'`).
-			// If an author needs a numeric comparison against a user field,
-			// they need to coerce at a layer above this one.
+			// User-context refs resolve to text by convention. CommCare's
+			// `instance('commcaresession')/session/user/data/<field>` returns a
+			// string at the XPath/CSQL layer, and authors who need typed
+			// comparisons against a user field today coerce upstream of the
+			// type checker. Symmetric with `SearchInputDecl`'s optional
+			// `data_type`, this convention can be relaxed by extending
+			// `UserContextRef` to carry a declared type — that's a
+			// deliberate non-goal at the foundation stage. (CCHQ wire
+			// example: see references to `#session/user/data/...` in
+			// `corehq/apps/app_manager/tests/test_suite_remote_request.py`.)
 			return "text";
 		case "literal":
 			return literalType(term);

@@ -103,31 +103,38 @@ export function literal(value: string | number | boolean | null): Literal {
 }
 
 /**
- * Constructs a date-typed literal. The runtime value is a string (ISO
- * `YYYY-MM-DD` is the conventional form, though strict format validation
- * lives at the wire-emit layer); `data_type: "date"` declares the
- * semantic type so a comparison like
+ * Constructs a date-typed literal. The value is the wire-form string
+ * (`YYYY-MM-DD` per CommCare convention). `data_type: "date"` declares
+ * the semantic type so a comparison like
  * `lt(prop("patient", "dob"), dateLiteral("2000-01-01"))` resolves under
  * the type checker's ordered-types rule rather than falling through to
  * text.
+ *
+ * Format validation lives at the wire-emit layer, not here. Pass a
+ * wire-format string and trust the schema layer to reject malformed
+ * values at emit time — `dateLiteral("not-a-date")` will type-check
+ * against a date property and fail later. This split keeps the AST
+ * library independent of any particular wire emitter's format rules.
  */
 export function dateLiteral(value: string): Literal {
 	return { kind: "literal", value, data_type: "date" };
 }
 
 /**
- * Constructs a datetime-typed literal. Same shape and rationale as
- * `dateLiteral`; the wire format is `YYYY-MM-DDTHH:MM:SS` (or a
- * timezoned variant), validated strictly at wire-emit time.
+ * Constructs a datetime-typed literal. The value is the wire-form
+ * string (`YYYY-MM-DDTHH:MM:SS`, optionally with a timezone suffix, per
+ * CommCare convention). Same wire-validation split as `dateLiteral`:
+ * format validation lives at the wire-emit layer, not here.
  */
 export function datetimeLiteral(value: string): Literal {
 	return { kind: "literal", value, data_type: "datetime" };
 }
 
 /**
- * Constructs a time-typed literal. Same shape and rationale as
- * `dateLiteral`; the wire format is `HH:MM[:SS]`, validated strictly at
- * wire-emit time.
+ * Constructs a time-typed literal. The value is the wire-form string
+ * (`HH:MM[:SS]` per CommCare convention). Same wire-validation split as
+ * `dateLiteral`: format validation lives at the wire-emit layer, not
+ * here.
  */
 export function timeLiteral(value: string): Literal {
 	return { kind: "literal", value, data_type: "time" };
