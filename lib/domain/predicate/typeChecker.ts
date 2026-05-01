@@ -157,6 +157,31 @@ const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"time",
 ]);
 
+/**
+ * Data types whose property values can be fuzzy-matched. Text-shaped
+ * types pass through CCHQ's `fuzzy_match` (which dispatches
+ * `case_property_query(..., fuzzy=True)`) as plain Elasticsearch
+ * fuzzy queries against the same string-typed `PROPERTY_VALUE` field
+ * — see `checkFuzzy`'s JSDoc for the wire-layer citation chain.
+ * Other types (numeric, temporal, geopoint) have no meaningful
+ * approximate-string match, so the type checker rejects them at
+ * authoring time rather than silently constructing predicates that
+ * compile but never produce a useful match.
+ *
+ * Typed as `ReadonlySet<ResolvedType>` rather than
+ * `ReadonlySet<CasePropertyDataType>` so the `has(propType)` lookup
+ * accepts the resolved type directly without an upfront narrow — the
+ * `_any` null sentinel can't reach a property's resolved type
+ * (`resolveTermType` returns `data_type ?? "text"` for property
+ * refs), so widening the set's element type doesn't admit any
+ * runtime member that's structurally invalid for it.
+ */
+const FUZZY_PROPERTY_TYPES: ReadonlySet<ResolvedType> = new Set([
+	"text",
+	"single_select",
+	"multi_select",
+]);
+
 // ---------- Top-level walker ----------
 
 /**
@@ -336,6 +361,10 @@ function describe(t: ResolvedType): string {
 // operate on the `Predicate` arm directly so the operand slot names
 // in error paths come from the AST shape, not from a string the
 // helper invents.
+//
+// `when-input-present` has no semantic constraint beyond
+// trigger-input resolution and clause recursion — both performed
+// inline in the walker — so it has no helper here.
 
 /**
  * Membership compatibility check for `in`. Each value in `values` is
@@ -440,11 +469,17 @@ function checkWithinDistance(
  * checker rejects those property types so the author can't construct
  * a predicate that compiles but never produces a useful match.
  *
- * The allow-list is `text | single_select | multi_select`. The two
- * select kinds are stored as plain text on the wire (the schema
- * layer's `jsonSchema.ts` enforces the enum constraint, not the
- * predicate checker), so a fuzzy match against a select property
- * matches the same way it matches a text property.
+ * Why text-shaped types — `text`, `single_select`, `multi_select` —
+ * pass the allow-list: on CCHQ's wire, single-select values serialize
+ * as plain strings and multi-select values as space-separated strings
+ * in the same property-value field that text uses
+ * (`selected-any(tags, "vip urgent")` is the canonical multi-select
+ * filter shape, and `_selected_query` at
+ * corehq/apps/case_search/xpath_functions/query_functions.py:46
+ * dispatches all three through the same `case_property_query` that
+ * fuzzy match itself uses). Fuzzy matching against a select property
+ * therefore matches by the same Elasticsearch mechanism as fuzzy
+ * matching against a text property.
  */
 function checkFuzzy(
 	p: Extract<Predicate, { kind: "fuzzy" }>,
@@ -456,12 +491,7 @@ function checkFuzzy(
 		...path,
 		"property",
 	]);
-	if (
-		propType !== undefined &&
-		propType !== "text" &&
-		propType !== "single_select" &&
-		propType !== "multi_select"
-	) {
+	if (propType !== undefined && !FUZZY_PROPERTY_TYPES.has(propType)) {
 		errors.push({
 			path: [...path, "property"],
 			message: `fuzzy match requires a text-typed property (text, single_select, or multi_select); got '${describe(propType)}'.`,

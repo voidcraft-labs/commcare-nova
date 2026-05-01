@@ -603,8 +603,23 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	it("rejects fuzzy on an int property", () => {
-		const p = fuzzy(prop("patient", "age"), "alice");
+	// Parameterized rejection across every non-text-shaped data type the
+	// blueprint can declare (excluding `geopoint`, which lives on the
+	// `ctxWithGeo` fixture and is exercised separately below). Without
+	// this table, a regression that loosened the allow-list to "anything
+	// except numeric" would slip through — only the int and geopoint
+	// arms would fail. The table closes that gap by iterating the full
+	// rejected set; adding a new non-text data type to the blueprint
+	// later requires extending this list as the visible signal that the
+	// fuzzy rule needs an explicit decision for the new type.
+	it.each([
+		{ propName: "age", dataType: "int" },
+		{ propName: "weight_kg", dataType: "decimal" },
+		{ propName: "dob", dataType: "date" },
+		{ propName: "last_seen", dataType: "datetime" },
+		{ propName: "appointment_time", dataType: "time" },
+	] as const)("rejects fuzzy on a $dataType property", ({ propName }) => {
+		const p = fuzzy(prop("patient", propName), "alice");
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -614,12 +629,15 @@ describe("checkPredicate — fuzzy text-shape requirement", () => {
 		}
 	});
 
-	// `geopoint` is stored as text on the wire (the `"lat lon"` string)
-	// but a fuzzy match against a coordinate string is meaningless —
-	// the edit-distance metric isn't defined on a structured pair of
-	// floats. Pinning the rejection here locks the rule against a
-	// regression that widened the allow-list to "anything stored as
-	// text on the wire."
+	// `geopoint` lives on the `ctxWithGeo` fixture (the base PATIENT
+	// fixture deliberately omits a geopoint to keep the comparison-rule
+	// matrix unaffected by it). Tested separately rather than in the
+	// table above so the fixture switch is visible in the test name.
+	// A fuzzy match against the wire-form `"lat lon"` coordinate string
+	// is meaningless — the edit-distance metric isn't defined on a
+	// structured pair of floats. Pinning the rejection here locks the
+	// rule against a regression that widened the allow-list to "anything
+	// stored as text on the wire."
 	it("rejects fuzzy on a geopoint property", () => {
 		const p = fuzzy(prop("patient", "location"), "40.7 -74.0");
 		const result = checkPredicate(p, ctxWithGeo);
