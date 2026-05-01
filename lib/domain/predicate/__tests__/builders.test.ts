@@ -96,10 +96,11 @@ describe("predicate builders", () => {
 
 	// Each exported builder gets at least one explicit happy-path test
 	// here: silent rename or removal of any export must not pass CI.
-	// `userField` and `isIn` would otherwise be only structurally
-	// implied via other builders' arguments. (The `isIn`
-	// variadic-with-required-first contract is locked separately by
-	// the type-level guard at the bottom of this file.)
+	// `userField`, `isIn`, and `fuzzy` would otherwise be only
+	// structurally implied via other builders' arguments or composite
+	// tests. (The `isIn` variadic-with-required-first contract is
+	// locked separately by the type-level guard at the bottom of this
+	// file.)
 
 	it("constructs a userField reference round-tripping inside a comparison", () => {
 		const t = userField("region");
@@ -118,6 +119,13 @@ describe("predicate builders", () => {
 		);
 		expect(p.kind).toBe("in");
 		expect(p.values).toHaveLength(2);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a fuzzy match predicate", () => {
+		const p = fuzzy(prop("patient", "name"), "alice");
+		expect(p.kind).toBe("fuzzy");
+		expect(p.value).toBe("alice");
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
