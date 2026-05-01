@@ -172,6 +172,39 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
+	// `in(...)` with all-null values is a structural degenerate: every
+	// wire emission collapses to "is unset OR is unset OR …", which
+	// duplicates the canonical `eq(prop, literal(null))` "is unset"
+	// form rather than expressing real set membership. Reject at the
+	// AST layer so downstream compilers don't have to encode the
+	// policy. Mixed null + non-null lists are accepted because they
+	// encode the meaningful "is unset OR equals one of these values"
+	// predicate.
+	it("rejects an in(...) where every value is null", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "in",
+				left: { kind: "prop", caseType: "patient", property: "name" },
+				values: [
+					{ kind: "literal", value: null },
+					{ kind: "literal", value: null },
+				],
+			}),
+		).toThrow();
+	});
+
+	it("accepts an in(...) with a single null value alongside non-null values", () => {
+		const result = predicateSchema.parse({
+			kind: "in",
+			left: { kind: "prop", caseType: "patient", property: "name" },
+			values: [
+				{ kind: "literal", value: null },
+				{ kind: "literal", value: "Alice" },
+			],
+		});
+		expect(result.kind).toBe("in");
+	});
+
 	// Numeric structural constraint. A negative radius is geometrically
 	// meaningless and would propagate to two compilers (XPath/CSQL and
 	// Kysely) that don't share a rejection layer — same logic that

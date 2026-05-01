@@ -50,10 +50,15 @@
 //     instance-factory registration at
 //     `corehq/apps/app_manager/suite_xml/post_process/instances.py:354`.
 //   - `instance('commcaresession')/session/user/data/<field>` for
-//     user-context refs — see
-//     `corehq/apps/app_manager/xpath_validator/tests.py:38` (the
-//     canonical commcare_location_id example) and the suite fixture
-//     at `corehq/apps/app_manager/tests/data/suite/suite-advanced-autoselect-user.xml:12`.
+//     user-context refs — see the production helper
+//     `session_var(var, path='data')` at
+//     `corehq/apps/app_manager/xpath.py:114-119` (which builds
+//     `instance('commcaresession')/session/<path>/<var>` from any
+//     path segment) and one of its callers,
+//     `EntriesHelper.get_userdata_autoselect` at
+//     `corehq/apps/app_manager/suite_xml/sections/entries.py:217-220`,
+//     which invokes it with `path='user/data'` to address custom
+//     user-data fields.
 //   - `concat('a', "'", 'b')` as the case-list-filter embedded-quote
 //     escape — XPath 1.0 has no string-escape syntax, so the portable
 //     form switches to `concat()` with alternating quote styles. The
@@ -67,10 +72,13 @@
 //     CSQL predicate string emitted from a wire-side `concat()`
 //     wrapper, where every property value is double-quoted
 //     (`@case_type = "service"`, `@status != "closed"`, etc.).
-//   - `selected-any(prop, 'tok1 tok2')` for multi-value membership
-//     — see `corehq/apps/case_search/xpath_functions/query_functions.py:38-51`
-//     (the function delegates to ES `match` with `operator='or'`,
-//     which tokenizes the value string by whitespace).
+//   - `(prop = 'v1' or prop = 'v2' or ...)` for multi-value `in` —
+//     value-equality set membership emits as an or-of-equalities
+//     so single-value and multi-value `in` share continuous
+//     semantics. CCHQ's `selected-any` looks like a fit but
+//     carries multi-select-token semantics (see the `case "in":`
+//     arm comment for the divergence rationale and the
+//     `corehq/apps/es/case_search.py:291-296` citation).
 //   - `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` —
 //     see `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
 //     for the 4-arg signature (property, coordinate string parsed
@@ -91,7 +99,7 @@
 //     AND-chain identity element. CSQL has no native conditional
 //     construct (`if` and `count` are absent from both CSQL
 //     function whitelists at
-//     `corehq/apps/case_search/xpath_functions/__init__.py:27-50`),
+//     `corehq/apps/case_search/xpath_functions/__init__.py:27-54`),
 //     so the emitter throws on `when-input-present` in csql
 //     context — the wire-wrapping layer that builds the outer
 //     XPath must emit two distinct CSQL strings (one with the
@@ -100,7 +108,6 @@
 
 import type {
 	ComparisonKind,
-	Literal,
 	Predicate,
 	Term,
 } from "@/lib/domain/predicate/types";
@@ -151,7 +158,7 @@ const COMPARISON_OPS: Record<ComparisonKind, string> = {
  *
  * Sources (production code, not tests):
  *
- *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py:240-245`
+ *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py:237-246`
  *     — `CaseDBXMLGenerator.get_root_element()` sets exactly these
  *     four as XML attributes on `<case>`; everything else is
  *     emitted as a child element.
@@ -236,39 +243,52 @@ function emitPredicate(
 			// the inner never adds redundant grouping.
 			return `not(${emitPredicate(p.clause, ctx, 0)})`;
 		case "in": {
-			// Membership over a value list. CCHQ's wire form is
-			// `selected-any(prop, '<space-separated tokens>')` per
-			// `corehq/apps/case_search/xpath_functions/query_functions.py:38-51`.
-			// A single-value `in` collapses to plain equality: a
-			// degenerate one-token list adds no information over the
-			// equality form, and `<prop> = '<v>'` is the canonical
-			// CCHQ idiom for one-value matches. Both arms route the
-			// property reference through `emitTerm` so the reserved-
-			// attribute prefix logic (`@status` etc.) and the value
-			// through the per-context string-escape pipeline so
-			// embedded quotes are handled identically to comparison
-			// operators.
+			// Set-membership over a value list with value-equality
+			// semantics: "the property's value equals one of these
+			// literals". Single-value collapses to a plain equality
+			// (`<prop> = '<v>'`) and multi-value expands to an
+			// or-of-equalities (`(<prop> = '<v1>' or <prop> = '<v2>')`),
+			// keeping the semantics structurally continuous from
+			// one to many.
+			//
+			// CCHQ's `selected-any(prop, '<v1> <v2>')` looks like a
+			// fit at first glance, but it carries multi-select-token
+			// semantics: ES's `case_property_text_query` tokenizes
+			// the value string by whitespace and matches ANY token
+			// (verified at
+			// `corehq/apps/es/case_search.py:291-296` — the docstring
+			// states "If the value has multiple words, they will be
+			// OR'd together in this query"). That silently breaks
+			// `isIn` as soon as any value contains a space:
+			// `isIn(name, "Alice Smith")` (one literal) and
+			// `isIn(name, "Alice Smith", "Bob")` (a list of two)
+			// would land on different result sets because the
+			// multi-arg path would tokenize "Alice", "Smith", "Bob"
+			// independently. Multi-select containment ("the
+			// multi-select prop contains any of these tokens") is a
+			// distinct concept that needs its own AST kind and
+			// emitter; `isIn` is value-equality set membership.
+			//
+			// Both arms route the property reference through
+			// `emitTerm` so the reserved-attribute prefix logic
+			// (`@status` etc.) applies, and each value through
+			// `emitLiteral` so the per-context string-escape
+			// pipeline handles embedded quotes identically to
+			// comparison operators. The multi-value emission wraps
+			// the or-clause in parens defensively — XPath's `and`
+			// binds tighter than `or`, so a parent `and` would
+			// silently re-associate an unwrapped or-chain. Wrapping
+			// always avoids any ambiguity at the cost of one
+			// redundant pair when the predicate sits at the
+			// outermost level.
+			const left = emitTerm(p.left, ctx);
 			if (p.values.length === 1) {
-				return `${emitTerm(p.left, ctx)} = ${emitLiteral(p.values[0].value, ctx)}`;
+				return `${left} = ${emitLiteral(p.values[0].value, ctx)}`;
 			}
-			// Multi-value: ES's `match` query tokenizes the value
-			// string by whitespace and OR-combines the resulting
-			// terms (see `case_property_text_query` →
-			// `queries.match` in
-			// `corehq/apps/es/case_search.py:291-302`). The value
-			// list is therefore a single string, not multiple
-			// arguments, and the resulting joined string flows
-			// through `emitStringLiteral` so quote-bearing tokens
-			// pick up the same `concat()` / double-quote-wrap
-			// fallback the comparison-RHS path uses. Empty tokens
-			// (from `null` literals) are filtered before joining
-			// so the wire form never carries doubled-up whitespace
-			// separators.
-			const joined = p.values
-				.map(literalToken)
-				.filter((t) => t !== "")
-				.join(" ");
-			return `selected-any(${emitTerm(p.left, ctx)}, ${emitStringLiteral(joined, ctx)})`;
+			const clauses = p.values
+				.map((v) => `${left} = ${emitLiteral(v.value, ctx)}`)
+				.join(" or ");
+			return `(${clauses})`;
 		}
 		case "within-distance":
 			// Geo radius filter. CCHQ's wire form is
@@ -302,9 +322,9 @@ function emitPredicate(
 			//
 			// CSQL has no native conditional construct: `if` and
 			// `count` are absent from both `XPATH_VALUE_FUNCTIONS`
-			// (8 functions) and `XPATH_QUERY_FUNCTIONS` (14
-			// functions) at
-			// `corehq/apps/case_search/xpath_functions/__init__.py:27-50`.
+			// (8 functions, lines 27-36) and `XPATH_QUERY_FUNCTIONS`
+			// (14 functions, lines 39-54) at
+			// `corehq/apps/case_search/xpath_functions/__init__.py:27-54`.
 			// CCHQ's canonical conditional pattern at
 			// `docs/case_search_query_language.rst:299-303` handles
 			// the conditionality OUTSIDE the CSQL string — an XPath
@@ -342,33 +362,6 @@ function emitPredicate(
 			return `if(count(${inputExpr}), ${thenExpr}, true())`;
 		}
 	}
-}
-
-/**
- * Compile a literal AST node's `value` to its bare token form for
- * the `selected-any` value list. The value list is a single string
- * argument to a CCHQ wire function whose ES backend tokenizes by
- * whitespace (see the `selected-any` arm in `emitPredicate` for the
- * citation), so each value contributes one whitespace-separated
- * token rather than its own quoted string literal.
- *
- * The bare-token rules differ from the comparison-RHS rules: a
- * comparison RHS's `null` resolves to `''` (the canonical XPath
- * "is unset" form), but the same `null` inside a multi-value `in`
- * is a meaningless token and resolves to the empty string here —
- * the `selected-any` arm filters those out before joining so the
- * wire form never carries doubled-up whitespace separators.
- * Numbers go through `emitNumericLiteral` for exponent-form
- * avoidance; booleans serialize via `String(b)` so the multi-select
- * tokens match what an originating CommCare form would have written
- * for a true/false case property value.
- */
-function literalToken(lit: Literal): string {
-	const v = lit.value;
-	if (v === null) return "";
-	if (typeof v === "number") return emitNumericLiteral(v);
-	if (typeof v === "boolean") return String(v);
-	return v;
 }
 
 /**

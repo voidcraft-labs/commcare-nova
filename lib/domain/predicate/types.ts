@@ -246,19 +246,36 @@ const comparisonSchema = z.object({
 });
 
 /**
- * Membership: `left` ∈ `values`. Right side is restricted to literals
- * (not arbitrary terms) because the wire targets — XPath `selected-any`
- * / SQL `IN (...)` — both demand a static value list.
+ * Set membership with value-equality semantics: `left` equals one of
+ * the literals in `values`. Right side is restricted to literals (not
+ * arbitrary terms) because the wire targets — an XPath or-of-equalities
+ * chain on the case-list side and SQL `IN (...)` on the runtime side —
+ * both demand a static value list.
  *
  * `values` is `.min(1)`: an empty `in(...)` is trivially false at every
  * target and is virtually always an authoring bug (e.g. a filter UI
  * that bound to an unset variable). Reject at the AST layer so
  * downstream compilers don't have to encode the policy.
+ *
+ * The `.refine` rejecting all-null `values` defends a structural
+ * degenerate: a list of nothing-but-null collapses on every wire to
+ * "the property is unset OR the property is unset OR ...", which is
+ * just "the property is unset" duplicated. That's not what `in`
+ * means; the `eq(prop, literal(null))` shape is the canonical
+ * "is unset" form. Mixed null + non-null lists are accepted because
+ * they encode the meaningful "is unset OR equals one of these values"
+ * predicate.
  */
 const inSchema = z.object({
 	kind: z.literal("in"),
 	left: termSchema,
-	values: z.array(literalSchema).min(1),
+	values: z
+		.array(literalSchema)
+		.min(1)
+		.refine(
+			(values) => values.some((v) => v.value !== null),
+			"in.values must contain at least one non-null value",
+		),
 });
 
 /**
