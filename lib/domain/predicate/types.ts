@@ -351,8 +351,13 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
 /**
  * Reference to a value the user typed into a search input on the
  * case-search screen. Resolved at compile time by mapping `name` to the
- * search input's runtime value (XPath: `instance('commcaresession')...`
- * or similar; SQL: a bound parameter).
+ * search input's runtime value (XPath:
+ * `instance('search-input:results')/input/field[@name='<name>']`;
+ * SQL: a bound parameter). The CCHQ search-input instance is
+ * registered at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py:354`
+ * and the canonical path is documented at
+ * `commcare-hq/docs/case_search_query_language.rst:299`.
  *
  * `name` is constrained to XML element-name vocabulary (no hyphens) —
  * the wire form `<input>/<field @name='...'>` makes the name surface

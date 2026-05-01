@@ -18,19 +18,24 @@ import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
 	and,
+	between,
 	dateLiteral,
 	eq,
+	exists,
 	fuzzy,
 	gt,
 	input,
 	isIn,
+	isNull,
 	literal,
 	lt,
 	matchAll,
 	matchNone,
+	missing,
 	not,
 	or,
 	prop,
+	subcasePath,
 	timeLiteral,
 	userField,
 	whenInput,
@@ -695,5 +700,35 @@ describe("checkPredicate — sentinel predicates", () => {
 		// sentinel arm, this would crash inside `not`.
 		const p = not(matchAll());
 		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+});
+
+// The dispatch arm in `walk` throws on `is-null` / `between` /
+// `exists` / `missing` because per-operator semantic rules for these
+// kinds are not implemented in the current checker. These tests pin
+// the throw so a regression to silent-pass — the failure mode the
+// checker itself exists to prevent — produces a CI failure rather
+// than false-positive type-clean verdicts on unchecked predicates.
+// The error-message regex is matched loosely against the kind name
+// so phrasing changes around the kind don't trip the lock.
+describe("checkPredicate — operators with deferred semantic rules", () => {
+	it("throws on is-null until rules land", () => {
+		const p = isNull(prop("patient", "name"));
+		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'is-null'/);
+	});
+
+	it("throws on between until rules land", () => {
+		const p = between(prop("patient", "age"), { lower: literal(18) });
+		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'between'/);
+	});
+
+	it("throws on exists until rules land", () => {
+		const p = exists(subcasePath("parent"));
+		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'exists'/);
+	});
+
+	it("throws on missing until rules land", () => {
+		const p = missing(subcasePath("parent"));
+		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'missing'/);
 	});
 });
