@@ -77,7 +77,7 @@ type Term =
 
 Notable shapes:
 
-- **`case-property` carries an optional `via: RelationPath`.** This is the relational read: `case-property("patient", "age")` reads `age` on the current case; `case-property("patient", "age", via: ancestorPath("parent"))` reads `age` on the parent case. No slash-string templating; the relation is a typed structure.
+- **`case-property` carries an optional `via: RelationPath`.** This is the relational read: `case-property("patient", "age")` reads `age` on the current case; `case-property("patient", "age", via: ancestorPath(relationStep("parent", "household")))` reads `age` on the parent `household` case. No slash-string templating; the relation is a typed structure. The `caseType` slot names the *originating scope* (the case type the predicate runs against — i.e., the case type at the predicate's "self" position), not where the property lives. When `via` is absent or `{ kind: "self" }`, the property is read on a case of `caseType`. When `via` is a relation walk, the walk resolves to a destination case type and `property` is read there. The `caseType` qualifier stays explicit even when `via` is present so the originating scope is always recoverable without tracing back through nesting.
 - **`session-user` and `session-context` are split.** `instance('commcaresession')/session/user/data/<field>` and `instance('commcaresession')/session/context/<field>` are two different wire targets with different valid field sets (`session-context` is restricted to `userid`, `username`, `appid`, `domain`, `device_id`); the v1 AST conflated them under one `kind: "user"`.
 
 #### Predicate family
@@ -168,6 +168,8 @@ type RelationQuantifier =
 ```
 
 `identifier` is the index name (`parent`, `host`, custom names). `RelationStep[]` represents a multi-hop ancestor walk — `[{ identifier: "parent" }, { identifier: "host" }]` is "host of parent." No string parsing, no slash-separated paths. `ofCaseType` is an optional case-type filter that the type checker uses to narrow the property-resolution context inside `exists` / `count`.
+
+`any-relation` is direction-agnostic — it matches both CHILD and EXTENSION relationships under the same identifier. The Postgres compiler emits a `case_indices.identifier` lookup that matches both directions. CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`), so `any-relation` has no direct CCHQ wire form; the representability checker rejects it for CCHQ targets, and any consumer compiling to a CCHQ target must reject or rewrite the kind into a direction-specific one.
 
 ### Three wire targets
 

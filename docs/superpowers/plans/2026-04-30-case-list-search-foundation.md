@@ -183,44 +183,69 @@ Steps:
 - [ ] Replace shipped `fuzzy` schema directly with `match` (rewrite call sites in tests + emitter; delete `fuzzy` schema)
 - [ ] Run tests, commit
 
-### Task A3: Add RelationPath structure
+### Task A3: Add RelationPath structure — SHIPPED
 
-**Files:**
-- Modify: `lib/domain/predicate/types.ts`
-- Modify: `lib/domain/predicate/builders.ts`
-- Test: `lib/domain/predicate/__tests__/types.test.ts`, `builders.test.ts`
+Shipped across commits `ec43585d` → `21d8a103` → `476fcaef` → `b08a203f` → `c908cee8` → `d461cd86` → `6eccfa99`.
+
+**Files modified:**
+- `lib/domain/predicate/types.ts`
+- `lib/domain/predicate/builders.ts`
+- `lib/domain/predicate/__tests__/types.test.ts`
+- `lib/domain/predicate/__tests__/builders.test.ts`
+
+**Schema shape that landed** (matches the v2 spec's RelationPath section):
 
 ```ts
 const relationStepSchema = z.object({
-  identifier: z.string().regex(IDENTIFIER_PATTERN),
-  throughCaseType: z.string().regex(CASE_TYPE_PATTERN).optional(),
+  identifier: xmlElementNameField("Relation step identifier"),
+  throughCaseType: caseTypeField("Through case type").optional(),
 });
 
 const relationPathSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("self") }),
-  z.object({ kind: z.literal("ancestor"), via: z.array(relationStepSchema).min(1) }),
-  z.object({ kind: z.literal("subcase"), identifier: z.string().regex(IDENTIFIER_PATTERN), ofCaseType: z.string().regex(CASE_TYPE_PATTERN).optional() }),
-  z.object({ kind: z.literal("any-relation"), identifier: z.string().regex(IDENTIFIER_PATTERN), ofCaseType: z.string().regex(CASE_TYPE_PATTERN).optional() }),
+  z.object({
+    kind: z.literal("ancestor"),
+    via: z.tuple([relationStepSchema], relationStepSchema), // non-empty
+  }),
+  z.object({
+    kind: z.literal("subcase"),
+    identifier: xmlElementNameField("Subcase identifier"),
+    ofCaseType: caseTypeField("Of case type").optional(),
+  }),
+  z.object({
+    kind: z.literal("any-relation"),
+    identifier: xmlElementNameField("Any-relation identifier"),
+    ofCaseType: caseTypeField("Of case type").optional(),
+  }),
 ]);
 ```
 
-Builders:
+**Builders that landed:**
+
 ```ts
-export const ancestorPath = (...steps: RelationStep[]): RelationPath => ({ kind: "ancestor", via: steps });
-export const subcasePath = (identifier: string, ofCaseType?: string): RelationPath => ({ ... });
-export const selfPath = (): RelationPath => ({ kind: "self" });
+export const relationStep = (identifier: string, throughCaseType?: string): RelationStep => /* absent-key contract */
+export const selfPath = (): Extract<RelationPath, { kind: "self" }> => ({ kind: "self" });
+export const ancestorPath = (first: RelationStep, ...rest: RelationStep[]): Extract<RelationPath, { kind: "ancestor" }> => /* variadic-with-required-first */
+export const subcasePath = (identifier: string, ofCaseType?: string): Extract<RelationPath, { kind: "subcase" }> => /* absent-key contract */
+export const anyRelationPath = (identifier: string, ofCaseType?: string): Extract<RelationPath, { kind: "any-relation" }> => /* absent-key contract */
 ```
 
-Tests cover construction, multi-hop ancestor paths, identifier validation.
+`propertyRefSchema` extended with optional `via: relationPathSchema.optional()`. `prop()` builder extended with optional third parameter.
 
-The `Term.case-property` schema is extended with the optional `via: RelationPath` slot (the relational read).
+**Deviations from the v2 plan's outline above (all principled improvements):**
 
-Steps:
-- [ ] Write failing tests
-- [ ] Add `relationStepSchema` + `relationPathSchema`
-- [ ] Extend `propertyRefSchema` with optional `via`
-- [ ] Add builders
-- [ ] Run tests, commit
+1. **`xmlElementNameField` / `caseTypeField` helpers used** at every identifier slot rather than inline `z.string().regex(...)` calls. Three helpers (xmlElementNameField, caseTypeField, casePropertyField) collapse 10 near-identical regex+message duplications across the file. The helpers also normalize the user-facing error-message phrasing.
+2. **`z.tuple([T], T)` (Zod 4 idiom) instead of `.array(T).min(1)`** for the ancestor `via` non-empty constraint. The plan's `.min(1)` form is correct at parse time but doesn't lift the non-emptiness into the inferred type; the tuple-with-rest form does (per Zod issue #5253 / Zod 4 migration guide). Applied holistically — also to `andSchema.clauses`, `orSchema.clauses`, `inSchema.values`.
+3. **Variadic-with-required-first `ancestorPath(first, ...rest)`** instead of plain `(...steps)`. Catches empty calls at compile time, mirroring the `and` / `or` / `isIn` builder pattern.
+4. **Per-kind narrowed return types** (`Extract<RelationPath, { kind: "..." }>`) on builders rather than the wide `RelationPath` union. Callers narrowing on `kind` after a builder call get per-variant fields directly.
+5. **`anyRelationPath` builder added** (the v2 plan's outline omitted it; the schema has four kinds and a fourth builder is structurally consistent).
+6. **Absent-not-undefined contract** on every optional slot (`prop`'s `via`, `relationStep`'s `throughCaseType`, `subcasePath` / `anyRelationPath`'s `ofCaseType`). Builders construct objects without materializing `slot: undefined`, preserving round-trip equality assertions.
+
+**Originating-scope semantics on `propertyRefSchema.caseType`** (locked in JSDoc; consumers must encode this contract):
+
+`caseType` names the **originating scope** — the case type the predicate runs against (the predicate's "self" position) — NOT where the property lives when `via` is present. With `via` absent or `{ kind: "self" }`, the property is read on a case of `caseType`. With `via` a relation walk, the walk resolves to a destination case type and `property` is read on that destination. The `caseType` qualifier stays explicit even when `via` is present so the originating scope is always recoverable without tracing back through nesting. Task A5's type checker encodes this contract.
+
+**Wire-target portability for `any-relation`**: matches both CHILD and EXTENSION relationships under one identifier on the Postgres target. CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`), so `any-relation` has no direct CCHQ wire form. The representability checker (Task B5) rejects it for CCHQ targets; any consumer compiling to a CCHQ target must reject or rewrite the kind into a direction-specific one.
 
 ### Task A4: Add Term split — session-context separated from session-user
 
