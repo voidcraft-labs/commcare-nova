@@ -6,14 +6,24 @@
 //
 //   - case-list-filter — predicate dropped inside the case-list nodeset
 //     (e.g. `instance('casedb')/casedb/case[...][<this>]`). Property
-//     references emit as bare names; the case-type scope is implied by
-//     the surrounding nodeset.
+//     references resolve against the surrounding `<case>` element; the
+//     reserved CommCare attributes (`case_id`, `case_type`, `owner_id`,
+//     `status`) are stored as XML attributes on `<case>` and require
+//     the `@` prefix to address.
 //   - csql — predicate placed inside a `_xpath_query` value during case
-//     search. Property references emit as bare names here too; runtime
-//     concatenation against search-input instances happens at the wire
-//     layer, not here.
+//     search. Property references resolve against the case-search
+//     index; the same four reserved system metadata names are
+//     registered with the `@` prefix so a bare `case_type` would
+//     silently fall through to a user-defined-property lookup with no
+//     match.
 //
-// Both contexts share every operator emission and quoting rule. They
+// The reserved-attribute set converges across both contexts: `<case>`'s
+// XML attribute set in the casedb restore output equals CSQL's system-
+// metadata keyset. The emitter therefore prefixes uniformly rather
+// than branching on context. (See RESERVED_CASE_ATTRIBUTES below for
+// the source citations.)
+//
+// Both contexts share every operator emission and quoting rule; they
 // diverge only at the wire-wrapping layer outside this file. The
 // emitter still threads the context through every recursive call so
 // any operator arm whose wire form is context-dependent can branch on
@@ -47,7 +57,11 @@
 //     XPath dialect; the project's own grammar tests round-trip the
 //     same form (`lib/commcare/__tests__/deepValidation.test.ts:24`).
 
-import type { Predicate, Term } from "@/lib/domain/predicate/types";
+import type {
+	ComparisonKind,
+	Predicate,
+	Term,
+} from "@/lib/domain/predicate/types";
 
 /**
  * Two surfaces consume this emitter's output. The wire-wrapping layer
@@ -62,9 +76,12 @@ export type EmissionContext = "case-list-filter" | "csql";
  * Mapping from comparison-operator AST kind to its XPath wire token.
  * The six comparison operators share an identical emission shape
  * (`<left> <op> <right>`), so the emitter dispatches off this table
- * rather than restating six near-identical cases.
+ * rather than restating six near-identical cases. Typed by
+ * `ComparisonKind` so adding a new comparison kind to the AST surfaces
+ * here as a TypeScript error until the wire token is added — keeps
+ * the table exhaustive against the union.
  */
-const COMPARISON_OPS: Record<string, string> = {
+const COMPARISON_OPS: Record<ComparisonKind, string> = {
 	eq: "=",
 	neq: "!=",
 	gt: ">",
@@ -72,6 +89,35 @@ const COMPARISON_OPS: Record<string, string> = {
 	lt: "<",
 	lte: "<=",
 };
+
+/**
+ * The four CommCare case properties stored as XML attributes on
+ * `<case>` in the casedb restore output, addressed with the `@`
+ * prefix in XPath. The same four names (with the `@` prefix) are
+ * also the keys CCHQ registers in its CSQL system-metadata index, so
+ * the prefix applies uniformly across both emission contexts here —
+ * a bare `status` in CSQL silently degrades to a user-property lookup
+ * with no match.
+ *
+ * Sources (production code, not tests):
+ *
+ *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py:240-245`
+ *     — `CaseDBXMLGenerator.get_root_element()` sets exactly these
+ *     four as XML attributes on `<case>`; everything else (`name`,
+ *     `last_modified`, `external_id`, `date_opened`, custom
+ *     properties) is emitted as a child element.
+ *   - `corehq/apps/case_search/const.py:53-72` —
+ *     `INDEXED_METADATA_BY_KEY` lists the same four names with the
+ *     `@` prefix; the other system metadata keys (`name`,
+ *     `case_name`, `external_id`, `date_opened`, `closed_on`,
+ *     `last_modified`) are registered bare.
+ */
+const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
+	"case_id",
+	"case_type",
+	"owner_id",
+	"status",
+]);
 
 // Operator-precedence levels for paren-grouping decisions: higher
 // binds tighter. The recursive walker passes its own level down as
@@ -173,13 +219,20 @@ function emitPredicate(
  */
 function emitTerm(term: Term, _ctx: EmissionContext): string {
 	switch (term.kind) {
-		case "prop":
-			// Bare property name. The case-type scope is implied by
-			// the surrounding nodeset (case-list-filter sits inside a
-			// `casedb/case[...]` predicate; csql is scoped at query
-			// time), so the emitter never threads the `caseType`
-			// qualifier into the output.
+		case "prop": {
+			// Reserved CommCare case properties are addressed with the
+			// `@` prefix in both case-list-filter and csql contexts;
+			// see RESERVED_CASE_ATTRIBUTES for the source citations.
+			// The case-type qualifier (`term.caseType`) doesn't reach
+			// the wire — it scopes the AST for the type checker but
+			// the surrounding nodeset (case-list-filter) or the
+			// search context (csql) determines which case type the
+			// query runs against at execution time.
+			if (RESERVED_CASE_ATTRIBUTES.has(term.property)) {
+				return `@${term.property}`;
+			}
 			return term.property;
+		}
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
 		case "user":
@@ -191,17 +244,24 @@ function emitTerm(term: Term, _ctx: EmissionContext): string {
 
 /**
  * Compile a primitive literal to its wire form. Numbers emit as
- * unquoted XPath numbers; booleans emit as the strings `'true'` /
- * `'false'` (CommCare's case-search wire treats stored booleans as
- * strings — the case database stores everything as text). `null`
- * emits as the empty string `''`, matching the structural sentinel
- * used by the type checker for "is unset" comparisons.
+ * unquoted XPath numbers (integers and floats both serialize via
+ * `String(n)`, which produces the canonical decimal form). Booleans
+ * emit as the strings `'true'` / `'false'`; CommCare's case-property
+ * storage isn't strongly typed and the wire form a boolean takes
+ * depends on what the originating form wrote, so authors who need a
+ * different canonicalization (`'1'` / `'0'`, `'yes'` / `'no'`) coerce
+ * upstream by passing a string literal explicitly. `null` emits as
+ * the empty string `''` because XPath compares an absent attribute
+ * equal to `''`, so `<prop> = ''` is the natural "is unset" form.
  *
  * Strings emit as single-quoted XPath strings; an embedded single
  * quote forces a `concat()` fallback because XPath 1.0 has no
  * string-escape syntax. The fallback alternates single- and
  * double-quoted segments so the embedded quote stays unambiguous to
- * the parser.
+ * the parser. The fallback always emits the boundary segments even
+ * when they're empty (e.g. a value of `"'"` produces
+ * `concat('', "'", '')`) so the segment count tracks the input quote
+ * count predictably.
  */
 function emitLiteral(value: string | number | boolean | null): string {
 	if (value === null) return "''";

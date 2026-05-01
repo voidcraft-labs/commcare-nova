@@ -7,16 +7,21 @@
 // any future change in the emitter that drifts from CommCare's accepted
 // forms surfaces as a test failure.
 //
-// Coverage spans three concentric layers: (1) per-operator output for
+// Coverage spans four concentric layers: (1) per-operator output for
 // every comparison + logical kind landing in this emitter, (2) operand
 // emission for each term variant (prop / input / user / literal,
-// including the embedded-quote concat fallback), (3) the precedence
-// invariant that and-of-or wraps the inner or in parens. A final
-// equivalence check verifies that `case-list-filter` and `csql`
-// contexts emit identical strings at the operator + quoting layer —
-// the two contexts diverge only at the wire-wrapping layer outside
-// this emitter, and a regression that introduced an asymmetry would
-// silently change one consumer's output.
+// including the embedded-quote concat fallback and the
+// reserved-attribute `@` prefix), (3) the precedence invariant that
+// and-of-or wraps the inner or in parens, (4) cross-context
+// invariance — comparison and logical operator emission produces
+// identical strings under both `case-list-filter` and `csql` even
+// after the reserved-attribute prefix logic, since the reserved set
+// converges across both contexts in CCHQ.
+//
+// Operand-emission tests use the user-defined property `name` rather
+// than `status` to keep the focus on operator behavior; the
+// reserved-attribute prefix logic is exercised by its own dedicated
+// describe block parameterized over both contexts.
 //
 // CCHQ citations for the emitted forms are in xpathEmitter.ts.
 
@@ -36,12 +41,18 @@ import {
 	prop,
 	userField,
 } from "@/lib/domain/predicate/builders";
-import { emitXPath } from "../xpathEmitter";
+import { type EmissionContext, emitXPath } from "../xpathEmitter";
 
-describe("emitXPath — comparison operators (case-list-filter context)", () => {
+// Both contexts run through the same operator + quoting logic, so
+// every cross-context invariant test parameterizes over this tuple.
+// Listed once here so adding a third context (if one ever lands)
+// surfaces as a single edit site.
+const CONTEXTS: readonly EmissionContext[] = ["case-list-filter", "csql"];
+
+describe("emitXPath — comparison operators", () => {
 	it("emits eq with a string literal", () => {
-		const p = eq(prop("patient", "status"), literal("open"));
-		expect(emitXPath(p, "case-list-filter")).toBe("status = 'open'");
+		const p = eq(prop("patient", "name"), literal("Alice"));
+		expect(emitXPath(p, "case-list-filter")).toBe("name = 'Alice'");
 	});
 
 	it("emits eq with a numeric literal", () => {
@@ -49,9 +60,18 @@ describe("emitXPath — comparison operators (case-list-filter context)", () => 
 		expect(emitXPath(p, "case-list-filter")).toBe("age = 42");
 	});
 
+	it("emits eq with a decimal literal preserving the fractional part", () => {
+		// Numeric literals serialize via `String(n)`, which produces
+		// the canonical decimal form for non-integer numbers. Pinning
+		// `3.14` here guards against a regression that switched to
+		// `n.toFixed(0)` or any other lossy serialization.
+		const p = eq(prop("patient", "weight_kg"), literal(3.14));
+		expect(emitXPath(p, "case-list-filter")).toBe("weight_kg = 3.14");
+	});
+
 	it("emits neq", () => {
-		const p = neq(prop("patient", "status"), literal("closed"));
-		expect(emitXPath(p, "case-list-filter")).toBe("status != 'closed'");
+		const p = neq(prop("patient", "name"), literal("Bob"));
+		expect(emitXPath(p, "case-list-filter")).toBe("name != 'Bob'");
 	});
 
 	it("emits gt / gte / lt / lte", () => {
@@ -69,6 +89,37 @@ describe("emitXPath — comparison operators (case-list-filter context)", () => 
 		).toBe("age <= 18");
 	});
 
+	it("emits boolean literals as quoted 'true' / 'false' strings", () => {
+		// Boolean wire form mirrors `String(boolean)` — the most common
+		// upstream serialization. Authors with a form that wrote `1`/`0`
+		// or `yes`/`no` coerce upstream by passing a string literal
+		// explicitly, so this test pins what the boolean path produces
+		// rather than asserting any single CCHQ-canonical encoding.
+		expect(
+			emitXPath(
+				eq(prop("patient", "is_active"), literal(true)),
+				"case-list-filter",
+			),
+		).toBe("is_active = 'true'");
+		expect(
+			emitXPath(
+				eq(prop("patient", "is_active"), literal(false)),
+				"case-list-filter",
+			),
+		).toBe("is_active = 'false'");
+	});
+
+	it("emits null literals as the empty string", () => {
+		// XPath compares an absent attribute equal to `''`, so
+		// `<prop> = ''` is the natural "is unset" wire form. The type
+		// checker treats `literal(null)` as universally compatible —
+		// the structural sentinel for is-unset filters across every
+		// case-property data type — and this test is the wire-side
+		// pin on what that AST shape becomes.
+		const p = eq(prop("patient", "name"), literal(null));
+		expect(emitXPath(p, "case-list-filter")).toBe("name = ''");
+	});
+
 	it("escapes single quotes in string literals via concat()", () => {
 		// XPath 1.0 has no string-escape syntax: a literal embedding a
 		// single quote inside a single-quoted string cannot be expressed
@@ -84,13 +135,33 @@ describe("emitXPath — comparison operators (case-list-filter context)", () => 
 		);
 	});
 
-	it("emits user-context refs against session/user/data", () => {
-		const p = eq(
-			prop("patient", "owner_id"),
-			userField("commcare_location_id"),
-		);
+	it("emits concat with empty boundary segments for a quote-only literal", () => {
+		// A literal containing nothing but a single quote splits into
+		// two empty string halves around the quote. Emitting empty
+		// boundary segments keeps the segment count predictable
+		// (`n + 1` segments for `n` quotes) so reasoning about the
+		// concat output stays uniform regardless of where the quotes
+		// sit in the source string.
+		const p = eq(prop("patient", "name"), literal("'"));
+		expect(emitXPath(p, "case-list-filter")).toBe(`name = concat('', "'", '')`);
+	});
+
+	it("emits concat with multiple consecutive embedded quotes", () => {
+		// Two quotes in a row produce three string segments separated
+		// by two literal-quote separators. The middle segment is
+		// empty; emitting it keeps the segment count consistent with
+		// the single-quote case and avoids a special branch that would
+		// only fire on adjacent quotes.
+		const p = eq(prop("patient", "note"), literal("a''b"));
 		expect(emitXPath(p, "case-list-filter")).toBe(
-			"owner_id = instance('commcaresession')/session/user/data/commcare_location_id",
+			`note = concat('a', "'", '', "'", 'b')`,
+		);
+	});
+
+	it("emits user-context refs against session/user/data", () => {
+		const p = eq(prop("patient", "region"), userField("commcare_location_id"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"region = instance('commcaresession')/session/user/data/commcare_location_id",
 		);
 	});
 
@@ -102,24 +173,61 @@ describe("emitXPath — comparison operators (case-list-filter context)", () => 
 	});
 });
 
+describe("emitXPath — reserved case attributes", () => {
+	// CommCare stores `case_id`, `case_type`, `owner_id`, and `status`
+	// as XML attributes on `<case>` in the casedb restore output and
+	// registers the same four with the `@` prefix in the case-search
+	// system-metadata index. The emitter therefore prefixes uniformly
+	// across both `case-list-filter` and `csql` contexts; a bare
+	// `case_type` in CSQL would silently degrade to a user-property
+	// lookup with no match (see CCHQ source citations in
+	// xpathEmitter.ts on RESERVED_CASE_ATTRIBUTES).
+	//
+	// Each reserved attribute gets the same parameterized assertion
+	// across both contexts; the single `it.each` here covers all
+	// 4 × 2 cells without restating eight near-identical bodies.
+
+	it.each(
+		(["case_id", "case_type", "owner_id", "status"] as const).flatMap((attr) =>
+			CONTEXTS.map((ctx) => ({ attr, ctx }) as const),
+		),
+	)("prefixes '$attr' with @ in $ctx context", ({ attr, ctx }) => {
+		const p = eq(prop("patient", attr), literal("X"));
+		expect(emitXPath(p, ctx)).toBe(`@${attr} = 'X'`);
+	});
+
+	it.each(
+		CONTEXTS,
+	)("leaves user-defined properties bare in %s context", (ctx) => {
+		// `name`, `external_id`, `last_modified`, `date_opened`,
+		// `closed_on`, and `case_name` are CSQL system metadata
+		// registered without the `@` prefix; user-defined properties
+		// follow the same bare convention. Pinning a representative
+		// user property here locks the negative case — only the four
+		// `<case>` XML attributes get prefixed.
+		const p = eq(prop("patient", "name"), literal("Alice"));
+		expect(emitXPath(p, ctx)).toBe("name = 'Alice'");
+	});
+});
+
 describe("emitXPath — logical operators", () => {
 	it("emits and(...) joining clauses with ' and '", () => {
 		const p = and(
-			eq(prop("patient", "status"), literal("open")),
+			eq(prop("patient", "name"), literal("Alice")),
 			gt(prop("patient", "age"), literal(18)),
 		);
 		expect(emitXPath(p, "case-list-filter")).toBe(
-			"status = 'open' and age > 18",
+			"name = 'Alice' and age > 18",
 		);
 	});
 
 	it("emits or(...) joining clauses with ' or '", () => {
 		const p = or(
-			eq(prop("patient", "status"), literal("open")),
-			eq(prop("patient", "status"), literal("active")),
+			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "name"), literal("Bob")),
 		);
 		expect(emitXPath(p, "case-list-filter")).toBe(
-			"status = 'open' or status = 'active'",
+			"name = 'Alice' or name = 'Bob'",
 		);
 	});
 
@@ -132,13 +240,13 @@ describe("emitXPath — logical operators", () => {
 		// so the test is the structural lock on that precedence rule.
 		const p = and(
 			or(
-				eq(prop("patient", "status"), literal("open")),
-				eq(prop("patient", "status"), literal("active")),
+				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "name"), literal("Bob")),
 			),
 			gt(prop("patient", "age"), literal(18)),
 		);
 		expect(emitXPath(p, "case-list-filter")).toBe(
-			"(status = 'open' or status = 'active') and age > 18",
+			"(name = 'Alice' or name = 'Bob') and age > 18",
 		);
 	});
 
@@ -147,21 +255,22 @@ describe("emitXPath — logical operators", () => {
 		// operator, so the wire form is `not(<expr>)` regardless of the
 		// inner's precedence — the parens around the inner are the
 		// function-call argument list, not an associativity guard.
-		const p = not(eq(prop("patient", "status"), literal("closed")));
-		expect(emitXPath(p, "case-list-filter")).toBe("not(status = 'closed')");
+		const p = not(eq(prop("patient", "name"), literal("Bob")));
+		expect(emitXPath(p, "case-list-filter")).toBe("not(name = 'Bob')");
 	});
 });
 
-describe("emitXPath — context equivalence", () => {
-	// `case-list-filter` and `csql` contexts share every operator
-	// emission and quoting rule. They diverge only at the wire-wrapping
-	// layer outside this emitter (csql output gets concatenated into a
-	// string template; case-list-filter output is dropped into a nodeset
-	// directly). A regression that introduced any per-context behavior
-	// at the operator layer would silently change one consumer's
-	// output, so the equivalence is locked here against a representative
-	// predicate that exercises every term variant + every operator
-	// kind in this layer.
+describe("emitXPath — context invariance", () => {
+	// Comparison and logical operator emission produces identical
+	// strings under both contexts even after the reserved-attribute
+	// prefix logic, because the reserved set converges across both
+	// contexts in CCHQ (see RESERVED_CASE_ATTRIBUTES citations in
+	// xpathEmitter.ts). This test exercises a representative
+	// predicate that hits every term variant and every operator kind
+	// at this layer, including `status` (a reserved attribute) and
+	// `name` (a user-defined property), so a regression that
+	// introduced any per-context divergence at the operator or term
+	// layer surfaces here as a string mismatch.
 	it("emits identical output for case-list-filter and csql at the operator layer", () => {
 		const p = and(
 			or(
