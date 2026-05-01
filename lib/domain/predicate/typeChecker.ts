@@ -555,6 +555,29 @@ function resolveTermType(
 ): ResolvedType | undefined {
 	switch (term.kind) {
 		case "prop": {
+			// `via` carries a relation walk (`ancestor` / `subcase` /
+			// `any-relation`) whose resolution rule — "look up `property`
+			// on the destination case type, not on `caseType`" — is the
+			// destination-scope check. The walker has the originating-
+			// scope check below ("does `property` exist on `caseType`?"),
+			// but no rule for the destination scope, so emitting an
+			// error here is the right level of loudness: the rest of
+			// the predicate still gets walked (matching the
+			// unknown-property / unknown-input policy in the arms
+			// below) and the verdict comes back as `{ ok: false }` with
+			// a clear message rather than a silent type-clean
+			// false-positive on a cross-type traversal that wasn't
+			// validated. `{ kind: "self" }` is the explicit
+			// no-traversal form (semantically equivalent to absent
+			// `via`), so it routes through the originating-scope check
+			// without an error.
+			if (term.via !== undefined && term.via.kind !== "self") {
+				errors.push({
+					path,
+					message: `Property reference uses 'via: ${term.via.kind}' — type-checker resolution through relation walks has no dedicated rule. The originating-scope check (does '${term.property}' exist on '${term.caseType}'?) is structural; checking the destination scope is a separate concern.`,
+				});
+				return undefined;
+			}
 			const ct = ctx.caseTypes.find((c) => c.name === term.caseType);
 			if (!ct) {
 				errors.push({

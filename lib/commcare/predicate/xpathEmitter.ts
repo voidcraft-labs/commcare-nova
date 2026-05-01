@@ -368,11 +368,10 @@ function emitPredicate(
 		case "exists":
 		case "missing":
 			// This single-context emitter has no emission rules for
-			// these operators. The throw keeps the type-system
-			// exhaustiveness surface sound — a fall-through arm would
-			// silently emit `undefined` and break downstream string
-			// concatenation; the throw fails loudly at the call site
-			// instead.
+			// these operators. Throwing keeps the function's type-
+			// system exhaustiveness surface sound — silent fall-through
+			// would emit `undefined` and corrupt downstream string
+			// concatenation.
 			throw new Error(`emitPredicate: no emission for kind '${p.kind}'`);
 	}
 }

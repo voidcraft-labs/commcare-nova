@@ -78,9 +78,9 @@ import type {
  * The `caseType` qualifier is required even with `via` present so the
  * originating scope is always explicit at the call site — readers see
  * the predicate's home scope without tracing back through nesting,
- * and the type checker can resolve the relation walk against that
- * scope's schema directly. See the JSDoc on `propertyRefSchema` in
- * `types.ts` for the full contract.
+ * and a downstream consumer (type checker, emitter, SQL compiler)
+ * starts its walk from a known root. See the JSDoc on
+ * `propertyRefSchema` in `types.ts` for the full contract.
  *
  * `via` is the optional relational-read slot — pass an `ancestorPath` /
  * `subcasePath` / `anyRelationPath` / `selfPath` to reach a property
@@ -250,11 +250,10 @@ export function selfPath(): Extract<RelationPath, { kind: "self" }> {
  *
  * Multi-hop walks compose by chaining `relationStep(...)` arguments —
  * `ancestorPath(relationStep("parent"), relationStep("host"))`
- * encodes "host of parent" and compiles to nested `instance('casedb')`
- * joins on-device or to chained `walk_ancestor_hierarchy` steps in
- * CSQL. Each step's `throughCaseType` narrows the type checker's
- * property resolution at that step's destination scope so a chained
- * walk through heterogeneously-typed cases stays well-typed.
+ * encodes "host of parent". Each step's optional `throughCaseType`
+ * narrows the destination scope at that step structurally; downstream
+ * consumers (type checker, emitter, SQL compiler) read the qualifier
+ * to resolve property references along the chain.
  */
 export function ancestorPath(
 	first: RelationStep,

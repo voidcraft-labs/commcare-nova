@@ -209,19 +209,17 @@ const casePropertyField = (label: string) =>
  * One step in a relation walk — the index name plus an optional
  * case-type narrowing hint. `RelationStep[]` represents a multi-hop
  * ancestor chain; the chain's first step originates at the current
- * case-type scope and each subsequent step originates at the destination
- * of the previous step.
+ * case-type scope and each subsequent step originates at the
+ * destination of the previous step.
  *
- * `identifier` is constrained to XML element-name vocabulary because
- * the wire form `current()/index/<identifier>` places the identifier
- * as an XML element-name path step. The on-device runtime build site
- * is `CaseChildElement.buildIndexTreeElement` (cited at the
- * file-level RelationPath comment), where each index identifier
- * surfaces as a named child of the per-case `<index>` TreeElement.
- * The CCHQ ES traversal is verified at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:39-94`.
- * `throughCaseType` is constrained to CommCare's case-type vocabulary
- * to keep emitter interpolation safe.
+ * `identifier` is constrained to XML element-name vocabulary so the
+ * value can flow through wire emitters that interpolate it directly
+ * into XPath path steps without quoting; `throughCaseType` is
+ * constrained to CommCare's case-type vocabulary for the same
+ * interpolation-safety reason. Source citations for the runtime
+ * wire shape live in the file-level RelationPath comment above —
+ * keeping them in one place avoids drift between the per-schema and
+ * file-level copies.
  */
 export const relationStepSchema = z.object({
 	identifier: xmlElementNameField("Relation identifier"),
@@ -303,29 +301,28 @@ export type RelationPath = z.infer<typeof relationPathSchema>;
 /**
  * Reference to a property read from a case in a specific scope.
  *
- * `caseType` names the **originating case-type scope** — the case type
- * the predicate runs against, i.e. the case type at the predicate's
- * "self" position. It is NOT the case type the property lives on when
- * `via` is present. When `via` is absent or `{ kind: "self" }`, the
- * property is read directly on a case of `caseType`. When `via` is a
- * relation walk (`ancestor` / `subcase` / `any-relation`), the walk
- * resolves to a destination case type, and `property` is read on that
- * destination — the type checker uses `via`'s `throughCaseType` /
- * `ofCaseType` qualifiers to resolve the destination scope at check
- * time.
+ * `caseType` names the **originating case-type scope** — the case
+ * type the predicate runs against, i.e. the case type at the
+ * predicate's "self" position. It is NOT the case type the property
+ * lives on when `via` is present. When `via` is absent or
+ * `{ kind: "self" }`, the property is read directly on a case of
+ * `caseType`. When `via` is a relation walk
+ * (`ancestor` / `subcase` / `any-relation`), the walk resolves to a
+ * destination case type and `property` semantically references the
+ * property on that destination.
  *
  * Example: a predicate over the `patient` case list filtering by
- * `region` on the patient's `household` parent compiles to
+ * `region` on the patient's `household` parent is
  * `prop("patient", "region", ancestorPath(relationStep("parent",
  * "household")))`. `caseType` is `patient` (originating scope);
  * `property` is `region` on the `household` destination reached via
  * the `parent` index hop.
  *
- * The `caseType` qualifier is required even when `via` is present so
- * the originating scope is always explicit at the AST node — readers
- * don't have to trace back through nesting to recover it, and the
- * type checker can resolve the relation walk against the originating
- * case-type schema directly.
+ * `caseType` is required even when `via` is present so the
+ * originating scope is always explicit at the AST node — readers
+ * don't have to trace back through nesting to recover it, and a
+ * downstream consumer (type checker, emitter, SQL compiler) starts
+ * its walk from a known root.
  *
  * Both `caseType` and `property` are constrained to CommCare's
  * identifier vocabulary at the schema layer — see the

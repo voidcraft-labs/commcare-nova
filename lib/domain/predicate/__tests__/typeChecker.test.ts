@@ -17,6 +17,7 @@
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
+	ancestorPath,
 	and,
 	between,
 	dateLiteral,
@@ -35,6 +36,8 @@ import {
 	not,
 	or,
 	prop,
+	relationStep,
+	selfPath,
 	subcasePath,
 	timeLiteral,
 	userField,
@@ -745,5 +748,72 @@ describe("checkPredicate — kinds without dedicated semantic rules throw", () =
 			isNull(prop("patient", "name")),
 		);
 		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'is-null'/);
+	});
+});
+
+// `prop.via` carries a relation walk whose resolution rule —
+// "look up `property` on the destination case type, not on
+// `caseType`" — is the destination-scope check. The originating-
+// scope check (does `property` exist on `caseType`?) is
+// structural and runs unconditionally; the destination-scope
+// check has no dedicated rule. The arm in `resolveTermType`
+// emits a `CheckError` and returns `undefined` rather than
+// silently stripping `via` and resolving against the originating
+// scope alone — silent acceptance would be a false-positive
+// type-clean verdict on a cross-type traversal that wasn't
+// validated, the same failure mode the throw arms in `walk`
+// defend against.
+describe("checkPredicate — prop.via routing", () => {
+	it("reports an error on prop with an ancestor via", () => {
+		const p = eq(
+			prop(
+				"patient",
+				"region",
+				ancestorPath(relationStep("parent", "household")),
+			),
+			literal("north"),
+		);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			// One error: the prop.via arm emits-and-returns; the
+			// surrounding comparison short-circuits on `undefined` and
+			// adds no cascading mismatch error.
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(
+				/via.*relation walks?|destination scope/i,
+			);
+		}
+	});
+
+	it("reports an error on prop with a subcase via", () => {
+		// All non-self via kinds route through the same arm; pinning
+		// `subcase` separately locks the rejection across the union
+		// rather than implying it from the ancestor case alone.
+		const p = eq(
+			prop("household", "status", subcasePath("parent", "patient")),
+			literal("active"),
+		);
+		const result = checkPredicate(p, {
+			...ctx,
+			caseTypes: [{ ...PATIENT, name: "household" }],
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/via.*relation walks?|destination scope/i,
+			);
+		}
+	});
+
+	it("accepts prop with via: self (no-traversal form)", () => {
+		// `selfPath()` is the explicit no-traversal kind; the arm
+		// passes through to the originating-scope check rather than
+		// emitting a via-rejection error. Pinning the positive case
+		// keeps the no-traversal shape distinct from the cross-type
+		// traversal kinds the arm rejects.
+		const p = eq(prop("patient", "name", selfPath()), literal("Alice"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 });
