@@ -422,26 +422,41 @@ Shipped across commits `c2d2b393` → `2f7941d0` → `510441fb`.
 - For B-stage emitters: wire forms come from the spec's "Null vs blank semantics" table, NOT from copying the transitional `xpathEmitter.ts`.
 - For any future operator touching null/empty/missing semantics: design Postgres-strict at the AST, the wire layer handles the constraint via per-dialect emitter + B5 representability checker.
 
-### Task A5: Type-checker rules for new Predicate operators
+### Task A5: Type-checker rules for new Predicate operators — SHIPPED
 
-**Files:** `lib/domain/predicate/typeChecker.ts`, tests.
+Shipped across commits `8bead4b5` → `9c1e2bdd` → `be911ee1`.
 
-Per-operator rules:
-- `match-all` / `match-none` — always check `ok: true`.
-- `between` — `left` and any provided bounds must be ordered types (int/decimal/date/datetime/time); types must agree.
-- `exists` / `missing` — `via` is type-checked against the case-type schema; `where` (if present) is type-checked recursively in the destination scope (resolved via `via`).
-- `multi-select-contains` — `property` must be `multi_select`-typed; values must be members of the option set if declared.
-- `match` — `property` must be a text-shaped type. The allow-list is `text` / `single_select` / `multi_select` (the same set as `FUZZY_PROPERTY_TYPES` in the shipped `typeChecker.ts:162-167`, and the same set CCHQ's `case_property_query` accepts at `commcare-hq/.../xpath_functions/query_functions.py:46-51`). All four modes (`fuzzy`, `phonetic`, `fuzzy-date`, `starts-with`) share this allow-list. Do not narrow.
-- `compare` (existing, but extended) — operands resolved via the new `via` slot on `case-property`.
+**Files modified:**
+- `lib/domain/predicate/typeChecker.ts`
+- `lib/domain/predicate/__tests__/typeChecker.test.ts`
 
-(`is-null` and `is-blank` type-checker rules land in A4.5 — the operator's wholeness is more important than the task-stage purity here.)
+**What landed:**
 
-Steps:
-- [ ] Write failing tests for each new operator's rule
-- [ ] Extend `walk` switch in `typeChecker.ts` with new arms
-- [ ] Add helper `checkRelationPath(path, ctx)` that resolves the destination case type and feeds back into Term resolution
-- [ ] Add helper `checkInDestinationScope(predicate, destinationCaseType, ctx)` for `exists`/`missing` filter checking
-- [ ] Run tests, commit
+Most operators on the v2 plan's per-operator-rules list were already shipped clean from earlier tasks (`match-all` / `match-none` / `match` / `multi-select-contains` / `in` / `within-distance` / `when-input-present` / `compare` operand resolution). A4.5 shipped `is-null` / `is-blank` via `checkAbsenceOperator`. **A5's actual scope was the three remaining stubs that throw**: `between`, `exists`, `missing`, plus the `prop.via` proper destination-scope resolution that A3 had stubbed as a CheckError emit.
+
+Helpers and rules:
+
+- `checkBetween` — ordered-types check (re-uses the shipped `ORDERED_TYPES` constant; no extraction needed), per-bound `typesCompatible` check, literal-pair `lower > upper` impossibility detection (with caveat doc on TZ-suffixed datetime corner per the code-quality follow-up).
+- `checkRelationPath(relationPath, originCaseType, ctx, errors, path) → string | undefined` — walks `parent_type` for `ancestor` (with `throughCaseType` validation against `origin.parent_type`); reverse-walks for `subcase` and `any-relation` with `ofCaseType` disambiguation. Distinct error messages for unknown originating type, no-candidates, ambiguous (multiple candidates without `ofCaseType`), and `ofCaseType` names a non-subcase. The `case "self":` arm is structurally unreachable (callers handle self elsewhere) — defensive throw + JSDoc.
+- `checkInDestinationScope(predicate, destination, ctx, errors, path)` — recursively walks the where-clause with `currentCaseType` rebound via spread (`{ ...ctx, currentCaseType }`) so the parent scope can't be polluted; the recursive walk re-enters the standard `walk` function so nested `exists`/`missing` resolve their own destination scopes correctly.
+- `checkRelationalQuantifier` — top-level dispatcher for `exists`/`missing`. Rejects `via.kind === "self"` uniformly (advisor-backed deviation from the v2 plan's outline — `exists(self, w)` reduces to `w(currentScope)` and is degenerate at every position; the redundancy belongs in A7's reduction module, not in scope-boundary plumbing). Routes the where-clause through `checkInDestinationScope`.
+- `resolveTermType`'s `prop` arm flips from emit-and-return on non-self `via` to proper destination-scope resolution: looks up `term.property` on the case type that `checkRelationPath` resolves to from `term.caseType`. The originating-scope JSDoc on `propertyRefSchema.caseType` (locked in A3) is encoded — `caseType` names the originating scope; with `via` present, the property is read on the destination.
+- `TypeContext.currentCaseType?: string` — new optional slot, threaded through callers. Optional so existing call sites compose unchanged; gates the `prop.caseType === currentCaseType` constraint in `resolveTermType` only when bound.
+
+**CCHQ source citations verified at `/Users/braxtonperry/code/commcare-hq`:** `subcase-exists` registered at `xpath_functions/__init__.py:41`, implementation at `subcase_functions.py:51-62` with optional filter at `:207`. `ancestor-exists` registered at `__init__.py:51`, implementation at `ancestor_functions.py:97-118` with mandatory 2-arg via `confirm_args_count` at `:109`.
+
+**Deviations from the v2 plan's outline above (all principled improvements):**
+
+1. **Uniform rejection of `exists(via=self, ...)`** instead of the plan's "allow nested but reject top-level" framing. `exists(self, w)` is degenerate at every position; advisor-backed call to push the reduction into A7 rather than carry scope-boundary plumbing for a shape no UI surface or reducer would emit.
+2. **`ORDERED_TYPES` constant re-used as-is** from the shipped comparison checker — no extraction required because it was already a module-top constant. Same for `typesCompatible`.
+3. **JSDoc precision pass** (commit `be911ee1`): `checkRelationPath` ancestor arm's "Should not happen" comment was reframed to acknowledge the originating-side failure path is reachable after A5's flip; the literal-pair lex-order doc carries an explicit caveat for TZ-suffixed datetime strings (CCHQ wire convention is naive datetimes so behavior is correct in practice).
+4. **Test coverage filled three distinct error paths** the initial commit missed: `between` directly on `decimal` and `time` properties, subcase walk with zero candidates, and `prop.via` with an unknown originating case type. Each path produces a unique editor-facing message.
+
+**Verification gates (all green at HEAD `be911ee1`):**
+- 141 typeChecker tests pass (was 137 before the code-quality follow-up; +4 new for the coverage gaps)
+- Full predicate suite green
+- `npx tsc --noEmit` clean
+- `npx @biomejs/biome check lib/domain/predicate/` clean
 
 ### Task A6: Expression AST — types, builders, type checker
 
