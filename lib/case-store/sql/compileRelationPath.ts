@@ -38,50 +38,42 @@
 // (lines 311-321) — only `ancestor` admits a multi-hop tuple. The
 // emitter mirrors that constraint structurally.
 //
-// ## Why a subquery, not chain-of-joins on the parent
+// ## Subquery encapsulation
 //
-// Two API shapes were on the table:
-//
-//   1. Return a list of `JoinExpression` clauses the caller
-//      splices into a parent query. Tight coupling to caller's
-//      query state; multiple hops mutate the parent's shape; the
-//      parent has to know about every intermediate `cases_h0`,
-//      `cases_h1`, etc. alias.
-//
-//   2. Return an aliased subquery the caller `innerJoin`s. The
-//      subquery encapsulates every intermediate join, every
-//      tenant filter, every depth-1 filter, every case-type
-//      filter. The caller reads through one alias.
-//
-// The subquery shape (#2) wins on encapsulation. The caller's
+// The compiled result is an aliased subquery the caller
+// `innerJoin`s, NOT a list of `JoinExpression` clauses to splice
+// into a parent query. The subquery holds every intermediate
+// `case_indices` + `cases` pair, every tenant filter, every
+// depth-1 filter, and every case-type filter; the caller's
 // surface is reduced to "innerJoin this subquery on
-// `subquery.anchor_case_id = anchor.case_id`"; the relation
-// path's complexity stays inside the subquery.
+// `subquery.anchor_case_id = anchor.case_id`". A spliced-clauses
+// API would force every caller to know about each intermediate
+// alias (`cases_h0`, `cases_h1`, etc.) and would couple parent
+// queries to the path's hop count.
 //
-// ## Why a raw `sql` template literal, not the typed builder
+// ## Raw `sql` template body
 //
-// The chain-of-joins shape composes one `(case_indices, cases)`
-// pair per AST step, with per-iteration aliases (`ci0`, `cs0`,
-// `ci1`, `cs1`, ...). Kysely's typed builder accumulates the
-// alias keys into the table-set type each `innerJoin` produces,
-// which means the `where(...)` predicates and `select(...)` calls
-// after the loop have to reference column strings that don't
-// exist in the static `Database` type. The dynamic table-set
-// types fight the typed builder.
+// The subquery body is built via Kysely's `sql` template tag, the
+// canonical escape hatch (Kysely docs § "Raw SQL") for SQL whose
+// shape depends on dynamic, per-iteration aliases. The chain
+// composes one `(case_indices, cases)` pair per AST step with
+// aliases `ci0` / `cs0` / `ci1` / `cs1` / ...; Kysely's typed
+// builder accumulates each `innerJoin`'s alias key into the
+// table-set type, which means subsequent `where(...)` and
+// `select(...)` calls would have to reference columns that don't
+// exist in the static `Database` type. The `sql` tag with
+// `sql.ref(...)` for column references, `sql.table(...)` for
+// table names, and `${value}` for parameter binding sidesteps
+// the dynamic-table-set issue and produces a `RawBuilder` that
+// `.as(alias)` lifts to an `AliasedRawBuilder` — the
+// `AliasedExpression` shape `innerJoin` accepts as a table
+// expression.
 //
-// The canonical Kysely escape hatch for this pattern is the `sql`
-// template tag (Kysely docs § "Raw SQL"): the template emits
-// well-formed SQL with `sql.id(...)` for identifier escaping and
-// `${value}` for parameter binding. The result wraps in
-// `.as(alias)` to produce an `AliasedRawBuilder` — which is an
-// `AliasedExpression`, the exact shape `innerJoin` accepts as a
-// table expression.
-//
-// The cost: callers see the leaf as a typed shape, but the
-// per-column reads happen through `sql.ref(...)` rather than the
-// fluent builder. Term compilers emit `properties->>'k'`
-// constructs through `sql.ref` — the same idiom the surrounding
-// case-store code uses.
+// Callers still see the leaf as a typed shape (the `sql` tag's
+// generic parameter pins `RawBuilder<RelationPathLeafRow>`); the
+// per-column reads happen through `sql.ref(...)`, the same idiom
+// the surrounding case-store code uses for `properties->>'k'`
+// constructs.
 //
 // ## Why `case_indices.depth = 1` on every step
 //
@@ -100,16 +92,16 @@
 // degenerates to a no-op when they don't. Either physical shape
 // produces the same row set.
 //
-// ## Why a recursive CTE is unnecessary
+// ## Static hop count
 //
-// Hop count is statically known from the AST. An `ancestor` walk
-// with `via.length === N` compiles to N chained `case_indices`
-// joins and N chained `cases` joins. The AST never expresses
-// "ancestor at any depth"; the closest shape is a `count({ via })`
-// wrapper a wider expression compiler builds on top of this
-// module's subquery output. `WITH RECURSIVE` would only
-// complicate the SQL without admitting any AST shape the
-// chain-of-joins doesn't already cover.
+// Multi-hop walks compile as a chain of joins because the hop
+// count is statically known from the AST. An `ancestor` walk
+// with `via.length === N` produces N chained `case_indices`
+// lookups and N chained `cases` joins; `subcase` and
+// `any-relation` are single-hop. The AST has no "ancestor at any
+// depth" shape — the closest construct is a wider-query
+// `count({ via })` expression that wraps this module's subquery
+// output and counts its rows.
 //
 // ## Why tenant filtering lives in this module
 //
@@ -132,6 +124,7 @@ import type {
 	AliasedRawBuilder,
 	Kysely,
 	RawBuilder,
+	Selectable,
 } from "kysely";
 import { sql } from "kysely";
 import type { RelationPath, RelationStep } from "@/lib/domain/predicate/types";
@@ -150,59 +143,32 @@ import type { Database } from "./database";
 export const RELATION_PATH_LEAF_ALIAS = "rp_leaf";
 
 /**
- * The `cases`-row columns the relation-path leaf subquery
- * exposes. Term and Expression compilers read properties through
- * the subquery's alias, so the leaf row's column set must include
- * every `cases` column either compiler may need:
+ * The row shape the relation-path leaf subquery exposes. Term and
+ * Expression compilers read properties through the subquery's
+ * alias, so the leaf row must surface every `cases` column either
+ * compiler may need plus one synthetic column for the caller's
+ * join correlation.
  *
- *   - `case_id`        — the leaf's own identifier; threaded back
- *                        out of the join when the caller needs
- *                        the leaf row's identity.
- *   - `case_type`      — used by the type checker to resolve
- *                        property names at the leaf scope.
- *   - `properties`     — JSONB document the Term compiler reads
- *                        property values from via `->>`.
- *   - `app_id`,
- *     `owner_id`,
- *     `status`,
- *     `opened_on`,
- *     `modified_on`,
- *     `closed_on`,
- *     `parent_case_id` — every other `cases` column the wider
- *                        query may select / filter on. Exposing
- *                        them all keeps the contract uniform —
- *                        callers don't have to distinguish "this
- *                        column is reachable via the relation
- *                        path, that one isn't".
+ * The shape is derived from `Selectable<Database["cases"]>` rather
+ * than hand-typed: when the `cases` table evolves (a column type
+ * narrows to a string-literal union, a column gains nullability,
+ * etc.) the leaf row picks up the change automatically. Hand-typed
+ * columns would silently diverge.
  *
- * Plus one synthetic column:
+ * `Selectable<...>` strips Kysely's `ColumnType` wrappers down to
+ * the read-side shape, so `properties` lands as `JsonObject`
+ * (the JSONB document Postgres returns) rather than the
+ * `JSONColumnType<JsonObject>` insert/update wrapper.
  *
- *   - `anchor_case_id` — the join correlation key. For ancestor
- *                        walks this is the anchor's `case_id`
- *                        (the descendant case the walk starts
- *                        from). For subcase walks it's the leaf's
- *                        ancestor (the parent case the walk
- *                        started from). Callers join on
- *                        `<leafAlias>.anchor_case_id =
- *                        <anchorAlias>.case_id`.
- *
- * Defined as a TypeScript interface so callers can narrow against
- * the leaf's row type when they thread the subquery into a wider
- * query — the type flows through Kysely's `.innerJoin(...)`
- * inference.
+ * The synthetic `anchor_case_id` column is the join correlation
+ * key. For ancestor walks it is the anchor's `case_id` (the
+ * descendant case the walk starts from); for subcase walks it is
+ * the leaf's ancestor (the parent case the walk started from).
+ * Callers join on `<leafAlias>.anchor_case_id =
+ * <anchorAlias>.case_id`.
  */
-export interface RelationPathLeafRow {
+export interface RelationPathLeafRow extends Selectable<Database["cases"]> {
 	anchor_case_id: string;
-	case_id: string;
-	app_id: string;
-	case_type: string;
-	owner_id: string | null;
-	status: string | null;
-	opened_on: Date | null;
-	modified_on: Date | null;
-	closed_on: Date | null;
-	parent_case_id: string | null;
-	properties: Database["cases"]["properties"];
 }
 
 /**
@@ -565,7 +531,14 @@ function buildAnyRelationBody(
 			: { identifier, throughCaseType: ofCaseType },
 	]);
 	const subcaseBranch = buildSubcaseBody(ctx, identifier, ofCaseType);
-	return sql<RelationPathLeafRow>`${ancestorBranch} union all ${subcaseBranch}`;
+	// Paren-wrap the union as a whole so `.as("rp_leaf")` aliases the
+	// combined relation, not just the second branch's tail. The two
+	// branches are already paren-wrapped by `composeSubqueryBody`,
+	// so the resulting SQL is `((SELECT ...) UNION ALL (SELECT ...))`
+	// — nested parens, valid Postgres. Without the outer wrap the
+	// alias attaches to the subcase branch and the union itself
+	// becomes the JOIN target, which is a parse error.
+	return sql<RelationPathLeafRow>`(${ancestorBranch} union all ${subcaseBranch})`;
 }
 
 // ---------------------------------------------------------------
@@ -648,5 +621,12 @@ function composeSubqueryBody(
 			? sql``
 			: sql` ${sql.join(additionalJoins, sql` `)}`;
 	const whereSql = sql` where ${sql.join(whereFragments, sql` and `)}`;
-	return sql<RelationPathLeafRow>`${selectFragment} ${fromFragment}${joinsSql}${whereSql}`;
+	// Paren-wrap the body so that `<body>.as("rp_leaf")` produces
+	// `(SELECT ... WHERE ...) AS "rp_leaf"`, which is what Postgres
+	// requires for an `INNER JOIN <subquery> AS <alias>` target.
+	// `RawBuilder.as` does not insert parentheses; the responsibility
+	// belongs to whoever assembles the body. Without the wrap the
+	// emitted SQL is `INNER JOIN SELECT ... WHERE ... AS "rp_leaf"`,
+	// which is a Postgres parse error.
+	return sql<RelationPathLeafRow>`(${selectFragment} ${fromFragment}${joinsSql}${whereSql})`;
 }

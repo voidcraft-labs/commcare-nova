@@ -14,11 +14,14 @@
 //     the application-layer validator that runs the same JSON
 //     Schema in TypeScript before each write.
 //   - `case_indices` — case-relation edges. One row per direct
-//     ancestor edge (depth=1); transitive walks compose via a
-//     recursive CTE on read. The architectural answer to CCHQ's
-//     `MAX_RELATED_CASES = 500_000` per-hop scan: a single indexed
-//     lookup on `(case_id, identifier)` traverses any depth in one
-//     query.
+//     ancestor edge (depth=1). Multi-hop traversals compose as a
+//     chain of `(case_indices, cases)` joins, one per AST step;
+//     see `lib/case-store/sql/compileRelationPath.ts`. The
+//     architectural answer to CCHQ's `MAX_RELATED_CASES = 500_000`
+//     per-hop scan: a single indexed lookup on
+//     `(case_id, identifier)` resolves each hop, and the chain
+//     stays statically known from the AST so no recursion is
+//     needed.
 //
 // The DDL the types mirror is the single source of truth at
 // `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
@@ -306,8 +309,12 @@ export interface CaseIndicesTable {
 	/**
 	 * Edge depth. `depth=1` means a direct edge between a case
 	 * and its immediate ancestor. Higher values are reserved for
-	 * storing transitive edges; the relation-path compiler reads
-	 * whichever rows exist via recursive CTE.
+	 * storing transitive edges. The relation-path compiler
+	 * (`lib/case-store/sql/compileRelationPath.ts`) chains direct
+	 * edges per AST step and pins every `case_indices` lookup to
+	 * `depth = 1`, so the SQL ignores any transitive rows that
+	 * happen to be present and the read strategy stays
+	 * materialization-agnostic.
 	 *
 	 * Spec line 279: `depth INT NOT NULL` with comment
 	 * `1 = direct, 2 = grandparent`.

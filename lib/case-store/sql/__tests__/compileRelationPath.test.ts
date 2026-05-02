@@ -426,3 +426,50 @@ describe("compileRelationPath — leafAlias contract", () => {
 		expect(compiled.leafAlias).not.toBe("case_indices");
 	});
 });
+
+// -- Paren-wrap structural assertion ---------------------------------
+//
+// `INNER JOIN (subquery) AS "alias" ON ...` is the only valid Postgres
+// shape for a joined subquery. Without parens the parser reads the
+// subquery's `SELECT ... FROM` as part of the outer FROM clause and
+// the `AS "alias"` attaches to whatever the body's tail expression is
+// — a parse error. `RawBuilder.as` does NOT insert parens; the
+// responsibility belongs to whichever helper assembles the body.
+//
+// This suite exists as a one-line guard that compiles every joined
+// arm and asserts the `INNER JOIN (` shape in the emitted SQL. A
+// regression that drops the wrap (or adds a body-shape that bypasses
+// `composeSubqueryBody`) trips this check before any harness round-
+// trip test fails.
+
+describe("compileRelationPath — paren-wrap shape", () => {
+	const arms = [
+		{
+			name: "ancestor single-hop",
+			path: ancestorPath(relationStep("parent")),
+		},
+		{
+			name: "ancestor two-hop",
+			path: ancestorPath(relationStep("parent"), relationStep("host")),
+		},
+		{ name: "subcase", path: subcasePath("parent") },
+		{ name: "any-relation", path: anyRelationPath("parent") },
+	] as const;
+
+	for (const { name, path } of arms) {
+		it(`paren-wraps the JOIN target for ${name}`, () => {
+			const compiled = compileRelationPath(path, makeCtx());
+			if (compiled.kind !== "joined") {
+				throw new Error("expected joined kind");
+			}
+			const sql = compile(buildJoinedQuery(compiled));
+			// The JOIN target opens with `inner join (` and the alias
+			// `as "rp_leaf"` appears later in the same clause. Use a
+			// case-insensitive regex because Kysely's Postgres compiler
+			// emits lowercase keywords; `\(` matches the literal open
+			// paren regardless of internal whitespace.
+			expect(sql.sql).toMatch(/inner join \(/i);
+			expect(sql.sql).toContain(`) as "${compiled.leafAlias}"`);
+		});
+	}
+});
