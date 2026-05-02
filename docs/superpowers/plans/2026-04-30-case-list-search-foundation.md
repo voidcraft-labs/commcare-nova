@@ -691,19 +691,46 @@ Shipped across commits `8d6773ee` → `e4c48920`.
 
 **Known scope boundary (deferred to C1):** operand emission for grammar value functions `today` / `now` / `date-add` / `double` / `unwrap-list` still throws via `unwrapTermFromExpression`. The current throw is structural exhaustiveness consistent with B2's pattern; C1's expression emitter wires per-slot ValueExpression emission later when these arms appear in operand positions outside the term lifter.
 
-### Task B6: Delete the transitional `xpathEmitter.ts`
+### Task B6: Delete the transitional `xpathEmitter.ts` — SHIPPED
+
+Shipped across commits `9b4c113e` → `f4f74101`.
 
 **Files:**
-- Delete: `lib/commcare/predicate/xpathEmitter.ts`
-- Modify: `lib/commcare/predicate/index.ts` to export the two new emitters instead.
+- `lib/commcare/predicate/xpathEmitter.ts` — DELETED (~448 lines).
+- `lib/commcare/predicate/__tests__/xpathEmitter.test.ts` — DELETED (~874 lines, 83 tests).
+- `lib/commcare/predicate/index.ts` — rewritten as the package's permanent public surface barrel (eternal-present JSDoc; exports the two emitter entry points + their result types + the lexical helpers + `WireDialect`).
+- `lib/commcare/predicate/caseListFilterEmitter.ts` — secondary fix-pass cleanup: routed `within-distance.unit` through `quoteLiteral(p.unit, "case-list-filter")` for symmetry with the CSQL emitter; renamed two `v1` / `v2` placeholder values in template comments to `a` / `b` to satisfy the strengthened sweep.
+- `lib/commcare/predicate/csqlEmitter.ts` — secondary fix-pass cleanup: dropped the `B2` roadmap-label reference in the any-relation arm comment; narrowed `emitPropertyRefSegment`'s return type via new `ConstantTermEmission` / `RuntimeTermEmission` aliases composed into the existing `TermEmission` union, eliminating a confessed-dead runtime branch in `emitMatchSegments`.
 
-Once Tasks B2 and B3 ship, delete the transitional emitter. Update tests / imports across the codebase. The deletion is a structural defense: keeping it around as a "shim" risks future regressions where a consumer imports the transitional emitter and bypasses the per-slot dispatch.
+**Public barrel surface (`lib/commcare/predicate/index.ts`):**
+- `emitCaseListFilter(predicate)` from `./caseListFilterEmitter` — on-device XPath emitter; serves both case-list-filter and post-ES search-filter slots.
+- `emitCsql(predicate)` from `./csqlEmitter` — CSQL emitter with total hoisting + concat() wrapping; returns `CsqlEmissionResult` (the wrapper string + the lifted `HoistedWrapper`s the wire layer threads into the `_xpath_query` slot).
+- Type-only exports: `CsqlEmissionResult`, `CsqlHoistResult`, `HoistedWrapper`, `WireDialect`.
+- Lexical helpers: `quoteLiteral`, `quoteIdentifier`, `formatNumeric` from `./stringQuoting`.
+- `hoistForCsql` is intentionally NOT exported — `emitCsql` already wraps the hoist pass and returns the wrappers in its result; re-exporting `hoistForCsql` would invite a double-walk where callers scan, discard, then call `emitCsql` to scan again. Documented in the barrel JSDoc.
 
-Steps:
-- [ ] Verify no consumers of `xpathEmitter` outside `lib/commcare/predicate/`
-- [ ] Update `index.ts`
-- [ ] Delete file
-- [ ] Run full test suite, commit
+**Architectural decisions:**
+
+1. **Hard deletion, not deprecation shim** — keeping the transitional emitter as a re-export risked future regressions where a consumer imports the old emitter and bypasses the per-slot dispatch. The deletion is the structural defense.
+2. **`hoistForCsql` not on the public surface** — single-call shape (`emitCsql`) constrains callers; double-walk avoidance.
+3. **Type-only re-exports use `export type`** — `verbatimModuleSyntax` discipline; consumers don't pay runtime import overhead on type-only references.
+4. **`emitPropertyRefSegment` narrowed return type** (`ConstantTermEmission` not `TermEmission`) — the dead runtime branch in `emitMatchSegments` was a confessed-dead "uniformity" rationale; the type narrow turns the invariant into a compile-time fact. The wider `TermEmission` union stays for `emitTermSegment` where both arms are legitimately produced.
+5. **`within-distance.unit` routed through `quoteLiteral`** on both emitters — closes a lexical-pass-through asymmetry. Wire output unchanged for the current `miles` / `kilometers` enum (no escape characters), but the centralized rule covers any future enum extension.
+6. **Strengthened sweep regex extended with `\bB[0-9]\b|\bC[0-9]\b`** — catches roadmap labels for B-phase and C-phase ordinals that the prior regex pattern set missed (the `B2` reference in the original commit slipped through the `task ?B` and `deleted in (B|C)` patterns).
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on the original `9b4c113e` — all six checklist items verified (deletion, barrel rewrite, no external consumers, test-count math, eternal-present voice, `v1`/`v2` placeholder rename only in comments not in test fixtures).
+- Code-quality review (opus): ❌ Round 1 found 3 BLOCKING on `9b4c113e` — `B2` roadmap label leak, confessed-dead branch in `emitMatchSegments`, asymmetric `within-distance.unit` quoting between emitters. Resolved in fix-pass `f4f74101` and re-review APPROVED.
+
+**Verification gates (all green at HEAD `f4f74101`):**
+- 2455 full-project tests pass / 14 skipped (down from 2538 by exactly 83 — the deleted `xpathEmitter.test.ts`)
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (zero warnings)
+- Extended eternal-present sweep returns zero hits across the five package files. Final regex set:
+  ```
+  task ?B|extract|moved|added|previously|originally|formerly|now (uses|delegates|imports)|in (this|that) (task|step)|supersed|until [^.]*(land|come|arriv)|future change|will (eventually|land|move|migrate)|transitional emitter knows|deleted in (B|C)|ever lands|if one ever|hypothetical|representab|Plan ?[0-9]|Phase ?[0-9]|\bv[0-9]\b|\bV[0-9]\b|\bB[0-9]\b|\bC[0-9]\b
+  ```
 
 ---
 
