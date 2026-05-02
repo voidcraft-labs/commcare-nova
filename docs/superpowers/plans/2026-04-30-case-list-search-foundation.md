@@ -906,18 +906,47 @@ Steps:
 - [ ] Implement, with PostGIS / pg_trgm / fuzzystrmatch dependencies declared
 - [ ] Run tests, commit
 
-### Task C5: RelationPath compiler — Kysely (case_indices joins)
+### Task C5: RelationPath compiler — Kysely (case_indices joins) — SHIPPED
+
+Shipped across commits `48c2eac5` → `2a0550ca`.
 
 **Files:**
-- Create: `lib/case-store/sql/compileRelationPath.ts`
-- Test: `__tests__/compileRelationPath.test.ts`
+- `lib/case-store/sql/compileRelationPath.ts` (new) — total `RelationPath` compiler. Public surface: `compileRelationPath(path, ctx) → CompiledRelationPath`. Result is a discriminated union: `{ kind: "self" }` for the no-op degenerate, or `{ kind: "joined", leafAlias, buildLeafSubquery() }` returning an `AliasedExpression<RelationPathLeafRow, "rp_leaf">` callers thread directly into `innerJoin`.
+- `lib/case-store/sql/__tests__/compileRelationPath.test.ts` (new, 13 tests) — `.compile()`-only coverage of the join shapes plus a structural-assertion regex (`/inner join \(/i` + `) as "rp_leaf"` token check) on every joined arm so the JOIN-target-paren-wrap invariant is structurally pinned, not implied.
+- `lib/case-store/sql/__tests__/compileRelationPath.harness.test.ts` (new, 5 tests) — execute-against-real-Postgres round-trips via the testcontainers harness covering all four joined arms (`ancestor` single-hop, `ancestor` two-hop, `subcase`, `any-relation`) plus a depth-filter regression test that seeds both `depth=1` and `depth=2` rows and asserts the single-hop walk reads only the depth=1 leaf — structural defense against a future regression dropping the depth pin.
+- `lib/case-store/sql/database.ts` (modified) — file-header docstring + `CaseIndicesTable.depth` JSDoc updated to describe the chain-of-joins read strategy; both spots cross-reference `compileRelationPath.ts`.
 
-Compile each RelationPath variant to a JOIN spec on `case_indices`. Multi-hop ancestor walks compose `case_indices` joins (one row per direct edge; recursive CTE for transitive closure). Subcase paths join in the reverse direction.
+**RelationPath variant coverage:**
+- `self` — degenerate; result `{ kind: "self" }`. The leaf alias IS the anchor; callers handle as a no-op join (read directly from the anchor's columns).
+- `ancestor` walk (single + multi-hop) — chain of `(case_indices, cases)` joins, one per AST step. Multi-hop composes by chaining the inner `case_indices.ancestor_id → cases.case_id` then `case_indices.case_id = previous_anchor_id` in sequence. AST schema (`z.tuple([RelationStep], rest)`) bounds hop count statically — recursive CTE unnecessary.
+- `subcase` — reverses the join direction (`case_indices.ancestor_id = anchor.case_id` then `case_indices.case_id → cases.case_id`).
+- `any-relation` — `UNION ALL` of single-hop ancestor + single-hop subcase variants under the same identifier.
 
-Steps:
-- [ ] Write failing tests per RelationPath variant
-- [ ] Implement
-- [ ] Run tests, commit
+**Tenant filter discipline:** the `(app_id, owner_id)` filter applies on EVERY joined `cases` row in the walk, not just the leaf. Multi-hop ancestor walks filter intermediate cases too. `null` `ownerId` compiles to `IS NULL` (not `= NULL` which never matches in SQL). Structurally enforced via `tenantFilterFragments(casesAlias, ctx)` called at every hop; tests pin the parameter-count invariant.
+
+**Depth filter:** `case_indices.depth = 1` on every lookup. Materialization-agnostic against the spec's "case_indices materialization policy" gate — works under Option A (full closure) or Option B (direct edges only) per Plan 2's eventual choice.
+
+**`RelationStep.ofCaseType` / `throughCaseType` filtering:** applied per step. Ancestor steps use `throughCaseType` for intermediate filtering; subcase / any-relation use `ofCaseType` for leaf filtering. The `any-relation` walk maps `ofCaseType` to `throughCaseType` on the ancestor branch correctly.
+
+**Architectural decisions:**
+
+1. **Chain-of-joins, NOT recursive CTE.** Hop count is statically known from the AST schema (`ancestor.via` is a non-empty tuple-with-rest); arbitrary depth is impossible at the type level. `WITH RECURSIVE` would add complexity without covering any shape the chain doesn't already handle.
+2. **Subquery-as-join, not spliced JOIN clauses.** Every relation path compiles to a single subquery aliased as `rp_leaf` that callers thread through `innerJoin`. Intermediate joins, tenant filters, depth filters, and case-type filters live inside the subquery; consumers see one alias and read columns through `<rp_leaf>.<col>`.
+3. **Raw `sql` template literal, not Kysely's typed builder.** Per-iteration aliases (`ci0`, `cs0`, `ci1`, ...) accumulate into Kysely's table-set type in a way the typed builder cannot express. `sql.ref` for column references and `sql.table` for table names is the canonical Kysely escape hatch for this shape; all identifiers go through the helpers (no raw string interpolation into SQL).
+4. **JOIN target paren-wrapped at the composition boundary.** `composeSubqueryBody` wraps the body; `buildAnyRelationBody` wraps the union of branches. Without this, Kysely's `RawBuilder.as(...)` semantics (which appends ` as "rp_leaf"` without wrapping) produce `INNER JOIN select ... where ... as "rp_leaf" ON ...` — invalid Postgres syntax. The structural-assertion regex + the harness round-trips together pin the wrap invariant against future regressions.
+5. **`RelationPathLeafRow extends Selectable<Database["cases"]>`** plus synthetic `anchor_case_id`. Picks up every `cases` column automatically; `Selectable<...>` strips Kysely's `JSONColumnType<JsonObject>` to the read-side `JsonObject` consumers expect. Closed an existing latent typing bug where the prior hand-typed leaf row had `properties` as the insert/update wrapper, not the read shape.
+6. **`RelationPathCompileContext` uses object args** (`{ db, appId, ownerId, anchorAlias }`) — no positional same-type args. Standing rule per the user's "good function signatures over UUID branding" lock-in.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `48c2eac5`. All 8 checklist items verified — every variant, tenant filter on every joined `cases` row, depth=1 on every lookup, ofCaseType / throughCaseType per step, API shape, object-args context, test coverage. The implementer's design deviations (chain-of-joins vs CTE, raw SQL template, subquery-as-join) all justified against the AST schema's bounded-depth contract.
+- Code-quality review (opus): ❌ Round 1 found 4 BLOCKING + 1 SUGGESTION + 1 cleanup on `48c2eac5`. Critical: JOIN target lacked paren-wrapping → malformed SQL. DummyDriver tests passed because they never executed; consumers (C6 / C7) would have hit Postgres parse errors at first execution. Plus stale recursive-CTE claims in `database.ts`, header comment lying about `sql.id` (uses `sql.ref` / `sql.table`), and hand-typed `RelationPathLeafRow` instead of `Selectable<Database["cases"]>`. All resolved in fix-pass `2a0550ca` with new harness round-trip tests + structural assertion. Re-review APPROVED (gates verified by supervisor).
+
+**Verification gates (all green at HEAD `2a0550ca`):**
+- 2565 full-project tests pass / 14 skipped (vs 2556 pre-fix-pass; +9 = 4 paren-wrap structural assertions in compile-only suite + 5 harness round-trips). The `pg_jsonschema` allowlist-gate falls through to the warn path on the postgis/postgis:16-3.4 image, as expected.
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (798 files; zero warnings, zero errors)
+- Strengthened eternal-present sweep returns zero hits across the four touched files (regex includes `\bB[0-9]\b|\bC[0-9]\b`)
 
 ### Task C6: Expression compiler — Kysely
 
