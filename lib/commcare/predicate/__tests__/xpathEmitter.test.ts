@@ -626,15 +626,12 @@ describe("emitXPath — special operators", () => {
 	// every context surfaces as a passing-when-it-should-throw test if
 	// the contract drifts.
 	const MATCH_THROW_CASES = CONTEXTS.flatMap((ctx) =>
-		MATCH_MODES.map((mode) => [ctx, mode] as const),
+		MATCH_MODES.map((mode) => ({ ctx, mode })),
 	);
-	// Format-string slots interpolate positionally from the tuple, so
-	// the order here matches `[ctx, mode]` above. Reversing either side
-	// produces test names like "throws on match (mode: csql) in fuzzy
-	// context" and points CI failure output at the wrong slot.
-	it.each(
-		MATCH_THROW_CASES,
-	)("throws on match in %s context (mode: %s)", (ctx, mode) => {
+	it.each(MATCH_THROW_CASES)("throws on match in $ctx context (mode: $mode)", ({
+		ctx,
+		mode,
+	}) => {
 		const p = match(prop("patient", "name"), "alice", mode);
 		expect(() => emitXPath(p, ctx)).toThrow(/match/i);
 	});
