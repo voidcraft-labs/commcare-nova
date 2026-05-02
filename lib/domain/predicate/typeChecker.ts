@@ -902,14 +902,24 @@ function checkBetween(
  * mirroring `resolveTermType`'s short-circuit pattern so callers don't
  * have to handle resolution-failure cascades.
  *
- * The four kinds:
+ * The four kinds — three reachable from A5's call sites (`ancestor` /
+ * `subcase` / `any-relation`), one structurally unreachable (`self`):
  *
- *   - `self` — no traversal. The destination is the originating case
- *     type. Inside a `where` clause this is the explicit no-traversal
- *     form (route through to the surrounding scope); at the top level
- *     it's a meaningless self-relation handled by the caller (the
- *     relational-quantifier helper rejects `via.kind === "self"`
- *     standalone before this function runs).
+ *   - `self` — `checkRelationalQuantifier` rejects standalone
+ *     `via.kind === "self"` before invoking this helper, and
+ *     `resolveTermType`'s `prop` arm short-circuits absent / `self`
+ *     `via` to the originating-scope branch without touching this
+ *     helper. The arm exists in the switch only for `RelationPath`
+ *     discriminated-union exhaustiveness — adding a new kind without
+ *     a parallel arm here is a TypeScript compile error rather than
+ *     a silent fall-through. The runtime body throws to surface the
+ *     invariant violation if any future caller routes `self` through
+ *     this helper via an untyped boundary. The uniform top-level
+ *     rejection of `exists(via: self)` is defensible because the
+ *     shape (`exists(self, w)` reduces to `w(currentScope)`) is
+ *     degenerate at every position; collapsing degenerate shapes is
+ *     the reductions module's concern (Task A7), not the
+ *     type-checker's.
  *
  *   - `ancestor` — walk `parent_type` chain, one hop per `RelationStep`.
  *     The current `CaseType` schema models at most one parent, so each
@@ -967,13 +977,26 @@ function checkRelationPath(
 ): string | undefined {
 	switch (relationPath.kind) {
 		case "self":
-			// No traversal — destination is the originating case type.
-			// Inside a `where` clause this is the explicit no-traversal
-			// form. The relational-quantifier helper rejects
-			// `via.kind === "self"` at the top level before reaching
-			// this function, so by the time we land here `self`
-			// always means "stay in scope."
-			return originCaseType;
+			// Structurally unreachable from any of A5's call sites:
+			// `checkRelationalQuantifier` rejects standalone
+			// `via.kind === "self"` before invoking this helper, and
+			// `resolveTermType`'s `prop` arm short-circuits absent /
+			// `self` `via` to the originating-scope branch without
+			// touching `checkRelationPath`. The arm is retained for
+			// `RelationPath` discriminated-union exhaustiveness so a
+			// future addition of a relation-path kind is a compile
+			// error here rather than a silent fall-through; throwing
+			// surfaces the invariant violation if any future caller
+			// reaches this branch via an untyped boundary. The
+			// uniform top-level rejection of `exists(via: self)` is
+			// defensible because the shape (`exists(self, w)` reduces
+			// to `w(currentScope)`) is degenerate at every position,
+			// not only the top one — collapsing degenerate shapes is
+			// the reductions module's concern (Task A7), not the
+			// type-checker's.
+			throw new Error(
+				"checkRelationPath: 'self' is unreachable here — callers route 'self' through the originating-scope branch before invoking this helper.",
+			);
 
 		case "ancestor": {
 			// Walk the parent_type chain hop-by-hop. Each hop's origin

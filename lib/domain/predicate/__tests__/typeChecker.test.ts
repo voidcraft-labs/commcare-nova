@@ -1272,6 +1272,23 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		}
 	});
 
+	it("rejects subcase walk when ofCaseType names a declared but non-subcase type", () => {
+		// `household` is a real case type but not a subcase of
+		// `patient` (the relationship runs the other way: `patient`
+		// is a subcase of `household`). Locks the second of the two
+		// `ofCaseType` failure modes — the known-but-wrong-subcase
+		// case — distinct from the unknown-case-type message.
+		const p = exists(subcasePath("parent", "household"));
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/not a subcase|parent_type/i);
+		}
+	});
+
 	it("accepts any-relation walk with ofCaseType", () => {
 		// Direction-agnostic kind — the resolution semantics mirror
 		// `subcase` (find candidates whose `parent_type` matches the
@@ -1388,9 +1405,13 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 
 	it("propagates errors from inside the where-clause through wrapper recursion", () => {
 		// A type-mismatch deep inside the where-clause surfaces with a
-		// path that threads the outer operator's `kind` and the inner
-		// slot. Locks the recursion contract for the new arms — the
-		// where-clause doesn't bypass the walker.
+		// path that threads the outer operator's `kind`, the `where`
+		// slot name, and the comparison-operator's own per-side
+		// segment. Pinning the full path locks the kind-segment
+		// threading the relational arms add — without it, a
+		// regression that dropped `["exists", "where"]` from the
+		// recursion would leave the message shape intact and slip
+		// past the message-only assertion.
 		const p = exists(
 			ancestorPath(relationStep("parent")),
 			eq(prop("household", "size"), literal("not-a-number")),
@@ -1401,6 +1422,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		});
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["exists", "where"]);
 			expect(result.errors[0].message).toMatch(/type mismatch/i);
 		}
 	});
