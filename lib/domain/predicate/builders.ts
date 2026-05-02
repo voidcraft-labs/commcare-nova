@@ -91,7 +91,15 @@ import type {
 // `types.ts` drift-guard block ensures the kind sets stay distinct
 // at compile time.
 
-const TERM_KINDS = new Set<Term["kind"]>([
+// `TERM_KINDS` is typed `ReadonlySet<string>` rather than
+// `ReadonlySet<Term["kind"]>` so `Set.has(input.kind)` accepts a
+// string discriminator without a cast — the call site narrows from
+// the wider `Term | ValueExpression` input through `isTerm`'s type
+// predicate (`is Term`) instead of a structural cast on the lookup
+// key. The runtime contents stay the closed Term-kind set; only the
+// nominal Set element type is widened to the discriminator's
+// underlying string.
+const TERM_KINDS: ReadonlySet<string> = new Set([
 	"prop",
 	"input",
 	"session-user",
@@ -106,7 +114,7 @@ const TERM_KINDS = new Set<Term["kind"]>([
  * `TERM_KINDS`; the static narrowing flows from the type predicate.
  */
 function isTerm(input: Term | ValueExpression): input is Term {
-	return TERM_KINDS.has(input.kind as Term["kind"]);
+	return TERM_KINDS.has(input.kind);
 }
 
 /**
