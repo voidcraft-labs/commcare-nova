@@ -54,15 +54,29 @@
 //     instance-factory registration at
 //     `corehq/apps/app_manager/suite_xml/post_process/instances.py:354`.
 //   - `instance('commcaresession')/session/user/data/<field>` for
-//     user-context refs — see the production helper
+//     `session-user` refs (open-namespace custom user-data fields) —
+//     populated on-device by `addUserProperties` at
+//     `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`,
+//     which writes an arbitrary `userFields` Hashtable as `<data>`
+//     children under `<user>`. The CCHQ-side wire-builder helper is
 //     `session_var(var, path='data')` at
 //     `corehq/apps/app_manager/xpath.py:114-119` (which builds
 //     `instance('commcaresession')/session/<path>/<var>` from any
-//     path segment) and one of its callers,
+//     path segment); one caller,
 //     `EntriesHelper.get_userdata_autoselect` at
 //     `corehq/apps/app_manager/suite_xml/sections/entries.py:217-220`,
-//     which invokes it with `path='user/data'` to address custom
-//     user-data fields.
+//     invokes it with `path='user/data'` to address custom user-data
+//     fields.
+//   - `instance('commcaresession')/session/context/<field>` for
+//     `session-context` refs (closed-namespace framework fields:
+//     `userid` / `username` / `deviceid` / `appversion` for v1) —
+//     populated on-device by `addMetadata` at the same
+//     `SessionInstanceBuilder.java` symbol anchor, which writes a
+//     framework-controlled set of metadata fields. The CCHQ-side
+//     wire-builder helper is `session_var(var, path='context')` at
+//     `corehq/apps/app_manager/xpath.py`; the canonical user-id
+//     resolution at `corehq/apps/app_manager/xpath.py:248` invokes it
+//     with `var='userid', path='context'`.
 //   - `concat('a', "'", 'b')` as the case-list-filter embedded-quote
 //     escape — XPath 1.0 has no string-escape syntax, so the portable
 //     form switches to `concat()` with alternating quote styles. The
@@ -435,8 +449,23 @@ function emitTerm(term: Term, ctx: EmissionContext): string {
 		}
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
-		case "user":
+		case "session-user":
+			// Open-namespace custom user-data field. The wire path is
+			// `instance('commcaresession')/session/user/data/<field>`;
+			// `<field>` is interpolated directly because `field` is
+			// already constrained at the schema layer to XML element-name
+			// vocabulary (no quoting / escaping is required for valid
+			// values, and invalid values reject at parse time before they
+			// reach this emitter).
 			return `instance('commcaresession')/session/user/data/${term.field}`;
+		case "session-context":
+			// Closed-namespace framework-controlled context field. The
+			// wire path is
+			// `instance('commcaresession')/session/context/<field>`;
+			// `<field>` is one of the four `SESSION_CONTEXT_FIELDS`
+			// members (verified at the schema layer), so direct
+			// interpolation is safe.
+			return `instance('commcaresession')/session/context/${term.field}`;
 		case "literal":
 			return emitLiteral(term.value, ctx);
 	}

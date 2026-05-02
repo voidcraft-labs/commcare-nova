@@ -760,13 +760,40 @@ function resolveTermType(
 			}
 			return decl.data_type ?? "text";
 		}
-		case "user":
-			// User-context refs resolve to text by convention. CommCare's
-			// `instance('commcaresession')/session/user/data/<field>` returns a
-			// string at the XPath/CSQL layer; the type checker treats user
-			// fields as text without an opt-out path. The only resolution
-			// path is text; any typed coercion happens upstream of the
-			// predicate.
+		case "session-user":
+			// Open-namespace custom user-data fields resolve to text. The
+			// wire path `instance('commcaresession')/session/user/data/<field>`
+			// is populated by `addUserProperties` at
+			// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`,
+			// which writes the user's `userFields` Hashtable as `<data>`
+			// children under `<user>`. Hashtable values are strings at the
+			// wire — every custom user-data field comes back as a string
+			// regardless of whether the project semantically tracks it as
+			// a number or a date. The type checker therefore returns
+			// `text` unconditionally; authors who need a typed read coerce
+			// upstream of the predicate at the form-write boundary or via
+			// a calculated column.
+			return "text";
+		case "session-context":
+			// Closed-namespace framework-controlled context fields also
+			// resolve to text for v1's four-field set. The wire path
+			// `instance('commcaresession')/session/context/<field>` is
+			// populated by `addMetadata` at
+			// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+			// Each of the four authoring-exposed fields
+			// (`SESSION_CONTEXT_FIELDS` in `types.ts`) is a wire string —
+			// `userid` / `username` / `deviceid` are identifiers and
+			// `appversion` is a version string whose lexicographic ordering
+			// happens to match semantic ordering (so `>=` checks like
+			// `appversion >= '2.0'` resolve correctly under text
+			// comparison). Returning `text` for the entire arm is therefore
+			// correct for v1.
+			//
+			// If `drift` (a numeric clock-skew metric) ever joins the enum,
+			// this arm becomes mode-aware: dispatch on `term.field` to
+			// return `int` for `drift` and `text` for the rest. The closed
+			// enum gives that future change a structural anchor — the
+			// dispatch is one switch, not a per-call lookup.
 			return "text";
 		case "literal":
 			return literalType(term);

@@ -57,7 +57,8 @@ import {
 	not,
 	or,
 	prop,
-	userField,
+	sessionContext,
+	sessionUser,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -188,10 +189,34 @@ describe("emitXPath — comparison operators", () => {
 		expect(emitXPath(p, "case-list-filter")).toBe("name = ''");
 	});
 
-	it("emits user-context refs against session/user/data", () => {
-		const p = eq(prop("patient", "region"), userField("commcare_location_id"));
+	it("emits session-user refs against /session/user/data/<field>", () => {
+		// `commcare_location_id` is a custom user-data field (open
+		// namespace; populated by `addUserProperties` at
+		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`).
+		// The wire path threads the field as a literal element-name path
+		// step; the schema's XML-element-name regex guarantees safe
+		// interpolation.
+		const p = eq(
+			prop("patient", "region"),
+			sessionUser("commcare_location_id"),
+		);
 		expect(emitXPath(p, "case-list-filter")).toBe(
 			"region = instance('commcaresession')/session/user/data/commcare_location_id",
+		);
+	});
+
+	it("emits session-context refs against /session/context/<field>", () => {
+		// `username` is a closed-enum member of `SESSION_CONTEXT_FIELDS`
+		// (populated by `addMetadata` at the same
+		// `SessionInstanceBuilder.java` symbol anchor). The wire path
+		// targets `/session/context/`, NOT `/session/user/data/` —
+		// pinning both wire forms here defends against the silent-
+		// regression failure mode the term split is designed to
+		// prevent (using the wrong path returns empty at runtime with
+		// no on-device error surface).
+		const p = eq(prop("patient", "name"), sessionContext("username"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"name = instance('commcaresession')/session/context/username",
 		);
 	});
 
@@ -309,7 +334,7 @@ describe("emitXPath — string-literal escape", () => {
 			eq(prop("patient", "name"), literal("Alice")),
 			or(
 				gt(prop("patient", "age"), literal(18)),
-				eq(prop("patient", "owner_id"), userField("commcare_location_id")),
+				eq(prop("patient", "owner_id"), sessionUser("commcare_location_id")),
 			),
 		);
 		expect(emitXPath(p, "csql")).toBe(emitXPath(p, "case-list-filter"));

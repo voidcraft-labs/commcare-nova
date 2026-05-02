@@ -369,20 +369,135 @@ export const searchInputRefSchema = z.object({
 });
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 
+// ---------- Session refs (`/session/user/data/` and `/session/context/`) ----------
+//
+// CommCare's `commcaresession` instance carries TWO distinct trees under
+// `/session/`, each with its own population mechanism and its own
+// authoring contract. The split between these schemas matches the wire-
+// shape split the framework imposes — collapsing both onto one term
+// kind would let an author emit
+// `instance('commcaresession')/session/user/data/userid`, which silently
+// returns empty (the field is at `/session/context/userid`, not at
+// `/session/user/data/userid`).
+//
+//   - `/session/user/data/<field>` is OPEN-NAMESPACE — populated by
+//     `addUserProperties` in `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+//     `addUserProperties` iterates an arbitrary `userFields` Hashtable
+//     and writes each key as a child of `<data>` under `<user>`, so any
+//     custom user-data field name (e.g. `commcare_location_id`,
+//     `commcare_project`, `is_supervisor`, `role`) round-trips through
+//     it. `sessionUserSchema` matches this shape — `field` is open
+//     XML-element-name vocabulary.
+//
+//   - `/session/context/<field>` is CLOSED-NAMESPACE — populated by
+//     `addMetadata` in the same file. `addMetadata` writes exactly seven
+//     fields (`deviceid`, `appversion`, `username`, `userid`, `drift`,
+//     `window_width`, `applanguage`) and authoring-time names outside
+//     that set don't resolve at the wire. `sessionContextSchema` matches
+//     this shape with a closed `z.enum(SESSION_CONTEXT_FIELDS)`.
+//
+// The four-vs-seven narrowing decision is documented on
+// `SESSION_CONTEXT_FIELDS` below.
+
 /**
- * Reference to a field on the current session user (e.g. their assigned
- * region, their role). Compiled to `instance('commcaresession')/.../user/data/<field>`
- * on the XPath side and to a request-context parameter on the SQL side.
+ * Closed set of `/session/context/<field>` entries that
+ * `sessionContextSchema` exposes for authoring. The framework writes
+ * seven entries total via `addMetadata` in
+ * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`
+ * (`deviceid`, `appversion`, `username`, `userid`, `drift`,
+ * `window_width`, `applanguage`); v1 narrows to the four with clear
+ * authoring semantics:
+ *
+ *   - `userid` — the canonical owner / current-user identifier;
+ *     drives owner-keyed filters and case-claim flows.
+ *   - `username` — display-name pairing with `userid` for UI surfaces
+ *     that label the active user.
+ *   - `deviceid` — supports device-targeting filters (e.g. surfacing
+ *     a specific device's submissions in a sync-status case list).
+ *   - `appversion` — supports version-gating filters (e.g.
+ *     "show only cases on app version >= 2.0"); lexicographic compare
+ *     is acceptable because CommCare app-version strings sort
+ *     correctly under text ordering.
+ *
+ * The other three are intentionally excluded:
+ *
+ *   - `drift` is a diagnostic clock-skew signal with no authoring
+ *     semantic — surfacing it as a filterable field would expose a
+ *     diagnostic to the SA tool surface that authors have no reason
+ *     to express against.
+ *   - `window_width` is a UI-internal viewport metric used by the
+ *     CommCare web client's responsive layout — not a stable
+ *     case-data signal authors filter on.
+ *   - `applanguage` is a localization concern; localization belongs
+ *     in the form / module's translation surface, not in case-search
+ *     filtering against an instance path.
+ *
+ * Pattern mirrors `MATCH_MODES` / `MULTI_SELECT_QUANTIFIERS` /
+ * `DISTANCE_UNITS` / `COMPARISON_KINDS`: a closed `as const` tuple
+ * feeds the schema via `z.enum(...)`, and `SessionContextField`
+ * derives from the same source so authoring-time `field` values share
+ * one declaration. Adding an entry — when a real authoring use case
+ * surfaces — widens both surfaces simultaneously and is non-breaking
+ * (every previously-valid AST stays valid; the enum just admits more
+ * payloads).
+ */
+export const SESSION_CONTEXT_FIELDS = [
+	"userid",
+	"username",
+	"deviceid",
+	"appversion",
+] as const;
+export type SessionContextField = (typeof SESSION_CONTEXT_FIELDS)[number];
+
+/**
+ * Reference to an open-namespace custom user-data field on the current
+ * session user (e.g. their assigned region, their CommCare project,
+ * an organization-defined role).
+ *
+ * Wire path: `instance('commcaresession')/session/user/data/<field>`.
+ * Population site: `addUserProperties` in
+ * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`,
+ * which writes an arbitrary `userFields` Hashtable as `<data>` children
+ * under `<user>`. Field names are OPEN — any custom field a CommCare
+ * project provisions on its users round-trips through this path. The
+ * canonical `session_var` helper in
+ * `commcare-hq/corehq/apps/app_manager/xpath.py` builds the same path
+ * via `session_var(var, path='user/data')`.
  *
  * `field` is constrained to XML element-name vocabulary because the
- * wire form `/session/user/data/<field>` places the field as a
- * literal XML element name in the path step.
+ * wire form places the field as a literal XML element name in the
+ * path step.
  */
-export const userContextRefSchema = z.object({
-	kind: z.literal("user"),
-	field: xmlElementNameField("User-context field"),
+export const sessionUserSchema = z.object({
+	kind: z.literal("session-user"),
+	field: xmlElementNameField("Session-user field"),
 });
-export type UserContextRef = z.infer<typeof userContextRefSchema>;
+export type SessionUserRef = z.infer<typeof sessionUserSchema>;
+
+/**
+ * Reference to a closed-namespace framework-controlled context field on
+ * the current session (e.g. the active user's `userid`, the current
+ * `appversion`).
+ *
+ * Wire path: `instance('commcaresession')/session/context/<field>`.
+ * Population site: `addMetadata` in
+ * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`,
+ * which writes exactly seven framework-defined fields under `<context>`.
+ * Authoring-time field names outside the framework set don't resolve at
+ * the wire, so `field` is constrained to the closed
+ * `SESSION_CONTEXT_FIELDS` enum. CCHQ's `session_var(var,
+ * path='context')` in `commcare-hq/corehq/apps/app_manager/xpath.py`
+ * (one caller resolves the usercase via this path) is the production
+ * helper that emits the same wire form.
+ *
+ * The closed set is documented on `SESSION_CONTEXT_FIELDS` above —
+ * including which framework fields v1 intentionally excludes and why.
+ */
+export const sessionContextSchema = z.object({
+	kind: z.literal("session-context"),
+	field: z.enum(SESSION_CONTEXT_FIELDS),
+});
+export type SessionContextRef = z.infer<typeof sessionContextSchema>;
 
 /**
  * A primitive constant. Numbers, booleans, and `null` are first-class
@@ -414,7 +529,8 @@ export type Literal = z.infer<typeof literalSchema>;
 export const termSchema = z.discriminatedUnion("kind", [
 	propertyRefSchema,
 	searchInputRefSchema,
-	userContextRefSchema,
+	sessionUserSchema,
+	sessionContextSchema,
 	literalSchema,
 ]);
 export type Term = z.infer<typeof termSchema>;

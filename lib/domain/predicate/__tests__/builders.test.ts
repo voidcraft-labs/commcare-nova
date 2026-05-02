@@ -52,9 +52,10 @@ import {
 	prop,
 	relationStep,
 	selfPath,
+	sessionContext,
+	sessionUser,
 	subcasePath,
 	timeLiteral,
-	userField,
 	whenInput,
 	within,
 } from "../builders";
@@ -118,18 +119,36 @@ describe("predicate builders", () => {
 
 	// Each exported builder gets at least one explicit happy-path test
 	// here: silent rename or removal of any export must not pass CI.
-	// `userField`, `isIn`, and `match` would otherwise be only
-	// structurally implied via other builders' arguments or composite
-	// tests. (The `isIn` variadic-with-required-first contract is
-	// locked separately by the type-level guard at the bottom of this
-	// file.)
+	// `sessionUser` / `sessionContext`, `isIn`, and `match` would
+	// otherwise be only structurally implied via other builders'
+	// arguments or composite tests. (The `isIn` variadic-with-required-
+	// first contract is locked separately by the type-level guard at
+	// the bottom of this file.)
 
-	it("constructs a userField reference round-tripping inside a comparison", () => {
-		const t = userField("region");
-		expect(t.kind).toBe("user");
-		// Wrap in an eq so the term flows through `predicateSchema` —
-		// terms don't parse standalone via `predicateSchema`.
-		const p = eq(t, literal("north"));
+	it("constructs a sessionUser reference round-tripping inside a comparison", () => {
+		// `commcare_project` is a custom user-data field — open-namespace
+		// vocabulary populated by `addUserProperties` at
+		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+		// Wrapping the term in `eq` flows it through `predicateSchema`
+		// (terms don't parse standalone via `predicateSchema`).
+		const t = sessionUser("commcare_project");
+		expect(t.kind).toBe("session-user");
+		expect(t.field).toBe("commcare_project");
+		const p = eq(t, literal("project-x"));
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a sessionContext reference round-tripping inside a comparison", () => {
+		// `userid` is a closed-enum member of `SESSION_CONTEXT_FIELDS`
+		// — populated by `addMetadata` at the same
+		// `SessionInstanceBuilder.java` symbol anchor. The builder's
+		// `field` parameter is typed as `SessionContextField`, so
+		// passing a string outside the closed set is a compile-time
+		// error rather than a runtime parse rejection.
+		const t = sessionContext("userid");
+		expect(t.kind).toBe("session-context");
+		expect(t.field).toBe("userid");
+		const p = eq(prop("patient", "owner_id"), t);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
@@ -440,16 +459,20 @@ describe("sentinel + range + relational predicate builders", () => {
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
-	it("isNull() accepts any term shape (input / user / literal)", () => {
+	it("isNull() accepts any term shape (input / session-user / session-context / literal)", () => {
 		// Pin the parameter type — `Term`, not `PropertyRef`. A future
 		// regression that narrowed the builder's parameter to
-		// `PropertyRef` would not compile against these inputs.
+		// `PropertyRef` would not compile against these inputs. Both
+		// session arms (open-namespace and closed-enum) flow through the
+		// same `Term` discriminator, so each is covered explicitly.
 		const a = isNull(input("phone"));
-		const b = isNull(userField("region"));
-		const c = isNull(literal("x"));
+		const b = isNull(sessionUser("region"));
+		const c = isNull(sessionContext("userid"));
+		const d = isNull(literal("x"));
 		expect(predicateSchema.parse(a)).toEqual(a);
 		expect(predicateSchema.parse(b)).toEqual(b);
 		expect(predicateSchema.parse(c)).toEqual(c);
+		expect(predicateSchema.parse(d)).toEqual(d);
 	});
 
 	it("between() defaults inclusivity to closed bounds when omitted", () => {

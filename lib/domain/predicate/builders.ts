@@ -48,8 +48,10 @@ import type {
 	RelationPath,
 	RelationStep,
 	SearchInputRef,
+	SessionContextField,
+	SessionContextRef,
+	SessionUserRef,
 	Term,
-	UserContextRef,
 } from "./types";
 
 // ---------- Term builders ----------
@@ -112,12 +114,41 @@ export function input(name: string): SearchInputRef {
 }
 
 /**
- * Constructs a reference to a field on the current session user
- * (e.g. their assigned region). Compiled to the appropriate session
- * lookup at each wire target.
+ * Constructs a reference to an open-namespace custom user-data field on
+ * the current session user (e.g. `commcare_location_id`,
+ * `commcare_project`, `assigned_region`). Compiles to
+ * `instance('commcaresession')/session/user/data/<field>` at the wire
+ * targets — see `sessionUserSchema` in `types.ts` for the
+ * `addUserProperties` source citation and the open-namespace contract.
+ *
+ * For the framework-controlled closed set (`userid` / `username` /
+ * `deviceid` / `appversion`), use `sessionContext` — the two paths
+ * point at different wire trees on `commcaresession`, and using
+ * `sessionUser("userid")` would emit
+ * `instance('commcaresession')/session/user/data/userid` (wrong path —
+ * `userid` lives at `/session/context/userid` and the wrong path
+ * silently returns empty).
  */
-export function userField(field: string): UserContextRef {
-	return { kind: "user", field };
+export function sessionUser(field: string): SessionUserRef {
+	return { kind: "session-user", field };
+}
+
+/**
+ * Constructs a reference to a closed-namespace framework-controlled
+ * context field on the current session (`userid` / `username` /
+ * `deviceid` / `appversion`). Compiles to
+ * `instance('commcaresession')/session/context/<field>` at the wire
+ * targets — see `sessionContextSchema` in `types.ts` for the
+ * `addMetadata` source citation and the closed-enum contract.
+ *
+ * The `field` parameter type is `SessionContextField`, derived from the
+ * `SESSION_CONTEXT_FIELDS` constant tuple — passing a string outside
+ * the closed set is a compile-time error rather than a runtime parse
+ * rejection. For an open-namespace custom user-data field, use
+ * `sessionUser`.
+ */
+export function sessionContext(field: SessionContextField): SessionContextRef {
+	return { kind: "session-context", field };
 }
 
 /**

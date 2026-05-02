@@ -41,9 +41,10 @@ import {
 	prop,
 	relationStep,
 	selfPath,
+	sessionContext,
+	sessionUser,
 	subcasePath,
 	timeLiteral,
-	userField,
 	whenInput,
 	within,
 } from "../builders";
@@ -280,12 +281,26 @@ describe("checkPredicate — comparison operators", () => {
 		}
 	});
 
-	// User-context refs always resolve to text (see `resolveTermType`
-	// in typeChecker.ts for the CCHQ source citation). Comparing a
-	// text-typed property against a user field is the canonical
-	// shape — verifying it passes locks the resolution rule.
-	it("accepts text prop = user field (both resolve to text)", () => {
-		const p = eq(prop("patient", "name"), userField("display_name"));
+	// Session-user refs (open-namespace `/session/user/data/<field>`)
+	// always resolve to text — `addUserProperties` at
+	// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`
+	// writes a Hashtable's string values, so every custom user-data
+	// field comes back as a string regardless of project semantics.
+	// Comparing a text-typed property against a session-user reference
+	// is the canonical shape; pinning it locks the resolution rule.
+	it("accepts text prop = session-user field (both resolve to text)", () => {
+		const p = eq(prop("patient", "name"), sessionUser("display_name"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	// Session-context refs (closed-enum `/session/context/<field>`)
+	// also resolve to text for v1's four-field set — `userid` /
+	// `username` / `deviceid` / `appversion` are all wire strings.
+	// `appversion` lexicographic comparison happens to match semantic
+	// version ordering, so a `>=` against a text-typed property is
+	// well-typed under the type checker's text-shaped rule.
+	it("accepts text prop = session-context field (both resolve to text)", () => {
+		const p = eq(prop("patient", "name"), sessionContext("username"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 

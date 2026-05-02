@@ -23,6 +23,7 @@ import {
 	MATCH_MODES,
 	predicateSchema,
 	relationPathSchema,
+	SESSION_CONTEXT_FIELDS,
 	termSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "../types";
@@ -300,33 +301,96 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	// Positive-path coverage parity. Three variants in the file lacked
+	// Positive-path coverage parity. Several variants in the file lacked
 	// happy-path parse tests:
-	//   - `user` term: only structurally implied by sibling terms; this
-	//     test pins both the term shape and that it flows correctly
-	//     through a comparison's `right` slot via nested narrowing.
+	//   - `session-user` / `session-context` terms: only structurally
+	//     implied by sibling terms; the tests below pin both term shapes
+	//     plus the open-vs-closed namespace contract (open names round-
+	//     trip through `session-user`; out-of-enum field names reject on
+	//     `session-context`).
 	//   - `in` operator: had only empty-array + ill-shaped negative
 	//     tests; this test confirms a non-empty literal list parses.
 	//   - `match` operator: had only the non-prop-property negative
 	//     test; this test confirms the canonical happy-path shape
 	//     parses.
 	// Without these, a future rename like `field` → `fieldName` on
-	// `userContextRefSchema` (or any happy-path field rename on `in` /
-	// `match`) wouldn't trip a single existing test.
+	// `sessionUserSchema` / `sessionContextSchema` (or any happy-path
+	// field rename on `in` / `match`) wouldn't trip a single existing
+	// test.
 
-	it("parses a user-field reference inside a comparison", () => {
+	it("parses a session-user reference inside a comparison (open namespace)", () => {
+		// `assigned_region` is a custom user-data field — open-namespace
+		// vocabulary populated by `addUserProperties` at
+		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+		// The schema admits any XML-element-name-valid field here.
 		const result = predicateSchema.parse({
 			kind: "eq",
 			left: { kind: "prop", caseType: "patient", property: "region" },
-			right: { kind: "user", field: "assigned_region" },
+			right: { kind: "session-user", field: "assigned_region" },
 		});
 		expect(result.kind).toBe("eq");
 		if (result.kind === "eq") {
-			expect(result.right.kind).toBe("user");
-			if (result.right.kind === "user") {
+			expect(result.right.kind).toBe("session-user");
+			if (result.right.kind === "session-user") {
 				expect(result.right.field).toBe("assigned_region");
 			}
 		}
+	});
+
+	// `session-context` exposes the closed enum populated by
+	// `addMetadata` at the same `SessionInstanceBuilder.java` symbol
+	// anchor. Each of the four v1-exposed members
+	// (`SESSION_CONTEXT_FIELDS`) is exercised here so a silent narrowing
+	// of the enum on either the schema or the type-level constant trips
+	// a row of the table.
+	it.each(
+		SESSION_CONTEXT_FIELDS,
+	)("parses a session-context reference for field: %s", (field) => {
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: { kind: "prop", caseType: "patient", property: "owner_id" },
+			right: { kind: "session-context", field },
+		});
+		expect(result.kind).toBe("eq");
+		if (result.kind === "eq") {
+			expect(result.right.kind).toBe("session-context");
+			if (result.right.kind === "session-context") {
+				expect(result.right.field).toBe(field);
+			}
+		}
+	});
+
+	it("rejects session-context with an enum-miss field", () => {
+		// `drift` is in the framework's `addMetadata` set at
+		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`
+		// but is intentionally excluded from `SESSION_CONTEXT_FIELDS` —
+		// it's a diagnostic clock-skew signal with no authoring semantic
+		// (see the `SESSION_CONTEXT_FIELDS` JSDoc in `types.ts` for the
+		// rationale and for the parallel exclusions on `window_width` /
+		// `applanguage`). Pinning the rejection here doubles as
+		// documentation that the v1 narrowing is a deliberate authoring-
+		// surface decision, not a coverage gap.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "owner_id" },
+				right: { kind: "session-context", field: "drift" },
+			}),
+		).toThrow();
+	});
+
+	it("rejects session-context with a bogus field outside the framework set", () => {
+		// `not_a_metadata_key` is neither in the framework's full seven-
+		// field set nor in v1's four-field narrowing. A regression that
+		// loosened the schema to `z.string()` would silently accept this
+		// payload and emit a wire string that returns empty at runtime.
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "owner_id" },
+				right: { kind: "session-context", field: "not_a_metadata_key" },
+			}),
+		).toThrow();
 	});
 
 	it("parses an in(...) with a non-empty literal list", () => {
@@ -648,12 +712,17 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	it("rejects user-context ref with a field containing punctuation", () => {
+	it("rejects session-user ref with a field containing punctuation", () => {
+		// `session-user` is the open-namespace term, but `field` is still
+		// constrained to XML element-name vocabulary so the slash-bearing
+		// payload reaches the regex-rejection arm. A regression that
+		// widened the field constraint to `z.string()` would silently
+		// emit a broken wire form; this test pins the boundary.
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
 				left: { kind: "prop", caseType: "patient", property: "name" },
-				right: { kind: "user", field: "field/with/slashes" },
+				right: { kind: "session-user", field: "field/with/slashes" },
 			}),
 		).toThrow();
 	});
@@ -1114,10 +1183,26 @@ describe("is-null predicate", () => {
 		expect(result.kind).toBe("is-null");
 	});
 
-	it("parses is-null with a user-context reference", () => {
+	it("parses is-null with a session-user reference", () => {
+		// `is-null(sessionUser(...))` asks "is the user-data field
+		// unset" — a meaningful predicate at every wire target. The
+		// schema accepts the open-namespace shape; the type checker's
+		// per-arm rule decides whether the AST has authoring semantics.
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: { kind: "user", field: "assigned_region" },
+			left: { kind: "session-user", field: "assigned_region" },
+		});
+		expect(result.kind).toBe("is-null");
+	});
+
+	it("parses is-null with a session-context reference", () => {
+		// Symmetric with the `session-user` case above. `userid` is a
+		// closed-enum member; pinning its acceptance here locks the
+		// `Term`-discriminated-union path through `is-null` for the
+		// closed-namespace arm too.
+		const result = predicateSchema.parse({
+			kind: "is-null",
+			left: { kind: "session-context", field: "userid" },
 		});
 		expect(result.kind).toBe("is-null");
 	});
