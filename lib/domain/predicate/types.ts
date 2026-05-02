@@ -1467,6 +1467,14 @@ const isBlankSchema = z.object({
 // through the `term` arm of ValueExpression to read the underlying
 // literal — see `checkBetween` in `typeChecker.ts`.
 
+// `z.lazy(() => schema).optional()` is the canonical Zod 4 form for
+// an optional recursive slot — the `.optional()` chain on a lazy
+// schema preserves the absent-key strip behavior that
+// `schema.optional()` provides on a non-recursive shape. Empirically
+// pinned by the absent-not-undefined tests in
+// `lib/domain/predicate/__tests__/builders.test.ts` (the
+// `"upper" in lowerOnly` / `"lower" in upperOnly` assertions on
+// `between()`'s output).
 const betweenSchema = z
 	.object({
 		kind: z.literal("between"),
@@ -1895,6 +1903,10 @@ export const valueExpressionSchema: z.ZodType<ValueExpression> =
 // predicate / expression, so the only escape route this guard
 // misses — a payload-shape change reachable only through recursion
 // — is caught there.
+//
+// The recursive-slot strip in this guard does not pin
+// optional-vs-required divergence on the stripped slots; that drift
+// mode is uncovered.
 
 type _TypesEqual<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
