@@ -145,14 +145,9 @@ The two operators:
 
 `compare(prop, literal(""))` and `compare(prop, literal(null))` remain in the AST — sometimes the author really does mean "the value is the literal empty string and not absent" — but the validator surfaces a hint at authoring time: *"`prop = ''` matches absent fields too on CCHQ. Did you mean `is-blank(prop)`?"* The hint is a soft warning, not an error; authors can confirm the literal-empty intent.
 
-The four-layer practical defense against authoring `is-null` (strict) in a CCHQ-deployed context:
+Why both operators exist when v1 only authors `is-blank`: the Predicate AST is the data-model contract that v1 ships with — the discriminated-union shape is part of every persisted predicate. Omitting `is-null` from v1 is a one-way door: adding it back later changes the closed kind set and breaks every persisted predicate that relied on the previous shape. Keeping it in the foundation now costs ~12 lines of schema/builder/type-checker; locking it out costs the data-model honesty forever.
 
-1. **Representability checker** errors at authoring time; the author sees the incompatibility before save, never silently ships a filter that breaks at search-execution time.
-2. **UI default card** for "is set / is not set" intents offers `is-blank` in CCHQ-bound contexts; `is-null` requires explicit opt-in with a visible cost.
-3. **SA prompt** defaults to `is-blank` for "field set / unset" semantic intents.
-4. **Platform-divergence panel** renders any opt-in `is-null` as a CCHQ-incompatibility flag at edit time.
-
-Layer 1 ships in the foundation (Predicate AST + B5 representability rule). Layers 2–4 ship in Plan 3+ (case list + search authoring UI). The architecture is the same dispatch pattern A2 established for `match(mode: fuzzy)` — not new infrastructure, another instance of it.
+v1 authoring surfaces (filter UI, SA tool surface, validator) emit only `is-blank` for predicates targeting CCHQ. There is no v1 path for an author or the SA to construct `is-null` directly. The B5 representability checker stays as defense-in-depth: if any programmatic source ever produces `is-null` in a CCHQ-bound emission, the checker errors at authoring time. As future surfaces ship — case-data inspection, audit and admin views, expression operators that need to distinguish absent from empty (e.g. `coalesce`), Phase-2 Cloud SQL deploy where strict-absent is natively representable — they consume `is-null` directly with the strict semantic preserved end-to-end. The dispatch pattern is the same A2 established for `match(mode: fuzzy)` — wire-incompatible AST shapes reject loudly at the wire boundary, never silently widen.
 
 The lived-experience justification: a real prod-app default filter wraps every search-input read in `if(count(instance('search-input')/input/field[@name='X']), real_predicate, match-all())` because CCHQ's input-not-present case silently breaks the filter at search-execution time (no save-time / version-time / app-load-time error surfaces). That `count()`-wrapper boilerplate is exactly what Nova's CSQL emitter generates automatically from a clean `whenInputPresent(input("X"), ...)` AST node — authors never see it, and the typed AST + representability checker catch the bad case before it ships.
 

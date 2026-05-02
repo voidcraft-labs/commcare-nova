@@ -931,7 +931,18 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //     and lose the AST's strictness signal. The B5 representability
 //     checker errors at authoring time; the per-dialect emitters
 //     defensively throw. Same dispatch pattern A2 established for
-//     `match(mode: fuzzy)` in case-list-filter context.
+//     `match(mode: fuzzy)` in case-list-filter context. v1
+//     authoring surfaces (filter UI, SA tool surface, validator)
+//     have no path producing `is-null` directly — `is-null` is
+//     foundation infrastructure consumed by future non-filter
+//     surfaces (case-data inspection, audit / admin views,
+//     expression operators that need to distinguish absent from
+//     empty) and future deploy targets (Phase-2 Cloud SQL where
+//     strict-absent is natively representable). It stays in the
+//     AST because the discriminated-union shape is part of the
+//     persisted contract; omitting it from v1 would be a one-way
+//     door, breaking every persisted predicate when the closed
+//     kind set widens later.
 //
 //   - `is-blank` — **portable.** `left` resolves to absent OR
 //     empty-string. Postgres / in-memory: emits the disjunction
@@ -962,8 +973,7 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // term-discriminator context to surface a semantic-class error. See
 // the design spec subsection "Null vs blank semantics" under the
 // Predicate family for the full per-dialect representability table
-// and the four-layer practical defense (representability checker +
-// UI default card + SA prompt + platform-divergence panel).
+// and the v1-surface scoping rationale.
 
 const isNullSchema = z.object({
 	kind: z.literal("is-null"),

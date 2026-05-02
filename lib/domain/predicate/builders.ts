@@ -630,18 +630,24 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * the match set and lose the AST's strictness signal. The B5
  * representability checker errors at authoring time when an
  * `is-null` reaches a CCHQ-bound context; the per-dialect emitters
- * defensively throw. Authors who want a CCHQ-portable "field set /
- * unset" check reach for `isBlank` instead.
+ * defensively throw.
+ *
+ * v1 surface scope: v1 authoring surfaces (filter UI, SA tool
+ * surface, validator) have no path producing `is-null` directly.
+ * `is-null` is foundation infrastructure consumed by future non-
+ * filter surfaces (case-data inspection, audit / admin views,
+ * expression operators that need to distinguish absent from empty)
+ * and future deploy targets (Phase-2 Cloud SQL where strict-absent
+ * is natively representable). It stays in the AST because the
+ * discriminated-union shape is part of the persisted contract;
+ * omitting it from v1 would be a one-way door, breaking every
+ * persisted predicate when the closed kind set widens later.
  *
  * The `left` slot accepts any term — property reference,
  * search-input reference, session-user reference, session-context
- * reference, and (structurally only) literal — so authors can ask
- * "is the property absent" / "is the input absent" / "is the
- * user-data field absent" / "is the session-context field absent"
- * alongside the meaningless-but-structurally-permitted literal form.
- * Whether a checker rejects the literal shape is a type-checker
- * concern; the builder + schema accept it uniformly across every
- * Term variant.
+ * reference, and (structurally only) literal. Whether a checker
+ * rejects the literal shape is a type-checker concern; the builder
+ * + schema accept it uniformly across every Term variant.
  *
  * Spec subsection: "Null vs blank semantics" under the Predicate
  * family in `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
@@ -654,9 +660,10 @@ export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
  * Constructs an `is-blank` predicate — the portable absent-or-empty
  * operator. Asks "does `left` resolve to absent OR to the empty
  * string?" The widening over `is-null` is the operator's purpose:
- * authors who need a portable CCHQ-deployable "field set / unset"
- * check write `isBlank` and the wire layer emits a clean form on
- * every target.
+ * `isBlank` is the v1 author-facing "field set / unset" check —
+ * filter UI, SA tool surface, and validator all produce this
+ * operator (not `is-null`) for predicates targeting CCHQ, and the
+ * wire layer emits a clean form on every target.
  *
  * Per-dialect representability:
  *
