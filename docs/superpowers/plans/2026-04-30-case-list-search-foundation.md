@@ -585,44 +585,55 @@ Shipped across commits `670ce644` → `a090e557` → `fad0a6a5`.
 - `npm run lint` clean (zero warnings)
 - Strengthened eternal-present sweep returns zero hits across the four predicate-package files (regex extends the prior sweep with `supersed`, `until [^.]*(land|come|arriv)`, `future change`, `will (eventually|land|move|migrate)`, `transitional emitter knows`, `deleted in (B|C)`, `ever lands`, `if one ever`, `hypothetical`)
 
-### Task B2: Build the on-device XPath emitter
+### Task B2: Build the on-device XPath emitter — SHIPPED
+
+Shipped across commits `60726e76` → `87e7f28c` → `eb0df2be`.
 
 **Files:**
-- Create: `lib/commcare/predicate/caseListFilterEmitter.ts` — the file name reflects the primary slot but the same emitter serves the post-ES search-filter slot. Both are on-device XPath strings; the wire layer drops them into different positions in the CCHQ XML.
-- Test: `__tests__/caseListFilterEmitter.test.ts`
+- `lib/commcare/predicate/caseListFilterEmitter.ts` (new) — total visitor; emits on-device XPath for both the case-list-filter slot and the post-ES search-filter slot. Same XPath grammar; the wire layer routes the string into the right slot.
+- `lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts` (new, 95 tests) — pinned wire-string fixtures across all operator + term arms; backward-compat coverage for the operators that already had pinned forms in `xpathEmitter.test.ts`; new-operator coverage for sentinels / between / multi-select / match / exists-walks / `prop` cross-relation reads / `within-distance` / `any-relation` OR-expansion.
 
-The emitter is total: every Predicate AST node + every Term emits a wire string. No `throw` arms for "feature unsupported on a runtime player". For AST shapes with no exact CCHQ-wire equivalent, the emission is the closest CCHQ form (e.g. `is-null` → `prop = ''`); for shapes whose AST kind has a literal XPath function-call form, the emission is the literal call (e.g. `match(mode: fuzzy)` → `fuzzy-match(prop, 'v')`). The wire string is well-formed XPath that CCHQ HQ accepts at import time. What a runtime player chooses to render is its concern.
+**Operator coverage (faithful emission, no throws for runtime-player gaps):**
+- Sentinels: `match-all` → `true()`, `match-none` → `false()`.
+- Logical: `and`, `or`, `not` with precedence-aware paren wrapping.
+- Comparison (six ops): `<left> <op> <right>`.
+- `is-blank` and `is-null`: both emit as `<term> = ''`. CCHQ wire collapses absent / cleared / empty alike via the `case_property_query()` short-circuit at `commcare-hq/corehq/apps/es/case_search.py:241-246`. The AST distinction is preserved on Postgres.
+- `in` single value: `prop = 'v'`. Multi-value: `(prop = 'v1' or prop = 'v2' or ...)` — value-equality OR-of-eq.
+- `between`: expand to `(prop >= lo and prop <= hi)` with per-flag inclusivity.
+- `multi-select-contains`: quantifier=any single → `selected(prop, 'v')`; any multi → OR-of-`selected()`; all → AND-of-`selected()`.
+- `match` modes: starts-with → `starts-with(prop, 'v')`; fuzzy → `fuzzy-match(prop, 'v')`; phonetic → `phonetic-match(prop, 'v')`; fuzzy-date → `fuzzy-date(prop, 'v')`.
+- `within-distance`: `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` per `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+- `exists` / `missing`: walk the `RelationPath`. Single-hop ancestor / multi-hop nested anchors / subcase reverse-join / self degenerate (collapses to inner filter or `false()`) / any-relation expand to OR of direction-specific forms. `missing` uses `count(...) = 0` (presence comparator threaded at the build site, not via post-emission string substitution).
+- `prop` term with non-self `via`: inline path expression. Ancestor walks chain anchors via `[@case_id=current()/index/<rel>]`. Subcase walks reverse direction via `[index/<rel>=current()/@case_id]`. With `via.kind === "any-relation"`, the emission is a node-set union `(<ancestor-form> | <subcase-form>)` — not boolean disjunction — so equality comparisons against the result test existential equality across the union node-set.
+- `when-input-present`: `if(count(<input>), <clause>, true())`.
 
-Operator coverage:
-- Sentinels: `match-all` → `true()`, `match-none` → `false()` — XPath boolean values that function as filter predicates.
-- Logical: `and`, `or`, `not` with precedence-aware paren wrapping (XPath's `and` binds tighter than `or`).
-- Comparison: `compare` (six ops) — `<left> <op> <right>`.
-- `is-blank` and `is-null`: both emit as `<term> = ''`. CCHQ wire's server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching absent / cleared / empty alike — faithful emission of the wire's lossiness. The AST distinction is preserved on Postgres (where `is-null` runs strict-absent natively).
-- `in` single-value: `prop = 'v'`. Multi-value: `(prop = 'v1' or prop = 'v2' or ...)` — value-equality OR-of-eq, never `selected-any` (which carries multi-select-token semantics per `corehq/apps/es/case_search.py:291-296`).
-- `between`: expand to `(prop >= lo and prop <= lo)` (gte AND lte).
-- `multi-select-contains` quantifier=any single value: `selected(prop, 'v')`.
-- `multi-select-contains` quantifier=any multi-value: expand to OR of `selected()` calls.
-- `multi-select-contains` quantifier=all: expand to AND of `selected()` calls.
-- `match`: emit literally as the named function call. starts-with → `starts-with(prop, 'v')`; fuzzy → `fuzzy-match(prop, 'v')`; phonetic → `phonetic-match(prop, 'v')`; fuzzy-date → `fuzzy-date(prop, 'v')`.
-- `within-distance`: `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` per the function signature at `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
-- `exists` / `missing`: walk the `RelationPath`. Single-hop ancestor: `count(instance('casedb')/casedb/case[@case_id=current()/index/<rel>][<filter>]) > 0`. Multi-hop ancestors compose by chaining the inner anchor: `count(instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<r1>]/index/<r2>][<filter>]) > 0`. Subcase walks reverse the join direction: `count(instance('casedb')/casedb/case[index/<rel>=current()/@case_id][<filter>]) > 0`. `missing` uses `count(...) = 0`. `via.kind === "self"` is degenerate — `exists(self, filter)` collapses to the inner `<filter>`; `missing(self)` collapses to `false()`. `via.kind === "any-relation"` expands to `(<ancestor-form> or <subcase-form>)`.
-- `when-input-present`: `if(count(<input>), <clause>, true())` — `true()` (not `''`) is the AND-chain identity element; XPath's boolean coercion of `''` is `false`, which would silently exclude every case on input-unset.
+**Term arms:**
+- `prop`: bare reference, with `@`-prefix for the four reserved attributes per `corehq/ex-submodules/casexml/apps/case/xml/generator.py:237-246` and `corehq/apps/case_search/const.py:53-103`.
+- `input`: `instance('search-input:results')/input/field[@name='<n>']`.
+- `session-user`: `instance('commcaresession')/session/user/data/<field>` per `corehq/apps/app_manager/xpath.py:114-119`.
+- `session-context`: `instance('commcaresession')/session/context/<field>` per `corehq/apps/app_manager/xpath.py:248`.
+- `literal`: routes through `quoteLiteral(value, "case-list-filter")` / `formatNumeric` / boolean stringification / null-as-empty.
 
-Term arms:
-- `prop` with `via.kind === "self"`: bare property reference `<name>`, with `@`-prefix for the four reserved attribute names per `corehq/ex-submodules/casexml/apps/case/xml/generator.py:237-246` and `corehq/apps/case_search/const.py:53-103`.
-- `prop` with non-self `via`: inline path expression — `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]/<prop>` for ancestor walks; multi-hop composes by chaining the inner anchor; subcase walks reverse the join direction. Authors composing existence checks rather than value reads use `exists(via, where: ...)` instead.
-- `input`: `instance('search-input:results')/input/field[@name='<n>']` per `docs/case_search_query_language.rst:299` and `corehq/apps/app_manager/suite_xml/post_process/instances.py:354`.
-- `session-user`: `instance('commcaresession')/session/user/data/<field>` per `corehq/apps/app_manager/xpath.py:114-119`'s `session_var(var, path='data')` builder.
-- `session-context`: `instance('commcaresession')/session/context/<field>` per `corehq/apps/app_manager/xpath.py:248`'s userid resolution.
-- `literal`: route through `quoteLiteral(value, "case-list-filter")` for strings, `formatNumeric` for numbers, `'true'` / `'false'` for booleans, `''` for null.
+**Operand handling:** predicate operators carry `ValueExpression`. The emitter accepts only the `term` arm via `unwrapTermFromExpression` (exhaustive switch with `_exhaustive: never` default — adding a new ValueExpression kind surfaces as a compile-time error). C1's expression emitter wires per-slot ValueExpression emission later. Same exhaustiveness pattern across every operator dispatch (`emitTerm`, `emitMatch`, `emitMultiSelectContains`, `emitExistsOrMissing`, `emitPropertyRef`); `between` both-bounds-absent retained as a structural defense for the schema-bypass path.
 
-Operand handling: predicate-side operands carry `ValueExpression`. The emitter accepts only the `term` arm and throws on every other arm — that throw is structural exhaustiveness (catches a new ValueExpression kind added to the union as a TypeScript compile error). Same exhaustiveness pattern for `between` with both bounds absent (the schema's `.refine` rejects at parse time; the emitter throw defends the bypass path), the `match` mode switch, and the `multi-select-contains` quantifier switch. C1's expression emitter wires per-slot ValueExpression emission later.
+**Architectural decisions:**
 
-Steps:
-- [ ] Port shipped emitter tests for the operators with pinned wire forms in `xpathEmitter.test.ts` (comparison, logical, `in`, `is-blank`, reserved attributes, `when-input-present`).
-- [ ] Write failing tests for the new operators (sentinels, `between` expansion, `multi-select-contains` quantifiers, `match` modes including `fuzzy`/`phonetic`/`fuzzy-date` literal emission, `exists`/`missing` walk expansions, `is-null` faithful `prop = ''` emission, `prop` cross-relation reads, `within-distance` literal emission, `any-relation` OR-expansion).
-- [ ] Implement visitor.
-- [ ] Run tests, commit.
+1. **One on-device emitter, two slots.** The case-list-filter slot and the post-ES search-filter slot share the on-device XPath grammar; the same emitter serves both. The wire layer routes the string into the right slot in the CCHQ XML.
+2. **Faithful emission, no per-runtime-player rejection.** AST shapes whose CCHQ wire form is a direct function call (`fuzzy-match`, `within-distance`, `phonetic-match`, `fuzzy-date`) emit literally. `is-null` emits as the closest CCHQ form (`<term> = ''`); the wire's lossiness is the wire's concern, faithfully passed through. Per `feedback_max_subset_no_dimagi_litter.md`, runtime player capabilities are Dimagi's structural concern, not Nova's authoring layer.
+3. **`any-relation` `prop` reads emit as XPath node-set union `|`** (not boolean `or`) — equality against a node-set tests existential equality across the union, which is the semantics the AST means. Boolean disjunction would coerce the LHS to true/false and break comparison-context use.
+4. **`exists` / `missing` presence comparator threaded at build site** (`emitCountPresenceTest` selects `> 0` vs `= 0` from the operator kind) rather than emitting `count(...) > 0` and string-substituting to `= 0` for `missing`. The substitution would corrupt filter clauses containing `gt(prop, literal(0))` because the `> 0` substring matches the inner comparison first.
+5. **File header frames the emission policy in terms of CCHQ HQ's import-side query-function registry,** not in terms of which runtime players (web, Android, iOS) render which functions. Dimagi runtime fragmentation is their structural concern; Nova's emitter commits only to "well-formed XPath that CCHQ HQ accepts at import".
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ Compliant. Eight checklist items verified — total emitter, faithful emission of every operator + term arm, citation discipline, `is-null` / `is-blank` parity, no `representability` / `WireTarget` mentions, correctness fixes (presence comparator threading + node-set union for any-relation prop reads), test coverage matches plan steps.
+- Code-quality review (opus): 3 yellow findings on `87e7f28c` — `emitTerm` missing exhaustiveness default, file-header tracking Dimagi runtime fragmentation by enumerating runtime players, test-file header carrying the same fragmentation framing. Resolved in fix-pass `eb0df2be` and re-review APPROVED. The implementer also corrected a Shell 3 coverage overstatement (the runtime tests are spot-checks; compile-time `_exhaustive: never` on `unwrapTermFromExpression` is the load-bearing exhaustiveness mechanism).
+
+**Verification gates (all green at HEAD `eb0df2be`):**
+- Predicate-domain + commcare-predicate tests pass (650 with B2 in isolation; 750 once B3 lands)
+- `npx tsc --noEmit` clean (B2-scoped)
+- `npm run lint` clean (zero warnings, B2-scoped)
+- Strengthened eternal-present sweep returns zero hits across `caseListFilterEmitter.ts` and `caseListFilterEmitter.test.ts` (the regex includes `representab` to catch any leaked B5 references)
 
 ### Task B3: Build the CSQL emitter with total hoisting + `concat()` wrapping
 
