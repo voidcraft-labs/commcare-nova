@@ -27,18 +27,21 @@
 //     `ARITH_OP_TO_SQL`: `+` / `-` / `*` are byte-identical, `div`
 //     maps to `/`, `mod` maps to `%`.
 //   - `concat(parts)` — Postgres `concat(...)` function. NULL parts
-//     coerce to empty per Postgres's documented `concat()`
-//     semantic, matching the type checker's spec ("each part casts
-//     to text at evaluation").
+//     are ignored per Postgres's documented `concat()` semantic
+//     (observably identical to coercing to empty), matching the
+//     type checker's spec ("each part casts to text at
+//     evaluation").
 //   - `coalesce(values)` — SQL `COALESCE(...)`. Returns the first
 //     non-null value.
 //   - `if(cond, then, else)` — SQL `CASE WHEN <cond> THEN <then> ELSE
 //     <else> END`. The `cond` slot carries a Predicate; the
 //     compiler routes it through the `compilePredicate` thunk on
 //     the context (see "Predicate-thunk strategy" below).
-//   - `switch(on, cases, fallback)` — SQL `CASE WHEN <on> = <when>
-//     THEN <then> ... ELSE <fallback> END`. Each case's `when` is a
-//     Literal — no Predicate operands on this arm.
+//   - `switch(on, cases, fallback)` — SQL "simple CASE" form:
+//     `CASE <on> WHEN <when_1> THEN <then_1> WHEN <when_2> THEN
+//     <then_2> ... ELSE <fallback> END`. The discriminator `<on>`
+//     evaluates once and each branch's `when` Literal compares
+//     against it — no Predicate operands on this arm.
 //   - `count(via, where?)` — relational aggregation. Compiles to
 //     `(SELECT COUNT(*) FROM (<rp_leaf-subquery>) AS rp [WHERE
 //     <where-pred>])`. The relation-path leaf is built via
@@ -95,9 +98,8 @@
 // expression but the runtime dispatches by `expr.kind`, and the
 // wider compilers consume the return as a generic operand.
 
-import type { Kysely, RawBuilder } from "kysely";
+import type { RawBuilder } from "kysely";
 import { sql } from "kysely";
-import type { CaseType } from "@/lib/domain";
 import type {
 	ArithOp,
 	DateAddInterval,
@@ -109,7 +111,6 @@ import type {
 } from "@/lib/domain/predicate/types";
 import { compileRelationPath } from "./compileRelationPath";
 import { compileTerm, type TermCompileContext } from "./compileTerm";
-import type { Database } from "./database";
 
 // ---------------------------------------------------------------
 // Public types
@@ -189,9 +190,13 @@ const ARITH_OP_TO_SQL: Readonly<Record<ArithOp, string>> = {
  *
  *   - `short` — `MM/DD/YYYY`. Locale-default short form (US
  *     month/day/year ordering, slash separator).
- *   - `long`  — `Month FMDD, YYYY`. Locale-default long form
- *     (full month name, day-of-month without leading zero,
- *     comma-separated).
+ *   - `long`  — `FMMonth FMDD, YYYY`. Locale-default long form
+ *     (full month name with trailing whitespace stripped,
+ *     day-of-month without leading zero, comma-separated). The
+ *     `FM` prefix on `Month` matters: bare `Month` returns a
+ *     fixed-width 9-character string with trailing spaces filling
+ *     the gap ("May      "), which a presentation surface would
+ *     have to trim; the prefix pre-trims at the renderer.
  *   - `iso`   — `YYYY-MM-DD`. ISO 8601 date-only form.
  *
  * Authors who need a custom pattern pass an arbitrary string; the
@@ -204,7 +209,7 @@ const FORMAT_DATE_PRESET_TO_PATTERN: Readonly<
 	Record<FormatDatePreset, string>
 > = {
 	short: "MM/DD/YYYY",
-	long: "Month FMDD, YYYY",
+	long: "FMMonth FMDD, YYYY",
 	iso: "YYYY-MM-DD",
 };
 
@@ -434,13 +439,14 @@ function compileDateAdd(
  * Postgres's `concat(...)` is documented at
  * `https://www.postgresql.org/docs/16/functions-string.html#FUNCTIONS-STRING-OTHER`:
  * "Concatenates the text representations of all the arguments. NULL
- * arguments are ignored." The NULL-as-empty behavior is the
- * deliberate choice over the `||` infix operator (which propagates
- * NULL); the AST's `concat` semantic per the type checker spec is
- * "each part casts to text at evaluation, so no per-part type rule
- * beyond resolution" — `concat(...)` matches this directly while
- * `||` would require defensive `COALESCE(part, '')` wrapping at
- * every part.
+ * arguments are ignored." The NULL-ignored behavior — observably
+ * identical to coercing NULL parts to empty — is the deliberate
+ * choice over the `||` infix operator (which propagates NULL); the
+ * AST's `concat` semantic per the type checker spec is "each part
+ * casts to text at evaluation, so no per-part type rule beyond
+ * resolution" — `concat(...)` matches this directly while `||`
+ * would require defensive `COALESCE(part, '')` wrapping at every
+ * part.
  */
 function compileConcat(
 	parts: ReadonlyArray<ValueExpression>,
@@ -671,28 +677,3 @@ function isFormatDatePreset(
 ): pattern is FormatDatePreset {
 	return FORMAT_DATE_PRESET_KEYS.has(pattern as FormatDatePreset);
 }
-
-// ---------------------------------------------------------------
-// Re-exports for downstream context construction
-// ---------------------------------------------------------------
-//
-// The `Database` type and the `Kysely` handle aren't re-exported —
-// callers thread their own `Kysely<Database>` through the context.
-// `RELATION_PATH_LEAF_ALIAS` is not re-exported either; callers that
-// need the alias import it directly from `compileRelationPath`.
-
-/**
- * The Kysely handle type the compile context binds against. Held
- * here so the compile-context type signature compiles in isolation
- * even though `Kysely<Database>` is the actual handle every caller
- * threads.
- */
-export type ExpressionCompileDatabase = Kysely<Database>;
-
-/**
- * The case-type schema map type the compile context binds against.
- * Mirrors the `caseTypeSchemas` field on `TermCompileContext`. Held
- * for consumers that build the schema map outside the term-compiler
- * import boundary.
- */
-export type ExpressionCompileSchemas = ReadonlyMap<string, CaseType>;

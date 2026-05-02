@@ -380,11 +380,15 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 // ---------------------------------------------------------------
 
 describe("compileExpression — round-trip — format-date arm", () => {
+	// Shared fixture datetime — every preset test runs against the
+	// same wall-clock instant so per-preset rendering can be compared
+	// against a single expected calendar date (Saturday, 2 May 2026).
+	const FIXTURE_DATETIME = "2026-05-02T12:00:00Z";
+
 	test("format-date renders the iso preset", async ({ db }) => {
-		// `iso` → `YYYY-MM-DD` per the compiler's preset map. Pass a
-		// known datetime literal so the assertion is deterministic.
+		// `iso` → `YYYY-MM-DD` per the compiler's preset map.
 		const expr = compileExpression(
-			formatDate(datetimeCoerce(term(literal("2026-05-02T12:00:00Z"))), "iso"),
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "iso"),
 			makeCtx(db),
 		);
 		const rows = await db
@@ -394,6 +398,41 @@ describe("compileExpression — round-trip — format-date arm", () => {
 		expect(rows[0].v).toBe("2026-05-02");
 	});
 
+	test("format-date renders the short preset", async ({ db }) => {
+		// `short` → `MM/DD/YYYY` (locale-default short form, US
+		// month/day/year ordering, slash separator). The fixture
+		// datetime falls on May 2, 2026 — the rendered string is
+		// the calendar-date interpretation of the timestamptz in
+		// UTC (Postgres's `to_char` honors the session timezone;
+		// the harness boots in UTC so the day boundary matches the
+		// wire string's day component).
+		const expr = compileExpression(
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "short"),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("05/02/2026");
+	});
+
+	test("format-date renders the long preset", async ({ db }) => {
+		// `long` → `FMMonth FMDD, YYYY`. `FMMonth` strips Postgres's
+		// fixed-width month-name fill spaces (bare `Month` would
+		// return `"May       "` filled out to 9 chars); `FMDD`
+		// strips the day-of-month leading zero.
+		const expr = compileExpression(
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "long"),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("May 2, 2026");
+	});
+
 	test("format-date renders a custom Postgres pattern verbatim", async ({
 		db,
 	}) => {
@@ -401,7 +440,7 @@ describe("compileExpression — round-trip — format-date arm", () => {
 		// Postgres's pattern vocabulary on Nova-runtime apps.
 		const expr = compileExpression(
 			formatDate(
-				datetimeCoerce(term(literal("2026-05-02T12:00:00Z"))),
+				datetimeCoerce(term(literal(FIXTURE_DATETIME))),
 				"FMDay, FMDD-Mon-YYYY",
 			),
 			makeCtx(db),

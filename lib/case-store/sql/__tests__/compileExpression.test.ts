@@ -592,8 +592,9 @@ describe("compileExpression — format-date arm", () => {
 		);
 		const sqlText = compiled.sql.toLowerCase();
 		expect(sqlText).toContain("to_char");
-		// `long` → `Month FMDD, YYYY` (locale-default long form).
-		expect(compiled.parameters).toContain("Month FMDD, YYYY");
+		// `long` → `FMMonth FMDD, YYYY` (locale-default long form;
+		// `FM` prefix strips Postgres's fixed-width month padding).
+		expect(compiled.parameters).toContain("FMMonth FMDD, YYYY");
 	});
 
 	it("passes a free-form pattern through verbatim", () => {
