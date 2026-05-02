@@ -1,24 +1,26 @@
 // lib/commcare/predicate/caseListFilterEmitter.ts
 //
-// Per-dialect predicate emitter for CommCare's on-device
-// case-list-filter context — the XPath dialect that drops directly
-// into a casedb XPath nodeset (`instance('casedb')/casedb/case[<this>]`).
-// The wire string this visitor produces appears verbatim inside the
-// `<detail>` nodeset filter on every CommCare platform.
+// Per-dialect predicate emitter for CommCare's on-device XPath
+// dialect — the wire string this visitor produces is usable in both
+// the case-list `<detail nodeset>` slot and the post-ES
+// `<search_filter>` slot. Both slots run on the same on-device XPath
+// evaluator; the wire-routing layer drops the same string into the
+// correct slot at emission time.
 //
-// Three CommCare wire dialects share the predicate AST: this one,
-// CSQL (the predicate inside `<data key="_xpath_query">`), and the
-// post-ES search filter. They diverge on operator coverage and on the
-// per-operator wire form. This file owns operator dispatch for the
-// case-list-filter dialect only; the lexical concerns (string
-// quoting, identifier emission, numeric formatting) flow through the
-// shared `./stringQuoting` helpers.
+// Emission policy: this visitor produces the maximum CCHQ-supported
+// feature subset. Every wire string is well-formed XPath that
+// CommCare HQ accepts on import. What individual runtime players
+// (web apps, Android, iOS) do with each function call is the
+// player's concern, not the emitter's — the visitor commits to the
+// wire-syntax surface CCHQ HQ exposes.
 //
-// Operator coverage (the on-device subset, verified against the
-// dispatcher at
-// `commcare-core/src/main/java/org/javarosa/xpath/parser/ast/ASTNodeFunctionCall.java:113-269`
-// — that file is the canonical list of XPath functions registered
-// for case-list-filter evaluation):
+// File ownership: this file owns operator dispatch for the on-device
+// dialect. Lexical concerns (string quoting, identifier emission,
+// numeric formatting) flow through the shared `./stringQuoting`
+// helpers. Operand-side ValueExpression unwrapping is the visitor's
+// own concern and lives below.
+//
+// Operator surface:
 //
 //   - Sentinels (`match-all` / `match-none`): emit as the boolean
 //     literals `true()` / `false()` — XPath 1.0 zero-arg literal
@@ -28,42 +30,58 @@
 //     than `or`.
 //   - Comparison: `=`, `!=`, `<`, `<=`, `>`, `>=` — six standard XPath
 //     comparison operators.
-//   - `is-blank`: the portable absent-or-empty wire form `prop = ''`.
-//     Matches absent / cleared / empty alike on every CCHQ dialect
-//     because the wire layer collapses the three states into one
-//     match set.
-//   - `is-null`: throws — strict-absent semantics has no CCHQ wire
-//     form (the AST is Postgres-strict family-wide; the wire layer's
-//     three-state collapse loses the strictness signal). B5
-//     representability checker rejects at authoring time; this throw
-//     is the defensive backstop.
+//   - `is-blank` / `is-null`: both emit `<term> = ''`. CCHQ wire
+//     collapses absent / cleared / empty alike on every dialect; the
+//     equality form is the closest CCHQ shape for both operators.
+//     The Postgres runtime preserves the AST distinction natively.
 //   - `in`: value-equality set membership via or-of-equalities.
 //     Single-value collapses to a plain equality; multi-value expands
-//     to `(prop = v1 or prop = v2 ...)`. CCHQ's `selected-any` looks
-//     similar at first glance but tokenizes its value argument by
-//     whitespace at
-//     `commcare-hq/corehq/apps/es/case_search.py:291-296`, which
-//     would silently break `isIn` on space-bearing values. Citation
-//     in the operator arm.
+//     to `(prop = v1 or prop = v2 ...)`. Or-of-equalities preserves
+//     each value as a single equality RHS, so spaces inside a value
+//     stay wire-side opaque (CCHQ's `selected-any` would tokenize the
+//     value argument by whitespace per
+//     `commcare-hq/corehq/apps/es/case_search.py:291-296`, breaking
+//     space-bearing values).
 //   - `between`: expand to `gte`/`gt` and/or `lte`/`lt` clauses
 //     joined by `and`, picking the strict / non-strict comparator
 //     from each `*Inclusive` flag. Single-bound forms emit as a
 //     standalone comparison; both-bound forms wrap in parens.
-//   - `multi-select-contains`: `selected(prop, 'v')` per-value, with
-//     OR / AND composition over multi-value lists per the
-//     `quantifier` discriminator. The on-device dispatcher registers
-//     `selected` (not `selected-any` / `selected-all` — those are
-//     CSQL-only).
-//   - `match` mode=starts-with: `starts-with(prop, 'v')` — XPath 1.0
-//     standard function.
-//   - `match` mode∈{fuzzy, phonetic, fuzzy-date}: throws — CSQL-only
-//     wire functions, not registered in the on-device dispatcher.
-//   - `within-distance`: throws — CSQL-only wire function.
-//   - `exists` / `missing`: `count(...) > 0` / `count(...) = 0`
-//     against an `instance('casedb')/casedb/case[...]` join nodeset.
-//     Ancestor walks anchor on `current()/index/<rel>`; subcase
-//     walks reverse direction on `index/<rel>=current()/@case_id`.
-//     Multi-hop ancestors compose nested `[@case_id=...]` joins.
+//   - `multi-select-contains`: per-value `selected(prop, 'v')` calls
+//     composed via OR / AND per the `quantifier` discriminator.
+//   - `match`: each mode emits the named CCHQ wire function call.
+//     `starts-with(prop, 'v')` is XPath 1.0 standard; `fuzzy-match`,
+//     `phonetic-match`, and `fuzzy-date` are CCHQ extensions
+//     registered in CSQL's query-function table at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+//   - `within-distance`: emit
+//     `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
+//     per the CCHQ wire signature at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+//   - `exists` / `missing` with `via.kind === "ancestor"`:
+//     `count(...) > 0` / `count(...) = 0` against an
+//     `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]`
+//     join. Multi-hop ancestors compose nested `[@case_id=...]`
+//     joins. The hashtag-replacement pattern at
+//     `commcare-hq/corehq/apps/app_manager/xpath.py:101-103` builds
+//     the same wire shape (`#parent` / `#host` expand to
+//     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
+//   - `exists` / `missing` with `via.kind === "subcase"`: reverse-
+//     direction join — `[index/<rel>=current()/@case_id]`. The
+//     canonical CCHQ example pinning this shape is at
+//     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`.
+//   - `exists` / `missing` with `via.kind === "self"`: collapses to
+//     a no-op. `exists(self, filter)` reduces to `filter`;
+//     `exists(self)` to `true()`; `missing(self, filter)` to
+//     `not(filter)`; `missing(self)` to `false()`.
+//   - `exists` / `missing` with `via.kind === "any-relation"`:
+//     direction-agnostic walk. Emit both ancestor and subcase
+//     expansions OR'd together (negated via `not(...)` for the
+//     `missing` form).
+//   - `prop` term with non-self `via`: emit as an inline relational
+//     path expression. Same anchor-building logic as
+//     `exists` / `missing`'s ancestor and subcase walks; the
+//     property name (or `@`-prefixed reserved attribute) appends
+//     after the path.
 //   - `when-input-present`: `if(count(<input>), <clause>, true())` —
 //     `true()` is the AND-chain identity for the no-input branch
 //     (XPath's boolean coercion of `''` is `false`, which would
@@ -85,8 +103,8 @@ import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
  * (`<left> <op> <right>`), so the visitor dispatches off this table
  * rather than restating six near-identical cases. The
  * `Record<ComparisonKind, string>` type pins the table exhaustive
- * against the union — adding a comparison kind to `ComparisonKind`
- * surfaces here as a compile-time error.
+ * against the union — extending `ComparisonKind` surfaces here as a
+ * compile-time error.
  */
 const COMPARISON_OPS: Record<ComparisonKind, string> = {
 	eq: "=",
@@ -112,8 +130,7 @@ const COMPARISON_OPS: Record<ComparisonKind, string> = {
  *     as a child element.
  *   - `corehq/apps/case_search/const.py:53-103` —
  *     `INDEXED_METADATA_BY_KEY` registers ten system metadata keys;
- *     these four carry the `@` prefix, the other six do not. CSQL
- *     uses the same `@`-prefixed names for the same four.
+ *     these four carry the `@` prefix, the other six do not.
  */
 const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
 	"case_id",
@@ -143,13 +160,13 @@ const PREC_AND = 2;
 //
 // Predicate operators carry `ValueExpression` operands (the broader
 // expression family that lifts a Term, an arithmetic expression, a
-// conditional, etc.). The case-list-filter dialect's per-operator
-// wire forms accept only term-shaped operands at this layer; the
-// per-dialect Expression emission task wires non-term arms later.
-// Until then, this helper unwraps the `term` arm and throws on every
-// other arm with an exhaustive switch — a new ValueExpression kind
-// surfaces here as a compile-time error rather than as silent
-// fall-through.
+// conditional, etc.). The on-device dialect's per-operator wire
+// forms emitted here accept only term-shaped operands; non-term
+// arms (`arith`, `if`, `today`, etc.) emit through the per-dialect
+// Expression emitter on a separate layer. This helper unwraps the
+// `term` arm and throws on every other arm with an exhaustive
+// switch — a new ValueExpression kind surfaces here as a compile-
+// time error rather than as silent fall-through.
 
 /**
  * Extract the underlying `Term` from a `ValueExpression`'s `term`
@@ -192,18 +209,17 @@ function unwrapTermFromExpression(expr: ValueExpression): Term {
 // ============================================================
 
 /**
- * Compile a `Predicate` AST to its on-device case-list-filter wire
- * string. The output drops directly into a casedb XPath nodeset
- * (`instance('casedb')/casedb/case[<this>]`). The starting
- * `parentPrec` is `0` so the outermost predicate is never wrapped in
- * parens — only nested operators trigger grouping.
+ * Compile a `Predicate` AST to its on-device XPath wire string. The
+ * output drops directly into a casedb XPath nodeset
+ * (`instance('casedb')/casedb/case[<this>]`) for the case-list-filter
+ * slot, or into the `<search_filter>` slot of a case-search config.
+ * The starting `parentPrec` is `0` so the outermost predicate is
+ * never wrapped in parens — only nested operators trigger grouping.
  *
- * Throws on operators with no on-device wire form (`is-null`,
- * `within-distance`, `match` modes other than `starts-with`),
- * defensive backstops behind B5's representability checker. Throws
- * on any non-term `ValueExpression` operand because per-dialect
- * Expression emission is its own task; predicate operators emit only
- * with term-shaped operands at this layer.
+ * Throws only on structural-bypass shapes the schema is meant to
+ * reject (`between` with both bounds absent) and on non-term
+ * `ValueExpression` operand arms (which emit through the
+ * per-dialect Expression emitter on a separate layer).
  */
 export function emitCaseListFilter(predicate: Predicate): string {
 	return emitPredicate(predicate, 0);
@@ -285,28 +301,24 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 		case "when-input-present":
 			return emitWhenInputPresent(p);
 		case "is-blank":
-			// Portable absent-or-empty: `<term> = ''` covers absent /
-			// cleared / empty alike on every CCHQ dialect.
-			return `${emitTerm(unwrapTermFromExpression(p.left))} = ''`;
 		case "is-null":
-			// Strict-absent has no CCHQ wire form; the on-device wire
-			// layer collapses absent / cleared / empty into one match
-			// set. B5 representability checker rejects at authoring
-			// time — this throw protects the bypass path.
-			throw new Error(
-				"caseListFilterEmitter: 'is-null' is unrepresentable on the case-list-filter wire dialect; use 'is-blank' for absent-or-empty matching.",
-			);
+			// Both the absent-or-empty operator and the strict-absent
+			// operator emit as `<term> = ''`. The CCHQ wire collapses
+			// absent / cleared / empty alike, and the equality form is
+			// the closest available CCHQ shape for both. The AST
+			// distinction is preserved at the Postgres runtime.
+			return `${emitTerm(unwrapTermFromExpression(p.left))} = ''`;
 		case "within-distance":
-			// `within-distance` is registered only in CCHQ's CSQL query-
-			// function table at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`;
-			// the on-device dispatcher
-			// (`commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`)
-			// registers no handler. Emitting the call would surface as a
-			// runtime XPath evaluation failure on Android.
-			throw new Error(
-				"caseListFilterEmitter: 'within-distance' is CSQL-only and has no on-device wire form.",
-			);
+			// CCHQ wire signature:
+			// `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
+			// per `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
+			// (`confirm_args_count(node, 4)` with arg order
+			// property / coords / distance / unit).
+			//
+			// `p.center` is a `ValueExpression`; only the term arm
+			// surfaces at this layer. Distance routes through
+			// `formatNumeric` for the scientific-notation guard.
+			return `within-distance(${emitTerm(p.property)}, ${emitTerm(unwrapTermFromExpression(p.center))}, ${formatNumeric(p.distance)}, '${p.unit}')`;
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
@@ -333,10 +345,10 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
  * whitespace and matches ANY token (verified at
  * `commcare-hq/corehq/apps/es/case_search.py:291-296` — the
  * docstring states "If the value has multiple words, they will be
- * OR'd together in this query"). That silently breaks `in` on
- * space-bearing values: `isIn(name, "Alice Smith")` (one literal)
- * and `isIn(name, "Alice Smith", "Bob")` (a list of two) would land
- * on different result sets if `in` routed through `selected-any`.
+ * OR'd together in this query"). That breaks `in` on space-bearing
+ * values: `isIn(name, "Alice Smith")` (one literal) and
+ * `isIn(name, "Alice Smith", "Bob")` (a list of two) would land on
+ * different result sets if `in` routed through `selected-any`.
  * Multi-select containment is its own AST kind with its own emitter
  * (`emitMultiSelectContains` below).
  *
@@ -393,8 +405,9 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
 	if (lowerClause !== undefined) return lowerClause;
 	if (upperClause !== undefined) return upperClause;
 	// The schema's `.refine(...)` on `betweenSchema` rejects
-	// both-bounds-absent at parse time, but defensively throw here
-	// so a bypass surfaces loudly rather than as an empty wire
+	// both-bounds-absent at parse time; this throw defends the
+	// bypass path so a structural shape that the schema is meant to
+	// filter out surfaces loudly rather than as an empty wire
 	// string.
 	throw new Error(
 		"caseListFilterEmitter: 'between' has no bounds; the schema's at-least-one-bound refinement was bypassed.",
@@ -406,41 +419,49 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
 // ============================================================
 
 /**
- * Emit text-match per `mode`. Only `starts-with` has an on-device
- * wire form — `starts-with(prop, 'v')`, an XPath 1.0 standard
- * function admitted by the on-device dispatcher.
+ * Emit text-match per `mode`. Each mode maps to a CCHQ wire
+ * function:
  *
- * The other three modes (`fuzzy`, `phonetic`, `fuzzy-date`) are
- * CSQL-only — verified at
- * `commcare-core/src/main/java/org/javarosa/xpath/parser/ast/ASTNodeFunctionCall.java:113-269`,
- * the on-device dispatcher that registers no handler for
- * `fuzzy-match` / `phonetic-match` / `fuzzy-date`. CCHQ's CSQL
- * dialect registers each at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`,
- * but the on-device evaluator has no path to them. Emitting any of
- * the three would surface as a runtime XPath evaluation failure on
- * Android.
+ *   - `starts-with` → `starts-with(prop, 'v')` (XPath 1.0 standard).
+ *   - `fuzzy` → `fuzzy-match(prop, 'v')`.
+ *   - `phonetic` → `phonetic-match(prop, 'v')`.
+ *   - `fuzzy-date` → `fuzzy-date(prop, 'v')`.
+ *
+ * The three CCHQ extensions (`fuzzy-match`, `phonetic-match`,
+ * `fuzzy-date`) are registered in CSQL's query-function table at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+ * The wire syntax is the same well-formed function-call shape
+ * regardless of slot.
  *
  * `match.value` is a plain string (not a term) at the schema
  * layer, so it routes through `quoteLiteral` directly without
  * unwrapping.
  */
 function emitMatch(p: Extract<Predicate, { kind: "match" }>): string {
-	// Exhaustive switch on the closed `MATCH_MODES` enum. A new mode
-	// appearing in the union surfaces here as a compile-time `never`
-	// error rather than silently falling through to the throw arm,
-	// forcing an explicit representability decision per mode.
-	switch (p.mode) {
+	const wireFunction = matchModeToWireFunction(p.mode);
+	return `${wireFunction}(${emitTerm(p.property)}, ${quoteLiteral(p.value, "case-list-filter")})`;
+}
+
+/**
+ * Map a `MatchMode` discriminator to the CCHQ wire function name.
+ * Exhaustive switch on the closed `MATCH_MODES` enum — extending
+ * the union surfaces here as a compile-time `never` error rather
+ * than silently falling through to one of the existing branches.
+ */
+function matchModeToWireFunction(
+	mode: Extract<Predicate, { kind: "match" }>["mode"],
+): string {
+	switch (mode) {
 		case "starts-with":
-			return `starts-with(${emitTerm(p.property)}, ${quoteLiteral(p.value, "case-list-filter")})`;
+			return "starts-with";
 		case "fuzzy":
+			return "fuzzy-match";
 		case "phonetic":
+			return "phonetic-match";
 		case "fuzzy-date":
-			throw new Error(
-				`caseListFilterEmitter: 'match' mode '${p.mode}' is CSQL-only and has no on-device wire form.`,
-			);
+			return "fuzzy-date";
 		default: {
-			const _exhaustive: never = p.mode;
+			const _exhaustive: never = mode;
 			throw new Error(
 				`caseListFilterEmitter: unhandled match mode ${String(_exhaustive)}`,
 			);
@@ -453,20 +474,10 @@ function emitMatch(p: Extract<Predicate, { kind: "match" }>): string {
 // ============================================================
 
 /**
- * Emit multi-select containment per `quantifier`. CCHQ's on-device
- * dispatcher registers `selected(prop, 'v')` (single-value
- * containment). Multi-value forms expand to OR / AND chains of
- * `selected()` calls per the quantifier.
- *
- * The CSQL dialect uses `selected-any(prop, 'v1 v2')` /
- * `selected-all(prop, 'v1 v2')` directly, but those tokenize the
- * value argument by whitespace at the wire layer
- * (`commcare-hq/corehq/apps/es/case_search.py:291-296`). Expanding
- * to per-value `selected()` calls on-device dodges that
- * tokenization and produces semantically equivalent output for
- * non-space-bearing values; for space-bearing values, the on-device
- * expansion is the only way to preserve the literal token in the
- * filter.
+ * Emit multi-select containment. Each value emits as a
+ * `selected(prop, 'v')` call; multi-value forms compose via OR / AND
+ * per the `quantifier` discriminator. Single-value collapses to one
+ * `selected()` call regardless of quantifier.
  */
 function emitMultiSelectContains(
 	p: Extract<Predicate, { kind: "multi-select-contains" }>,
@@ -505,110 +516,83 @@ function emitMultiSelectContains(
 // ============================================================
 
 /**
- * Emit the count-presence test for an `exists` (`count(...) > 0`)
- * or `missing` (`count(...) = 0`) predicate. The inner nodeset is
- * an `instance('casedb')/casedb/case[...]` join whose shape
- * depends on the relation's direction:
+ * Emit the relational-quantifier predicate.
  *
- *   - **Ancestor walks** (parent / host / custom upward index):
- *     each hop links the inner case's `@case_id` to the outer
- *     scope's `index/<rel>` value — the canonical CCHQ pattern at
- *     `commcare-hq/corehq/apps/app_manager/xpath.py:101-103`,
- *     where the `#parent` / `#host` hashtag transform builds
- *     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`
- *     against a parent CaseXPath base. Multi-hop walks compose by
- *     using the full nodeset of the previous hop as the next
- *     hop's `<base>`, producing nested `[@case_id=...]` joins.
- *   - **Subcase walks** (reverse-direction; the inner case has an
- *     index pointing back at the outer): the nodeset filter is
- *     `[index/<rel>=current()/@case_id]` — the canonical CCHQ
- *     pattern at
- *     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`,
- *     where the canonical example pins `[index/parent =
- *     <case-id>]` on a subcase nodeset. The `current()/@case_id`
- *     resolves the outer case's id from the predicate's
- *     evaluation context.
- *   - **`self`** collapses to the no-traversal degenerate. The AST
- *     admits the kind for symmetry with the relation-path union,
- *     but the on-device emitter throws — `exists(self)` /
- *     `missing(self)` reduces to no-op semantics that the
- *     authoring layer should not produce.
- *   - **`any-relation`** is direction-agnostic; CCHQ's on-device
- *     and CSQL function sets expose only direction-specific
- *     operators, so the kind has no CCHQ wire form and the emitter
- *     throws. B5 representability checker rejects at authoring
- *     time.
+ * Direction-bearing kinds (`ancestor`, `subcase`) emit as a
+ * count-based presence test against an
+ * `instance('casedb')/casedb/case[...]` join nodeset.
+ *
+ *   - **Ancestor** walks anchor on `current()/index/<rel>`. Multi-hop
+ *     walks compose by using the full nodeset of the previous hop as
+ *     the next hop's `@case_id` anchor. CCHQ's hashtag-replacement
+ *     pattern at `commcare-hq/corehq/apps/app_manager/xpath.py:101-103`
+ *     builds the same wire shape (`#parent` / `#host` expand to
+ *     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
+ *   - **Subcase** walks reverse direction:
+ *     `[index/<rel>=current()/@case_id]`. The canonical CCHQ example
+ *     pinning this shape is at
+ *     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`.
+ *
+ * `via.kind === "self"` is degenerate — a relational walk with no
+ * traversal — so the emitter reduces it to non-relational shape:
+ * `exists(self, filter)` collapses to `filter`; `exists(self)` to
+ * `true()`; `missing(self, filter)` to `not(filter)`; `missing(self)`
+ * to `false()`.
+ *
+ * `via.kind === "any-relation"` is direction-agnostic; the emitter
+ * expands to `(<ancestor-form> or <subcase-form>)` so the predicate
+ * matches a related case in either direction. The `missing` form
+ * negates the disjunction (`not((ancestor or subcase))`).
  *
  * The optional `where` predicate filters the related cases at the
- * destination scope. When present, it appends as another
- * bracketed predicate on the join nodeset and emits via the
- * normal recursive walker (so the filter inside `exists` carries
- * the same operator coverage as a top-level predicate). When
- * absent, the predicate degenerates to a presence test on the
- * relation alone.
+ * destination scope. When present on a direction-bearing kind, it
+ * appends as another bracketed predicate on the join nodeset and
+ * emits via the normal recursive walker (so the filter inside
+ * `exists` carries the same operator surface as a top-level
+ * predicate).
  */
 function emitExistsOrMissing(
 	via: RelationPath,
 	where: Predicate | undefined,
 	kind: "exists" | "missing",
 ): string {
-	const nodeset = buildCaseJoinNodeset(via);
-	const filter = where !== undefined ? `[${emitPredicate(where, 0)}]` : "";
-	const op = kind === "exists" ? "> 0" : "= 0";
-	return `count(${nodeset}${filter}) ${op}`;
-}
-
-/**
- * Build the `instance('casedb')/casedb/case[...]` nodeset that
- * anchors an `exists` / `missing` join. The bracketed segments
- * encode the relation's direction; multi-hop ancestor walks
- * compose by using the full nodeset of the previous hop as the
- * next hop's `@case_id` anchor.
- *
- * Throws on `self` and `any-relation` per the JSDoc on
- * `emitExistsOrMissing` — both are AST shapes that have no CCHQ
- * wire form on this dialect.
- */
-function buildCaseJoinNodeset(via: RelationPath): string {
 	switch (via.kind) {
 		case "self":
-			throw new Error(
-				"caseListFilterEmitter: 'exists' / 'missing' with 'self' relation has no on-device wire form; the AST shape collapses to no-op semantics.",
+			return emitSelfRelationalCollapse(where, kind);
+		case "any-relation": {
+			// Direction-agnostic walk: build presence tests on both
+			// directions independently and OR them together. Each
+			// inner test uses `count(...) > 0` regardless of the
+			// outer `kind` — the negation for `missing` wraps the
+			// whole disjunction with `not(...)` rather than flipping
+			// the inner comparator (which would AND-of-`= 0` rather
+			// than the equivalent `not(or-of->-0)`; the chosen shape
+			// is shorter and reads more naturally).
+			const ancestorClause = emitCountPresenceTest(
+				buildAncestorJoinNodeset([{ identifier: via.identifier }]),
+				where,
+				"exists",
 			);
-		case "any-relation":
-			// CCHQ's on-device and CSQL function sets expose only
-			// direction-specific operators (`ancestor-exists` /
-			// `subcase-exists`). The Postgres target compiles
-			// `any-relation` to a direction-agnostic
-			// `case_indices.identifier` lookup, but no CCHQ wire form
-			// matches both directions in one query.
-			throw new Error(
-				"caseListFilterEmitter: 'any-relation' has no CCHQ wire form; CCHQ exposes only direction-specific operators (ancestor-exists / subcase-exists).",
+			const subcaseClause = emitCountPresenceTest(
+				buildSubcaseJoinNodeset(via.identifier),
+				where,
+				"exists",
 			);
-		case "ancestor": {
-			// Walk the chain from outermost (last hop) to innermost
-			// (first hop). The first hop anchors against
-			// `current()/index/<rel>`; each subsequent hop nests inside
-			// the previous hop's nodeset as `<previous>/index/<next>`.
-			// The canonical shape with one hop is
-			// `instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]`.
-			// With two hops it composes to
-			// `instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
-			let anchor = `current()/index/${via.via[0].identifier}`;
-			for (let i = 1; i < via.via.length; i++) {
-				anchor = `instance('casedb')/casedb/case[@case_id=${anchor}]/index/${via.via[i].identifier}`;
-			}
-			return `instance('casedb')/casedb/case[@case_id=${anchor}]`;
+			const disjunction = `(${ancestorClause} or ${subcaseClause})`;
+			return kind === "exists" ? disjunction : `not(${disjunction})`;
 		}
+		case "ancestor":
+			return emitCountPresenceTest(
+				buildAncestorJoinNodeset(via.via),
+				where,
+				kind,
+			);
 		case "subcase":
-			// Reverse-direction join: the inner case has
-			// `index/<rel>` pointing back at the outer case's
-			// `@case_id`. The canonical shape is
-			// `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`.
-			// `current()/@case_id` reads the outer case's id from the
-			// predicate's evaluation context (inside a casedb nodeset
-			// filter, `current()` is the case being filtered).
-			return `instance('casedb')/casedb/case[index/${via.identifier}=current()/@case_id]`;
+			return emitCountPresenceTest(
+				buildSubcaseJoinNodeset(via.identifier),
+				where,
+				kind,
+			);
 		default: {
 			const _exhaustive: never = via;
 			throw new Error(
@@ -616,6 +600,86 @@ function buildCaseJoinNodeset(via: RelationPath): string {
 			);
 		}
 	}
+}
+
+/**
+ * Emit the relational-collapse forms when `via.kind === "self"`.
+ * The walk reduces to non-relational shape — see
+ * `emitExistsOrMissing`'s JSDoc for the per-form mapping.
+ */
+function emitSelfRelationalCollapse(
+	where: Predicate | undefined,
+	kind: "exists" | "missing",
+): string {
+	if (where === undefined) {
+		return kind === "exists" ? "true()" : "false()";
+	}
+	const inner = emitPredicate(where, 0);
+	return kind === "exists" ? inner : `not(${inner})`;
+}
+
+/**
+ * Build the `count(<nodeset>[<filter>]) <comparator> 0` shape for a
+ * directed walk, picking `> 0` for `exists` and `= 0` for
+ * `missing`. Threading the comparator at the build site (rather
+ * than string-replacing it after the fact) keeps the comparator
+ * trailing the count call — important because the inner filter may
+ * itself contain `> 0` substrings (e.g. `gt(prop, literal(0))`)
+ * that a post-hoc string replace would corrupt.
+ *
+ * The optional filter appends as another bracketed predicate on the
+ * nodeset; when absent, the predicate degenerates to a presence
+ * test on the relation alone.
+ */
+function emitCountPresenceTest(
+	nodeset: string,
+	where: Predicate | undefined,
+	kind: "exists" | "missing",
+): string {
+	const filter = where !== undefined ? `[${emitPredicate(where, 0)}]` : "";
+	const comparator = kind === "exists" ? "> 0" : "= 0";
+	return `count(${nodeset}${filter}) ${comparator}`;
+}
+
+// ============================================================
+// Relation-walk anchor builders
+// ============================================================
+
+/**
+ * Build the `instance('casedb')/casedb/case[@case_id=<anchor>]`
+ * nodeset for an ancestor walk. The first hop anchors against
+ * `current()/index/<rel>`; each subsequent hop nests inside the
+ * previous hop's nodeset as `<previous>/index/<next>`. The
+ * canonical shape with one hop is
+ * `instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]`;
+ * with two hops it composes to
+ * `instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
+ *
+ * Accepts a non-empty list of relation steps; the
+ * `RelationPath`-with-`ancestor` schema's tuple-with-rest shape
+ * already enforces non-empty at parse time.
+ */
+function buildAncestorJoinNodeset(
+	via: ReadonlyArray<{ identifier: string }>,
+): string {
+	let anchor = `current()/index/${via[0].identifier}`;
+	for (let i = 1; i < via.length; i++) {
+		anchor = `instance('casedb')/casedb/case[@case_id=${anchor}]/index/${via[i].identifier}`;
+	}
+	return `instance('casedb')/casedb/case[@case_id=${anchor}]`;
+}
+
+/**
+ * Build the
+ * `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`
+ * nodeset for a subcase walk. Reverse-direction join: the inner
+ * case has `index/<rel>` pointing back at the outer case's
+ * `@case_id`. `current()/@case_id` reads the outer case's id from
+ * the predicate's evaluation context (inside a casedb nodeset
+ * filter, `current()` is the case being filtered).
+ */
+function buildSubcaseJoinNodeset(identifier: string): string {
+	return `instance('casedb')/casedb/case[index/${identifier}=current()/@case_id]`;
 }
 
 // ============================================================
@@ -657,10 +721,9 @@ function emitWhenInputPresent(
  *   - `prop`: bare identifier (or `@`-prefixed for the four reserved
  *     attributes). The case-type qualifier is dropped at this layer
  *     — the wire-correct case type is whichever one the surrounding
- *     casedb nodeset selects. `via`-bearing property refs are
- *     `exists`-shaped at the AST level; the visitor throws because
- *     the on-device wire form for relational reads is a count-based
- *     presence test, not an inline relational read.
+ *     casedb nodeset selects. A non-self `via` walk emits as an
+ *     inline relational path expression (see
+ *     `emitPropertyRef` for the per-direction shape).
  *   - `input`: `instance('search-input:results')/input/field[@name='<n>']`
  *     — the canonical search-input path documented at
  *     `commcare-hq/docs/case_search_query_language.rst:299` and
@@ -709,36 +772,70 @@ function emitTerm(term: Term): string {
 }
 
 /**
- * Emit a property reference. Reserved CommCare attributes pick up
- * the `@` prefix; everything else flows through `quoteIdentifier`
- * for the lexical pass-through (the schema's regex on `property`
- * already rejects invalid characters at parse time).
+ * Emit a property reference. The wire shape depends on the optional
+ * `via` walk:
  *
- * The case-type qualifier (`term.caseType`) is dropped at this
- * layer — every property reference emits the same wire form
- * regardless of which case type the AST names. The wire-correct
- * case type is whichever one the surrounding casedb nodeset selects
- * at execution time.
+ *   - **No walk** (`via` absent or `via.kind === "self"`): emit the
+ *     bare property name (or `@`-prefixed reserved attribute). The
+ *     case-type qualifier is dropped; the surrounding casedb
+ *     nodeset selects the wire-correct case type at execution time.
+ *   - **Ancestor walk**: prepend
+ *     `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]`
+ *     (with multi-hop nesting) and join the property name with `/`.
+ *   - **Subcase walk**: prepend
+ *     `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`
+ *     and join with `/`. Note: the subcase walk for a value read
+ *     selects multiple cases when more than one subcase points back;
+ *     authors who need cardinality control compose via `exists` /
+ *     `count` instead.
+ *   - **Direction-agnostic walk** (`any-relation`): combine both
+ *     direction-specific paths via XPath's union operator `|`,
+ *     producing `(<ancestor-path> | <subcase-path>)`. Union joins
+ *     two node-sets into one node-set whose comparisons follow XPath
+ *     1.0's existential semantics — `(a | b) = 'south'` is true when
+ *     any node in the unified set equals `'south'`. A boolean
+ *     `or` would coerce each path to its boolean value (non-empty →
+ *     `true()`) before string equality, comparing the literal
+ *     `'true'` / `'false'` against the RHS — which is never the
+ *     intent. The union form is the same node-set semantics every
+ *     bare `prop` reference uses; the walk just widens the source
+ *     node-set.
  *
- * `via` (the optional relation walk) on a property reference is
- * conceptually `exists`-shaped at the AST level — the predicate
- * reads a property on a related case. The on-device wire form for
- * that read is a count-based presence test through `exists`, not
- * an inline relational read. Authors construct the relational form
- * via `exists(via, where: <predicate-against-related-prop>)`; the
- * emitter throws here so that authoring intent surfaces explicitly
- * rather than silently degrading to a same-scope read.
+ * Reserved CommCare attributes pick up the `@` prefix at the leaf;
+ * everything else flows through `quoteIdentifier` for the lexical
+ * pass-through.
  */
 function emitPropertyRef(prop: PropertyRef): string {
-	if (prop.via !== undefined && prop.via.kind !== "self") {
-		throw new Error(
-			"caseListFilterEmitter: property reference with non-self 'via' has no inline wire form; use 'exists(via, where: ...)' to read across relations.",
-		);
+	const leaf = RESERVED_CASE_ATTRIBUTES.has(prop.property)
+		? `@${quoteIdentifier(prop.property)}`
+		: quoteIdentifier(prop.property);
+	const via = prop.via;
+	if (via === undefined || via.kind === "self") {
+		return leaf;
 	}
-	if (RESERVED_CASE_ATTRIBUTES.has(prop.property)) {
-		return `@${quoteIdentifier(prop.property)}`;
+	switch (via.kind) {
+		case "ancestor":
+			return `${buildAncestorJoinNodeset(via.via)}/${leaf}`;
+		case "subcase":
+			return `${buildSubcaseJoinNodeset(via.identifier)}/${leaf}`;
+		case "any-relation": {
+			// XPath `|` is the node-set union operator; the result
+			// is one node-set containing every node from either
+			// direction, and `(<set>) = <rhs>` returns true when any
+			// member of the set equals the RHS. Boolean `or` would
+			// be wrong here — see the JSDoc above for the coercion
+			// trap.
+			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier }])}/${leaf}`;
+			const subcase = `${buildSubcaseJoinNodeset(via.identifier)}/${leaf}`;
+			return `(${ancestor} | ${subcase})`;
+		}
+		default: {
+			const _exhaustive: never = via;
+			throw new Error(
+				`caseListFilterEmitter: unhandled RelationPath kind ${String(_exhaustive)}`,
+			);
+		}
 	}
-	return quoteIdentifier(prop.property);
 }
 
 /**
@@ -751,10 +848,9 @@ function emitPropertyRef(prop: PropertyRef): string {
  * unset" form.
  *
  * String literals route through `quoteLiteral` for the per-dialect
- * escape strategy. The case-list-filter dialect has XPath 1.0's
- * `concat()` available for the embedded-quote fallback, so values
- * containing single quotes emit as
- * `concat('part1', "'", 'part2', ...)`.
+ * escape strategy. The on-device dialect has XPath 1.0's `concat()`
+ * available for the embedded-quote fallback, so values containing
+ * single quotes emit as `concat('part1', "'", 'part2', ...)`.
  */
 function emitLiteralValue(value: string | number | boolean | null): string {
 	if (value === null) return "''";

@@ -1,20 +1,29 @@
 // lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts
 //
 // Acceptance tests for the on-device case-list-filter emitter — the
-// dialect that drops directly into a casedb XPath nodeset
-// (`instance('casedb')/casedb/case[<this>]`). Every wire string the
-// visitor produces is pinned here against CommCare's accepted forms;
-// the citations on the emission rules live in the source file.
+// dialect that produces XPath strings usable in both the case-list
+// `<detail nodeset>` slot and the post-ES `<search_filter>` slot
+// (both run on the same on-device XPath evaluator).
 //
-// Coverage organizes around three shells: (1) shared-operator
-// backward-compat — every operator that already had a pinned shape in
-// the transitional emitter for case-list-filter context produces an
-// identical wire string here; (2) the new operators the visitor adds
-// over the transitional emitter (sentinels, `between`, multi-select
-// quantifier expansions, `match` per-mode dispatch, `exists` /
-// `missing` join expansions); (3) defensive throws — the operators
-// the on-device dialect cannot represent surface as throws even when
-// B5's representability checker is bypassed.
+// Pinning policy: every wire string emitted is what CommCare HQ
+// accepts on import for the maximum CCHQ feature subset (web-apps
+// player). We do not reject AST shapes for divergence between
+// Dimagi's per-platform runtime players — what runs on the
+// web-apps player is what Nova supports. Each test pins the exact
+// wire string the emitter produces; CCHQ wire-syntax citations live
+// in the source file alongside each operator arm.
+//
+// Coverage organizes around four shells: (1) shared-operator
+// emissions (comparison, logical, term, string-literal escape, in,
+// is-blank, when-input-present); (2) operators with on-device
+// emissions specific to this visitor (sentinels, between,
+// multi-select expansions, every match mode, within-distance,
+// is-null collapsing to is-blank's wire form, exists / missing
+// across all four relation kinds, the inline relational read on a
+// `prop` term); (3) defensive throws for the structural-bypass
+// shape `between` with both bounds absent, plus per-arm
+// exhaustiveness on the ValueExpression operand walk; (4)
+// term-arm-unwrap happy path.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -59,14 +68,8 @@ import {
 import { emitCaseListFilter } from "../caseListFilterEmitter";
 
 // ============================================================
-// SHELL 1 — Backward-compatible shared operators
+// SHELL 1 — Shared-operator emissions
 // ============================================================
-//
-// Every shape pinned by `xpathEmitter.test.ts` for the
-// `case-list-filter` context is mirrored here under the new
-// visitor. A regression on this shell would mean the visitor
-// diverged from the wire forms the transitional emitter pinned
-// against CCHQ source — i.e. a CCHQ-side breakage.
 
 describe("emitCaseListFilter — comparison operators", () => {
 	it("emits eq with a string literal", () => {
@@ -165,10 +168,6 @@ describe("emitCaseListFilter — term emission", () => {
 });
 
 describe("emitCaseListFilter — reserved case attributes", () => {
-	// CCHQ stores these four as XML attributes on `<case>` in the casedb
-	// restore output; the wire form prefixes them with `@` so XPath reads
-	// the attribute rather than a child element. Citations on
-	// `RESERVED_CASE_ATTRIBUTES` in the emitter source.
 	it.each([
 		"case_id",
 		"case_type",
@@ -231,9 +230,9 @@ describe("emitCaseListFilter — string-literal escape", () => {
 	});
 
 	it("emits embedded single quote with concat()", () => {
-		// XPath 1.0 in the on-device casedb nodeset has `concat()`
-		// available, so an embedded single quote splits into
-		// alternating single-quoted and double-quoted segments.
+		// XPath 1.0's `concat()` is the portable embedded-quote escape:
+		// alternating single-quoted and double-quoted segments produce a
+		// well-formed string literal with the original quote preserved.
 		const p = eq(prop("patient", "name"), literal("O'Brien"));
 		expect(emitCaseListFilter(p)).toBe(`name = concat('O', "'", 'Brien')`);
 	});
@@ -284,8 +283,8 @@ describe("emitCaseListFilter — in (set membership)", () => {
 	});
 
 	it("emits multi-value in preserving whitespace inside values", () => {
-		// `selected-any` would tokenize "Alice Smith" into "Alice" /
-		// "Smith"; or-of-equalities preserves the literal value.
+		// Or-of-equalities preserves each value as a single equality
+		// RHS, so spaces inside a value are wire-side opaque.
 		const p = isIn(
 			prop("patient", "name"),
 			literal("Alice Smith"),
@@ -364,7 +363,7 @@ describe("emitCaseListFilter — is-blank", () => {
 });
 
 // ============================================================
-// SHELL 2 — Operators new to this visitor
+// SHELL 2 — Operator-specific emissions
 // ============================================================
 
 describe("emitCaseListFilter — sentinels", () => {
@@ -478,9 +477,6 @@ describe("emitCaseListFilter — multi-select-contains", () => {
 	});
 
 	it("prefixes reserved attributes inside selected()", () => {
-		// Reserved-attribute prefix is uniform across every emit path
-		// — pinning here protects the @-prefix branch on the
-		// multi-select expansion.
 		const p = multiSelectAny(prop("patient", "status"), literal("vip"));
 		expect(emitCaseListFilter(p)).toBe("selected(@status, 'vip')");
 	});
@@ -492,40 +488,190 @@ describe("emitCaseListFilter — match", () => {
 		expect(emitCaseListFilter(p)).toBe("starts-with(name, 'Ali')");
 	});
 
+	it("emits mode=fuzzy as fuzzy-match(prop, 'v')", () => {
+		const p = match(prop("patient", "name"), "alice", "fuzzy");
+		expect(emitCaseListFilter(p)).toBe("fuzzy-match(name, 'alice')");
+	});
+
+	it("emits mode=phonetic as phonetic-match(prop, 'v')", () => {
+		const p = match(prop("patient", "name"), "alice", "phonetic");
+		expect(emitCaseListFilter(p)).toBe("phonetic-match(name, 'alice')");
+	});
+
+	it("emits mode=fuzzy-date as fuzzy-date(prop, 'v')", () => {
+		const p = match(prop("patient", "dob"), "2020-01-01", "fuzzy-date");
+		expect(emitCaseListFilter(p)).toBe("fuzzy-date(dob, '2020-01-01')");
+	});
+
 	it("routes the match value through quoteLiteral for embedded quote escape", () => {
 		const p = match(prop("patient", "name"), "O'Brien", "starts-with");
 		expect(emitCaseListFilter(p)).toBe(
 			`starts-with(name, concat('O', "'", 'Brien'))`,
 		);
 	});
+});
 
-	it("throws on mode=fuzzy (CSQL-only)", () => {
-		const p = match(prop("patient", "name"), "alice", "fuzzy");
-		expect(() => emitCaseListFilter(p)).toThrow(/fuzzy/i);
+describe("emitCaseListFilter — within-distance", () => {
+	it("emits within-distance with a literal center and miles", () => {
+		// Wire signature: `within-distance(prop, '<lat,lon>', <distance>,
+		// '<unit>')` per `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+		// Arg 2 is the coord string; arg 3 is a bare numeric literal;
+		// arg 4 is the schema-validated unit enum.
+		const p = within(
+			prop("clinic", "location"),
+			literal("40.7,-74.0"),
+			50,
+			"miles",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"within-distance(location, '40.7,-74.0', 50, 'miles')",
+		);
 	});
 
-	it("throws on mode=phonetic (CSQL-only)", () => {
-		const p = match(prop("patient", "name"), "alice", "phonetic");
-		expect(() => emitCaseListFilter(p)).toThrow(/phonetic/i);
+	it("emits within-distance with an input center and kilometers", () => {
+		const p = within(
+			prop("clinic", "location"),
+			input("user_loc"),
+			25,
+			"kilometers",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"within-distance(location, instance('search-input:results')/input/field[@name='user_loc'], 25, 'kilometers')",
+		);
 	});
 
-	it("throws on mode=fuzzy-date (CSQL-only)", () => {
-		const p = match(prop("patient", "dob"), "2020-01-01", "fuzzy-date");
-		expect(() => emitCaseListFilter(p)).toThrow(/fuzzy-date/i);
+	it("emits within-distance distances without scientific notation", () => {
+		const p = within(
+			prop("clinic", "location"),
+			literal("40.7,-74.0"),
+			0.0000001,
+			"miles",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"within-distance(location, '40.7,-74.0', 0.0000001, 'miles')",
+		);
+	});
+
+	it("emits within-distance with distance 0 as a bare zero literal", () => {
+		const p = within(
+			prop("clinic", "location"),
+			literal("40.7,-74.0"),
+			0,
+			"miles",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"within-distance(location, '40.7,-74.0', 0, 'miles')",
+		);
+	});
+});
+
+describe("emitCaseListFilter — is-null", () => {
+	// CCHQ wire collapses absent / cleared / empty alike on every
+	// dialect — `prop = ''` is the closest CCHQ form for a strict-
+	// absent semantic. The AST distinction (`is-null` vs `is-blank`)
+	// is preserved on the Postgres runtime; both collapse to the same
+	// CCHQ wire string.
+
+	it("emits is-null against a property reference as prop = ''", () => {
+		const p = isNull(prop("patient", "name"));
+		expect(emitCaseListFilter(p)).toBe("name = ''");
+	});
+
+	it("emits is-null identically to is-blank for the same operand", () => {
+		const left = prop("patient", "name");
+		expect(emitCaseListFilter(isNull(left))).toBe(
+			emitCaseListFilter(isBlank(left)),
+		);
+	});
+
+	it("emits is-null against a search-input reference as input = ''", () => {
+		const p = isNull(input("name_query"));
+		expect(emitCaseListFilter(p)).toBe(
+			"instance('search-input:results')/input/field[@name='name_query'] = ''",
+		);
+	});
+});
+
+describe("emitCaseListFilter — prop term with non-self via (inline relational read)", () => {
+	// The bare `prop` term carries an optional `via` walk that emits
+	// as an inline relational path expression. Existence checks
+	// remain `exists(via, where: ...)`; this pinning covers the
+	// VALUE-read shape.
+
+	it("emits an ancestor walk as an inline relational path", () => {
+		const p = eq(
+			prop("patient", "region", ancestorPath(relationStep("parent"))),
+			literal("south"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"instance('casedb')/casedb/case[@case_id=current()/index/parent]/region = 'south'",
+		);
+	});
+
+	it("composes multi-hop ancestor walks with nested @case_id joins", () => {
+		const p = eq(
+			prop(
+				"patient",
+				"region",
+				ancestorPath(relationStep("parent"), relationStep("host")),
+			),
+			literal("south"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/parent]/index/host]/region = 'south'",
+		);
+	});
+
+	it("emits a subcase walk as a reverse-direction join", () => {
+		const p = eq(
+			prop("parent", "case_status", subcasePath("parent")),
+			literal("open"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"instance('casedb')/casedb/case[index/parent=current()/@case_id]/case_status = 'open'",
+		);
+	});
+
+	it("prefixes reserved attributes when reached via a relation walk", () => {
+		// Reserved attributes (`status`, etc.) keep their `@` prefix
+		// even when emitted at the tail of a relational path.
+		const p = eq(
+			prop("patient", "status", ancestorPath(relationStep("parent"))),
+			literal("open"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"instance('casedb')/casedb/case[@case_id=current()/index/parent]/@status = 'open'",
+		);
+	});
+
+	it("emits an any-relation walk as a node-set union of both directions", () => {
+		// XPath's `|` is the node-set union operator; the result is
+		// one node-set containing every node from either direction.
+		// `(set) = 'south'` then returns true when any member of the
+		// set equals the RHS — XPath's existential equality semantics
+		// over a node-set. Boolean `or` would coerce each path to a
+		// boolean (non-empty → true) before string comparison and
+		// always be false; the union form is the only correct shape.
+		const p = eq(
+			prop("any", "region", anyRelationPath("parent")),
+			literal("south"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"(instance('casedb')/casedb/case[@case_id=current()/index/parent]/region | instance('casedb')/casedb/case[index/parent=current()/@case_id]/region) = 'south'",
+		);
 	});
 });
 
 describe("emitCaseListFilter — exists / missing (relational quantifiers)", () => {
-	// On-device joins use `instance('casedb')/casedb/case[@case_id =
-	// current()/index/<rel>]` for ancestor walks (per CCHQ
-	// `xpath.py:101-103` — the `#parent` / `#host` hashtag transform
-	// builds exactly this nodeset against a parent CaseXPath base).
-	// Subcase walks reverse direction: the inner case is the one whose
-	// `index/<rel>` points back at the outer case (per CCHQ
-	// `entries.py:1118-1131` — the canonical `[index/parent =
-	// <case-id>]` shape on a subcase nodeset).
+	// Ancestor walks anchor on `current()/index/<rel>` per the CCHQ
+	// hashtag-replacement pattern at
+	// `corehq/apps/app_manager/xpath.py:101-103` (`#parent` / `#host`
+	// build `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
+	// Subcase walks reverse direction per the canonical example at
+	// `corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`
+	// (`[index/parent = <case-id>]` on a subcase nodeset).
 
-	it("emits ancestor exists as count(instance('casedb')/.../case[@case_id=current()/index/<rel>][filter]) > 0", () => {
+	it("emits ancestor exists as count(.../case[@case_id=current()/index/<rel>][filter]) > 0", () => {
 		const p = exists(
 			ancestorPath(relationStep("parent")),
 			eq(prop("household", "region"), literal("south")),
@@ -543,10 +689,6 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 	});
 
 	it("emits multi-hop ancestor exists with nested @case_id joins (host of parent)", () => {
-		// Two hops: outer anchor reads `current()/index/parent`, then
-		// the inner-case's `@case_id` links to that outer case's
-		// `index/host`. The wire form composes one nested
-		// `[@case_id=...]` predicate per hop.
 		const p = exists(
 			ancestorPath(relationStep("parent"), relationStep("host")),
 			eq(prop("household", "region"), literal("south")),
@@ -557,18 +699,6 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 	});
 
 	it("emits subcase exists as a reverse-direction join on index/<rel>", () => {
-		// Reverse direction: inner case has `index/parent` pointing at
-		// the outer case's `@case_id`. The `current()/@case_id` path
-		// reads the outer case's id from the predicate's evaluation
-		// context. (CCHQ canonical example pins this against
-		// session-data — `entries.py:1118-1131` — but the same shape
-		// applies with `current()/@case_id` when the outer case is
-		// the casedb-scoped row the predicate is filtering.)
-		//
-		// `case_status` (not `status`) avoids the reserved-attribute
-		// `@`-prefix path so the test pins the subcase nodeset shape
-		// directly rather than the attribute-prefix path that the
-		// reserved-attribute suite already covers.
 		const p = exists(
 			subcasePath("parent"),
 			eq(prop("child", "case_status"), literal("open")),
@@ -596,10 +726,6 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 	});
 
 	it("nests filter recursively (and-of-comparisons inside the filter)", () => {
-		// The filter inside an `exists` is itself a Predicate that
-		// recurses through the visitor's full operator dispatch. Pin
-		// a multi-clause filter so a regression that flattened the
-		// recursion (e.g. emitted only the first clause) surfaces.
 		const p = exists(
 			ancestorPath(relationStep("parent")),
 			and(
@@ -611,62 +737,131 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent][region = 'south' and size > 3]) > 0",
 		);
 	});
+
+	it("emits missing with a `> 0` substring inside the filter without comparator collision", () => {
+		// Regression pin: a naive `String.replace('> 0', '= 0')` on
+		// the count-comparison wire form would corrupt the FIRST
+		// occurrence in the string — and an inner filter clause like
+		// `gt(prop, literal(0))` produces a `> 0` substring inside
+		// the bracketed predicate. The trailing comparator MUST be
+		// the one flipped from `> 0` to `= 0` for the `missing` form;
+		// the inner filter is opaque to the count-comparator choice.
+		const p = missing(
+			ancestorPath(relationStep("parent")),
+			gt(prop("household", "size"), literal(0)),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent][size > 0]) = 0",
+		);
+	});
+
+	// ----------------------------------------------------------
+	// `self` collapses to a no-op
+	// ----------------------------------------------------------
+
+	it("emits exists(self, filter) as the filter alone", () => {
+		// An existence check with no traversal is just the filter
+		// running against the current case.
+		const p = exists(selfPath(), eq(prop("patient", "name"), literal("Alice")));
+		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+	});
+
+	it("emits exists(self) with no filter as true()", () => {
+		// A case always exists in the row being filtered; the
+		// presence check is trivially true.
+		const p = exists(selfPath());
+		expect(emitCaseListFilter(p)).toBe("true()");
+	});
+
+	it("emits missing(self) with no filter as false()", () => {
+		// The same case always exists; absence is trivially false.
+		const p = missing(selfPath());
+		expect(emitCaseListFilter(p)).toBe("false()");
+	});
+
+	it("emits missing(self, filter) as not(filter)", () => {
+		// "No self-case satisfies <filter>" reduces to the negation
+		// of <filter> evaluated on the current case.
+		const p = missing(
+			selfPath(),
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+		expect(emitCaseListFilter(p)).toBe("not(name = 'Alice')");
+	});
+
+	// ----------------------------------------------------------
+	// `any-relation` expands to ancestor OR subcase
+	// ----------------------------------------------------------
+
+	it("emits exists(any-relation, filter) as (ancestor-form or subcase-form)", () => {
+		// Direction-agnostic walk: emit both the ancestor-direction
+		// nested-join expansion and the subcase-direction expansion,
+		// OR'd, so the predicate matches a related case in either
+		// direction.
+		const p = exists(
+			anyRelationPath("parent"),
+			eq(prop("related", "case_status"), literal("open")),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"(count(instance('casedb')/casedb/case[@case_id=current()/index/parent][case_status = 'open']) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id][case_status = 'open']) > 0)",
+		);
+	});
+
+	it("emits exists(any-relation) with no filter as the OR of both presence tests", () => {
+		const p = exists(anyRelationPath("parent"));
+		expect(emitCaseListFilter(p)).toBe(
+			"(count(instance('casedb')/casedb/case[@case_id=current()/index/parent]) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id]) > 0)",
+		);
+	});
+
+	it("emits missing(any-relation, filter) as not((ancestor-form or subcase-form))", () => {
+		// "No related case in either direction satisfies <filter>"
+		// is the negation of the existential disjunction.
+		const p = missing(
+			anyRelationPath("parent"),
+			eq(prop("related", "case_status"), literal("open")),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"not((count(instance('casedb')/casedb/case[@case_id=current()/index/parent][case_status = 'open']) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id][case_status = 'open']) > 0))",
+		);
+	});
+
+	it("emits missing(any-relation) with no filter as not((presence-or-presence))", () => {
+		const p = missing(anyRelationPath("parent"));
+		expect(emitCaseListFilter(p)).toBe(
+			"not((count(instance('casedb')/casedb/case[@case_id=current()/index/parent]) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id]) > 0))",
+		);
+	});
 });
 
 // ============================================================
 // SHELL 3 — Defensive throws
 // ============================================================
 //
-// Each throw locks the contract that this dialect cannot represent
-// the operator / operand shape; B5's representability checker
-// catches the same shapes at authoring time. The throws are the
-// emitter-side backstop in case authoring time is bypassed.
+// The structural-bypass cases that round-trip through the AST
+// shape but cannot produce a meaningful wire string. The schema
+// rejects these at parse time; the throws here defend the bypass
+// path for any consumer that constructs the AST shape outside the
+// builder + schema pipeline.
 
-describe("emitCaseListFilter — defensive throws", () => {
-	it("throws on is-null (strict-absent has no on-device wire form)", () => {
-		const p = isNull(prop("patient", "name"));
-		expect(() => emitCaseListFilter(p)).toThrow(/is-null/i);
-	});
-
-	it("throws on within-distance (CSQL-only)", () => {
-		const p = within(
-			prop("clinic", "location"),
-			literal("40.7,-74.0"),
-			50,
-			"miles",
-		);
-		expect(() => emitCaseListFilter(p)).toThrow(/within-distance/i);
-	});
-
-	it("throws on exists with any-relation via (CCHQ has no direction-agnostic walk)", () => {
-		const p = exists(anyRelationPath("parent"));
-		expect(() => emitCaseListFilter(p)).toThrow(/any-relation/i);
-	});
-
-	it("throws on missing with any-relation via (same direction-agnostic limit)", () => {
-		const p = missing(anyRelationPath("parent"));
-		expect(() => emitCaseListFilter(p)).toThrow(/any-relation/i);
-	});
-
-	it("throws on exists with self via (degenerate; no relational walk)", () => {
-		// `self` collapses to "the predicate runs in the current
-		// case-type scope" — equivalent to dropping the `exists`
-		// wrapper. The emitter throws so the structural defect
-		// surfaces rather than silently emitting a no-op.
-		const p = exists(selfPath());
-		expect(() => emitCaseListFilter(p)).toThrow(/self/i);
-	});
-
-	it("throws on prop with non-self via (use exists() to read across relations)", () => {
-		// Property references with a `via` walk are conceptually
-		// `exists`-shaped — the AST reads a property on a related
-		// case, but the on-device wire dispatch needs a count-based
-		// presence test, not an inline relational read.
-		const p = eq(
-			prop("patient", "region", ancestorPath(relationStep("parent"))),
-			literal("south"),
-		);
-		expect(() => emitCaseListFilter(p)).toThrow(/via/i);
+describe("emitCaseListFilter — defensive throws on structural-bypass shapes", () => {
+	// `between` with both bounds absent is structurally typeable but
+	// schema-rejected (`betweenSchema.refine(...)`). Defending the
+	// bypass path here keeps the emitter from producing an empty
+	// wire string on a shape the schema is meant to filter out.
+	//
+	// The test exercises the bypass via direct AST construction
+	// rather than the `between(...)` builder, since the builder
+	// emits a shape the schema would reject — the bypass path is
+	// what's being defended.
+	it("throws on between with both bounds absent", () => {
+		const bypassed = {
+			kind: "between" as const,
+			left: { kind: "term" as const, term: prop("patient", "age") },
+			lowerInclusive: true,
+			upperInclusive: true,
+		};
+		expect(() => emitCaseListFilter(bypassed)).toThrow(/between/i);
 	});
 });
 
@@ -715,13 +910,10 @@ describe("emitCaseListFilter — non-term ValueExpression arms throw", () => {
 	});
 
 	it("throws on a now() constant in within-distance's center", () => {
-		// `within-distance` itself throws (CSQL-only) before any
-		// operand walk runs — we don't reach the unwrap helper here.
-		// Pinning the within-distance throw separately above keeps
-		// the contract explicit; this test confirms the operator-
-		// level rejection beats the operand-level walk in dispatch
-		// order, so authors get the correct error message.
+		// `within-distance.center` is a `ValueExpression` slot. A
+		// `now()` constant lands on the unwrap helper's exhaustive
+		// switch and surfaces as the per-arm throw.
 		const p = within(prop("clinic", "location"), now(), 50, "miles");
-		expect(() => emitCaseListFilter(p)).toThrow(/within-distance/i);
+		expect(() => emitCaseListFilter(p)).toThrow(/'now'/);
 	});
 });
