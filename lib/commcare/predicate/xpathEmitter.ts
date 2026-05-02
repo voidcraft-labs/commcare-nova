@@ -1,125 +1,12 @@
 // lib/commcare/predicate/xpathEmitter.ts
 //
-// Compile a predicate AST to a CommCare-compatible XPath/CSQL string.
-//
-// Two emission contexts diverge in their string-literal escape
-// strategy because the available escape mechanisms differ at each
-// surface:
-//
-//   - case-list-filter — the emitted string is dropped directly into
-//     a case-list nodeset predicate
-//     (e.g. `instance('casedb')/casedb/case[<this>]`). Standard XPath
-//     1.0 is in scope, including string-building functions like
-//     `concat()`, so embedded single quotes resolve via a
-//     `concat('part', "'", 'part')` fallback that the XPath 1.0
-//     grammar admits directly.
-//   - csql — the emitted string is the inner predicate inside a CSQL
-//     `_xpath_query` value evaluated by ElasticSearch. CSQL's
-//     value-function whitelist excludes `concat()` (verified at
-//     `corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
-//     where `XPATH_VALUE_FUNCTIONS` lists 8 functions and `concat`
-//     is not among them; comparison-RHS values pass through
-//     `unwrap_value` at `corehq/apps/case_search/dsl_utils.py:32-40`,
-//     which raises `CaseFilterError` on any function name outside
-//     that whitelist). The emitter therefore switches between
-//     single- and double-quoted string literals to handle embedded
-//     quotes and rejects values containing both quote styles because
-//     no portable inline escape exists in CSQL.
-//
-// Comparison + logical operator emission, identifier rules, the
-// reserved-attribute prefix set, and numeric-literal handling are
-// identical across both contexts; divergence is concentrated in the
-// string-literal escape path. The emitter threads the context
-// through every recursive call so the literal-escape arm can branch
-// without changing the public signature.
-//
-// Comparison, logical, and special operators each have a direct
-// wire form emitted here. The supported special operators (`in` /
-// `within-distance` / `when-input-present`) compile to CCHQ case-
-// search functions plus a conditional-include wrapper; the
-// operator-arm comments below cite the production code at
-// `corehq/apps/case_search/xpath_functions/query_functions.py` for
-// each function's wire signature. The `match` and
-// `multi-select-contains` arms throw because each operator's wire
-// form depends on the emission context (per-mode dispatch for
-// `match`, per-quantifier dispatch for `multi-select-contains`), and
-// per-context dispatch lives in the per-dialect emitter modules.
-//
-// CCHQ wire-form citations (production paths in commcare-hq):
-//
-//   - `instance('search-input:results')/input/field[@name='<n>']`
-//     for search-input refs — see
-//     `docs/case_search_query_language.rst:299` (the canonical
-//     subcase-exists/`when-input-present` example) and the
-//     instance-factory registration at
-//     `corehq/apps/app_manager/suite_xml/post_process/instances.py:354`.
-//   - `instance('commcaresession')/session/user/data/<field>` for
-//     `session-user` refs (open-namespace custom user-data fields) —
-//     populated on-device by `addUserProperties` at
-//     `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`,
-//     which writes an arbitrary `userFields` Hashtable as `<data>`
-//     children under `<user>`. The CCHQ-side wire-builder helper is
-//     `session_var(var, path='data')` at
-//     `corehq/apps/app_manager/xpath.py:114-119` (which builds
-//     `instance('commcaresession')/session/<path>/<var>` from any
-//     path segment); one caller,
-//     `EntriesHelper.get_userdata_autoselect` at
-//     `corehq/apps/app_manager/suite_xml/sections/entries.py:217-220`,
-//     invokes it with `path='user/data'` to address custom user-data
-//     fields.
-//   - `instance('commcaresession')/session/context/<field>` for
-//     `session-context` refs (closed-namespace framework fields:
-//     `userid` / `username` / `deviceid` / `appversion` for v1) —
-//     populated on-device by `addMetadata` at the same
-//     `SessionInstanceBuilder.java` symbol anchor, which writes a
-//     framework-controlled set of metadata fields. The CCHQ-side
-//     wire-builder helper is `session_var(var, path='context')` at
-//     `corehq/apps/app_manager/xpath.py`; the canonical user-id
-//     resolution at `corehq/apps/app_manager/xpath.py:248` invokes it
-//     with `var='userid', path='context'`.
-//   - `concat('a', "'", 'b')` as the case-list-filter embedded-quote
-//     escape — XPath 1.0 has no string-escape syntax, so the portable
-//     form switches to `concat()` with alternating quote styles. The
-//     CommCare XPath grammar at
-//     `lib/commcare/xpath/grammar.lezer.grammar:128-131` admits both
-//     single- and double-quoted string literals as `concat()`
-//     arguments.
-//   - Double-quoted CSQL string literals — CSQL admits both single-
-//     and double-quoted string literals. See
-//     `docs/case_search_query_language.rst:417` for an example of a
-//     CSQL predicate string emitted from a wire-side `concat()`
-//     wrapper, where every property value is double-quoted
-//     (`@case_type = "service"`, `@status != "closed"`, etc.).
-//   - `(prop = 'v1' or prop = 'v2' or ...)` for multi-value `in` —
-//     value-equality set membership emits as an or-of-equalities
-//     so single-value and multi-value `in` share continuous
-//     semantics. CCHQ's `selected-any` looks like a fit but
-//     carries multi-select-token semantics (see the `case "in":`
-//     arm comment for the divergence rationale and the
-//     `corehq/apps/es/case_search.py:291-296` citation).
-//   - `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` —
-//     see `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
-//     for the 4-arg signature (property, coordinate string parsed
-//     as `GeoPoint.from_string`, distance number, unit identifier).
-//   - `if(count(<input>), <then>, true())` for `when-input-present`
-//     in case-list-filter context only. CommCare's case-list
-//     XPath dialect supports `if` and `count`, but the docs
-//     example at `case_search_query_language.rst:299-303` is a
-//     STRING-VALUED expression where both branches are filter
-//     strings later parsed as CSQL — a different surface from the
-//     boolean predicate position this emitter targets. `true()`
-//     (not `''`) is the correct boolean-context fallback because
-//     XPath's boolean coercion of `''` is `false`, which would
-//     silently exclude every case on input-unset; `true()` is the
-//     AND-chain identity element. CSQL has no native conditional
-//     construct (`if` and `count` are absent from both CSQL
-//     function whitelists at
-//     `corehq/apps/case_search/xpath_functions/__init__.py:27-54`),
-//     so the emitter throws on `when-input-present` in csql
-//     context — the wire-wrapping layer that builds the outer
-//     XPath must emit two distinct CSQL strings (one with the
-//     input substituted, one without) and select between them at
-//     runtime, matching the docs-example pattern.
+// Transitional single-context predicate emitter superseded by the
+// per-dialect emitters in this directory. Lexical concerns (string-
+// literal escape, identifier emission, numeric formatting) live in
+// `./stringQuoting`; this file's `EmissionContext` is a structural
+// subset of `WireDialect`. CCHQ wire-form citations for the operator
+// arms below remain authoritative until the per-dialect operator
+// emitters land.
 
 import type {
 	ComparisonKind,
@@ -127,6 +14,7 @@ import type {
 	Term,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
 
 /**
  * Two surfaces consume this emitter's output. The wire-wrapping layer
@@ -496,9 +384,9 @@ function emitTerm(term: Term, ctx: EmissionContext): string {
 			// its own wire form; the bare property reference always
 			// resolves against the immediate surrounding scope.
 			if (RESERVED_CASE_ATTRIBUTES.has(term.property)) {
-				return `@${term.property}`;
+				return `@${quoteIdentifier(term.property)}`;
 			}
-			return term.property;
+			return quoteIdentifier(term.property);
 		}
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
@@ -551,99 +439,13 @@ function emitLiteral(
 	return emitStringLiteral(value, ctx);
 }
 
-/**
- * Compile a string literal to its wire form, branching on context
- * for the embedded-quote escape:
- *
- *   - When the value contains no single quote, both contexts emit
- *     `'<value>'` — the common case, with no divergence.
- *   - In `case-list-filter`, an embedded single quote falls back to
- *     `concat('part', "'", 'part')`. XPath 1.0 has no string-escape
- *     syntax, so the alternating-quote concat is the portable form
- *     the grammar at
- *     `lib/commcare/xpath/grammar.lezer.grammar:128-131` admits.
- *     The fallback always emits boundary segments even when empty
- *     (e.g. a value of `"'"` produces `concat('', "'", '')`) so the
- *     segment count tracks the input quote count predictably.
- *   - In `csql`, `concat()` is not in the value-function whitelist
- *     (see file header), so the emitter switches to a double-quoted
- *     literal `"<value>"` when the value contains a single quote.
- *     If the value contains BOTH a single and a double quote, no
- *     portable inline escape exists — `concat()` is unavailable and
- *     XPath 1.0 string literals can carry only one of the two quote
- *     styles. The emitter throws rather than emit broken wire output;
- *     authors must split such values into a different filter shape
- *     or strip one of the quote types upstream.
- */
 function emitStringLiteral(value: string, ctx: EmissionContext): string {
-	const hasSingleQuote = value.includes("'");
-	if (!hasSingleQuote) return `'${value}'`;
-	if (ctx === "csql") {
-		const hasDoubleQuote = value.includes('"');
-		if (hasDoubleQuote) {
-			throw new Error(
-				`emitXPath: CSQL has no portable escape for a string literal containing both ' and ". Got: ${JSON.stringify(value)}.`,
-			);
-		}
-		return `"${value}"`;
-	}
-	const parts = value.split("'");
-	const args: string[] = [];
-	for (let i = 0; i < parts.length; i++) {
-		args.push(`'${parts[i]}'`);
-		if (i < parts.length - 1) args.push(`"'"`);
-	}
-	return `concat(${args.join(", ")})`;
+	// `EmissionContext` is a structural subset of `WireDialect`; the
+	// helper accepts the wider union and honors the same per-dialect
+	// branching for the two contexts this transitional emitter knows.
+	return quoteLiteral(value, ctx);
 }
 
-/**
- * Compile a numeric literal to its wire form, avoiding scientific
- * notation. CommCare's XPath grammar admits decimal literals only —
- * `digit+ ('.' digit*)? | '.' digit+` per
- * `lib/commcare/xpath/grammar.lezer.grammar:133-136` — and rejects
- * exponent syntax. JavaScript's `String(n)` switches to exponent
- * form for very small magnitudes (below ~1e-6) and very large ones
- * (at or above 1e21), which would parse-fail downstream.
- *
- * The function early-returns the canonical `String(n)` for any
- * number whose decimal form is already non-exponent. That preserves
- * the shortest round-trip form (e.g. `String(3.14)` is the literal
- * `"3.14"`, not the `toFixed(20)` artifact
- * `"3.14000000000000012434"`) for every value an author would
- * realistically type. Only when `String(n)` produces exponent form
- * does the function reformat by parsing the mantissa and exponent
- * out of the string and shifting the decimal point manually,
- * producing an exact decimal expansion of the IEEE-754 double's
- * `String(n)` form without `toFixed`'s precision-related truncation
- * at the limits.
- *
- * The schema layer (`z.number()` in `lib/domain/predicate/types.ts`)
- * rejects `NaN` and `±Infinity`, so this helper is only ever called
- * with finite numbers.
- */
 function emitNumericLiteral(n: number): string {
-	const s = String(n);
-	if (!s.includes("e") && !s.includes("E")) return s;
-	// `String(n)` for any finite double in exponent form matches
-	// `^(-)?<int>(\.<frac>)?[eE][+-]?<exp>$`. Parse the components
-	// and rebuild as a non-exponent decimal by sliding the decimal
-	// point `exp` places. The combined `<int><frac>` digit sequence
-	// is the significand; the decimal point lands at position
-	// `int.length + exp` in that sequence, with leading or trailing
-	// zeros padded as needed.
-	const match = s.match(/^(-)?(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
-	if (!match) return s;
-	const sign = match[1] ?? "";
-	const intPart = match[2];
-	const fracPart = match[3] ?? "";
-	const exp = Number.parseInt(match[4], 10);
-	const digits = intPart + fracPart;
-	const decimalPos = intPart.length + exp;
-	if (decimalPos >= digits.length) {
-		return `${sign}${digits}${"0".repeat(decimalPos - digits.length)}`;
-	}
-	if (decimalPos > 0) {
-		return `${sign}${digits.slice(0, decimalPos)}.${digits.slice(decimalPos)}`;
-	}
-	return `${sign}0.${"0".repeat(-decimalPos)}${digits}`;
+	return formatNumeric(n);
 }
