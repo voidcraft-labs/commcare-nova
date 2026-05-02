@@ -14,10 +14,12 @@
 // nothing narrower.
 //
 // File ownership: this file owns operator dispatch for the on-device
-// dialect. Lexical concerns (string quoting, identifier emission,
-// numeric formatting) flow through the shared `./stringQuoting`
-// helpers. Operand-side ValueExpression unwrapping is the visitor's
-// own concern and lives below.
+// predicate dialect. Lexical concerns (string quoting, identifier
+// emission, numeric formatting) flow through the shared
+// `./stringQuoting` helpers; term emission and relation-walk anchors
+// flow through the shared `./termEmitter` helpers; non-term
+// `ValueExpression` operand arms flow through the on-device value-
+// expression emitter at `lib/commcare/expression/onDeviceEmitter.ts`.
 //
 // Operator surface:
 //
@@ -28,7 +30,9 @@
 //     parent-precedence-driven paren-wrapping; `and` binds tighter
 //     than `or`.
 //   - Comparison: `=`, `!=`, `<`, `<=`, `>`, `>=` — six standard XPath
-//     comparison operators.
+//     comparison operators; operands are `ValueExpression` and route
+//     through the on-device value-expression emitter, which handles
+//     every arm of the union (term, arith, conditional, etc.).
 //   - `is-blank` / `is-null`: both emit `<term> = ''`. CCHQ wire
 //     collapses absent / cleared / empty alike on every dialect; the
 //     equality form is the closest CCHQ shape for both operators.
@@ -77,10 +81,7 @@
 //     expansions OR'd together (negated via `not(...)` for the
 //     `missing` form).
 //   - `prop` term with non-self `via`: emit as an inline relational
-//     path expression. Same anchor-building logic as
-//     `exists` / `missing`'s ancestor and subcase walks; the
-//     property name (or `@`-prefixed reserved attribute) appends
-//     after the path.
+//     path expression (handled inside the shared term emitter).
 //   - `when-input-present`: `if(count(<input>), <clause>, true())` —
 //     `true()` is the AND-chain identity for the no-input branch
 //     (XPath's boolean coercion of `''` is `false`, which would
@@ -89,12 +90,16 @@
 import type {
 	ComparisonKind,
 	Predicate,
-	PropertyRef,
 	RelationPath,
-	Term,
-	ValueExpression,
 } from "@/lib/domain/predicate/types";
-import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
+import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
+import { formatNumeric, quoteLiteral } from "./stringQuoting";
+import {
+	buildAncestorJoinNodeset,
+	buildSubcaseJoinNodeset,
+	emitOnDeviceLiteralValue,
+	emitTerm,
+} from "./termEmitter";
 
 /**
  * Mapping from comparison-operator AST kind to its XPath wire token.
@@ -115,30 +120,6 @@ const COMPARISON_OPS: Record<ComparisonKind, string> = {
 };
 
 /**
- * The four CommCare case properties that CCHQ stores as XML
- * attributes on `<case>` in the casedb restore output. XPath
- * accesses them via the `@` prefix because that is the syntax for
- * addressing XML attributes; the `@` is not a generic CommCare
- * convention but a literal XML-attribute access.
- *
- * Sources (production code, not tests):
- *
- *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py:237-246`
- *     — `CaseDBXMLGenerator.get_root_element()` sets exactly these
- *     four as XML attributes on `<case>`; everything else is emitted
- *     as a child element.
- *   - `corehq/apps/case_search/const.py:53-103` —
- *     `INDEXED_METADATA_BY_KEY` registers ten system metadata keys;
- *     these four carry the `@` prefix, the other six do not.
- */
-const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
-	"case_id",
-	"case_type",
-	"owner_id",
-	"status",
-]);
-
-/**
  * Operator-precedence levels for paren-grouping decisions. Higher
  * binds tighter; the recursive walker passes its own level down as
  * `parentPrec`, and a child whose level is lower than `parentPrec`
@@ -146,66 +127,11 @@ const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
  * own precedence (`and` tighter than `or`) drives the two values.
  *
  * Comparisons hold no slot here — they are leaves at this layer
- * because their operands are terms (or term-shaped value
- * expressions), not predicates, so a comparison never wraps a child
- * predicate.
+ * because their operands are values, not predicates, so a comparison
+ * never wraps a child predicate.
  */
 const PREC_OR = 1;
 const PREC_AND = 2;
-
-// ============================================================
-// Operand handling — ValueExpression -> Term
-// ============================================================
-//
-// Predicate operators carry `ValueExpression` operands (the broader
-// expression family that lifts a Term, an arithmetic expression, a
-// conditional, etc.). The on-device dialect's per-operator wire
-// forms emitted here accept only term-shaped operands; non-term
-// arms (`arith`, `if`, `today`, etc.) emit through the per-dialect
-// Expression emitter on a separate layer. This helper unwraps the
-// `term` arm and throws on every other arm with an exhaustive
-// switch — a new ValueExpression kind surfaces here as a compile-
-// time error rather than as silent fall-through.
-
-/**
- * Extract the underlying `Term` from a `ValueExpression`'s `term`
- * arm. Throws on every non-term arm. The exhaustive switch produces
- * a compile-time `never` error when a new ValueExpression kind
- * appears in the union without a matching arm here.
- */
-function unwrapTermFromExpression(expr: ValueExpression): Term {
-	switch (expr.kind) {
-		case "term":
-			return expr.term;
-		case "today":
-		case "now":
-		case "date-add":
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-		case "arith":
-		case "concat":
-		case "coalesce":
-		case "if":
-		case "switch":
-		case "count":
-		case "unwrap-list":
-		case "format-date":
-			throw new Error(
-				`caseListFilterEmitter: arm '${expr.kind}' is not handled by this emitter; only the term-arm structural lifter is supported here.`,
-			);
-		default: {
-			const _exhaustive: never = expr;
-			throw new Error(
-				`caseListFilterEmitter: unhandled ValueExpression kind ${String(_exhaustive)}`,
-			);
-		}
-	}
-}
-
-// ============================================================
-// Public entry point
-// ============================================================
 
 /**
  * Compile a `Predicate` AST to its on-device XPath wire string. The
@@ -216,17 +142,11 @@ function unwrapTermFromExpression(expr: ValueExpression): Term {
  * never wrapped in parens — only nested operators trigger grouping.
  *
  * Throws only on structural-bypass shapes the schema is meant to
- * reject (`between` with both bounds absent) and on non-term
- * `ValueExpression` operand arms (which emit through the
- * per-dialect Expression emitter on a separate layer).
+ * reject (`between` with both bounds absent).
  */
 export function emitCaseListFilter(predicate: Predicate): string {
 	return emitPredicate(predicate, 0);
 }
-
-// ============================================================
-// Predicate dispatch
-// ============================================================
 
 /**
  * Recursive walker. Each operator arm consults `parentPrec` to
@@ -234,7 +154,7 @@ export function emitCaseListFilter(predicate: Predicate): string {
  * preserve the authored grouping when the parent binds tighter than
  * this operator. Leaf operators (comparisons) ignore `parentPrec` —
  * they never produce a parsing ambiguity at this layer because their
- * operands are terms, not predicates.
+ * operands are value expressions, not predicates.
  */
 function emitPredicate(p: Predicate, parentPrec: number): string {
 	switch (p.kind) {
@@ -255,9 +175,10 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 		case "lt":
 		case "lte":
 			// Six comparison operators share the `<left> <op> <right>`
-			// shape. Operands are `ValueExpression`; only the term arm
-			// is handled at this layer.
-			return `${emitTerm(unwrapTermFromExpression(p.left))} ${COMPARISON_OPS[p.kind]} ${emitTerm(unwrapTermFromExpression(p.right))}`;
+			// shape. Operands are `ValueExpression`; the on-device
+			// expression emitter handles every arm of the union (term,
+			// arith, conditional, count, etc.).
+			return `${emitOnDeviceExpression(p.left)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right)}`;
 		case "and": {
 			// `and` recurses with `PREC_AND` as parent precedence so any
 			// `or` nested inside an `and` clause wraps itself in parens.
@@ -306,7 +227,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// absent / cleared / empty alike, and the equality form is
 			// the closest available CCHQ shape for both. The AST
 			// distinction is preserved at the Postgres runtime.
-			return `${emitTerm(unwrapTermFromExpression(p.left))} = ''`;
+			return `${emitOnDeviceExpression(p.left)} = ''`;
 		case "within-distance":
 			// CCHQ wire signature:
 			// `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
@@ -314,8 +235,8 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// (`confirm_args_count(node, 4)` with arg order
 			// property / coords / distance / unit).
 			//
-			// `p.center` is a `ValueExpression`; only the term arm
-			// surfaces at this layer. Distance routes through
+			// `p.center` is a `ValueExpression`; the on-device expression
+			// emitter handles every arm. Distance routes through
 			// `formatNumeric` for the scientific-notation guard. The
 			// unit routes through `quoteLiteral` for the per-dialect
 			// string-literal escape, mirroring the CSQL emitter's
@@ -325,7 +246,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// on the same lexical helper preserves the centralised
 			// per-dialect escape rule that `stringQuoting.ts` exists to
 			// enforce.
-			return `within-distance(${emitTerm(p.property)}, ${emitTerm(unwrapTermFromExpression(p.center))}, ${formatNumeric(p.distance)}, ${quoteLiteral(p.unit, "case-list-filter")})`;
+			return `within-distance(${emitTerm(p.property)}, ${emitOnDeviceExpression(p.center)}, ${formatNumeric(p.distance)}, ${quoteLiteral(p.unit, "case-list-filter")})`;
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
@@ -334,10 +255,6 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 		}
 	}
 }
-
-// ============================================================
-// `in` (set membership)
-// ============================================================
 
 /**
  * Emit value-equality set membership: "the term equals one of the
@@ -365,19 +282,15 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
  * and-chain would silently change meaning.
  */
 function emitIn(p: Extract<Predicate, { kind: "in" }>): string {
-	const left = emitTerm(unwrapTermFromExpression(p.left));
+	const left = emitOnDeviceExpression(p.left);
 	if (p.values.length === 1) {
-		return `${left} = ${emitLiteralValue(p.values[0].value)}`;
+		return `${left} = ${emitOnDeviceLiteralValue(p.values[0].value)}`;
 	}
 	const clauses = p.values
-		.map((v) => `${left} = ${emitLiteralValue(v.value)}`)
+		.map((v) => `${left} = ${emitOnDeviceLiteralValue(v.value)}`)
 		.join(" or ");
 	return `(${clauses})`;
 }
-
-// ============================================================
-// `between` (range)
-// ============================================================
 
 /**
  * Emit a range predicate. The schema rejects the both-bounds-absent
@@ -392,16 +305,16 @@ function emitIn(p: Extract<Predicate, { kind: "in" }>): string {
  * decides whether the parent operator needs to wrap.
  */
 function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
-	const left = emitTerm(unwrapTermFromExpression(p.left));
+	const left = emitOnDeviceExpression(p.left);
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
 	const upperOp = p.upperInclusive ? "<=" : "<";
 	const lowerClause =
 		p.lower !== undefined
-			? `${left} ${lowerOp} ${emitTerm(unwrapTermFromExpression(p.lower))}`
+			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower)}`
 			: undefined;
 	const upperClause =
 		p.upper !== undefined
-			? `${left} ${upperOp} ${emitTerm(unwrapTermFromExpression(p.upper))}`
+			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper)}`
 			: undefined;
 	if (lowerClause !== undefined && upperClause !== undefined) {
 		return `(${lowerClause} and ${upperClause})`;
@@ -420,10 +333,6 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
 		"caseListFilterEmitter: 'between' has no bounds; the schema's at-least-one-bound refinement was bypassed.",
 	);
 }
-
-// ============================================================
-// `match` (text-match)
-// ============================================================
 
 /**
  * Emit text-match per `mode`. Each mode maps to a CCHQ wire
@@ -476,10 +385,6 @@ function matchModeToWireFunction(
 	}
 }
 
-// ============================================================
-// `multi-select-contains`
-// ============================================================
-
 /**
  * Emit multi-select containment. Each value emits as a
  * `selected(prop, 'v')` call; multi-value forms compose via OR / AND
@@ -491,7 +396,7 @@ function emitMultiSelectContains(
 ): string {
 	const left = emitTerm(p.property);
 	const calls = p.values.map(
-		(v) => `selected(${left}, ${emitLiteralValue(v.value)})`,
+		(v) => `selected(${left}, ${emitOnDeviceLiteralValue(v.value)})`,
 	);
 	if (calls.length === 1) {
 		return calls[0];
@@ -517,10 +422,6 @@ function emitMultiSelectContains(
 	}
 	return `(${calls.join(joiner)})`;
 }
-
-// ============================================================
-// `exists` / `missing` (relational quantifiers)
-// ============================================================
 
 /**
  * Emit the relational-quantifier predicate.
@@ -648,51 +549,6 @@ function emitCountPresenceTest(
 	return `count(${nodeset}${filter}) ${comparator}`;
 }
 
-// ============================================================
-// Relation-walk anchor builders
-// ============================================================
-
-/**
- * Build the `instance('casedb')/casedb/case[@case_id=<anchor>]`
- * nodeset for an ancestor walk. The first hop anchors against
- * `current()/index/<rel>`; each subsequent hop nests inside the
- * previous hop's nodeset as `<previous>/index/<next>`. The
- * canonical shape with one hop is
- * `instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]`;
- * with two hops it composes to
- * `instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
- *
- * Accepts a non-empty list of relation steps; the
- * `RelationPath`-with-`ancestor` schema's tuple-with-rest shape
- * already enforces non-empty at parse time.
- */
-function buildAncestorJoinNodeset(
-	via: ReadonlyArray<{ identifier: string }>,
-): string {
-	let anchor = `current()/index/${via[0].identifier}`;
-	for (let i = 1; i < via.length; i++) {
-		anchor = `instance('casedb')/casedb/case[@case_id=${anchor}]/index/${via[i].identifier}`;
-	}
-	return `instance('casedb')/casedb/case[@case_id=${anchor}]`;
-}
-
-/**
- * Build the
- * `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`
- * nodeset for a subcase walk. Reverse-direction join: the inner
- * case has `index/<rel>` pointing back at the outer case's
- * `@case_id`. `current()/@case_id` reads the outer case's id from
- * the predicate's evaluation context (inside a casedb nodeset
- * filter, `current()` is the case being filtered).
- */
-function buildSubcaseJoinNodeset(identifier: string): string {
-	return `instance('casedb')/casedb/case[index/${identifier}=current()/@case_id]`;
-}
-
-// ============================================================
-// `when-input-present`
-// ============================================================
-
 /**
  * Emit the conditional-include wrapper. The wrapped clause runs only
  * when the named search input is set at runtime; otherwise the
@@ -715,157 +571,4 @@ function emitWhenInputPresent(
 	const inputPath = emitTerm(p.input);
 	const inner = emitPredicate(p.clause, 0);
 	return `if(count(${inputPath}), ${inner}, true())`;
-}
-
-// ============================================================
-// Term emission
-// ============================================================
-
-/**
- * Compile a term to its on-device wire form. Each variant has a
- * fixed wire shape verified against CCHQ source:
- *
- *   - `prop`: bare identifier (or `@`-prefixed for the four reserved
- *     attributes). The case-type qualifier is dropped at this layer
- *     — the wire-correct case type is whichever one the surrounding
- *     casedb nodeset selects. A non-self `via` walk emits as an
- *     inline relational path expression (see
- *     `emitPropertyRef` for the per-direction shape).
- *   - `input`: `instance('search-input:results')/input/field[@name='<n>']`
- *     — the canonical search-input path documented at
- *     `commcare-hq/docs/case_search_query_language.rst:299` and
- *     registered at
- *     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py:354`
- *     (`SEARCH_INPUT_INSTANCE_FACTORY`).
- *   - `session-user`: open-namespace
- *     `instance('commcaresession')/session/user/data/<field>` —
- *     populated by `addUserProperties` in
- *     `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`
- *     (the `addUserProperties` writer iterates an arbitrary
- *     `userFields` Hashtable and writes each as a `<data>` child
- *     under `<user>`). CCHQ's `session_var(var, path='user/data')`
- *     in `commcare-hq/corehq/apps/app_manager/xpath.py:114-119`
- *     builds the same path.
- *   - `session-context`: closed-namespace
- *     `instance('commcaresession')/session/context/<field>` —
- *     populated by `addMetadata` in the same
- *     `SessionInstanceBuilder.java` symbol anchor; CCHQ's
- *     `session_var(var, path='context')` resolves to the same wire
- *     path (e.g. `commcare-hq/corehq/apps/app_manager/xpath.py:248`
- *     for the canonical `session_var('userid', path='context')`
- *     usage).
- *   - `literal`: routes through `emitLiteralValue` for the
- *     wire-form literal.
- */
-function emitTerm(term: Term): string {
-	switch (term.kind) {
-		case "prop":
-			return emitPropertyRef(term);
-		case "input":
-			return `instance('search-input:results')/input/field[@name='${term.name}']`;
-		case "session-user":
-			// `field` is constrained to XML element-name vocabulary at
-			// the schema layer (no quoting / escaping required for
-			// valid values; invalid values reject at parse time).
-			return `instance('commcaresession')/session/user/data/${term.field}`;
-		case "session-context":
-			// `field` is one of the four `SESSION_CONTEXT_FIELDS`
-			// members validated at the schema layer; direct
-			// interpolation is safe.
-			return `instance('commcaresession')/session/context/${term.field}`;
-		case "literal":
-			return emitLiteralValue(term.value);
-		default: {
-			const _exhaustive: never = term;
-			throw new Error(`emitTerm: unhandled term kind ${String(_exhaustive)}`);
-		}
-	}
-}
-
-/**
- * Emit a property reference. The wire shape depends on the optional
- * `via` walk:
- *
- *   - **No walk** (`via` absent or `via.kind === "self"`): emit the
- *     bare property name (or `@`-prefixed reserved attribute). The
- *     case-type qualifier is dropped; the surrounding casedb
- *     nodeset selects the wire-correct case type at execution time.
- *   - **Ancestor walk**: prepend
- *     `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]`
- *     (with multi-hop nesting) and join the property name with `/`.
- *   - **Subcase walk**: prepend
- *     `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`
- *     and join with `/`. Note: the subcase walk for a value read
- *     selects multiple cases when more than one subcase points back;
- *     authors who need cardinality control compose via `exists` /
- *     `count` instead.
- *   - **Direction-agnostic walk** (`any-relation`): combine both
- *     direction-specific paths via XPath's union operator `|`,
- *     producing `(<ancestor-path> | <subcase-path>)`. Union joins
- *     two node-sets into one node-set whose comparisons follow XPath
- *     1.0's existential semantics — `(a | b) = 'south'` is true when
- *     any node in the unified set equals `'south'`. A boolean
- *     `or` would coerce each path to its boolean value (non-empty →
- *     `true()`) before string equality, comparing the literal
- *     `'true'` / `'false'` against the RHS — which is never the
- *     intent. The union form is the same node-set semantics every
- *     bare `prop` reference uses; the walk just widens the source
- *     node-set.
- *
- * Reserved CommCare attributes pick up the `@` prefix at the leaf;
- * everything else flows through `quoteIdentifier` for the lexical
- * pass-through.
- */
-function emitPropertyRef(prop: PropertyRef): string {
-	const leaf = RESERVED_CASE_ATTRIBUTES.has(prop.property)
-		? `@${quoteIdentifier(prop.property)}`
-		: quoteIdentifier(prop.property);
-	const via = prop.via;
-	if (via === undefined || via.kind === "self") {
-		return leaf;
-	}
-	switch (via.kind) {
-		case "ancestor":
-			return `${buildAncestorJoinNodeset(via.via)}/${leaf}`;
-		case "subcase":
-			return `${buildSubcaseJoinNodeset(via.identifier)}/${leaf}`;
-		case "any-relation": {
-			// XPath `|` is the node-set union operator; the result
-			// is one node-set containing every node from either
-			// direction, and `(<set>) = <rhs>` returns true when any
-			// member of the set equals the RHS. Boolean `or` would
-			// be wrong here — see the JSDoc above for the coercion
-			// trap.
-			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier }])}/${leaf}`;
-			const subcase = `${buildSubcaseJoinNodeset(via.identifier)}/${leaf}`;
-			return `(${ancestor} | ${subcase})`;
-		}
-		default: {
-			const _exhaustive: never = via;
-			throw new Error(
-				`caseListFilterEmitter: unhandled RelationPath kind ${String(_exhaustive)}`,
-			);
-		}
-	}
-}
-
-/**
- * Compile a primitive literal to its wire form. Numbers emit as
- * unquoted XPath numbers via `formatNumeric` (CommCare's grammar
- * rejects scientific notation; see `formatNumeric`'s JSDoc for the
- * grammar citation). Booleans emit as the strings `'true'` /
- * `'false'`; `null` emits as `''` because XPath compares an absent
- * attribute equal to `''`, so `<prop> = ''` is the natural "is
- * unset" form.
- *
- * String literals route through `quoteLiteral` for the per-dialect
- * escape strategy. The on-device dialect has XPath 1.0's `concat()`
- * available for the embedded-quote fallback, so values containing
- * single quotes emit as `concat('part1', "'", 'part2', ...)`.
- */
-function emitLiteralValue(value: string | number | boolean | null): string {
-	if (value === null) return "''";
-	if (typeof value === "number") return formatNumeric(value);
-	if (typeof value === "boolean") return value ? "'true'" : "'false'";
-	return quoteLiteral(value, "case-list-filter");
 }

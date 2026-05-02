@@ -17,10 +17,10 @@
 // is-null collapsing to is-blank's wire form, exists / missing
 // across all four relation kinds, the inline relational read on a
 // `prop` term); (3) defensive throws for the structural-bypass
-// shape `between` with both bounds absent, plus spot-checks of
-// non-term `ValueExpression` operand rejection (the compile-time
-// `_exhaustive: never` on `unwrapTermFromExpression` covers the
-// rest of the union); (4) term-arm-unwrap happy path.
+// shape `between` with both bounds absent; (4) ValueExpression
+// operand integration — happy-path term arms plus the predicate ↔
+// value-expression emitter handoff for non-term arms (`arith`, `if`,
+// `today`, `now`).
 
 import { describe, expect, it } from "vitest";
 import {
@@ -863,54 +863,56 @@ describe("emitCaseListFilter — defensive throws on structural-bypass shapes", 
 });
 
 // ============================================================
-// SHELL 4 — Term-arm ValueExpression handling
+// SHELL 4 — ValueExpression operand integration
 // ============================================================
 //
-// Predicate operators carry `ValueExpression` operands. The visitor
-// accepts only the `term` arm and throws on every other arm. The
-// block below pins both the term-arm unwrap (the happy path) and
-// the per-arm exhaustive throws so a regression at either end
-// surfaces here rather than in the larger per-operator suites
-// above.
+// Predicate operators carry `ValueExpression` operands. The on-device
+// emitter delegates non-term arms to the on-device value-expression
+// emitter at `lib/commcare/expression/onDeviceEmitter.ts`. This shell
+// pins the happy-path delegations across the operand-bearing
+// predicate sites so a regression in either emitter surfaces against
+// these acceptance tests rather than in a downstream consumer.
 
-describe("emitCaseListFilter — term-arm unwrap (happy path)", () => {
-	it("unwraps a property reference in a comparison's left operand", () => {
+describe("emitCaseListFilter — term-arm operand (happy path)", () => {
+	it("emits a property reference in a comparison's left operand", () => {
 		const p = eq(prop("patient", "name"), literal("Alice"));
 		expect(emitCaseListFilter(p)).toMatch(/^name = /);
 	});
 
-	it("unwraps a search-input reference in a comparison's right operand", () => {
+	it("emits a search-input reference in a comparison's right operand", () => {
 		const p = eq(prop("patient", "phone"), input("phone_query"));
 		expect(emitCaseListFilter(p)).toMatch(/instance\('search-input:results'\)/);
 	});
 });
 
-describe("emitCaseListFilter — non-term ValueExpression arms throw", () => {
-	it("throws on an arith expression in a comparison's left operand", () => {
+describe("emitCaseListFilter — non-term ValueExpression operands delegate to expression emitter", () => {
+	it("emits an arith expression in a comparison's left operand", () => {
 		const p = eq(
 			arith("+", term(prop("patient", "age")), term(literal(1))),
 			literal(19),
 		);
-		expect(() => emitCaseListFilter(p)).toThrow(/arith/);
+		expect(emitCaseListFilter(p)).toBe("(age + 1) = 19");
 	});
 
-	it("throws on an if-expression in is-blank's left", () => {
+	it("emits an if-expression in is-blank's left", () => {
 		const p = isBlank(
 			ifExpr(matchAll(), term(literal("a")), term(literal("b"))),
 		);
-		expect(() => emitCaseListFilter(p)).toThrow(/'if'/);
+		expect(emitCaseListFilter(p)).toBe(`if(true(), 'a', 'b') = ''`);
 	});
 
-	it("throws on a today() constant in is-blank's left", () => {
+	it("emits a today() constant in is-blank's left", () => {
 		const p = isBlank(today());
-		expect(() => emitCaseListFilter(p)).toThrow(/'today'/);
+		expect(emitCaseListFilter(p)).toBe(`today() = ''`);
 	});
 
-	it("throws on a now() constant in within-distance's center", () => {
-		// `within-distance.center` is a `ValueExpression` slot. A
-		// `now()` constant lands on the unwrap helper's exhaustive
-		// switch and surfaces as the per-arm throw.
+	it("emits a now() constant in within-distance's center", () => {
+		// `within-distance.center` is a `ValueExpression` slot; the
+		// expression emitter handles every arm of the union, so a
+		// `now()` constant flows through cleanly.
 		const p = within(prop("clinic", "location"), now(), 50, "miles");
-		expect(() => emitCaseListFilter(p)).toThrow(/'now'/);
+		expect(emitCaseListFilter(p)).toBe(
+			`within-distance(location, now(), 50, 'miles')`,
+		);
 	});
 });

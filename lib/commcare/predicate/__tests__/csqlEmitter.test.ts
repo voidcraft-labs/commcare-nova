@@ -39,8 +39,10 @@ import {
 	between,
 	concat,
 	count,
+	dateAdd,
 	dateCoerce,
 	datetimeCoerce,
+	double,
 	eq,
 	exists,
 	formatDate,
@@ -62,6 +64,7 @@ import {
 	multiSelectAny,
 	neq,
 	not,
+	now,
 	or,
 	prop,
 	relationStep,
@@ -70,6 +73,8 @@ import {
 	sessionUser,
 	subcasePath,
 	term,
+	today,
+	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -647,7 +652,8 @@ describe("emitCsql — exists / missing", () => {
 	it("expands exists any-relation to (ancestor-exists or subcase-exists)", () => {
 		// Direction-agnostic walks have no single CCHQ wire form, so
 		// the emitter expands to the OR of both direction-specific
-		// forms — matching B2's on-device any-relation expansion.
+		// forms — symmetric with the on-device any-relation expansion
+		// in `caseListFilterEmitter`.
 		const result = emitCsql(
 			exists(
 				anyRelationPath("rel"),
@@ -661,8 +667,8 @@ describe("emitCsql — exists / missing", () => {
 
 	it("expands missing any-relation to not((ancestor-exists or subcase-exists))", () => {
 		// Negation wraps the disjunction in `not(...)` rather than
-		// flipping the inner forms — symmetric with B2's on-device
-		// expansion.
+		// flipping the inner forms — symmetric with the on-device
+		// expansion in `caseListFilterEmitter`.
 		const result = emitCsql(
 			missing(
 				anyRelationPath("rel"),
@@ -1005,6 +1011,80 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		expect(result.wrapper).toBe(
 			`concat('modified_on = datetime(', instance('search-input:results')/input/field[@name='user_dt'], ')')`,
 		);
+	});
+});
+
+describe("emitCsql — value-function whitelist arms in operand position", () => {
+	// The remaining CSQL value-function whitelist arms (per
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`)
+	// — `today`, `now`, `double`, `date-add`, `unwrap-list` — survive
+	// the hoist pass and emit through the value-expression emitter at
+	// `lib/commcare/expression/csqlEmitter.ts`. The predicate emitter
+	// composes the resulting segment list with comparison operators,
+	// CSQL string-quote brackets, and concat-wrap arguments without
+	// special-case dispatch per arm.
+
+	it("emits today() in a comparison operand without hoisting", () => {
+		const result = emitCsql(eq(prop("patient", "dob"), today()));
+		expect(result.hoists).toHaveLength(0);
+		// No `'` in the constant → wrap in single-quoted XPath string.
+		expect(result.wrapper).toBe(`concat('dob = today()')`);
+	});
+
+	it("emits now() in a comparison operand without hoisting", () => {
+		const result = emitCsql(eq(prop("patient", "modified_on"), now()));
+		expect(result.hoists).toHaveLength(0);
+		expect(result.wrapper).toBe(`concat('modified_on = now()')`);
+	});
+
+	it("emits double(literal) in a comparison operand without hoisting", () => {
+		const result = emitCsql(
+			eq(prop("p", "weight_g"), double(term(literal(1500)))),
+		);
+		expect(result.hoists).toHaveLength(0);
+		expect(result.wrapper).toBe(`concat('weight_g = double(1500)')`);
+	});
+
+	it("emits date-add with three arguments per CCHQ's wire signature", () => {
+		// CCHQ's wire signature: `date-add(date, interval, quantity)`.
+		// Source: `value_functions.py:115` —
+		// `date-add('2022-01-01', 'days', -1) => '2021-12-31'`.
+		// The interval `'days'` carries an inner single quote, which
+		// flips the outer XPath wrap to double-quoted.
+		const result = emitCsql(
+			eq(
+				prop("patient", "due_date"),
+				dateAdd(today(), "days", term(literal(7))),
+			),
+		);
+		expect(result.hoists).toHaveLength(0);
+		expect(result.wrapper).toBe(
+			`concat("due_date = date-add(today(), 'days', 7)")`,
+		);
+	});
+
+	it("emits date-add with a runtime-resolved date argument", () => {
+		const result = emitCsql(
+			eq(
+				prop("patient", "due_date"),
+				dateAdd(term(input("base_date")), "days", term(literal(7))),
+			),
+		);
+		expect(result.hoists).toHaveLength(0);
+		expect(result.wrapper).toBe(
+			`concat('due_date = date-add(', instance('search-input:results')/input/field[@name='base_date'], ", 'days', 7)")`,
+		);
+	});
+
+	it("emits unwrap-list in a multi-select-contains shape via the predicate emitter", () => {
+		// `unwrap-list` survives the hoist pass and emits through the
+		// value-expression emitter; the predicate emitter composes the
+		// segments with the comparison's surrounding constants.
+		const result = emitCsql(
+			eq(prop("p", "tags"), unwrapList(term(prop("p", "tags_json")))),
+		);
+		expect(result.hoists).toHaveLength(0);
+		expect(result.wrapper).toBe(`concat('tags = unwrap-list(tags_json)')`);
 	});
 });
 
