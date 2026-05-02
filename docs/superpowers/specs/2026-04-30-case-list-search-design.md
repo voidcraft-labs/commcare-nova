@@ -292,7 +292,7 @@ Application-layer validation runs the **same JSON Schema** in TypeScript before 
 
 `case_type_schemas` is a derived artifact of the blueprint's `CaseType.properties[].data_type`. Whenever the blueprint mutates in any way that affects a case-type's property surface — a `data_type` change, a property addition, a property removal, a property rename, an option add/remove on a `single_select`/`multi_select` — the case-type's row in `case_type_schemas` is regenerated and upserted. The sync is **synchronous on the blueprint write path** (not a background job), so the database always reflects the blueprint's current schema before any case-store write evaluates against it.
 
-The sync is owned by the blueprint-write pipeline (Plan 3 wires this up at the Module schema mutator). The case-store interface exposes `syncSchemaForCaseType(appId, caseType)`, which reads the blueprint, regenerates the JSON Schema via the Plan 1 generator, and upserts. Mutation paths that change the blueprint call this before returning success.
+The sync is owned by the blueprint-write pipeline (Plan 3 wires this up at the Module schema mutator). The case-store interface exposes `applySchemaChange(appId, caseType)` — called with no `property` / `change` after additive blueprint mutations — which reads the blueprint, regenerates the JSON Schema via the Plan 1 generator, and upserts. When the mutation also requires per-row migration (rename / retype / narrow-options), the same `applySchemaChange` call carries the `property` + `change` arguments and the schema sync + migration run in a single Postgres transaction (see "Schema migration policy" below). Mutation paths that change the blueprint call `applySchemaChange` before returning success.
 
 #### Schema migration policy
 
@@ -302,21 +302,26 @@ When a blueprint change makes existing case rows incompatible with the new schem
 |---|---|
 | Property added | No-op for existing rows; new rows must include the property if `required` (else allowed absent) |
 | Property removed | Existing values for the removed property remain in JSONB until next write of the row, then dropped. Validator flags the orphaned values for cleanup |
-| Property renamed | Atomic rename: existing rows have the old key copied to the new key in the same write transaction. The `migrateProperty` interface handles this case |
+| Property renamed | Atomic rename: existing rows have the old key copied to the new key in the same write transaction. The `applySchemaChange(change: { kind: "rename", from, to })` interface handles this case |
 | `data_type` changed | Migrate-or-quarantine: try to re-cast each existing value; successes update in place, failures move to `cases_quarantine` with the original value + failure reason |
 | `single_select`/`multi_select` option added | No-op for existing rows |
 | `single_select`/`multi_select` option removed | Existing rows with the removed value move to `cases_quarantine` (the value is no longer in the option set; loud failure rather than silent acceptance) |
 
-All migrations run in the application layer (not in Postgres triggers) so they can quarantine rather than reject. The case-store interface exposes:
+All migrations run in the application layer (not in Postgres triggers) so they can quarantine rather than reject. Schema sync + migration are exposed as a single atomic call on the case-store interface:
 
 ```ts
-migrateProperty(args: {
-  appId: string; caseType: string; property: string;
-  change: { kind: "rename"; from: string; to: string }
-        | { kind: "retype"; fromType: PropertyDataType; toType: PropertyDataType }
-        | { kind: "narrow-options"; removedOptions: string[] }
+applySchemaChange(args: {
+  appId: string;
+  caseType: string;
+  property?: string;
+  change?:
+    | { kind: "rename"; from: string; to: string }
+    | { kind: "retype"; fromType: PropertyDataType; toType: PropertyDataType }
+    | { kind: "narrow-options"; removedOptions: string[] };
 }): Promise<MigrationReport>
 ```
+
+A single transaction covers both halves: regenerate the JSON Schema and upsert `case_type_schemas`, then run the per-row migration. The transaction commits when both halves succeed or rolls back atomically — the database never holds a new schema with rows that fail validation against it. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
 
 `MigrationReport` includes counts of migrated, quarantined, and skipped rows plus the per-row failure reasons for any quarantined items. The validator surfaces quarantined rows to the author with a "review and resolve" affordance.
 
@@ -346,12 +351,28 @@ interface CaseStore {
   close(args: { appId: string; caseId: string }): Promise<void>;
 
   traverse(args: { appId: string; caseId: string; via: RelationPath }): Promise<CaseRow[]>;
-  migrateProperty(args: { appId: string; caseType: string; property: string; fromType: PropertyDataType; toType: PropertyDataType }): Promise<MigrationReport>;
+
+  // Schema sync + property migration are atomic together. `applySchemaChange`
+  // takes the schema regeneration and the per-row migration in one transaction
+  // so the database never holds a new schema with rows that fail validation
+  // against it. See "Schema synchronization mechanism" + "Schema migration
+  // policy" sections above.
+  applySchemaChange(args: {
+    appId: string;
+    caseType: string;
+    property?: string;
+    change?:
+      | { kind: "rename"; from: string; to: string }
+      | { kind: "retype"; fromType: PropertyDataType; toType: PropertyDataType }
+      | { kind: "narrow-options"; removedOptions: string[] };
+  }): Promise<MigrationReport>;
 
   generateSampleData(args: { appId: string; caseType: string; count: number; seed: string }): Promise<{ inserted: number }>;
   resetSampleData(args: { appId: string; caseType: string }): Promise<{ deleted: number; inserted: number }>;
 }
 ```
+
+`applySchemaChange` always re-derives the JSON Schema from the current blueprint and upserts `case_type_schemas[appId, caseType]`. When `property` and `change` are absent, only the schema sync runs (the no-op-migration path used after additive blueprint changes). When they are present, the schema sync and the per-row migration run in a single transaction: rows that fail the new schema move to `cases_quarantine` with the original value + failure reason; the transaction commits once both halves complete or rolls back atomically. `MigrationReport` includes counts of migrated / quarantined / skipped rows plus per-row failure reasons.
 
 `PostgresCaseStore` is the only implementation. Per-user / per-app isolation uses `(app_id, owner_id)` columns on the `cases` table — same pattern every other domain table follows (apps are root-level with an `owner` field). No `session_id` column, no per-session schemas, no TRUNCATE-on-close.
 
@@ -510,10 +531,10 @@ The Zod schema in code only has the new shape from day one of the spec landing. 
 
 Each gate below is a concrete blocking check that must pass before the corresponding plan task is marked complete. Each gate names the task that owns it and the action the task takes if the gate fails.
 
-- **Cloud SQL extension allowlist for `pg_jsonschema`.** Owned by Plan 1 Task C2-pre. The task runs `gcloud sql instances describe ... --format='value(databaseFlags)'` against the staging instance and queries Postgres `pg_available_extensions`. If `pg_jsonschema` is not present, the task switches the trigger implementation to the PL/pgSQL fallback (architecture identical; implementation different). Do not write the trigger before the gate runs.
+- **Cloud SQL extension allowlist for `pg_jsonschema`.** Owned by Plan 2 Task 2. The task runs `gcloud sql instances describe ... --format='value(databaseFlags)'` against the provisioned instance and queries Postgres `pg_available_extensions`. If `pg_jsonschema` is not present, the task switches the trigger implementation to the PL/pgSQL fallback (architecture identical; implementation different). Do not write the trigger before the gate runs.
 - **CommCare wire-level resolution of `auto_launch=true`.** Owned by Plan 4 Task 9. Before locking emission code, the task reads `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py` and confirms how `auto_launch` propagates to the suite XML for both case-search and callout contexts (different semantics).
 - **`inline_search` real wire behavior.** Owned by Plan 4 Task 9. Read `commcare-hq` source for the `inline_search` flag's effect on `instance('results')` vs `instance('results:inline')` before emitting the search-input refs.
-- **`case_indices` materialization policy.** Owned by Plan 1 Task C5. Start with Option B (direct edges + recursive CTE); profile after V1 ships using `EXPLAIN ANALYZE` against representative datasets; switch to Option A if CTE cost dominates. Both options are within the same architectural commitment; the task ships with Option B.
+- **`case_indices` materialization policy.** Owned by Plan 2 Task 4 (`PostgresCaseStore`'s `caseIndices.ts`). Start with Option B (direct edges + recursive CTE); profile after V1 ships using `EXPLAIN ANALYZE` against representative datasets; switch to Option A if CTE cost dominates. Both options are within the same architectural commitment; the task ships with Option B. (Plan 1 Task C5 emits the recursive-CTE join from the relation-path AST against whatever Plan 2 materializes; it does not own the materialization policy itself.)
 - **Existing apps that have columns referencing non-existent case properties.** Owned by Plan 3 Task 15. The migration script's dry-run mode reports references that don't resolve; review before running live.
 
 ## Testing strategy
@@ -526,6 +547,7 @@ Each gate below is a concrete blocking check that must pass before the correspon
 
 ## Risks and mitigations
 
+- **Tenant-isolation leak via missing owner-id filter** — the v1 isolation model is `(app_id, owner_id)` columns + application-layer filtering. A single missed `.where("owner_id", "=", session.user.id)` filter at any read site leaks one tenant's case data to another. Mitigation: tenant scoping is **structural, not by discipline** — the `CaseStore` interface is the only path to case data, and every `CaseStore` method accepts an `appId` and resolves the caller's `owner_id` through a `withOwnerContext(userId)` factory at the request boundary. There is no way to construct a `CaseStore` instance that bypasses the owner-id filter; the factory pattern enforces tenant scoping by construction. RLS policies on the `cases` table land as defense-in-depth in Plan 2 once the application-layer pattern is exercised. For HIPAA / SOC 2 clients requiring stricter isolation (schema-per-tenant or database-per-tenant), the migration path is changing the connection routing in `withOwnerContext` to map `(appId, ownerId) → schema` — bounded by the tooling, no application-code rewrite — at the cost of dump-and-reload per tenant during the cutover.
 - **Cloud SQL extension unavailability for `pg_jsonschema`** — fall back to PL/pgSQL validator; behavior identical from the application's perspective.
 - **JSONB write bloat** from frequent updates — full-row replacement on case writes (not partial `jsonb_set`). Monitor `pg_stat_user_tables.n_dead_tup`.
 - **JSONB cast safety after schema migration** — addressed via the migrate-or-quarantine policy; reads are typed-safe because writes are validated against the current schema; quarantined rows are surfaced rather than silently lost.
