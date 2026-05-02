@@ -612,12 +612,19 @@ export function or(...clauses: Predicate[]): Predicate {
  * any other inner predicate, the standard `{ kind: "not", clause }`
  * envelope is constructed.
  *
- * Return type is the union `Predicate` because the three reduction
- * cases each surface a different `kind` — the precise return type
- * narrows only when the call site can statically determine the inner
- * predicate's kind. Callers who need the non-reducing case to retain
- * the precise `{ kind: "not", clause }` shape narrow on `kind` after
- * construction (`if (p.kind === "not") { p.clause ... }`).
+ * Overload set: each statically-known input shape pins the precise
+ * return type, preserving the per-arm narrowing convention the rest
+ * of this file uses (`eq(...).left`, `and(...).clauses`, etc.).
+ *
+ *   - `not(matchAll())`  → `match-none`
+ *   - `not(matchNone())` → `match-all`
+ *   - `not(not(...))`    → `Predicate` — the inner clause's kind isn't
+ *      statically known to the overload set, so the union is the
+ *      tightest declarable return. Callers who need the inner kind
+ *      either know it from context or narrow after construction.
+ *   - `not(<other>)`     → `Extract<Predicate, { kind: "not" }>` —
+ *      catch-all for the non-reducing case, preserving direct
+ *      `.clause` access at the call site.
  *
  * Parameter-naming policy: builder parameter names track AST field
  * names where possible (`clause` here, `clause` on `whenInput`,
@@ -630,6 +637,14 @@ export function or(...clauses: Predicate[]): Predicate {
  * is currently safe" to hold across edits, so the parameter takes
  * a non-shadowing name even at the cost of one layer of mismatch.
  */
+export function not(
+	clause: Extract<Predicate, { kind: "match-all" }>,
+): Extract<Predicate, { kind: "match-none" }>;
+export function not(
+	clause: Extract<Predicate, { kind: "match-none" }>,
+): Extract<Predicate, { kind: "match-all" }>;
+export function not(clause: Extract<Predicate, { kind: "not" }>): Predicate;
+export function not(clause: Predicate): Extract<Predicate, { kind: "not" }>;
 export function not(clause: Predicate): Predicate {
 	const reduced = reduceNotImpl(clause);
 	if (reduced !== undefined) return reduced;

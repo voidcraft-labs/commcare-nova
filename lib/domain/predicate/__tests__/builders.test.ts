@@ -873,6 +873,64 @@ function typeCheckComparisonNarrowing(): void {
 }
 void typeCheckComparisonNarrowing;
 
+/* --- Reduction-overload narrowing lock --------------------------------
+ *
+ * `and` / `or` / `not` are declared as overload sets so each call
+ * shape's return type is precisely pinned: `and()` returns
+ * `match-all`, `and(x)` returns `T` (the inner clause's type),
+ * `and(x, y, ...)` returns `Extract<Predicate, { kind: "and" }>`, and
+ * the parallel set on `or` / `not`. The narrowing matters because the
+ * rest of this file's contract — `and(...).clauses` directly
+ * accessible without re-narrowing in the n-ary case, `not(eq(...))
+ * .clause` accessible without re-narrowing in the catch-all case —
+ * depends on the precise per-overload return shape.
+ *
+ * The form is "assign the builder result to a variable typed as the
+ * expected narrow shape." If a future regression collapses any
+ * overload to `Predicate`, the assignment becomes invalid → TS2322
+ * fires on the matching line. Same enforcement surface as
+ * `typeCheckComparisonNarrowing` above (`npm run typecheck` via
+ * lefthook pre-push).
+ */
+function typeCheckReductionNarrowing(): void {
+	const neverRun = false;
+	if (neverRun) {
+		const x = eq(prop("patient", "status"), literal("open"));
+		// `and()` empty → match-all sentinel
+		const _emptyAnd: Extract<Predicate, { kind: "match-all" }> = and();
+		// `or()` empty → match-none sentinel
+		const _emptyOr: Extract<Predicate, { kind: "match-none" }> = or();
+		// `and(x)` single → identity (returns x's exact type)
+		const _singleAnd: typeof x = and(x);
+		// `or(x)` single → identity
+		const _singleOr: typeof x = or(x);
+		// `and(x, y)` n-ary → precise and-arm
+		const _nAnd: Extract<Predicate, { kind: "and" }> = and(x, x);
+		// `or(x, y)` n-ary → precise or-arm
+		const _nOr: Extract<Predicate, { kind: "or" }> = or(x, x);
+		// `not(matchAll())` → match-none
+		const _notMA: Extract<Predicate, { kind: "match-none" }> = not(matchAll());
+		// `not(matchNone())` → match-all
+		const _notMN: Extract<Predicate, { kind: "match-all" }> = not(matchNone());
+		// `not(eq(...))` catch-all → precise not-arm. `_notEq.clause` is
+		// directly accessible without `if (_notEq.kind === "not")` — the
+		// load-bearing assertion the file-level comment in `builders.ts`
+		// promises.
+		const _notEq: Extract<Predicate, { kind: "not" }> = not(x);
+		void _notEq.clause;
+		void _emptyAnd;
+		void _emptyOr;
+		void _singleAnd;
+		void _singleOr;
+		void _nAnd;
+		void _nOr;
+		void _notMA;
+		void _notMN;
+		void _notEq;
+	}
+}
+void typeCheckReductionNarrowing;
+
 /* --- Empty-collection construction-site lock --------------------------
  *
  * `and`, `or`, `isIn`, and `ancestorPath` return shapes whose schema
