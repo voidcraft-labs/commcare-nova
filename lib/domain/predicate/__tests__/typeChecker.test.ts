@@ -1065,10 +1065,8 @@ describe("checkPredicate — between operator rules", () => {
 	it("propagates errors through wrapper recursion (between inside and)", () => {
 		// Pins the wrapper-recursion contract: a `between` violation
 		// nested inside `and` surfaces with a path that threads the
-		// wrapper's `kind` and clause index. Replaces the throw-on-
-		// between coverage that the dedicated A5 rule supersedes —
-		// the regression target shifts from "throws inside wrappers"
-		// to "real rule fires inside wrappers."
+		// wrapper's `kind` and clause index. The regression target is
+		// "the real between rule fires inside wrappers."
 		const p = and(
 			eq(prop("patient", "name"), literal("Alice")),
 			between(prop("patient", "name"), {
@@ -1386,10 +1384,11 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 
 	it("rejects exists when the originating case type is not provided", () => {
 		// The checker has no top-level `currentCaseType` to anchor
-		// from — the relation walk has no origin. Plan 3 wires this
-		// in at the case-list config UI; the error here pins the
-		// requirement so a programmatic source that omits the field
-		// fails loudly rather than silently bypassing the walk.
+		// from — the relation walk has no origin. The case-list config
+		// UI supplies the field when invoking the checker; the error
+		// here pins the requirement so a programmatic source that
+		// omits the field fails loudly rather than silently bypassing
+		// the walk.
 		const p = exists(ancestorPath(relationStep("parent")));
 		const result = checkPredicate(p, ctxRelations); // no currentCaseType
 		expect(result.ok).toBe(false);

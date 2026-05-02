@@ -106,18 +106,20 @@ export type SearchInputDecl = {
  * what an `exists(self)` would mean. Inside a `where` clause it tracks
  * the destination of the surrounding `via`, used by `walk` →
  * `checkInDestinationScope` to enforce `prop.caseType ===
- * currentCaseType` when set. The slot is optional at the type layer so
- * call sites that exercise no relational features (the existing
+ * currentCaseType` when set. The slot is optional at the type layer
+ * so call sites that exercise no relational features (the
  * comparison / membership / absence tests) compose the context as
  * `{ caseTypes, knownInputs }` literally and the field stays absent
- * without a value-construction step. Plan 3 wires this through at the
- * case-list config UI when the relational surface lands.
+ * without a value-construction step. The case-list config UI
+ * supplies it when invoking the checker against the relational
+ * surface.
  *
  * The prop.caseType-vs-currentCaseType pin in `resolveTermType` gates
  * on `currentCaseType !== undefined` — when absent, every property
- * reference resolves on its own qualifier, matching the pre-A5
- * behavior. When present, the constraint enforces the destination-
- * scope contract the spec locks at the `where`-clause boundary.
+ * reference resolves on its own qualifier with no destination-scope
+ * constraint applied. When present, the constraint enforces the
+ * destination-scope contract the spec locks at the `where`-clause
+ * boundary.
  */
 export type TypeContext = {
 	caseTypes: CaseType[];
@@ -197,9 +199,9 @@ export const ANY_TYPE = "_any" as const;
  * `multi-select-contains.values` stay literal-only because every
  * wire target demands a static value list — but the type checker
  * needs a defined verdict for the `unwrap-list` arm so callers can
- * compose ASTs that include it (the future B-phase wire pattern is
- * `selected-any(prop, unwrap-list(...))` inside the CSQL emitter,
- * which the representability checker will route through).
+ * compose ASTs that include it (the consuming wire pattern is
+ * `selected-any(prop, unwrap-list(...))` in the CSQL emitter, which
+ * the representability checker routes through).
  *
  * Like `ANY_TYPE`, the sentinel is internal-only. The
  * compatibility table treats sequences as incompatible with every
@@ -842,16 +844,16 @@ function checkAbsenceOperator(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	// Literal-shaped operands are rejected as a category error. After
-	// the operand widening to `ValueExpression`, a literal arrives
-	// inside the `term` arm — pattern-match through the wrapper to
-	// keep the rejection in place. Higher-order ValueExpression arms
-	// (`arith`, `if`, `count`, etc.) are accepted: an arithmetic
-	// expression can resolve to absent at runtime ("is the per-unit
-	// ratio undefined?"), so the ill-formed framing only applies to
-	// pure-literal operands. The arm walks the `value` even after
-	// pushing the rejection error so any nested resolution failures
-	// inside the literal-bearing wrapper still surface.
+	// Literal-shaped operands are rejected as a category error. The
+	// operand is `ValueExpression`, so a literal arrives inside the
+	// `term` arm — pattern-match through the wrapper to keep the
+	// rejection in place. Higher-order ValueExpression arms (`arith`,
+	// `if`, `count`, etc.) are accepted: an arithmetic expression can
+	// resolve to absent at runtime ("is the per-unit ratio
+	// undefined?"), so the ill-formed framing only applies to pure-
+	// literal operands. The arm walks the `value` even after pushing
+	// the rejection error so any nested resolution failures inside
+	// the literal-bearing wrapper still surface.
 	if (p.left.kind === "term" && p.left.term.kind === "literal") {
 		errors.push({
 			path: [...path, "left"],
@@ -1009,7 +1011,7 @@ function unwrapLiteralOperand(
  * mirroring `resolveTermType`'s short-circuit pattern so callers don't
  * have to handle resolution-failure cascades.
  *
- * The four kinds — three reachable from A5's call sites (`ancestor` /
+ * The four kinds — three reachable from caller sites (`ancestor` /
  * `subcase` / `any-relation`), one structurally unreachable (`self`):
  *
  *   - `self` — `checkRelationalQuantifier` rejects standalone
@@ -1025,8 +1027,7 @@ function unwrapLiteralOperand(
  *     rejection of `exists(via: self)` is defensible because the
  *     shape (`exists(self, w)` reduces to `w(currentScope)`) is
  *     degenerate at every position; collapsing degenerate shapes is
- *     the reductions module's concern (Task A7), not the
- *     type-checker's.
+ *     the reductions module's concern, not the type-checker's.
  *
  *   - `ancestor` — walk `parent_type` chain, one hop per `RelationStep`.
  *     The current `CaseType` schema models at most one parent, so each
@@ -1037,7 +1038,7 @@ function unwrapLiteralOperand(
  *     implementation at `ancestor_functions.py:97-118` (mandatory
  *     2-arg `confirm_args_count` at `:109` — the wire-layer optionality
  *     diverges from this schema's uniformly-optional `where`, but
- *     that's a B5 representability concern, not a type-checker rule).
+ *     that's a representability concern, not a type-checker rule).
  *
  *   - `subcase` — find case types whose `parent_type` matches the
  *     origin. `ofCaseType` disambiguates when multiple candidates
@@ -1056,7 +1057,7 @@ function unwrapLiteralOperand(
  *     future `CaseType` extension. The kind exists in the AST today
  *     because the persisted-shape contract has to settle now (per the
  *     spec's "RelationPath" subsection); the representability checker
- *     (B5) rejects it for CCHQ wire targets where direction-specific
+ *     rejects it for CCHQ wire targets where direction-specific
  *     operators are the only choice.
  *
  * **Principled narrowing — identifier→relationship matching:** the
@@ -1071,9 +1072,10 @@ function unwrapLiteralOperand(
  * the same destination via the same `parent_type` lookup; the
  * identifier rounds out the wire form (CCHQ emits the identifier
  * literally as the index name) but doesn't constrain destination
- * resolution at type-check time. Extending `CaseType` with named
- * relationships is out of A5's scope; once landed, this helper widens
- * to consult the named-relationship table.
+ * resolution at type-check time. Named relationships aren't
+ * supported by the path resolver today; when the `CaseType` schema
+ * grows them, this helper widens to consult the named-relationship
+ * table.
  */
 export function checkRelationPath(
 	relationPath: RelationPath,
@@ -1084,7 +1086,7 @@ export function checkRelationPath(
 ): string | undefined {
 	switch (relationPath.kind) {
 		case "self":
-			// Structurally unreachable from any of A5's call sites:
+			// Structurally unreachable from any caller in this module:
 			// `checkRelationalQuantifier` rejects standalone
 			// `via.kind === "self"` before invoking this helper, and
 			// `resolveTermType`'s `prop` arm short-circuits absent /
@@ -1099,8 +1101,7 @@ export function checkRelationPath(
 			// defensible because the shape (`exists(self, w)` reduces
 			// to `w(currentScope)`) is degenerate at every position,
 			// not only the top one — collapsing degenerate shapes is
-			// the reductions module's concern (Task A7), not the
-			// type-checker's.
+			// the reductions module's concern, not the type-checker's.
 			throw new Error(
 				"checkRelationPath: 'self' is unreachable here — callers route 'self' through the originating-scope branch before invoking this helper.",
 			);
@@ -1168,7 +1169,8 @@ export function checkRelationPath(
 			// `subcase` and `any-relation` share resolution semantics
 			// because the current `CaseType` schema models only one
 			// direction (see the helper's JSDoc); they diverge at the
-			// wire layer (B5 representability), not at type-check time.
+			// wire layer (per-dialect representability), not at
+			// type-check time.
 			const candidates = ctx.caseTypes.filter(
 				(c) => c.parent_type === originCaseType,
 			);
@@ -1504,8 +1506,7 @@ export function resolveTermType(
 //
 // Per-arm rules (per the design spec
 // `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "Expression family", and the foundation plan's Task A6 type-rule
-// list):
+// "Expression family"):
 //
 //   - `term` — delegates to `resolveTermType` for the lifted Term.
 //   - `today` → `date`; `now` → `datetime` (wire-form constants).
@@ -1907,7 +1908,7 @@ export function checkExpression(
 			// JSON-encoded array string. Result is the sequence
 			// sentinel; v1 has no AST consumer for it (see
 			// `SEQUENCE_TYPE`'s JSDoc) but the type checker stages the
-			// verdict for B-phase emission.
+			// verdict for the wire emitter to consume.
 			const inner = checkExpression(expr.value, ctx, errors, [
 				...path,
 				"value",
@@ -2112,8 +2113,9 @@ export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
 	// Sequences sit outside the scalar compatibility table — sequence-
 	// vs-anything (including sequence-vs-sequence) is structurally
 	// rejected because no v1 operator composes two sequences. Sequence-
-	// consuming patterns (B-phase `selected-any(prop, unwrap-list(...))`)
-	// route through a dedicated check, not this table.
+	// consuming patterns (the CSQL emitter's `selected-any(prop,
+	// unwrap-list(...))` form) route through a dedicated check, not
+	// this table.
 	if (a === SEQUENCE_TYPE || b === SEQUENCE_TYPE) return false;
 	if (a === ANY_TYPE || b === ANY_TYPE) return true;
 	if (a === b) return true;

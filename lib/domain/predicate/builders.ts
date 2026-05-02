@@ -36,20 +36,19 @@
 // **Predicate-operand auto-wrap.** Predicate operators (`compare`,
 // `in`, `between`, `is-null`, `is-blank`, `within-distance`) carry
 // `ValueExpression`-typed operands. Builders accept
-// `ValueExpression | Term` at every widened operand slot and route
-// Term-shaped inputs through `toValueExpression(...)` (declared
-// below) which wraps them in `{ kind: "term", term: <Term> }`. The
-// wrap is automatic so existing call-sites like `eq(prop("name"),
-// literal("Alice"))` continue working unchanged — both arguments
-// arrive as `Term`-typed values, get wrapped at the builder
-// boundary, and emerge as `ValueExpression`-typed slots in the
-// constructed predicate. Term-vs-ValueExpression discrimination is
-// safe because the two unions have disjoint discriminator-value
-// sets: `Term`'s kinds are `prop` / `input` / `session-user` /
-// `session-context` / `literal` while `ValueExpression`'s are
-// `term` / `today` / `now` / `date-add` / `date-coerce` /
-// `datetime-coerce` / `double` / `arith` / `concat` / `coalesce` /
-// `if` / `switch` / `count` / `unwrap-list` / `format-date`.
+// `ValueExpression | Term` at every operand slot and route Term-
+// shaped inputs through `toValueExpression(...)` (declared below)
+// which wraps them in `{ kind: "term", term: <Term> }`. Call-sites
+// like `eq(prop("name"), literal("Alice"))` pass `Term`-typed
+// arguments; the builder wraps each at its boundary and the
+// constructed predicate carries `ValueExpression`-typed operand
+// slots. Term-vs-ValueExpression discrimination is safe because the
+// two unions have disjoint discriminator-value sets: `Term`'s kinds
+// are `prop` / `input` / `session-user` / `session-context` /
+// `literal` while `ValueExpression`'s are `term` / `today` / `now`
+// / `date-add` / `date-coerce` / `datetime-coerce` / `double` /
+// `arith` / `concat` / `coalesce` / `if` / `switch` / `count` /
+// `unwrap-list` / `format-date`.
 //
 // Distance constraint trade-off: `within`'s `distance` is plain
 // `number`. TypeScript can't cheaply express "non-negative number" (it
@@ -443,7 +442,7 @@ export function anyRelationPath(
 // share the same operand shape — if a future operator needs an
 // asymmetric field, this curried helper has to split.)
 
-// Operands are `ValueExpression` post-widen; the builder accepts
+// Operands are `ValueExpression`; the builder accepts
 // `Term | ValueExpression` and routes Term-shaped inputs through
 // `toValueExpression` so call-sites like
 // `eq(prop("name"), literal("Alice"))` and
@@ -738,7 +737,7 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * CSQL function in the table at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
  * Emitting `is-null` against any CCHQ target would silently widen
- * the match set and lose the AST's strictness signal. The B5
+ * the match set and lose the AST's strictness signal. The
  * representability checker errors at authoring time when an
  * `is-null` reaches a CCHQ-bound context; the per-dialect emitters
  * defensively throw.
@@ -939,14 +938,12 @@ export function missing(
 // same convention as `not()` / `whenInput()` / `and()` on the
 // Predicate side.
 //
-// The auto-wrap pattern flips at this layer: a Term consumer
-// (`term`) takes a Term and lifts it to a `term`-arm
-// ValueExpression. Higher-order operators (`arith`, `concat`, etc.)
-// take ValueExpression-typed operands directly — Term-shaped inputs
-// aren't auto-wrapped here because operator slots like
-// `arith.left` / `concat.parts` always sit in value position, never
-// in Term position. Authors who want to thread a Term through a
-// ValueExpression slot wrap explicitly with `term(t)`.
+// Auto-wrap policy: the predicate-operand builders (above) accept
+// Term inputs and lift them through `toValueExpression`. The
+// ValueExpression builders below do NOT auto-wrap — `arith.left`,
+// `concat.parts`, etc. always sit in value position, never in Term
+// position, so Term-shaped inputs are explicit-only. Authors thread
+// a Term through a value slot via the named lifter `term(t)`.
 
 /**
  * Lifter: wrap a `Term` as the `term` arm of `ValueExpression`. The
@@ -989,7 +986,7 @@ export function now(): Extract<ValueExpression, { kind: "now" }> {
  * `date-add` value expression: `date + (interval × quantity)`. CCHQ
  * wire form on CSQL: `date-add(date, interval, quantity)` per the
  * value-function dispatch table. On-device support is interval-
- * limited — the representability checker (B5) rejects non-`days`
+ * limited — the representability checker rejects non-`days`
  * intervals for case-list-filter / post-ES dialects, and the
  * on-device emitter falls back to XPath operator arithmetic
  * (`date(...) + N`) for `days`-only emissions.
@@ -1112,8 +1109,9 @@ export function coalesce(
  * `if` value expression: boolean-conditional value selection. `cond`
  * is a `Predicate` (cross-family reference); both branches are
  * `ValueExpression`. CCHQ on-device wire form: `if(cond, then, else)`.
- * CSQL has no native `if` value function — the wire-wrapping pass
- * hoists `if` arms out of CSQL fragments at B-phase emission.
+ * CSQL has no native `if` value function — the CSQL wire emitter
+ * hoists `if` arms out of CSQL fragments at the wire-emission
+ * boundary.
  *
  * The slot order matches the spec — `cond` / `then` / `else` —
  * even though `else` is a JS reserved word in statement positions;
@@ -1182,9 +1180,9 @@ export function switchExpr(
  * predicate holds. CCHQ wire form on CSQL: recognised only as the
  * LHS of a binary comparison (`subcase-count(...) > 2`), so a
  * `count(...)` outside a comparison context is unrepresentable in
- * CSQL and the representability checker (B5) flags it at authoring
- * time. The Postgres compiler executes the count natively in any
- * value position.
+ * CSQL and the representability checker flags it at authoring time.
+ * The Postgres compiler executes the count natively in any value
+ * position.
  *
  * Same `via` / `where` shape as `exists` / `missing` on the
  * Predicate side, with the same absent-not-undefined contract on

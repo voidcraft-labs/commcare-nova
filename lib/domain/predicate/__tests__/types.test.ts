@@ -55,8 +55,8 @@ describe("term schema", () => {
 });
 
 // Helper: lift a Term-shaped raw object into the structural `term`
-// arm of `ValueExpression`. The schema widens predicate operands to
-// ValueExpression post-A6, and the canonical Term-as-operand shape
+// arm of `ValueExpression`. Predicate operator schemas carry
+// `ValueExpression` operands; the canonical Term-as-operand shape
 // is `{ kind: "term", term: <Term> }`. Centralising the wrapper here
 // keeps each individual test's payload readable — the focus stays on
 // the predicate operator under test, not on the lifter mechanics.
@@ -388,9 +388,9 @@ describe("predicate schema", () => {
 		// vocabulary populated by `addUserProperties` at
 		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
 		// The schema admits any XML-element-name-valid field here.
-		// Predicate operands are `ValueExpression` post-A6 — terms are
-		// admitted via the structural `term` arm (the lifter that flows
-		// any Term through a value slot).
+		// Predicate operands are `ValueExpression` — terms are admitted
+		// via the structural `term` arm (the lifter that flows any
+		// Term through a value slot).
 		const result = predicateSchema.parse({
 			kind: "eq",
 			left: {
@@ -1146,8 +1146,7 @@ describe("propertyRef with via (relational read)", () => {
 		// what every existing builder call site produces; if the
 		// schema's `.optional()` started materializing the absent
 		// key, the assertion below would fail.
-		// Predicate operands are wrapped in the structural `term` arm
-		// post-A6.
+		// Predicate operands are wrapped in the structural `term` arm.
 		const input = {
 			kind: "eq" as const,
 			left: {
@@ -1313,7 +1312,7 @@ describe("sentinel predicates", () => {
 // construction, and JSONB does the same. The Predicate AST is
 // Postgres-strict family-wide; CCHQ's wire collapse (where `prop = ''`
 // matches absent / cleared / empty alike) is a per-dialect emitter
-// concern + B5 representability checker error, not an AST design
+// concern + representability checker error, not an AST design
 // constraint. The full table (per-dialect representability) lives in
 // the design spec at "Null vs blank semantics" under the Predicate
 // family code block — `is-null` is unrepresentable on every CCHQ wire
@@ -1903,9 +1902,9 @@ describe("valueExpression schema — leaf arms", () => {
 	it("parses a term arm wrapping a property reference", () => {
 		// The `term` arm is the structural lifter — every Term shape
 		// reaches a value slot through this wrapper, and the predicate
-		// operand widening (Task A6) auto-wraps Term inputs at the
-		// builder boundary. Pinning the explicit shape here locks the
-		// schema's discriminator path into the union.
+		// operand builders auto-wrap Term inputs at the call boundary.
+		// Pinning the explicit shape here locks the schema's
+		// discriminator path into the union.
 		const result = valueExpressionSchema.parse({
 			kind: "term",
 			term: { kind: "prop", caseType: "patient", property: "age" },

@@ -599,7 +599,7 @@ export type Term = z.infer<typeof termSchema>;
 //     emission diverges per dialect: CSQL emits the named `date-add`
 //     value function; the on-device dialect supports day-only
 //     intervals via XPath operator arithmetic and rejects month / year
-//     intervals at the representability checker (B5).
+//     intervals at the representability checker.
 //   - `date-coerce` / `datetime-coerce` — string → typed date /
 //     datetime via CommCare's wire `date(...)` / `datetime(...)`
 //     value functions.
@@ -631,9 +631,9 @@ export type Term = z.infer<typeof termSchema>;
 //     sequence type — `multi-select-contains.values` and `in.values`
 //     stay literal-only because the wire targets demand a static
 //     value list — but the arm is part of the persisted-shape
-//     contract, so it lives in the AST today and the CSQL emitter
-//     will route it into `selected-any(prop, unwrap-list(...))` at
-//     wire-emit time when that pattern lands in B-phase.
+//     contract, so it lives in the AST today. The CSQL wire emitter
+//     routes it into `selected-any(prop, unwrap-list(...))` at the
+//     wire-emission boundary.
 //   - `format-date` — date / datetime → text via CommCare's
 //     `format-date(date, pattern)`. The pattern slot accepts the
 //     three preset names (`short` / `long` / `iso`) plus an arbitrary
@@ -678,7 +678,7 @@ export type ArithOp = (typeof ARITH_OPS)[number];
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`
  * — CSQL accepts each via the `date-add` / `datetime-add` value
  * functions; the on-device dispatcher does not register a handler
- * (B5 representability checker rejects non-day intervals for
+ * (the representability checker rejects non-day intervals for
  * on-device emission, and the on-device emitter falls back to
  * XPath operator arithmetic for `days`-only).
  *
@@ -815,12 +815,12 @@ const coalesceSchema = z.object({
 /**
  * Conditional value selection. `cond` is a `Predicate`; both
  * branches are `ValueExpression`. CCHQ's on-device wire form is
- * `if(cond, then, else)`; CSQL has no native `if` value function and
- * the wire-wrapping pass hoists `if` arms out of CSQL fragments
- * (B-phase concern). The branch slot names match the spec — `then`
- * and `else` — even though `else` is a JS reserved word in
- * statement positions; both are legal property names everywhere
- * this AST surfaces.
+ * `if(cond, then, else)`; CSQL has no native `if` value function,
+ * so the CSQL wire emitter hoists `if` arms out of CSQL fragments
+ * at the wire-emission boundary. The branch slot names match the
+ * spec — `then` and `else` — even though `else` is a JS reserved
+ * word in statement positions; both are legal property names
+ * everywhere this AST surfaces.
  *
  * `then`-property hazard explained: Biome's `noThenProperty` rule
  * defends against accidentally creating a thenable that
@@ -901,7 +901,7 @@ const switchSchema = z.object({
  * is recognised only as the LHS of a binary comparison
  * (`commcare-hq/.../filter_dsl.py:89-95`), so a `count(...)` outside
  * a comparison context is unrepresentable in CSQL — the
- * representability checker (B5) flags this at authoring time. The
+ * representability checker flags this at authoring time. The
  * Postgres compiler executes the count natively in any value
  * position.
  */
@@ -920,14 +920,14 @@ const countSchema = z.object({
  * v1 has no AST consumer for the resulting sequence type —
  * `in.values` and `multi-select-contains.values` stay literal-only
  * because every wire target demands a static value list. The CSQL
- * emitter will route `unwrap-list` into `selected-any(prop,
- * unwrap-list(...))` at wire-emit time when that pattern lands in
- * B-phase. The type checker stages a `"sequence"` resolved-type
- * sentinel (see `typeChecker.ts`) so the arm has a defined verdict
- * at A-phase even though no v1 operator consumes the result; the
- * sentinel lets a future widening of the consuming surface (B-phase
- * or later) thread the sequence type through without re-wiring the
- * type checker's compatibility table.
+ * emitter routes `unwrap-list` into `selected-any(prop,
+ * unwrap-list(...))` at the wire-emission boundary. The type
+ * checker stages a `"sequence"` resolved-type sentinel (see
+ * `typeChecker.ts`) so the arm has a defined verdict even though
+ * no current operator consumes the result; the sentinel lets a
+ * future widening of the consuming surface thread the sequence
+ * type through without re-wiring the type checker's compatibility
+ * table.
  */
 const unwrapListSchema = z.object({
 	kind: z.literal("unwrap-list"),
@@ -972,16 +972,16 @@ const formatDateSchema = z.object({
  * tucked under existing kinds via hidden state".
  *
  * Operand shape: `left` and `right` are `ValueExpression` (not bare
- * `Term`). The widening is the structural composition primitive that
- * lets arithmetic / conditional expressions drive a comparison —
- * `gt(arith("+", prop("age"), literal(1)), literal(18))` lands at the
- * AST without needing an intermediate calc-and-compare scaffolding.
- * Term-shaped operands flow through unchanged: builders auto-wrap
- * `Term` arguments in `{ kind: "term", term: <Term> }` at the call
- * site (see `builders.ts:toValueExpression`), so existing
- * `eq(prop("name"), literal("Alice"))` shapes continue to construct
- * the expected ValueExpression-of-Term wrapper without any author-
- * visible change.
+ * `Term`). This is the structural composition primitive that lets
+ * arithmetic / conditional expressions drive a comparison —
+ * `gt(arith("+", prop("age"), literal(1)), literal(18))` lands at
+ * the AST without needing an intermediate calc-and-compare
+ * scaffolding. Term-shaped operands flow through unchanged: builders
+ * auto-wrap `Term` arguments in `{ kind: "term", term: <Term> }` at
+ * the call site (see `builders.ts:toValueExpression`), so
+ * `eq(prop("name"), literal("Alice"))` constructs the expected
+ * ValueExpression-of-Term wrapper without any author-visible
+ * ceremony.
  */
 const COMPARISON_KINDS = ["eq", "neq", "gt", "gte", "lt", "lte"] as const;
 export type ComparisonKind = (typeof COMPARISON_KINDS)[number];
@@ -1002,11 +1002,11 @@ const comparisonSchema = z.object({
  * slot: the wire pattern there is `selected-any(prop, unwrap-list(...))`
  * via `multi-select-contains`, not an `in`-semantics expansion.
  *
- * `left` is widened from `Term` to `ValueExpression` so an arithmetic
- * / conditional expression can sit in the membership-test position
- * (`isIn(arith("+", prop("age"), literal(1)), literal(18), literal(19))`).
- * Term-shaped `left` flows through unchanged — builders auto-wrap
- * Term inputs as ValueExpression-of-Term.
+ * `left` is `ValueExpression` so an arithmetic / conditional
+ * expression can sit in the membership-test position (`isIn(arith("+",
+ * prop("age"), literal(1)), literal(18), literal(19))`). Term-shaped
+ * `left` flows through unchanged — builders auto-wrap Term inputs as
+ * ValueExpression-of-Term.
  *
  * `values` is non-empty (tuple-with-rest): an empty `in(...)` is
  * trivially false at every target and is virtually always an
@@ -1068,17 +1068,15 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
 
 /**
  * Geo predicate: include cases whose `property` (a geopoint) lies
- * within `distance` of `center`. `property` is constrained to a direct
- * property reference (the geopoint can't be a literal or an input —
- * those shapes don't make geometric sense, and the wire layer at
+ * within `distance` of `center`. `property` is a direct property
+ * reference (the geopoint can't be a literal or an input — those
+ * shapes don't make geometric sense, and the wire layer at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
  * dispatches `within-distance` against a property name, not a value
- * expression), so the `property` slot stays `propertyRefSchema` — the
- * widening to ValueExpression does not apply here. `center` widens
- * to `ValueExpression` so a date-driven or arithmetic-derived center
- * coordinate (rare but representable via the typed AST) can drive
- * the query alongside the natural search-input or session-user
- * shapes.
+ * expression). `center` is a `ValueExpression` so a date-driven or
+ * arithmetic-derived center coordinate (rare but representable via
+ * the typed AST) can drive the query alongside the natural search-
+ * input or session-user shapes.
  *
  * `distance` is `.nonnegative()` — a negative radius is geometrically
  * meaningless and would propagate to two compilers (XPath/CSQL and
@@ -1349,7 +1347,7 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // `Map<string, string>` (`lib/preview/engine/types.ts:106-110`,
 // where "key not in map" and "key with empty-string value" are
 // distinguished by construction). The Predicate AST carries the
-// strict semantic family-wide; per-dialect emitters and the B5
+// strict semantic family-wide; per-dialect emitters and the
 // representability checker handle the wire constraint.
 //
 // Two operators encode the family at this layer:
@@ -1361,10 +1359,10 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //     **unrepresentable** — the wire layer collapses absent /
 //     cleared / empty into one match set, so emitting `is-null`
 //     against any CCHQ target would silently widen the match set
-//     and lose the AST's strictness signal. The B5 representability
+//     and lose the AST's strictness signal. The representability
 //     checker errors at authoring time; the per-dialect emitters
-//     defensively throw. Same dispatch pattern A2 established for
-//     `match(mode: fuzzy)` in case-list-filter context. v1
+//     defensively throw. Same dispatch pattern as `match(mode:
+//     fuzzy)` in case-list-filter context. v1
 //     authoring surfaces (filter UI, SA tool surface, validator)
 //     have no path producing `is-null` directly — `is-null` is
 //     foundation infrastructure consumed by future non-filter
@@ -1408,12 +1406,12 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // Predicate family for the full per-dialect representability table
 // and the v1-surface scoping rationale.
 
-// Operand widening: `left` is `ValueExpression` (not bare `Term`) so
-// expression-shaped operands (`is-null(arith(prop, literal(0), "div"))`
-// — "is the per-unit ratio undefined?") compose at the AST level.
-// The type checker's literal-rejection rule (a literal is the value
-// itself, not a runtime read whose presence is in question) extends
-// to literal-shaped ValueExpressions via the `term` arm — see
+// `left` is `ValueExpression` (not bare `Term`) so expression-shaped
+// operands (`is-null(arith(prop, literal(0), "div"))` — "is the per-
+// unit ratio undefined?") compose at the AST level. The type
+// checker's literal-rejection rule (a literal is the value itself,
+// not a runtime read whose presence is in question) extends to
+// literal-shaped ValueExpressions via the `term` arm — see
 // `checkAbsenceOperator` in `typeChecker.ts`. Term-shaped operands
 // flow through unchanged: builders auto-wrap Term inputs as
 // ValueExpression-of-Term.
@@ -1460,14 +1458,14 @@ const isBlankSchema = z.object({
 // pair); the term-pair case is a runtime check. The schema's role
 // here is structural only.
 
-// Operand widening: `left` / `lower` / `upper` are `ValueExpression`
-// so an arithmetic-derived bound (e.g.
-// `between(prop("age"), { lower: arith("+", input("min"), literal(1)), upper: ... })`)
-// composes at the AST. Term-shaped bounds flow through unchanged via
-// the builder's auto-wrap. The literal-pair impossibility check in
-// the type checker (when `lower > upper` and both are typed-literal
-// terms) descends through the `term` arm of ValueExpression to read
-// the underlying literal — see `checkBetween` in `typeChecker.ts`.
+// `left` / `lower` / `upper` are `ValueExpression` so an arithmetic-
+// derived bound (e.g. `between(prop("age"), { lower: arith("+",
+// input("min"), literal(1)), upper: ... })`) composes at the AST.
+// Term-shaped bounds flow through unchanged via the builder's auto-
+// wrap. The literal-pair impossibility check in the type checker
+// (when `lower > upper` and both are typed-literal terms) descends
+// through the `term` arm of ValueExpression to read the underlying
+// literal — see `checkBetween` in `typeChecker.ts`.
 
 const betweenSchema = z
 	.object({
