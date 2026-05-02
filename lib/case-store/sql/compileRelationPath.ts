@@ -257,8 +257,7 @@ export interface RelationPathCompileContext {
 	 * recurse into a relation-walk leaf's inner `where` predicate
 	 * (the predicate compiler's `exists`/`missing` arm; the
 	 * expression compiler's `count` arm with an inner `where`).
-	 * Optional with a default of 0 so unmodified call sites keep
-	 * the backwards-compatible top-level shape.
+	 * Optional, defaulting to 0 — the outermost depth.
 	 *
 	 * The depth selects a unique leaf alias per nesting level so
 	 * an inner subquery's leaf does not shadow the outer leaf's
@@ -443,12 +442,16 @@ export function compileRelationPath(
 // even where the type system loses precision.
 //
 // The final cast on each builder's return is `as unknown as
-// AliasedExpression<RelationPathLeafRow, "rp_leaf">` because the
+// AliasedExpression<RelationPathLeafRow, string>` because the
 // Kysely-inferred output is a structural superset of
 // `RelationPathLeafRow` (every column on `cases` plus the synthetic
 // `anchor_case_id`). The cast pins the public contract; the
 // projection list builders below construct the matching shape by
-// construction.
+// construction. The second type argument is `string` rather than
+// the literal `"rp_leaf"` because the depth suffix is a runtime
+// value — `leafAliasForDepth(0)` returns `"rp_leaf"`, deeper
+// nestings return `"rp_leaf_<N>"`, and the union over every
+// possible depth widens to `string`.
 
 /**
  * Build the ancestor-walk leaf subquery.
@@ -786,8 +789,10 @@ interface DynamicQuery {
  * Type-erased local view of the projected select for the multi-hop
  * loop's final step. Surfaces only `.as(...)` because that's the
  * one method the loop's tail calls; the cast back to
- * `AliasedExpression<RelationPathLeafRow, "rp_leaf">` happens at
- * the public boundary.
+ * `AliasedExpression<RelationPathLeafRow, string>` happens at the
+ * public boundary. The second type argument is `string` rather
+ * than the literal `"rp_leaf"` because the depth suffix is a
+ * runtime value — see the alias-isolation header section above.
  */
 interface DynamicSelection {
 	as: (alias: string) => AliasedExpression<unknown, string>;
