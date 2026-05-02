@@ -27,13 +27,23 @@ import {
 	ancestorPath,
 	and,
 	anyRelationPath,
+	arith,
 	between,
+	coalesce,
+	concat,
+	count,
+	dateAdd,
+	dateCoerce,
 	dateLiteral,
+	datetimeCoerce,
 	datetimeLiteral,
+	double,
 	eq,
 	exists,
+	formatDate,
 	gt,
 	gte,
+	ifExpr,
 	input,
 	isBlank,
 	isIn,
@@ -49,6 +59,7 @@ import {
 	multiSelectAny,
 	neq,
 	not,
+	now,
 	or,
 	prop,
 	relationStep,
@@ -56,7 +67,13 @@ import {
 	sessionContext,
 	sessionUser,
 	subcasePath,
+	switchCase,
+	switchExpr,
+	term,
 	timeLiteral,
+	today,
+	toValueExpression,
+	unwrapList,
 	whenInput,
 	within,
 } from "../builders";
@@ -66,6 +83,8 @@ import {
 	predicateSchema,
 	type RelationPath,
 	relationPathSchema,
+	type ValueExpression,
+	valueExpressionSchema,
 } from "../types";
 
 describe("predicate builders", () => {
@@ -766,3 +785,275 @@ function typeCheckNonEmptyConstructionSite(): void {
 	}
 }
 void typeCheckNonEmptyConstructionSite;
+// ---------- Auto-wrap (Term → ValueExpression) tests ----------
+//
+// `toValueExpression` is the auto-wrap helper that lifts a `Term`
+// into the structural `term` arm of `ValueExpression` and leaves a
+// ValueExpression unchanged. Predicate-operand builders (`eq`,
+// `isIn`, `within`, `isNull`, `isBlank`, `between`) route every
+// widened operand through this helper so call-sites can pass
+// either Term-shaped or ValueExpression-shaped values
+// interchangeably. The block below pins the helper's contract: the
+// dispatch is purely on the discriminator-value sets (Term kinds
+// vs. ValueExpression kinds), and ValueExpression inputs flow
+// through unchanged.
+
+describe("toValueExpression — Term → ValueExpression auto-wrap", () => {
+	it("wraps a property reference as a term-arm ValueExpression", () => {
+		const wrapped = toValueExpression(prop("patient", "age"));
+		expect(wrapped.kind).toBe("term");
+		if (wrapped.kind === "term") {
+			expect(wrapped.term.kind).toBe("prop");
+		}
+		expect(valueExpressionSchema.parse(wrapped)).toEqual(wrapped);
+	});
+
+	it("wraps a search-input reference as a term-arm ValueExpression", () => {
+		const wrapped = toValueExpression(input("phone"));
+		expect(wrapped.kind).toBe("term");
+		if (wrapped.kind === "term") {
+			expect(wrapped.term.kind).toBe("input");
+		}
+	});
+
+	it("wraps a session-user reference as a term-arm ValueExpression", () => {
+		const wrapped = toValueExpression(sessionUser("region"));
+		expect(wrapped.kind).toBe("term");
+	});
+
+	it("wraps a session-context reference as a term-arm ValueExpression", () => {
+		const wrapped = toValueExpression(sessionContext("userid"));
+		expect(wrapped.kind).toBe("term");
+	});
+
+	it("wraps a literal as a term-arm ValueExpression", () => {
+		const wrapped = toValueExpression(literal(42));
+		expect(wrapped.kind).toBe("term");
+		if (wrapped.kind === "term") {
+			expect(wrapped.term.kind).toBe("literal");
+		}
+	});
+
+	it("leaves a ValueExpression unchanged (idempotent on already-lifted values)", () => {
+		// The auto-wrap is structural, not deep — a ValueExpression
+		// flows through unchanged regardless of its discriminator.
+		// Tested for `today` (zero-payload constant), `arith` (binary
+		// recursive), and `if` (cross-family recursive) so all three
+		// shapes round-trip identity.
+		const constants: ValueExpression[] = [
+			today(),
+			now(),
+			arith("+", term(literal(1)), term(literal(2))),
+			ifExpr(matchAll(), term(literal("a")), term(literal("b"))),
+		];
+		for (const c of constants) {
+			expect(toValueExpression(c)).toBe(c);
+		}
+	});
+});
+
+describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / between)", () => {
+	// These tests pin that every widened predicate operand accepts
+	// both Term and ValueExpression inputs. The Term path goes through
+	// the auto-wrap; the ValueExpression path flows through unchanged.
+	// Round-trip parsing through `predicateSchema` confirms each shape
+	// is well-typed at the AST.
+
+	it("eq accepts Term operands and auto-wraps them", () => {
+		const p = eq(prop("patient", "name"), literal("Alice"));
+		expect(p.left.kind).toBe("term");
+		expect(p.right.kind).toBe("term");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("eq accepts ValueExpression operands directly (no double-wrap)", () => {
+		const p = eq(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+			term(literal(19)),
+		);
+		expect(p.left.kind).toBe("arith");
+		// `right` is a `term`-arm because we passed a `term(...)` lift.
+		expect(p.right.kind).toBe("term");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("isIn accepts a Term left + literal candidates", () => {
+		const p = isIn(
+			prop("patient", "status"),
+			literal("open"),
+			literal("active"),
+		);
+		expect(p.left.kind).toBe("term");
+		expect(p.values).toHaveLength(2);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("within accepts a ValueExpression center via the typed term-lift", () => {
+		// `property` stays `PropertyRef` (no widening); `center`
+		// widens to ValueExpression. The Term auto-wrap admits a bare
+		// `input(...)` reference, lifting it into the `term` arm.
+		const p = within(
+			prop("clinic", "location"),
+			input("user_location"),
+			50,
+			"miles",
+		);
+		expect(p.center.kind).toBe("term");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("between accepts ValueExpression bounds (lower / upper widened)", () => {
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+		});
+		expect(p.left.kind).toBe("term");
+		expect(p.lower?.kind).toBe("term");
+		expect(p.upper?.kind).toBe("term");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("isNull / isBlank accept ValueExpression operands", () => {
+		const a = isNull(prop("patient", "status"));
+		const b = isBlank(input("phone"));
+		expect(a.left.kind).toBe("term");
+		expect(b.left.kind).toBe("term");
+		expect(predicateSchema.parse(a)).toEqual(a);
+		expect(predicateSchema.parse(b)).toEqual(b);
+	});
+});
+
+// ---------- ValueExpression builder tests ----------
+//
+// Each ValueExpression operator gets a dedicated builder. The tests
+// below pin three things per builder: (1) the discriminator on the
+// constructed AST, (2) the structural payload, (3) the round-trip
+// parse through `valueExpressionSchema`. The round-trip is the
+// load-bearing assertion — same defense the predicate-side builder
+// tests use to lock the builder layer against schema drift.
+
+describe("valueExpression builders — leaf arms", () => {
+	it("term() lifts a Term as the term arm", () => {
+		const v = term(prop("patient", "age"));
+		expect(v.kind).toBe("term");
+		expect(v.term.kind).toBe("prop");
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("today() / now() construct discriminator-only constants", () => {
+		expect(today()).toEqual({ kind: "today" });
+		expect(now()).toEqual({ kind: "now" });
+		expect(valueExpressionSchema.parse(today())).toEqual(today());
+		expect(valueExpressionSchema.parse(now())).toEqual(now());
+	});
+});
+
+describe("valueExpression builders — date / coercion arms", () => {
+	it("dateAdd() constructs a date-add expression with all required slots", () => {
+		const v = dateAdd(today(), "days", term(literal(7)));
+		expect(v.kind).toBe("date-add");
+		expect(v.interval).toBe("days");
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("dateCoerce / datetimeCoerce / double construct unary value coercions", () => {
+		const text = term(prop("patient", "dob_str"));
+		const a = dateCoerce(text);
+		const b = datetimeCoerce(text);
+		const c = double(term(prop("patient", "weight")));
+		expect(a.kind).toBe("date-coerce");
+		expect(b.kind).toBe("datetime-coerce");
+		expect(c.kind).toBe("double");
+		expect(valueExpressionSchema.parse(a)).toEqual(a);
+		expect(valueExpressionSchema.parse(b)).toEqual(b);
+		expect(valueExpressionSchema.parse(c)).toEqual(c);
+	});
+});
+
+describe("valueExpression builders — arithmetic + text arms", () => {
+	it.each([
+		"+",
+		"-",
+		"*",
+		"div",
+		"mod",
+	] as const)("arith(%s) constructs the matching arith expression", (op) => {
+		const v = arith(op, term(prop("patient", "age")), term(literal(1)));
+		expect(v.kind).toBe("arith");
+		expect(v.op).toBe(op);
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("concat / coalesce construct variadic-with-required-first lists", () => {
+		const c = concat(term(literal("hello, ")), term(prop("patient", "name")));
+		const co = coalesce(
+			term(prop("patient", "nickname")),
+			term(literal("guest")),
+		);
+		expect(c.kind).toBe("concat");
+		expect(c.parts).toHaveLength(2);
+		expect(co.kind).toBe("coalesce");
+		expect(co.values).toHaveLength(2);
+		expect(valueExpressionSchema.parse(c)).toEqual(c);
+		expect(valueExpressionSchema.parse(co)).toEqual(co);
+	});
+});
+
+describe("valueExpression builders — conditional + aggregation arms", () => {
+	it("ifExpr() constructs an if expression carrying a Predicate cond", () => {
+		const v = ifExpr(
+			isBlank(prop("patient", "name")),
+			term(literal("(empty)")),
+			term(prop("patient", "name")),
+		);
+		expect(v.kind).toBe("if");
+		expect(v.cond.kind).toBe("is-blank");
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("switchCase / switchExpr construct a value-driven multi-case selector", () => {
+		const v = switchExpr(
+			term(prop("patient", "risk")),
+			[
+				switchCase(literal("very-risky"), term(literal(1))),
+				switchCase(literal("risky"), term(literal(2))),
+			],
+			term(literal(3)),
+		);
+		expect(v.kind).toBe("switch");
+		expect(v.cases).toHaveLength(2);
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("count() constructs a relational aggregation with optional where", () => {
+		const a = count(subcasePath("parent"));
+		const b = count(subcasePath("parent"), matchAll());
+		expect(a.kind).toBe("count");
+		expect(b.kind).toBe("count");
+		expect("where" in a).toBe(false); // absent-not-undefined contract
+		expect(b.where).toBeDefined();
+		expect(valueExpressionSchema.parse(a)).toEqual(a);
+		expect(valueExpressionSchema.parse(b)).toEqual(b);
+	});
+});
+
+describe("valueExpression builders — unwrap-list + format-date", () => {
+	it("unwrapList() constructs a CSQL-style unwrap-list value", () => {
+		const v = unwrapList(term(prop("patient", "tags_json")));
+		expect(v.kind).toBe("unwrap-list");
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("formatDate() constructs a format-date with a preset pattern", () => {
+		const v = formatDate(today(), "iso");
+		expect(v.kind).toBe("format-date");
+		expect(v.pattern).toBe("iso");
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+
+	it("formatDate() accepts an arbitrary custom pattern string", () => {
+		const v = formatDate(today(), "%Y/%m/%d");
+		expect(v.kind).toBe("format-date");
+		expect(valueExpressionSchema.parse(v)).toEqual(v);
+	});
+});

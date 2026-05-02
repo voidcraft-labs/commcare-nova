@@ -18,13 +18,17 @@ import {
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
 import {
+	ARITH_OPS,
 	CASE_PROPERTY_PATTERN,
 	CASE_TYPE_PATTERN,
+	DATE_ADD_INTERVALS,
+	FORMAT_DATE_PRESETS,
 	MATCH_MODES,
 	predicateSchema,
 	relationPathSchema,
 	SESSION_CONTEXT_FIELDS,
 	termSchema,
+	valueExpressionSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "../types";
 
@@ -1877,5 +1881,350 @@ describe("inlined identifier patterns match lib/commcare/constants source-of-tru
 
 	it("XML_ELEMENT_NAME_PATTERN matches XML_ELEMENT_NAME_REGEX", () => {
 		expect(XML_ELEMENT_NAME_PATTERN.source).toBe(XML_ELEMENT_NAME_REGEX.source);
+	});
+});
+// ---------- ValueExpression schema tests ----------
+//
+// `valueExpressionSchema` is the value-bearing sister AST to
+// `predicateSchema` — every value slot in the system (calculated
+// columns, search-input defaults, sort calculations, conditional
+// operands inside a Predicate's comparison) composes through this
+// union. The 14 arms are: `term` (the Term lifter), `today`, `now`,
+// `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`,
+// `concat`, `coalesce`, `if`, `switch`, `count`, `unwrap-list`,
+// `format-date`. The block below pins each arm with a parse round-
+// trip; the recursive arms (`if` / `switch` / `count`) double as
+// proofs that the cross-family `z.lazy(() => predicateSchema)`
+// resolves at parse time, and the self-recursive arms (`arith`
+// inside `arith`, `concat` inside `concat`, etc.) double as proofs
+// that `z.lazy(() => valueExpressionSchema)` resolves too.
+
+describe("valueExpression schema — leaf arms", () => {
+	it("parses a term arm wrapping a property reference", () => {
+		// The `term` arm is the structural lifter — every Term shape
+		// reaches a value slot through this wrapper, and the predicate
+		// operand widening (Task A6) auto-wraps Term inputs at the
+		// builder boundary. Pinning the explicit shape here locks the
+		// schema's discriminator path into the union.
+		const result = valueExpressionSchema.parse({
+			kind: "term",
+			term: { kind: "prop", caseType: "patient", property: "age" },
+		});
+		expect(result.kind).toBe("term");
+	});
+
+	it("parses a term arm wrapping a literal", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "term",
+			term: { kind: "literal", value: 42 },
+		});
+		expect(result.kind).toBe("term");
+	});
+
+	it("parses today() and now() (zero-payload constants)", () => {
+		expect(valueExpressionSchema.parse({ kind: "today" }).kind).toBe("today");
+		expect(valueExpressionSchema.parse({ kind: "now" }).kind).toBe("now");
+	});
+
+	it("rejects a term arm with no inner term", () => {
+		expect(() => valueExpressionSchema.parse({ kind: "term" })).toThrow();
+	});
+
+	it("rejects an unknown ValueExpression kind", () => {
+		expect(() => valueExpressionSchema.parse({ kind: "bogus" })).toThrow();
+	});
+});
+
+describe("valueExpression schema — date / coercion arms", () => {
+	it.each(
+		DATE_ADD_INTERVALS,
+	)("parses date-add with interval: %s", (interval) => {
+		// `DATE_ADD_INTERVALS` is the closed enum of accepted
+		// intervals. Iterating it ensures every member parses; a
+		// regression that narrowed the enum on either the schema
+		// or the type-level constant trips a row of this table.
+		const result = valueExpressionSchema.parse({
+			kind: "date-add",
+			date: { kind: "today" },
+			interval,
+			quantity: { kind: "term", term: { kind: "literal", value: 1 } },
+		});
+		expect(result.kind).toBe("date-add");
+	});
+
+	it("rejects date-add with an interval outside the enum", () => {
+		expect(() =>
+			valueExpressionSchema.parse({
+				kind: "date-add",
+				date: { kind: "today" },
+				interval: "fortnights",
+				quantity: { kind: "term", term: { kind: "literal", value: 1 } },
+			}),
+		).toThrow();
+	});
+
+	it("parses date-coerce / datetime-coerce / double", () => {
+		const inner = {
+			kind: "term" as const,
+			term: { kind: "literal" as const, value: "2024-01-01" },
+		};
+		expect(
+			valueExpressionSchema.parse({ kind: "date-coerce", value: inner }).kind,
+		).toBe("date-coerce");
+		expect(
+			valueExpressionSchema.parse({ kind: "datetime-coerce", value: inner })
+				.kind,
+		).toBe("datetime-coerce");
+		expect(
+			valueExpressionSchema.parse({ kind: "double", value: inner }).kind,
+		).toBe("double");
+	});
+});
+
+describe("valueExpression schema — arithmetic + text arms", () => {
+	it.each(ARITH_OPS)("parses arith with op: %s", (op) => {
+		// The five-op enum is the canonical CCHQ-vocabulary set
+		// (`+` / `-` / `*` / `div` / `mod`). Iterating it here pins
+		// every op through the schema; a future widening to include
+		// e.g. `**` would surface as a missing arm rather than a
+		// silent acceptance gap.
+		const result = valueExpressionSchema.parse({
+			kind: "arith",
+			op,
+			left: { kind: "term", term: { kind: "literal", value: 1 } },
+			right: { kind: "term", term: { kind: "literal", value: 2 } },
+		});
+		expect(result.kind).toBe("arith");
+	});
+
+	it("rejects arith with an op outside the enum", () => {
+		expect(() =>
+			valueExpressionSchema.parse({
+				kind: "arith",
+				op: "**",
+				left: { kind: "term", term: { kind: "literal", value: 1 } },
+				right: { kind: "term", term: { kind: "literal", value: 2 } },
+			}),
+		).toThrow();
+	});
+
+	it("parses concat with a single part (variadic-with-required-first)", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "concat",
+			parts: [{ kind: "term", term: { kind: "literal", value: "x" } }],
+		});
+		expect(result.kind).toBe("concat");
+	});
+
+	it("rejects an empty concat (tuple-with-rest enforces non-empty)", () => {
+		expect(() =>
+			valueExpressionSchema.parse({ kind: "concat", parts: [] }),
+		).toThrow();
+	});
+
+	it("parses concat with multiple parts (recursion through the tuple-rest slot)", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "concat",
+			parts: [
+				{ kind: "term", term: { kind: "literal", value: "a" } },
+				{ kind: "term", term: { kind: "literal", value: "b" } },
+				{ kind: "term", term: { kind: "literal", value: "c" } },
+			],
+		});
+		expect(result.kind).toBe("concat");
+		if (result.kind === "concat") {
+			expect(result.parts).toHaveLength(3);
+		}
+	});
+
+	it("parses coalesce and rejects empty coalesce (parallel to concat)", () => {
+		const filled = valueExpressionSchema.parse({
+			kind: "coalesce",
+			values: [
+				{ kind: "term", term: { kind: "literal", value: null } },
+				{ kind: "term", term: { kind: "literal", value: "fallback" } },
+			],
+		});
+		expect(filled.kind).toBe("coalesce");
+		expect(() =>
+			valueExpressionSchema.parse({ kind: "coalesce", values: [] }),
+		).toThrow();
+	});
+});
+
+describe("valueExpression schema — conditional + aggregation arms", () => {
+	// The `if` / `switch` arms cross the family boundary by carrying
+	// `Predicate` operands (`if.cond`, plus `switch.cases[].when` is
+	// a `Literal` not a Predicate — see the JSDoc on `switchCaseSchema`).
+	// `count.where` also references `predicateSchema` via z.lazy. The
+	// tests below exercise the cross-family resolution at parse time
+	// — a regression that broke the lazy chain (e.g. dropped the
+	// `z.lazy` wrapper) would not parse a recursive `if` containing
+	// a real Predicate `cond`.
+
+	it("parses if with a real Predicate cond", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "if",
+			cond: { kind: "match-all" },
+			// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; `then` holds a ValueExpression object, never a callable. See the JSDoc on `ifSchema` in types.ts for the full thenable-hazard analysis.
+			then: { kind: "term", term: { kind: "literal", value: 1 } },
+			else: { kind: "term", term: { kind: "literal", value: 0 } },
+		});
+		expect(result.kind).toBe("if");
+	});
+
+	it("parses if nested inside if (self-recursion through then / else)", () => {
+		// Mirrors the spec example sort calculation
+		// `if(risk = 'Very Risky', 1, if(risk = 'Risky', 2, ...))` —
+		// nested-if compose into the spec's "structured switch-card UI"
+		// affordance per the design doc's Expression-family section.
+		const result = valueExpressionSchema.parse({
+			kind: "if",
+			cond: { kind: "match-all" },
+			// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
+			then: { kind: "term", term: { kind: "literal", value: 1 } },
+			else: {
+				kind: "if",
+				cond: { kind: "match-none" },
+				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
+				then: { kind: "term", term: { kind: "literal", value: 2 } },
+				else: { kind: "term", term: { kind: "literal", value: 3 } },
+			},
+		});
+		expect(result.kind).toBe("if");
+	});
+
+	it("parses switch with one case + fallback", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "switch",
+			on: { kind: "term", term: { kind: "literal", value: "low" } },
+			cases: [
+				{
+					when: { kind: "literal", value: "low" },
+					// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; see types.ts for thenable-hazard analysis.
+					then: { kind: "term", term: { kind: "literal", value: 1 } },
+				},
+			],
+			fallback: { kind: "term", term: { kind: "literal", value: 0 } },
+		});
+		expect(result.kind).toBe("switch");
+	});
+
+	it("rejects a switch with empty cases", () => {
+		expect(() =>
+			valueExpressionSchema.parse({
+				kind: "switch",
+				on: { kind: "term", term: { kind: "literal", value: "low" } },
+				cases: [],
+				fallback: { kind: "term", term: { kind: "literal", value: 0 } },
+			}),
+		).toThrow();
+	});
+
+	it("parses count with a relation walk and an optional where", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "count",
+			via: { kind: "subcase", identifier: "parent" },
+			where: { kind: "match-all" },
+		});
+		expect(result.kind).toBe("count");
+		if (result.kind === "count") {
+			expect(result.where).toBeDefined();
+		}
+	});
+
+	it("parses count with no where (degenerate to 'any related case')", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "count",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		});
+		expect(result.kind).toBe("count");
+		if (result.kind === "count") {
+			expect(result.where).toBeUndefined();
+		}
+	});
+});
+
+describe("valueExpression schema — unwrap-list + format-date", () => {
+	it("parses unwrap-list with a text-shaped operand", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "unwrap-list",
+			value: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "tags" },
+			},
+		});
+		expect(result.kind).toBe("unwrap-list");
+	});
+
+	it.each(
+		FORMAT_DATE_PRESETS,
+	)("parses format-date with preset pattern: %s", (pattern) => {
+		const result = valueExpressionSchema.parse({
+			kind: "format-date",
+			date: { kind: "today" },
+			pattern,
+		});
+		expect(result.kind).toBe("format-date");
+	});
+
+	it("parses format-date with a custom pattern string", () => {
+		const result = valueExpressionSchema.parse({
+			kind: "format-date",
+			date: { kind: "today" },
+			pattern: "%Y-%m-%d %H:%M:%S",
+		});
+		expect(result.kind).toBe("format-date");
+	});
+
+	it("rejects format-date with an empty pattern string", () => {
+		// The schema's union admits the preset enum or a `.min(1)`
+		// string — a zero-length pattern is rejected at parse time so
+		// downstream emitters don't have to encode the policy.
+		expect(() =>
+			valueExpressionSchema.parse({
+				kind: "format-date",
+				date: { kind: "today" },
+				pattern: "",
+			}),
+		).toThrow();
+	});
+});
+
+describe("valueExpression schema — cross-family cycle through predicate operands", () => {
+	// The cross-family cycle (Predicate operands → ValueExpression →
+	// Predicate inside `if` / `count`) is the load-bearing recursion
+	// of the operand widening. The test below threads a Predicate
+	// (`is-blank` of a property) into a ValueExpression (`if`'s
+	// cond), which then compares against a literal in the
+	// surrounding predicate's `right` slot — proving the lazy chain
+	// resolves cleanly across the family boundary.
+
+	it("parses a comparison whose left is an if-expression with a real Predicate cond", () => {
+		const result = predicateSchema.parse({
+			kind: "eq",
+			left: {
+				kind: "if",
+				cond: {
+					kind: "is-blank",
+					left: {
+						kind: "term",
+						term: {
+							kind: "prop",
+							caseType: "patient",
+							property: "name",
+						},
+					},
+				},
+				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
+				then: { kind: "term", term: { kind: "literal", value: "(empty)" } },
+				else: {
+					kind: "term",
+					term: { kind: "prop", caseType: "patient", property: "name" },
+				},
+			},
+			right: { kind: "term", term: { kind: "literal", value: "(empty)" } },
+		});
+		expect(result.kind).toBe("eq");
 	});
 });

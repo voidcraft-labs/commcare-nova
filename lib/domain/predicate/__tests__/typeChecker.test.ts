@@ -20,11 +20,21 @@ import {
 	ancestorPath,
 	and,
 	anyRelationPath,
+	arith,
 	between,
+	coalesce,
+	concat,
+	count,
+	dateAdd,
+	dateCoerce,
 	dateLiteral,
+	datetimeCoerce,
+	double,
 	eq,
 	exists,
+	formatDate,
 	gt,
+	ifExpr,
 	input,
 	isBlank,
 	isIn,
@@ -38,6 +48,7 @@ import {
 	multiSelectAll,
 	multiSelectAny,
 	not,
+	now,
 	or,
 	prop,
 	relationStep,
@@ -45,11 +56,16 @@ import {
 	sessionContext,
 	sessionUser,
 	subcasePath,
+	switchCase,
+	switchExpr,
+	term,
 	timeLiteral,
+	today,
+	unwrapList,
 	whenInput,
 	within,
 } from "../builders";
-import { checkPredicate } from "../typeChecker";
+import { checkExpression, checkPredicate } from "../typeChecker";
 import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 
 // Single fixture reused across every test. Includes one property of
@@ -1753,6 +1769,367 @@ describe("checkPredicate — prop.via destination-scope resolution", () => {
 			expect(result.errors[0].message).toMatch(
 				/unknown originating|phantom_origin/i,
 			);
+		}
+	});
+});
+// ---------- checkExpression tests ----------
+//
+// `checkExpression(expr, ctx, errors, path)` is the value-side
+// analogue of `resolveTermType`. The block below pins each
+// ValueExpression arm's resolved type plus the operator-specific
+// type rules (numeric promotion in `arith`, branch agreement in
+// `if` / `switch`, text-shaped operand in `unwrap-list`,
+// date-or-datetime in `format-date`, etc.). Tests use a thin
+// wrapper around `checkExpression` so call-site assertions read as
+// "given this AST, expect this resolved type." The `errors` array
+// is checked separately for the negative cases.
+
+function resolve(expr: ValueExpressionLike, contextOverride = ctx) {
+	const errors: { path: (string | number)[]; message: string }[] = [];
+	const type = checkExpression(expr, contextOverride, errors, []);
+	return { type, errors };
+}
+
+// Local type alias — the test fixtures pass values produced by the
+// builders, which return precise per-kind shapes assignable to
+// `ValueExpression`. The wrapper-level alias here lets the test
+// signatures stay terse.
+type ValueExpressionLike = Parameters<typeof checkExpression>[0];
+
+describe("checkExpression — leaf arms", () => {
+	it("term arm delegates to resolveTermType for a property reference", () => {
+		const { type, errors } = resolve(term(prop("patient", "age")));
+		expect(type).toBe("int");
+		expect(errors).toEqual([]);
+	});
+
+	it("term arm surfaces unknown-property errors via resolveTermType", () => {
+		const { type, errors } = resolve(term(prop("patient", "phantom")));
+		expect(type).toBeUndefined();
+		expect(errors[0].message).toMatch(/Unknown property 'phantom'/);
+	});
+
+	it("today / now resolve to date / datetime", () => {
+		expect(resolve(today()).type).toBe("date");
+		expect(resolve(now()).type).toBe("datetime");
+	});
+});
+
+describe("checkExpression — date / coercion arms", () => {
+	it("date-add returns the date operand's type and accepts numeric quantity", () => {
+		const v = dateAdd(today(), "days", term(literal(7)));
+		const { type, errors } = resolve(v);
+		expect(type).toBe("date");
+		expect(errors).toEqual([]);
+	});
+
+	it("date-add rejects a non-numeric quantity", () => {
+		const v = dateAdd(today(), "days", term(literal("seven")));
+		const { errors } = resolve(v);
+		expect(errors.some((e) => /numeric quantity/.test(e.message))).toBe(true);
+	});
+
+	it("date-add rejects a non-date operand", () => {
+		const v = dateAdd(term(literal(42)), "days", term(literal(1)));
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /requires a date or datetime/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("date-coerce accepts text-shaped and returns date", () => {
+		const v = dateCoerce(term(prop("patient", "name")));
+		const { type, errors } = resolve(v);
+		expect(type).toBe("date");
+		expect(errors).toEqual([]);
+	});
+
+	it("date-coerce rejects a numeric operand", () => {
+		const v = dateCoerce(term(prop("patient", "age")));
+		const { type, errors } = resolve(v);
+		expect(type).toBe("date");
+		expect(errors.some((e) => /text-shaped operand/.test(e.message))).toBe(
+			true,
+		);
+	});
+
+	it("datetime-coerce returns datetime", () => {
+		const v = datetimeCoerce(term(prop("patient", "name")));
+		expect(resolve(v).type).toBe("datetime");
+	});
+
+	it("double accepts text or numeric and returns decimal", () => {
+		expect(resolve(double(term(prop("patient", "name")))).type).toBe("decimal");
+		expect(resolve(double(term(prop("patient", "age")))).type).toBe("decimal");
+	});
+
+	it("double rejects a date operand", () => {
+		const v = double(term(prop("patient", "dob")));
+		const { errors } = resolve(v);
+		expect(errors.some((e) => /text-shaped or numeric/.test(e.message))).toBe(
+			true,
+		);
+	});
+});
+
+describe("checkExpression — arith arm + numeric promotion", () => {
+	it("int + int = int", () => {
+		const v = arith("+", term(literal(1)), term(literal(2)));
+		expect(resolve(v).type).toBe("int");
+	});
+
+	it("int + decimal = decimal", () => {
+		const v = arith("+", term(literal(1)), term(literal(1.5)));
+		expect(resolve(v).type).toBe("decimal");
+	});
+
+	it("decimal + decimal = decimal", () => {
+		const v = arith("*", term(literal(1.5)), term(literal(2.5)));
+		expect(resolve(v).type).toBe("decimal");
+	});
+
+	it.each([
+		"+",
+		"-",
+		"*",
+		"div",
+		"mod",
+	] as const)("arith(%s) accepts both operands as int", (op) => {
+		const v = arith(op, term(literal(1)), term(literal(2)));
+		const { type, errors } = resolve(v);
+		expect(type).toBe("int");
+		expect(errors).toEqual([]);
+	});
+
+	it("arith rejects a non-numeric left operand", () => {
+		const v = arith("+", term(prop("patient", "name")), term(literal(1)));
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /arith requires numeric.*left/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("arith rejects a non-numeric right operand", () => {
+		const v = arith("+", term(literal(1)), term(prop("patient", "dob")));
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /arith requires numeric.*right/.test(e.message)),
+		).toBe(true);
+	});
+});
+
+describe("checkExpression — concat / coalesce arms", () => {
+	it("concat resolves to text regardless of part types", () => {
+		const v = concat(term(prop("patient", "name")), term(literal(42)));
+		expect(resolve(v).type).toBe("text");
+	});
+
+	it("coalesce resolves to the agreed type across compatible values", () => {
+		// All-int → int; null literals widen to anything.
+		const v = coalesce(
+			term(prop("patient", "age")),
+			term(literal(null)),
+			term(literal(0)),
+		);
+		expect(resolve(v).type).toBe("int");
+	});
+
+	it("coalesce flags type mismatch between values", () => {
+		const v = coalesce(
+			term(prop("patient", "age")),
+			term(prop("patient", "name")),
+		);
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /values must agree on type/.test(e.message)),
+		).toBe(true);
+	});
+});
+
+describe("checkExpression — if / switch arms", () => {
+	it("if walks cond as a Predicate and returns the branches' agreed type", () => {
+		const v = ifExpr(
+			isBlank(prop("patient", "name")),
+			term(literal("(empty)")),
+			term(prop("patient", "name")),
+		);
+		expect(resolve(v).type).toBe("text");
+	});
+
+	it("if surfaces a Predicate-side error inside cond", () => {
+		const v = ifExpr(
+			eq(prop("patient", "phantom"), literal(0)),
+			term(literal("a")),
+			term(literal("b")),
+		);
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /Unknown property 'phantom'/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("if flags branch-type disagreement", () => {
+		const v = ifExpr(
+			matchAll(),
+			term(prop("patient", "age")),
+			term(prop("patient", "name")),
+		);
+		const { errors } = resolve(v);
+		expect(errors.some((e) => /branches must agree/.test(e.message))).toBe(
+			true,
+		);
+	});
+
+	it("switch checks each case.when against on's type", () => {
+		const v = switchExpr(
+			term(prop("patient", "status")),
+			[
+				switchCase(literal("open"), term(literal(1))),
+				switchCase(literal("closed"), term(literal(0))),
+			],
+			term(literal(-1)),
+		);
+		expect(resolve(v).type).toBe("int");
+	});
+
+	it("switch flags a case.when literal incompatible with on", () => {
+		const v = switchExpr(
+			term(prop("patient", "age")),
+			[switchCase(literal("not-a-number"), term(literal(0)))],
+			term(literal(-1)),
+		);
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) =>
+				/'when' literal.*not comparable with switch.on/.test(e.message),
+			),
+		).toBe(true);
+	});
+
+	it("switch flags case.then incompatible with the established branch type", () => {
+		const v = switchExpr(
+			term(prop("patient", "status")),
+			[
+				switchCase(literal("open"), term(literal(1))),
+				switchCase(literal("closed"), term(literal("two"))),
+			],
+			term(literal(-1)),
+		);
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /'then' type.*not comparable/.test(e.message)),
+		).toBe(true);
+	});
+});
+
+describe("checkExpression — count + unwrap-list + format-date", () => {
+	const ctxRel = {
+		caseTypes: [
+			{
+				name: "household",
+				properties: [
+					{ name: "region", label: "Region", data_type: "text" as const },
+				],
+			},
+			{
+				name: "patient",
+				parent_type: "household",
+				properties: [
+					{ name: "age", label: "Age", data_type: "int" as const },
+					{ name: "name", label: "Name", data_type: "text" as const },
+					{ name: "dob", label: "DOB", data_type: "date" as const },
+				],
+			},
+		],
+		knownInputs: [],
+		currentCaseType: "household",
+	};
+
+	it("count returns int for a relation walk", () => {
+		const v = count(subcasePath("parent", "patient"));
+		expect(resolve(v, ctxRel).type).toBe("int");
+	});
+
+	it("count walks `where` in the destination scope", () => {
+		const v = count(
+			subcasePath("parent", "patient"),
+			eq(prop("patient", "age"), literal(18)),
+		);
+		const { type, errors } = resolve(v, ctxRel);
+		expect(type).toBe("int");
+		expect(errors).toEqual([]);
+	});
+
+	it("count surfaces a where-clause violation in destination scope", () => {
+		const v = count(
+			subcasePath("parent", "patient"),
+			eq(prop("patient", "phantom"), literal(0)),
+		);
+		const { errors } = resolve(v, ctxRel);
+		expect(
+			errors.some((e) => /Unknown property 'phantom'/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("count surfaces missing originating scope", () => {
+		const v = count(subcasePath("parent", "patient"));
+		const { errors } = resolve(v); // ctx has no currentCaseType
+		expect(
+			errors.some((e) => /originating scope must be set/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("unwrap-list resolves to the sequence sentinel", () => {
+		const v = unwrapList(term(prop("patient", "name")));
+		// sequence type is internal — describe(...) renders it as
+		// "sequence" but the raw value is the SEQUENCE_TYPE sentinel.
+		// Default `ctx` (no currentCaseType) is used so the originating-
+		// scope pin doesn't reject the property reference; the rule
+		// under test is the unwrap-list arm itself.
+		const { type } = resolve(v);
+		expect(type).toBe("_sequence");
+	});
+
+	it("unwrap-list rejects a non-text operand", () => {
+		// `age` is `int` on the patient case type — outside the
+		// text-shaped allow-list. Default `ctx` so the originating-
+		// scope pin doesn't fire; the test isolates the unwrap-list
+		// arm's text-shaped operand rule.
+		const v = unwrapList(term(prop("patient", "age")));
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /requires a text-shaped operand/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("format-date resolves to text given a date or datetime", () => {
+		expect(resolve(formatDate(today(), "iso")).type).toBe("text");
+		expect(resolve(formatDate(now(), "long")).type).toBe("text");
+	});
+
+	it("format-date rejects a numeric operand", () => {
+		const v = formatDate(term(literal(42)), "iso");
+		const { errors } = resolve(v);
+		expect(
+			errors.some((e) => /requires a date or datetime/.test(e.message)),
+		).toBe(true);
+	});
+});
+
+describe("checkExpression — sequence type incompatibility", () => {
+	// `_sequence` sits outside the scalar compatibility table — no v1
+	// operator composes a sequence with a scalar. The block below pins
+	// the boundary by routing a sequence into a comparison, where the
+	// type checker must reject the shape rather than silently widen.
+
+	it("rejects a sequence operand inside a comparison", () => {
+		const p = eq(unwrapList(term(prop("patient", "name"))), literal("x"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(
+				result.errors.some((e) => /'sequence'.*not comparable/.test(e.message)),
+			).toBe(true);
 		}
 	});
 });

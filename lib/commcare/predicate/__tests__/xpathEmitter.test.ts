@@ -43,9 +43,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	and,
+	arith,
+	between,
 	eq,
 	gt,
 	gte,
+	ifExpr,
 	input,
 	isBlank,
 	isIn,
@@ -54,13 +57,17 @@ import {
 	lt,
 	lte,
 	match,
+	matchAll,
 	multiSelectAny,
 	neq,
 	not,
+	now,
 	or,
 	prop,
 	sessionContext,
 	sessionUser,
+	term,
+	today,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -761,5 +768,127 @@ describe("emitXPath — special operators", () => {
 	it.each(CONTEXTS)("throws on is-null in %s context", (ctx) => {
 		const p = isNull(prop("patient", "name"));
 		expect(() => emitXPath(p, ctx)).toThrow(/is-null/i);
+	});
+});
+// ---------- ValueExpression-arm handling tests ----------
+//
+// Predicate operator schemas now carry `ValueExpression` operands.
+// This single-context emitter accepts only the `term` arm (the
+// structural lifter that admits any Term where a value is expected)
+// and throws on every other arm with a "supersede in B-phase" error
+// — full per-dialect emission for the broader expression vocabulary
+// (arithmetic, conditional, aggregation, etc.) lives in the per-
+// dialect emitter modules (Tasks B1-B6). The block below pins the
+// term-arm unwrap (the happy path that admits every existing
+// builder-produced shape) and the throw-on-non-term path (the
+// defensive contract that surfaces unsupported arms instead of
+// emitting wrong-dialect strings).
+
+describe("emitXPath — term-arm unwrap (happy path post-A6)", () => {
+	// Every existing builder call produces a `term`-arm
+	// ValueExpression on the operand slot via the auto-wrap. The
+	// emitter unwraps these back to Term and emits identically to the
+	// pre-A6 behavior. This block re-tests the cross-cutting cases
+	// (each Term variant + each operand position) so a regression in
+	// the unwrap helper surfaces here rather than in the larger
+	// per-operator suites above.
+
+	it.each(
+		CONTEXTS,
+	)("unwraps a property reference in a comparison's left operand (%s)", (ctx) => {
+		const p = eq(prop("patient", "name"), literal("Alice"));
+		expect(emitXPath(p, ctx)).toMatch(/^name = /);
+	});
+
+	it.each(
+		CONTEXTS,
+	)("unwraps a search-input reference in a comparison's right operand (%s)", (ctx) => {
+		const p = eq(prop("patient", "phone"), input("phone_query"));
+		expect(emitXPath(p, ctx)).toMatch(/instance\('search-input:results'\)/);
+	});
+
+	it("unwraps a session-user reference in is-blank (case-list-filter)", () => {
+		const p = isBlank(sessionUser("region"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"instance('commcaresession')/session/user/data/region = ''",
+		);
+	});
+});
+
+describe("emitXPath — non-term ValueExpression arms throw with B1-B6 pointer", () => {
+	// Every non-term ValueExpression arm throws via the
+	// `unwrapTermFromExpression` helper's exhaustive switch, citing
+	// Tasks B1-B6 as the followup. The error message is part of the
+	// contract: future emitters must surface "the operand has a
+	// vocabulary this single-context emitter doesn't carry" rather
+	// than emit a wrong-dialect string. The tests below pin one
+	// representative arm per family — arithmetic (`arith`),
+	// conditional (`if`), date constants (`today`), aggregation
+	// (`count`)-flavored — through every operand position that
+	// widened to ValueExpression.
+
+	it.each(
+		CONTEXTS,
+	)("throws on an arith expression in a comparison's left operand (%s)", (ctx) => {
+		// `arith("+", term(prop("age")), term(literal(1)))` is a
+		// well-formed ValueExpression — schema accepts, type
+		// checker accepts (per A6's checkExpression rules) — but
+		// this single-context emitter throws because the broader
+		// per-dialect emission for `arith` lives in B1-B6.
+		const p = eq(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+			literal(19),
+		);
+		expect(() => emitXPath(p, ctx)).toThrow(/arith/);
+		expect(() => emitXPath(p, ctx)).toThrow(/Tasks B1-B6/);
+	});
+
+	it.each(
+		CONTEXTS,
+	)("throws on an if-expression in is-blank's left (%s)", (ctx) => {
+		const p = isBlank(
+			ifExpr(matchAll(), term(literal("a")), term(literal("b"))),
+		);
+		expect(() => emitXPath(p, ctx)).toThrow(/'if'/);
+	});
+
+	it.each(
+		CONTEXTS,
+	)("throws on a today() constant in is-blank's left (%s)", (ctx) => {
+		// `is-blank` reaches `unwrapTermFromExpression` on its
+		// operand, so a today() constant (non-term ValueExpression
+		// arm) trips the helper's exhaustive switch with the
+		// per-arm "unsupported in this single-context emitter"
+		// error pointing at Tasks B1-B6.
+		const p = isBlank(today());
+		expect(() => emitXPath(p, ctx)).toThrow(/'today'/);
+	});
+
+	it.each(
+		CONTEXTS,
+	)("throws on a now() constant in within-distance's center (%s)", (ctx) => {
+		// `within-distance.center` is one of the six widened
+		// operand sites. Routing a now() (datetime constant — not
+		// a geopoint, but the type checker is the layer that
+		// catches that semantic; this test is about the
+		// structural unwrap-or-throw at the emitter).
+		const p = within(prop("clinic", "location"), now(), 50, "miles");
+		expect(() => emitXPath(p, ctx)).toThrow(/'now'/);
+	});
+
+	it.each(
+		CONTEXTS,
+	)("throws on a between predicate (between is unsupported by this emitter regardless of operands) (%s)", (ctx) => {
+		// `between.lower` is one of the widened operand sites. The
+		// schema admits an arith bound, but the single-context
+		// emitter throws on `between` at the operator layer
+		// (before reaching the operand walk) because `between`
+		// itself isn't emitted by this emitter. The throw confirms
+		// no silent fall-through; the per-operator B-phase
+		// emitters carry the full shape.
+		const p = between(prop("patient", "age"), {
+			lower: arith("+", term(input("min_age")), term(literal(1))),
+		});
+		expect(() => emitXPath(p, ctx)).toThrow(/between/);
 	});
 });
