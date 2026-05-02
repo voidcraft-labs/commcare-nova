@@ -880,18 +880,52 @@ Shipped across commits `97721548` → `fadb47ca`.
 - `npm run lint` clean (zero warnings)
 - Strengthened eternal-present sweep returns zero hits across `database.ts` and `database.test.ts` (regex set extended in B6 with `\bB[0-9]\b|\bC[0-9]\b`)
 
-### Task C3: Term compiler — Kysely
+### Task C3: Term compiler — Kysely — SHIPPED
+
+Shipped across commits `16fb0eb2` → `e1711f6a`.
 
 **Files:**
-- Create: `lib/case-store/sql/compileTerm.ts`
-- Test: `__tests__/compileTerm.test.ts`
+- `lib/case-store/sql/compileTerm.ts` (new) — total `Term` compiler. Public surface: `compileTerm(term, ctx) → Expression<unknown>`. Dispatches on the five Term arms (`prop`, `literal`, `input`, `session-user`, `session-context`).
+- `lib/case-store/sql/__tests__/compileTerm.test.ts` (new, 37 compile-only tests) — DummyDriver coverage of every Term arm + every property-data-type cast + tenant-scope positive assertion + reserved-column shadowing pin + binding error paths.
+- `lib/case-store/sql/__tests__/compileTerm.harness.test.ts` (new, 8 round-trip tests) — execute-against-real-Postgres via testcontainers; one round-trip per `CasePropertyDataType` cast token (text, int, decimal, date, time, datetime, single_select, multi_select, geopoint) plus a Postgres-strict null semantic test that pins `eq(prop, literal(""))` does NOT match an absent JSONB key.
 
-Compile each Term variant to a Kysely expression. Property refs become typed JSONB extractions (`(properties->>'name')::cast`). Property refs with `via` become joined-table extractions (the `via` is compiled by C5). Literals bind via Kysely params. Search-input / session-user / session-context refs require a runtime binding map passed in `CompileContext`.
+**Term-arm coverage:**
+- `prop` with `via.kind === "self"`: typed JSONB extraction `(${anchorAlias}.properties ${readOperator} ${property})::${cast}` for non-reserved properties; reserved scalar columns (`case_id`, `case_type`, `owner_id`, `status`) read directly via `sql.ref(${anchorAlias}.${column})` without JSONB.
+- `prop` with non-self `via`: reads through `RELATION_PATH_LEAF_ALIAS` (`"rp_leaf"`) — the term compiler does NOT call `compileRelationPath`. The wider compiler (C4 / C7) drives the join; `compileTerm` assumes the leaf alias is in scope. Negative-assertion test pins this contract.
+- `literal`: binds via `sql\`${value}\`` for Kysely's parameter channel; non-null literals add `::${cast}`. `null` emits as the SQL keyword `null` (not parameterized).
+- `input` / `session-user` / `session-context`: resolve from `TermBindings` maps; missing bindings throw at compile time.
 
-Steps:
-- [ ] Write failing tests per Term variant
-- [ ] Implement
-- [ ] Run tests, commit
+**Property-type cast mapping** (`POSTGRES_CAST_FOR_DATA_TYPE`, all 9 variants):
+- `text` → `::text` (the `->>` returns text natively; explicit cast documents intent).
+- `int` → `::int`.
+- `decimal` → `::numeric`.
+- `date` → `::date`.
+- `time` → `::time`.
+- `datetime` → `::timestamptz`.
+- `single_select` → `::text`.
+- `multi_select` → `::jsonb` paired with `->` (not `->>`) — needed because the predicate compiler's `multi-select-contains` uses JSONB containment operators (`?|`, `?&`, `@>`) that require JSONB on the LHS.
+- `geopoint` → `::text` (CCHQ's wire format is the four-decimal string `"latitude longitude altitude accuracy"`; PostGIS spatial dispatch happens at the predicate layer in C4 via `within-distance`'s `ST_DWithin`, not at the term layer).
+
+**Architectural decisions:**
+
+1. **`compileTerm` does NOT invoke `compileRelationPath`.** The wider compiler (C4 / C7) drives the join so one outer query can reuse a single relation-path subquery across multiple term reads. Documented contract; negative-assertion test pins the absence of the join from the term's emitted expression.
+2. **`multi_select` uses `->` (JSONB) not `->>` (text).** JSONB containment operators on the LHS require JSONB. Documented inline + test-pinned.
+3. **Property's `data_type` resolves on the walk's destination case-type for non-self `via`** (NOT `term.caseType`, which is the originating scope). Mirrors `checkRelationPath` in the type checker.
+4. **Tenant scope on context but not consumed by `compileTerm`.** `TermCompileContext` carries `appId` / `ownerId`; the compiler doesn't apply tenant filters at the term layer (the wider compiler does). Positive-assertion test pins the absence of tenant-filter SQL in the term's emitted expression.
+5. **`TermBindings` value type narrows to `string | number | boolean | Date | null`** so structured payloads fail at the type boundary, not inside the pg-driver.
+6. **Reserved-column shadowing routes to scalar columns unconditionally** — if the property name is in the `RESERVED_SCALAR_COLUMNS` set, the scalar column reads regardless of schema. The blueprint validator owns rejecting these names; the routing handles the bypass path. Test pin.
+7. **Geopoint storage shape verified against CCHQ source** (`commcare-hq/corehq/ex-submodules/couchforms/geopoint.py`) — four space-separated decimals. The `text`-cast read at the term layer + PostGIS dispatch at the predicate layer (C4's `within-distance` arm) are the two consumers.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `16fb0eb2`. All 11 checklist items verified — every Term variant, JSONB extraction shape, property-type cast mapping, non-self via destination resolution, literal parameter binding, bindings shape, tenant-scope positive assertion, test coverage matching the plan, object args, no version-label leakage. The `multi_select` divergence and the C5-separation design call were both audited as defensible.
+- Code-quality review (opus): ❌ Round 1 found 1 BLOCKING on `16fb0eb2` — harness round-trip coverage missed 4 of 9 `CasePropertyDataType` variants (`time`, `datetime`, `single_select`, `geopoint`). The schema even declared `registered_at` (datetime) and `color` (single_select) but no test body read them. The harness file's own header explicitly cited the C5-class bug class as the reason it exists. Resolved in fix-pass `e1711f6a` with 4 new round-trips. `time` and `datetime` use ordered comparisons (`>`) so a `::time` / `::timestamptz` typo would fail Postgres parse — the C5-class regression defense. Re-review APPROVED.
+
+**Verification gates (all green at HEAD `e1711f6a`):**
+- 2614 full-project tests pass / 14 skipped (vs 2565 pre-C3 baseline; +49 net new tests = 37 compile-only + 8 harness round-trips + 4 fix-pass round-trips).
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (801 files; zero warnings, zero errors)
+- Strengthened eternal-present sweep returns zero hits across the three new files (regex includes `\bB[0-9]\b|\bC[0-9]\b`).
 
 ### Task C4: Predicate compiler — Kysely
 
