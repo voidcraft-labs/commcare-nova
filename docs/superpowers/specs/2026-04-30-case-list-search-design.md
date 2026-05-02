@@ -27,8 +27,7 @@ These ship together because the foundation gates both. Shipping case list filter
 - Case data is typed end-to-end. Property types declared in the blueprint flow into the database write boundary, the predicate type checker, and the UI surface for editing.
 - The CommCare wire format is an emission target, not the authoring surface. Authors and the SA never see XPath/CSQL strings.
 - The system surfaces, at authoring time, which AST shapes are unrepresentable on which CCHQ dialect — turning the "this query won't run on Android" silent-failure pattern into a build-time error with a clear pointer.
-- Preview executes searches against real, typed case data so authors validate behavior before upload.
-- The architecture works at preview scale day-1 (in-memory) and promotes cleanly to Cloud SQL Postgres at deploy time without a code rewrite.
+- The user is always in the real app — there is no preview mode. The flipbook UI toggles between editing app structure and using the running app; both views read/write the same Cloud SQL Postgres `cases` rows. Sample data generation is a user action, not a mode.
 
 ## Design properties — the quality bar
 
@@ -36,7 +35,7 @@ This spec ships an expression layer that authors and the SA agent compose agains
 
 1. **Typed at construction.** Invalid predicates and expressions cannot be represented in the AST type. Comparing an `int` property to a string literal fails at the discriminated-union level, not at runtime. Constructing a typed AST is the only way to author; the constructor refuses anything ill-typed against the case-type schema in scope.
 2. **Schema-driven, single source.** The blueprint's `CaseType.properties[].data_type` is the one source of truth for property types. From it, three derived artifacts follow: the JSON Schema enforced at the database write boundary, the type context used by the AST type checker, and the typed extraction emitted by the SQL compiler.
-3. **One source, multiple targets.** A predicate or expression is authored once as an AST. It compiles to Postgres SQL (preview/runtime), three CommCare wire dialects (case-list filter, CSQL `_xpath_query`, post-ES search filter), and UI cards (authoring surface). The AST is the source; everything else is emission. There is no string→re-parse→AST round-tripping anywhere in the pipeline.
+3. **One source, multiple targets.** A predicate or expression is authored once as an AST. It compiles to Postgres SQL (the live runtime), three CommCare wire dialects (case-list filter, CSQL `_xpath_query`, post-ES search filter), and UI cards (authoring surface). The AST is the source; everything else is emission. There is no string→re-parse→AST round-tripping anywhere in the pipeline.
 4. **Semantics-aware UI.** Each operator gets a card fitted to its meaning. A `within-distance` predicate renders as a geo card with property + center + distance + unit fields. A `match` predicate with `mode: "fuzzy"` renders as a property + value + tolerance card. Comparisons render with type-appropriate value inputs (date pickers for `date` properties, multi-select for enum properties). The UI is *not* a generic field/op/value row table that pretends every operator is the same shape.
 5. **Targets dispatch to separate visitors, not a context branch.** The three wire dialects are not stylistic variants of one emitter — they have different operator coverage. The case-list-filter dialect (on-device, all platforms) supports plain XPath 1.0 plus `selected()` and nothing else from CSQL's extension set. The CSQL dialect (in `_xpath_query` for case-search default filters, server-evaluated by Elasticsearch) supports CCHQ's full extension set: `selected-any`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`. The post-ES search-filter dialect (on-device, runs on the truncated 500-result ES response) is the same vocabulary as the case-list-filter dialect. The compiler dispatches to one of three visitors per emission; there is no shared "context branch" that conditionally enables operators.
 6. **Representability is an authoring-time signal, not a runtime surprise.** Every AST node, given a target dialect, either compiles cleanly, compiles with a known lossy transformation (e.g., `multi-select-contains` with multi-value `any` quantifier expands to OR-of-`selected()` on-device), or is unrepresentable. The validator surfaces representability at the editor, not at upload.
@@ -134,11 +133,11 @@ type Predicate =
 
 #### Null vs blank semantics
 
-CCHQ's wire layer collapses three semantically distinct states — *property never written* / *property written, then cleared* / *property explicitly set to empty* — into one wire-readable state. On every CCHQ dialect, `prop = ''` matches all three states; in CSQL, the server-side `case_property_query()` short-circuits empty-value queries to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching all three states. (`case_property_missing` is a Python helper at the same file's line 378 — not a CSQL function authors can write; the empty-equality form is the only authorable shape and CCHQ does the right thing internally.) The wire conflation is a CCHQ-side accumulation; **Nova's AST and runtime are not bound by it.** Postgres JSONB distinguishes "key absent" from "key present with empty value"; the in-memory case store does the same via `Map<string, string>`. The Predicate AST carries the strict semantic; the per-dialect emitters and the representability checker handle the wire constraint.
+CCHQ's wire layer collapses three semantically distinct states — *property never written* / *property written, then cleared* / *property explicitly set to empty* — into one wire-readable state. On every CCHQ dialect, `prop = ''` matches all three states; in CSQL, the server-side `case_property_query()` short-circuits empty-value queries to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching all three states. (`case_property_missing` is a Python helper at the same file's line 378 — not a CSQL function authors can write; the empty-equality form is the only authorable shape and CCHQ does the right thing internally.) The wire conflation is a CCHQ-side accumulation; **Nova's AST and runtime are not bound by it.** Cloud SQL Postgres JSONB distinguishes "key absent" from "key present with empty value"; Nova's live runtime preserves the strict semantic end-to-end. The Predicate AST carries the strict semantic; the per-dialect emitters and the representability checker handle the wire constraint.
 
 The two operators:
 
-| Operator | Semantic | Postgres / in-memory | CCHQ wire |
+| Operator | Semantic | Postgres (live runtime) | CCHQ wire |
 |---|---|---|---|
 | `is-null(left)` | **Strict.** `left` resolves to absent (key not present in the JSONB / Map). | `NOT (properties ? 'X')` for property refs; `count(...) = 0` for search-input refs. | **Unrepresentable** — the representability checker errors at authoring time, same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context. |
 | `is-blank(left)` | **Portable.** `left` resolves to absent OR empty-string. | `(NOT (properties ? 'X')) OR properties->>'X' = ''` for property refs; `count(...) = 0 OR ... = ''` for search-input refs. | Wire form `prop = ''`; CCHQ server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`. Search-input refs in case-list / post-ES filters wrap in the `if(count(input), real_predicate, match-all())` form so absent inputs short-circuit cleanly. |
@@ -147,7 +146,7 @@ The two operators:
 
 Why both operators exist when v1 only authors `is-blank`: the Predicate AST is the data-model contract that v1 ships with — the discriminated-union shape is part of every persisted predicate. Omitting `is-null` from v1 is a one-way door: adding it back later changes the closed kind set and breaks every persisted predicate that relied on the previous shape. Keeping it in the foundation now costs ~12 lines of schema/builder/type-checker; locking it out costs the data-model honesty forever.
 
-v1 authoring surfaces (filter UI, SA tool surface, validator) emit only `is-blank` for predicates targeting CCHQ. There is no v1 path for an author or the SA to construct `is-null` directly. The B5 representability checker stays as defense-in-depth: if any programmatic source ever produces `is-null` in a CCHQ-bound emission, the checker errors at authoring time. As future surfaces ship — case-data inspection, audit and admin views, expression operators that need to distinguish absent from empty (e.g. `coalesce`), Phase-2 Cloud SQL deploy where strict-absent is natively representable — they consume `is-null` directly with the strict semantic preserved end-to-end. The dispatch pattern is the same A2 established for `match(mode: fuzzy)` — wire-incompatible AST shapes reject loudly at the wire boundary, never silently widen.
+v1 authoring surfaces (filter UI, SA tool surface, validator) emit only `is-blank` for predicates targeting CCHQ. There is no v1 path for an author or the SA to construct `is-null` directly. The B5 representability checker stays as defense-in-depth: if any programmatic source ever produces `is-null` in a CCHQ-bound emission, the checker errors at authoring time. The Cloud SQL Postgres runtime (live from v1) executes `is-null` natively with the strict semantic preserved; future surfaces — case-data inspection, audit and admin views, expression operators that need to distinguish absent from empty (e.g. `coalesce`) — consume the same primitive end-to-end. The dispatch pattern is the same A2 established for `match(mode: fuzzy)` — wire-incompatible AST shapes reject loudly at the wire boundary, never silently widen.
 
 The lived-experience justification: a real prod-app default filter wraps every search-input read in `if(count(instance('search-input')/input/field[@name='X']), real_predicate, match-all())` because CCHQ's input-not-present case silently breaks the filter at search-execution time (no save-time / version-time / app-load-time error surfaces). That `count()`-wrapper boilerplate is exactly what Nova's CSQL emitter generates automatically from a clean `whenInputPresent(input("X"), ...)` AST node — authors never see it, and the typed AST + representability checker catch the bad case before it ships.
 
@@ -176,7 +175,7 @@ Three things to call out:
 
 - **`count` is a value expression, not a predicate.** This is the move that lets `subcase-count > 2` compose naturally as `gt(count(via: subcasePath("parent")), literal(2))` rather than being a special-case predicate. Modeling count as a value also lets `gt(count(...), term(prop("patient", "expected_visits")))` express a comparison between a related-case count and a property on the current case — CCHQ doesn't support this; Nova naturally does (lossy at the CCHQ boundary, clean on Postgres).
 - **`if` and `switch` cover the calculated-column UX.** The cache file's example sort-calculation `if(risk = 'Very Risky', 1, if(risk = 'Risky', 2, ...))` is a nested `if`; authors get a structured switch-card UI that compiles to nested `if`s on the wire.
-- **Why `when-input-present` stays.** Removing it (the temptation: an unset search-input behaves as null at the binding layer; clauses involving an unset input collapse via standard predicate algebra) is plausible at the SQL/in-memory evaluation layer where you actually have null values. **It is wrong at the CSQL wire layer.** CCHQ's `instance('search-input:results')/input/field[@name='X']` returns an empty string (not null) when the input is unset, and `prop = ''` is a real predicate that matches cases with empty-string properties — wrong semantics. The `if(count(input), expr, '')` wrapper is the correct production form (cache file lines 184-189). Removing `when-input-present` forces the CSQL emitter to walk the AST detecting "this subtree contains an input ref" and synthesize the wrapper implicitly — that's tree-walk logic moved from explicit AST shape to implicit emitter behavior, which is the wrong direction for the typed-AST principle.
+- **Why `when-input-present` stays.** Removing it (the temptation: an unset search-input behaves as null at the binding layer; clauses involving an unset input collapse via standard predicate algebra) is plausible at the SQL evaluation layer where you actually have null values. **It is wrong at the CSQL wire layer.** CCHQ's `instance('search-input:results')/input/field[@name='X']` returns an empty string (not null) when the input is unset, and `prop = ''` is a real predicate that matches cases with empty-string properties — wrong semantics. The `if(count(input), expr, '')` wrapper is the correct production form (cache file lines 184-189). Removing `when-input-present` forces the CSQL emitter to walk the AST detecting "this subtree contains an input ref" and synthesize the wrapper implicitly — that's tree-walk logic moved from explicit AST shape to implicit emitter behavior, which is the wrong direction for the typed-AST principle.
 
 #### Relation paths
 
@@ -216,7 +215,7 @@ The on-device vs. CSQL function-set asymmetry is verified in source: on-device c
 
 The dual AST compiles to four targets, all from the same source:
 
-1. **Postgres SQL** for preview and (eventually) production runtime. Compiled via Kysely's typed query builder — a translator walks the AST and constructs Kysely calls. Kysely owns SQL generation; we own only the AST → builder mapping. Postgres natively supports the full operator set; nothing is lossy at this boundary.
+1. **Postgres SQL** is the live runtime. Compiled via Kysely's typed query builder — a translator walks the AST and constructs Kysely calls. Kysely owns SQL generation; we own only the AST → builder mapping. Postgres natively supports the full operator set; nothing is lossy at this boundary.
 2. **CommCare wire — case-list filter** — for `<detail>` nodeset filters. Plain XPath 1.0 + `selected()` only.
 3. **CommCare wire — CSQL** — for `_xpath_query` values. Full CCHQ extension set. The CSQL emitter wraps its output in `concat(...)` unconditionally so the wire layer is structurally simpler — every CSQL value is a `concat()` template, even those with no input refs.
 4. **CommCare wire — post-ES search filter** — same vocabulary as case-list filter; separate visitor for clarity.
@@ -233,7 +232,7 @@ For cross-platform divergence, the validator distinguishes three classes:
 - **Lossy but representable.** AST shape compiles via a known transformation that's correct but slower or uglier (e.g., `multi-select-contains` with `quantifier: any` and N values → OR of N `selected(prop, 'v_i')` calls in case-list-filter context, as opposed to one `selected-any(prop, 'v1 v2 ... vN')` call in CSQL). Surfaced in the UI as an informational notice.
 - **Unrepresentable.** AST shape has no equivalent at the target (e.g., `match` with `mode: "fuzzy"` in case-list-filter context — there's no on-device fuzzy match). Surfaced in the UI as a hard authoring-time error before save: "this query won't run on Android — restrict to CSQL contexts (default search filters) or remove."
 
-This is the "lossy at CCHQ boundary as a feature" promise materialized — preview shows richer queries; the validator tells you exactly what won't survive upload to which platform.
+This is the "lossy at CCHQ boundary as a feature" promise materialized — the running app evaluates the full Postgres-strict semantic; the validator tells you exactly what won't survive upload to which CCHQ platform.
 
 ### Storage layer for cases
 
@@ -331,9 +330,9 @@ The blueprint's `CaseType.properties[].data_type` is canonical. From it, three d
 
 A field on a form with `case_property_on: <case_type>` and `id: <property>` is a *writer* to that property. A new validator rule enforces: the field's `kind` must match the declared `data_type`. Multiple writers to the same property must agree on type. The exact field-kind ↔ property-data-type mapping table is a Plan 3 deliverable (e.g., `text` field → `text` property; `single_select` field → `single_select` property; `geopoint` field → `geopoint` property; coercion paths like `text` field → `int` property are explicitly rejected).
 
-### In-memory CaseStore for day-1
+### CaseStore — Cloud SQL Postgres from day-1
 
-The Cloud SQL deployment is Phase-2 work. Day-1 ships an in-memory implementation behind the same query interface:
+Cloud SQL Postgres is the live runtime from v1. There is no in-memory variant, no preview/production split, no Phase-2 swap. Case data is the user's real data; the AST→Kysely compiler is the only evaluator.
 
 ```ts
 interface CaseStore {
@@ -348,14 +347,17 @@ interface CaseStore {
 
   traverse(args: { appId: string; caseId: string; via: RelationPath }): Promise<CaseRow[]>;
   migrateProperty(args: { appId: string; caseType: string; property: string; fromType: PropertyDataType; toType: PropertyDataType }): Promise<MigrationReport>;
+
+  generateSampleData(args: { appId: string; caseType: string; count: number; seed: string }): Promise<{ inserted: number }>;
+  resetSampleData(args: { appId: string; caseType: string }): Promise<{ deleted: number; inserted: number }>;
 }
 ```
 
-V1: `InMemoryCaseStore` — implements the interface against an in-memory map keyed by app. The in-memory predicate / expression / relation evaluators **mirror the Postgres compiler's structure operator-by-operator** so a future bug-fix in one is easy to port to the other. Cross-check golden fixtures verify the two implementations stay in sync.
+`PostgresCaseStore` is the only implementation. Per-user / per-app isolation uses `(app_id, owner_id)` columns on the `cases` table — same pattern every other domain table follows (apps are root-level with an `owner` field). No `session_id` column, no per-session schemas, no TRUNCATE-on-close.
 
-Phase-2: `PostgresCaseStore` — same interface, AST → Kysely → SQL via the query compiler. Promotion is an implementation swap behind the interface. No rework of authoring surface, predicate AST, expression AST, validator, sample data generation, preview UI, or wire emission.
+Tests use testcontainers to spin up real Postgres in CI and locally. There is no parallel in-memory test runner.
 
-### Sample data
+### Sample data — an action, not a mode
 
 ```ts
 interface SampleCaseGenerator {
@@ -363,19 +365,21 @@ interface SampleCaseGenerator {
 }
 ```
 
-V1: `HeuristicCaseGenerator` — typed pools per `data_type`, deterministic per `(app, case-type, seed)`. Default count 30 per case type. Generates parent linkages from the case-type relationship graph so `case_indices` populates and relational previews work end-to-end.
+V1: `HeuristicCaseGenerator` — typed pools per `data_type`, deterministic per `(app, case-type, seed)`. Default count 30 per case type. Generates parent linkages from the case-type relationship graph so `case_indices` populates and relational reads work end-to-end. The generator output is written through `CaseStore.insert` so the `cases` table holds real rows like any user-authored data.
 
-Phase-2 swap: `LlmCaseGenerator` (Haiku) — same interface; backlog item.
+The user invokes generation explicitly: `Generate sample data` populates an empty case-type; `Reset sample data` deletes existing rows and regenerates. Neither implies a mode switch — the user is still in the live app, just with seeded data.
 
-### Preview lifecycle
+Phase-2 swap candidate: `LlmCaseGenerator` (Haiku) — same interface; backlog item.
 
-Forms in preview write through the `CaseStore` interface. A registration form persists a new row; a followup updates an existing row; a close marks closed. The store is per-session — when the user closes the preview tab or refreshes, the store resets and re-seeds from the schema. A "Reset preview data" button regenerates on demand.
+### No preview lifecycle
 
-Cross-session persistence requires real Postgres + per-user storage and ships in the Phase-2 deployment spec.
+Nova has no separate preview mode. The flipbook UI toggles between editing app structure and using the running app — both views read/write the same Cloud SQL `cases` rows. Case data persists across sessions because it's the user's real data. Form submissions in the running-app view (registration, followup, close) write through the same `CaseStore` interface that any production write uses; there is no "preview store" to reset.
+
+This is the deliberate antithesis of CCHQ's App Preview, which lives on its own URL, reloads on every save (starting from the home menu), is locked to a mobile frame regardless of target, and forces an edit→save→preview→reload→navigate-back cycle for every iteration. Nova rejects all of that.
 
 ### Where the AST lives persistently
 
-The Predicate and Expression ASTs are persisted in Firestore alongside the blueprint document. This keeps undo/redo, agent writes, and doc-store unity working uniformly. The cost — every preview interaction reads the AST from Firestore, compiles, then runs against the case store — is mitigated by a per-AST-hash query-plan cache: the compilation lands once on first render and reuses thereafter. Cache invalidation is structural: the AST hash changes iff the AST changes.
+The Predicate and Expression ASTs are persisted in Firestore alongside the blueprint document. This keeps undo/redo, agent writes, and doc-store unity working uniformly. The cost — every runtime interaction reads the AST from Firestore, compiles to Kysely, then runs against the case store — is mitigated by a per-AST-hash query-plan cache: the compilation lands once on first render and reuses thereafter. Cache invalidation is structural: the AST hash changes iff the AST changes.
 
 ## Authoring surfaces
 
