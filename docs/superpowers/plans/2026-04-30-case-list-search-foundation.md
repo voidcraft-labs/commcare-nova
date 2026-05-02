@@ -635,71 +635,61 @@ Shipped across commits `60726e76` → `87e7f28c` → `eb0df2be`.
 - `npm run lint` clean (zero warnings, B2-scoped)
 - Strengthened eternal-present sweep returns zero hits across `caseListFilterEmitter.ts` and `caseListFilterEmitter.test.ts` (the regex includes `representab` to catch any leaked B5 references)
 
-### Task B3: Build the CSQL emitter with total hoisting + `concat()` wrapping
+### Task B3: Build the CSQL emitter with total hoisting + `concat()` wrapping — SHIPPED
+
+Shipped across commits `8d6773ee` → `e4c48920`.
 
 **Files:**
-- Create: `lib/commcare/predicate/csqlEmitter.ts`
-- Create: `lib/commcare/predicate/csqlHoist.ts`
-- Test: `__tests__/csqlEmitter.test.ts`, `__tests__/csqlHoist.test.ts`
+- `lib/commcare/predicate/csqlHoist.ts` (new) — total hoisting pass; lifts non-CSQL-grammar nodes into the on-device wrapper that builds the `_xpath_query` string. Returns `CsqlHoistResult { hoisted: Predicate; wrappers: HoistedWrapper[] }` — no error states.
+- `lib/commcare/predicate/csqlEmitter.ts` (new) — total CSQL-grammar emitter; wraps output in `concat(...)` unconditionally; threads `HoistedWrapper`s through the surrounding wrapper expression.
+- `lib/commcare/predicate/__tests__/csqlHoist.test.ts` (new, 22 tests) — coverage of hoist arms (`if`/`switch`/`arith`/`concat`/`coalesce`/`count`/`format-date`), the `subcase-count` LHS-of-comparison carve-out, synthetic-input collision avoidance (seed-past-author-ref + ignore-non-numeric-suffix paths).
+- `lib/commcare/predicate/__tests__/csqlEmitter.test.ts` (new, 90 tests across two waves) — backward-compat for shared operators; CSQL-specific operator shapes (multi-select-contains quantifiers, match modes, within-distance, exists ancestor / subcase / any-relation, `match-all` / `match-none` calls, is-null / is-blank parity, between, when-input-present hoist); concat() wrapping shape; `date-coerce` → `date(...)` rename; `datetime-coerce` → `datetime(...)` rename; `format-date` hoist.
 
-CSQL is the only B-phase wire grammar that ES literally rejects at parse time — the `_xpath_query` value is parsed by ElasticSearch as CSQL, which has its own restricted grammar. Two CCHQ function whitelists at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py`:
-- **Query functions** (predicate-position; lines 39-54): `selected`, `selected-any`, `selected-all`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`, `not`, `starts-with`, plus the six comparison operators.
-- **Value functions** (term-position; lines 27-36): `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`.
+**Hoist coverage (total — no error states):**
+- `if` / `switch` / `arith` / `concat` / `coalesce` value expressions in any term position lift into the wrapper.
+- `count(...)` lifts EXCEPT when it's the LHS of a top-level binary comparison (the `subcase-count` carve-out per `commcare-hq/corehq/apps/case_search/filter_dsl.py:88-90`); the comparison emits CSQL's native `subcase-count(...)` form.
+- `format-date(date, format)` lifts; the wrapper computes the formatted string on-device and injects the result as a string literal.
+- `when-input-present` is handled at emission time (not hoist time) via recursive CSQL emission of the inner clause; the wrapper structure is the canonical `if(count(<input>), '<inner-csql>', 'match-all()')` per `docs/case_search_query_language.rst:299-303`. The `match-all()` fallback is CSQL's AND-identity (a no-op when AND-combined with siblings on input-unset).
+- Synthetic input ref names use `csql_hoist_<n>`; the hoist pass scans the input AST for any author-written `csql_hoist_<n>` references and seeds the counter past the highest existing index, avoiding collisions.
 
-Conditionals (`if`, `switch`), aggregations (`count`), arithmetic (`arith`), string concatenation (`concat`), and `when-input-present` are NOT in either set. They cannot appear inside the CSQL fragment ES parses. **The hoisting pass lifts them into the on-device XPath wrapper that builds the `_xpath_query` string.** Hoisting is **total**: every AST node has a CSQL emission via hoist + faithful emission. There are no error states.
-
-**`csqlHoist.ts` performs the hoisting pass** as a separate AST → AST transformation before emission:
-- Walks the predicate AST.
-- For each non-CSQL-grammar node, lifts the node into a wrapper expression and replaces it in the inner AST with a synthetic input ref. The wrapper computes the lifted node's value at runtime (on-device XPath has full grammar access); the synthetic input ref is the stable interpolation point for the inner CSQL emission.
-- The wrapper output is what gets emitted into `<data key="_xpath_query" ref="...">` — an on-device XPath expression that builds the CSQL fragment string. Plan 4's wire emission consumes the wrapper expression, not the bare CSQL fragment.
-
-The hoist result shape:
-
-```ts
-export interface HoistedWrapper {
-  /** Synthetic input ref name; the inner CSQL references this. */
-  inputRef: string;
-  /** Expression that runs on-device and produces the wire-bound value
-      injected into the CSQL string at the synthetic input ref's
-      interpolation point. */
-  expression: ValueExpression | Predicate;
-}
-
-export interface CsqlHoistResult {
-  hoisted: Predicate;
-  wrappers: HoistedWrapper[];
-}
-
-export function hoistForCsql(predicate: Predicate): CsqlHoistResult;
-```
-
-`subcase-count` carries a special case: CSQL recognizes `subcase-count` natively only as the LHS of a binary comparison (`commcare-hq/corehq/apps/case_search/filter_dsl.py:89-95`). When `count(via: subcase-walk)` appears as a top-level comparison's LHS, the hoist leaves it untransformed; ES parses the native form. For other `count(...)` shapes, the hoist lifts the count into the wrapper, computes the numeric result on-device, and injects the literal value into the CSQL string at the synthetic input ref's position.
-
-`when-input-present` always hoists. The canonical CCHQ pattern at `docs/case_search_query_language.rst:299-303` is `if(count(<input>), '<csql-with-input>', '<csql-without-input>')` — the conditional lives in the wrapper, the inner CSQL strings are unconditional. Every `when-input-present` produces a hoist that selects between two pre-built inner-CSQL emissions at runtime.
-
-**Operator coverage of the CSQL emission visitor** (after hoisting):
+**Operator coverage of the CSQL emission visitor (after hoisting):**
 - Comparison + logical (CSQL's `not` is in the query function set).
-- `multi-select-contains` quantifier=any: `selected-any(prop, 'v1 v2')`.
-- `multi-select-contains` quantifier=all: `selected-all(prop, 'v1 v2')`.
-- `multi-select-contains` quantifier=any single value: `selected(prop, 'v')` — `xpath_functions/__init__.py:43` aliases `selected` to `selected-any` server-side; the alias emits for readability.
-- `match` modes: emit the named function call from the CSQL query function set. starts-with → `starts-with`; fuzzy → `fuzzy-match`; phonetic → `phonetic-match`; fuzzy-date → `fuzzy-date`.
-- `within-distance`: `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` per `query_functions.py:54-81`.
-- `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')` (multi-hop slashes).
+- `multi-select-contains`: any single → `selected(prop, 'v')`; any multi → `selected-any(prop, 'v1 v2')`; all → `selected-all(prop, 'v1 v2')`.
+- `match` modes: starts-with → `starts-with`; fuzzy → `fuzzy-match`; phonetic → `phonetic-match`; fuzzy-date → `fuzzy-date`.
+- `within-distance`: `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` per `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+- `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')`. CCHQ's `confirm_args_count(node, 2)` at `ancestor_functions.py:109` requires the 2-arg form; absent `where` clauses inject `match-all()` as the filter.
 - `exists` subcase: `subcase-exists('rel', '<csql filter>')`.
-- `exists` / `missing` with `via.kind === "any-relation"`: expand to `(<ancestor-exists> or <subcase-exists>)`.
-- `match-all` / `match-none`: emit `match-all()` / `match-none()`.
-- `is-blank` and `is-null`: both emit as `prop = ''`. CCHQ's `case_property_query()` short-circuit at `case_search.py:241-246` collapses absent / cleared / empty alike — faithful emission of CCHQ's wire lossiness.
+- `exists` / `missing` with `via.kind === "any-relation"`: expand to `(<ancestor-exists> or <subcase-exists>)`; `missing` wraps in `not(...)`.
+- `match-all` / `match-none` predicates: emit `match-all()` / `match-none()`.
+- `is-blank` and `is-null`: both emit as `prop = ''`. CCHQ's `case_property_query()` short-circuit at `commcare-hq/corehq/apps/es/case_search.py:241-246` collapses absent / cleared / empty alike — faithful emission of CCHQ's wire lossiness.
 - `between`: expand to `(<gte> and <lte>)`.
-- Value functions allowed inside terms: `today`, `now`, `date`, `date-add`, `datetime`, `datetime-add`, `double`, `unwrap-list`.
+- `date-coerce(value)` → `date(<value>)` (rename at emission time; same operator semantically, different wire syntax).
+- `datetime-coerce(value)` → `datetime(<value>)`.
 
-**`concat()` wrapping**: the emitter wraps its output in `concat(...)` unconditionally — every CSQL value is a `concat()` template; downstream code reads one shape. The wrapping pass walks the post-emission string, identifies runtime-instance interpolation points (search-input refs, session-user refs, session-context refs, synthetic inputs from the hoisting pass), and lifts them as `concat()` arguments. Constant string parts become quoted XPath string literals; runtime parts become path expressions evaluated on-device at runtime.
+**`concat()` wrapping**: the emitter walks an internal `CsqlSegment[]` IR (`{kind: "constant", text} | {kind: "runtime", xpath}` discriminated union) and emits the result as a `concat(...)` template. Constants split at quote-style boundaries via the alternating-quote idiom from the XPath grammar at `lib/commcare/xpath/grammar.lezer.grammar:128-131`, so a constant carrying both `'` and `"` produces multiple concat args automatically. Runtime parts (search-input refs, session-user refs, session-context refs, synthetic inputs from the hoisting pass) emit as path expressions evaluated on-device at runtime. `mergeAdjacentConstants` runs once at the wrap layer; per-arm emitters produce raw segment lists. `via.identifier` routes through `quoteLiteral(_, "csql")` in `ancestor-exists` / `subcase-exists` emission, matching the property-emitter quoting discipline.
 
-Steps:
-- [ ] Write failing tests for the hoisting pass: every `if` / `switch` / `arith` / `concat` / `count` / `when-input-present` node lifts into a wrapper; the `subcase-count` LHS-of-comparison special case stays untransformed.
-- [ ] Implement `csqlHoist.ts`.
-- [ ] Write failing tests for the emitter (CSQL-specific operators, the CCHQ value-function set, concat() wrapping shape, faithful is-null / is-blank emission).
-- [ ] Implement `csqlEmitter.ts`.
-- [ ] Run tests, commit.
+**Architectural decisions:**
+
+1. **Hoist pass is total** — no `errors` field on `CsqlHoistResult`, no `HoistError` type. Every AST node has a CSQL emission via hoist + faithful emission. The plan + memory both lock this; the implementation matches.
+2. **`when-input-present` handled in emitter, not hoist pass** — needs recursive CSQL emission of the inner clause, which the hoist pass cannot produce. `emitHoistedWrapper` is the inner emission entry point that skips re-hoisting an already-hoisted clause; `emitCsql` (public) hoists then delegates to it.
+3. **Segment-list IR over post-emission string parsing** — the inner emitter produces `CsqlSegment[]`; the wrapping pass walks segments rather than re-parsing an emitted string. Constants split at quote-style boundaries cleanly via the IR.
+4. **Synthetic-input collision avoidance via scan-and-seed** — chose this over a schema `.refine` to keep the change in B3-owned files. The hoist pass walks the input AST first, collects author-written `csql_hoist_<n>` indices, and seeds `nextIndex` past the maximum.
+5. **`date-coerce` / `datetime-coerce` rename at emission**, not hoist — these AST kinds have direct CSQL equivalents (`date` / `datetime`) under different names. Renaming at emission preserves the AST's semantic naming while emitting CSQL's wire vocabulary. `format-date` hoists because CSQL has no equivalent.
+6. **Mutation-safety contract softened** — the hoist pass does not allocate fresh subtrees on every arm; the contract is "input is never mutated; subtrees may share with the input by reference". Per-arm fresh allocation is busywork when the input is treated as immutable upstream.
+7. **`mergeAdjacentConstants` consolidated at wrap layer only** — per-arm emitters produce raw segment lists; the wrap layer is the sole merge point. Eliminates dead work + makes the merge invariant single-sourced.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ❌ Round 1 found 3 gaps (`HoistedWrapper.inputRef` rename, `any-relation` throws instead of expanding, `date-coerce` / `datetime-coerce` / `format-date` not in CSQL whitelist but pass through). All resolved in fix-pass `e4c48920` and re-review ✅ COMPLIANT.
+- Code-quality review (opus): ❌ Round 1 found 5 BLOCKING + 7 IMPORTANT + 3 SUGGESTIONS — `Plan 4` / `v1 emitter` roadmap-phase labelling, comment lie on "every returned predicate is a fresh allocation", `OPERATOR_MAPPING` citation drift, missing `_exhaustive: never` defaults on multiple switches, synthetic-input collision risk, `between` rebuild duplication, `case_property_text_query` citation precision, `mergeAdjacentConstants` running twice, `emitWhenInputPresentSegments` re-running hoist over already-hoisted clauses. All blockers + importants resolved in fix-pass `e4c48920`; all 3 suggestions adopted (`wrapTermAsSegmentList` helper extraction, `via.identifier` quoting, collision regression tests). Re-review APPROVED.
+
+**Verification gates (all green at HEAD `e4c48920`):**
+- 762 predicate-domain + commcare-predicate tests pass (was 555 pre-B-phase; +95 from B2, +112 from B3)
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (zero warnings)
+- Strengthened eternal-present sweep returns zero hits across `csqlHoist.ts`, `csqlEmitter.ts`, `csqlHoist.test.ts`, `csqlEmitter.test.ts`. Sweep regex now includes `Plan ?[0-9]|Phase ?[0-9]|\bv[0-9]\b|\bV[0-9]\b` to catch roadmap-phase / version-label patterns.
+
+**Known scope boundary (deferred to C1):** operand emission for grammar value functions `today` / `now` / `date-add` / `double` / `unwrap-list` still throws via `unwrapTermFromExpression`. The current throw is structural exhaustiveness consistent with B2's pattern; C1's expression emitter wires per-slot ValueExpression emission later when these arms appear in operand positions outside the term lifter.
 
 ### Task B6: Delete the transitional `xpathEmitter.ts`
 
