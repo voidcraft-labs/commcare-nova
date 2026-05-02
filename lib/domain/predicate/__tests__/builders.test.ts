@@ -35,6 +35,7 @@ import {
 	gt,
 	gte,
 	input,
+	isBlank,
 	isIn,
 	isNull,
 	literal,
@@ -469,6 +470,35 @@ describe("sentinel + range + relational predicate builders", () => {
 		const b = isNull(sessionUser("region"));
 		const c = isNull(sessionContext("userid"));
 		const d = isNull(literal("x"));
+		expect(predicateSchema.parse(a)).toEqual(a);
+		expect(predicateSchema.parse(b)).toEqual(b);
+		expect(predicateSchema.parse(c)).toEqual(c);
+		expect(predicateSchema.parse(d)).toEqual(d);
+	});
+
+	it("isBlank() constructs an is-blank with a property reference", () => {
+		// Parallel to `isNull` — same `left: Term` slot, same
+		// per-Term-variant acceptance, different wire-emission rule
+		// (portable absent-OR-empty rather than strict-absent). The
+		// builder pins the discriminator and the round-trip parse
+		// through `predicateSchema` locks the builder against schema
+		// drift on the new arm.
+		const p = isBlank(prop("patient", "status"));
+		expect(p.kind).toBe("is-blank");
+		expect(p.left.kind).toBe("prop");
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("isBlank() accepts any term shape (input / session-user / session-context / literal)", () => {
+		// Mirrors `isNull`'s acceptance test — the parameter type is
+		// `Term`, so every Term variant must compile through the
+		// builder. The closed-enum `session-context` arm and the
+		// open-namespace `session-user` arm both flow through the same
+		// discriminated-union path; each is exercised explicitly.
+		const a = isBlank(input("phone"));
+		const b = isBlank(sessionUser("region"));
+		const c = isBlank(sessionContext("userid"));
+		const d = isBlank(literal("x"));
 		expect(predicateSchema.parse(a)).toEqual(a);
 		expect(predicateSchema.parse(b)).toEqual(b);
 		expect(predicateSchema.parse(c)).toEqual(c);

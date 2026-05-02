@@ -398,9 +398,20 @@ function emitPredicate(
 			const thenExpr = emitPredicate(p.clause, ctx, 0);
 			return `if(count(${inputExpr}), ${thenExpr}, true())`;
 		}
+		case "is-blank":
+			// Portable absent-or-empty: `<term> = ''` covers both
+			// states on every CCHQ dialect.
+			return `${emitTerm(p.left, ctx)} = ''`;
+		case "is-null":
+			// Strict-absent has no CCHQ wire form — every dialect
+			// collapses absent / cleared / empty into one match set.
+			// Throw until B5's representability checker lands the
+			// authoring-time error.
+			throw new Error(
+				`emitPredicate: 'is-null' is unrepresentable on CCHQ wire targets`,
+			);
 		case "match-all":
 		case "match-none":
-		case "is-null":
 		case "between":
 		case "exists":
 		case "missing":

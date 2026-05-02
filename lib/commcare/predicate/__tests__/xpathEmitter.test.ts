@@ -47,7 +47,9 @@ import {
 	gt,
 	gte,
 	input,
+	isBlank,
 	isIn,
+	isNull,
 	literal,
 	lt,
 	lte,
@@ -730,5 +732,34 @@ describe("emitXPath — special operators", () => {
 				ctx,
 			),
 		).toBe("within-distance(location, '40.7,-74.0', 50, 'miles')");
+	});
+
+	it("emits is-blank against a property reference as prop = '' in case-list-filter", () => {
+		const p = isBlank(prop("patient", "name"));
+		expect(emitXPath(p, "case-list-filter")).toBe("name = ''");
+	});
+
+	it("emits is-blank against a property reference as prop = '' in csql", () => {
+		const p = isBlank(prop("patient", "name"));
+		expect(emitXPath(p, "csql")).toBe("name = ''");
+	});
+
+	it("emits is-blank against a search-input reference as input = ''", () => {
+		const p = isBlank(input("name_query"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"instance('search-input:results')/input/field[@name='name_query'] = ''",
+		);
+	});
+
+	it("emits is-blank against a session-context reference as path = ''", () => {
+		const p = isBlank(sessionContext("userid"));
+		expect(emitXPath(p, "case-list-filter")).toBe(
+			"instance('commcaresession')/session/context/userid = ''",
+		);
+	});
+
+	it.each(CONTEXTS)("throws on is-null in %s context", (ctx) => {
+		const p = isNull(prop("patient", "name"));
+		expect(() => emitXPath(p, ctx)).toThrow(/is-null/i);
 	});
 });

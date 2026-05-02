@@ -26,6 +26,7 @@ import {
 	exists,
 	gt,
 	input,
+	isBlank,
 	isIn,
 	isNull,
 	literal,
@@ -896,19 +897,17 @@ describe("checkPredicate — sentinel predicates", () => {
 	});
 });
 
-// The dispatch arm in `walk` throws on `is-null` / `between` /
-// `exists` / `missing` — these four kinds have no dedicated semantic
-// rules in this checker, and throwing prevents them from silently
-// producing false-positive type-clean verdicts on unchecked
-// predicates (the failure mode the checker itself exists to prevent).
-// The error-message regex is matched loosely against the kind name
-// so phrasing changes around the kind don't trip the lock.
+// The dispatch arm in `walk` throws on `between` / `exists` /
+// `missing` — these three kinds have no dedicated semantic rules in
+// this checker, and throwing prevents them from silently producing
+// false-positive type-clean verdicts on unchecked predicates (the
+// failure mode the checker itself exists to prevent). `is-null` and
+// `is-blank` get their own dedicated arms in this file's `describe`
+// blocks below — both reject literal-shaped `left` and accept every
+// other Term variant. The error-message regex is matched loosely
+// against the kind name so phrasing changes around the kind don't
+// trip the lock.
 describe("checkPredicate — kinds without dedicated semantic rules throw", () => {
-	it("throws on is-null", () => {
-		const p = isNull(prop("patient", "name"));
-		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'is-null'/);
-	});
-
 	it("throws on between", () => {
 		const p = between(prop("patient", "age"), { lower: literal(18) });
 		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'between'/);
@@ -929,15 +928,170 @@ describe("checkPredicate — kinds without dedicated semantic rules throw", () =
 		// The walker recurses through `and` / `or` / `not` /
 		// `when-input-present` before dispatching, so a kind without
 		// dedicated rules nested inside a wrapper triggers the same
-		// throw as the standalone case. Pinning the canonical
-		// `and(eq, isNull)` shape locks the wrapper-recursion contract;
-		// pinning every wrapper × kind pair would be overkill, but the
-		// shape called out in the JSDoc is load-bearing.
+		// throw as the standalone case. Pinning the `and(eq, between)`
+		// shape locks the wrapper-recursion contract; pinning every
+		// wrapper × kind pair would be overkill, but the shape called
+		// out in the JSDoc is load-bearing. `between` is the canonical
+		// example here because `is-null` / `is-blank` now have
+		// dedicated rules — they accept inside wrappers rather than
+		// throw.
 		const p = and(
 			eq(prop("patient", "name"), literal("Alice")),
-			isNull(prop("patient", "name")),
+			between(prop("patient", "age"), { lower: literal(18) }),
 		);
-		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'is-null'/);
+		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'between'/);
+	});
+});
+
+// `is-null` and `is-blank` share one rule shape: every non-literal
+// Term variant is accepted (property refs, search-input refs, both
+// session-ref kinds — any of these can resolve to absent at runtime),
+// and literal-shaped `left` is rejected as a category error (a
+// literal is the value itself; "is the value 5 absent?" is
+// ill-formed, not a runtime question). The two operators are
+// distinguished by per-dialect emission (strict-absent vs
+// portable-absent-or-empty) — the type checker treats them
+// identically because both pose the same operand-shape question.
+// Combining the rules into one describe block keeps the parallel
+// shape readable; per-operator arms diverge only in `it` names and
+// the builder under test.
+describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
+	it("accepts is-null on a property reference", () => {
+		// Any property type can be absent at runtime — the rule
+		// resolves the term but does not constrain its type. The pin
+		// on `ok: true` locks the "no operand-type narrowing" stance:
+		// `is-null` is the structural-absent question, not a typed
+		// comparison.
+		const p = isNull(prop("patient", "name"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts is-null on a search-input reference", () => {
+		// Search inputs default to text when no `data_type` is declared,
+		// matching the comparison checker's behavior. Acceptance pins
+		// the resolution path through `resolveTermType`'s `case
+		// "input"` arm; absent inputs resolve at runtime to the wire-
+		// form empty string, which `is-null`'s strict semantic does
+		// not match — the wire-emission rule is what diverges.
+		const ctxWithInput = {
+			...ctx,
+			knownInputs: [{ name: "phone" }],
+		};
+		const p = isNull(input("phone"));
+		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
+	});
+
+	it("accepts is-null on a session-user reference", () => {
+		const p = isNull(sessionUser("region"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts is-null on a session-context reference", () => {
+		const p = isNull(sessionContext("userid"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("rejects is-null on a literal", () => {
+		// Category error — a literal is the value, not a property
+		// read. Asking "is the literal 'x' absent" is ill-formed, so
+		// the type checker rejects rather than silently accept the
+		// shape. The error path is `["left"]` so the editor can
+		// highlight the offending operand directly.
+		const p = isNull(literal("x"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(/literal/i);
+		}
+	});
+
+	it("rejects is-null on a null literal too (parallel shape, parallel rule)", () => {
+		// `literal(null)` resolves to the null sentinel and is the
+		// canonical universal-comparable in the comparison checker.
+		// `is-null(literal(null))` is still a category error — the
+		// operand is a literal, not a property read, regardless of
+		// what value the literal carries. The rule rejects the shape
+		// (literal in `left`) before any value-level resolution runs.
+		const p = isNull(literal(null));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/literal/i);
+		}
+	});
+
+	it("accepts is-blank on a property reference", () => {
+		// Mirrors `is-null`'s acceptance — same operand-shape rule,
+		// different wire-emission semantic. The type checker does not
+		// narrow on "absent vs absent-or-empty"; both operators
+		// resolve the term and accept any non-literal shape.
+		const p = isBlank(prop("patient", "name"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts is-blank on a search-input reference", () => {
+		const ctxWithInput = {
+			...ctx,
+			knownInputs: [{ name: "phone" }],
+		};
+		const p = isBlank(input("phone"));
+		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
+	});
+
+	it("accepts is-blank on a session-user reference", () => {
+		const p = isBlank(sessionUser("region"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts is-blank on a session-context reference", () => {
+		const p = isBlank(sessionContext("userid"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("rejects is-blank on a literal", () => {
+		// Same category-error rationale as `is-null` — the literal-
+		// in-`left` shape is meaningless. Pinning the rejection
+		// independently for each operator (rather than parameterizing
+		// over the kind) keeps the failure message naming the operator
+		// the author actually used.
+		const p = isBlank(literal("x"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(/literal/i);
+		}
+	});
+
+	it("propagates unresolved-property errors from is-null's left", () => {
+		// `is-null(prop("nonexistent", ...))` should surface the
+		// unknown-case-type error from `resolveTermType` rather than
+		// silently accept. The error path is `["left"]` so the editor
+		// highlights the same slot a comparison's left-operand error
+		// would.
+		const p = isNull(prop("ghost", "name"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(/Unknown case type/);
+		}
+	});
+
+	it("propagates unresolved-input errors from is-blank's left", () => {
+		// Symmetric with `is-null` — input refs flow through the same
+		// resolution path. An undeclared input emits the same shape of
+		// error a comparison's `input` operand would.
+		const p = isBlank(input("phone"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(/Unknown search input/);
+		}
 	});
 });
 

@@ -589,12 +589,13 @@ const comparisonSchema = z.object({
  *
  * The `.refine` rejecting all-null `values` defends a structural
  * degenerate: a list of nothing-but-null collapses on every wire to
- * "the property is unset OR the property is unset OR ...", which is
- * just "the property is unset" duplicated. That's not what `in`
- * means; the `eq(prop, literal(null))` shape is the canonical
- * "is unset" form. Mixed null + non-null lists are accepted because
- * they encode the meaningful "is unset OR equals one of these values"
- * predicate.
+ * "the property is absent OR the property is absent OR ...", which
+ * is just "the property is absent" duplicated. That's not what `in`
+ * means; the canonical authoring shapes for the absence-check intent
+ * are `is-null(prop)` (strict-absent, Postgres-only) and
+ * `is-blank(prop)` (absent-or-empty, portable to CCHQ). Mixed
+ * null + non-null lists are accepted because they encode the
+ * meaningful "absent OR equals one of these values" predicate.
  */
 const inSchema = z.object({
 	kind: z.literal("in"),
@@ -741,9 +742,11 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * the `value == ''` arm), `phonetic-match` matches nothing (empty
  * Elasticsearch `match` produces no tokens to score), `fuzzy-date`
  * depends on `date_permutations("")`. None expresses what an author
- * typing `match(prop, "")` intends; the "property is unset" operator
- * is `is-null(prop)`. Reject at the schema layer so emitters don't
- * carry per-mode policy.
+ * typing `match(prop, "")` intends; the canonical authoring shapes
+ * for the absence-check intent are `is-null(prop)` (strict-absent,
+ * Postgres-only) and `is-blank(prop)` (absent-or-empty, portable to
+ * CCHQ). Reject at the schema layer so emitters don't carry per-mode
+ * policy.
  */
 const matchSchema = z.object({
 	kind: z.literal("match"),
@@ -784,10 +787,14 @@ const matchSchema = z.object({
  * payloads.
  *
  * All-null-list rejection: same defense `inSchema.values` carries.
- * Both wire targets collapse an all-null list to a duplicated "is
- * unset" predicate (the canonical `is-null(prop)` shape), so reject
- * here too. Source citations live next to the `.refine(...)` call
- * below.
+ * Both wire targets collapse an all-null list to a duplicated
+ * absence check — the CCHQ wire matches absent / cleared / empty
+ * alike — so the canonical authoring shapes for the intent are
+ * `is-null(prop)` (strict-absent, Postgres-only) and
+ * `is-blank(prop)` (absent-or-empty, the CCHQ-portable form that
+ * emits `case_property_missing(prop)` in CSQL). Reject the all-null
+ * list here so downstream consumers don't have to encode the policy.
+ * Source citations live next to the `.refine(...)` call below.
  *
  * Wire-side whitespace tokenization on `values`: CCHQ's `selected-any`
  * / `selected-all` tokenize the values argument by whitespace at the
@@ -821,9 +828,12 @@ const multiSelectContainsSchema = z
 		quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
 	})
 	// All-null rejection mirrors `inSchema.values`'s defense: both wire
-	// targets collapse an all-null list to a duplicated "is unset"
-	// predicate, which is what the canonical `is-null(prop)` shape
-	// expresses cleanly.
+	// targets collapse an all-null list to a duplicated absence check
+	// — the wire matches absent / cleared / empty alike on CCHQ — so
+	// the canonical authoring shapes for the intent are
+	// `is-null(prop)` (strict-absent, Postgres-only) and
+	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form that
+	// emits `case_property_missing(prop)` in CSQL).
 	//
 	// CSQL: `case_property_query(name, '', multivalue_mode=...)`
 	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py:245-246`
@@ -832,7 +842,9 @@ const multiSelectContainsSchema = z
 	// literal lowers to the wire-form empty string at the term emitter,
 	// so an all-null list never reaches the `selected-any` /
 	// `selected-all` per-token logic; the entire predicate is a single
-	// "is missing" check duplicated by `quantifier`'s OR / AND.
+	// "is missing" check duplicated by `quantifier`'s OR / AND. The
+	// CCHQ wire match-set covers absent / cleared / empty — the same
+	// match set `is-blank(prop)` expresses cleanly at the AST layer.
 	//
 	// On-device: `XPathSelectedFunc.multiSelected` at
 	// `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathSelectedFunc.java:38-54`
@@ -840,15 +852,15 @@ const multiSelectContainsSchema = z
 	// trimming to the empty string, the substring test
 	// `(" " + s1 + " ").contains(" " + "" + " ")` reduces to
 	// `(" " + s1 + " ").contains("  ")`, which is true iff `s1` is the
-	// empty string — i.e., the property is unset. OR / AND of identical
-	// "property is unset" terms collapses to one "is unset" check.
+	// empty string — i.e., the property's value is the empty string
+	// (which on CCHQ is the absent / cleared / empty match-set). OR
+	// / AND of identical absence checks collapses to one such check.
 	//
-	// Both targets emit a duplicated "is unset" predicate for an all-
-	// null shape, almost certainly an authoring bug; the canonical
-	// shape for the same intent is `is-null(prop)`. Reject at the AST
+	// Both targets emit a duplicated absence check for an all-null
+	// shape, almost certainly an authoring bug; reject at the AST
 	// layer so downstream consumers don't have to encode the policy.
-	// Mixed null + non-null lists are accepted because they encode the
-	// meaningful "is unset OR / AND has token X" predicate.
+	// Mixed null + non-null lists are accepted because they encode
+	// the meaningful "absent OR / AND has token X" predicate.
 	.refine(
 		(s) => s.values.some((v) => v.value !== null),
 		"multi-select-contains.values must contain at least one non-null value",
@@ -877,26 +889,72 @@ const multiSelectContainsSchema = z
 const matchAllSchema = z.object({ kind: z.literal("match-all") });
 const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 
-// ---------- Null-check predicate ----------
+// ---------- Null / blank predicates ----------
 //
-// `is-null` is the structural "left is unset" predicate — the
-// canonical form a UI surface or compiler reaches for when asking
-// "does the property carry a value?" Authoring it as a first-class
-// AST node (rather than `eq(prop, literal(null))`) keeps the
-// "is unset" intent explicit at every layer, so consumers don't have
-// to recognise an alternate encoding to detect the canonical
-// existence query.
+// CCHQ's wire layer collapses three semantically distinct states —
+// *property never written* / *property written, then cleared* /
+// *property explicitly set to empty* — into one wire-readable state
+// (`prop = ''` matches all three on-device; `case_property_missing(prop)`
+// matches all three in CSQL). The wire conflation is a CCHQ-side
+// accumulation; **Nova's AST and runtime are not bound by it**.
+// Postgres JSONB distinguishes "key absent" from "key present with
+// empty-string value" (`NOT (properties ? 'X')` versus `properties->>'X'
+// = ''`); the in-memory `DummyCaseRow` does the same via
+// `Map<string, string>` (`lib/preview/engine/types.ts:106-110`,
+// where "key not in map" and "key with empty-string value" are
+// distinguished by construction). The Predicate AST carries the
+// strict semantic family-wide; per-dialect emitters and the B5
+// representability checker handle the wire constraint.
 //
-// `left` is `termSchema`, not `propertyRefSchema`, so authors can
-// express "is the input X unset" or "is the user's region unset"
-// alongside the canonical "is the property unset" shape. The schema
-// is intentionally structural-only: it admits every Term variant in
-// `left` (including the meaningless `is-null(literal(...))` shape,
-// which can't be "unset" by definition). Whether a checker rejects
-// the literal shape is a type-checker concern, not a schema concern.
+// Two operators encode the family at this layer:
+//
+//   - `is-null` — **strict.** `left` resolves to absent (key not
+//     present in the JSONB / Map). Postgres / in-memory: emits the
+//     presence test (`NOT (properties ? 'X')` for property refs;
+//     equivalent for input / session refs). CCHQ wire:
+//     **unrepresentable** — the wire layer collapses absent /
+//     cleared / empty into one match set, so emitting `is-null`
+//     against any CCHQ target would silently widen the match set
+//     and lose the AST's strictness signal. The B5 representability
+//     checker errors at authoring time; the per-dialect emitters
+//     defensively throw. Same dispatch pattern A2 established for
+//     `match(mode: fuzzy)` in case-list-filter context.
+//
+//   - `is-blank` — **portable.** `left` resolves to absent OR
+//     empty-string. Postgres / in-memory: emits the disjunction
+//     (`(NOT (properties ? 'X')) OR properties->>'X' = ''` for
+//     property refs; equivalent for input / session refs). CCHQ
+//     wire: cleanly representable on every target —
+//     `case_property_missing(prop)` in CSQL (registered at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:46`,
+//     which wraps the line-245 short-circuit collapsing absent /
+//     cleared / empty); `prop = ''` on-device for case-list /
+//     post-ES filters; `if(count(input), real_predicate,
+//     match-all())` wrapper for case-list / post-ES filters that
+//     read a search input.
+//
+// Both schemas accept every Term variant in `left` — property refs,
+// search-input refs, both session-ref kinds, and (structurally only)
+// literals. The literal-shaped left is meaningless for both
+// operators (a literal is the value itself; "is the literal 5
+// absent" is ill-formed), but the schema is structural-only and
+// admits the shape. The type-checker rule (in
+// `lib/domain/predicate/typeChecker.ts`) rejects literal-shaped
+// `left` for both operators with a parallel rule shape — the type
+// checker is the right layer for the constraint because it has the
+// term-discriminator context to surface a semantic-class error. See
+// the design spec subsection "Null vs blank semantics" under the
+// Predicate family for the full per-dialect representability table
+// and the four-layer practical defense (representability checker +
+// UI default card + SA prompt + platform-divergence panel).
 
 const isNullSchema = z.object({
 	kind: z.literal("is-null"),
+	left: termSchema,
+});
+
+const isBlankSchema = z.object({
+	kind: z.literal("is-blank"),
 	left: termSchema,
 });
 
@@ -1106,9 +1164,10 @@ const missingSchema = z.object({
  *
  * Drift policy — non-recursive arms (`comparisonSchema`, `inSchema`,
  * `withinDistanceSchema`, `matchSchema`, `multiSelectContainsSchema`,
- * `matchAllSchema`, `matchNoneSchema`, `isNullSchema`, `betweenSchema`)
- * derive their TS shape from their schema via `z.infer<typeof X>`, so
- * adding a field to those schemas updates the union automatically.
+ * `matchAllSchema`, `matchNoneSchema`, `isNullSchema`, `isBlankSchema`,
+ * `betweenSchema`) derive their TS shape from their schema via
+ * `z.infer<typeof X>`, so adding a field to those schemas updates the
+ * union automatically.
  * Recursive arms (`and`, `or`, `not`, `when-input-present`, `exists`,
  * `missing`) are hand-declared because TypeScript cannot resolve
  * `z.infer` through a discriminated-union recursion cycle (Zod issue
@@ -1128,6 +1187,7 @@ export type Predicate =
 	| z.infer<typeof matchAllSchema>
 	| z.infer<typeof matchNoneSchema>
 	| z.infer<typeof isNullSchema>
+	| z.infer<typeof isBlankSchema>
 	| z.infer<typeof betweenSchema>
 	// `clauses` is non-empty: tuple-with-rest in the schema (`andSchema`
 	// / `orSchema`) and the matching `[Predicate, ...Predicate[]]` here
@@ -1162,6 +1222,7 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 		matchAllSchema,
 		matchNoneSchema,
 		isNullSchema,
+		isBlankSchema,
 		betweenSchema,
 		andSchema,
 		orSchema,

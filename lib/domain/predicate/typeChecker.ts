@@ -20,25 +20,31 @@
 // and literals resolve to their data type) runs uniformly across every operator
 // that carries term operands — comparisons, the trigger-input slot of
 // `when-input-present`, and the term operands of `in` /
-// `within-distance` / `match` / `multi-select-contains`. Operand-type
-// compatibility (the "comparable types" check between resolved operand
-// types) runs for the comparison operators (`eq` / `neq` / `gt` /
-// `gte` / `lt` / `lte`) and for `in`'s and `multi-select-contains`'s
-// membership values (every literal in `values` is checked for type
-// compatibility against the resolved property type). Per-operator
-// semantic checks beyond resolution + compatibility run in dedicated
-// arms: `within-distance` requires the `property` slot to resolve to
-// `geopoint` and the `center` slot to resolve to `geopoint` or `text`
-// (the wire-form coordinate string is text); `match` requires the
-// `property` slot to resolve to one of the text-shaped data types
-// (`text` / `single_select` / `multi_select`) across all four modes;
-// `multi-select-contains` requires the `property` slot to resolve to
-// `multi_select` specifically (a Nova authoring policy stricter than
-// CCHQ's wire-layer dispatch — see `checkMultiSelectContains` for the
-// rationale). Logical wrappers (`and` / `or` / `not`) and the wrapped
-// clause of `when-input-present` recurse so violations inside them
-// surface here, with paths threading the operator name and (for the
-// multi-clause arms) the array index.
+// `within-distance` / `match` / `multi-select-contains` / `is-null` /
+// `is-blank`. Operand-type compatibility (the "comparable types"
+// check between resolved operand types) runs for the comparison
+// operators (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`) and for
+// `in`'s and `multi-select-contains`'s membership values (every
+// literal in `values` is checked for type compatibility against the
+// resolved property type). Per-operator semantic checks beyond
+// resolution + compatibility run in dedicated arms: `within-distance`
+// requires the `property` slot to resolve to `geopoint` and the
+// `center` slot to resolve to `geopoint` or `text` (the wire-form
+// coordinate string is text); `match` requires the `property` slot
+// to resolve to one of the text-shaped data types (`text` /
+// `single_select` / `multi_select`) across all four modes;
+// `multi-select-contains` requires the `property` slot to resolve
+// to `multi_select` specifically (a Nova authoring policy stricter
+// than CCHQ's wire-layer dispatch — see `checkMultiSelectContains`
+// for the rationale); `is-null` / `is-blank` accept any non-literal
+// Term in `left` and reject literal-shaped `left` as a category
+// error (a literal is the value itself, not a runtime read whose
+// presence is in question — see `checkAbsenceOperator` for the
+// rationale and the spec subsection "Null vs blank semantics" under
+// the Predicate family). Logical wrappers (`and` / `or` / `not`)
+// and the wrapped clause of `when-input-present` recurse so
+// violations inside them surface here, with paths threading the
+// operator name and (for the multi-clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type {
@@ -246,12 +252,11 @@ const MATCH_PROPERTY_TYPES_BY_MODE: Record<
  * fix-and-retry cycles.
  *
  * Throws synchronously when the walk reaches a kind without dedicated
- * semantic rules — `is-null`, `between`, `exists`, `missing`.
- * The throw also fires when one of those kinds is nested inside a
- * logical wrapper (`and` / `or` / `not` / `when-input-present`) —
- * e.g. `and(eq(...), isNull(...))` — because the walker recurses
- * through the wrapper's clauses before it dispatches on the inner
- * kind.
+ * semantic rules — `between`, `exists`, `missing`. The throw also
+ * fires when one of those kinds is nested inside a logical wrapper
+ * (`and` / `or` / `not` / `when-input-present`) — e.g.
+ * `and(eq(...), between(...))` — because the walker recurses through
+ * the wrapper's clauses before it dispatches on the inner kind.
  *
  * Throwing prevents those kinds from silently producing false-positive
  * "type-checks clean" verdicts on unchecked predicates, the exact
@@ -348,20 +353,36 @@ function walk(
 			// composed predicate that includes a sentinel.
 			return;
 		case "is-null":
+		case "is-blank":
+			// `is-null` (strict-absent) and `is-blank` (absent-or-empty)
+			// share one rule shape at this layer: every non-literal Term
+			// variant is accepted (any property / input / session ref
+			// can resolve to absent at runtime) and literal-shaped
+			// `left` is rejected as a category error. A literal is the
+			// value itself; "is the literal 5 absent" / "is the literal
+			// 5 blank" is ill-formed, not a runtime question. The two
+			// operators diverge only at per-dialect emission (Postgres
+			// / in-memory distinguishes the strict semantic; CCHQ wire
+			// collapses the two states), which is irrelevant to type-
+			// checking — the operand-shape question is identical at
+			// this layer. Spec subsection: "Null vs blank semantics"
+			// under the Predicate family in
+			// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
+			checkAbsenceOperator(p, ctx, errors, path);
+			return;
 		case "between":
 		case "exists":
 		case "missing":
-			// These four kinds have no dedicated semantic rules in this
-			// checker; the walker throws to prevent silent type-clean
-			// verdicts on unchecked predicates (the failure mode the
-			// checker itself exists to prevent). The walker also does
-			// not recurse into these kinds' operand slots
+			// These three kinds have no dedicated semantic rules in
+			// this checker; the walker throws to prevent silent type-
+			// clean verdicts on unchecked predicates (the failure mode
+			// the checker itself exists to prevent). The walker also
+			// does not recurse into these kinds' operand slots
 			// (`exists.where` / `missing.where` for predicate
-			// recursion, `between.lower` / `between.upper` /
-			// `is-null.left` for term resolution) — operand walking
-			// belongs with the per-kind rule that interprets those
-			// operands, so both move together rather than walking
-			// without a rule to apply at the leaves.
+			// recursion, `between.lower` / `between.upper` for term
+			// resolution) — operand walking belongs with the per-kind
+			// rule that interprets those operands, so both move together
+			// rather than walking without a rule to apply at the leaves.
 			throw new Error(`checkPredicate: no rules for kind '${p.kind}'`);
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
@@ -685,6 +706,56 @@ function checkMultiSelectContains(
 			});
 		}
 	}
+}
+
+/**
+ * Operand-shape check shared by `is-null` (strict-absent) and
+ * `is-blank` (absent-or-empty). Both operators ask "does `left`
+ * resolve to absent (`is-null`) / absent-or-empty (`is-blank`)?",
+ * which only has authoring semantics for terms whose value is read
+ * at runtime — property refs, search-input refs, session-user refs,
+ * session-context refs.
+ *
+ * Literal-shaped `left` is rejected as a category error: a literal
+ * is the value itself (`literal("x")` IS the string `"x"`;
+ * `literal(null)` IS null), not a runtime read whose presence is in
+ * question. "Is the literal 5 absent?" is ill-formed, regardless of
+ * whether the operator is the strict or the portable variant.
+ * Pinning the rejection at the type-checker layer (rather than the
+ * schema layer) keeps the schema structurally simple — every Term
+ * variant is admitted at parse — and concentrates the semantic-class
+ * rule in one place where the term discriminator is in scope.
+ *
+ * For non-literal terms, the helper resolves the term type for its
+ * side effects (so unknown-property / unknown-input errors surface
+ * uniformly with the comparison checker) but does not constrain it
+ * — any data type can be absent at runtime, so there is no narrowing
+ * to apply. The error path is `[...path, "left"]` so the editor
+ * highlights the offending operand directly, matching the comparison
+ * operators' per-side error attachment.
+ *
+ * The two operators are distinguished only at per-dialect wire
+ * emission (`is-null` is unrepresentable on every CCHQ target;
+ * `is-blank` emits `case_property_missing` in CSQL and `prop = ''`
+ * on-device); the type-checker treats them identically because the
+ * operand-shape question is the same. Spec subsection: "Null vs
+ * blank semantics" under the Predicate family in
+ * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
+ */
+function checkAbsenceOperator(
+	p: Extract<Predicate, { kind: "is-null" | "is-blank" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	if (p.left.kind === "literal") {
+		errors.push({
+			path: [...path, "left"],
+			message: `Operator '${p.kind}' cannot be applied to a literal — a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
+		});
+		return;
+	}
+	resolveTermType(p.left, ctx, errors, [...path, "left"]);
 }
 
 // ---------- Term resolution ----------

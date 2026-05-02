@@ -1153,19 +1153,28 @@ describe("sentinel predicates", () => {
 	});
 });
 
-// `is-null` is the structural "left is unset" predicate — the
-// canonical form a UI surface or compiler reaches for when asking
-// "does the property carry a value?" Authoring it as a first-class
-// AST node (rather than `eq(prop, literal(null))`) keeps the
-// "is unset" intent explicit at every layer.
+// `is-null` is the strict-absent predicate — the canonical form a UI
+// surface or compiler reaches for to ask "is `left` resolved to absent
+// (key not present in the JSONB / Map)?" Strict absence is the
+// Postgres / in-memory semantic: `Map<string, string>` distinguishes
+// "key not in map" from "key present with empty-string value" by
+// construction, and JSONB does the same. The Predicate AST is
+// Postgres-strict family-wide; CCHQ's wire collapse (where `prop = ''`
+// matches absent / cleared / empty alike) is a per-dialect emitter
+// concern + B5 representability checker error, not an AST design
+// constraint. The full table (per-dialect representability) lives in
+// the design spec at "Null vs blank semantics" under the Predicate
+// family code block — `is-null` is unrepresentable on every CCHQ wire
+// target, while the parallel `is-blank` operator is portable.
 //
 // The `left` slot is `termSchema`, not `propertyRefSchema`, so authors
-// can ask "is the input X unset" or "is the user's region unset"
-// alongside the canonical "is the property unset" shape. The schema
+// can ask "is the input X absent" or "is the user's region absent"
+// alongside the canonical "is the property absent" shape. The schema
 // is intentionally structural-only: it admits every Term variant in
 // `left` (including the meaningless `is-null(literal(...))` shape,
-// which can't be "unset" by definition). Whether a checker rejects
-// the literal shape is a type-checker concern, not a schema concern.
+// which is a category error — a literal can't be "absent" by
+// definition). Whether a checker rejects the literal shape is a
+// type-checker concern, not a schema concern.
 describe("is-null predicate", () => {
 	it("parses is-null with a property reference", () => {
 		const result = predicateSchema.parse({
@@ -1224,6 +1233,87 @@ describe("is-null predicate", () => {
 
 	it("rejects is-null with no left", () => {
 		expect(() => predicateSchema.parse({ kind: "is-null" })).toThrow();
+	});
+});
+
+// `is-blank` is the portable absent-or-empty-string predicate — the
+// canonical form for "left resolves to absent OR empty" semantics.
+// Where `is-null` is strict (matches only the absent state),
+// `is-blank` widens the match set to include the empty-string value
+// too. The widening is the operator's purpose: `is-blank` is
+// representable on every CCHQ wire target (`case_property_missing`
+// in CSQL; `prop = ''` on-device; the `if(count(input), real,
+// match-all())` wrapper for input refs in case-list / post-ES
+// dialects), so authors who need a portable "field set / unset" check
+// reach for `is-blank` rather than `is-null` and the wire layer
+// emits a clean form. The schema is parallel-shaped to `isNullSchema`:
+// same `left: termSchema`, same admission of every Term variant
+// (including the meaningless literal shape, rejected by the type
+// checker), same operand-validation handoff. See the design spec
+// "Null vs blank semantics" subsection under the Predicate family
+// for the full per-dialect representability table.
+describe("is-blank predicate", () => {
+	it("parses is-blank with a property reference", () => {
+		const result = predicateSchema.parse({
+			kind: "is-blank",
+			left: { kind: "prop", caseType: "patient", property: "status" },
+		});
+		expect(result.kind).toBe("is-blank");
+	});
+
+	it("parses is-blank with a search-input reference", () => {
+		const result = predicateSchema.parse({
+			kind: "is-blank",
+			left: { kind: "input", name: "phone" },
+		});
+		expect(result.kind).toBe("is-blank");
+	});
+
+	it("parses is-blank with a session-user reference", () => {
+		// `is-blank(sessionUser(...))` asks "is the user-data field
+		// absent or empty" — a meaningful predicate at every wire
+		// target (CCHQ wire collapses the two states and `is-blank` is
+		// the natural CCHQ-portable form). The schema accepts the
+		// open-namespace shape; the type checker's per-arm rule
+		// decides whether the AST has authoring semantics.
+		const result = predicateSchema.parse({
+			kind: "is-blank",
+			left: { kind: "session-user", field: "assigned_region" },
+		});
+		expect(result.kind).toBe("is-blank");
+	});
+
+	it("parses is-blank with a session-context reference", () => {
+		// Symmetric with the `session-user` case above. `userid` is a
+		// closed-enum member; pinning its acceptance here locks the
+		// `Term`-discriminated-union path through `is-blank` for the
+		// closed-namespace arm too.
+		const result = predicateSchema.parse({
+			kind: "is-blank",
+			left: { kind: "session-context", field: "userid" },
+		});
+		expect(result.kind).toBe("is-blank");
+	});
+
+	it("parses is-blank with a literal (schema is structurally permissive)", () => {
+		// The schema accepts every Term variant in `left`, including
+		// literals. `is-blank(literal(...))` is meaningless (a literal
+		// is the value itself — it cannot be absent or
+		// indistinguishable-from-empty in the way a property read can)
+		// but parses cleanly here; rejecting the literal shape is a
+		// type-checker concern, not a schema concern. Pinning the
+		// schema-side acceptance keeps the layering explicit — a
+		// refactor that tightened the schema to reject literal `left`
+		// would trip this test.
+		const result = predicateSchema.parse({
+			kind: "is-blank",
+			left: { kind: "literal", value: "x" },
+		});
+		expect(result.kind).toBe("is-blank");
+	});
+
+	it("rejects is-blank with no left", () => {
+		expect(() => predicateSchema.parse({ kind: "is-blank" })).toThrow();
 	});
 });
 

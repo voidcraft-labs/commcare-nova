@@ -608,18 +608,71 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
 }
 
 /**
- * Constructs an `is-null` predicate against a term. The `left` slot
- * accepts any term — property reference, search-input reference,
- * session-user reference, session-context reference, literal — so
- * authors can ask "is the property unset" / "is the input unset" /
- * "is the user-data field unset" / "is the session-context field
- * unset" alongside the meaningless-but-structurally-permitted literal
- * form. Whether a checker rejects the literal shape is a type-checker
+ * Constructs an `is-null` predicate — the strict-absent operator.
+ * Asks "does `left` resolve to absent (key not present in the JSONB /
+ * Map)?" Postgres / in-memory distinguish absent from cleared and
+ * from explicit-empty; the AST is Postgres-strict family-wide.
+ *
+ * Distinct from `isBlank`: `is-null` matches only the absent state,
+ * while `is-blank` widens to include the empty-string value too.
+ * `is-null` is **unrepresentable on every CCHQ wire target** — the
+ * wire layer collapses absent / cleared / empty into one match set
+ * (`prop = ''` and `case_property_missing(prop)` both match all
+ * three states), so emitting `is-null` against any CCHQ target would
+ * silently widen the match set and lose the AST's strictness signal.
+ * The B5 representability checker errors at authoring time when an
+ * `is-null` reaches a CCHQ-bound context; the per-dialect emitters
+ * defensively throw. Authors who want a CCHQ-portable "field set /
+ * unset" check reach for `isBlank` instead.
+ *
+ * The `left` slot accepts any term — property reference,
+ * search-input reference, session-user reference, session-context
+ * reference, and (structurally only) literal — so authors can ask
+ * "is the property absent" / "is the input absent" / "is the
+ * user-data field absent" / "is the session-context field absent"
+ * alongside the meaningless-but-structurally-permitted literal form.
+ * Whether a checker rejects the literal shape is a type-checker
  * concern; the builder + schema accept it uniformly across every
  * Term variant.
+ *
+ * Spec subsection: "Null vs blank semantics" under the Predicate
+ * family in `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
  */
 export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
 	return { kind: "is-null", left };
+}
+
+/**
+ * Constructs an `is-blank` predicate — the portable absent-or-empty
+ * operator. Asks "does `left` resolve to absent OR to the empty
+ * string?" The widening over `is-null` is the operator's purpose:
+ * authors who need a portable CCHQ-deployable "field set / unset"
+ * check write `isBlank` and the wire layer emits a clean form on
+ * every target.
+ *
+ * Per-dialect representability:
+ *
+ *   - **Postgres / in-memory:** disjunction
+ *     (`(NOT (properties ? 'X')) OR properties->>'X' = ''` for
+ *     property refs; equivalent for input / session refs). The wide
+ *     form preserves the AST's split between "absent" and "empty"
+ *     for downstream consumers but matches both states alike.
+ *   - **CSQL:** `case_property_missing(prop)`, registered at
+ *     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:46`,
+ *     which wraps the line-245 short-circuit collapsing absent /
+ *     cleared / empty into one match set.
+ *   - **Case-list / post-ES filter:** `prop = ''` for property refs
+ *     (CCHQ's on-device idiom for absent-or-empty), with the
+ *     `if(count(input), real, match-all())` wrapper for refs that
+ *     read a search input.
+ *
+ * The `left` slot is parallel-shaped to `isNull` — every Term
+ * variant is admitted at the schema layer, with literal-shaped
+ * `left` rejected by the type checker as a category error. Spec
+ * subsection: "Null vs blank semantics" under the Predicate family.
+ */
+export function isBlank(left: Term): Extract<Predicate, { kind: "is-blank" }> {
+	return { kind: "is-blank", left };
 }
 
 /**
