@@ -89,29 +89,35 @@ export function reduceOr(clauses: readonly Predicate[]): Predicate | undefined {
 }
 
 /**
- * Reduce a logical NOT to its canonical form.
+ * Reduce a logical NOT to its canonical form. The parameter `clause`
+ * represents the predicate being negated — i.e. the reducer returns
+ * the canonical form of the notional `not(clause)` wrap. The name
+ * mirrors the builder's `not(clause: Predicate)` signature so the
+ * reduction reads as "reduce the NOT of this clause" at every call
+ * site.
  *
  * Three reductions apply: `not(match-all)` collapses to
  * `match-none`, `not(match-none)` collapses to `match-all`, and
- * `not(not(x))` collapses to `x` (double-negation elimination).
- * Returns `undefined` for any other inner predicate, signaling
- * "no reduction applies; use the standard `{ kind: "not", clause:
- * inner }` shape."
+ * `not(not(x))` collapses to `x` (double-negation elimination — the
+ * `clause` parameter is itself a `{ kind: "not", clause: x }` shape,
+ * so the reduction unwraps to `x`). Returns `undefined` for any
+ * other clause shape, signaling "no reduction applies; use the
+ * standard `{ kind: "not", clause }` shape."
  *
- * The double-negation case reads `inner.clause` — the schema's
+ * The double-negation case reads `clause.clause` — the schema's
  * `notSchema` declares the wrapped predicate as `clause` (see
  * `lib/domain/predicate/types.ts:1568-1571`).
  */
-export function reduceNot(inner: Predicate): Predicate | undefined {
-	if (inner.kind === "match-all") return matchNone();
-	if (inner.kind === "match-none") return matchAll();
-	// Double-negation elimination: `not(not(x))` → `x`. The inner
-	// shape is `{ kind: "not", clause: <Predicate> }`, so the
-	// returned value is the doubly-wrapped predicate. The reducer
-	// returns the predicate by reference (no clone) — the caller
-	// receives the same object the AST already owned, which is
-	// safe because the AST is treated as immutable everywhere
-	// downstream.
-	if (inner.kind === "not") return inner.clause;
+export function reduceNot(clause: Predicate): Predicate | undefined {
+	if (clause.kind === "match-all") return matchNone();
+	if (clause.kind === "match-none") return matchAll();
+	// Double-negation elimination: `not(not(x))` → `x`. The
+	// passed-in clause is itself a `{ kind: "not", clause: <inner> }`
+	// shape, so the returned value is the inner predicate the outer
+	// `not` would have wrapped twice. The reducer returns the
+	// predicate by reference (no clone) — the caller receives the
+	// same object the AST already owned, which is safe because the
+	// AST is treated as immutable everywhere downstream.
+	if (clause.kind === "not") return clause.clause;
 	return undefined;
 }

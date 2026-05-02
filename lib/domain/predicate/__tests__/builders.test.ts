@@ -737,44 +737,40 @@ describe("builder-reduction integration", () => {
 	it("not(eq(...)) preserves the standard envelope when no reduction applies", () => {
 		// Negative case — no reduction matches `not(eq(...))`, so
 		// the builder falls through to the standard `{ kind: "not",
-		// clause }` shape. The round-trip parse confirms the shape
-		// is well-typed.
-		const inner = eq(prop("patient", "status"), literal("open"));
-		const p = not(inner);
+		// clause }` shape. The catch-all overload pins the return
+		// type as `Extract<Predicate, { kind: "not" }>`, so `p.clause`
+		// is directly accessible without re-narrowing on `kind` —
+		// demonstrating the precise return-type contract the file-level
+		// comment in `builders.ts` promises.
+		const innerEq = eq(prop("patient", "status"), literal("open"));
+		const p = not(innerEq);
 		expect(p.kind).toBe("not");
-		// `p.clause` may not type-check if the overload pattern
-		// loses the precise return type for non-reducing inputs;
-		// narrowing on `kind` first keeps the access safe even
-		// under future overload refinements.
-		if (p.kind === "not") {
-			expect(p.clause).toBe(inner);
-		}
+		expect(p.clause).toBe(innerEq);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
 	it("and(x, y) preserves the n-ary envelope when two-or-more clauses are supplied", () => {
 		// Two-clause `and` has no canonical reduction — the standard
 		// `{ kind: "and", clauses: [x, y] }` envelope is the canonical
-		// shape. The round-trip parse confirms the shape is
-		// well-typed.
+		// shape. The n-ary overload pins the return type as
+		// `Extract<Predicate, { kind: "and" }>`, so `p.clauses` is
+		// directly accessible without re-narrowing.
 		const x = eq(prop("patient", "status"), literal("open"));
 		const y = gt(prop("patient", "age"), literal(18));
 		const p = and(x, y);
 		expect(p.kind).toBe("and");
-		if (p.kind === "and") {
-			expect(p.clauses).toHaveLength(2);
-		}
+		expect(p.clauses).toHaveLength(2);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
 	it("or(x, y) preserves the n-ary envelope when two-or-more clauses are supplied", () => {
+		// Symmetric with the `and(x, y)` case — the n-ary overload pins
+		// the precise `Extract<Predicate, { kind: "or" }>` return type.
 		const x = eq(prop("patient", "status"), literal("open"));
 		const y = eq(prop("patient", "status"), literal("closed"));
 		const p = or(x, y);
 		expect(p.kind).toBe("or");
-		if (p.kind === "or") {
-			expect(p.clauses).toHaveLength(2);
-		}
+		expect(p.clauses).toHaveLength(2);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 });

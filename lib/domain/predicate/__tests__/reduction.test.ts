@@ -94,24 +94,29 @@ describe("reduceNot", () => {
 
 	it("collapses not(not(x)) to x (double-negation elimination)", () => {
 		// Double-negation elimination is one of the foundational
-		// boolean-algebra identities. `reduceNot(inner)` represents
-		// the reduction of a notional `not(inner)` wrap — i.e. the
-		// caller passes the predicate they want to negate, and the
-		// reducer returns the canonical form of the negation. So
-		// when `inner` is itself a `not(x)`, the notional outer
+		// boolean-algebra identities. `reduceNot(clause)` represents
+		// the reduction of a notional `not(clause)` wrap — the caller
+		// passes the predicate they want to negate, and the reducer
+		// returns the canonical form of the negation. When `clause`
+		// is itself a `not(x)` shape, the notional outer
 		// `not(not(x))` collapses to `x`. The assertion `toBe(x)`
-		// (referential equality) confirms the inner clause flows
+		// (referential equality) confirms the inner predicate flows
 		// through unchanged — no clone, no rewrap.
 		const x = eq(prop("patient", "status"), literal("open"));
-		const innerNot = not(x);
-		expect(reduceNot(innerNot)).toBe(x);
+		// `not(x)` builds the inner `{ kind: "not", clause: x }`
+		// shape. Naming the local `notX` (rather than `inner` /
+		// `innerNot`) makes the reducer's `clause` parameter
+		// reading unambiguous: `reduceNot(notX)` is "reduce the NOT
+		// of the predicate `notX`" → "reduce `not(not(x))`" → `x`.
+		const notX = not(x);
+		expect(reduceNot(notX)).toBe(x);
 	});
 
-	it("returns undefined for a non-collapsing inner predicate (no reduction applies)", () => {
+	it("returns undefined for a non-collapsing clause (no reduction applies)", () => {
 		// `not(eq(...))` has no canonical reduction — the negation is
 		// the natural shape. The reducer returns `undefined` to signal
 		// "no reduction; fall through to standard `not` construction."
-		const inner = eq(prop("patient", "status"), literal("open"));
-		expect(reduceNot(inner)).toBeUndefined();
+		const clause = eq(prop("patient", "status"), literal("open"));
+		expect(reduceNot(clause)).toBeUndefined();
 	});
 });
