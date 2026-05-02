@@ -1,33 +1,55 @@
 // lib/domain/predicate/builders.ts
 //
-// Typed construction helpers for predicate ASTs. Engineers and the SA
-// agent build predicates by calling these — never by composing AST
-// objects by hand. Each builder returns a typed AST node that, by
-// construction, parses successfully through `predicateSchema`.
+// Typed construction helpers for predicate AST and value-expression
+// AST. Engineers and the SA agent build both families by calling
+// these — never by composing AST objects by hand. Each builder
+// returns a typed AST node that, by construction, parses
+// successfully through its respective schema (`predicateSchema` or
+// `valueExpressionSchema`).
 //
 // Why these exist (and why callers must use them rather than composing
-// objects directly): the predicate AST has structural constraints the
-// raw object literal can't express by itself. The schema rejects empty
-// `and` / `or` clause lists, empty `in` value lists, and negative
+// objects directly): the AST has structural constraints the raw object
+// literal can't express by itself. The schema rejects empty `and` /
+// `or` clause lists, empty `in` value lists, empty `concat.parts`,
+// empty `coalesce.values`, empty `switch.cases`, and negative
 // `within-distance` radii at parse time. The builders absorb the
 // structurally-encodable subset of those constraints at the type
-// system level — `and` / `or` / `isIn` use a variadic-with-required-
-// first signature so an empty argument list is a *compile-time* error
+// system level — non-empty arms use a variadic-with-required-first
+// signature so an empty argument list is a *compile-time* error
 // rather than a runtime parse failure. Catching the failure at type
-// check is strictly more useful than at parse: the failure surfaces in
-// the editor, not in a CI run.
+// check is strictly more useful than at parse: the failure surfaces
+// in the editor, not in a CI run.
 //
-// Each builder also returns a precise per-operator type rather than the
-// full `Predicate` union. Callers narrowing on `kind` after a builder
-// call would be forced to either re-narrow with an `if` block or accept
-// a widened type they can't access fields on; returning the precise arm
-// makes `and(...).clauses`, `not(...).clause`, etc. directly accessible
-// at the call site. Comparison builders use a small `ComparisonPredicate<K>`
-// generic because `Extract<Predicate, { kind: "eq" }>` resolves to
-// `never` — the schema collapses all six comparison kinds into one arm
-// via `z.enum(COMPARISON_KINDS)`, so per-kind extraction can't reach
+// Each builder also returns a precise per-operator type rather than
+// the full `Predicate` / `ValueExpression` union. Callers narrowing
+// on `kind` after a builder call would be forced to either re-narrow
+// with an `if` block or accept a widened type they can't access
+// fields on; returning the precise arm makes `and(...).clauses`,
+// `not(...).clause`, etc. directly accessible at the call site.
+// Comparison builders use a small `ComparisonPredicate<K>` generic
+// because `Extract<Predicate, { kind: "eq" }>` resolves to `never`
+// — the schema collapses all six comparison kinds into one arm via
+// `z.enum(COMPARISON_KINDS)`, so per-kind extraction can't reach
 // them. The generic shape is structurally identical to the schema's
 // comparison arm and is provably assignable to `Predicate`.
+//
+// **Predicate-operand auto-wrap.** Predicate operators (`compare`,
+// `in`, `between`, `is-null`, `is-blank`, `within-distance`) carry
+// `ValueExpression`-typed operands. Builders accept
+// `ValueExpression | Term` at every widened operand slot and route
+// Term-shaped inputs through `toValueExpression(...)` (declared
+// below) which wraps them in `{ kind: "term", term: <Term> }`. The
+// wrap is automatic so existing call-sites like `eq(prop("name"),
+// literal("Alice"))` continue working unchanged — both arguments
+// arrive as `Term`-typed values, get wrapped at the builder
+// boundary, and emerge as `ValueExpression`-typed slots in the
+// constructed predicate. Term-vs-ValueExpression discrimination is
+// safe because the two unions have disjoint discriminator-value
+// sets: `Term`'s kinds are `prop` / `input` / `session-user` /
+// `session-context` / `literal` while `ValueExpression`'s are
+// `term` / `today` / `now` / `date-add` / `date-coerce` /
+// `datetime-coerce` / `double` / `arith` / `concat` / `coalesce` /
+// `if` / `switch` / `count` / `unwrap-list` / `format-date`.
 //
 // Distance constraint trade-off: `within`'s `distance` is plain
 // `number`. TypeScript can't cheaply express "non-negative number" (it
@@ -39,8 +61,11 @@
 // payload produces, so leaving it at the schema is consistent.
 
 import type {
+	ArithOp,
 	ComparisonKind,
+	DateAddInterval,
 	DistanceUnit,
+	FormatDatePreset,
 	Literal,
 	MatchMode,
 	Predicate,
@@ -51,8 +76,70 @@ import type {
 	SessionContextField,
 	SessionContextRef,
 	SessionUserRef,
+	SwitchCase,
 	Term,
+	ValueExpression,
 } from "./types";
+
+// ---------- Term-vs-ValueExpression discrimination ----------
+//
+// The two unions have disjoint discriminator-value sets, so a single
+// closed Set lookup distinguishes them at runtime without further
+// payload inspection. Storing the Term kinds in a `Set<string>` (vs.
+// a series of explicit `===` comparisons) keeps the dispatch one
+// branch wide and makes a future Term-kind addition surface as a
+// single edit site here. The drift guard at the bottom of the
+// `types.ts` drift-guard block ensures the kind sets stay distinct
+// at compile time.
+
+const TERM_KINDS = new Set<Term["kind"]>([
+	"prop",
+	"input",
+	"session-user",
+	"session-context",
+	"literal",
+]);
+
+/**
+ * Type guard distinguishing a `Term` from a `ValueExpression`. Used
+ * by `toValueExpression` to dispatch the auto-wrap. The guard's
+ * runtime check is a single `Set.has(...)` call against
+ * `TERM_KINDS`; the static narrowing flows from the type predicate.
+ */
+function isTerm(input: Term | ValueExpression): input is Term {
+	return TERM_KINDS.has(input.kind as Term["kind"]);
+}
+
+/**
+ * Auto-wrap helper: lift a Term into the `term` arm of
+ * `ValueExpression`, leave a ValueExpression unchanged. Predicate
+ * operator builders route every widened operand through this helper
+ * so authors can pass either shape interchangeably (`eq(prop("age"),
+ * literal(18))` keeps working with both arguments as `Term`; a
+ * future call-site that needs arithmetic in the operand position
+ * (`eq(arith("+", prop("age"), literal(1)), literal(19))`) passes a
+ * ValueExpression directly).
+ *
+ * The two unions are structurally distinguishable via their
+ * discriminator-value sets (see `TERM_KINDS` above), so the dispatch
+ * is a single branch on `input.kind` membership in the Term-kind
+ * set. The `term` wrapper is the canonical shape consumed by every
+ * downstream surface (type checker, wire emitters, SQL compiler);
+ * leaving Term-shaped inputs unwrapped at this layer would force
+ * each consumer to re-discriminate.
+ *
+ * Exported for parity with explicit-construction patterns: a
+ * builder for a higher-order operator can call
+ * `toValueExpression(...)` to normalize a downstream slot's
+ * argument when the slot's type is `ValueExpression | Term`. The
+ * common call sites are below in this file's predicate operator
+ * builders.
+ */
+export function toValueExpression(
+	input: Term | ValueExpression,
+): ValueExpression {
+	return isTerm(input) ? { kind: "term", term: input } : input;
+}
 
 // ---------- Term builders ----------
 //
@@ -356,15 +443,29 @@ export function anyRelationPath(
 // share the same operand shape — if a future operator needs an
 // asymmetric field, this curried helper has to split.)
 
+// Operands are `ValueExpression` post-widen; the builder accepts
+// `Term | ValueExpression` and routes Term-shaped inputs through
+// `toValueExpression` so call-sites like
+// `eq(prop("name"), literal("Alice"))` and
+// `eq(arith("+", prop("age"), literal(1)), literal(19))`
+// compose interchangeably.
+
 type ComparisonPredicate<K extends ComparisonKind> = {
 	kind: K;
-	left: Term;
-	right: Term;
+	left: ValueExpression;
+	right: ValueExpression;
 };
 
 const comparison =
 	<K extends ComparisonKind>(kind: K) =>
-	(left: Term, right: Term): ComparisonPredicate<K> => ({ kind, left, right });
+	(
+		left: Term | ValueExpression,
+		right: Term | ValueExpression,
+	): ComparisonPredicate<K> => ({
+		kind,
+		left: toValueExpression(left),
+		right: toValueExpression(right),
+	});
 
 export const eq = comparison("eq");
 export const neq = comparison("neq");
@@ -389,11 +490,15 @@ export const lte = comparison("lte");
  * `Literal` rather than `Literal | undefined`.
  */
 export function isIn(
-	left: Term,
+	left: Term | ValueExpression,
 	first: Literal,
 	...rest: Literal[]
 ): Extract<Predicate, { kind: "in" }> {
-	return { kind: "in", left, values: [first, ...rest] };
+	return {
+		kind: "in",
+		left: toValueExpression(left),
+		values: [first, ...rest],
+	};
 }
 
 // ---------- Logical ----------
@@ -464,11 +569,17 @@ export function not(clause: Predicate): Extract<Predicate, { kind: "not" }> {
  */
 export function within(
 	property: PropertyRef,
-	center: Term,
+	center: Term | ValueExpression,
 	distance: number,
 	unit: DistanceUnit,
 ): Extract<Predicate, { kind: "within-distance" }> {
-	return { kind: "within-distance", property, center, distance, unit };
+	return {
+		kind: "within-distance",
+		property,
+		center: toValueExpression(center),
+		distance,
+		unit,
+	};
 }
 
 /**
@@ -652,8 +763,10 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * Spec subsection: "Null vs blank semantics" under the Predicate
  * family in `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
  */
-export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
-	return { kind: "is-null", left };
+export function isNull(
+	left: Term | ValueExpression,
+): Extract<Predicate, { kind: "is-null" }> {
+	return { kind: "is-null", left: toValueExpression(left) };
 }
 
 /**
@@ -690,8 +803,10 @@ export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
  * `left` rejected by the type checker as a category error. Spec
  * subsection: "Null vs blank semantics" under the Predicate family.
  */
-export function isBlank(left: Term): Extract<Predicate, { kind: "is-blank" }> {
-	return { kind: "is-blank", left };
+export function isBlank(
+	left: Term | ValueExpression,
+): Extract<Predicate, { kind: "is-blank" }> {
+	return { kind: "is-blank", left: toValueExpression(left) };
 }
 
 /**
@@ -702,8 +817,8 @@ export function isBlank(left: Term): Extract<Predicate, { kind: "is-blank" }> {
  * (the standard `[lower, upper]` mathematical convention).
  */
 type BetweenOptions = {
-	lower?: Term;
-	upper?: Term;
+	lower?: Term | ValueExpression;
+	upper?: Term | ValueExpression;
 	lowerInclusive?: boolean;
 	upperInclusive?: boolean;
 };
@@ -733,7 +848,7 @@ type BetweenOptions = {
  * type system, so the rejection lives at the schema layer.
  */
 export function between(
-	left: Term,
+	left: Term | ValueExpression,
 	opts: BetweenOptions,
 ): Extract<Predicate, { kind: "between" }> {
 	const lowerInclusive = opts.lowerInclusive ?? true;
@@ -746,18 +861,22 @@ export function between(
 	// assertions every other builder relies on.
 	const base = {
 		kind: "between" as const,
-		left,
+		left: toValueExpression(left),
 		lowerInclusive,
 		upperInclusive,
 	};
 	if (opts.lower !== undefined && opts.upper !== undefined) {
-		return { ...base, lower: opts.lower, upper: opts.upper };
+		return {
+			...base,
+			lower: toValueExpression(opts.lower),
+			upper: toValueExpression(opts.upper),
+		};
 	}
 	if (opts.lower !== undefined) {
-		return { ...base, lower: opts.lower };
+		return { ...base, lower: toValueExpression(opts.lower) };
 	}
 	if (opts.upper !== undefined) {
-		return { ...base, upper: opts.upper };
+		return { ...base, upper: toValueExpression(opts.upper) };
 	}
 	// Both bounds absent — structurally typeable but
 	// schema-refinement-rejected. Returning the bare shape lets the
@@ -807,4 +926,305 @@ export function missing(
 	return where === undefined
 		? { kind: "missing", via }
 		: { kind: "missing", via, where };
+}
+
+// ---------- ValueExpression builders ----------
+//
+// Each ValueExpression operator gets a builder mirroring the
+// per-arm pattern Predicate operators use: thin object constructor,
+// pinning the discriminator and threading the structural arguments
+// onto the constructed object. Builders return the precise per-kind
+// extracted shape rather than the wider `ValueExpression` union so
+// callers narrowing on `kind` get per-variant fields directly —
+// same convention as `not()` / `whenInput()` / `and()` on the
+// Predicate side.
+//
+// The auto-wrap pattern flips at this layer: a Term consumer
+// (`term`) takes a Term and lifts it to a `term`-arm
+// ValueExpression. Higher-order operators (`arith`, `concat`, etc.)
+// take ValueExpression-typed operands directly — Term-shaped inputs
+// aren't auto-wrapped here because operator slots like
+// `arith.left` / `concat.parts` always sit in value position, never
+// in Term position. Authors who want to thread a Term through a
+// ValueExpression slot wrap explicitly with `term(t)`.
+
+/**
+ * Lifter: wrap a `Term` as the `term` arm of `ValueExpression`. The
+ * canonical explicit construction for a value-position term — used
+ * when an author needs to pass a Term into a ValueExpression slot
+ * that doesn't auto-wrap (e.g. `arith.left`,
+ * `concat.parts[i]`). Predicate operator builders handle the
+ * auto-wrap internally; this builder is the named explicit form for
+ * everywhere else.
+ *
+ * Returning `Extract<ValueExpression, { kind: "term" }>` (not the
+ * wider union) lets call-site narrowing on `kind` reach the inner
+ * Term directly.
+ */
+export function term(t: Term): Extract<ValueExpression, { kind: "term" }> {
+	return { kind: "term", term: t };
+}
+
+/**
+ * `today` constant — resolves to the project-timezone ISO date at
+ * evaluation time. Discriminator-only shape; no payload. CCHQ wire
+ * form: `today()` (zero-arg value function at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33`).
+ */
+export function today(): Extract<ValueExpression, { kind: "today" }> {
+	return { kind: "today" };
+}
+
+/**
+ * `now` constant — resolves to the UTC ISO datetime at evaluation
+ * time. Discriminator-only shape; no payload. CCHQ wire form:
+ * `now()` (zero-arg value function at the same registration site as
+ * `today`).
+ */
+export function now(): Extract<ValueExpression, { kind: "now" }> {
+	return { kind: "now" };
+}
+
+/**
+ * `date-add` value expression: `date + (interval × quantity)`. CCHQ
+ * wire form on CSQL: `date-add(date, interval, quantity)` per the
+ * value-function dispatch table. On-device support is interval-
+ * limited — the representability checker (B5) rejects non-`days`
+ * intervals for case-list-filter / post-ES dialects, and the
+ * on-device emitter falls back to XPath operator arithmetic
+ * (`date(...) + N`) for `days`-only emissions.
+ *
+ * The signature follows the spec's slot order: `date` (the date or
+ * datetime base), `interval` (the unit name from
+ * `DATE_ADD_INTERVALS`), `quantity` (the multiplier). Arguments
+ * stay strictly typed — the builder doesn't auto-wrap Term inputs
+ * here because both slots are always already value-shaped at the
+ * call site (a `today()` constant, a `prop`-via-`term(...)`
+ * lift, or a recursive `arith(...)` for relative-date arithmetic).
+ */
+export function dateAdd(
+	date: ValueExpression,
+	interval: DateAddInterval,
+	quantity: ValueExpression,
+): Extract<ValueExpression, { kind: "date-add" }> {
+	return { kind: "date-add", date, interval, quantity };
+}
+
+/**
+ * `date-coerce` value expression: text → typed date via CommCare's
+ * wire `date(...)` value function. Used to coerce a string-typed
+ * read (e.g. a search-input typed as text) into a date for
+ * comparison or arithmetic.
+ */
+export function dateCoerce(
+	value: ValueExpression,
+): Extract<ValueExpression, { kind: "date-coerce" }> {
+	return { kind: "date-coerce", value };
+}
+
+/**
+ * `datetime-coerce` value expression: text → typed datetime via
+ * CommCare's wire `datetime(...)` value function. Sister of
+ * `dateCoerce` for datetime targets.
+ */
+export function datetimeCoerce(
+	value: ValueExpression,
+): Extract<ValueExpression, { kind: "datetime-coerce" }> {
+	return { kind: "datetime-coerce", value };
+}
+
+/**
+ * `double` value expression: forced numeric coercion via CSQL's
+ * `double(...)` value function. CCHQ accepts the function in
+ * value-position only (term-side; the predicate-side dispatch table
+ * has no `double` entry). Authors who need a numeric coercion
+ * outside CSQL should rely on the implicit promotion at the
+ * comparison / arithmetic boundary instead — Postgres handles
+ * mixed-type numeric promotion natively.
+ */
+export function double(
+	value: ValueExpression,
+): Extract<ValueExpression, { kind: "double" }> {
+	return { kind: "double", value };
+}
+
+/**
+ * `arith` value expression: five-op binary numeric arithmetic. The
+ * `op` parameter selects between `+` / `-` / `*` / `div` / `mod` —
+ * CCHQ's wire-vocabulary names. `div` and `mod` use the spelled-out
+ * forms because XPath's `/` is the path separator and `%` has no
+ * XPath meaning.
+ *
+ * Operands are `ValueExpression` directly (no Term auto-wrap) for
+ * the same reason as the other higher-order operators — the slots
+ * always sit in value position, and Term-shaped inputs lift via
+ * `term(...)` explicitly when needed (`arith("+", term(prop("age")),
+ * literal(1))`). Type-checker rule: both operands must resolve to
+ * a numeric type; the result follows int×int=int / mixed=decimal
+ * promotion.
+ */
+export function arith(
+	op: ArithOp,
+	left: ValueExpression,
+	right: ValueExpression,
+): Extract<ValueExpression, { kind: "arith" }> {
+	return { kind: "arith", op, left, right };
+}
+
+/**
+ * `concat` value expression: variadic string concatenation. Each
+ * part casts to text at evaluation time, so a numeric or boolean
+ * input is converted to its wire-form string at the wire boundary
+ * and at the SQL layer.
+ *
+ * Variadic-with-required-first signature mirrors `and` / `or` /
+ * `isIn` — the schema rejects an empty `concat()` (the canonical
+ * authoring shape for the empty string is `literal("")`), so the
+ * builder demands at least one part. The runtime `[first, ...rest]`
+ * literal infers as `[ValueExpression, ...ValueExpression[]]`,
+ * matching the tuple-with-rest shape on `concatSchema.parts`.
+ */
+export function concat(
+	first: ValueExpression,
+	...rest: ValueExpression[]
+): Extract<ValueExpression, { kind: "concat" }> {
+	return { kind: "concat", parts: [first, ...rest] };
+}
+
+/**
+ * `coalesce` value expression: first-non-empty fallback chain. Each
+ * value evaluates in order; the first non-null / non-empty result
+ * is returned. The fallback semantics mirror SQL's `COALESCE` and
+ * CCHQ's `coalesce(...)` value function.
+ *
+ * Variadic-with-required-first like `concat`: an empty `coalesce()`
+ * has no fallback to return, and the canonical "always null" shape
+ * is `term(literal(null))`.
+ */
+export function coalesce(
+	first: ValueExpression,
+	...rest: ValueExpression[]
+): Extract<ValueExpression, { kind: "coalesce" }> {
+	return { kind: "coalesce", values: [first, ...rest] };
+}
+
+/**
+ * `if` value expression: boolean-conditional value selection. `cond`
+ * is a `Predicate` (cross-family reference); both branches are
+ * `ValueExpression`. CCHQ on-device wire form: `if(cond, then, else)`.
+ * CSQL has no native `if` value function — the wire-wrapping pass
+ * hoists `if` arms out of CSQL fragments at B-phase emission.
+ *
+ * The slot order matches the spec — `cond` / `then` / `else` —
+ * even though `else` is a JS reserved word in statement positions;
+ * it is a legal property name in object literal contexts.
+ *
+ * The builder is named `ifExpr` (not `if`) to avoid colliding with
+ * JS's `if` statement keyword. Authors who want the spec-aligned
+ * read at the call site can re-export under an alias at consumer
+ * scope.
+ */
+export function ifExpr(
+	cond: Predicate,
+	thenBranch: ValueExpression,
+	elseBranch: ValueExpression,
+): Extract<ValueExpression, { kind: "if" }> {
+	return {
+		kind: "if",
+		cond,
+		// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; `then` holds a ValueExpression object, never a callable. Full thenable-hazard analysis on `ifSchema`'s JSDoc in types.ts.
+		then: thenBranch,
+		else: elseBranch,
+	};
+}
+
+/**
+ * Single switch case — `when` literal compared against the outer
+ * `switch.on`, plus the `then` value selected on match. The shape
+ * mirrors `switchCaseSchema` and the `SwitchCase` type. Authors
+ * compose `switchCase(literal("low"), literal(1))` rather than
+ * constructing the object literal by hand.
+ */
+export function switchCase(
+	when: Literal,
+	thenValue: ValueExpression,
+): SwitchCase {
+	return {
+		when,
+		// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; `then` holds a ValueExpression object, never a callable. Full thenable-hazard analysis on `ifSchema`'s JSDoc in types.ts.
+		then: thenValue,
+	};
+}
+
+/**
+ * `switch` value expression: value-driven multi-case selector.
+ * `on` is the discriminator value; each `case.when` literal
+ * compares against it in order; the first match's `then` wins.
+ * `fallback` runs when no case matches.
+ *
+ * Cases are a non-empty tuple at the parameter type, so an empty
+ * `cases` array fails at the call site rather than at parse — same
+ * defense the variadic predicate builders use. The builder is
+ * named `switchExpr` (not `switch`) to avoid colliding with JS's
+ * `switch` statement keyword.
+ */
+export function switchExpr(
+	on: ValueExpression,
+	cases: [SwitchCase, ...SwitchCase[]],
+	fallback: ValueExpression,
+): Extract<ValueExpression, { kind: "switch" }> {
+	return { kind: "switch", on, cases, fallback };
+}
+
+/**
+ * `count` value expression: relational aggregation. Returns the
+ * cardinality of cases reachable along `via` whose optional `where`
+ * predicate holds. CCHQ wire form on CSQL: recognised only as the
+ * LHS of a binary comparison (`subcase-count(...) > 2`), so a
+ * `count(...)` outside a comparison context is unrepresentable in
+ * CSQL and the representability checker (B5) flags it at authoring
+ * time. The Postgres compiler executes the count natively in any
+ * value position.
+ *
+ * Same `via` / `where` shape as `exists` / `missing` on the
+ * Predicate side, with the same absent-not-undefined contract on
+ * `where`.
+ */
+export function count(
+	via: RelationPath,
+	where?: Predicate,
+): Extract<ValueExpression, { kind: "count" }> {
+	return where === undefined
+		? { kind: "count", via }
+		: { kind: "count", via, where };
+}
+
+/**
+ * `unwrap-list` value expression: pull a JSON-encoded array stored
+ * in a property's value and surface it as a sequence of values via
+ * CCHQ's `unwrap-list(...)` value function. v1 has no AST consumer
+ * for the resulting sequence — `in.values` and
+ * `multi-select-contains.values` stay literal-only — but the
+ * builder exists for the persisted-shape contract and the future
+ * `selected-any(prop, unwrap-list(...))` CSQL emission pattern (B-
+ * phase).
+ */
+export function unwrapList(
+	value: ValueExpression,
+): Extract<ValueExpression, { kind: "unwrap-list" }> {
+	return { kind: "unwrap-list", value };
+}
+
+/**
+ * `format-date` value expression: render a date or datetime as
+ * text. The `pattern` slot accepts the three preset names
+ * (`short` / `long` / `iso` from `FORMAT_DATE_PRESETS`) plus an
+ * arbitrary string for advanced patterns. The schema admits both
+ * branches via the union; this builder accepts the common type.
+ */
+export function formatDate(
+	date: ValueExpression,
+	pattern: FormatDatePreset | string,
+): Extract<ValueExpression, { kind: "format-date" }> {
+	return { kind: "format-date", date, pattern };
 }

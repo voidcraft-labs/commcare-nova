@@ -54,12 +54,15 @@
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type {
+	ArithOp,
 	ComparisonKind,
+	DateAddInterval,
 	Literal,
 	MatchMode,
 	Predicate,
 	RelationPath,
 	Term,
+	ValueExpression,
 } from "./types";
 
 // ---------- Types ----------
@@ -174,34 +177,58 @@ export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
  * both the ordered-types check in `checkComparison` and the
  * compatibility table in `typesCompatible`.
  *
- * Cross-package consumer contract: this sentinel is exported so the
- * sister Expression type checker (`lib/domain/expression/typeChecker.ts`)
- * can re-use the same null-as-universal compatibility rule without
- * duplicating the table. It is NOT a user-facing surface — it never
- * appears in `CheckError.message` (the `describe(...)` helper renders
- * it as `"null"`) and it never reaches the AST (literals carry their
- * source value `null`, not the sentinel). External callers that surface
- * resolved types in messages MUST route through `describe(...)` for the
- * same reason. The cross-package re-use is the only path on which
- * `ANY_TYPE` ever leaves this module.
+ * Visibility: this sentinel is exported because every value-bearing
+ * surface — `checkPredicate`, `checkExpression`, the per-operator
+ * helpers in this file — routes through the same null-as-universal
+ * compatibility rule. The sentinel is NOT a user-facing surface — it
+ * never appears in `CheckError.message` (the `describe(...)` helper
+ * renders it as `"null"`) and it never reaches the AST (literals
+ * carry their source value `null`, not the sentinel). External
+ * callers that surface resolved types in messages MUST route through
+ * `describe(...)` for the same reason.
  */
 export const ANY_TYPE = "_any" as const;
 
 /**
- * Resolved type for any term — a `CasePropertyDataType` for declared
- * properties, the `ANY_TYPE` sentinel for null-literal compatibility.
+ * Sentinel for the sequence type produced by `unwrap-list`. Marks a
+ * value resolved from CSQL's `unwrap-list(...)` value function — a
+ * JSON-encoded array surfaced as a sequence of values. v1 has no
+ * AST consumer for the sequence type — `in.values` and
+ * `multi-select-contains.values` stay literal-only because every
+ * wire target demands a static value list — but the type checker
+ * needs a defined verdict for the `unwrap-list` arm so callers can
+ * compose ASTs that include it (the future B-phase wire pattern is
+ * `selected-any(prop, unwrap-list(...))` inside the CSQL emitter,
+ * which the representability checker will route through).
  *
- * Cross-package consumer contract: `ResolvedType` is exported so the
- * sister Expression type checker can stage the same compatibility table.
- * Both checkers route every value-bearing surface through the same
- * widening rules (numeric promotion, select-to-text, null-as-universal),
- * which they could not do without sharing the resolved-type alphabet.
- *
- * Public callers that surface a resolved type in user-facing strings
- * route through `describe(...)` so the `_any` sentinel renders as
- * `"null"` rather than the internal name.
+ * Like `ANY_TYPE`, the sentinel is internal-only. The
+ * compatibility table treats sequences as incompatible with every
+ * scalar type, including itself — there's no v1 operator that
+ * combines two sequences semantically. A future operator that
+ * accepts a sequence (e.g. `multi-select-contains` widening to
+ * accept a `ValueExpression` candidate list at the wire boundary)
+ * will route through a dedicated check rather than relying on the
+ * scalar compatibility table.
  */
-export type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
+export const SEQUENCE_TYPE = "_sequence" as const;
+
+/**
+ * Resolved type for any value-bearing surface — a
+ * `CasePropertyDataType` for declared properties, `ANY_TYPE` for
+ * null-literal compatibility, `SEQUENCE_TYPE` for `unwrap-list`-
+ * produced sequences.
+ *
+ * Every value-bearing surface (`resolveTermType`, `checkExpression`,
+ * `literalType`) routes through this alphabet so the compatibility
+ * widening rules (numeric promotion, select-to-text, null-as-
+ * universal) carry over uniformly. Public callers that surface a
+ * resolved type in user-facing strings route through `describe(...)`
+ * so the internal sentinels render as friendly names.
+ */
+export type ResolvedType =
+	| CasePropertyDataType
+	| typeof ANY_TYPE
+	| typeof SEQUENCE_TYPE;
 
 /**
  * Data types whose values support a total order — `gt`/`gte`/`lt`/`lte`
@@ -213,7 +240,7 @@ export type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
  * fuzzy match, a starts-with comparison, etc.) is preferable to
  * silently emitting a lexicographic compare.
  */
-export const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
+export const ORDERED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 	"int",
 	"decimal",
 	"date",
@@ -266,10 +293,16 @@ export const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 // separated strings in the same `PROPERTY_VALUE` field text uses, so
 // each match mode reaches the same Elasticsearch mechanism whether
 // the underlying property is text or a select kind.
-const MATCH_PROPERTY_TYPES_TEXT_SHAPED: ReadonlySet<CasePropertyDataType> =
-	new Set(["text", "single_select", "multi_select"]);
-const MATCH_PROPERTY_TYPES_FUZZY_DATE: ReadonlySet<CasePropertyDataType> =
-	new Set(["text", "single_select", "multi_select", "date", "datetime"]);
+const MATCH_PROPERTY_TYPES_TEXT_SHAPED: ReadonlySet<ResolvedType> =
+	new Set<ResolvedType>(["text", "single_select", "multi_select"]);
+const MATCH_PROPERTY_TYPES_FUZZY_DATE: ReadonlySet<ResolvedType> =
+	new Set<ResolvedType>([
+		"text",
+		"single_select",
+		"multi_select",
+		"date",
+		"datetime",
+	]);
 
 // Per-mode allow-list lookup. `Record<MatchMode, ...>` is exhaustive at
 // the type layer: adding a fifth match mode without an entry here is a
@@ -281,7 +314,7 @@ const MATCH_PROPERTY_TYPES_FUZZY_DATE: ReadonlySet<CasePropertyDataType> =
 // rather than chained ternaries.
 const MATCH_PROPERTY_TYPES_BY_MODE: Record<
 	MatchMode,
-	ReadonlySet<CasePropertyDataType>
+	ReadonlySet<ResolvedType>
 > = {
 	fuzzy: MATCH_PROPERTY_TYPES_TEXT_SHAPED,
 	phonetic: MATCH_PROPERTY_TYPES_TEXT_SHAPED,
@@ -445,11 +478,11 @@ function walk(
 /**
  * Apply the comparison-operand rules:
  *   1. Both operands' types must resolve. If either operand fails to
- *      resolve (e.g. unknown property, unknown input), `resolveTermType`
- *      pushes the failure on the operand's own path and returns
- *      `undefined`. We bail before the compatibility check so the
- *      author isn't bombarded with a cascading "type mismatch" error
- *      on top of the real one.
+ *      resolve (e.g. unknown property, unknown input, ill-typed
+ *      arithmetic), `checkExpression` pushes the failure on the
+ *      operand's own path and returns `undefined`. We bail before the
+ *      compatibility check so the author isn't bombarded with a
+ *      cascading "type mismatch" error on top of the real one.
  *   2. For ordering operators (`gt`/`gte`/`lt`/`lte`), both sides must
  *      be in `ORDERED_TYPES` (or be the `_any` null-sentinel). Strings,
  *      selects, and geopoints are explicitly rejected — see
@@ -466,17 +499,23 @@ function walk(
  * comparison is wrong" — the comparison-level error is the more
  * actionable framing, and the operand-resolution errors above already
  * carry their own per-side paths when the failure is operand-local.
+ *
+ * Operands are `ValueExpression` post-widen — comparisons can take
+ * arithmetic / conditional / count-aggregation expressions as well as
+ * the term-shaped operands the auto-wrap admits. The operand
+ * resolution dispatches into `checkExpression`, which short-circuits
+ * to `resolveTermType` for the `term` arm.
  */
 function checkComparison(
 	kind: ComparisonKind,
-	left: Term,
-	right: Term,
+	left: ValueExpression,
+	right: ValueExpression,
 	ctx: TypeContext,
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	const leftType = resolveTermType(left, ctx, errors, [...path, "left"]);
-	const rightType = resolveTermType(right, ctx, errors, [...path, "right"]);
+	const leftType = checkExpression(left, ctx, errors, [...path, "left"]);
+	const rightType = checkExpression(right, ctx, errors, [...path, "right"]);
 	if (leftType === undefined || rightType === undefined) return;
 
 	if (kind !== "eq" && kind !== "neq") {
@@ -505,12 +544,15 @@ function checkComparison(
 
 /**
  * Render a `ResolvedType` for inclusion in a user-facing error message.
- * Hides the internal `_any` sentinel — null literals appear as `null`
- * in the author's source, so that's the friendliest framing in the
- * error too.
+ * Hides the internal sentinels — `_any` (null) and `_sequence` (the
+ * `unwrap-list`-produced sequence) appear under their friendly names
+ * (`"null"` / `"sequence"`) since the internal underscored names
+ * don't appear anywhere in the author's source.
  */
 export function describe(t: ResolvedType): string {
-	return t === ANY_TYPE ? "null" : t;
+	if (t === ANY_TYPE) return "null";
+	if (t === SEQUENCE_TYPE) return "sequence";
+	return t;
 }
 
 // ---------- Per-operator semantic checks ----------
@@ -553,7 +595,7 @@ function checkIn(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	const leftType = resolveTermType(p.left, ctx, errors, [...path, "left"]);
+	const leftType = checkExpression(p.left, ctx, errors, [...path, "left"]);
 	if (leftType === undefined) return;
 	for (let i = 0; i < p.values.length; i++) {
 		const valType = literalType(p.values[i]);
@@ -592,6 +634,9 @@ function checkWithinDistance(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
+	// `property` stays a `PropertyRef` — the wire-side dispatch keys
+	// off the property name, so widening this slot to a value expression
+	// has no wire target. Resolve via `resolveTermType` directly.
 	const propType = resolveTermType(p.property, ctx, errors, [
 		...path,
 		"property",
@@ -602,7 +647,11 @@ function checkWithinDistance(
 			message: `within-distance requires a geopoint property; got '${describe(propType)}'.`,
 		});
 	}
-	const centerType = resolveTermType(p.center, ctx, errors, [
+	// `center` widens to `ValueExpression` — resolve via
+	// `checkExpression` so a coalesce-derived or arithmetic-derived
+	// coordinate string can drive the geo predicate alongside the
+	// natural search-input / session-user shapes.
+	const centerType = checkExpression(p.center, ctx, errors, [
 		...path,
 		"center",
 	]);
@@ -793,14 +842,24 @@ function checkAbsenceOperator(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	if (p.left.kind === "literal") {
+	// Literal-shaped operands are rejected as a category error. After
+	// the operand widening to `ValueExpression`, a literal arrives
+	// inside the `term` arm — pattern-match through the wrapper to
+	// keep the rejection in place. Higher-order ValueExpression arms
+	// (`arith`, `if`, `count`, etc.) are accepted: an arithmetic
+	// expression can resolve to absent at runtime ("is the per-unit
+	// ratio undefined?"), so the ill-formed framing only applies to
+	// pure-literal operands. The arm walks the `value` even after
+	// pushing the rejection error so any nested resolution failures
+	// inside the literal-bearing wrapper still surface.
+	if (p.left.kind === "term" && p.left.term.kind === "literal") {
 		errors.push({
 			path: [...path, "left"],
 			message: `Operator '${p.kind}' cannot be applied to a literal — a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
 		});
 		return;
 	}
-	resolveTermType(p.left, ctx, errors, [...path, "left"]);
+	checkExpression(p.left, ctx, errors, [...path, "left"]);
 }
 
 /**
@@ -844,14 +903,14 @@ function checkBetween(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	const leftType = resolveTermType(p.left, ctx, errors, [...path, "left"]);
+	const leftType = checkExpression(p.left, ctx, errors, [...path, "left"]);
 	if (leftType === undefined) return;
 
 	// Ordered-types check parallels the comparison checker's
 	// `gt`/`gte`/`lt`/`lte` arm — `_any` (the null sentinel) bypasses
 	// the check because `between(prop, null, null)` is meaningless but
-	// `_any` itself never reaches `left` (the schema requires a Term,
-	// not a literal-only slot).
+	// `_any` itself never reaches `left` (the schema requires a value-
+	// expression, not a literal-only slot).
 	if (leftType !== ANY_TYPE && !ORDERED_TYPES.has(leftType)) {
 		errors.push({
 			path,
@@ -866,7 +925,7 @@ function checkBetween(
 	// `typesCompatible` — same null-as-universal carry-over the `in`
 	// operator uses for its membership values.
 	if (p.lower !== undefined) {
-		const lowerType = resolveTermType(p.lower, ctx, errors, [...path, "lower"]);
+		const lowerType = checkExpression(p.lower, ctx, errors, [...path, "lower"]);
 		if (lowerType !== undefined && !typesCompatible(leftType, lowerType)) {
 			errors.push({
 				path: [...path, "lower"],
@@ -875,7 +934,7 @@ function checkBetween(
 		}
 	}
 	if (p.upper !== undefined) {
-		const upperType = resolveTermType(p.upper, ctx, errors, [...path, "upper"]);
+		const upperType = checkExpression(p.upper, ctx, errors, [...path, "upper"]);
 		if (upperType !== undefined && !typesCompatible(leftType, upperType)) {
 			errors.push({
 				path: [...path, "upper"],
@@ -884,17 +943,20 @@ function checkBetween(
 		}
 	}
 
-	// Literal-pair impossibility check. Only fires when both bounds
-	// are literal-shaped Terms with statically comparable JS values
-	// — Term refs to inputs / session fields don't reach this branch
-	// because their values are unknown at check time. The check uses
-	// JS-level `>` rather than a type-aware comparator: typed-date
-	// literals carry ISO strings whose lexicographic order matches
-	// chronological order ("2024-01-01" < "2024-12-31"), and numeric
-	// literals compare numerically by JS semantics. Booleans /
-	// strings without a `data_type` qualifier reach this branch too;
-	// they fail the ordered-types check above before getting here, so
-	// the literal-pair detector only sees ordered-typed literal pairs.
+	// Literal-pair impossibility check. After the operand widening,
+	// the bounds arrive as `ValueExpression`; the literal pair only
+	// reaches this branch when both bounds are the bare `term` lift
+	// of a `literal` term. Higher-order ValueExpression bounds
+	// (`arith` / `if` / `count` / search-input refs / etc.) reach
+	// runtime values, and `>` against runtime-computed expressions is
+	// undecidable here. The check uses JS-level `>` rather than a
+	// type-aware comparator: typed-date literals carry ISO strings
+	// whose lexicographic order matches chronological order
+	// ("2024-01-01" < "2024-12-31"), and numeric literals compare
+	// numerically by JS semantics. Booleans / strings without a
+	// `data_type` qualifier reach this branch too; they fail the
+	// ordered-types check above before getting here, so the literal-
+	// pair detector only sees ordered-typed literal pairs.
 	//
 	// Caveat for typed `datetime` literals: TZ-suffixed ISO strings
 	// can lex-disagree with UTC-instant ordering — e.g.,
@@ -905,20 +967,40 @@ function checkBetween(
 	// same shape, so this check is correct in practice; if a future
 	// surface admits TZ-suffixed datetimes the comparator needs to
 	// parse + compare instants instead of strings.
+	const lowerLit = unwrapLiteralOperand(p.lower);
+	const upperLit = unwrapLiteralOperand(p.upper);
 	if (
-		p.lower !== undefined &&
-		p.upper !== undefined &&
-		p.lower.kind === "literal" &&
-		p.upper.kind === "literal" &&
-		p.lower.value !== null &&
-		p.upper.value !== null &&
-		p.lower.value > p.upper.value
+		lowerLit !== undefined &&
+		upperLit !== undefined &&
+		lowerLit.value !== null &&
+		upperLit.value !== null &&
+		lowerLit.value > upperLit.value
 	) {
 		errors.push({
 			path,
-			message: `Operator 'between' has lower bound '${String(p.lower.value)}' greater than upper bound '${String(p.upper.value)}'; the interval is empty.`,
+			message: `Operator 'between' has lower bound '${String(lowerLit.value)}' greater than upper bound '${String(upperLit.value)}'; the interval is empty.`,
 		});
 	}
+}
+
+/**
+ * Unwrap a ValueExpression that is structurally a lifted literal
+ * Term and return the underlying `Literal`. Returns `undefined`
+ * for any other shape (bare term that isn't a literal, an `arith`
+ * expression, an `if`, etc.) so callers can dispatch on the
+ * "literal-pair" pattern without re-walking the AST.
+ *
+ * Used by the `between` literal-pair impossibility check, which
+ * only fires when both bounds are literal-shaped — runtime-computed
+ * values can't be statically compared.
+ */
+function unwrapLiteralOperand(
+	expr: ValueExpression | undefined,
+): Literal | undefined {
+	if (expr === undefined) return undefined;
+	if (expr.kind !== "term") return undefined;
+	if (expr.term.kind !== "literal") return undefined;
+	return expr.term;
 }
 
 /**
@@ -1413,6 +1495,535 @@ export function resolveTermType(
 	}
 }
 
+// ---------- ValueExpression resolution ----------
+//
+// `checkExpression(expr, ctx, errors, path)` is the value-side analogue
+// of `resolveTermType`: it walks a `ValueExpression` against a
+// `TypeContext`, resolves the expression's output type, and pushes any
+// per-arm or recursive errors onto the `errors` array.
+//
+// Per-arm rules (per the design spec
+// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
+// "Expression family", and the foundation plan's Task A6 type-rule
+// list):
+//
+//   - `term` — delegates to `resolveTermType` for the lifted Term.
+//   - `today` → `date`; `now` → `datetime` (wire-form constants).
+//   - `date-add` → same type as the `date` operand; `quantity` must
+//     resolve to a numeric type (int or decimal under the same
+//     promotion rule comparison operators use).
+//   - `date-coerce` → `date`; `datetime-coerce` → `datetime`. Each
+//     accepts a text-shaped operand (text / single_select /
+//     multi_select); the wire layer parses the string at evaluation.
+//   - `double` → `decimal`. Accepts any term whose type is text or
+//     numeric (the wire `double(...)` is a forced numeric coercion).
+//   - `arith` → numeric. Both operands must be numeric; result is
+//     `int` if both are `int`, otherwise `decimal` (the int×int=int /
+//     mixed=decimal promotion rule that mirrors Postgres + CCHQ wire
+//     semantics).
+//   - `concat` → `text`. Each part casts to text at evaluation, so no
+//     per-part type rule beyond resolution.
+//   - `coalesce` → the agreed type across `values`. Empty-string and
+//     null inputs coerce to null at evaluation, so the type checker
+//     uses `typesCompatible` to find the agreed type — first non-null
+//     non-sequence value's type wins, with subsequent values widened
+//     against it.
+//   - `if` → cond is type-checked recursively as a Predicate (must be
+//     well-typed; the rule's verdict is not a typed value because
+//     `cond` evaluates to boolean by construction). Both branches
+//     must agree on type via `typesCompatible`. Result is the
+//     branches' agreed type; if branches disagree, the verdict is
+//     `_any` (ANY_TYPE) and an error is pushed.
+//   - `switch` → similar to `if`. Each `case.when` literal must be
+//     compatible with `on`'s resolved type; each `case.then` and the
+//     `fallback` must agree on type. Result is the agreed type.
+//   - `count` → `int`. The relation walk is type-checked via
+//     `checkRelationPath`; the optional `where` clause is type-
+//     checked recursively in the destination scope via
+//     `checkInDestinationScope`.
+//   - `unwrap-list` → `_sequence` (the `SEQUENCE_TYPE` sentinel). The
+//     operand must be text-typed (the wire layer expects a JSON-
+//     encoded array string).
+//   - `format-date` → `text`. The `date` operand must resolve to
+//     `date` or `datetime`.
+//
+// Cross-family recursion: `if.cond` and `count.where` carry
+// Predicates, recursed via `walk(p, ctx, errors, path)` (the private
+// dispatcher). `switch.cases[].when` carries a `Literal` (not a
+// Predicate), so the recursion stops at the literal-type lookup.
+//
+// Error propagation: like `resolveTermType`, a resolution failure
+// returns `undefined` and pushes an error onto the path. Callers
+// short-circuit downstream compatibility checks on `undefined` to
+// avoid cascading mismatches. Per-operator semantic rules (e.g.
+// "arith requires numeric operands") attach to the operator's own
+// path, not to the operand's slot path; operand resolution errors
+// already carry their own per-side paths.
+
+/**
+ * Walk a `ValueExpression` against the supplied context and return
+ * its resolved type, pushing any per-arm errors onto `errors`.
+ * Returns `undefined` on resolution failure so callers can short-
+ * circuit downstream compatibility checks the same way
+ * `resolveTermType` does.
+ *
+ * Mutual recursion with `walk` (the Predicate dispatcher): `if.cond`
+ * / `count.where` route through `walk` so a Predicate violation
+ * inside an Expression surfaces with a path that threads through
+ * both ASTs. Mutual recursion with itself for value-bearing slots
+ * (`arith.left`, `if.then`, etc.).
+ */
+export function checkExpression(
+	expr: ValueExpression,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): ResolvedType | undefined {
+	switch (expr.kind) {
+		case "term":
+			// Delegate to the term-resolution path so unknown-property,
+			// unknown-input, and originating-scope-pin errors surface
+			// with the same shape they do for bare-term operands. The
+			// path threads through unchanged because the `term` arm is a
+			// structural lifter — the underlying Term is the
+			// authoring-time identity from the caller's perspective.
+			return resolveTermType(expr.term, ctx, errors, path);
+
+		case "today":
+			return "date";
+
+		case "now":
+			return "datetime";
+
+		case "date-add": {
+			// Resolve both operands first so per-side errors surface
+			// uniformly. The operator-level rule applies after operand
+			// resolution: `date` must be `date` or `datetime`;
+			// `quantity` must be numeric.
+			const dateType = checkExpression(expr.date, ctx, errors, [
+				...path,
+				"date",
+			]);
+			const quantityType = checkExpression(expr.quantity, ctx, errors, [
+				...path,
+				"quantity",
+			]);
+			if (dateType !== undefined && !isDateOrDatetime(dateType)) {
+				errors.push({
+					path: [...path, "date"],
+					message: `date-add requires a date or datetime; got '${describe(dateType)}'.`,
+				});
+			}
+			if (quantityType !== undefined && !isNumeric(quantityType)) {
+				errors.push({
+					path: [...path, "quantity"],
+					message: `date-add requires a numeric quantity (int or decimal); got '${describe(quantityType)}'.`,
+				});
+			}
+			// Result type follows the `date` operand's type — `date`
+			// stays `date`, `datetime` stays `datetime`. On resolution
+			// failure return undefined; on type-rule failure return
+			// `date` defensively (the canonical no-op default for
+			// downstream compatibility checks). The interval enum
+			// (`DATE_ADD_INTERVALS`) is schema-validated, so the
+			// runtime payload is always one of the seven; no per-
+			// interval rule applies at this layer.
+			void (expr.interval satisfies DateAddInterval);
+			if (dateType === undefined) return undefined;
+			return dateType;
+		}
+
+		case "date-coerce":
+		case "datetime-coerce": {
+			// Both coercion operators accept a text-shaped operand and
+			// produce the corresponding date / datetime type. The
+			// allow-list mirrors `MATCH_PROPERTY_TYPES_TEXT_SHAPED` —
+			// `text` / `single_select` / `multi_select` all wire-store
+			// as text, so each is admissible source for the coercion.
+			// `_any` (the null sentinel) bypasses the check —
+			// `date-coerce(literal(null))` is well-typed at the AST and
+			// degenerates at runtime.
+			const inner = checkExpression(expr.value, ctx, errors, [
+				...path,
+				"value",
+			]);
+			if (
+				inner !== undefined &&
+				inner !== ANY_TYPE &&
+				!TEXT_SHAPED_TYPES.has(inner)
+			) {
+				errors.push({
+					path: [...path, "value"],
+					message: `${expr.kind} requires a text-shaped operand (text / single_select / multi_select); got '${describe(inner)}'.`,
+				});
+			}
+			return expr.kind === "date-coerce" ? "date" : "datetime";
+		}
+
+		case "double": {
+			// CSQL's `double(...)` is a forced numeric coercion. The
+			// operand must be text or numeric — booleans coerce to
+			// text upstream so they pass the text gate. `_any` bypasses
+			// uniformly. Coordinates / dates / datetimes / times are
+			// rejected because their wire-form numeric coercion is
+			// undefined.
+			const inner = checkExpression(expr.value, ctx, errors, [
+				...path,
+				"value",
+			]);
+			if (
+				inner !== undefined &&
+				inner !== ANY_TYPE &&
+				!TEXT_SHAPED_TYPES.has(inner) &&
+				!isNumeric(inner)
+			) {
+				errors.push({
+					path: [...path, "value"],
+					message: `double requires a text-shaped or numeric operand; got '${describe(inner)}'.`,
+				});
+			}
+			return "decimal";
+		}
+
+		case "arith": {
+			// Both operands must resolve to numeric types. Result type:
+			// `int` if both operands are `int`; otherwise `decimal`.
+			// Same int×int=int / mixed=decimal promotion rule that
+			// mirrors Postgres' numeric coercion and CCHQ's wire-layer
+			// behavior. `_any` (null literal) bypasses the numeric
+			// check — `arith(prop, literal(null), "+")` is well-typed
+			// at the AST and degenerates at runtime.
+			const leftType = checkExpression(expr.left, ctx, errors, [
+				...path,
+				"left",
+			]);
+			const rightType = checkExpression(expr.right, ctx, errors, [
+				...path,
+				"right",
+			]);
+			if (
+				leftType !== undefined &&
+				leftType !== ANY_TYPE &&
+				!isNumeric(leftType)
+			) {
+				errors.push({
+					path: [...path, "left"],
+					message: `arith requires numeric operands; left got '${describe(leftType)}'.`,
+				});
+			}
+			if (
+				rightType !== undefined &&
+				rightType !== ANY_TYPE &&
+				!isNumeric(rightType)
+			) {
+				errors.push({
+					path: [...path, "right"],
+					message: `arith requires numeric operands; right got '${describe(rightType)}'.`,
+				});
+			}
+			void (expr.op satisfies ArithOp);
+			if (leftType === undefined || rightType === undefined) {
+				return undefined;
+			}
+			// int×int=int — both operands resolved as `int` produces
+			// `int`. Any non-int (including `_any`) widens to decimal,
+			// matching the comparison-side numeric-promotion rule.
+			return leftType === "int" && rightType === "int" ? "int" : "decimal";
+		}
+
+		case "concat": {
+			// Each part casts to text at evaluation — no per-part type
+			// rule beyond resolution. Walk every part so per-part
+			// errors surface; the operator's resolved type is `text`
+			// regardless. `parts` is non-empty by schema; the loop
+			// covers every part.
+			for (let i = 0; i < expr.parts.length; i++) {
+				checkExpression(expr.parts[i], ctx, errors, [...path, "parts", i]);
+			}
+			return "text";
+		}
+
+		case "coalesce": {
+			// `values` must agree on type (after empty-string-coerce-
+			// to-null). Walk each value, accumulate the agreed type via
+			// `typesCompatible`. The first concrete (non-`_any`) value
+			// becomes the seed; subsequent values must be compatible
+			// with it. If a value is `_any` (null literal), it widens
+			// freely. If the seed and a later value disagree, attach
+			// the mismatch to the disagreeing slot.
+			let agreed: ResolvedType | undefined;
+			for (let i = 0; i < expr.values.length; i++) {
+				const t = checkExpression(expr.values[i], ctx, errors, [
+					...path,
+					"values",
+					i,
+				]);
+				if (t === undefined) continue;
+				if (t === ANY_TYPE) continue;
+				if (agreed === undefined || agreed === ANY_TYPE) {
+					agreed = t;
+					continue;
+				}
+				if (!typesCompatible(agreed, t)) {
+					errors.push({
+						path: [...path, "values", i],
+						message: `coalesce values must agree on type; '${describe(t)}' is not comparable with the established '${describe(agreed)}'.`,
+					});
+				}
+			}
+			// Default to `_any` if every value resolved to null — the
+			// expression is structurally `coalesce(null, null, ...)`,
+			// equivalent to `null` at runtime.
+			return agreed ?? ANY_TYPE;
+		}
+
+		case "if": {
+			// Recursively type-check `cond` as a Predicate. The
+			// dispatcher (`walk`) accumulates errors with path-
+			// threading so a violation deep inside the condition
+			// surfaces precisely. Then resolve both branches and
+			// require they agree on type via `typesCompatible`.
+			walk(expr.cond, ctx, errors, [...path, "if", "cond"]);
+			const thenType = checkExpression(expr.then, ctx, errors, [
+				...path,
+				"if",
+				"then",
+			]);
+			const elseType = checkExpression(expr.else, ctx, errors, [
+				...path,
+				"if",
+				"else",
+			]);
+			return resolveBranchAgreement(thenType, elseType, errors, path, "if");
+		}
+
+		case "switch": {
+			// Resolve `on` first so the per-case `when` literals can be
+			// compared against it. Each `case.when` is a `Literal` (not
+			// a Predicate), so the literal-type lookup runs directly.
+			const onType = checkExpression(expr.on, ctx, errors, [
+				...path,
+				"switch",
+				"on",
+			]);
+			let agreed: ResolvedType | undefined;
+			for (let i = 0; i < expr.cases.length; i++) {
+				const c = expr.cases[i];
+				const whenType = literalType(c.when);
+				if (onType !== undefined && !typesCompatible(onType, whenType)) {
+					errors.push({
+						path: [...path, "switch", "cases", i, "when"],
+						message: `switch case 'when' literal '${describe(whenType)}' is not comparable with switch.on type '${describe(onType)}'.`,
+					});
+				}
+				const thenType = checkExpression(c.then, ctx, errors, [
+					...path,
+					"switch",
+					"cases",
+					i,
+					"then",
+				]);
+				if (thenType === undefined) continue;
+				if (thenType === ANY_TYPE) {
+					agreed = agreed ?? ANY_TYPE;
+					continue;
+				}
+				if (agreed === undefined || agreed === ANY_TYPE) {
+					agreed = thenType;
+					continue;
+				}
+				if (!typesCompatible(agreed, thenType)) {
+					errors.push({
+						path: [...path, "switch", "cases", i, "then"],
+						message: `switch case 'then' type '${describe(thenType)}' is not comparable with the established '${describe(agreed)}'.`,
+					});
+				}
+			}
+			const fallbackType = checkExpression(expr.fallback, ctx, errors, [
+				...path,
+				"switch",
+				"fallback",
+			]);
+			if (
+				fallbackType !== undefined &&
+				fallbackType !== ANY_TYPE &&
+				agreed !== undefined &&
+				agreed !== ANY_TYPE &&
+				!typesCompatible(agreed, fallbackType)
+			) {
+				errors.push({
+					path: [...path, "switch", "fallback"],
+					message: `switch fallback type '${describe(fallbackType)}' is not comparable with the established '${describe(agreed)}'.`,
+				});
+			}
+			return agreed ?? fallbackType ?? ANY_TYPE;
+		}
+
+		case "count": {
+			// Relational aggregation: walk `via` to a destination scope,
+			// then type-check the optional `where` clause in that
+			// scope. The `count` arm always returns `int` — the wire
+			// targets all return integer cardinality.
+			//
+			// Top-level `via.kind === "self"` is meaningless ("count
+			// the current case as itself" is always 1) but the
+			// representability checker / authoring UI catches that
+			// pattern; the type checker leaves the rule as a future
+			// reduction surface (parallel with `exists(self)` /
+			// `missing(self)` rejection in `checkRelationalQuantifier`).
+			const origin = ctx.currentCaseType;
+			if (origin === undefined) {
+				errors.push({
+					path: [...path, "count"],
+					message:
+						"count requires a current case-type scope; the originating scope must be set on the type-check context.",
+				});
+				return "int";
+			}
+			if (expr.via.kind !== "self") {
+				const destination = checkRelationPath(expr.via, origin, ctx, errors, [
+					...path,
+					"count",
+					"via",
+				]);
+				if (destination !== undefined && expr.where !== undefined) {
+					checkInDestinationScope(expr.where, destination, ctx, errors, [
+						...path,
+						"count",
+						"where",
+					]);
+				}
+			} else if (expr.where !== undefined) {
+				// `via.kind === "self"` — the scope rebinding is a no-op,
+				// but the where-clause is still walked in the current
+				// scope so its rule violations surface.
+				walk(expr.where, ctx, errors, [...path, "count", "where"]);
+			}
+			return "int";
+		}
+
+		case "unwrap-list": {
+			// Operand must be text-shaped — the wire form expects a
+			// JSON-encoded array string. Result is the sequence
+			// sentinel; v1 has no AST consumer for it (see
+			// `SEQUENCE_TYPE`'s JSDoc) but the type checker stages the
+			// verdict for B-phase emission.
+			const inner = checkExpression(expr.value, ctx, errors, [
+				...path,
+				"value",
+			]);
+			if (
+				inner !== undefined &&
+				inner !== ANY_TYPE &&
+				!TEXT_SHAPED_TYPES.has(inner)
+			) {
+				errors.push({
+					path: [...path, "value"],
+					message: `unwrap-list requires a text-shaped operand; got '${describe(inner)}'.`,
+				});
+			}
+			return SEQUENCE_TYPE;
+		}
+
+		case "format-date": {
+			// Operand must be date or datetime. Result is text. The
+			// `pattern` slot is schema-validated (preset enum or non-
+			// empty string), so no per-pattern rule applies here.
+			const inner = checkExpression(expr.date, ctx, errors, [...path, "date"]);
+			if (inner !== undefined && !isDateOrDatetime(inner)) {
+				errors.push({
+					path: [...path, "date"],
+					message: `format-date requires a date or datetime; got '${describe(inner)}'.`,
+				});
+			}
+			return "text";
+		}
+
+		default: {
+			// Exhaustiveness assertion — adding a kind to
+			// `ValueExpression` without a parallel arm here is a TS
+			// compile-time error. The runtime throw guards untyped
+			// boundaries that bypass the type system.
+			const _exhaustive: never = expr;
+			throw new Error(
+				`checkExpression: unhandled expression kind ${String(_exhaustive)}`,
+			);
+		}
+	}
+}
+
+// ---------- ValueExpression rule helpers ----------
+
+/**
+ * Numeric (`int` or `decimal`) — the operand-type set for `arith`'s
+ * operands and `date-add.quantity`. Sharing the helper keeps the
+ * numeric-shape predicate consistent across every arm that uses it
+ * and surfaces a future widening (e.g. a separate `bigint` type) as
+ * a single edit site.
+ */
+function isNumeric(t: ResolvedType): boolean {
+	return t === "int" || t === "decimal";
+}
+
+/**
+ * Date or datetime — the operand-type set for `date-add.date` and
+ * `format-date.date`. `time` is intentionally excluded; CCHQ's wire
+ * `date-add` doesn't recognise time-only operands and `format-date`
+ * has no rendering pattern that fits a bare time.
+ */
+function isDateOrDatetime(t: ResolvedType): boolean {
+	return t === "date" || t === "datetime";
+}
+
+/**
+ * Text-shaped types — the operand-type set for `date-coerce` /
+ * `datetime-coerce` / `unwrap-list` / `double` (text branch). Same
+ * set the match-mode allow-list uses; sharing keeps the "what
+ * counts as a text-shaped read" decision in one place.
+ */
+const TEXT_SHAPED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
+	"text",
+	"single_select",
+	"multi_select",
+]);
+
+/**
+ * Decide the agreed type of two branch arms (for `if` and per-case
+ * `then`/`fallback` agreement in `switch`). Routes:
+ *   - Either side `undefined` → return the other (resolution failure
+ *     already pushed the error elsewhere).
+ *   - Either side `_any` → return the other (null-as-universal).
+ *   - Compatible per `typesCompatible` → return one (they widen the
+ *     same way at every consumer).
+ *   - Incompatible → push an error on the operator's path and return
+ *     `_any` defensively so downstream compatibility checks don't
+ *     cascade.
+ *
+ * The function attaches the error to the operator's own path
+ * (`[...path, operatorKind]`), not to a branch's slot, because the
+ * mismatch is a property of the operator's branch agreement rather
+ * than of either branch alone. Same convention as `checkComparison`'s
+ * operator-level error attachment.
+ */
+function resolveBranchAgreement(
+	thenType: ResolvedType | undefined,
+	elseType: ResolvedType | undefined,
+	errors: CheckError[],
+	path: CheckPath,
+	operatorKind: string,
+): ResolvedType | undefined {
+	if (thenType === undefined) return elseType;
+	if (elseType === undefined) return thenType;
+	if (thenType === ANY_TYPE) return elseType;
+	if (elseType === ANY_TYPE) return thenType;
+	if (typesCompatible(thenType, elseType)) return thenType;
+	errors.push({
+		path: [...path, operatorKind],
+		message: `${operatorKind} branches must agree on type; got '${describe(thenType)}' and '${describe(elseType)}'.`,
+	});
+	return ANY_TYPE;
+}
+
 /**
  * Map a literal to its data type. Three resolution sources, in order:
  *   1. `lit.data_type` — explicit, set by the typed builders
@@ -1460,12 +2071,15 @@ export function literalType(lit: Literal): ResolvedType {
 
 /**
  * Decide whether two resolved types may participate in a comparison.
- * Four classes of widening are in play:
+ * Five classes of widening are in play:
  *   1. Null-as-universal — the `_any` sentinel (the resolved type for
- *      a `null` literal) is compatible with every declared type.
- *      Authors writing `eq(prop, literal(null))` are filtering for
- *      "this property is unset," which is a valid predicate at every
- *      wire target; rejecting it would force a spurious workaround.
+ *      a `null` literal) is compatible with every declared type
+ *      *except* `_sequence`. Authors writing
+ *      `eq(prop, literal(null))` are filtering for "this property is
+ *      unset," which is a valid predicate at every scalar wire target;
+ *      rejecting it would force a spurious workaround. Sequences sit
+ *      outside the null-as-universal rule because no v1 operator
+ *      compares a sequence against any scalar.
  *   2. Numeric promotion — `int` and `decimal` compare freely. Authors
  *      writing `eq(prop("patient", "age"), literal(42))` against a
  *      decimal-typed `age` would otherwise see a spurious mismatch.
@@ -1474,7 +2088,17 @@ export function literalType(lit: Literal): ResolvedType {
  *      enum constraint via `jsonSchema.ts`, not at predicate-check
  *      time), so a literal text comparison against an option's value
  *      is the natural pattern.
- *   4. Same-type — every other pair must match exactly. Date kinds
+ *   4. Sequence isolation — `_sequence` (the `unwrap-list` sentinel)
+ *      is incompatible with every other type, including itself.
+ *      Sequences don't participate in v1's scalar compatibility
+ *      table; the only authoring pattern that consumes a sequence is
+ *      the future `selected-any(prop, unwrap-list(...))` CSQL
+ *      emission, which routes through a dedicated check rather than
+ *      this table. Locking incompatibility universally here means
+ *      any v1 author who composes a sequence into a comparison
+ *      slot gets a clear "sequence not comparable" error rather than
+ *      a silent widening.
+ *   5. Same-type — every other pair must match exactly. Date kinds
  *      (`date`, `datetime`, `time`) intentionally don't widen across
  *      each other; the wire targets handle them with distinct
  *      functions, and conflating them produces ambiguous results.
@@ -1485,6 +2109,12 @@ export function literalType(lit: Literal): ResolvedType {
  * "canonicalize then compare" detour.
  */
 export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
+	// Sequences sit outside the scalar compatibility table — sequence-
+	// vs-anything (including sequence-vs-sequence) is structurally
+	// rejected because no v1 operator composes two sequences. Sequence-
+	// consuming patterns (B-phase `selected-any(prop, unwrap-list(...))`)
+	// route through a dedicated check, not this table.
+	if (a === SEQUENCE_TYPE || b === SEQUENCE_TYPE) return false;
 	if (a === ANY_TYPE || b === ANY_TYPE) return true;
 	if (a === b) return true;
 	// int / decimal are mutually comparable.

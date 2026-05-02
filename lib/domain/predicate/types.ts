@@ -1,38 +1,64 @@
 // lib/domain/predicate/types.ts
 //
-// Predicate AST. Source of truth for every filter, sort key, calculated
-// column, search input default, and default search filter in the case-list
-// and search system. Compiled to CommCare XPath/CSQL at HQ wire emission
-// and to Kysely query-builder calls at runtime — never round-tripped
-// through strings.
+// Two-family AST: the boolean-valued **Predicate** family and the
+// value-bearing **ValueExpression** family. Together they form the
+// authoring source of truth for every filter, sort key, calculated
+// column, search-input default, and default search filter in the case-
+// list and search system. Compiled to CommCare XPath/CSQL at HQ wire
+// emission and to Kysely query-builder calls at runtime — never
+// round-tripped through strings.
 //
-// Why an AST instead of strings: every authored predicate must compile to
-// two different targets (CommCare XPath/CSQL going up to HQ, Kysely SQL
-// running locally) AND drive an editing UI. A string-only representation
-// would force a parser at every boundary; storing the AST keeps each
-// surface as a one-way emitter and locks the semantics in one place.
-// Concretely, this is the structural defense against the
-// accretion-and-untyped-strings pattern that produced CommCare HQ's
-// case-search XPath dialect over 25 years — every new capability there
-// became another function added to the same untyped expression
-// language. By forcing every authored predicate through this typed
-// AST, that pattern is structurally prevented here. (See the design
-// spec at docs/superpowers/specs/2026-04-30-case-list-search-design.md
+// Why an AST instead of strings: every authored predicate or
+// expression must compile to two different targets (CommCare
+// XPath/CSQL going up to HQ, Kysely SQL running locally) AND drive an
+// editing UI. A string-only representation would force a parser at
+// every boundary; storing the AST keeps each surface as a one-way
+// emitter and locks the semantics in one place. Concretely, this is
+// the structural defense against the accretion-and-untyped-strings
+// pattern that produced CommCare HQ's case-search XPath dialect over
+// 25 years — every new capability there became another function added
+// to the same untyped expression language. By forcing every authored
+// predicate / expression through this typed AST, that pattern is
+// structurally prevented here. (See the design spec at
+// docs/superpowers/specs/2026-04-30-case-list-search-design.md
 // "Design properties — the quality bar" for the full rationale.)
+//
+// Why one package, not two: predicates ARE expressions that resolve
+// to boolean — they are the boolean-typed arm of the broader
+// expression family. Predicate operators carry `ValueExpression`
+// operands so an arithmetic expression can drive a comparison
+// (`gt(add(prop, literal(1)), literal(5))`); `ValueExpression` arms
+// like `if` / `switch` / `count` carry `Predicate` clauses so a
+// boolean condition can drive a value selection. The two families
+// reference each other through `z.lazy(...)` within this single
+// module, the canonical Zod pattern for self-recursion through
+// discriminated unions; collapsing them into one module eliminates
+// the cross-package z.lazy that an earlier shape needed and lets
+// every consumer import both families through one barrel. The Term
+// shapes are shared verbatim between the families — a `case-property`
+// term, a `search-input` term, a `session-context` term, a typed
+// literal — and the ValueExpression's `term` arm is the structural
+// lifter that admits any Term where a value is expected.
 //
 // The AST uses Zod-discriminated unions on a `kind` field, matching
 // Nova's existing patterns (see `lib/domain/fields/index.ts` for the
-// flagship example). New operators are explicit additions to the union;
-// behavior is never tucked under existing kinds via hidden state.
+// flagship example). New operators are explicit additions to the
+// union; behavior is never tucked under existing kinds via hidden
+// state.
 //
-// Recursive shape note: `and` / `or` / `not` / `when-input-present` /
-// `exists` / `missing` reference the predicate union themselves. The
-// cycle goes through a `z.discriminatedUnion(...)` (not a single
-// self-referencing object), so the cleanest Zod 4 fallback documented
-// for union recursion applies — each recursive slot wraps its
-// predicate reference in `z.lazy(...)`, and `predicateSchema` carries
-// an explicit `z.ZodType<Predicate>` annotation. The block below the
-// operators explains why.
+// Recursive shape note: both unions carry self-recursive arms (`and`
+// / `or` / `not` / `when-input-present` / `exists` / `missing` on the
+// Predicate side; `arith` / `concat` / `if` / `switch` / `count` /
+// `unwrap-list` / `format-date` / `date-add` / `date-coerce` /
+// `datetime-coerce` / `double` / `coalesce` / `term` on the
+// ValueExpression side, with `if` / `switch` / `count` also crossing
+// into Predicate). Every cycle goes through a
+// `z.discriminatedUnion(...)` (not a single self-referencing object),
+// so the cleanest Zod 4 fallback documented for union recursion
+// applies — each recursive slot wraps its schema reference in
+// `z.lazy(...)`, and each union schema carries an explicit
+// `z.ZodType<...>` annotation. The block above each schema's union
+// declaration explains why.
 
 import { z } from "zod";
 import { casePropertyDataTypeSchema } from "../blueprint";
@@ -547,6 +573,386 @@ export const termSchema = z.discriminatedUnion("kind", [
 ]);
 export type Term = z.infer<typeof termSchema>;
 
+// ---------- ValueExpression operators (anything that resolves to a value) ----------
+//
+// `ValueExpression` is the value-bearing sister AST to `Predicate`.
+// Every value slot in the system — calculated-column expressions,
+// search-input defaults, sort-calculation keys, the date argument to
+// the late-flag column, the source of an ID-mapping column,
+// arithmetic / conditional operands inside a Predicate's comparison
+// — composes through this union. The discriminator carries the
+// operator name; arms split by structural shape rather than by output
+// type so the schema can validate each arm's per-operator rules
+// independently of the type checker (which adds the
+// type-compatibility layer).
+//
+// **The 14 arms (per the design spec at
+// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
+// "Expression family"):**
+//
+//   - `term` — structural lifter for any `Term`. Lets a property /
+//     input / session ref / literal flow through any value slot.
+//   - `today` / `now` — discriminator-only date / datetime constants.
+//     `today` resolves to the project-timezone ISO date; `now` resolves
+//     to the UTC ISO datetime.
+//   - `date-add` — `date + (interval × quantity)` arithmetic. Wire
+//     emission diverges per dialect: CSQL emits the named `date-add`
+//     value function; the on-device dialect supports day-only
+//     intervals via XPath operator arithmetic and rejects month / year
+//     intervals at the representability checker (B5).
+//   - `date-coerce` / `datetime-coerce` — string → typed date /
+//     datetime via CommCare's wire `date(...)` / `datetime(...)`
+//     value functions.
+//   - `double` — forced numeric coercion via CSQL's `double(...)`
+//     value function, matching CCHQ's wire form.
+//   - `arith` — five-op numeric arithmetic (`+` / `-` / `*` / `div` /
+//     `mod`), the CCHQ-vocabulary names. The discriminator collapses
+//     all five into one arm because the operand shape is identical
+//     and the wire emission is symmetric.
+//   - `concat` — variadic string concatenation. Each part casts to
+//     text at evaluation time.
+//   - `coalesce` — first-non-empty fallback chain. Empty values
+//     coerce to null at evaluation time, so every dialect's evaluator
+//     short-circuits on the first non-null / non-empty input.
+//   - `if` — boolean conditional with eager evaluation of both
+//     branches. The condition is a `Predicate` (cross-family
+//     reference); the branches are `ValueExpression`.
+//   - `switch` — value-driven multi-case selector. The discriminator
+//     value (`on`) compares against each case's `when` literal; the
+//     first match wins. `fallback` is the no-match value.
+//   - `count` — relational aggregation. Returns the cardinality of
+//     cases reachable along `via` whose `where` predicate (optional)
+//     holds. The "value, not predicate" decision lets `count(...) > 2`
+//     compose naturally as `gt(count(...), literal(2))` rather than
+//     a special-case predicate.
+//   - `unwrap-list` — CSQL's `unwrap-list` value function: pull a
+//     JSON-encoded array stored in a property and surface it as a
+//     sequence of values. v1 has no AST consumer for the resulting
+//     sequence type — `multi-select-contains.values` and `in.values`
+//     stay literal-only because the wire targets demand a static
+//     value list — but the arm is part of the persisted-shape
+//     contract, so it lives in the AST today and the CSQL emitter
+//     will route it into `selected-any(prop, unwrap-list(...))` at
+//     wire-emit time when that pattern lands in B-phase.
+//   - `format-date` — date / datetime → text via CommCare's
+//     `format-date(date, pattern)`. The pattern slot accepts the
+//     three preset names (`short` / `long` / `iso`) plus an arbitrary
+//     pattern string for advanced authors.
+//
+// **Cross-family cycle:** the `if` and `switch` arms carry
+// `Predicate` operands (`cond` and `cases[].when` respectively, with
+// `count.where` also predicate-typed), and Predicate operator schemas
+// below (the eight widened operand sites — see the next section)
+// carry `ValueExpression` operands. The cycle goes through
+// `z.lazy(...)` on every cross-reference: each ValueExpression arm
+// that references `predicateSchema` wraps the reference in
+// `z.lazy(() => predicateSchema)`, and each Predicate operator arm
+// that references `valueExpressionSchema` wraps it in
+// `z.lazy(() => valueExpressionSchema)`. Self-recursion within
+// ValueExpression follows the same pattern (`z.lazy(() =>
+// valueExpressionSchema)` for `arith.left` etc.). Every cycle
+// resolves at first-parse time, when both `const` bindings are
+// complete; declaration order in the file does not matter for the
+// cycle, only for `discriminatedUnion(...)`'s eager arm-shape read.
+
+/**
+ * Closed set of `arith` operators. CCHQ's wire vocabulary names —
+ * `+` / `-` / `*` are the standard XPath arithmetic operators; `div`
+ * and `mod` use the CCHQ-style spelled-out names rather than `/`
+ * (the XPath path separator) and `%` (which has no XPath meaning).
+ * Authors compose `arith(prop, literal(1), "+")` rather than parsing
+ * an infix expression.
+ *
+ * Pattern mirrors `COMPARISON_KINDS` / `MATCH_MODES` /
+ * `MULTI_SELECT_QUANTIFIERS` / `DISTANCE_UNITS` — a top-level `as
+ * const` tuple feeds the schema via `z.enum(...)`, and `ArithOp`
+ * derives from the same source so authoring-time `op` values share
+ * one declaration.
+ */
+export const ARITH_OPS = ["+", "-", "*", "div", "mod"] as const;
+export type ArithOp = (typeof ARITH_OPS)[number];
+
+/**
+ * Closed set of `date-add` interval kinds. The canonical CCHQ value-
+ * function set verified at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`
+ * — CSQL accepts each via the `date-add` / `datetime-add` value
+ * functions; the on-device dispatcher does not register a handler
+ * (B5 representability checker rejects non-day intervals for
+ * on-device emission, and the on-device emitter falls back to
+ * XPath operator arithmetic for `days`-only).
+ *
+ * Same `as const` pattern as `ARITH_OPS`. Adding an interval here
+ * widens the schema's `interval` enum; the on-device emitter and
+ * the representability checker both have to grow new arms in
+ * lockstep, surfaced via the exhaustive switch over `DATE_ADD_INTERVALS`.
+ */
+export const DATE_ADD_INTERVALS = [
+	"seconds",
+	"minutes",
+	"hours",
+	"days",
+	"weeks",
+	"months",
+	"years",
+] as const;
+export type DateAddInterval = (typeof DATE_ADD_INTERVALS)[number];
+
+/**
+ * Closed set of preset `format-date` patterns. The three preset names
+ * are CommCare's wire-vocabulary aliases — `short` (locale-default
+ * short form), `long` (locale-default long form), `iso` (ISO 8601
+ * date-only). Authors who need a custom pattern pass an arbitrary
+ * string at the `format-date` builder, which the schema admits via
+ * the `string` branch of the `pattern` union.
+ *
+ * Surfacing the preset names as a closed enum lets the type checker
+ * recognise the canonical patterns and lets a UI surface render
+ * them as preset-card affordances rather than free-text inputs. The
+ * arbitrary-string branch retains the full CCHQ pattern vocabulary
+ * for advanced cases.
+ */
+export const FORMAT_DATE_PRESETS = ["short", "long", "iso"] as const;
+export type FormatDatePreset = (typeof FORMAT_DATE_PRESETS)[number];
+
+// ---------- ValueExpression arm schemas ----------
+//
+// Each operator's schema lives below as a named `const`, mirroring
+// the per-arm pattern Predicate operators use. ValueExpression-side
+// recursion (`arith.left` references `valueExpressionSchema`,
+// `if.then` references `valueExpressionSchema`, etc.) wraps the
+// reference in `z.lazy(...)`. Cross-family recursion into
+// `predicateSchema` (the `if.cond`, `switch.cases[].when` (literal,
+// not predicate — see below), `count.where` slots) wraps via
+// `z.lazy(() => predicateSchema)`.
+//
+// Why one schema per operator instead of inlining them in the
+// `discriminatedUnion(...)` call: same as the Predicate side —
+// `z.discriminatedUnion` requires each member to be a single object
+// schema carrying the discriminant key. Defining each as a named
+// const keeps the union list readable and lets each operator's
+// contract live next to its discriminator declaration.
+
+/**
+ * Structural lifter: any `Term` becomes a `ValueExpression` of
+ * `kind: "term"`. Builders auto-wrap Term-shaped inputs at the
+ * call site (see `builders.ts:toValueExpression`), so authors call
+ * `eq(prop("name"), literal("Alice"))` and the predicate's
+ * `left` / `right` slots receive a ValueExpression-of-Term without
+ * an explicit wrapper. The arm exists in the schema so the wire
+ * emitters and the type checker have a single dispatch shape on
+ * the value side.
+ */
+const valueExpressionTermSchema = z.object({
+	kind: z.literal("term"),
+	term: termSchema,
+});
+
+const todaySchema = z.object({ kind: z.literal("today") });
+const nowSchema = z.object({ kind: z.literal("now") });
+
+const dateAddSchema = z.object({
+	kind: z.literal("date-add"),
+	date: z.lazy(() => valueExpressionSchema),
+	interval: z.enum(DATE_ADD_INTERVALS),
+	quantity: z.lazy(() => valueExpressionSchema),
+});
+
+const dateCoerceSchema = z.object({
+	kind: z.literal("date-coerce"),
+	value: z.lazy(() => valueExpressionSchema),
+});
+
+const datetimeCoerceSchema = z.object({
+	kind: z.literal("datetime-coerce"),
+	value: z.lazy(() => valueExpressionSchema),
+});
+
+const doubleSchema = z.object({
+	kind: z.literal("double"),
+	value: z.lazy(() => valueExpressionSchema),
+});
+
+const arithSchema = z.object({
+	kind: z.literal("arith"),
+	op: z.enum(ARITH_OPS),
+	left: z.lazy(() => valueExpressionSchema),
+	right: z.lazy(() => valueExpressionSchema),
+});
+
+/**
+ * `concat`'s `parts` is a non-empty list. An empty `concat()` is the
+ * empty string — the canonical authoring shape for that intent is
+ * `literal("")`, so reject the degenerate shape at the schema. The
+ * tuple-with-rest produces `[ValueExpression, ...ValueExpression[]]`
+ * rather than `ValueExpression[]`, so construction-site object
+ * literals like `{ kind: "concat", parts: [] }` fail at compile time
+ * rather than only at parse — same defense `andSchema.clauses` uses.
+ */
+const concatSchema = z.object({
+	kind: z.literal("concat"),
+	parts: z.tuple(
+		[z.lazy(() => valueExpressionSchema)],
+		z.lazy(() => valueExpressionSchema),
+	),
+});
+
+/**
+ * `coalesce`'s `values` is non-empty for the same reason `concat.parts`
+ * is — an empty `coalesce()` has no fallback to return; the canonical
+ * shape for "always null" is `literal(null)`, which the schema admits
+ * via the `term` arm. Tuple-with-rest enforces the constraint at the
+ * type layer.
+ */
+const coalesceSchema = z.object({
+	kind: z.literal("coalesce"),
+	values: z.tuple(
+		[z.lazy(() => valueExpressionSchema)],
+		z.lazy(() => valueExpressionSchema),
+	),
+});
+
+/**
+ * Conditional value selection. `cond` is a `Predicate`; both
+ * branches are `ValueExpression`. CCHQ's on-device wire form is
+ * `if(cond, then, else)`; CSQL has no native `if` value function and
+ * the wire-wrapping pass hoists `if` arms out of CSQL fragments
+ * (B-phase concern). The branch slot names match the spec — `then`
+ * and `else` — even though `else` is a JS reserved word in
+ * statement positions; both are legal property names everywhere
+ * this AST surfaces.
+ *
+ * `then`-property hazard explained: Biome's `noThenProperty` rule
+ * defends against accidentally creating a thenable that
+ * `Promise.resolve(...)` would mistake for a Promise. The hazard
+ * requires `then` to be a *callable function* — the resolver checks
+ * `IsCallable(then)` before scheduling a thenable resolution
+ * (per ECMAScript §27.2.1.4 and the Promises/A+ §2.3.3.3 protocol).
+ * Our `then` slot holds a `ValueExpression` object whose `kind`
+ * discriminator is one of fifteen non-function shapes; neither the
+ * schema nor the inferred type admits a function in this slot. The
+ * AST objects also never reach a Promise-resolution boundary —
+ * predicates and expressions are typed AST values manipulated via
+ * builders, the validator, and wire emitters, none of which await
+ * an AST node. Suppressing the rule preserves the spec's authored
+ * vocabulary (`{ cond, then, else }`) at the AST without forcing a
+ * downstream rename pass at every consumer.
+ */
+const ifSchema = z.object({
+	kind: z.literal("if"),
+	cond: z.lazy(() => predicateSchema),
+	// biome-ignore lint/suspicious/noThenProperty: `then` is a ValueExpression object (never callable); see the JSDoc above for the full thenable-hazard analysis.
+	then: z.lazy(() => valueExpressionSchema),
+	else: z.lazy(() => valueExpressionSchema),
+});
+
+/**
+ * Single switch-case shape — a `when` literal compared against the
+ * outer `switch.on` value, plus the `then` value selected when the
+ * comparison succeeds. `when` is a `Literal`, not an arbitrary term
+ * or expression: every CCHQ wire form for switch-style dispatch
+ * compiles to nested `if(value = literal, then, ...)` chains, which
+ * demand a static value at each comparison site. The Postgres
+ * compiler emits `CASE WHEN value = literal THEN then ... END` with
+ * the same constraint.
+ *
+ * `then`-property hazard explained: same analysis as `ifSchema.then`
+ * — the slot holds a `ValueExpression` object (one of fifteen
+ * non-function shapes), never a callable function, and the AST
+ * objects never reach a Promise-resolution boundary. The
+ * `noThenProperty` lint rule defends against an unrelated thenable-
+ * hazard pattern; the suppression here preserves the spec's
+ * `{ when, then }` shape at the AST.
+ */
+const switchCaseSchema = z.object({
+	when: literalSchema,
+	// biome-ignore lint/suspicious/noThenProperty: `then` is a ValueExpression object (never callable); see `ifSchema`'s JSDoc for the full thenable-hazard analysis.
+	then: z.lazy(() => valueExpressionSchema),
+});
+
+/**
+ * Value-driven multi-case selector. `on` is the discriminator value;
+ * `cases[].when` literals are compared against it in order; the
+ * first match wins. `fallback` runs when no case matches. `cases`
+ * is non-empty for the same reason `concat.parts` is — an empty
+ * `cases` list collapses to `fallback`, and the canonical shape for
+ * that is `fallback` directly.
+ *
+ * Spec subsection: "Expression family", `if` / `switch` row of the
+ * value-expression table.
+ */
+const switchSchema = z.object({
+	kind: z.literal("switch"),
+	on: z.lazy(() => valueExpressionSchema),
+	cases: z.tuple([switchCaseSchema], switchCaseSchema),
+	fallback: z.lazy(() => valueExpressionSchema),
+});
+
+/**
+ * Relational aggregation: count related cases reachable along `via`
+ * whose optional `where` predicate holds. `via` is a `RelationPath`
+ * (the four-kind discriminator declared above this section); `where`
+ * is an optional nested predicate evaluated in the destination scope
+ * of the walk (same shape `existsSchema.where` carries below).
+ *
+ * The "count is a value, not a predicate" decision lets the natural
+ * compositions land cleanly: `gt(count(via), literal(2))`,
+ * `eq(count(via), prop("expected_visits"))`. CCHQ's wire `subcase-count`
+ * is recognised only as the LHS of a binary comparison
+ * (`commcare-hq/.../filter_dsl.py:89-95`), so a `count(...)` outside
+ * a comparison context is unrepresentable in CSQL — the
+ * representability checker (B5) flags this at authoring time. The
+ * Postgres compiler executes the count natively in any value
+ * position.
+ */
+const countSchema = z.object({
+	kind: z.literal("count"),
+	via: relationPathSchema,
+	where: z.lazy(() => predicateSchema).optional(),
+});
+
+/**
+ * CSQL's `unwrap-list` value function: pull a JSON-encoded array
+ * stored in a property's value and surface it as a sequence of
+ * values. The wire form is one of the eight CSQL value functions at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+ *
+ * v1 has no AST consumer for the resulting sequence type —
+ * `in.values` and `multi-select-contains.values` stay literal-only
+ * because every wire target demands a static value list. The CSQL
+ * emitter will route `unwrap-list` into `selected-any(prop,
+ * unwrap-list(...))` at wire-emit time when that pattern lands in
+ * B-phase. The type checker stages a `"sequence"` resolved-type
+ * sentinel (see `typeChecker.ts`) so the arm has a defined verdict
+ * at A-phase even though no v1 operator consumes the result; the
+ * sentinel lets a future widening of the consuming surface (B-phase
+ * or later) thread the sequence type through without re-wiring the
+ * type checker's compatibility table.
+ */
+const unwrapListSchema = z.object({
+	kind: z.literal("unwrap-list"),
+	value: z.lazy(() => valueExpressionSchema),
+});
+
+/**
+ * `format-date(date, pattern)`. The `pattern` union accepts the three
+ * preset names (`short` / `long` / `iso`) plus an arbitrary string
+ * for advanced patterns. The schema's `union` over `enum` + `string`
+ * is structural: at runtime, the preset enum branch matches first
+ * and an arbitrary string falls through to the `string` branch.
+ * Authors who type a preset name spelled correctly hit the enum
+ * branch (and a UI surface can render them as known-pattern chips);
+ * everything else lands as a free-text custom pattern.
+ *
+ * The pattern slot is non-empty: `format-date(date, "")` is
+ * meaningless on every CCHQ dialect.
+ */
+const formatDateSchema = z.object({
+	kind: z.literal("format-date"),
+	date: z.lazy(() => valueExpressionSchema),
+	pattern: z.union([z.enum(FORMAT_DATE_PRESETS), z.string().min(1)]),
+});
+
 // ---------- Predicate operators (anything that resolves to a boolean) ----------
 
 /**
@@ -557,29 +963,50 @@ export type Term = z.infer<typeof termSchema>;
  * set as semantically equivalent up to operand-type rules.
  *
  * The enum collapse is correct *only because all six share the same
- * operand shape* (`left`/`right`, both `termSchema`). If a future
- * operator needs an asymmetric field — e.g. `case_sensitive` only on
- * `eq`/`neq` — split the enum back into per-literal arms (one
+ * operand shape* (`left` / `right`, both `valueExpressionSchema`). If
+ * a future operator needs an asymmetric field — e.g. `case_sensitive`
+ * only on `eq`/`neq` — split the enum back into per-literal arms (one
  * `z.object` per operator) rather than tacking optional fields onto
  * this schema. Smuggling per-operator behavior under an optional
  * shared field would violate the design property "behavior is never
  * tucked under existing kinds via hidden state".
+ *
+ * Operand shape: `left` and `right` are `ValueExpression` (not bare
+ * `Term`). The widening is the structural composition primitive that
+ * lets arithmetic / conditional expressions drive a comparison —
+ * `gt(arith("+", prop("age"), literal(1)), literal(18))` lands at the
+ * AST without needing an intermediate calc-and-compare scaffolding.
+ * Term-shaped operands flow through unchanged: builders auto-wrap
+ * `Term` arguments in `{ kind: "term", term: <Term> }` at the call
+ * site (see `builders.ts:toValueExpression`), so existing
+ * `eq(prop("name"), literal("Alice"))` shapes continue to construct
+ * the expected ValueExpression-of-Term wrapper without any author-
+ * visible change.
  */
 const COMPARISON_KINDS = ["eq", "neq", "gt", "gte", "lt", "lte"] as const;
 export type ComparisonKind = (typeof COMPARISON_KINDS)[number];
 
 const comparisonSchema = z.object({
 	kind: z.enum(COMPARISON_KINDS),
-	left: termSchema,
-	right: termSchema,
+	left: z.lazy(() => valueExpressionSchema),
+	right: z.lazy(() => valueExpressionSchema),
 });
 
 /**
  * Set membership with value-equality semantics: `left` equals one of
  * the literals in `values`. Right side is restricted to literals (not
- * arbitrary terms) because the wire targets — an XPath or-of-equalities
- * chain on the case-list side and SQL `IN (...)` on the runtime side —
- * both demand a static value list.
+ * arbitrary expressions) because the wire targets — an XPath or-of-
+ * equalities chain on the case-list side and SQL `IN (...)` on the
+ * runtime side — both demand a static value list. `unwrap-list`
+ * (CSQL's value-function for sequence sources) does NOT widen this
+ * slot: the wire pattern there is `selected-any(prop, unwrap-list(...))`
+ * via `multi-select-contains`, not an `in`-semantics expansion.
+ *
+ * `left` is widened from `Term` to `ValueExpression` so an arithmetic
+ * / conditional expression can sit in the membership-test position
+ * (`isIn(arith("+", prop("age"), literal(1)), literal(18), literal(19))`).
+ * Term-shaped `left` flows through unchanged — builders auto-wrap
+ * Term inputs as ValueExpression-of-Term.
  *
  * `values` is non-empty (tuple-with-rest): an empty `in(...)` is
  * trivially false at every target and is virtually always an
@@ -599,7 +1026,7 @@ const comparisonSchema = z.object({
  */
 const inSchema = z.object({
 	kind: z.literal("in"),
-	left: termSchema,
+	left: z.lazy(() => valueExpressionSchema),
 	// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
 	// `Literal[]`. Construction-site object literals like
 	// `{ kind: "in", left: ..., values: [] }` fail at compile time
@@ -643,9 +1070,15 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
  * Geo predicate: include cases whose `property` (a geopoint) lies
  * within `distance` of `center`. `property` is constrained to a direct
  * property reference (the geopoint can't be a literal or an input —
- * those shapes don't make geometric sense), but `center` is a
- * full term so a search-input geopoint or a session user location
- * can drive the query.
+ * those shapes don't make geometric sense, and the wire layer at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
+ * dispatches `within-distance` against a property name, not a value
+ * expression), so the `property` slot stays `propertyRefSchema` — the
+ * widening to ValueExpression does not apply here. `center` widens
+ * to `ValueExpression` so a date-driven or arithmetic-derived center
+ * coordinate (rare but representable via the typed AST) can drive
+ * the query alongside the natural search-input or session-user
+ * shapes.
  *
  * `distance` is `.nonnegative()` — a negative radius is geometrically
  * meaningless and would propagate to two compilers (XPath/CSQL and
@@ -656,7 +1089,7 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
 const withinDistanceSchema = z.object({
 	kind: z.literal("within-distance"),
 	property: propertyRefSchema,
-	center: termSchema,
+	center: z.lazy(() => valueExpressionSchema),
 	distance: z.number().nonnegative(),
 	unit: z.enum(DISTANCE_UNITS),
 });
@@ -975,14 +1408,24 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // Predicate family for the full per-dialect representability table
 // and the v1-surface scoping rationale.
 
+// Operand widening: `left` is `ValueExpression` (not bare `Term`) so
+// expression-shaped operands (`is-null(arith(prop, literal(0), "div"))`
+// — "is the per-unit ratio undefined?") compose at the AST level.
+// The type checker's literal-rejection rule (a literal is the value
+// itself, not a runtime read whose presence is in question) extends
+// to literal-shaped ValueExpressions via the `term` arm — see
+// `checkAbsenceOperator` in `typeChecker.ts`. Term-shaped operands
+// flow through unchanged: builders auto-wrap Term inputs as
+// ValueExpression-of-Term.
+
 const isNullSchema = z.object({
 	kind: z.literal("is-null"),
-	left: termSchema,
+	left: z.lazy(() => valueExpressionSchema),
 });
 
 const isBlankSchema = z.object({
 	kind: z.literal("is-blank"),
-	left: termSchema,
+	left: z.lazy(() => valueExpressionSchema),
 });
 
 // ---------- Range predicate ----------
@@ -1017,12 +1460,21 @@ const isBlankSchema = z.object({
 // pair); the term-pair case is a runtime check. The schema's role
 // here is structural only.
 
+// Operand widening: `left` / `lower` / `upper` are `ValueExpression`
+// so an arithmetic-derived bound (e.g.
+// `between(prop("age"), { lower: arith("+", input("min"), literal(1)), upper: ... })`)
+// composes at the AST. Term-shaped bounds flow through unchanged via
+// the builder's auto-wrap. The literal-pair impossibility check in
+// the type checker (when `lower > upper` and both are typed-literal
+// terms) descends through the `term` arm of ValueExpression to read
+// the underlying literal — see `checkBetween` in `typeChecker.ts`.
+
 const betweenSchema = z
 	.object({
 		kind: z.literal("between"),
-		left: termSchema,
-		lower: termSchema.optional(),
-		upper: termSchema.optional(),
+		left: z.lazy(() => valueExpressionSchema),
+		lower: z.lazy(() => valueExpressionSchema).optional(),
+		upper: z.lazy(() => valueExpressionSchema).optional(),
 		lowerInclusive: z.boolean(),
 		upperInclusive: z.boolean(),
 	})
@@ -1189,33 +1641,71 @@ const missingSchema = z.object({
  * it to this union, (3) extend the type checker / XPath emitter / SQL
  * compiler.
  *
- * Drift policy — non-recursive arms (`comparisonSchema`, `inSchema`,
- * `withinDistanceSchema`, `matchSchema`, `multiSelectContainsSchema`,
- * `matchAllSchema`, `matchNoneSchema`, `isNullSchema`, `isBlankSchema`,
- * `betweenSchema`) derive their TS shape from their schema via
- * `z.infer<typeof X>`, so adding a field to those schemas updates the
- * union automatically.
- * Recursive arms (`and`, `or`, `not`, `when-input-present`, `exists`,
- * `missing`) are hand-declared because TypeScript cannot resolve
- * `z.infer` through a discriminated-union recursion cycle (Zod issue
- * #4264). Adding a field to one of the recursive schemas requires a
- * parallel hand-update to the matching arm here. Any required-field
- * drift surfaces as a CI failure (the schema rejects predicates that
- * don't supply the field; the test suite parses each arm). Optional-
- * field drift on the recursive arms is caught by the structural
- * assertion at the bottom of this file.
+ * Drift policy — `matchSchema`, `multiSelectContainsSchema`,
+ * `matchAllSchema`, `matchNoneSchema` derive their TS shape from
+ * their schema via `z.infer<typeof X>` because they have no
+ * recursion (no `z.lazy(...)` slot). Adding a field to one of
+ * those schemas updates the union automatically.
+ *
+ * Every other arm is hand-declared because TypeScript cannot resolve
+ * `z.infer` through a `z.lazy(...)` slot — the inferred type widens
+ * to `any` or the resolver fails (Zod issue #4264, TS 5.9+ behavior
+ * documented in #5035). This applies both to the always-recursive
+ * arms (`and` / `or` / `not` / `when-input-present` / `exists` /
+ * `missing` — the cycle goes through their predicate slot) AND to
+ * the operand-widened arms (`comparison` / `in` / `within-distance` /
+ * `is-null` / `is-blank` / `between` — the cycle goes through their
+ * `ValueExpression` operands). Adding a field to one of the hand-
+ * declared schemas requires a parallel hand-update to the matching
+ * arm here. Any required-field drift surfaces as a CI failure (the
+ * schema rejects predicates that don't supply the field; the test
+ * suite parses each arm). Optional-field drift on the hand-declared
+ * arms is caught by the structural assertion at the bottom of this
+ * file.
  */
 export type Predicate =
-	| z.infer<typeof comparisonSchema>
-	| z.infer<typeof inSchema>
-	| z.infer<typeof withinDistanceSchema>
+	// Operand-widened arms (ValueExpression-bearing operand slots). The
+	// hand-declared shape mirrors the schema's runtime shape exactly;
+	// the drift guard at the bottom of this file catches divergence in
+	// the non-recursive structural surface (e.g. a future
+	// `case_sensitive` flag added to `comparisonSchema` must update the
+	// arm here in lockstep).
+	| {
+			kind: ComparisonKind;
+			left: ValueExpression;
+			right: ValueExpression;
+	  }
+	| {
+			kind: "in";
+			left: ValueExpression;
+			values: [Literal, ...Literal[]];
+	  }
+	| {
+			kind: "within-distance";
+			property: PropertyRef;
+			center: ValueExpression;
+			distance: number;
+			unit: DistanceUnit;
+	  }
+	| { kind: "is-null"; left: ValueExpression }
+	| { kind: "is-blank"; left: ValueExpression }
+	| {
+			kind: "between";
+			left: ValueExpression;
+			lower?: ValueExpression;
+			upper?: ValueExpression;
+			lowerInclusive: boolean;
+			upperInclusive: boolean;
+	  }
+	// Non-recursive arms — z.infer-derived because no z.lazy is in
+	// play. Adding a field to these schemas updates the union
+	// automatically without a parallel hand-update.
 	| z.infer<typeof matchSchema>
 	| z.infer<typeof multiSelectContainsSchema>
 	| z.infer<typeof matchAllSchema>
 	| z.infer<typeof matchNoneSchema>
-	| z.infer<typeof isNullSchema>
-	| z.infer<typeof isBlankSchema>
-	| z.infer<typeof betweenSchema>
+	// Always-recursive arms (predicate-bearing slots). Same shape as
+	// their schemas; the cycle goes through the slot's z.lazy.
 	// `clauses` is non-empty: tuple-with-rest in the schema (`andSchema`
 	// / `orSchema`) and the matching `[Predicate, ...Predicate[]]` here
 	// share one definition of "at least one clause" between the runtime
@@ -1260,29 +1750,138 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 	],
 );
 
+// ---------- ValueExpression union ----------
+//
+// Hand-declared shape: every ValueExpression arm carries at least
+// one `z.lazy(...)` slot (self-recursion through
+// `valueExpressionSchema` or cross-family recursion through
+// `predicateSchema`), so `z.infer<typeof valueExpressionSchema>`
+// would widen to `any` or fail to resolve — same TS limitation that
+// drives the Predicate side's hand-declared arms. The drift guard at
+// the bottom of this file pins each arm's non-recursive structural
+// surface against the schema; the recursive slots' CONTENT is pinned
+// by the parse tests in the adjacent test file.
+//
+// Adding a new ValueExpression operator means: (1) define its schema
+// above, (2) add it to this union, (3) add it to
+// `valueExpressionSchema` below, (4) extend the drift guard at the
+// bottom of this file, (5) extend the type checker / wire emitters
+// / SQL compiler. Steps 1-4 stay in this file; the guard's
+// compile-time check ensures the hand-declared arm and the schema
+// stay in lockstep on the non-recursive surface.
+
+/**
+ * Single switch-case shape (`when` / `then`). Hand-declared because
+ * `then` carries the z.lazy ValueExpression cycle. Mirrors
+ * `switchCaseSchema` above.
+ */
+export type SwitchCase = { when: Literal; then: ValueExpression };
+
+export type ValueExpression =
+	| { kind: "term"; term: Term }
+	| { kind: "today" }
+	| { kind: "now" }
+	| {
+			kind: "date-add";
+			date: ValueExpression;
+			interval: DateAddInterval;
+			quantity: ValueExpression;
+	  }
+	| { kind: "date-coerce"; value: ValueExpression }
+	| { kind: "datetime-coerce"; value: ValueExpression }
+	| { kind: "double"; value: ValueExpression }
+	| {
+			kind: "arith";
+			op: ArithOp;
+			left: ValueExpression;
+			right: ValueExpression;
+	  }
+	// `parts` / `values` are non-empty: tuple-with-rest in the schemas
+	// (`concatSchema.parts` / `coalesceSchema.values`) and the matching
+	// `[ValueExpression, ...ValueExpression[]]` here share one definition
+	// of "at least one part" between runtime and TS shapes.
+	| {
+			kind: "concat";
+			parts: [ValueExpression, ...ValueExpression[]];
+	  }
+	| {
+			kind: "coalesce";
+			values: [ValueExpression, ...ValueExpression[]];
+	  }
+	| {
+			kind: "if";
+			cond: Predicate;
+			then: ValueExpression;
+			else: ValueExpression;
+	  }
+	| {
+			kind: "switch";
+			on: ValueExpression;
+			cases: [SwitchCase, ...SwitchCase[]];
+			fallback: ValueExpression;
+	  }
+	| { kind: "count"; via: RelationPath; where?: Predicate }
+	| { kind: "unwrap-list"; value: ValueExpression }
+	| {
+			kind: "format-date";
+			date: ValueExpression;
+			pattern: FormatDatePreset | string;
+	  };
+
+export const valueExpressionSchema: z.ZodType<ValueExpression> =
+	z.discriminatedUnion("kind", [
+		valueExpressionTermSchema,
+		todaySchema,
+		nowSchema,
+		dateAddSchema,
+		dateCoerceSchema,
+		datetimeCoerceSchema,
+		doubleSchema,
+		arithSchema,
+		concatSchema,
+		coalesceSchema,
+		ifSchema,
+		switchSchema,
+		countSchema,
+		unwrapListSchema,
+		formatDateSchema,
+	]);
+
 // ---------- Drift guard ----------
 //
-// `_driftGuard` compares each recursive arm's non-recursive structural
-// surface against its schema's `z.infer`. The recursive slots
-// themselves (`clauses` on `and` / `or`, `clause` on `not` /
-// `when-input-present`, `where` on `exists` / `missing`) cannot be
-// compared via `z.infer` — through `z.lazy`, the inferred shape of
-// the payload widens unpredictably across TS versions. So each arm is
-// stripped of its recursive slot before comparison.
+// `_driftGuard` compares each hand-declared arm's non-recursive
+// structural surface against its schema's `z.infer`. The recursive
+// slots themselves cannot be compared via `z.infer` — through
+// `z.lazy`, the inferred shape of the payload widens unpredictably
+// across TS versions. So each arm is stripped of its recursive
+// slot(s) before comparison.
 //
-// Three of the six arms (`and`, `or`, `not`) have only their `kind`
-// discriminator left after the strip, so the guard for those reduces
-// to "the discriminator string matches itself." `when-input-present`
-// retains `input: SearchInputRef` as its non-recursive structural
-// surface; `exists` and `missing` retain `via: RelationPath` (the
-// relation-path union is non-recursive — it never embeds a
-// predicate — so its full structure is part of the compared
-// surface). The guard's value is forward-looking: if any future
-// change adds a non-recursive field to one of these schemas (e.g.
-// `andSchema` gains a `short_circuit?: boolean`), the corresponding
-// arm's hand-declared shape must update or the guard fails. Catches
-// additions, removals, and renames of non-recursive fields — exactly
-// the drift path that the recursive-slot strip leaves uncovered.
+// Two families of recursive slots:
+//   - **Predicate-bearing slots** (cross- and self-cycle on the
+//     Predicate side): `clauses` on `and` / `or`, `clause` on `not`
+//     / `when-input-present`, `where` on `exists` / `missing`,
+//     `where` on `count`, `cond` on `if`. These slots wrap
+//     `z.lazy(() => predicateSchema)` in their schema.
+//   - **ValueExpression-bearing slots** (cross-cycle from Predicate
+//     into ValueExpression operands, and self-cycle on the
+//     ValueExpression side): `left` / `right` on `comparison`,
+//     `left` on `in` / `is-null` / `is-blank` / `between`,
+//     `lower` / `upper` on `between`, `center` on
+//     `within-distance`, every value slot on every ValueExpression
+//     arm.
+//
+// The arms below strip both kinds of slot before comparison. Arms
+// whose only structural surface is the `kind` discriminator (e.g.
+// `andSchema`, `arithSchema` after stripping its operands and
+// keeping `op`) reduce to "the discriminator string matches itself"
+// for the recursive-slot strip plus per-arm scalar checks for any
+// surviving non-recursive field (`op` on `arith`, `interval` on
+// `date-add`, `pattern` on `format-date`, etc.). The guard's value
+// is forward-looking: if any future change adds a non-recursive
+// field to one of these schemas, the corresponding arm's hand-
+// declared shape must update or the guard fails. Catches additions,
+// removals, and renames of non-recursive fields — exactly the drift
+// path that the recursive-slot strip leaves uncovered.
 //
 // `_TypesEqual` is the standard TypeScript-FP pattern for strict
 // structural equality (two types are considered equal iff a
@@ -1294,17 +1893,19 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 // type from "field absent", so optional additions/removals trip it.
 //
 // The recursive slot's CONTENT is pinned by parse tests in the
-// adjacent test file — `not(...)`, `when-input-present(...)`,
-// `exists(...).where`, and `missing(...).where` each parse nested
-// predicates, so the only escape route this guard misses — a
-// payload-shape change reachable only through recursion — is caught
-// there.
+// adjacent test file — every recursive arm parses a nested
+// predicate / expression, so the only escape route this guard
+// misses — a payload-shape change reachable only through recursion
+// — is caught there.
 
 type _TypesEqual<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
 		? true
 		: false;
 
+// Predicate arms with predicate-bearing recursive slots (the original
+// six). Each strips the recursive slot before comparison so the guard
+// pins the surviving non-recursive surface only.
 type _AndArm = Omit<Extract<Predicate, { kind: "and" }>, "clauses">;
 type _OrArm = Omit<Extract<Predicate, { kind: "or" }>, "clauses">;
 type _NotArm = Omit<Extract<Predicate, { kind: "not" }>, "clause">;
@@ -1325,6 +1926,122 @@ type _WhenInputPresentInferred = Omit<
 type _ExistsInferred = Omit<z.infer<typeof existsSchema>, "where">;
 type _MissingInferred = Omit<z.infer<typeof missingSchema>, "where">;
 
+// Predicate arms with ValueExpression-bearing operand slots (the
+// operand-widened set). Each strips the value-expression operands
+// before comparison; the guard pins per-arm scalar / structural
+// fields that don't recurse.
+type _ComparisonArm = Omit<
+	Extract<Predicate, { kind: ComparisonKind }>,
+	"left" | "right"
+>;
+type _InArm = Omit<Extract<Predicate, { kind: "in" }>, "left">;
+type _WithinDistanceArm = Omit<
+	Extract<Predicate, { kind: "within-distance" }>,
+	"center"
+>;
+type _IsNullArm = Omit<Extract<Predicate, { kind: "is-null" }>, "left">;
+type _IsBlankArm = Omit<Extract<Predicate, { kind: "is-blank" }>, "left">;
+type _BetweenArm = Omit<
+	Extract<Predicate, { kind: "between" }>,
+	"left" | "lower" | "upper"
+>;
+
+type _ComparisonInferred = Omit<
+	z.infer<typeof comparisonSchema>,
+	"left" | "right"
+>;
+type _InInferred = Omit<z.infer<typeof inSchema>, "left">;
+type _WithinDistanceInferred = Omit<
+	z.infer<typeof withinDistanceSchema>,
+	"center"
+>;
+type _IsNullInferred = Omit<z.infer<typeof isNullSchema>, "left">;
+type _IsBlankInferred = Omit<z.infer<typeof isBlankSchema>, "left">;
+type _BetweenInferred = Omit<
+	z.infer<typeof betweenSchema>,
+	"left" | "lower" | "upper"
+>;
+
+// ValueExpression arms — every value-bearing arm carries at least
+// one z.lazy slot, so each is hand-declared and the guard strips its
+// recursive slot(s) before comparison. The non-recursive surface
+// surviving the strip is per-arm — `op` on `arith`, `interval` on
+// `date-add`, `pattern` on `format-date`, `via` on `count`, the
+// inner Term shape on `term`, etc.
+type _ValueExpressionTermArm = Omit<
+	Extract<ValueExpression, { kind: "term" }>,
+	"term"
+>;
+type _TodayArm = Extract<ValueExpression, { kind: "today" }>;
+type _NowArm = Extract<ValueExpression, { kind: "now" }>;
+type _DateAddArm = Omit<
+	Extract<ValueExpression, { kind: "date-add" }>,
+	"date" | "quantity"
+>;
+type _DateCoerceArm = Omit<
+	Extract<ValueExpression, { kind: "date-coerce" }>,
+	"value"
+>;
+type _DatetimeCoerceArm = Omit<
+	Extract<ValueExpression, { kind: "datetime-coerce" }>,
+	"value"
+>;
+type _DoubleArm = Omit<Extract<ValueExpression, { kind: "double" }>, "value">;
+type _ArithArm = Omit<
+	Extract<ValueExpression, { kind: "arith" }>,
+	"left" | "right"
+>;
+type _ConcatArm = Omit<Extract<ValueExpression, { kind: "concat" }>, "parts">;
+type _CoalesceArm = Omit<
+	Extract<ValueExpression, { kind: "coalesce" }>,
+	"values"
+>;
+type _IfArm = Omit<
+	Extract<ValueExpression, { kind: "if" }>,
+	"cond" | "then" | "else"
+>;
+type _SwitchArm = Omit<
+	Extract<ValueExpression, { kind: "switch" }>,
+	"on" | "cases" | "fallback"
+>;
+type _CountArm = Omit<Extract<ValueExpression, { kind: "count" }>, "where">;
+type _UnwrapListArm = Omit<
+	Extract<ValueExpression, { kind: "unwrap-list" }>,
+	"value"
+>;
+type _FormatDateArm = Omit<
+	Extract<ValueExpression, { kind: "format-date" }>,
+	"date"
+>;
+
+type _ValueExpressionTermInferred = Omit<
+	z.infer<typeof valueExpressionTermSchema>,
+	"term"
+>;
+type _TodayInferred = z.infer<typeof todaySchema>;
+type _NowInferred = z.infer<typeof nowSchema>;
+type _DateAddInferred = Omit<
+	z.infer<typeof dateAddSchema>,
+	"date" | "quantity"
+>;
+type _DateCoerceInferred = Omit<z.infer<typeof dateCoerceSchema>, "value">;
+type _DatetimeCoerceInferred = Omit<
+	z.infer<typeof datetimeCoerceSchema>,
+	"value"
+>;
+type _DoubleInferred = Omit<z.infer<typeof doubleSchema>, "value">;
+type _ArithInferred = Omit<z.infer<typeof arithSchema>, "left" | "right">;
+type _ConcatInferred = Omit<z.infer<typeof concatSchema>, "parts">;
+type _CoalesceInferred = Omit<z.infer<typeof coalesceSchema>, "values">;
+type _IfInferred = Omit<z.infer<typeof ifSchema>, "cond" | "then" | "else">;
+type _SwitchInferred = Omit<
+	z.infer<typeof switchSchema>,
+	"on" | "cases" | "fallback"
+>;
+type _CountInferred = Omit<z.infer<typeof countSchema>, "where">;
+type _UnwrapListInferred = Omit<z.infer<typeof unwrapListSchema>, "value">;
+type _FormatDateInferred = Omit<z.infer<typeof formatDateSchema>, "date">;
+
 // `_driftGuard` is kept as a `const` declaration so the type assertion
 // has a binding site — the per-arm equality checks are evaluated at
 // the binding's annotated type. If any of them resolves to `false`,
@@ -1333,6 +2050,7 @@ type _MissingInferred = Omit<z.infer<typeof missingSchema>, "where">;
 // `_` prefix follows the convention for "type assertion that has no
 // runtime role" in this codebase.
 const _driftGuard: {
+	// Predicate side — predicate-bearing recursive arms.
 	and: _TypesEqual<_AndArm, _AndInferred>;
 	or: _TypesEqual<_OrArm, _OrInferred>;
 	not: _TypesEqual<_NotArm, _NotInferred>;
@@ -1342,6 +2060,32 @@ const _driftGuard: {
 	>;
 	exists: _TypesEqual<_ExistsArm, _ExistsInferred>;
 	missing: _TypesEqual<_MissingArm, _MissingInferred>;
+	// Predicate side — operand-widened arms (ValueExpression operands).
+	comparison: _TypesEqual<_ComparisonArm, _ComparisonInferred>;
+	in: _TypesEqual<_InArm, _InInferred>;
+	withinDistance: _TypesEqual<_WithinDistanceArm, _WithinDistanceInferred>;
+	isNull: _TypesEqual<_IsNullArm, _IsNullInferred>;
+	isBlank: _TypesEqual<_IsBlankArm, _IsBlankInferred>;
+	between: _TypesEqual<_BetweenArm, _BetweenInferred>;
+	// ValueExpression side — every value-bearing arm.
+	valueExpressionTerm: _TypesEqual<
+		_ValueExpressionTermArm,
+		_ValueExpressionTermInferred
+	>;
+	today: _TypesEqual<_TodayArm, _TodayInferred>;
+	now: _TypesEqual<_NowArm, _NowInferred>;
+	dateAdd: _TypesEqual<_DateAddArm, _DateAddInferred>;
+	dateCoerce: _TypesEqual<_DateCoerceArm, _DateCoerceInferred>;
+	datetimeCoerce: _TypesEqual<_DatetimeCoerceArm, _DatetimeCoerceInferred>;
+	double: _TypesEqual<_DoubleArm, _DoubleInferred>;
+	arith: _TypesEqual<_ArithArm, _ArithInferred>;
+	concat: _TypesEqual<_ConcatArm, _ConcatInferred>;
+	coalesce: _TypesEqual<_CoalesceArm, _CoalesceInferred>;
+	if: _TypesEqual<_IfArm, _IfInferred>;
+	switch: _TypesEqual<_SwitchArm, _SwitchInferred>;
+	count: _TypesEqual<_CountArm, _CountInferred>;
+	unwrapList: _TypesEqual<_UnwrapListArm, _UnwrapListInferred>;
+	formatDate: _TypesEqual<_FormatDateArm, _FormatDateInferred>;
 } = {
 	and: true,
 	or: true,
@@ -1349,4 +2093,25 @@ const _driftGuard: {
 	whenInputPresent: true,
 	exists: true,
 	missing: true,
+	comparison: true,
+	in: true,
+	withinDistance: true,
+	isNull: true,
+	isBlank: true,
+	between: true,
+	valueExpressionTerm: true,
+	today: true,
+	now: true,
+	dateAdd: true,
+	dateCoerce: true,
+	datetimeCoerce: true,
+	double: true,
+	arith: true,
+	concat: true,
+	coalesce: true,
+	if: true,
+	switch: true,
+	count: true,
+	unwrapList: true,
+	formatDate: true,
 };

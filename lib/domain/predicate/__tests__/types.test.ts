@@ -50,6 +50,21 @@ describe("term schema", () => {
 	});
 });
 
+// Helper: lift a Term-shaped raw object into the structural `term`
+// arm of `ValueExpression`. The schema widens predicate operands to
+// ValueExpression post-A6, and the canonical Term-as-operand shape
+// is `{ kind: "term", term: <Term> }`. Centralising the wrapper here
+// keeps each individual test's payload readable — the focus stays on
+// the predicate operator under test, not on the lifter mechanics.
+//
+// The helper takes `unknown` so call sites can pass minimal Term
+// shapes (`{ kind: "prop", caseType, property }`) without restating
+// the full Term type. The schema validates the inner shape at parse
+// time, which is the round-trip these tests pin.
+function asValueExpr(t: unknown): { kind: "term"; term: unknown } {
+	return { kind: "term", term: t };
+}
+
 describe("predicate schema", () => {
 	it("parses a nested and/eq predicate", () => {
 		const result = predicateSchema.parse({
@@ -57,13 +72,21 @@ describe("predicate schema", () => {
 			clauses: [
 				{
 					kind: "eq",
-					left: { kind: "prop", caseType: "patient", property: "status" },
-					right: { kind: "literal", value: "open" },
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "patient",
+						property: "status",
+					}),
+					right: asValueExpr({ kind: "literal", value: "open" }),
 				},
 				{
 					kind: "gt",
-					left: { kind: "prop", caseType: "patient", property: "age" },
-					right: { kind: "literal", value: 18 },
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "patient",
+						property: "age",
+					}),
+					right: asValueExpr({ kind: "literal", value: 18 }),
 				},
 			],
 		});
@@ -76,13 +99,21 @@ describe("predicate schema", () => {
 			clauses: [
 				{
 					kind: "eq",
-					left: { kind: "prop", caseType: "patient", property: "status" },
-					right: { kind: "literal", value: "open" },
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "patient",
+						property: "status",
+					}),
+					right: asValueExpr({ kind: "literal", value: "open" }),
 				},
 				{
 					kind: "eq",
-					left: { kind: "prop", caseType: "patient", property: "status" },
-					right: { kind: "literal", value: "active" },
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "patient",
+						property: "status",
+					}),
+					right: asValueExpr({ kind: "literal", value: "active" }),
 				},
 			],
 		});
@@ -96,7 +127,7 @@ describe("predicate schema", () => {
 		const result = predicateSchema.parse({
 			kind: "within-distance",
 			property: { kind: "prop", caseType: "clinic", property: "location" },
-			center: { kind: "input", name: "user_location" },
+			center: asValueExpr({ kind: "input", name: "user_location" }),
 			distance: 50,
 			unit: "miles",
 		});
@@ -107,7 +138,11 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "age" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "age",
+				}),
 			}),
 		).toThrow();
 	});
@@ -125,8 +160,12 @@ describe("predicate schema", () => {
 			kind: "not",
 			clause: {
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "status" },
-				right: { kind: "literal", value: "closed" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "status",
+				}),
+				right: asValueExpr({ kind: "literal", value: "closed" }),
 			},
 		});
 		expect(result.kind).toBe("not");
@@ -141,8 +180,12 @@ describe("predicate schema", () => {
 			input: { kind: "input", name: "phone" },
 			clause: {
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "phone" },
-				right: { kind: "input", name: "phone" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "phone",
+				}),
+				right: asValueExpr({ kind: "input", name: "phone" }),
 			},
 		});
 		expect(result.kind).toBe("when-input-present");
@@ -169,7 +212,11 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "in",
-				left: { kind: "prop", caseType: "patient", property: "status" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "status",
+				}),
 				values: [],
 			}),
 		).toThrow();
@@ -189,7 +236,11 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "in",
-				left: { kind: "prop", caseType: "patient", property: "name" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "name",
+				}),
 				values: [
 					{ kind: "literal", value: null },
 					{ kind: "literal", value: null },
@@ -201,7 +252,11 @@ describe("predicate schema", () => {
 	it("accepts an in(...) with a single null value alongside non-null values", () => {
 		const result = predicateSchema.parse({
 			kind: "in",
-			left: { kind: "prop", caseType: "patient", property: "name" },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "name",
+			}),
 			values: [
 				{ kind: "literal", value: null },
 				{ kind: "literal", value: "Alice" },
@@ -220,7 +275,7 @@ describe("predicate schema", () => {
 			predicateSchema.parse({
 				kind: "within-distance",
 				property: { kind: "prop", caseType: "clinic", property: "location" },
-				center: { kind: "input", name: "user_location" },
+				center: asValueExpr({ kind: "input", name: "user_location" }),
 				distance: -10,
 				unit: "miles",
 			}),
@@ -239,7 +294,7 @@ describe("predicate schema", () => {
 				kind: "within-distance",
 				// literal value where a prop reference is required
 				property: { kind: "literal", value: "40.7,-74.0" },
-				center: { kind: "input", name: "user_location" },
+				center: asValueExpr({ kind: "input", name: "user_location" }),
 				distance: 50,
 				unit: "miles",
 			}),
@@ -251,7 +306,7 @@ describe("predicate schema", () => {
 			predicateSchema.parse({
 				kind: "within-distance",
 				property: { kind: "prop", caseType: "clinic", property: "location" },
-				center: { kind: "input", name: "user_location" },
+				center: asValueExpr({ kind: "input", name: "user_location" }),
 				distance: 50,
 				unit: "meters",
 			}),
@@ -277,8 +332,12 @@ describe("predicate schema", () => {
 				input: { kind: "prop", caseType: "patient", property: "phone" },
 				clause: {
 					kind: "eq",
-					left: { kind: "prop", caseType: "patient", property: "phone" },
-					right: { kind: "literal", value: "555" },
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "patient",
+						property: "phone",
+					}),
+					right: asValueExpr({ kind: "literal", value: "555" }),
 				},
 			}),
 		).toThrow();
@@ -325,16 +384,25 @@ describe("predicate schema", () => {
 		// vocabulary populated by `addUserProperties` at
 		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
 		// The schema admits any XML-element-name-valid field here.
+		// Predicate operands are `ValueExpression` post-A6 — terms are
+		// admitted via the structural `term` arm (the lifter that flows
+		// any Term through a value slot).
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: { kind: "prop", caseType: "patient", property: "region" },
-			right: { kind: "session-user", field: "assigned_region" },
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "region" },
+			},
+			right: {
+				kind: "term",
+				term: { kind: "session-user", field: "assigned_region" },
+			},
 		});
 		expect(result.kind).toBe("eq");
-		if (result.kind === "eq") {
-			expect(result.right.kind).toBe("session-user");
-			if (result.right.kind === "session-user") {
-				expect(result.right.field).toBe("assigned_region");
+		if (result.kind === "eq" && result.right.kind === "term") {
+			expect(result.right.term.kind).toBe("session-user");
+			if (result.right.term.kind === "session-user") {
+				expect(result.right.term.field).toBe("assigned_region");
 			}
 		}
 	});
@@ -350,14 +418,17 @@ describe("predicate schema", () => {
 	)("parses a session-context reference for field: %s", (field) => {
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: { kind: "prop", caseType: "patient", property: "owner_id" },
-			right: { kind: "session-context", field },
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "owner_id" },
+			},
+			right: { kind: "term", term: { kind: "session-context", field } },
 		});
 		expect(result.kind).toBe("eq");
-		if (result.kind === "eq") {
-			expect(result.right.kind).toBe("session-context");
-			if (result.right.kind === "session-context") {
-				expect(result.right.field).toBe(field);
+		if (result.kind === "eq" && result.right.kind === "term") {
+			expect(result.right.term.kind).toBe("session-context");
+			if (result.right.term.kind === "session-context") {
+				expect(result.right.term.field).toBe(field);
 			}
 		}
 	});
@@ -375,8 +446,12 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "owner_id" },
-				right: { kind: "session-context", field: "drift" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "owner_id",
+				}),
+				right: asValueExpr({ kind: "session-context", field: "drift" }),
 			}),
 		).toThrow();
 	});
@@ -389,8 +464,15 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "owner_id" },
-				right: { kind: "session-context", field: "not_a_metadata_key" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "owner_id",
+				}),
+				right: asValueExpr({
+					kind: "session-context",
+					field: "not_a_metadata_key",
+				}),
 			}),
 		).toThrow();
 	});
@@ -398,7 +480,11 @@ describe("predicate schema", () => {
 	it("parses an in(...) with a non-empty literal list", () => {
 		const result = predicateSchema.parse({
 			kind: "in",
-			left: { kind: "prop", caseType: "patient", property: "status" },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "status",
+			}),
 			values: [
 				{ kind: "literal", value: "open" },
 				{ kind: "literal", value: "active" },
@@ -632,12 +718,15 @@ describe("predicate schema", () => {
 									via: { kind: "subcase", identifier: "parent" },
 									where: {
 										kind: "eq",
-										left: {
+										left: asValueExpr({
 											kind: "prop",
 											caseType: "patient",
 											property: "name",
-										},
-										right: { kind: "literal", value: "Alice" },
+										}),
+										right: asValueExpr({
+											kind: "literal",
+											value: "Alice",
+										}),
 									},
 								},
 							},
@@ -650,12 +739,12 @@ describe("predicate schema", () => {
 							},
 							where: {
 								kind: "eq",
-								left: {
+								left: asValueExpr({
 									kind: "prop",
 									caseType: "patient",
 									property: "name",
-								},
-								right: { kind: "literal", value: "Bob" },
+								}),
+								right: asValueExpr({ kind: "literal", value: "Bob" }),
 							},
 						},
 					],
@@ -683,12 +772,12 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: {
+				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient",
 					property: "name'); injected",
-				},
-				right: { kind: "literal", value: "x" },
+				}),
+				right: asValueExpr({ kind: "literal", value: "x" }),
 			}),
 		).toThrow();
 	});
@@ -697,12 +786,12 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: {
+				left: asValueExpr({
 					kind: "prop",
 					caseType: "patient' or 1=1",
 					property: "name",
-				},
-				right: { kind: "literal", value: "x" },
+				}),
+				right: asValueExpr({ kind: "literal", value: "x" }),
 			}),
 		).toThrow();
 	});
@@ -711,8 +800,15 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "name" },
-				right: { kind: "input", name: "bad name with spaces" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "name",
+				}),
+				right: asValueExpr({
+					kind: "input",
+					name: "bad name with spaces",
+				}),
 			}),
 		).toThrow();
 	});
@@ -726,8 +822,15 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "name" },
-				right: { kind: "session-user", field: "field/with/slashes" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "name",
+				}),
+				right: asValueExpr({
+					kind: "session-user",
+					field: "field/with/slashes",
+				}),
 			}),
 		).toThrow();
 	});
@@ -741,8 +844,12 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "" },
-				right: { kind: "literal", value: "x" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "",
+				}),
+				right: asValueExpr({ kind: "literal", value: "x" }),
 			}),
 		).toThrow();
 	});
@@ -758,8 +865,12 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "name" },
-				right: { kind: "input", name: "name-with-hyphen" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "name",
+				}),
+				right: asValueExpr({ kind: "input", name: "name-with-hyphen" }),
 			}),
 		).toThrow();
 	});
@@ -772,12 +883,12 @@ describe("predicate schema", () => {
 		// stricter XML-element-name rules trips this test.
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: {
+			left: asValueExpr({
 				kind: "prop",
 				caseType: "patient",
 				property: "external-id",
-			},
-			right: { kind: "literal", value: "abc" },
+			}),
+			right: asValueExpr({ kind: "literal", value: "abc" }),
 		});
 		expect(result.kind).toBe("eq");
 	});
@@ -1000,20 +1111,27 @@ describe("propertyRef with via (relational read)", () => {
 		const result = predicateSchema.parse({
 			kind: "eq",
 			left: {
-				kind: "prop",
-				caseType: "patient",
-				property: "region",
-				via: {
-					kind: "ancestor",
-					via: [{ identifier: "parent", throughCaseType: "household" }],
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "patient",
+					property: "region",
+					via: {
+						kind: "ancestor",
+						via: [{ identifier: "parent", throughCaseType: "household" }],
+					},
 				},
 			},
-			right: { kind: "literal", value: "north" },
+			right: { kind: "term", term: { kind: "literal", value: "north" } },
 		});
 		expect(result.kind).toBe("eq");
-		if (result.kind === "eq" && result.left.kind === "prop") {
-			expect(result.left.via).toBeDefined();
-			expect(result.left.via?.kind).toBe("ancestor");
+		if (
+			result.kind === "eq" &&
+			result.left.kind === "term" &&
+			result.left.term.kind === "prop"
+		) {
+			expect(result.left.term.via).toBeDefined();
+			expect(result.left.term.via?.kind).toBe("ancestor");
 		}
 	});
 
@@ -1024,19 +1142,31 @@ describe("propertyRef with via (relational read)", () => {
 		// what every existing builder call site produces; if the
 		// schema's `.optional()` started materializing the absent
 		// key, the assertion below would fail.
+		// Predicate operands are wrapped in the structural `term` arm
+		// post-A6.
 		const input = {
 			kind: "eq" as const,
 			left: {
-				kind: "prop" as const,
-				caseType: "patient",
-				property: "status",
+				kind: "term" as const,
+				term: {
+					kind: "prop" as const,
+					caseType: "patient",
+					property: "status",
+				},
 			},
-			right: { kind: "literal" as const, value: "open" },
+			right: {
+				kind: "term" as const,
+				term: { kind: "literal" as const, value: "open" },
+			},
 		};
 		const result = predicateSchema.parse(input);
 		expect(result).toEqual(input);
-		if (result.kind === "eq" && result.left.kind === "prop") {
-			expect("via" in result.left).toBe(false);
+		if (
+			result.kind === "eq" &&
+			result.left.kind === "term" &&
+			result.left.term.kind === "prop"
+		) {
+			expect("via" in result.left.term).toBe(false);
 		}
 	});
 
@@ -1051,12 +1181,15 @@ describe("propertyRef with via (relational read)", () => {
 		const result = predicateSchema.parse({
 			kind: "eq",
 			left: {
-				kind: "prop",
-				caseType: "patient",
-				property: "status",
-				via: { kind: "self" },
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "patient",
+					property: "status",
+					via: { kind: "self" },
+				},
 			},
-			right: { kind: "literal", value: "open" },
+			right: { kind: "term", term: { kind: "literal", value: "open" } },
 		});
 		expect(result.kind).toBe("eq");
 	});
@@ -1072,16 +1205,19 @@ describe("propertyRef with via (relational read)", () => {
 		const result = predicateSchema.parse({
 			kind: "eq",
 			left: {
-				kind: "prop",
-				caseType: "household",
-				property: "status",
-				via: {
-					kind: "subcase",
-					identifier: "parent",
-					ofCaseType: "patient",
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "household",
+					property: "status",
+					via: {
+						kind: "subcase",
+						identifier: "parent",
+						ofCaseType: "patient",
+					},
 				},
 			},
-			right: { kind: "literal", value: "active" },
+			right: { kind: "term", term: { kind: "literal", value: "active" } },
 		});
 		expect(result.kind).toBe("eq");
 	});
@@ -1100,20 +1236,27 @@ describe("propertyRef with via (relational read)", () => {
 		const result = predicateSchema.parse({
 			kind: "eq",
 			left: {
-				kind: "prop",
-				caseType: "patient",
-				property: "linked_id",
-				via: {
-					kind: "any-relation",
-					identifier: "linked",
-					ofCaseType: "referral",
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "patient",
+					property: "linked_id",
+					via: {
+						kind: "any-relation",
+						identifier: "linked",
+						ofCaseType: "referral",
+					},
 				},
 			},
-			right: { kind: "literal", value: "abc-123" },
+			right: { kind: "term", term: { kind: "literal", value: "abc-123" } },
 		});
 		expect(result.kind).toBe("eq");
-		if (result.kind === "eq" && result.left.kind === "prop") {
-			expect(result.left.via).toEqual({
+		if (
+			result.kind === "eq" &&
+			result.left.kind === "term" &&
+			result.left.term.kind === "prop"
+		) {
+			expect(result.left.term.via).toEqual({
 				kind: "any-relation",
 				identifier: "linked",
 				ofCaseType: "referral",
@@ -1184,7 +1327,11 @@ describe("is-null predicate", () => {
 	it("parses is-null with a property reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: { kind: "prop", caseType: "patient", property: "status" },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "status",
+			}),
 		});
 		expect(result.kind).toBe("is-null");
 	});
@@ -1192,7 +1339,7 @@ describe("is-null predicate", () => {
 	it("parses is-null with a search-input reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: { kind: "input", name: "phone" },
+			left: asValueExpr({ kind: "input", name: "phone" }),
 		});
 		expect(result.kind).toBe("is-null");
 	});
@@ -1204,7 +1351,7 @@ describe("is-null predicate", () => {
 		// per-arm rule decides whether the AST has authoring semantics.
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: { kind: "session-user", field: "assigned_region" },
+			left: asValueExpr({ kind: "session-user", field: "assigned_region" }),
 		});
 		expect(result.kind).toBe("is-null");
 	});
@@ -1216,13 +1363,14 @@ describe("is-null predicate", () => {
 		// closed-namespace arm too.
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: { kind: "session-context", field: "userid" },
+			left: asValueExpr({ kind: "session-context", field: "userid" }),
 		});
 		expect(result.kind).toBe("is-null");
 	});
 
 	it("parses is-null with a literal (schema is structurally permissive)", () => {
-		// The schema accepts every Term variant in `left`, including
+		// The schema accepts every Term variant in `left` (lifted
+		// through the `term` arm of `ValueExpression`), including
 		// literals. `is-null(literal(...))` is meaningless (literals
 		// can't be "unset" by definition) but parses cleanly here;
 		// rejecting the literal shape is a type-checker concern, not
@@ -1231,7 +1379,7 @@ describe("is-null predicate", () => {
 		// to reject literal `left` would trip this test.
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: { kind: "literal", value: "x" },
+			left: asValueExpr({ kind: "literal", value: "x" }),
 		});
 		expect(result.kind).toBe("is-null");
 	});
@@ -1265,7 +1413,11 @@ describe("is-blank predicate", () => {
 	it("parses is-blank with a property reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: { kind: "prop", caseType: "patient", property: "status" },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "status",
+			}),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
@@ -1273,7 +1425,7 @@ describe("is-blank predicate", () => {
 	it("parses is-blank with a search-input reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: { kind: "input", name: "phone" },
+			left: asValueExpr({ kind: "input", name: "phone" }),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
@@ -1287,7 +1439,7 @@ describe("is-blank predicate", () => {
 		// decides whether the AST has authoring semantics.
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: { kind: "session-user", field: "assigned_region" },
+			left: asValueExpr({ kind: "session-user", field: "assigned_region" }),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
@@ -1299,13 +1451,14 @@ describe("is-blank predicate", () => {
 		// closed-namespace arm too.
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: { kind: "session-context", field: "userid" },
+			left: asValueExpr({ kind: "session-context", field: "userid" }),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
 
 	it("parses is-blank with a literal (schema is structurally permissive)", () => {
-		// The schema accepts every Term variant in `left`, including
+		// The schema accepts every Term variant in `left` (lifted
+		// through the `term` arm of `ValueExpression`), including
 		// literals. `is-blank(literal(...))` is meaningless (a literal
 		// is the value itself — it cannot be absent or
 		// indistinguishable-from-empty in the way a property read can)
@@ -1316,7 +1469,7 @@ describe("is-blank predicate", () => {
 		// would trip this test.
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: { kind: "literal", value: "x" },
+			left: asValueExpr({ kind: "literal", value: "x" }),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
@@ -1345,9 +1498,13 @@ describe("between predicate", () => {
 	it("parses a both-bounds inclusive range", () => {
 		const result = predicateSchema.parse({
 			kind: "between",
-			left: { kind: "prop", caseType: "patient", property: "age" },
-			lower: { kind: "literal", value: 18 },
-			upper: { kind: "literal", value: 65 },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "age",
+			}),
+			lower: asValueExpr({ kind: "literal", value: 18 }),
+			upper: asValueExpr({ kind: "literal", value: 65 }),
 			lowerInclusive: true,
 			upperInclusive: true,
 		});
@@ -1357,8 +1514,12 @@ describe("between predicate", () => {
 	it("parses a half-open range with only a lower bound", () => {
 		const result = predicateSchema.parse({
 			kind: "between",
-			left: { kind: "prop", caseType: "patient", property: "age" },
-			lower: { kind: "literal", value: 18 },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "age",
+			}),
+			lower: asValueExpr({ kind: "literal", value: 18 }),
 			lowerInclusive: true,
 			upperInclusive: true,
 		});
@@ -1368,8 +1529,12 @@ describe("between predicate", () => {
 	it("parses a half-open range with only an upper bound", () => {
 		const result = predicateSchema.parse({
 			kind: "between",
-			left: { kind: "prop", caseType: "patient", property: "age" },
-			upper: { kind: "literal", value: 65 },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "age",
+			}),
+			upper: asValueExpr({ kind: "literal", value: 65 }),
 			lowerInclusive: true,
 			upperInclusive: true,
 		});
@@ -1382,9 +1547,13 @@ describe("between predicate", () => {
 		// single `inclusive` slot would not parse this asymmetric shape.
 		const result = predicateSchema.parse({
 			kind: "between",
-			left: { kind: "prop", caseType: "patient", property: "age" },
-			lower: { kind: "literal", value: 18 },
-			upper: { kind: "literal", value: 65 },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "age",
+			}),
+			lower: asValueExpr({ kind: "literal", value: 18 }),
+			upper: asValueExpr({ kind: "literal", value: 65 }),
 			lowerInclusive: true,
 			upperInclusive: false,
 		});
@@ -1396,17 +1565,21 @@ describe("between predicate", () => {
 	});
 
 	it("parses a range whose bounds are search-input references", () => {
-		// Bounds are `termSchema`, not literal-only — search-input,
-		// session-user, or session-context refs drive the bound at
-		// runtime. The pin locks that the schema does NOT narrow
-		// `lower`/`upper` to literals the way `inSchema.values` does
-		// (the latter has wire-target reasons to demand a static list;
-		// bounds don't).
+		// Bounds are `ValueExpression`, not literal-only — search-input,
+		// session-user, or session-context refs (lifted via the `term`
+		// arm) drive the bound at runtime. The pin locks that the schema
+		// does NOT narrow `lower`/`upper` to literals the way
+		// `inSchema.values` does (the latter has wire-target reasons to
+		// demand a static list; bounds don't).
 		const result = predicateSchema.parse({
 			kind: "between",
-			left: { kind: "prop", caseType: "patient", property: "age" },
-			lower: { kind: "input", name: "min_age" },
-			upper: { kind: "input", name: "max_age" },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "age",
+			}),
+			lower: asValueExpr({ kind: "input", name: "min_age" }),
+			upper: asValueExpr({ kind: "input", name: "max_age" }),
 			lowerInclusive: true,
 			upperInclusive: true,
 		});
@@ -1422,7 +1595,11 @@ describe("between predicate", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "between",
-				left: { kind: "prop", caseType: "patient", property: "age" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "age",
+				}),
 				lowerInclusive: true,
 				upperInclusive: true,
 			}),
@@ -1439,9 +1616,13 @@ describe("between predicate", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "between",
-				left: { kind: "prop", caseType: "patient", property: "age" },
-				lower: { kind: "literal", value: 18 },
-				upper: { kind: "literal", value: 65 },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "age",
+				}),
+				lower: asValueExpr({ kind: "literal", value: 18 }),
+				upper: asValueExpr({ kind: "literal", value: 65 }),
 			}),
 		).toThrow();
 	});
@@ -1543,8 +1724,12 @@ describe("exists predicate", () => {
 			},
 			where: {
 				kind: "eq",
-				left: { kind: "prop", caseType: "household", property: "region" },
-				right: { kind: "literal", value: "north" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "household",
+					property: "region",
+				}),
+				right: asValueExpr({ kind: "literal", value: "north" }),
 			},
 		});
 		expect(result.kind).toBe("exists");
@@ -1570,8 +1755,12 @@ describe("exists predicate", () => {
 				via: { kind: "subcase", identifier: "parent" },
 				where: {
 					kind: "eq",
-					left: { kind: "prop", caseType: "household", property: "status" },
-					right: { kind: "literal", value: "active" },
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "household",
+						property: "status",
+					}),
+					right: asValueExpr({ kind: "literal", value: "active" }),
 				},
 			},
 		});
@@ -1620,8 +1809,12 @@ describe("missing predicate", () => {
 			via: { kind: "subcase", identifier: "parent" },
 			where: {
 				kind: "eq",
-				left: { kind: "prop", caseType: "patient", property: "status" },
-				right: { kind: "literal", value: "active" },
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "status",
+				}),
+				right: asValueExpr({ kind: "literal", value: "active" }),
 			},
 		});
 		expect(result.kind).toBe("missing");

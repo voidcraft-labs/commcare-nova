@@ -454,9 +454,17 @@ describe("sentinel + range + relational predicate builders", () => {
 	});
 
 	it("isNull() constructs an is-null with a property reference", () => {
+		// Operand widening (Task A6): `left` is now a `ValueExpression`.
+		// The builder auto-wraps Term inputs as the structural `term`
+		// arm, so `p.left.kind === "term"` and the original Term sits
+		// at `p.left.term.kind`. The round-trip parse against
+		// `predicateSchema` confirms the lifted shape.
 		const p = isNull(prop("patient", "status"));
 		expect(p.kind).toBe("is-null");
-		expect(p.left.kind).toBe("prop");
+		expect(p.left.kind).toBe("term");
+		if (p.left.kind === "term") {
+			expect(p.left.term.kind).toBe("prop");
+		}
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
@@ -477,15 +485,19 @@ describe("sentinel + range + relational predicate builders", () => {
 	});
 
 	it("isBlank() constructs an is-blank with a property reference", () => {
-		// Parallel to `isNull` — same `left: Term` slot, same
-		// per-Term-variant acceptance, different wire-emission rule
-		// (portable absent-OR-empty rather than strict-absent). The
-		// builder pins the discriminator and the round-trip parse
-		// through `predicateSchema` locks the builder against schema
-		// drift on the new arm.
+		// Parallel to `isNull` — same `left: ValueExpression` slot
+		// (post-A6 widening), same per-Term-variant acceptance via
+		// auto-wrap, different wire-emission rule (portable
+		// absent-OR-empty rather than strict-absent). The builder
+		// pins the discriminator and the round-trip parse through
+		// `predicateSchema` locks the builder against schema drift on
+		// the new arm.
 		const p = isBlank(prop("patient", "status"));
 		expect(p.kind).toBe("is-blank");
-		expect(p.left.kind).toBe("prop");
+		expect(p.left.kind).toBe("term");
+		if (p.left.kind === "term") {
+			expect(p.left.term.kind).toBe("prop");
+		}
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 
@@ -727,7 +739,7 @@ function typeCheckNonEmptyConstructionSite(): void {
 		};
 		const _emptyIn: Extract<Predicate, { kind: "in" }> = {
 			kind: "in",
-			left: { kind: "literal", value: 0 },
+			left: { kind: "term", term: { kind: "literal", value: 0 } },
 			// @ts-expect-error — `values: []` violates the tuple-with-rest non-empty shape
 			values: [],
 		};

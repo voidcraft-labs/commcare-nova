@@ -125,6 +125,7 @@ import type {
 	ComparisonKind,
 	Predicate,
 	Term,
+	ValueExpression,
 } from "@/lib/domain/predicate/types";
 
 /**
@@ -188,6 +189,76 @@ const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
 	"status",
 ]);
 
+// ---------- ValueExpression-operand handling ----------
+//
+// Predicate operator schemas now carry `ValueExpression` operands
+// (the operand widening from Task A6). This single-context emitter
+// is foundation infrastructure that pre-dates the broader expression
+// vocabulary; full per-arm emission (arithmetic, conditional,
+// aggregation, etc.) is the per-dialect emitter's responsibility in
+// Tasks B1-B6. Here we accept only the `term` arm — the structural
+// lifter that admits any Term where a value is expected — and throw
+// on every other arm with a "supersede in B-phase" error.
+//
+// The exhaustive switch below uses TypeScript's `never`-narrowing so
+// any future ValueExpression arm forces a compile error here, not a
+// silent fall-through. The runtime throw guards untyped boundaries
+// (e.g. callers parsing an externally-supplied AST that bypasses
+// the type system).
+//
+// Why "term-only" is the right scope for this file: the full per-
+// dialect emission tables live in B1-B6's per-dialect emitter
+// modules. Replicating any of that vocabulary here would duplicate
+// future work and introduce drift between the foundation and per-
+// dialect surfaces. The defensive throws keep this emitter
+// strictly aligned with the operand shape it can handle without
+// engaging the per-dialect dispatch logic.
+
+/**
+ * Extract the underlying `Term` from a `ValueExpression` operand.
+ * Accepts only the `term` arm (the structural Term lifter); throws
+ * on every other arm with a pointer to the per-dialect emission
+ * tasks (B1-B6) that will handle the full expression vocabulary.
+ *
+ * Exhaustiveness via `never` narrowing — any future ValueExpression
+ * arm without a parallel handling branch here is a compile-time
+ * error. The runtime throw uses the operand's `kind` discriminator
+ * in the message so consumers can dispatch on it.
+ */
+function unwrapTermFromExpression(expr: ValueExpression): Term {
+	switch (expr.kind) {
+		case "term":
+			return expr.term;
+		case "today":
+		case "now":
+		case "date-add":
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "arith":
+		case "concat":
+		case "coalesce":
+		case "if":
+		case "switch":
+		case "count":
+		case "unwrap-list":
+		case "format-date":
+			throw new Error(
+				`xpathEmitter: ValueExpression arm '${expr.kind}' is unsupported in this single-context emitter; per-dialect emission lands in Tasks B1-B6 (see lib/commcare/predicate/{caseListFilter,csql,searchFilter}Emitter.ts).`,
+			);
+		default: {
+			// Exhaustiveness assertion — adding a new ValueExpression
+			// kind without a parallel arm above breaks the build, the
+			// load-bearing safeguard against silent drift between this
+			// emitter's coverage and the AST's growing vocabulary.
+			const _exhaustive: never = expr;
+			throw new Error(
+				`xpathEmitter: unhandled ValueExpression kind ${String(_exhaustive)}`,
+			);
+		}
+	}
+}
+
 // Operator-precedence levels for paren-grouping decisions: higher
 // binds tighter. The recursive walker passes its own level down as
 // `parentPrec`, and a child whose level is lower than `parentPrec`
@@ -228,7 +299,11 @@ function emitPredicate(
 		case "gte":
 		case "lt":
 		case "lte":
-			return `${emitTerm(p.left, ctx)} ${COMPARISON_OPS[p.kind]} ${emitTerm(p.right, ctx)}`;
+			// Operands are `ValueExpression` post-A6. This single-
+			// context emitter accepts only the `term` arm; non-term
+			// arms throw via `unwrapTermFromExpression`'s exhaustive
+			// switch.
+			return `${emitTerm(unwrapTermFromExpression(p.left), ctx)} ${COMPARISON_OPS[p.kind]} ${emitTerm(unwrapTermFromExpression(p.right), ctx)}`;
 		case "and": {
 			// `and` clauses recurse with `PREC_AND` as their parent
 			// precedence, so any `or` nested inside an `and` clause
@@ -296,7 +371,8 @@ function emitPredicate(
 			// always avoids any ambiguity at the cost of one
 			// redundant pair when the predicate sits at the
 			// outermost level.
-			const left = emitTerm(p.left, ctx);
+			// `p.left` is `ValueExpression` post-A6; unwrap to Term.
+			const left = emitTerm(unwrapTermFromExpression(p.left), ctx);
 			if (p.values.length === 1) {
 				return `${left} = ${emitLiteral(p.values[0].value, ctx)}`;
 			}
@@ -319,7 +395,12 @@ function emitPredicate(
 			// The unit is a schema-validated enum
 			// (`miles` | `kilometers`), so it interpolates directly
 			// inside single quotes without an escape pass.
-			return `within-distance(${emitTerm(p.property, ctx)}, ${emitTerm(p.center, ctx)}, ${emitNumericLiteral(p.distance)}, '${p.unit}')`;
+			//
+			// `p.center` is `ValueExpression` post-A6; unwrap to Term.
+			// `p.property` stays a `PropertyRef` (the schema's geo-
+			// position slot didn't widen — see types.ts), so it
+			// emits via `emitTerm` directly.
+			return `within-distance(${emitTerm(p.property, ctx)}, ${emitTerm(unwrapTermFromExpression(p.center), ctx)}, ${emitNumericLiteral(p.distance)}, '${p.unit}')`;
 		case "match":
 		case "multi-select-contains":
 			// `match` and `multi-select-contains` carry per-mode /
@@ -401,7 +482,8 @@ function emitPredicate(
 		case "is-blank":
 			// Portable absent-or-empty: `<term> = ''` covers both
 			// states on every CCHQ dialect.
-			return `${emitTerm(p.left, ctx)} = ''`;
+			// `p.left` is `ValueExpression` post-A6; unwrap to Term.
+			return `${emitTerm(unwrapTermFromExpression(p.left), ctx)} = ''`;
 		case "is-null":
 			// Strict-absent has no CCHQ wire form — every dialect
 			// collapses absent / cleared / empty into one match set.
