@@ -51,24 +51,39 @@
 // alias (`cases_h0`, `cases_h1`, etc.) and would couple parent
 // queries to the path's hop count.
 //
-// ## Subquery scoping is the alias-isolation discipline
+// ## Alias isolation: depth-suffix on the leaf, scoping on the hops
 //
-// The hop aliases (`ci0`, `cs0`, `ci1`, `cs1`, ...) are local to
-// each subquery. Two nested calls into `compileRelationPath`
-// (e.g. an outer `exists(parent, where: exists(parent, ...))`)
-// produce two `(SELECT ... FROM case_indices ci0 INNER JOIN cases
-// cs0 ...) AS rp_leaf` blocks; SQL's subquery-scoping rule isolates
-// each block's identifiers from the surrounding query and from
-// every sibling block. A nested call's `ci0` shadows nothing —
-// the outer `ci0` is not in scope inside the inner subquery, and
-// the inner one is not in scope outside its own SELECT.
+// Two distinct alias-collision concerns surface across nested
+// relation walks, and the compiler answers them with two distinct
+// mechanisms:
 //
-// The leaf alias the caller `innerJoin`s on is the only identifier
-// that crosses the subquery boundary, and the consumer side
-// (predicate compiler's `exists`/`missing`, expression compiler's
-// `count`) wraps each `compileRelationPath` result in its own
-// EXISTS / FROM context — so even at nested depths the wider
-// query sees one `rp_leaf` per scope, not a stack of them.
+// **Hop aliases (`ci0` / `cs0` / `ci1` / ...) — handled by SQL
+// subquery scoping.** Each `compileRelationPath` call's hop
+// aliases are local to its own SELECT. Two nested calls produce
+// two `(SELECT ... FROM case_indices ci0 INNER JOIN cases cs0
+// ...) AS <leafAlias>` blocks; SQL's scoping rule isolates each
+// block's `ci0` / `cs0` identifiers from the surrounding query
+// and from every sibling block. A nested call's `ci0` shadows
+// nothing because the outer `ci0` is not in scope inside the
+// inner SELECT, and the inner one is not in scope outside it.
+//
+// **Leaf alias (`rp_leaf`) — handled by per-depth uniquification.**
+// SQL subquery scoping does NOT isolate inner→outer references
+// to a same-named alias. When an inner subquery's WHERE clause
+// references the outer leaf (the predicate compiler's
+// correlated-EXISTS body, or the term compiler's correlated
+// scalar subquery), Postgres binds the unqualified `rp_leaf` to
+// the innermost FROM list — so the inner alias shadows the outer
+// one and the correlation predicate `<outer-leaf>.case_id =
+// <outer-leaf>.<col>` collapses into the inner row's self-equality
+// (always false for a `parent` walk by construction). The
+// `RelationPathCompileContext.relationPathDepth` counter, threaded
+// by consumers when they recurse into an inner `where`, drives
+// `leafAliasForDepth(depth)` — `rp_leaf` at depth 0,
+// `rp_leaf_<N>` at deeper nestings. The depth-suffix is the
+// structural defense; without it, nested non-self walks emit
+// silently-wrong correlations that pass cold-compile assertions
+// but fail every harness round-trip.
 //
 // ## Why `case_indices.depth = 1` on every step
 //

@@ -88,25 +88,37 @@
 // anchor row against itself and execute one redundant scan per
 // row.
 //
-// ## Nested non-self relation walks compose cleanly
+// ## Nested non-self relation walks compose via depth-suffixed leaf aliases
 //
-// Each `compileRelationPath` call produces an isolated subquery
-// scope (`(SELECT ... FROM case_indices ...) AS rp_leaf`). When
-// the inner `where` of an outer `exists`/`missing` itself
+// When the inner `where` of an outer `exists`/`missing` itself
 // contains another non-self relation walk — either a nested
 // `exists`/`missing` or a property read with a non-self `via` —
-// the inner `compileRelationPath` produces its own subquery
-// scope. SQL's subquery-scoping rule isolates each scope's
-// identifiers from the surrounding query, so the inner `rp_leaf`
-// alias does not shadow the outer one. The outer correlation
-// stays valid; the inner correlation correlates against the
-// outer leaf via the recursive context's `anchorAlias` swap.
+// the inner `compileRelationPath` invocation produces its own
+// `(SELECT ... FROM case_indices ...) AS <leafAlias>` block.
+// SQL's scoping rule isolates each block's hop aliases (`ci0` /
+// `cs0` / ...) from the surrounding query, so those identifiers
+// never collide across nesting levels.
 //
-// The compiler emits one EXISTS subquery per `compileRelationPath`
-// invocation, with the inner `where` predicate compiled in a
-// context whose `anchorAlias` is the surrounding leaf alias. The
-// nested-EXISTS shape composes to arbitrary depth without
-// per-depth alias uniquification.
+// The leaf alias is a different concern. When the inner WHERE
+// references the outer leaf (the correlated-EXISTS body
+// correlating against `<outer-leaf>.case_id`, or the inner
+// non-self via prop's correlated scalar subquery doing the
+// same), Postgres binds an unqualified leaf reference to the
+// innermost FROM list — so an inner subquery aliased the same
+// `rp_leaf` would shadow the outer one and the correlation
+// predicate `<outer-leaf>.case_id = <outer-leaf>.<col>` would
+// collapse into self-equality on the inner row.
+//
+// `compileExistsOrMissing` defends against this by incrementing
+// `RelationPathCompileContext.relationPathDepth` before recursing
+// into the inner `where`. `compileRelationPath` reads the depth
+// to pick `leafAliasForDepth(depth)` — `rp_leaf` at depth 0,
+// `rp_leaf_<N>` at deeper nestings — so the inner block's leaf
+// alias never matches the outer one and the inner correlation
+// reference resolves unambiguously against the outer leaf.
+// `compileTerm`'s non-self via reads inherit the same depth via
+// the shared context, so their correlated scalar subqueries
+// participate in the same uniquification scheme.
 
 import type { RawBuilder, SqlBool } from "kysely";
 import { sql } from "kysely";
