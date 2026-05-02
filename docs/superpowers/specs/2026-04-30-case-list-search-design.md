@@ -473,7 +473,6 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 - Sort calculation FF (the Expression AST supports it; the FF gating is out)
 - Cache and Index pathway (deprecated by CCHQ)
 - "Don't search cases owned by following IDs"
-- Real Cloud SQL Postgres deployment
 - CSV upload, HQ-import, hand-typed sample cases
 - LLM-powered sample data generator (Haiku)
 - Firestore retirement
@@ -502,7 +501,6 @@ The Zod schema in code only has the new shape from day one of the spec landing. 
 
 ## Phase-2 follow-up specs
 
-- **Case data persistent backend spec** — `PostgresCaseStore` swap, Cloud SQL deploy, per-user storage, RLS, connection pooling.
 - **Visual/geo formats spec** — visual format kinds, case tiles, persistent tiles, map / popup / distance columns. Builds on the format-kind union and the AST.
 - **Advanced search spec** — related-case linking, data registries, lookup tables, geocoder receivers, custom related-case property.
 - **Multi-select spec** — distinct data + UX surface; builds on the `CaseStore` interface.
@@ -523,8 +521,7 @@ Each gate below is a concrete blocking check that must pass before the correspon
 - AST type-checker unit tests against the case-type schema.
 - AST → SQL compiler tests with property-based generation against expected SQL output.
 - AST → wire emitter tests with golden files comparing emission against CCHQ-accepted XPath, per dialect (one golden-file suite per wire target).
-- Round-trip tests: AST → SQL execution against the in-memory store; AST → SQL execution against a Postgres test instance via testcontainers (no mocks at the DB boundary).
-- Cross-implementation parity tests: in-memory evaluator and Postgres compiler produce the same results for golden AST fixtures.
+- Round-trip tests: AST → Kysely → SQL execution against a Postgres test instance via testcontainers (no mocks at the DB boundary). One implementation, one test path.
 - Migration script: dry-run mode plus assertion tests against fixture docs.
 
 ## Risks and mitigations
@@ -541,10 +538,10 @@ Each gate below is a concrete blocking check that must pass before the correspon
 
 This is foundational work that ships across five separately-reviewable, separately-testable plans. None of it is "inventing a database, query language, or storage engine" — all of it is writing focused domain-specific compilers, type checkers, and a typed UI surface fitted to the domain. Each plan ships independently; subsequent plans depend on prior plans but produce reviewable software on their own.
 
-- **Plan 1 (Foundation):** Predicate AST + Expression AST + type checker + JSON Schema generator + three wire emitters + Postgres compiler + testcontainers infra + Cloud SQL extension allowlist gate.
-- **Plan 2 (Case data layer):** `CaseStore` interface + `InMemoryCaseStore` + `HeuristicCaseGenerator` + parity tests.
+- **Plan 1 (Foundation):** Predicate AST + Expression AST + type checker + JSON Schema generator + three wire emitters + Postgres compiler + testcontainers infra.
+- **Plan 2 (Case data layer):** Cloud SQL provisioning + `PostgresCaseStore` (the only implementation) + `HeuristicCaseGenerator` + per-user `(app_id, owner_id)` isolation + extension allowlist gate. No in-memory variant; testcontainers covers test isolation.
 - **Plan 3 (Case list authoring):** Module schema + migration script + case-list config UI + SA tools + validator + wire emission for short/long detail.
 - **Plan 4 (Search authoring):** Module schema for search + search config UI + SA tools + platform-aware compilation + wire emission for `<remote-request>` + claim.
-- **Plan 5 (Preview search execution):** Preview surface + split-screen search + inline filter + form write-through.
+- **Plan 5 (Running-app search execution):** Running-app surface (the flipbook's "using" view) + split-screen search + inline filter + form write-through. There is no separate preview lifecycle; the running-app view operates on the same `cases` rows the editor inspects.
 
 The v1 of this spec made an effort estimate that was off by ~5x for Plan 1 alone. The v2 estimates were no more reliable — agentic execution velocity and the iteration tightness of typed-AST work both make conventional day-counts misleading. Effort estimates are removed from this spec and from all five plans.
