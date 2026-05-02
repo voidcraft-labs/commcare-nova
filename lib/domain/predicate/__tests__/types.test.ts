@@ -422,11 +422,12 @@ describe("predicate schema", () => {
 	)("parses a session-context reference for field: %s", (field) => {
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: {
-				kind: "term",
-				term: { kind: "prop", caseType: "patient", property: "owner_id" },
-			},
-			right: { kind: "term", term: { kind: "session-context", field } },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "owner_id",
+			}),
+			right: asValueExpr({ kind: "session-context", field }),
 		});
 		expect(result.kind).toBe("eq");
 		if (result.kind === "eq" && result.right.kind === "term") {
@@ -1114,19 +1115,16 @@ describe("propertyRef with via (relational read)", () => {
 		// `household` case type and reads `region` there.
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: {
-				kind: "term",
-				term: {
-					kind: "prop",
-					caseType: "patient",
-					property: "region",
-					via: {
-						kind: "ancestor",
-						via: [{ identifier: "parent", throughCaseType: "household" }],
-					},
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "region",
+				via: {
+					kind: "ancestor",
+					via: [{ identifier: "parent", throughCaseType: "household" }],
 				},
-			},
-			right: { kind: "term", term: { kind: "literal", value: "north" } },
+			}),
+			right: asValueExpr({ kind: "literal", value: "north" }),
 		});
 		expect(result.kind).toBe("eq");
 		if (
@@ -1149,18 +1147,12 @@ describe("propertyRef with via (relational read)", () => {
 		// Predicate operands are wrapped in the structural `term` arm.
 		const input = {
 			kind: "eq" as const,
-			left: {
-				kind: "term" as const,
-				term: {
-					kind: "prop" as const,
-					caseType: "patient",
-					property: "status",
-				},
-			},
-			right: {
-				kind: "term" as const,
-				term: { kind: "literal" as const, value: "open" },
-			},
+			left: asValueExpr({
+				kind: "prop" as const,
+				caseType: "patient",
+				property: "status",
+			}),
+			right: asValueExpr({ kind: "literal" as const, value: "open" }),
 		};
 		const result = predicateSchema.parse(input);
 		expect(result).toEqual(input);
@@ -1183,16 +1175,13 @@ describe("propertyRef with via (relational read)", () => {
 		// accepts both.
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: {
-				kind: "term",
-				term: {
-					kind: "prop",
-					caseType: "patient",
-					property: "status",
-					via: { kind: "self" },
-				},
-			},
-			right: { kind: "term", term: { kind: "literal", value: "open" } },
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "status",
+				via: { kind: "self" },
+			}),
+			right: asValueExpr({ kind: "literal", value: "open" }),
 		});
 		expect(result.kind).toBe("eq");
 	});
@@ -1207,20 +1196,17 @@ describe("propertyRef with via (relational read)", () => {
 		// slot itself is purely structural.
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: {
-				kind: "term",
-				term: {
-					kind: "prop",
-					caseType: "household",
-					property: "status",
-					via: {
-						kind: "subcase",
-						identifier: "parent",
-						ofCaseType: "patient",
-					},
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "household",
+				property: "status",
+				via: {
+					kind: "subcase",
+					identifier: "parent",
+					ofCaseType: "patient",
 				},
-			},
-			right: { kind: "term", term: { kind: "literal", value: "active" } },
+			}),
+			right: asValueExpr({ kind: "literal", value: "active" }),
 		});
 		expect(result.kind).toBe("eq");
 	});
@@ -1238,20 +1224,17 @@ describe("propertyRef with via (relational read)", () => {
 		// kind standalone but rejected it inside a property-ref slot.
 		const result = predicateSchema.parse({
 			kind: "eq",
-			left: {
-				kind: "term",
-				term: {
-					kind: "prop",
-					caseType: "patient",
-					property: "linked_id",
-					via: {
-						kind: "any-relation",
-						identifier: "linked",
-						ofCaseType: "referral",
-					},
+			left: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "linked_id",
+				via: {
+					kind: "any-relation",
+					identifier: "linked",
+					ofCaseType: "referral",
 				},
-			},
-			right: { kind: "term", term: { kind: "literal", value: "abc-123" } },
+			}),
+			right: asValueExpr({ kind: "literal", value: "abc-123" }),
 		});
 		expect(result.kind).toBe("eq");
 		if (
@@ -1946,7 +1929,7 @@ describe("valueExpression schema — date / coercion arms", () => {
 			kind: "date-add",
 			date: { kind: "today" },
 			interval,
-			quantity: { kind: "term", term: { kind: "literal", value: 1 } },
+			quantity: asValueExpr({ kind: "literal", value: 1 }),
 		});
 		expect(result.kind).toBe("date-add");
 	});
@@ -1957,16 +1940,13 @@ describe("valueExpression schema — date / coercion arms", () => {
 				kind: "date-add",
 				date: { kind: "today" },
 				interval: "fortnights",
-				quantity: { kind: "term", term: { kind: "literal", value: 1 } },
+				quantity: asValueExpr({ kind: "literal", value: 1 }),
 			}),
 		).toThrow();
 	});
 
 	it("parses date-coerce / datetime-coerce / double", () => {
-		const inner = {
-			kind: "term" as const,
-			term: { kind: "literal" as const, value: "2024-01-01" },
-		};
+		const inner = asValueExpr({ kind: "literal", value: "2024-01-01" });
 		expect(
 			valueExpressionSchema.parse({ kind: "date-coerce", value: inner }).kind,
 		).toBe("date-coerce");
@@ -1990,8 +1970,8 @@ describe("valueExpression schema — arithmetic + text arms", () => {
 		const result = valueExpressionSchema.parse({
 			kind: "arith",
 			op,
-			left: { kind: "term", term: { kind: "literal", value: 1 } },
-			right: { kind: "term", term: { kind: "literal", value: 2 } },
+			left: asValueExpr({ kind: "literal", value: 1 }),
+			right: asValueExpr({ kind: "literal", value: 2 }),
 		});
 		expect(result.kind).toBe("arith");
 	});
@@ -2001,8 +1981,8 @@ describe("valueExpression schema — arithmetic + text arms", () => {
 			valueExpressionSchema.parse({
 				kind: "arith",
 				op: "**",
-				left: { kind: "term", term: { kind: "literal", value: 1 } },
-				right: { kind: "term", term: { kind: "literal", value: 2 } },
+				left: asValueExpr({ kind: "literal", value: 1 }),
+				right: asValueExpr({ kind: "literal", value: 2 }),
 			}),
 		).toThrow();
 	});
@@ -2010,7 +1990,7 @@ describe("valueExpression schema — arithmetic + text arms", () => {
 	it("parses concat with a single part (variadic-with-required-first)", () => {
 		const result = valueExpressionSchema.parse({
 			kind: "concat",
-			parts: [{ kind: "term", term: { kind: "literal", value: "x" } }],
+			parts: [asValueExpr({ kind: "literal", value: "x" })],
 		});
 		expect(result.kind).toBe("concat");
 	});
@@ -2025,9 +2005,9 @@ describe("valueExpression schema — arithmetic + text arms", () => {
 		const result = valueExpressionSchema.parse({
 			kind: "concat",
 			parts: [
-				{ kind: "term", term: { kind: "literal", value: "a" } },
-				{ kind: "term", term: { kind: "literal", value: "b" } },
-				{ kind: "term", term: { kind: "literal", value: "c" } },
+				asValueExpr({ kind: "literal", value: "a" }),
+				asValueExpr({ kind: "literal", value: "b" }),
+				asValueExpr({ kind: "literal", value: "c" }),
 			],
 		});
 		expect(result.kind).toBe("concat");
@@ -2040,8 +2020,8 @@ describe("valueExpression schema — arithmetic + text arms", () => {
 		const filled = valueExpressionSchema.parse({
 			kind: "coalesce",
 			values: [
-				{ kind: "term", term: { kind: "literal", value: null } },
-				{ kind: "term", term: { kind: "literal", value: "fallback" } },
+				asValueExpr({ kind: "literal", value: null }),
+				asValueExpr({ kind: "literal", value: "fallback" }),
 			],
 		});
 		expect(filled.kind).toBe("coalesce");
@@ -2066,8 +2046,8 @@ describe("valueExpression schema — conditional + aggregation arms", () => {
 			kind: "if",
 			cond: { kind: "match-all" },
 			// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; `then` holds a ValueExpression object, never a callable. See the JSDoc on `ifSchema` in types.ts for the full thenable-hazard analysis.
-			then: { kind: "term", term: { kind: "literal", value: 1 } },
-			else: { kind: "term", term: { kind: "literal", value: 0 } },
+			then: asValueExpr({ kind: "literal", value: 1 }),
+			else: asValueExpr({ kind: "literal", value: 0 }),
 		});
 		expect(result.kind).toBe("if");
 	});
@@ -2081,13 +2061,13 @@ describe("valueExpression schema — conditional + aggregation arms", () => {
 			kind: "if",
 			cond: { kind: "match-all" },
 			// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
-			then: { kind: "term", term: { kind: "literal", value: 1 } },
+			then: asValueExpr({ kind: "literal", value: 1 }),
 			else: {
 				kind: "if",
 				cond: { kind: "match-none" },
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
-				then: { kind: "term", term: { kind: "literal", value: 2 } },
-				else: { kind: "term", term: { kind: "literal", value: 3 } },
+				then: asValueExpr({ kind: "literal", value: 2 }),
+				else: asValueExpr({ kind: "literal", value: 3 }),
 			},
 		});
 		expect(result.kind).toBe("if");
@@ -2096,15 +2076,15 @@ describe("valueExpression schema — conditional + aggregation arms", () => {
 	it("parses switch with one case + fallback", () => {
 		const result = valueExpressionSchema.parse({
 			kind: "switch",
-			on: { kind: "term", term: { kind: "literal", value: "low" } },
+			on: asValueExpr({ kind: "literal", value: "low" }),
 			cases: [
 				{
 					when: { kind: "literal", value: "low" },
 					// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; see types.ts for thenable-hazard analysis.
-					then: { kind: "term", term: { kind: "literal", value: 1 } },
+					then: asValueExpr({ kind: "literal", value: 1 }),
 				},
 			],
-			fallback: { kind: "term", term: { kind: "literal", value: 0 } },
+			fallback: asValueExpr({ kind: "literal", value: 0 }),
 		});
 		expect(result.kind).toBe("switch");
 	});
@@ -2113,9 +2093,9 @@ describe("valueExpression schema — conditional + aggregation arms", () => {
 		expect(() =>
 			valueExpressionSchema.parse({
 				kind: "switch",
-				on: { kind: "term", term: { kind: "literal", value: "low" } },
+				on: asValueExpr({ kind: "literal", value: "low" }),
 				cases: [],
-				fallback: { kind: "term", term: { kind: "literal", value: 0 } },
+				fallback: asValueExpr({ kind: "literal", value: 0 }),
 			}),
 		).toThrow();
 	});
@@ -2148,10 +2128,11 @@ describe("valueExpression schema — unwrap-list + format-date", () => {
 	it("parses unwrap-list with a text-shaped operand", () => {
 		const result = valueExpressionSchema.parse({
 			kind: "unwrap-list",
-			value: {
-				kind: "term",
-				term: { kind: "prop", caseType: "patient", property: "tags" },
-			},
+			value: asValueExpr({
+				kind: "prop",
+				caseType: "patient",
+				property: "tags",
+			}),
 		});
 		expect(result.kind).toBe("unwrap-list");
 	});
@@ -2206,23 +2187,21 @@ describe("valueExpression schema — cross-family cycle through predicate operan
 				kind: "if",
 				cond: {
 					kind: "is-blank",
-					left: {
-						kind: "term",
-						term: {
-							kind: "prop",
-							caseType: "patient",
-							property: "name",
-						},
-					},
+					left: asValueExpr({
+						kind: "prop",
+						caseType: "patient",
+						property: "name",
+					}),
 				},
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; see types.ts for thenable-hazard analysis.
-				then: { kind: "term", term: { kind: "literal", value: "(empty)" } },
-				else: {
-					kind: "term",
-					term: { kind: "prop", caseType: "patient", property: "name" },
-				},
+				then: asValueExpr({ kind: "literal", value: "(empty)" }),
+				else: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "name",
+				}),
 			},
-			right: { kind: "term", term: { kind: "literal", value: "(empty)" } },
+			right: asValueExpr({ kind: "literal", value: "(empty)" }),
 		});
 		expect(result.kind).toBe("eq");
 	});

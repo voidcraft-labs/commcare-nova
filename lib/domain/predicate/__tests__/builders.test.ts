@@ -757,7 +757,7 @@ function typeCheckNonEmptyConstructionSite(): void {
 		};
 		const _emptyIn: Extract<Predicate, { kind: "in" }> = {
 			kind: "in",
-			left: { kind: "term", term: { kind: "literal", value: 0 } },
+			left: term(literal(0)),
 			// @ts-expect-error — `values: []` violates the tuple-with-rest non-empty shape
 			values: [],
 		};
