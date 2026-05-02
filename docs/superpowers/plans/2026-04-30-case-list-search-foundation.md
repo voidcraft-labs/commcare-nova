@@ -507,13 +507,18 @@ The `then` field name on `if` and `switch.cases` triggers Biome's `noThenPropert
 - `npm run lint` clean
 - Eternal-present sweep grep returns zero hits
 
-### Task A7: Reduction module
+### Task A7: Reduction module — SHIPPED
 
-**Files:**
-- Create: `lib/domain/predicate/reduction.ts`
-- Test: `lib/domain/predicate/__tests__/reduction.test.ts`
+Shipped across commits `73724f51` → `a8374aa0` → `09946c67` → `14ffcc7a` → `7f505a92` → `b2a89cbd`.
 
-Construction-time reductions:
+**Files modified:**
+- `lib/domain/predicate/reduction.ts` (new) — `reduceAnd` / `reduceOr` / `reduceNot` exports, each returning the rewritten Predicate when a reduction applies and `undefined` otherwise. Sentinel returns use inline discriminator-only literals (`{ kind: "match-all" }` / `{ kind: "match-none" }`) so the module is zero-runtime-import on the rest of the predicate package.
+- `lib/domain/predicate/__tests__/reduction.test.ts` (new) — 10 unit tests covering all 7 reductions plus the no-reduction-applies undefined returns.
+- `lib/domain/predicate/builders.ts` — `and` / `or` / `not` thread inputs through the reducers before falling through to standard construction. Function overloads preserve precise per-arm return types: `and()` → `match-all`, `and(x)` → `T`, `and(x, y, ...)` → `Extract<{ kind: "and" }>`; parallel for `or`. `not` carries four overloads: `not(matchAll)` → `match-none`, `not(matchNone)` → `match-all`, `not(not(...))` → `Predicate`, `not(<other>)` → `Extract<{ kind: "not" }>`.
+- `lib/domain/predicate/__tests__/builders.test.ts` — 10 builder-integration tests + a `typeCheckReductionNarrowing` block locking all 11 reduction outcomes at the type level. Removed the `@ts-expect-error` for `and()` / `or()` (now legitimately produce sentinels via reduction).
+- `lib/domain/predicate/types.ts` — refreshed `andSchema` / `orSchema` non-empty-tuple comment to frame the schema check as a defensive backstop for direct-literal / parsed-JSON paths, with the builder reductions as the primary surface.
+
+**The 7 reductions:**
 - `and([])` → `match-all`
 - `or([])` → `match-none`
 - `and([x])` → `x`
@@ -522,13 +527,24 @@ Construction-time reductions:
 - `not(match-none)` → `match-all`
 - `not(not(x))` → `x`
 
-Builders use the reductions internally so authors who construct empty conjunctions get the sentinel rather than a schema error.
+**Architectural decisions:**
 
-Steps:
-- [ ] Write failing tests for each reduction
-- [ ] Implement
-- [ ] Wire reductions into builders
-- [ ] Run tests, commit
+1. **Separate `reduction.ts` module** (over in-builder helpers) — independent unit-testability of each reducer + clean separation between the structural reduction rules and the builder API surface.
+2. **`undefined` no-reduction signal** (over a sentinel constant or always-return-Predicate) — the builder dispatches on `reduceX(...) ?? <standard construction>` in a single line; readers see the reduction-first pattern at the call site without indirection.
+3. **TypeScript function overloads on `and` / `or` / `not`** (over a single widened `Predicate` return) — preserves the file-level "per-arm narrowing" contract that lets call sites access `.clauses` / `.clause` directly without re-narrowing.
+4. **Inline sentinel literals in `reduction.ts`** (over calling `matchAll()` / `matchNone()` from `builders.ts`) — the cyclic builder call would have created a `reduction.ts` ↔ `builders.ts` import cycle that worked only because `matchAll` / `matchNone` were `function` declarations (hoisted). Inline keeps the dep-graph linear; the schema's `z.literal("match-all")` is the source of truth on the kind discriminator, and the type system catches any structural divergence.
+5. **Schema's non-empty tuple stays as defensive backstop** for direct-literal and parsed-JSON paths — the builder reductions are the primary surface; the schema check fires only when someone bypasses the builders.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ Compliant. All 7 reductions, builder integration (reduction-first wiring), and test coverage match the plan.
+- Code-quality review (opus): 4 findings — 1 Blocker (cycle), 2 Important (mid-file import + brittle line citation in JSDoc), 1 Minor (future-consumer hedge). All addressed in the fix-pass commit chain (`7f505a92` → `b2a89cbd`). Re-review approved.
+
+**Verification gates (all green at HEAD `b2a89cbd`):**
+- 514 predicate-domain + commcare-predicate tests pass (was 494 pre-A7; +20 for reduction)
+- `npx tsc --noEmit` clean
+- `npm run lint` clean
+- Cycle smoke test: `rg "from \"./builders\"" lib/domain/predicate/reduction.ts` returns zero hits
 
 ---
 
