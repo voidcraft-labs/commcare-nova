@@ -35,17 +35,14 @@
 // extensions `pg_trgm` and `fuzzystrmatch` ship in-image, plus
 // PostGIS 3.4 preinstalled. Anything else (vanilla `postgres`
 // image, Supabase image, Crunchy image) loses one of those three
-// without a custom Dockerfile. The fourth extension this codebase
-// cares about — `pg_jsonschema` — is a Cloud SQL allowlist
-// concern, not a unit-test harness concern; the harness installs
-// it when the running image happens to ship it (Supabase) and
-// logs a single warning when it doesn't (postgis/postgis). The
-// case-store compilers don't depend on the JSON-schema trigger;
-// they need pg_trgm / fuzzystrmatch / postgis for query operators
-// (fuzzy match, phonetic match, geographic distance). The
-// runtime trigger has a PL/pgSQL fallback for the missing-
-// extension case; the harness's job is to make both code paths
-// testable, not to choose between them.
+// without a custom Dockerfile. The fourth extension the case-store
+// cares about — `pg_jsonschema` — is a Cloud SQL allowlist concern,
+// not a harness concern; the harness installs it when the running
+// image happens to ship it (Supabase) and logs a single warning
+// when it doesn't (postgis/postgis). The case-store compilers
+// don't depend on the JSON-schema trigger; they need pg_trgm /
+// fuzzystrmatch / postgis for query operators (fuzzy match,
+// phonetic match, geographic distance).
 //
 // ## DDL seeding strategy
 //
@@ -131,10 +128,9 @@ const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
  * `pg_jsonschema` is allowlist-gated on Cloud SQL (spec § "Cloud
  * SQL extension allowlist for `pg_jsonschema`", line 545). The
  * harness installs it when the running image happens to ship it
- * and logs a single line when it doesn't, mirroring the runtime
- * fall-back path the case-store trigger takes. Absence is NOT a
- * fatal failure — the AST-to-Kysely compiler tests don't exercise
- * the JSON-Schema trigger.
+ * and logs a single line otherwise. Absence is NOT a fatal
+ * failure — the AST-to-Kysely compiler tests don't exercise the
+ * JSON-Schema trigger.
  */
 const OPTIONAL_EXTENSIONS = ["pg_jsonschema"] as const;
 
@@ -233,16 +229,11 @@ export async function setup(project: TestProject): Promise<void> {
 		}
 
 		// Optional extensions: install if `pg_available_extensions`
-		// reports them, log a single line otherwise. The log line
-		// is the audit trail for "did this run see pg_jsonschema
-		// or not" — the runtime trigger consumes the same signal
-		// when it picks between the native and PL/pgSQL
-		// implementations. We use `console.warn` rather than
-		// `@/lib/logger` because globalSetup runs before Vitest
-		// mocks the logger (mock lives in `vitest.setup.ts`, which
-		// is per-worker), so going through `log.warn` here would
-		// leak straight to stderr AND lose the audit trail in
-		// worker-mocked tests.
+		// reports them, log a single line otherwise. globalSetup
+		// runs in the orchestrator process before any worker
+		// initializes its `@/lib/logger` mock. Either channel writes
+		// to the orchestrator's stderr identically; `console.warn`
+		// keeps this module free of an internal-package import.
 		for (const extension of OPTIONAL_EXTENSIONS) {
 			const { rows } = await client.query<{ name: string }>(
 				`SELECT name FROM pg_available_extensions WHERE name = $1`,
@@ -252,7 +243,7 @@ export async function setup(project: TestProject): Promise<void> {
 				await client.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
 			} else {
 				console.warn(
-					`[case-store harness] optional extension '${extension}' not available on image '${IMAGE_TAG}'; skipping (trigger uses PL/pgSQL fallback at runtime).`,
+					`[case-store harness] optional extension '${extension}' not available on image '${IMAGE_TAG}'; skipping.`,
 				);
 			}
 		}

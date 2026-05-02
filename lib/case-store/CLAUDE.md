@@ -7,23 +7,15 @@ The runtime storage layer for case data:
   compile-time contract every typed query binds against. Source of
   column names and column types; spec lines cited per column.
 - `sql/__tests__/` — the testcontainers harness shared by every
-  AST-to-Kysely compiler test in this package and by the
-  `PostgresCaseStore` integration tests once they land.
+  AST-to-Kysely compiler test in this package and by future
+  Postgres-backed integration tests.
 
 ## Testcontainers harness
 
 A real Postgres engine boots once per `vitest run` and every test in
 this package executes against it. The harness lives entirely under
-`sql/__tests__/`; consumers import the fixture from `setup.ts`:
-
-```ts
-import { test, expect, makeCaseRow } from "./setup";
-
-test("compiles `prop > 18`", async ({ db }) => {
-	await db.insertInto("cases").values(makeCaseRow({ /* ... */ })).execute();
-	// ... assertions against `db`
-});
-```
+`sql/__tests__/`; consumers import the fixture from `setup.ts`. See
+"Writing new tests" below for the canonical usage shape.
 
 ### Container-per-run, transaction-per-test
 
@@ -66,15 +58,13 @@ on:
 - `fuzzystrmatch` — phonetic match (Soundex / Metaphone)
 - `postgis` — `within-distance` operator (`ST_DWithin`)
 
-A fourth extension — `pg_jsonschema`, used by the write-time JSON
-Schema validator trigger — is allowlist-gated on Cloud SQL (spec
-§ "Cloud SQL extension allowlist for `pg_jsonschema`", line 545).
-The harness installs it when the running image happens to ship it
-(`supabase/postgres` does; `postgis/postgis` does not), and logs a
-single warning otherwise. The harness is NOT the place to write the
-validator trigger — that runtime choice (native trigger vs. PL/pgSQL
-fallback) lives in the case-store's runtime layer, not in this test
-infrastructure.
+A fourth extension — `pg_jsonschema` — is allowlist-gated on Cloud
+SQL (spec § "Cloud SQL extension allowlist for `pg_jsonschema`",
+line 545). The harness installs it when the running image happens to
+ship it (`supabase/postgres` does; `postgis/postgis` does not), and
+logs a single warning otherwise. Write-time validation of
+`cases.properties` is the storage layer's concern; the harness only
+provides the engine surface that validation runs against.
 
 ### `case_type_schemas` seeding lives at the per-test layer
 

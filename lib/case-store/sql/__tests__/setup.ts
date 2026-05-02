@@ -99,11 +99,11 @@ const connectionString = inject("postgresTestUrl");
  * acquire transactions through the `db` / `pgClient` fixtures
  * rather than touching the pool directly.
  *
- * `max: 5` is a conservative ceiling — each test holds one
- * connection for the duration of its transaction, so concurrent
- * tests within a worker need that many connections. Raising it
- * costs nothing; lowering risks deadlock if Vitest ever
- * schedules multiple tests concurrently per worker.
+ * `max: 5` leaves headroom for tests that opt into
+ * `test.concurrent` (Vitest runs tests within a file serially by
+ * default; concurrency is opt-in). Each worker has its own pool;
+ * cross-worker isolation comes from distinct connections, not from
+ * this size.
  */
 const pool = new Pool({ connectionString, max: 5 });
 
@@ -136,6 +136,9 @@ afterAll(async () => {
  */
 function singleConnectionPool(client: PoolClient): PostgresPool {
 	const wrappedClient: PostgresPoolClient = {
+		// `Function.prototype.bind` erases pg's `query` overloads; the
+		// cast restores the callable surface Kysely's
+		// `PostgresPoolClient` type expects.
 		query: client.query.bind(client) as PostgresPoolClient["query"],
 		release: () => {
 			// no-op — the test fixture's cleanup releases the
@@ -200,14 +203,8 @@ export interface CaseStoreFixtures {
  * test would leak its writes into the next test's view.
  */
 export const test = baseTest.extend<CaseStoreFixtures>({
-	// Vitest's fixture function MUST destructure its first argument
-	// (the framework parses the source AST and rejects bare param
-	// names — see `FixtureParseError` at vitest/dist/runner/fixture).
-	// `pgClient` has no fixture deps, so we destructure `task` —
-	// the per-test handle Vitest exposes on every fixture context —
-	// purely to satisfy the parse check. `task` is unused; the
-	// underscore-prefix tells Biome not to flag it.
-	pgClient: async ({ task: _task }, use) => {
+	// biome-ignore lint/correctness/noEmptyPattern: Vitest requires an object destructuring pattern as the fixture's first argument (`@vitest/runner/dist/chunk-artifact.js:528`).
+	pgClient: async ({}, use) => {
 		const client = await pool.connect();
 		try {
 			await client.query("BEGIN");
