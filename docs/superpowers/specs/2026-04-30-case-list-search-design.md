@@ -119,8 +119,10 @@ type Predicate =
   // term-pair shapes.
   | { kind: "between"; left: Term; lower?: Term; upper?: Term; lowerInclusive: boolean; upperInclusive: boolean }
 
-  // Null check — first-class so it doesn't compile to `prop = ''` footguns silently
-  | { kind: "is-null"; left: Term }
+  // Null / blank checks — see "Null vs blank semantics" below for the per-dialect
+  // representability table. `is-null` is strict; `is-blank` is portable.
+  | { kind: "is-null"; left: Term }       // strict: left resolves to absent
+  | { kind: "is-blank"; left: Term }      // portable: absent OR empty-string
 
   // Relational — typed paths, no string templates
   | { kind: "exists"; via: RelationPath; where?: Predicate }
@@ -129,6 +131,30 @@ type Predicate =
   // Conditional clause inclusion — input-driven
   | { kind: "when-input-present"; input: SearchInputRef; clause: Predicate }
 ```
+
+#### Null vs blank semantics
+
+CCHQ's wire layer collapses three semantically distinct states — *property never written* / *property written, then cleared* / *property explicitly set to empty* — into one wire-readable state (`prop = ''` matches all three; `case_property_missing(prop)` matches all three). The wire conflation is a CCHQ-side accumulation; **Nova's AST and runtime are not bound by it.** Postgres JSONB distinguishes "key absent" from "key present with empty value"; the in-memory case store does the same via `Map<string, string>`. The Predicate AST carries the strict semantic; the per-dialect emitters and the representability checker handle the wire constraint.
+
+The two operators:
+
+| Operator | Semantic | Postgres / in-memory | CCHQ wire |
+|---|---|---|---|
+| `is-null(left)` | **Strict.** `left` resolves to absent (key not present in the JSONB / Map). | `NOT (properties ? 'X')` for property refs; `count(...) = 0` for search-input refs. | **Unrepresentable** — the representability checker errors at authoring time, same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context. |
+| `is-blank(left)` | **Portable.** `left` resolves to absent OR empty-string. | `(NOT (properties ? 'X')) OR properties->>'X' = ''` for property refs; `count(...) = 0 OR ... = ''` for search-input refs. | Cleanly representable: `case_property_missing(prop)` in CSQL; `if(count(input), real_predicate, match-all())` wrapper for case-list / post-ES filters that depend on a search input. |
+
+`compare(prop, literal(""))` and `compare(prop, literal(null))` remain in the AST — sometimes the author really does mean "the value is the literal empty string and not absent" — but the validator surfaces a hint at authoring time: *"`prop = ''` matches absent fields too on CCHQ. Did you mean `is-blank(prop)`?"* The hint is a soft warning, not an error; authors can confirm the literal-empty intent.
+
+The four-layer practical defense against authoring `is-null` (strict) in a CCHQ-deployed context:
+
+1. **Representability checker** errors at authoring time; the author sees the incompatibility before save, never silently ships a filter that breaks at search-execution time.
+2. **UI default card** for "is set / is not set" intents offers `is-blank` in CCHQ-bound contexts; `is-null` requires explicit opt-in with a visible cost.
+3. **SA prompt** defaults to `is-blank` for "field set / unset" semantic intents.
+4. **Platform-divergence panel** renders any opt-in `is-null` as a CCHQ-incompatibility flag at edit time.
+
+Layer 1 ships in the foundation (Predicate AST + B5 representability rule). Layers 2–4 ship in Plan 3+ (case list + search authoring UI). The architecture is the same dispatch pattern A2 established for `match(mode: fuzzy)` — not new infrastructure, another instance of it.
+
+The lived-experience justification: a real prod-app default filter wraps every search-input read in `if(count(instance('search-input')/input/field[@name='X']), real_predicate, match-all())` because CCHQ's input-not-present case silently breaks the filter at search-execution time (no save-time / version-time / app-load-time error surfaces). That `count()`-wrapper boilerplate is exactly what Nova's CSQL emitter generates automatically from a clean `whenInputPresent(input("X"), ...)` AST node — authors never see it, and the typed AST + representability checker catch the bad case before it ships.
 
 #### Expression family
 
@@ -399,7 +425,8 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 ### V1 scope — IN
 
 **Predicate AST coverage:**
-- Sentinels: `match-all`, `match-none`, `is-null`
+- Sentinels: `match-all`, `match-none`
+- Null / blank: `is-null` (strict; CCHQ-unrepresentable), `is-blank` (portable; CCHQ-representable)
 - Logical: `and`, `or`, `not`
 - Comparison: `compare` (six operators: eq/neq/gt/gte/lt/lte)
 - Membership: `in`, `between`

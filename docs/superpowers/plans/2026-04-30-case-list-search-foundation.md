@@ -368,18 +368,71 @@ Steps:
 - [ ] Sweep test references (`userField` calls in builders.test.ts, typeChecker.test.ts, xpathEmitter.test.ts; `kind: "user"` literals in types.test.ts)
 - [ ] Run `npm test lib/domain/predicate/ lib/commcare/predicate/`, `npm run typecheck`, commit
 
+### Task A4.5: Add `is-blank` operator + lock null/blank semantic
+
+**Files:** `lib/domain/predicate/types.ts`, `lib/domain/predicate/builders.ts`, `lib/domain/predicate/typeChecker.ts`, `lib/commcare/predicate/xpathEmitter.ts`, `lib/domain/predicate/__tests__/*`.
+
+`is-null` shipped in A1 with a wishy-washy "does the property carry a value?" rationale that didn't pick a semantic. This task locks the semantic and adds the parallel `is-blank` operator. Spec section "Null vs blank semantics" (under the Predicate family) is the source of truth.
+
+**The locked semantic, family-wide**: the AST is **Postgres-strict**. Every operator that touches null / empty-string / missing-property semantics distinguishes the three states (absent / cleared / explicit-empty) at the data-model layer. CCHQ's wire collapse is a per-dialect emitter concern + B5 representability checker error, not an AST design constraint. Same dispatch pattern A2 established for `match(mode: fuzzy)` in case-list-filter context.
+
+Schemas:
+
+```ts
+const isNullSchema = z.object({
+  kind: z.literal("is-null"),    // strict: left resolves to absent (key not in JSONB / Map)
+  left: termSchema,
+});
+
+const isBlankSchema = z.object({
+  kind: z.literal("is-blank"),   // portable: left resolves to absent OR empty-string
+  left: termSchema,
+});
+```
+
+The shipped `isNullSchema` carries the strict semantic; rewrite the JSDoc to lock "absent" (drop the "does the property carry a value" hedge). Add `isBlankSchema` parallel-shaped — same `left: termSchema` slot, same operand-validation handoff to the type checker, different wire-emission rule.
+
+Builders:
+
+```ts
+export const isNull = (left: Term):
+  Extract<Predicate, { kind: "is-null" }> => /* unchanged shape; tighter JSDoc */;
+
+export const isBlank = (left: Term):
+  Extract<Predicate, { kind: "is-blank" }> => /* parallel to isNull */;
+```
+
+Per-dialect emitter rules (encoded in B-stage emitters, but the contract locks here):
+- **Postgres** — `is-null(prop("X","Y"))` → `NOT (properties ? 'Y')` (or the dialect-equivalent `properties ? 'Y' = false`). `is-blank(prop("X","Y"))` → `(NOT (properties ? 'Y')) OR properties->>'Y' = ''`. For input refs and session refs, the equivalent presence check applies.
+- **CSQL** — `is-blank(prop)` → `case_property_missing(prop)` (registered at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:46`; wraps the line-245 short-circuit). `is-null(prop)` is **unrepresentable** in CSQL; the visitor throws and B5's representability checker errors at authoring time.
+- **Case-list filter** — `is-blank(prop)` → `prop = ''` (CCHQ's on-device idiom for "absent OR empty"). `is-blank(input)` → wraps in the `if(count(input), ..., true())` form so absent inputs short-circuit cleanly. `is-null` is unrepresentable; same rejection rule.
+- **Post-ES search filter** — same dialect as case-list filter; same rules.
+
+Type-checker rule (lifted from A5; lands here so the operator is whole when A4.5 closes): `is-null` and `is-blank` accept any non-literal Term in `left`. `is-null(literal(...))` and `is-blank(literal(...))` are rejected — a literal can't be "unset"; the predicate is a category error. Property refs, input refs, session-user refs, session-context refs all valid; the type checker resolves the term type but doesn't constrain it (any type can be absent).
+
+Validator hint (Plan 3+ work, but the contract lives here): `compare(prop, literal(""))` and `compare(prop, literal(null))` stay valid in the AST — the author may genuinely mean "value is the literal empty string and not absent." The Plan 3 validator surfaces a soft hint at authoring time: *"`prop = ''` matches absent fields too on CCHQ. Did you mean `is-blank(prop)`?"* Foundation work doesn't ship the hint; it documents the shape so Plan 3's validator has a target.
+
+Steps:
+- [ ] Write failing tests for `isBlankSchema` (positive round-trip per Term variant in `left`; rejection on literal-shaped `left`); test rewrite for `isNullSchema` to lock the strict-semantic JSDoc claim
+- [ ] Add `isBlankSchema` to `types.ts`; rewrite `isNullSchema` JSDoc to lock the strict semantic; extend `predicateSchema` discriminated union
+- [ ] Add `isBlank` builder; tighten `isNull` JSDoc
+- [ ] Extend type-checker `walk` switch with `case "is-blank"` (parallel to the existing `case "is-null"` arm); both reject literal-shaped `left`
+- [ ] Extend the shipped emitter (`xpathEmitter.ts` — slated for B6 deletion) with a `case "is-blank"` arm and a defensive throw arm for `is-null` (which the current emitter targets case-list-filter, where strict is unrepresentable). Throw-on-`is-null` keeps the build green and surfaces the unrepresentability cleanly until B5 lands the proper representability checker.
+- [ ] Run tests, commit
+
 ### Task A5: Type-checker rules for new Predicate operators
 
 **Files:** `lib/domain/predicate/typeChecker.ts`, tests.
 
 Per-operator rules:
 - `match-all` / `match-none` — always check `ok: true`.
-- `is-null` — `left` must be a property or input ref (not a literal — `is-null(literal(...))` is meaningless).
 - `between` — `left` and any provided bounds must be ordered types (int/decimal/date/datetime/time); types must agree.
 - `exists` / `missing` — `via` is type-checked against the case-type schema; `where` (if present) is type-checked recursively in the destination scope (resolved via `via`).
 - `multi-select-contains` — `property` must be `multi_select`-typed; values must be members of the option set if declared.
 - `match` — `property` must be a text-shaped type. The allow-list is `text` / `single_select` / `multi_select` (the same set as `FUZZY_PROPERTY_TYPES` in the shipped `typeChecker.ts:162-167`, and the same set CCHQ's `case_property_query` accepts at `commcare-hq/.../xpath_functions/query_functions.py:46-51`). All four modes (`fuzzy`, `phonetic`, `fuzzy-date`, `starts-with`) share this allow-list. Do not narrow.
 - `compare` (existing, but extended) — operands resolved via the new `via` slot on `case-property`.
+
+(`is-null` and `is-blank` type-checker rules land in A4.5 — the operator's wholeness is more important than the task-stage purity here.)
 
 Steps:
 - [ ] Write failing tests for each new operator's rule
@@ -574,6 +627,10 @@ export function validateRepresentability(ast: Predicate, target: WireTarget): Re
 
 Walk the AST. For each node, check against a per-target operator table:
 
+**Unrepresentable on every CCHQ wire target (case-list-filter, CSQL, post-ES search filter):**
+- `is-null` — strict "left resolves to absent" has no CCHQ wire form. CCHQ collapses absent / cleared / empty into one match set (`prop = ''` and `case_property_missing(prop)` both match all three states). Authoring `is-null` in a CCHQ-bound context is an authoring-time error; the author must use `is-blank` for portable behavior or restrict the predicate to Postgres-evaluated contexts (preview today; future Cloud SQL deploy). Same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context — reject loudly at authoring, never silently widen.
+- `any-relation` — CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`); the direction-agnostic walk has no wire form on any CCHQ dialect.
+
 **Unrepresentable on case-list-filter target:**
 - `match` mode∈{fuzzy, phonetic, fuzzy-date} — CSQL-only; no on-device equivalent.
 - `within-distance` — CSQL-only.
@@ -584,6 +641,9 @@ Walk the AST. For each node, check against a per-target operator table:
 - `count(...)` value expression outside a top-level binary comparison — `subcase-count` is recognized in CSQL only as the LHS of a comparison (`commcare-hq/.../filter_dsl.py:89-95`); standalone `count(...)` has no value-context home.
 
 **Unrepresentable on search-filter target:** same set as case-list-filter (the post-ES dialect mirrors on-device).
+
+**Lossy-but-representable hint surfaces (Plan 3 validator wires the UI message):**
+- `compare(prop, literal(""))` and `compare(prop, literal(null))` — emit cleanly to every target but silently match absent fields too on CCHQ wire (CCHQ collapses absent / cleared / empty). The B5 checker flags the node with a `kind: "lossy"` issue carrying the rationale "did you mean is-blank?"; the Plan 3 validator renders the hint as a soft warning on the offending card.
 
 **Lossy on case-list-filter:**
 - `multi-select-contains` quantifier=any multi-value: expands to OR-of-`selected()` (still works; slower than CSQL's native `selected-any`).
