@@ -736,9 +736,60 @@ Shipped across commits `9b4c113e` → `f4f74101`.
 
 ## Group C — Expression emitters + Postgres compiler
 
-### Task C1: Expression emitters
+### Task C1: Expression emitters — SHIPPED
+
+Shipped across commits `afd22a13` → `b8013de2`.
 
 **Files:**
+- `lib/commcare/expression/onDeviceEmitter.ts` (new) — total on-device XPath emitter for `ValueExpression`. Public surface: `emitOnDeviceExpression(expr): string`.
+- `lib/commcare/expression/csqlEmitter.ts` (new) — total CSQL segment-list emitter for the eight CSQL value-function-whitelist arms; throws on the seven non-whitelist arms with a "should have been hoisted" defensive message. Public surface: `emitCsqlExpressionSegments(expr): CsqlSegment[]`.
+- `lib/commcare/expression/index.ts` (new) — barrel exporting both emitter entry points + the `CsqlSegment` type re-export.
+- `lib/commcare/expression/__tests__/onDeviceEmitter.test.ts` (new) — pinned wire-string fixtures across all 14 ValueExpression arms.
+- `lib/commcare/expression/__tests__/csqlEmitter.test.ts` (new) — coverage of the eight whitelist arms emitting cleanly + the seven non-whitelist arms throwing.
+- `lib/commcare/predicate/termEmitter.ts` (new, extracted from the predicate emitters) — shared term-emission module used by both predicate and expression emitters. Public surface: on-device `emitTerm`, CSQL `emitTermSegment`, the relation-walk anchor builders (`buildAncestorJoinNodeset`, `buildSubcaseJoinNodeset`), `wrapTermAsSegmentList`, `RESERVED_CASE_ATTRIBUTES`.
+- `lib/commcare/predicate/csqlSegment.ts` (new, extracted) — shared `CsqlSegment` discriminated-union IR + `mergeAdjacentConstants` + `quoteConstantSegmentForXPath` helper.
+- `lib/commcare/predicate/caseListFilterEmitter.ts` (modified) — operand sites that previously threw on non-term ValueExpression arms now delegate to `emitOnDeviceExpression`.
+- `lib/commcare/predicate/csqlEmitter.ts` (modified) — comparison-operand sites unified through `emitComparisonOperandSegments`, which delegates to `emitCsqlExpressionSegments` for whitelist arms; the hoist pass continues to handle the rest.
+
+**Operator coverage of the on-device emitter (total — every arm emits faithfully):**
+- Date / time constants: `today` → `today()`, `now` → `now()`.
+- Date coercion: `date-coerce(value)` → `date(<value>)`, `datetime-coerce(value)` → `datetime(<value>)` (rename at emission, same operator semantically).
+- Numeric: `double(value)` → `double(<value>)`, `arith(left, op, right)` → `(<left> <xpath-op> <right>)` with paren wrapping (five op kinds via `ARITH_OPS` exhaustive record).
+- String: `concat(parts)` → `concat(<part1>, ...)`, `format-date(date, format)` → `format-date(<date>, '<format>')`.
+- Conditional: `coalesce(parts)` → `coalesce(<part1>, ...)`, `if(condition, then, else)` → `if(<predicate-emit(condition)>, <then>, <else>)` (recurses into the on-device predicate emitter), `switch(branches, default)` → right-nested `if(...)` chain.
+- Aggregation: `count(via, where?)` — multi-shape walk emission. `count(self)` → `1`; `count(self, filter)` → `if(<filter>, 1, 0)`; `count(ancestor)` / `count(subcase)` → relational join expansion against `instance('casedb')` returning the count of matching cases; `count(any-relation)` → `(<ancestor-count> + <subcase-count>)` (sum across both directions, valid under CommCare's acyclic case-relation invariant).
+- Date arithmetic: `date-add(value, interval, quantity)` → `date-add(<value>, '<interval>', <quantity>)` (3-arg form per the verified CCHQ signature at `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py:115` — the plan's prior `'<n><unit>'` 1-arg framing was incorrect and corrected during implementation).
+- List: `unwrap-list(value)` → `unwrap-list(<value>)`.
+- Term lifter: `term(t)` → delegates to the shared `emitTerm`.
+
+**Operator coverage of the CSQL emitter (eight whitelist arms emit; seven non-whitelist throw):**
+- Whitelist (per `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`): `today`, `now`, `date-coerce` → `date`, `datetime-coerce` → `datetime`, `double`, `date-add` (3-arg), `unwrap-list`, `term` (delegates to shared `emitTermSegment`).
+- Non-whitelist (`arith`, `concat`, `coalesce`, `if`, `switch`, `count`, `format-date`): defensive throw with "should have been hoisted before this emitter ran". The hoist pass at `lib/commcare/predicate/csqlHoist.ts` lifts these arms into the on-device wrapper before this emitter sees them; the throw defends the bypass path. The exhaustive `_exhaustive: never` default catches new ValueExpression kinds at compile time.
+
+**Architectural decisions:**
+
+1. **Term-emitter extracted to a shared package-internal module** (`lib/commcare/predicate/termEmitter.ts`) over duplication or cross-package import gymnastics. Both predicate emitters (case-list-filter + CSQL) and both expression emitters (on-device + CSQL) consume the same term-emission helpers; one source of truth keeps wire-syntax invariants single-sourced.
+2. **`CsqlSegment` IR also extracted** to `lib/commcare/predicate/csqlSegment.ts` so both predicate-side and expression-side CSQL emitters return the same shape; `mergeAdjacentConstants` and `quoteConstantSegmentForXPath` live with the IR.
+3. **Plan's `date-add` wire format corrected against CCHQ source.** The plan said `'<n><unit>'` 1-arg; CCHQ's actual signature is `date-add(date, interval, quantity)` 3-arg per `value_functions.py:115` (`confirm_args_count(node, 3)`). Both emitters use the verified 3-arg shape; `interval` routes through `quoteLiteral` to quote it as a string literal.
+4. **`count(self)` and `count(any-relation)` shapes invented** because the plan's "shape identical to exists's join without `> 0`" framing doesn't translate. `count(self)` returns `1` (a self-case always exists at its own scope); `count(self, filter)` returns `if(<filter>, 1, 0)`; `count(any-relation)` returns the sum of both directions. Tests pin all four shapes.
+5. **CSQL expression emitter returns segments unwrapped, comparison-operand emitter wraps them.** The term-arm runtime refs come back as `[runtime <X>]`; the predicate-side `emitComparisonOperandSegments` is the layer that wraps them in CSQL double-quote brackets when needed (`<prop> = "<value>"`). This unified the dispatch and eliminated the prior `emitCoerceCallSegments` special case.
+6. **Predicate-side CSQL operand sites unified through one helper** (`emitComparisonOperandSegments`), so `in` / `between` / `is-blank` / `within-distance` operand slots now handle every CSQL whitelist arm cleanly. Broader than the plan's explicit scope but consistent with its intent (any operand position that accepts `ValueExpression` should accept all whitelist arms).
+7. **Operand-throw tests in `caseListFilterEmitter.test.ts` replaced with happy-path delegation tests.** With C1 wiring, the operands emit cleanly via the expression emitter; the original throw-tests were B-phase scope-boundary defenses no longer applicable.
+8. **Defensive throws on non-whitelist arms in the CSQL expression emitter** with a "should have been hoisted" message defend the hoist-pass-bypass path; the exhaustive `_exhaustive: never` default catches new ValueExpression kinds at compile time.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `afd22a13`. Every checklist item verified — both emitter entry points + result types, all 14 on-device arms, all 8 CSQL whitelist arms + 7 throws, term-emitter sharing via extracted module, predicate-emitter operand wiring, `date-add` 3-arg correction, `count(self)` / `count(any-relation)` invented expansions, broader CSQL operand wiring through `emitComparisonOperandSegments`. The three flagged deviations (date-add correction, count expansions, broader operand wiring) verified as defensible.
+- Code-quality review (opus): ❌ Round 1 found 2 BLOCKING on `afd22a13` — stale `unwrapTermFromExpression` reference in `csqlEmitter.ts:23` and the matching test-file header at `csqlEmitter.test.ts:217`. The function does not exist anywhere in the predicate package after C1's refactor; the strengthened sweep regex doesn't catch stale identifier references. Resolved in fix-pass `b8013de2` (Option B — dropped the cross-file precedent citation; the local `_exhaustive: never` default speaks for itself). Re-review APPROVED.
+
+**Verification gates (all green at HEAD `b8013de2`):**
+- 2520 full-project tests pass / 14 skipped (vs 2455 pre-C1 baseline; +65 net new tests across the two expression test files + the new shared-module imports + the predicate-emitter delegation tests)
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (zero warnings)
+- Strengthened eternal-present sweep returns zero hits across all touched files (regex set extended in B6 with `\bB[0-9]\b|\bC[0-9]\b`)
+- Bonus stale-identifier sweep `grep -rn 'unwrapTermFromExpression' lib/commcare/` returns zero matches
+
+**Files (carried from the original C1 plan section):**
 - Create: `lib/commcare/expression/onDeviceEmitter.ts`
 - Create: `lib/commcare/expression/csqlEmitter.ts`
 - Tests: `lib/commcare/expression/__tests__/`
