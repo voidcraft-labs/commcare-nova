@@ -16,9 +16,9 @@
 //     csql dialect switches between single- and double-quoted literals
 //     and rejects values carrying both quote styles.
 //   - `quoteIdentifier` — pass-through. Identifier validation happens
-//     upstream at the schema layer; the helper exists as a boundary
-//     marker so a future change to the identifier-emit rule lands in
-//     one place.
+//     upstream at the schema layer; the helper centralizes the
+//     identifier-emit rule so per-dialect emitters call one place
+//     rather than open-coding the pass-through.
 //   - `formatNumeric` — non-scientific decimal-literal output. The
 //     CommCare XPath grammar admits `digit+ ('.' digit*)? | '.' digit+`
 //     only and rejects exponent syntax, so the helper expands
@@ -251,9 +251,10 @@ describe("quoteIdentifier", () => {
 	// happens upstream at the schema layer (XML element-name vocabulary
 	// for property names; `RESERVED_CASE_ATTRIBUTES` membership for the
 	// four `@`-prefixed system attributes is handled by the term
-	// emitter, not here). The helper exists as a boundary marker so a
-	// future change to the identifier-emit rule lands in one place;
-	// every emitter funnels identifier emission through it.
+	// emitter, not here). Centralizing identifier emission through a
+	// single helper keeps the emit rule in one place; per-dialect
+	// emitter modules call this helper rather than open-coding the
+	// pass-through.
 
 	it("returns the identifier verbatim", () => {
 		expect(quoteIdentifier("name")).toBe("name");

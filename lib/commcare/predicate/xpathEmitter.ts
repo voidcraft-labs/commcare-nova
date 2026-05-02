@@ -1,12 +1,10 @@
 // lib/commcare/predicate/xpathEmitter.ts
 //
-// Transitional single-context predicate emitter superseded by the
-// per-dialect emitters in this directory. Lexical concerns (string-
-// literal escape, identifier emission, numeric formatting) live in
-// `./stringQuoting`; this file's `EmissionContext` is a structural
-// subset of `WireDialect`. CCHQ wire-form citations for the operator
-// arms below remain authoritative until the per-dialect operator
-// emitters land.
+// Single-context predicate emitter producing CommCare XPath / CSQL
+// wire strings from `Predicate` ASTs. Lexical-emission helpers
+// (string quoting, identifier emission, numeric formatting) live in
+// `./stringQuoting`; this file owns operator dispatch. The
+// `EmissionContext` type is `WireDialect` minus `search-filter`.
 
 import type {
 	ComparisonKind,
@@ -29,10 +27,9 @@ export type EmissionContext = "case-list-filter" | "csql";
  * Mapping from comparison-operator AST kind to its XPath wire token.
  * The six comparison operators share an identical emission shape
  * (`<left> <op> <right>`), so the emitter dispatches off this table
- * rather than restating six near-identical cases. Typed by
- * `ComparisonKind` so adding a new comparison kind to the AST surfaces
- * here as a TypeScript error until the wire token is added — keeps
- * the table exhaustive against the union.
+ * rather than restating six near-identical cases. The
+ * `Record<ComparisonKind, string>` type pins the table exhaustive
+ * against the union.
  */
 const COMPARISON_OPS: Record<ComparisonKind, string> = {
 	eq: "=",
@@ -440,9 +437,9 @@ function emitLiteral(
 }
 
 function emitStringLiteral(value: string, ctx: EmissionContext): string {
-	// `EmissionContext` is a structural subset of `WireDialect`; the
-	// helper accepts the wider union and honors the same per-dialect
-	// branching for the two contexts this transitional emitter knows.
+	// `EmissionContext` is `WireDialect` minus `search-filter`; passing
+	// it to `quoteLiteral` is a widening that honors the per-dialect
+	// branching for both contexts.
 	return quoteLiteral(value, ctx);
 }
 

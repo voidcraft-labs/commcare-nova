@@ -119,11 +119,9 @@ export function quoteLiteral(value: string, dialect: WireDialect): string {
  * emitter, not here — `quoteIdentifier` runs after that prefix
  * decision and is responsible only for the lexical pass-through.
  *
- * The function exists as a boundary marker — every emitter funnels
- * identifier emission through it — so a future change to the
- * identifier-emit rule (e.g. backtick-wrapping, namespace-prefixing)
- * lands in one place rather than being scattered across the per-
- * dialect emitter modules.
+ * Centralizing identifier emission through a single helper keeps the
+ * emit rule in one place; per-dialect emitter modules call this
+ * helper rather than open-coding the pass-through.
  */
 export function quoteIdentifier(name: string): string {
 	return name;

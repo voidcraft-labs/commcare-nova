@@ -4,8 +4,7 @@
 // Each `it` builds an AST via the typed builders and asserts the
 // emitter's exact wire string. The strings are pinned to CommCare's
 // shipped wire vocabulary, citation-anchored to commcare-hq source so
-// any future change in the emitter that drifts from CommCare's accepted
-// forms surfaces as a test failure.
+// any drift from CommCare's accepted forms surfaces as a test failure.
 //
 // Coverage spans five concentric layers: (1) per-operator output
 // for every comparison + logical kind landing in this emitter,
