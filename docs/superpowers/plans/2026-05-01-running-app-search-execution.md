@@ -62,7 +62,7 @@ Tests: filtering and sort behave correctly; calculated columns evaluate; search 
 
 ### Task 3: Web — case-list screen
 
-**Files:** `components/builder/preview/web/CaseListScreen.tsx`, tests.
+**Files:** `components/builder/preview/web/CaseListScreen.tsx`, tests. **Replaces** the existing `components/preview/screens/CaseListScreen.tsx` — Plan 2 Task 7 already deleted that screen + its `dummyData.ts` import path during the binding cutover, so this task creates the new screen at the new path against the typed `caseDataBinding` from Plan 2. Verify no surviving import of the old path before declaring done (`rg "from .*components/preview/screens/CaseListScreen"`).
 
 Renders the case list with calculated columns + sort + filter applied. Web-shape default (no split-screen, no inline filter) shows just the list.
 
@@ -80,7 +80,7 @@ Tests: typing filters results; clearing inputs reverts to default-filter-only re
 
 ### Task 5: Android — case-list with inline filter
 
-**Files:** `components/builder/preview/android/CaseListScreen.tsx`, `InlineFilterBar.tsx`, tests.
+**Files:** `components/builder/preview/android/CaseListScreen.tsx`, `InlineFilterBar.tsx`, tests. New screen at the new path; Plan 2 Task 7 already cleared the old `components/preview/screens/CaseListScreen.tsx` consumer surface so there is no naming collision.
 
 Mobile-shape: case list with inline filter at the top. The filter applies via the search-inputs the author configured (re-runs the query on each keystroke, debounced). The lossy-on-mobile multi-select-contains expansions surface in a "what's actually running" debug pane (collapsed by default).
 

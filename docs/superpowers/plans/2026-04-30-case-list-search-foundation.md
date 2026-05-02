@@ -781,15 +781,20 @@ Steps:
 
 **Files:**
 - `package.json` — add `@testcontainers/postgresql` dev dependency
-- Create: `lib/case-store/sql/__tests__/setup.ts` — testcontainers boot + extension install + schema bootstrap
-- Test: validate the harness boots a container, installs `pg_trgm` / `fuzzystrmatch` / `postgis` (and `pg_jsonschema` when available — Plan 2's extension allowlist gate determines which trigger implementation deploys against the live Cloud SQL instance), seeds the schema from the JSON Schema generator, and accepts a smoke `INSERT` + `SELECT` round-trip.
+- Create: `vitest.setup.ts` (or `lib/case-store/sql/__tests__/globalSetup.ts`) — Vitest `globalSetup` hook that boots the container once per test run
+- Create: `lib/case-store/sql/__tests__/setup.ts` — per-test fixture that opens a transaction and rolls it back on teardown
+- Test: validate the harness boots a single container per test run, installs `pg_trgm` / `fuzzystrmatch` / `postgis` (and `pg_jsonschema` when available — Plan 2's extension allowlist gate determines which trigger implementation deploys against the live Cloud SQL instance), seeds the schema from the JSON Schema generator once, and accepts a smoke `INSERT` + `SELECT` round-trip.
 
-Plan 1 introduces this infrastructure (rather than Plan 2) because Plan 1 needs to validate the AST → Kysely compiler against a real Postgres at unit-test time. Plan 2 inherits this harness for `PostgresCaseStore` integration tests.
+**Container-sharing strategy**: one container per Vitest run via `globalSetup`, NOT one container per file. Per-test isolation comes from wrapping each test in `BEGIN` + `ROLLBACK` so writes never persist beyond the test. This is the canonical pattern; without it, every test file pays a 5-15s container-boot cost and watch-loop iteration becomes unusable. Document the strategy in the harness JSDoc + a CLAUDE.md note in the case-store package.
+
+Plan 1 introduces this infrastructure (rather than Plan 2) because Plan 1 needs to validate the AST → Kysely compiler against a real Postgres at unit-test time. Plan 2 inherits this harness for `PostgresCaseStore` integration tests; the same container + the same per-test transaction-rollback pattern serve both.
 
 Steps:
 - [ ] Install `@testcontainers/postgresql`
-- [ ] Implement boot helper that builds the container, runs the schema, returns a Kysely instance
-- [ ] Test: container boots, extensions present, schema bootstrapped, smoke round-trip succeeds
+- [ ] Implement Vitest `globalSetup` that boots the container, installs extensions, seeds schema, exports the connection string via env
+- [ ] Implement per-test fixture (`beforeEach` opens transaction, `afterEach` rolls back)
+- [ ] Verify watch-loop cost: `npm run test -- --watch` on a predicate test file should re-run in <1s after the container is up
+- [ ] Test: container boots, extensions present, schema bootstrapped, smoke round-trip succeeds, parallel test files share the container
 - [ ] Run tests, commit
 
 ### Task C8: Barrel exports + CLAUDE.md updates

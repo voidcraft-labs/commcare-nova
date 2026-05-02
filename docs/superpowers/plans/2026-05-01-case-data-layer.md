@@ -111,22 +111,25 @@ Steps:
 - [ ] Pick the trigger SQL based on the gate result; deploy via migration `0003_validate_trigger.sql`
 - [ ] Test: `INSERT INTO cases ... { invalid }` raises EXCEPTION
 
-### Task 3: `CaseStore` interface
+### Task 3: `CaseStore` interface + `withOwnerContext` factory
 
-**Files:** `lib/case-store/store.ts`, tests via the interface-compliance harness.
+**Files:** `lib/case-store/store.ts`, `lib/case-store/withOwnerContext.ts`, tests via the interface-compliance harness.
 
-Define the single seam used by every consumer. Methods (matching the spec):
+Define the single seam used by every consumer. Methods (matching the spec's canonical interface block):
 - `query(args: { appId, caseType, predicate?, sort?, limit?, offset? }): Promise<CaseRow[]>`
 - `insert(args: { appId, row }): Promise<void>`
 - `update(args: { appId, caseId, patch }): Promise<void>`
 - `close(args: { appId, caseId }): Promise<void>`
 - `traverse(args: { appId, caseId, via }): Promise<CaseRow[]>`
-- `syncSchemaForCaseType(appId, caseType): Promise<void>` — re-derives the JSON Schema from the current blueprint and upserts the `case_type_schemas` row. Synchronous on the blueprint-write path so the database always reflects the blueprint's current schema before any case-store write evaluates against it.
-- `migrateProperty(args: { appId, caseType, property, change }): Promise<MigrationReport>` — schema-migration policy per the spec. `change` is a discriminated union: `rename` (atomic key-copy in same transaction), `retype` (migrate-or-quarantine), `narrow-options` (existing rows with removed values move to `cases_quarantine`).
+- `applySchemaChange(args: { appId, caseType, property?, change? }): Promise<MigrationReport>` — atomic schema sync + per-row migration in a single Postgres transaction. With no `property` / `change`: regenerates the JSON Schema and upserts `case_type_schemas` only (the additive-blueprint-mutation path). With `property` + `change`: runs schema sync + the rename / retype / narrow-options migration in the same transaction; rows that fail the new schema move to `cases_quarantine` with the original value + failure reason. The transaction commits when both halves succeed or rolls back atomically — the database never holds a new schema with rows that fail validation against it.
 - `generateSampleData(args: { appId, caseType, count, seed }): Promise<{ inserted: number }>` — calls `HeuristicCaseGenerator` and routes the rows through `insert`.
 - `resetSampleData(args: { appId, caseType }): Promise<{ deleted: number; inserted: number }>` — deletes existing rows for the case-type, then re-generates with a fresh seed.
 
 `MigrationReport` includes counts of migrated / quarantined / skipped rows plus per-row failure reasons.
+
+**`withOwnerContext` factory** — `lib/case-store/withOwnerContext.ts` exposes `withOwnerContext(userId: string): CaseStore`. There is **no** other constructor. Every `CaseStore` instance carries an owner id resolved at the request boundary; every method internally adds `WHERE owner_id = <bound userId>` to the underlying query. Tenant scoping is structural, not by discipline — it is impossible to construct a `CaseStore` instance that bypasses the owner-id filter, and any new method on the interface inherits the filter automatically.
+
+Request-boundary integration: in API routes, the factory is called once per request from `session.user.id` (resolved via Better Auth) and the resulting `CaseStore` is passed down to handlers. Handlers receive a tenant-scoped store, never construct one themselves. The factory pattern is the migration anchor for future stricter-isolation models — switching to schema-per-tenant or database-per-tenant means changing the factory's connection routing logic, with no application-code rewrite.
 
 The interface is one shape; `PostgresCaseStore` is the only implementation. No "InMemory" variant; no parity tests across implementations.
 
@@ -140,8 +143,7 @@ Implements `CaseStore` against the Kysely instance from Task 0:
 - `update` does a JSONB merge on `properties` (full-row replacement per the spec's JSONB-write-bloat mitigation), updates `modified_on`, re-derives `case_indices` if the relation surface changed.
 - `close` updates `closed_on`, `status`, no row deletion.
 - `traverse` compiles the RelationPath via Plan 1's relation-path compiler (Task C5) into a recursive CTE; runs against `case_indices`.
-- `syncSchemaForCaseType` invokes Plan 1's JSON Schema generator + UPSERTs `case_type_schemas`.
-- `migrateProperty` runs the rename / retype / narrow-options paths in a single transaction; rows that fail the new schema move to `cases_quarantine` with the original value + failure reason.
+- `applySchemaChange` opens a Postgres transaction, regenerates the JSON Schema via Plan 1's generator + UPSERTs `case_type_schemas`, then (when `property` + `change` are present) runs the rename / retype / narrow-options migration in the same transaction. Rows that fail the new schema move to `cases_quarantine`. The transaction commits when both halves succeed or rolls back atomically.
 
 `case_indices` materialization: Option B (direct edges only, recursive CTE on read) per the spec's verification gate. Switch to Option A if profiling shows the CTE dominates query cost.
 
@@ -173,28 +175,42 @@ Routes form completion in the running-app view through `CaseStore`. `deriveFromF
 
 Tests: completing a registration form inserts the right shape; followup updates the bound case; close marks closed; the running-app view re-queries and sees the changes immediately (continuous validation principle — no "save then refresh").
 
-### Task 7: Replace `lib/preview/engine/dummyData.ts` with `caseDataBinding.ts`
+### Task 7: Route running-app screens through `caseDataBinding`; delete `dummyData.ts` + existing preview screens
 
-**Files:** `lib/preview/engine/caseDataBinding.ts` (new), `lib/preview/engine/dummyData.ts` (delete).
+**Files:**
+- New: `lib/preview/engine/caseDataBinding.ts`
+- Delete: `lib/preview/engine/dummyData.ts`
+- Delete or refactor: `components/preview/screens/CaseListScreen.tsx`, `components/preview/screens/FormScreen.tsx` (existing screens that consume `getDummyCases` / `getCaseData`)
+- New: `components/builder/preview/{android,web}/CaseListScreen.tsx` come from Plan 5 — Task 7's job is the binding layer + ensuring no consumer is left referencing `getDummyCases` after `dummyData.ts` is gone.
 
-`caseDataBinding.ts` exposes the same surface as `dummyData.ts` did (`getCases(caseTypeName)`, `getCaseData(caseTypeName, caseId)`) but routes through `PostgresCaseStore`. Existing call-sites in the preview engine continue to work; the implementation underneath is now the typed CaseStore over Cloud SQL.
+`caseDataBinding.ts` exposes `getCases(caseTypeName)` / `getCaseData(caseTypeName, caseId)` routed through `PostgresCaseStore` via `withOwnerContext(session.user.id)`. The shape matches what `dummyData.ts` exposed today so the migration is mechanical at every call site.
+
+Sweep + cutover (single commit):
+1. Implement `caseDataBinding.ts`.
+2. Update every import of `getDummyCases` / `getCaseData` to import from `caseDataBinding` instead. Grep `rg "from .*dummyData|getDummyCases|getCaseData"` to find every site; expected sites are `components/preview/screens/*` and any other consumer.
+3. Decide per existing screen: if Plan 5's new `components/builder/preview/{android,web}/CaseListScreen.tsx` supersedes it, delete the old screen in this commit; if not, refactor the old screen to import from the new binding. The end state is **no surviving import of `dummyData.ts`** anywhere in the tree.
+4. Delete `lib/preview/engine/dummyData.ts`.
+5. Run the full test suite + a smoke render of the case-list screen against testcontainers Postgres.
 
 For empty case-types (no rows yet), the binding surfaces a "Generate sample data" affordance to the running-app view — clicking it invokes `CaseStore.generateSampleData`. The flipbook is "always in valid state": no error state when the case-type is empty, just a button to populate it.
 
-Tests: existing dummyData tests pass against the new binding (rename + minor adjust). Existing CaseListScreen rendering continues to work. Empty-case-type renders the "Generate sample data" affordance.
+Tests: every former-`dummyData.ts` consumer renders correctly through the new binding; empty-case-type renders the "Generate sample data" affordance; no surviving import of `dummyData.ts`.
 
-### Task 8: Schema-migration policy implementation
+### Task 8: `applySchemaChange` implementation
 
-**Files:** `lib/case-store/postgres/migrate.ts`, tests.
+**Files:** `lib/case-store/postgres/applySchemaChange.ts`, tests.
 
-Implements `CaseStore.migrateProperty`. Three change shapes:
-- `rename(from, to)` — atomic in a single transaction: `UPDATE cases SET properties = jsonb_set(properties #- '{from}', '{to}', properties->'from')` for every row in the case-type.
-- `retype(fromType, toType)` — for each row, attempt to cast the value via the `fromType → toType` rules from the spec's "Schema migration policy" table. On success: `UPDATE cases SET properties = jsonb_set(...)`. On failure: move to `cases_quarantine` with `quarantine_reason` set to the cast-failure detail.
-- `narrow-options(removedOptions)` — for each row whose property value is in `removedOptions`, move to `cases_quarantine`.
+Implements `CaseStore.applySchemaChange`. Single Postgres transaction wraps both halves:
 
-All run in a single transaction; the migration is atomic.
+1. **Schema sync** (always runs): regenerate the JSON Schema via Plan 1's generator from the current blueprint state for `(appId, caseType)`; UPSERT into `case_type_schemas`.
+2. **Per-row migration** (runs when `property` + `change` are present): for each row in the case-type, apply the change shape:
+   - `rename(from, to)` — `UPDATE cases SET properties = jsonb_set(properties #- '{from}', '{to}', properties->'from')` for every row.
+   - `retype(fromType, toType)` — for each row, attempt to cast the value per the spec's "Schema migration policy" table. On success: `UPDATE cases SET properties = jsonb_set(...)`. On failure: move to `cases_quarantine` with `quarantine_reason` set to the cast-failure detail.
+   - `narrow-options(removedOptions)` — for each row whose property value is in `removedOptions`, move to `cases_quarantine`.
 
-Tests: each change shape against fixtures; rollback on transaction failure; quarantine surfacing.
+The transaction commits when both halves succeed, rolls back atomically on failure. The database never holds a new schema with rows that fail validation against it. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
+
+Tests: each change shape against fixtures; rollback verified by simulating a mid-migration failure (the schema row should not be present after rollback); quarantine surfacing; no-property-no-change call runs schema sync only.
 
 ### Task 9: Barrel exports + CLAUDE.md
 

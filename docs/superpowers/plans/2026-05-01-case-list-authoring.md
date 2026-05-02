@@ -102,9 +102,13 @@ interface CaseListConfig {
 
 The migration script at `scripts/migrate-case-list-config.ts` reads each app doc in Firestore, transforms `{ field, header }[]` into `Column[]` with `kind: "plain"`, leaves `filter` / `calculatedColumns` / `searchInputs` empty, writes back. Idempotent. Operator-run, archived after run (per the spec's migration policy).
 
-The Module schema mutator wires `CaseStore.syncSchemaForCaseType(appId, caseType)` (Plan 2 Task 1) into every blueprint mutation that affects a case-type's property surface (`data_type` change, property add/remove/rename, option add/remove). The sync runs synchronously on the blueprint write path before the mutation returns success. For changes requiring data migration (retype, narrow-options, rename), the mutator additionally calls `migrateProperty` — sync first, then migrate, so the migration evaluates against the current schema.
+The Module schema mutator wires `CaseStore.applySchemaChange` (Plan 2 Task 3) into every blueprint mutation that affects a case-type's property surface (`data_type` change, property add/remove/rename, option add/remove). The call runs synchronously on the blueprint write path before the mutation returns success.
 
-Tests: schema parse, migration script idempotent on fixture docs, blueprint mutation triggers `syncSchemaForCaseType`, retype mutation triggers `migrateProperty` after sync.
+For additive changes (property add, option add): the mutator calls `applySchemaChange({ appId, caseType })` with no `property` / `change` — schema sync only.
+
+For changes requiring per-row migration (retype, narrow-options, rename): the mutator calls `applySchemaChange({ appId, caseType, property, change })` with the discriminated-union change shape. The schema sync and the per-row migration run in a single Postgres transaction; the transaction commits when both halves succeed or rolls back atomically. The database never holds a new schema with rows that fail validation against it.
+
+Tests: schema parse, migration script idempotent on fixture docs, additive blueprint mutation triggers schema-sync-only `applySchemaChange`, retype mutation runs schema sync + migration in one transaction (verified by simulating a mid-migration failure and confirming the schema row is not present after rollback).
 
 
 ### Task 2: Predicate card editor

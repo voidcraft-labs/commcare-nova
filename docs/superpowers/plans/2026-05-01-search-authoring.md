@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Plan 4 of 5. Depends on Plan 1 (Foundation), Plan 2 (Case data layer), and Plan 3 (Case list authoring). Plan 5 (Preview search execution) depends on this.
+**Status:** Plan 4 of 5. Depends on Plan 1 (Foundation), Plan 2 (Case data layer), and Plan 3 (Case list authoring). Plan 5 (Running-app search execution) depends on this.
 
 **Goal:** Ship the case-search authoring experience end-to-end. Module schema for default filters + claim condition + display labels (search inputs already shipped in Plan 3 because they're shared between the case-list inline-search experience and the search-config experience). Search-config builder UI: Default Filters section (typed Predicate AST) + Claim section + Display section. SA tools accept typed AST. Platform-aware compilation logic (split-screen / skip-to-results / search-first fallback). Wire emission for `<remote-request>` + `<query>` + `<post>` (claim) + `<datum>` (case-id selection) + `<stack>`.
 
