@@ -752,14 +752,13 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  *
  * v1 surface scope: v1 authoring surfaces (filter UI, SA tool
  * surface, validator) have no path producing `is-null` directly.
- * `is-null` is foundation infrastructure consumed by future non-
- * filter surfaces (case-data inspection, audit / admin views,
- * expression operators that need to distinguish absent from empty)
- * and future deploy targets (Phase-2 Cloud SQL where strict-absent
- * is natively representable). It stays in the AST because the
- * discriminated-union shape is part of the persisted contract;
- * omitting it from v1 would be a one-way door, breaking every
- * persisted predicate when the closed kind set widens later.
+ * `is-null` is foundation infrastructure for non-filter surfaces
+ * (case-data inspection, audit / admin views, expression
+ * operators that distinguish absent from empty); Postgres
+ * natively represents strict-absent via the JSONB presence
+ * test. The operator stays in the AST because the discriminated-
+ * union shape is part of the persisted contract — removing a
+ * kind invalidates every persisted predicate that used it.
  *
  * The `left` slot accepts any term — property reference,
  * search-input reference, session-user reference, session-context

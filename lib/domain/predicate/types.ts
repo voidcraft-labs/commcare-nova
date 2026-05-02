@@ -1362,18 +1362,16 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //     and lose the AST's strictness signal. The representability
 //     checker errors at authoring time; the per-dialect emitters
 //     defensively throw. Same dispatch pattern as `match(mode:
-//     fuzzy)` in case-list-filter context. v1
-//     authoring surfaces (filter UI, SA tool surface, validator)
-//     have no path producing `is-null` directly — `is-null` is
-//     foundation infrastructure consumed by future non-filter
-//     surfaces (case-data inspection, audit / admin views,
-//     expression operators that need to distinguish absent from
-//     empty) and future deploy targets (Phase-2 Cloud SQL where
-//     strict-absent is natively representable). It stays in the
-//     AST because the discriminated-union shape is part of the
-//     persisted contract; omitting it from v1 would be a one-way
-//     door, breaking every persisted predicate when the closed
-//     kind set widens later.
+//     fuzzy)` in case-list-filter context. v1 authoring surfaces
+//     (filter UI, SA tool surface, validator) have no path
+//     producing `is-null` directly — `is-null` is foundation
+//     infrastructure for non-filter surfaces (case-data
+//     inspection, audit / admin views, expression operators that
+//     distinguish absent from empty); Postgres natively
+//     represents strict-absent via the JSONB presence test. It
+//     stays in the AST because the discriminated-union shape is
+//     part of the persisted contract — removing a kind
+//     invalidates every persisted predicate that used it.
 //
 //   - `is-blank` — **portable.** `left` resolves to absent OR
 //     empty-string. Postgres / in-memory: emits the disjunction

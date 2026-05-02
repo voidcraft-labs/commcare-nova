@@ -1869,11 +1869,12 @@ export function checkExpression(
 			// targets all return integer cardinality.
 			//
 			// Top-level `via.kind === "self"` is meaningless ("count
-			// the current case as itself" is always 1) but the
-			// representability checker / authoring UI catches that
-			// pattern; the type checker leaves the rule as a future
-			// reduction surface (parallel with `exists(self)` /
-			// `missing(self)` rejection in `checkRelationalQuantifier`).
+			// the current case as itself" is always 1). The
+			// representability checker / authoring UI rejects this
+			// pattern at authoring time; the type checker omits the
+			// rule for parity with `exists(self)` / `missing(self)`,
+			// both rejected in `checkRelationalQuantifier` rather
+			// than here.
 			const origin = ctx.currentCaseType;
 			if (origin === undefined) {
 				errors.push({
