@@ -51,29 +51,24 @@
 // alias (`cases_h0`, `cases_h1`, etc.) and would couple parent
 // queries to the path's hop count.
 //
-// ## Raw `sql` template body
+// ## Subquery scoping is the alias-isolation discipline
 //
-// The subquery body is built via Kysely's `sql` template tag, the
-// canonical escape hatch (Kysely docs § "Raw SQL") for SQL whose
-// shape depends on dynamic, per-iteration aliases. The chain
-// composes one `(case_indices, cases)` pair per AST step with
-// aliases `ci0` / `cs0` / `ci1` / `cs1` / ...; Kysely's typed
-// builder accumulates each `innerJoin`'s alias key into the
-// table-set type, which means subsequent `where(...)` and
-// `select(...)` calls would have to reference columns that don't
-// exist in the static `Database` type. The `sql` tag with
-// `sql.ref(...)` for column references, `sql.table(...)` for
-// table names, and `${value}` for parameter binding sidesteps
-// the dynamic-table-set issue and produces a `RawBuilder` that
-// `.as(alias)` lifts to an `AliasedRawBuilder` — the
-// `AliasedExpression` shape `innerJoin` accepts as a table
-// expression.
+// The hop aliases (`ci0`, `cs0`, `ci1`, `cs1`, ...) are local to
+// each subquery. Two nested calls into `compileRelationPath`
+// (e.g. an outer `exists(parent, where: exists(parent, ...))`)
+// produce two `(SELECT ... FROM case_indices ci0 INNER JOIN cases
+// cs0 ...) AS rp_leaf` blocks; SQL's subquery-scoping rule isolates
+// each block's identifiers from the surrounding query and from
+// every sibling block. A nested call's `ci0` shadows nothing —
+// the outer `ci0` is not in scope inside the inner subquery, and
+// the inner one is not in scope outside its own SELECT.
 //
-// Callers still see the leaf as a typed shape (the `sql` tag's
-// generic parameter pins `RawBuilder<RelationPathLeafRow>`); the
-// per-column reads happen through `sql.ref(...)`, the same idiom
-// the surrounding case-store code uses for `properties->>'k'`
-// constructs.
+// The leaf alias the caller `innerJoin`s on is the only identifier
+// that crosses the subquery boundary, and the consumer side
+// (predicate compiler's `exists`/`missing`, expression compiler's
+// `count`) wraps each `compileRelationPath` result in its own
+// EXISTS / FROM context — so even at nested depths the wider
+// query sees one `rp_leaf` per scope, not a stack of them.
 //
 // ## Why `case_indices.depth = 1` on every step
 //
@@ -106,10 +101,10 @@
 // ## Why tenant filtering lives in this module
 //
 // Tenant isolation (spec § "Risk #1: tenant-isolation leak via
-// missing owner-id filter") commits to structural enforcement,
-// not caller discipline: the `(app_id, owner_id)` filter must be
-// threaded by the layer that emits the `cases`-table read, not by
-// every caller.
+// missing owner-id filter", lines 559-562) commits to structural
+// enforcement, not caller discipline: the `(app_id, owner_id)`
+// filter must be threaded by the layer that emits the
+// `cases`-table read, not by every caller.
 //
 // `compileRelationPath` is the authoritative emitter for every
 // intermediate `cases` join in a relation walk. Pushing the
@@ -119,28 +114,53 @@
 // structural enforcement rules out. The filter applies inside
 // this module's subquery, once per hop, every time.
 
-import type {
-	AliasedExpression,
-	AliasedRawBuilder,
-	Kysely,
-	RawBuilder,
-	Selectable,
-} from "kysely";
-import { sql } from "kysely";
+import type { AliasedExpression, Kysely, Selectable } from "kysely";
 import type { RelationPath, RelationStep } from "@/lib/domain/predicate/types";
 import type { Database } from "./database";
 
 /**
- * Stable alias for the leaf subquery a joined `RelationPath`
- * exposes. The leaf alias is part of the public API of
- * `CompiledRelationPath` — callers reference columns through it
- * (`<leafAlias>.properties`, `<leafAlias>.case_id`, etc.) and
- * thread it into their own join `onRef` predicates.
+ * Alias-name prefix for every relation-path leaf subquery the
+ * compiler emits. The leaf alias the consumer joins on is this
+ * prefix optionally suffixed by the relation-walk depth — depth 0
+ * stays bare (`rp_leaf`) for SQL readability; deeper nestings
+ * append the depth (`rp_leaf_1`, `rp_leaf_2`, ...).
  *
- * Pinned to a fixed string so the SQL output is stable across
- * compilation runs; the test suite asserts the exact alias.
+ * Why depth-suffixed when nested: SQL identifier resolution
+ * inside a correlated EXISTS reads the innermost matching alias
+ * first. An outer `exists(parent, where: exists(parent, where:
+ * <inner-where>))` produces two `(SELECT 1 FROM <leaf> AS
+ * rp_leaf WHERE rp_leaf.anchor_case_id = <outer>.case_id ...)`
+ * blocks; if the inner block also aliases its leaf as `rp_leaf`,
+ * the inner WHERE's correlation reference reads the inner alias
+ * (the closest match), not the outer one — the outer correlation
+ * silently breaks. The depth suffix keeps each block's alias
+ * unique so the inner correlation can refer back to the outer
+ * leaf by its depth-specific name.
+ *
+ * The bare `RELATION_PATH_LEAF_ALIAS` string is exported as the
+ * canonical depth-0 name. Consumers that read leaf columns at
+ * the outermost depth use this constant; consumers nesting deeper
+ * read the actual alias from the compiled result's `leafAlias`
+ * field, which reflects the chosen depth.
  */
 export const RELATION_PATH_LEAF_ALIAS = "rp_leaf";
+
+/**
+ * Build the leaf alias for a given relation-walk depth. Depth 0
+ * is the bare prefix; deeper depths append the count.
+ *
+ * The function is exported because consumers occasionally need to
+ * compute a leaf alias up front (e.g. the predicate compiler's
+ * EXISTS body builds its `<inner-leaf>.anchor_case_id =
+ * <outer-leaf>.case_id` correlation from the outer context's
+ * pre-recursion depth before the inner `compileRelationPath`
+ * runs).
+ */
+export function leafAliasForDepth(depth: number): string {
+	return depth === 0
+		? RELATION_PATH_LEAF_ALIAS
+		: `${RELATION_PATH_LEAF_ALIAS}_${depth}`;
+}
 
 /**
  * The row shape the relation-path leaf subquery exposes. Term and
@@ -180,12 +200,12 @@ export interface RelationPathLeafRow extends Selectable<Database["cases"]> {
 export interface RelationPathCompileContext {
 	/**
 	 * The Kysely Database handle. The compiled subquery builds
-	 * against this instance's type, and consumer compilers (term,
-	 * expression) thread the same handle through their own
-	 * `selectFrom(...)` calls. The handle is part of the context
-	 * surface so every layer of the compiler stack reads its
-	 * `Kysely<Database>` from one source rather than passing it
-	 * separately alongside `RelationPathCompileContext`.
+	 * against this instance's typed query builder, and consumer
+	 * compilers (term, expression) thread the same handle through
+	 * their own `selectFrom(...)` calls. The handle is part of the
+	 * context surface so every layer of the compiler stack reads
+	 * its `Kysely<Database>` from one source rather than passing
+	 * it separately alongside `RelationPathCompileContext`.
 	 */
 	db: Kysely<Database>;
 
@@ -215,6 +235,24 @@ export interface RelationPathCompileContext {
 	 * result.
 	 */
 	anchorAlias: string;
+
+	/**
+	 * The relation-walk nesting depth at this compile site. Zero
+	 * at the outermost compile; incremented by consumers that
+	 * recurse into a relation-walk leaf's inner `where` predicate
+	 * (the predicate compiler's `exists`/`missing` arm; the
+	 * expression compiler's `count` arm with an inner `where`).
+	 * Optional with a default of 0 so unmodified call sites keep
+	 * the backwards-compatible top-level shape.
+	 *
+	 * The depth selects a unique leaf alias per nesting level so
+	 * an inner subquery's leaf does not shadow the outer leaf's
+	 * alias inside the inner WHERE's correlation. SQL identifier
+	 * resolution reads the innermost matching alias first; an
+	 * unsuffixed alias collision would silently break the
+	 * outer-leaf correlation.
+	 */
+	relationPathDepth?: number;
 }
 
 /**
@@ -245,16 +283,18 @@ export type CompiledRelationPath =
 			kind: "joined";
 
 			/**
-			 * The alias the leaf subquery is exposed under. Stable
-			 * across compilation runs — see
-			 * `RELATION_PATH_LEAF_ALIAS`. Typed as the literal
-			 * `typeof RELATION_PATH_LEAF_ALIAS` rather than the
-			 * widened `string` so callers can pass
-			 * `` `${compiled.leafAlias}.anchor_case_id` `` to Kysely's
-			 * `onRef` and retain the literal-string shape Kysely's
-			 * `ReferenceExpression` requires.
+			 * The alias the leaf subquery is exposed under. The
+			 * value is `RELATION_PATH_LEAF_ALIAS` (the bare prefix)
+			 * at depth 0 and `${RELATION_PATH_LEAF_ALIAS}_<depth>`
+			 * for deeper nesting. Typed as `string` rather than a
+			 * literal because the depth is a runtime value.
+			 *
+			 * Callers thread the alias through their join `onRef`
+			 * via `` `${compiled.leafAlias}.anchor_case_id` ``;
+			 * Kysely's `ReferenceExpression` admits a string
+			 * template here even though the static type widens.
 			 */
-			leafAlias: typeof RELATION_PATH_LEAF_ALIAS;
+			leafAlias: string;
 
 			/**
 			 * Build the leaf subquery as an `AliasedExpression`.
@@ -270,10 +310,7 @@ export type CompiledRelationPath =
 			 * result stay reusable across multiple sites in a
 			 * single compilation.
 			 */
-			buildLeafSubquery: () => AliasedExpression<
-				RelationPathLeafRow,
-				typeof RELATION_PATH_LEAF_ALIAS
-			>;
+			buildLeafSubquery: () => AliasedExpression<RelationPathLeafRow, string>;
 	  };
 
 /**
@@ -303,10 +340,11 @@ export type CompiledRelationPath =
  *                      one leaf relation.
  *
  * Every joined `cases` row applies the
- * `(app_id, owner_id)` tenant filter. Every joined
- * `case_indices` row applies `depth = 1` so the SQL is
- * materialization-agnostic (works under spec § "case_indices
- * materialization policy" Option A or Option B alike).
+ * `(app_id, owner_id)` tenant filter (spec § "Risk #1", lines
+ * 559-562). Every joined `case_indices` row applies `depth = 1`
+ * so the SQL is materialization-agnostic (works under spec §
+ * "case_indices materialization policy" Option A or Option B
+ * alike).
  *
  * `RelationStep.throughCaseType` (on ancestor steps) and
  * `ofCaseType` (on subcase / any-relation) narrow the joined
@@ -316,33 +354,40 @@ export function compileRelationPath(
 	path: RelationPath,
 	ctx: RelationPathCompileContext,
 ): CompiledRelationPath {
+	const leafAlias = leafAliasForDepth(ctx.relationPathDepth ?? 0);
 	switch (path.kind) {
 		case "self":
 			return { kind: "self" };
 		case "ancestor":
 			return {
 				kind: "joined",
-				leafAlias: RELATION_PATH_LEAF_ALIAS,
+				leafAlias,
 				buildLeafSubquery: () =>
-					aliasLeafSubquery(buildAncestorBody(ctx, path.via)),
+					buildAncestorLeaf({ ctx, via: path.via, leafAlias }),
 			};
 		case "subcase":
 			return {
 				kind: "joined",
-				leafAlias: RELATION_PATH_LEAF_ALIAS,
+				leafAlias,
 				buildLeafSubquery: () =>
-					aliasLeafSubquery(
-						buildSubcaseBody(ctx, path.identifier, path.ofCaseType),
-					),
+					buildSubcaseLeaf({
+						ctx,
+						identifier: path.identifier,
+						ofCaseType: path.ofCaseType,
+						leafAlias,
+					}),
 			};
 		case "any-relation":
 			return {
 				kind: "joined",
-				leafAlias: RELATION_PATH_LEAF_ALIAS,
+				leafAlias,
 				buildLeafSubquery: () =>
-					aliasLeafSubquery(
-						buildAnyRelationBody(ctx, path.identifier, path.ofCaseType),
-					),
+					buildAnyRelationLeaf({
+						ctx,
+						identifier: path.identifier,
+						ofCaseType: path.ofCaseType,
+						leafAlias,
+					}),
 			};
 		default: {
 			const _exhaustive: never = path;
@@ -354,32 +399,46 @@ export function compileRelationPath(
 }
 
 // ---------------------------------------------------------------
-// Subquery body builders
+// Leaf-subquery builders
 // ---------------------------------------------------------------
 //
-// Each builder returns a `RawBuilder<RelationPathLeafRow>` for
-// the body of the leaf subquery — the raw SQL between the
-// outermost `(...)` parentheses, without the trailing `AS
-// <alias>`. `aliasLeafSubquery` wraps the result with `.as(...)`
-// to produce the final `AliasedExpression` callers consume.
+// Each builder constructs an `AliasedExpression<RelationPathLeafRow,
+// "rp_leaf">` via Kysely's typed query builder. The resulting
+// expression slots directly into an `innerJoin(() => ..., (jb) =>
+// jb.onRef(...))` call: the consumer correlates the synthetic
+// `anchor_case_id` column against its outer anchor's `case_id`.
 //
-// Splitting body construction from aliasing keeps `unionAll` for
-// `any-relation` ergonomic: the union operator combines two
-// bodies without each branch carrying its own alias.
+// The Kysely typed builder accepts table expressions of the form
+// `'cases as cs0'` and accumulates each alias into the resulting
+// query's table-set type. `where(...)` and `select(...)` calls
+// then reference columns by `'cs0.<column>'`-style strings, with
+// Kysely's template-literal types resolving each alias back to
+// the underlying table's column set.
+//
+// Single-hop arms (the ancestor first hop, subcase, any-relation)
+// build entirely under the typed builder's static type checking.
+// Multi-hop ancestor walks chain additional `case_indices` /
+// `cases` pairs in a runtime loop whose alias names (`ci<i>`,
+// `cs<i>`) are computed from the AST's hop counter; the loop body
+// runs under a type-erased local view of the query because TS
+// cannot enumerate the per-iteration alias permutations the loop
+// produces. The hop count is statically bounded by the AST schema
+// (an ancestor `via` is a non-empty tuple-with-rest of
+// `RelationStep`), so the loop's runtime behavior is well-defined
+// even where the type system loses precision.
+//
+// The final cast on each builder's return is `as unknown as
+// AliasedExpression<RelationPathLeafRow, "rp_leaf">` because the
+// Kysely-inferred output is a structural superset of
+// `RelationPathLeafRow` (every column on `cases` plus the synthetic
+// `anchor_case_id`). The cast pins the public contract; the
+// projection list builders below construct the matching shape by
+// construction.
 
 /**
- * Wrap a subquery body in the documented leaf alias. Centralises
- * the alias decision so every join arm's wrapper agrees on the
- * exact identifier the caller references.
- */
-function aliasLeafSubquery(
-	body: RawBuilder<RelationPathLeafRow>,
-): AliasedRawBuilder<RelationPathLeafRow, typeof RELATION_PATH_LEAF_ALIAS> {
-	return body.as(RELATION_PATH_LEAF_ALIAS);
-}
-
-/**
- * Ancestor walk body. One hop:
+ * Build the ancestor-walk leaf subquery.
+ *
+ * Single-hop shape:
  *
  *   SELECT
  *     ci0.case_id    AS anchor_case_id,
@@ -393,124 +452,193 @@ function aliasLeafSubquery(
  *     AND cs0.owner_id = $3
  *     [AND cs0.case_type = $4]    -- if throughCaseType present
  *
- * N hops chain by adding one `(case_indices ci<i>, cases cs<i>)`
- * pair per step. Each step's `ci<i>.case_id` correlates against
- * the previous step's `cs<i-1>.case_id`; the final step's
- * `cs<N-1>.*` is the leaf.
+ * N-hop walks chain one `(case_indices, cases)` pair per step
+ * after the first via additional `innerJoin`s. Each step's
+ * `ci<i>.case_id` correlates against the previous step's
+ * `cs<i-1>.case_id`; the final step's `cs<N-1>.*` is the leaf.
  */
-function buildAncestorBody(
-	ctx: RelationPathCompileContext,
-	via: ReadonlyArray<RelationStep>,
-): RawBuilder<RelationPathLeafRow> {
-	// First hop's `case_indices` is correlated by the wider join
-	// (the caller's `onRef` will reference `anchor_case_id` ==
-	// the outer anchor's `case_id`); the inner subquery anchors
-	// the chain by exposing `ci0.case_id` as the synthetic
-	// `anchor_case_id` column.
+function buildAncestorLeaf(args: {
+	ctx: RelationPathCompileContext;
+	via: ReadonlyArray<RelationStep>;
+	leafAlias: string;
+}): AliasedExpression<RelationPathLeafRow, string> {
+	const { ctx, via, leafAlias } = args;
 	const firstStep = via[0];
-	const firstCi = "ci0";
-	const firstCs = "cs0";
 
-	// Per-hop fragments accumulate as: the cross-join chain that
-	// runs FROM (`ci0` and `cs0`) plus an INNER JOIN per
-	// subsequent hop, and the WHERE-clause fragments for each
-	// hop's structural filters.
-	const joinFragments: RawBuilder<unknown>[] = [];
-	const whereFragments: RawBuilder<unknown>[] = [];
+	// First hop under full typed-builder visibility. The literal
+	// `'case_indices as ci0'` and `'cases as cs0'` table aliases
+	// land in the surrounding query's `TB` template-literal type so
+	// the column references that follow type-check against the
+	// underlying tables.
+	const firstHop = ctx.db
+		.selectFrom("case_indices as ci0")
+		.innerJoin("cases as cs0", "cs0.case_id", "ci0.ancestor_id")
+		.where("ci0.identifier", "=", firstStep.identifier)
+		.where("ci0.depth", "=", 1)
+		.where("cs0.app_id", "=", ctx.appId);
 
-	// First hop: `FROM case_indices ci0 INNER JOIN cases cs0 ON
-	// cs0.case_id = ci0.ancestor_id`. Subsequent hops chain
-	// through `INNER JOIN case_indices ciN ON ciN.case_id =
-	// csN-1.case_id INNER JOIN cases csN ON csN.case_id =
-	// ciN.ancestor_id`.
-	const fromFragment = sql`from ${sql.table("case_indices")} as ${sql.ref(firstCi)} inner join ${sql.table("cases")} as ${sql.ref(firstCs)} on ${sql.ref(`${firstCs}.case_id`)} = ${sql.ref(`${firstCi}.ancestor_id`)}`;
-	whereFragments.push(
-		sql`${sql.ref(`${firstCi}.identifier`)} = ${firstStep.identifier}`,
-	);
-	whereFragments.push(sql`${sql.ref(`${firstCi}.depth`)} = ${1}`);
-	whereFragments.push(...tenantFilterFragments(firstCs, ctx));
-	if (firstStep.throughCaseType !== undefined) {
-		whereFragments.push(
-			sql`${sql.ref(`${firstCs}.case_type`)} = ${firstStep.throughCaseType}`,
-		);
+	// The owner-id branch must use the `is null` keyword form for
+	// the null-owner case; SQL's three-valued logic makes
+	// `<col> = NULL` always evaluate to unknown (false in WHERE).
+	const firstHopWithOwner =
+		ctx.ownerId === null
+			? firstHop.where("cs0.owner_id", "is", null)
+			: firstHop.where("cs0.owner_id", "=", ctx.ownerId);
+
+	const firstHopWithType =
+		firstStep.throughCaseType !== undefined
+			? firstHopWithOwner.where("cs0.case_type", "=", firstStep.throughCaseType)
+			: firstHopWithOwner;
+
+	if (via.length === 1) {
+		// Single-hop walk: the leaf cases alias is `cs0`. Project
+		// directly under typed inference and alias as the leaf.
+		const projected = firstHopWithType.select([
+			"ci0.case_id as anchor_case_id",
+			"cs0.case_id as case_id",
+			"cs0.app_id as app_id",
+			"cs0.case_type as case_type",
+			"cs0.owner_id as owner_id",
+			"cs0.status as status",
+			"cs0.opened_on as opened_on",
+			"cs0.modified_on as modified_on",
+			"cs0.closed_on as closed_on",
+			"cs0.parent_case_id as parent_case_id",
+			"cs0.properties as properties",
+		]);
+		return projected.as(leafAlias) as unknown as AliasedExpression<
+			RelationPathLeafRow,
+			string
+		>;
 	}
 
-	let prevCs = firstCs;
+	// Multi-hop walk. The dynamic-iteration loop operates under a
+	// type-erased local view (`DynamicQuery`) because TS cannot
+	// enumerate the per-iteration alias accumulation through the
+	// runtime loop. Inside the loop, alias strings are constructed
+	// from the AST's hop counter — a closed-set value bounded by
+	// the AST schema's tuple-with-rest shape; runtime behavior is
+	// well-defined.
+	let qb: DynamicQuery = firstHopWithType as unknown as DynamicQuery;
+	let prevCasesAlias = "cs0";
+	let leafCasesAlias = "cs0";
 	for (let i = 1; i < via.length; i++) {
 		const step = via[i];
 		const ci = `ci${i}`;
 		const cs = `cs${i}`;
-		joinFragments.push(
-			sql`inner join ${sql.table("case_indices")} as ${sql.ref(ci)} on ${sql.ref(`${ci}.case_id`)} = ${sql.ref(`${prevCs}.case_id`)}`,
-		);
-		joinFragments.push(
-			sql`inner join ${sql.table("cases")} as ${sql.ref(cs)} on ${sql.ref(`${cs}.case_id`)} = ${sql.ref(`${ci}.ancestor_id`)}`,
-		);
-		whereFragments.push(
-			sql`${sql.ref(`${ci}.identifier`)} = ${step.identifier}`,
-		);
-		whereFragments.push(sql`${sql.ref(`${ci}.depth`)} = ${1}`);
-		whereFragments.push(...tenantFilterFragments(cs, ctx));
+		qb = qb
+			.innerJoin(
+				`case_indices as ${ci}`,
+				`${ci}.case_id`,
+				`${prevCasesAlias}.case_id`,
+			)
+			.innerJoin(`cases as ${cs}`, `${cs}.case_id`, `${ci}.ancestor_id`)
+			.where(`${ci}.identifier`, "=", step.identifier)
+			.where(`${ci}.depth`, "=", 1)
+			.where(`${cs}.app_id`, "=", ctx.appId);
+		qb =
+			ctx.ownerId === null
+				? qb.where(`${cs}.owner_id`, "is", null)
+				: qb.where(`${cs}.owner_id`, "=", ctx.ownerId);
 		if (step.throughCaseType !== undefined) {
-			whereFragments.push(
-				sql`${sql.ref(`${cs}.case_type`)} = ${step.throughCaseType}`,
-			);
+			qb = qb.where(`${cs}.case_type`, "=", step.throughCaseType);
 		}
-		prevCs = cs;
+		prevCasesAlias = cs;
+		leafCasesAlias = cs;
 	}
 
-	const leafCases = prevCs;
-	const selectFragment = leafSelectFragment(firstCi, leafCases, "case_id");
-	return composeSubqueryBody(
-		selectFragment,
-		fromFragment,
-		joinFragments,
-		whereFragments,
-	);
+	// Project the leaf row. The select-list strings are computed
+	// from `leafCasesAlias` (the final hop's `cs<N-1>` alias); the
+	// runtime list shape always produces every column on
+	// `RelationPathLeafRow`.
+	const projected = qb.select([
+		`ci0.case_id as anchor_case_id`,
+		`${leafCasesAlias}.case_id as case_id`,
+		`${leafCasesAlias}.app_id as app_id`,
+		`${leafCasesAlias}.case_type as case_type`,
+		`${leafCasesAlias}.owner_id as owner_id`,
+		`${leafCasesAlias}.status as status`,
+		`${leafCasesAlias}.opened_on as opened_on`,
+		`${leafCasesAlias}.modified_on as modified_on`,
+		`${leafCasesAlias}.closed_on as closed_on`,
+		`${leafCasesAlias}.parent_case_id as parent_case_id`,
+		`${leafCasesAlias}.properties as properties`,
+	]);
+	return projected.as(leafAlias) as unknown as AliasedExpression<
+		RelationPathLeafRow,
+		string
+	>;
 }
 
 /**
- * Subcase walk body. Single hop, reverse direction:
+ * Build the subcase-walk leaf subquery. Single hop, reverse
+ * direction:
  *
  *   SELECT
- *     ci.ancestor_id AS anchor_case_id,
- *     cs.case_id, cs.app_id, ..., cs.properties
- *   FROM case_indices AS ci
- *   INNER JOIN cases AS cs
- *     ON cs.case_id = ci.case_id
- *   WHERE ci.identifier = $1
- *     AND ci.depth = 1
- *     AND cs.app_id = $2
- *     AND cs.owner_id = $3
- *     [AND cs.case_type = $4]    -- if ofCaseType present
+ *     ci0.ancestor_id AS anchor_case_id,
+ *     cs0.case_id, cs0.app_id, ..., cs0.properties
+ *   FROM case_indices AS ci0
+ *   INNER JOIN cases AS cs0
+ *     ON cs0.case_id = ci0.case_id
+ *   WHERE ci0.identifier = $1
+ *     AND ci0.depth = 1
+ *     AND cs0.app_id = $2
+ *     AND cs0.owner_id = $3
+ *     [AND cs0.case_type = $4]    -- if ofCaseType present
  *
  * The reverse direction: an ancestor walk reads the case the
  * anchor's own index points at; a subcase walk reads the cases
  * whose own index points at the anchor.
  */
-function buildSubcaseBody(
-	ctx: RelationPathCompileContext,
-	identifier: string,
-	ofCaseType: string | undefined,
-): RawBuilder<RelationPathLeafRow> {
-	const ci = "ci0";
-	const cs = "cs0";
-	const fromFragment = sql`from ${sql.table("case_indices")} as ${sql.ref(ci)} inner join ${sql.table("cases")} as ${sql.ref(cs)} on ${sql.ref(`${cs}.case_id`)} = ${sql.ref(`${ci}.case_id`)}`;
-	const whereFragments: RawBuilder<unknown>[] = [
-		sql`${sql.ref(`${ci}.identifier`)} = ${identifier}`,
-		sql`${sql.ref(`${ci}.depth`)} = ${1}`,
-		...tenantFilterFragments(cs, ctx),
-	];
-	if (ofCaseType !== undefined) {
-		whereFragments.push(sql`${sql.ref(`${cs}.case_type`)} = ${ofCaseType}`);
-	}
-	const selectFragment = leafSelectFragment(ci, cs, "ancestor_id");
-	return composeSubqueryBody(selectFragment, fromFragment, [], whereFragments);
+function buildSubcaseLeaf(args: {
+	ctx: RelationPathCompileContext;
+	identifier: string;
+	ofCaseType: string | undefined;
+	leafAlias: string;
+}): AliasedExpression<RelationPathLeafRow, string> {
+	const { ctx, identifier, ofCaseType, leafAlias } = args;
+
+	const base = ctx.db
+		.selectFrom("case_indices as ci0")
+		.innerJoin("cases as cs0", "cs0.case_id", "ci0.case_id")
+		.where("ci0.identifier", "=", identifier)
+		.where("ci0.depth", "=", 1)
+		.where("cs0.app_id", "=", ctx.appId);
+
+	const withOwner =
+		ctx.ownerId === null
+			? base.where("cs0.owner_id", "is", null)
+			: base.where("cs0.owner_id", "=", ctx.ownerId);
+
+	const withType =
+		ofCaseType !== undefined
+			? withOwner.where("cs0.case_type", "=", ofCaseType)
+			: withOwner;
+
+	const projected = withType.select([
+		"ci0.ancestor_id as anchor_case_id",
+		"cs0.case_id as case_id",
+		"cs0.app_id as app_id",
+		"cs0.case_type as case_type",
+		"cs0.owner_id as owner_id",
+		"cs0.status as status",
+		"cs0.opened_on as opened_on",
+		"cs0.modified_on as modified_on",
+		"cs0.closed_on as closed_on",
+		"cs0.parent_case_id as parent_case_id",
+		"cs0.properties as properties",
+	]);
+
+	return projected.as(leafAlias) as unknown as AliasedExpression<
+		RelationPathLeafRow,
+		string
+	>;
 }
 
 /**
- * Any-relation walk body: `unionAll` of the ancestor and subcase
- * single-hop variants. The two branches expose the same
+ * Build the any-relation leaf subquery: a `UNION ALL` of the
+ * ancestor and subcase single-hop variants against the same
+ * identifier. The two branches expose the same
  * `RelationPathLeafRow` shape; the union combines the row sets
  * without de-duplicating.
  *
@@ -519,114 +647,133 @@ function buildSubcaseBody(
  * downstream filters (the `where` predicate a `count` / `exists`
  * expression wraps around the leaf subquery) decide whether
  * duplicates are semantically distinct.
+ *
+ * Both branches are constructed via the same typed-builder shape
+ * the single-direction builders use, then unioned together via
+ * Kysely's `unionAll(...)` operator. The aliasing happens once on
+ * the combined query so the consumer's `innerJoin` target is the
+ * full union, not just the trailing branch.
  */
-function buildAnyRelationBody(
-	ctx: RelationPathCompileContext,
-	identifier: string,
-	ofCaseType: string | undefined,
-): RawBuilder<RelationPathLeafRow> {
-	const ancestorBranch = buildAncestorBody(ctx, [
-		ofCaseType === undefined
-			? { identifier }
-			: { identifier, throughCaseType: ofCaseType },
+function buildAnyRelationLeaf(args: {
+	ctx: RelationPathCompileContext;
+	identifier: string;
+	ofCaseType: string | undefined;
+	leafAlias: string;
+}): AliasedExpression<RelationPathLeafRow, string> {
+	const { ctx, identifier, ofCaseType, leafAlias } = args;
+
+	// Ancestor branch: identical shape to a single-hop ancestor
+	// walk against the identifier. `ofCaseType` here is the same
+	// pin as `throughCaseType` on a single-hop ancestor — both
+	// narrow the joined `cases.case_type` column at the leaf hop.
+	const ancestorBase = ctx.db
+		.selectFrom("case_indices as ci0")
+		.innerJoin("cases as cs0", "cs0.case_id", "ci0.ancestor_id")
+		.where("ci0.identifier", "=", identifier)
+		.where("ci0.depth", "=", 1)
+		.where("cs0.app_id", "=", ctx.appId);
+	const ancestorWithOwner =
+		ctx.ownerId === null
+			? ancestorBase.where("cs0.owner_id", "is", null)
+			: ancestorBase.where("cs0.owner_id", "=", ctx.ownerId);
+	const ancestorWithType =
+		ofCaseType !== undefined
+			? ancestorWithOwner.where("cs0.case_type", "=", ofCaseType)
+			: ancestorWithOwner;
+	const ancestorBranch = ancestorWithType.select([
+		"ci0.case_id as anchor_case_id",
+		"cs0.case_id as case_id",
+		"cs0.app_id as app_id",
+		"cs0.case_type as case_type",
+		"cs0.owner_id as owner_id",
+		"cs0.status as status",
+		"cs0.opened_on as opened_on",
+		"cs0.modified_on as modified_on",
+		"cs0.closed_on as closed_on",
+		"cs0.parent_case_id as parent_case_id",
+		"cs0.properties as properties",
 	]);
-	const subcaseBranch = buildSubcaseBody(ctx, identifier, ofCaseType);
-	// Paren-wrap the union as a whole so `.as("rp_leaf")` aliases the
-	// combined relation, not just the second branch's tail. The two
-	// branches are already paren-wrapped by `composeSubqueryBody`,
-	// so the resulting SQL is `((SELECT ...) UNION ALL (SELECT ...))`
-	// — nested parens, valid Postgres. Without the outer wrap the
-	// alias attaches to the subcase branch and the union itself
-	// becomes the JOIN target, which is a parse error.
-	return sql<RelationPathLeafRow>`(${ancestorBranch} union all ${subcaseBranch})`;
+
+	// Subcase branch: the reverse direction. Both branches must
+	// project the same column names in the same order so
+	// `unionAll` accepts them as compatible.
+	const subcaseBase = ctx.db
+		.selectFrom("case_indices as ci0")
+		.innerJoin("cases as cs0", "cs0.case_id", "ci0.case_id")
+		.where("ci0.identifier", "=", identifier)
+		.where("ci0.depth", "=", 1)
+		.where("cs0.app_id", "=", ctx.appId);
+	const subcaseWithOwner =
+		ctx.ownerId === null
+			? subcaseBase.where("cs0.owner_id", "is", null)
+			: subcaseBase.where("cs0.owner_id", "=", ctx.ownerId);
+	const subcaseWithType =
+		ofCaseType !== undefined
+			? subcaseWithOwner.where("cs0.case_type", "=", ofCaseType)
+			: subcaseWithOwner;
+	const subcaseBranch = subcaseWithType.select([
+		"ci0.ancestor_id as anchor_case_id",
+		"cs0.case_id as case_id",
+		"cs0.app_id as app_id",
+		"cs0.case_type as case_type",
+		"cs0.owner_id as owner_id",
+		"cs0.status as status",
+		"cs0.opened_on as opened_on",
+		"cs0.modified_on as modified_on",
+		"cs0.closed_on as closed_on",
+		"cs0.parent_case_id as parent_case_id",
+		"cs0.properties as properties",
+	]);
+
+	// `unionAll(rhs)` accepts another select query of compatible
+	// output shape and emits `(<lhs>) UNION ALL (<rhs>)` in
+	// Postgres. The combined query's output type is the LHS
+	// branch's type — both branches share the identical
+	// projection here, so the union output stays well-typed.
+	return ancestorBranch
+		.unionAll(subcaseBranch)
+		.as(leafAlias) as unknown as AliasedExpression<RelationPathLeafRow, string>;
 }
 
 // ---------------------------------------------------------------
-// Shared SQL fragments
+// Type-erased multi-hop loop helpers
 // ---------------------------------------------------------------
 
 /**
- * Build the tenant-filter fragments for a `cases`-table alias.
- * Returns one fragment for `app_id` and one for `owner_id` —
- * either `= $val` or `is null` depending on `ctx.ownerId`.
+ * Type-erased local view of the multi-hop ancestor query during
+ * the per-iteration `innerJoin` chain. The TS template-literal
+ * type system cannot enumerate the per-iteration alias
+ * accumulation a runtime loop produces, so the loop body operates
+ * under this minimal interface and the final `.select(...)` /
+ * `.as(...)` chain casts back to the public `AliasedExpression`
+ * contract.
  *
- * Threading these fragments through every `cases` join is the
- * structural anchor for spec Risk #1's tenant-isolation
- * guarantee.
+ * The interface surfaces only the methods the loop calls — `where`,
+ * `innerJoin`, and `select`. Each returns the same `DynamicQuery`
+ * shape so the loop body chains without re-narrowing. The runtime
+ * methods these stand in for are Kysely's typed `where` / `innerJoin`
+ * / `select`; they produce well-formed SQL regardless of static
+ * inference because the alias strings the loop constructs match
+ * the runtime tables.
  *
- * `ownerId` of `null` compiles to `IS NULL` rather than `=
- * NULL`. SQL's three-valued logic makes `<col> = NULL` always
- * unknown (and therefore false in a `WHERE` context), so the
- * `IS NULL` form is required for the HQ-imported pre-assignment
- * fixture rows the spec lists at lines 127-130.
+ * The argument type is `unknown` (not `never`) so the loop body
+ * can pass the runtime-constructed alias strings; the runtime
+ * dispatch lives inside Kysely's typed methods which the underlying
+ * concrete builder still drives.
  */
-function tenantFilterFragments(
-	casesAlias: string,
-	ctx: RelationPathCompileContext,
-): RawBuilder<unknown>[] {
-	const fragments: RawBuilder<unknown>[] = [
-		sql`${sql.ref(`${casesAlias}.app_id`)} = ${ctx.appId}`,
-	];
-	if (ctx.ownerId === null) {
-		fragments.push(sql`${sql.ref(`${casesAlias}.owner_id`)} is null`);
-	} else {
-		fragments.push(sql`${sql.ref(`${casesAlias}.owner_id`)} = ${ctx.ownerId}`);
-	}
-	return fragments;
+interface DynamicQuery {
+	where: (...args: ReadonlyArray<unknown>) => DynamicQuery;
+	innerJoin: (...args: ReadonlyArray<unknown>) => DynamicQuery;
+	select: (selections: ReadonlyArray<string>) => DynamicSelection;
 }
 
 /**
- * Build the `SELECT` fragment for a leaf subquery. The
- * `anchor_case_id` synthetic column is sourced from the given
- * `case_indices` alias's `case_id` (ancestor walks) or
- * `ancestor_id` (subcase walks); the rest of the projection
- * mirrors the `RelationPathLeafRow` shape sourced from the leaf
- * `cases` alias.
+ * Type-erased local view of the projected select for the multi-hop
+ * loop's final step. Surfaces only `.as(...)` because that's the
+ * one method the loop's tail calls; the cast back to
+ * `AliasedExpression<RelationPathLeafRow, "rp_leaf">` happens at
+ * the public boundary.
  */
-function leafSelectFragment(
-	caseIndicesAlias: string,
-	leafAlias: string,
-	anchorColumn: "case_id" | "ancestor_id",
-): RawBuilder<unknown> {
-	return sql`select
-		${sql.ref(`${caseIndicesAlias}.${anchorColumn}`)} as ${sql.ref("anchor_case_id")},
-		${sql.ref(`${leafAlias}.case_id`)} as ${sql.ref("case_id")},
-		${sql.ref(`${leafAlias}.app_id`)} as ${sql.ref("app_id")},
-		${sql.ref(`${leafAlias}.case_type`)} as ${sql.ref("case_type")},
-		${sql.ref(`${leafAlias}.owner_id`)} as ${sql.ref("owner_id")},
-		${sql.ref(`${leafAlias}.status`)} as ${sql.ref("status")},
-		${sql.ref(`${leafAlias}.opened_on`)} as ${sql.ref("opened_on")},
-		${sql.ref(`${leafAlias}.modified_on`)} as ${sql.ref("modified_on")},
-		${sql.ref(`${leafAlias}.closed_on`)} as ${sql.ref("closed_on")},
-		${sql.ref(`${leafAlias}.parent_case_id`)} as ${sql.ref("parent_case_id")},
-		${sql.ref(`${leafAlias}.properties`)} as ${sql.ref("properties")}`;
-}
-
-/**
- * Compose the SELECT, FROM-with-first-join, additional joins,
- * and WHERE fragments into one subquery body. `sql.join(...)`
- * interpolates the additional joins as space-separated SQL
- * fragments and the WHERE fragments as `AND`-separated boolean
- * expressions — the canonical Kysely pattern for stitching a
- * variable number of fragments into one expression.
- */
-function composeSubqueryBody(
-	selectFragment: RawBuilder<unknown>,
-	fromFragment: RawBuilder<unknown>,
-	additionalJoins: RawBuilder<unknown>[],
-	whereFragments: RawBuilder<unknown>[],
-): RawBuilder<RelationPathLeafRow> {
-	const joinsSql =
-		additionalJoins.length === 0
-			? sql``
-			: sql` ${sql.join(additionalJoins, sql` `)}`;
-	const whereSql = sql` where ${sql.join(whereFragments, sql` and `)}`;
-	// Paren-wrap the body so that `<body>.as("rp_leaf")` produces
-	// `(SELECT ... WHERE ...) AS "rp_leaf"`, which is what Postgres
-	// requires for an `INNER JOIN <subquery> AS <alias>` target.
-	// `RawBuilder.as` does not insert parentheses; the responsibility
-	// belongs to whoever assembles the body. Without the wrap the
-	// emitted SQL is `INNER JOIN SELECT ... WHERE ... AS "rp_leaf"`,
-	// which is a Postgres parse error.
-	return sql<RelationPathLeafRow>`(${selectFragment} ${fromFragment}${joinsSql}${whereSql})`;
+interface DynamicSelection {
+	as: (alias: string) => AliasedExpression<unknown, string>;
 }

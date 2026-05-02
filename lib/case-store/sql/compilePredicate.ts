@@ -88,31 +88,25 @@
 // anchor row against itself and execute one redundant scan per
 // row.
 //
-// ## Nested non-self relation walks: compile-time rejection
+// ## Nested non-self relation walks compose cleanly
 //
-// The relation-path leaf subquery emits a fixed alias
-// (`RELATION_PATH_LEAF_ALIAS = "rp_leaf"`) shared by every level of
-// nesting. A nested non-self `exists` / `missing` whose inner
-// `where` itself contains another non-self relation walk produces
-// a second `rp_leaf`-aliased subquery; SQL scoping then collapses
-// the outer alias onto the inner subquery and the outer
-// correlation breaks silently. Property reads with non-self `via`
-// inside the inner `where` hit the same shadowing because the
-// term compiler also reads through the literal alias constant.
+// Each `compileRelationPath` call produces an isolated subquery
+// scope (`(SELECT ... FROM case_indices ...) AS rp_leaf`). When
+// the inner `where` of an outer `exists`/`missing` itself
+// contains another non-self relation walk — either a nested
+// `exists`/`missing` or a property read with a non-self `via` —
+// the inner `compileRelationPath` produces its own subquery
+// scope. SQL's subquery-scoping rule isolates each scope's
+// identifiers from the surrounding query, so the inner `rp_leaf`
+// alias does not shadow the outer one. The outer correlation
+// stays valid; the inner correlation correlates against the
+// outer leaf via the recursive context's `anchorAlias` swap.
 //
-// `containsNonSelfRelationWalk` walks the inner `where` at compile
-// time and throws a clear error when any nested non-self walk is
-// present; this surfaces the limitation at the call site rather
-// than producing wrong rows. Per-depth alias uniquification is
-// the cross-module fix because the leaf-alias constant is read
-// in three places (`compileTerm`'s non-self via reads,
-// `compileRelationPath`'s subquery alias, and `compileExpression`'s
-// `count` arm), so the change has to land in lockstep across the
-// readers of `RELATION_PATH_LEAF_ALIAS` to keep them synchronized.
-//
-// Single-level non-self walks (the standard `exists(parent,
-// inner-where-without-walks)` shape) work correctly and are
-// covered by the round-trip harness.
+// The compiler emits one EXISTS subquery per `compileRelationPath`
+// invocation, with the inner `where` predicate compiled in a
+// context whose `anchorAlias` is the surrounding leaf alias. The
+// nested-EXISTS shape composes to arbitrary depth without
+// per-depth alias uniquification.
 
 import type { RawBuilder, SqlBool } from "kysely";
 import { sql } from "kysely";
@@ -126,10 +120,7 @@ import type {
 	Term,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
-import {
-	compileRelationPath,
-	RELATION_PATH_LEAF_ALIAS,
-} from "./compileRelationPath";
+import { compileRelationPath } from "./compileRelationPath";
 import {
 	compileTerm,
 	POSTGRES_CAST_FOR_DATA_TYPE,
@@ -1066,26 +1057,6 @@ function compileExistsOrMissing(
 		return compileSelfViaQuantifier(pred.where, ctx, mode);
 	}
 
-	// Nested non-self relation walk detection. The relation-path
-	// leaf subquery's alias is the constant `RELATION_PATH_LEAF_ALIAS`
-	// = "rp_leaf". A nested non-self exists/missing inside the inner
-	// `where` produces a second subquery aliased to the same constant,
-	// which SQL scoping then collapses onto the inner subquery — the
-	// outer correlation breaks silently. Property reads with
-	// non-self `via` inside the inner `where` hit the same shadowing
-	// because the term compiler reads through the literal alias too.
-	// Throw at compile time so the limitation surfaces at the call
-	// site rather than producing wrong rows. Per-depth alias
-	// uniquification is the cross-module fix because the leaf-alias
-	// constant is read in three places (`compileTerm`'s non-self
-	// via reads, `compileRelationPath`'s subquery alias, and
-	// `compileExpression`'s `count` arm).
-	if (pred.where !== undefined && containsNonSelfRelationWalk(pred.where)) {
-		throw new Error(
-			"compilePredicate: nested non-self relation walks (an exists/missing whose inner `where` contains another non-self exists/missing or a property reference with non-self `via`) are rejected because the relation-path leaf alias is a fixed constant and a nested walk produces shadowing aliases that silently break correlation. Refactor the inner where to a self-via shape, or split the nesting into a separate join.",
-		);
-	}
-
 	// Non-self via: build the relation-path leaf subquery. Reuse
 	// the path resolution from `compileRelationPath` — same
 	// tenant-filter discipline, same depth-1 join shape, same
@@ -1104,16 +1075,24 @@ function compileExistsOrMissing(
 		);
 	}
 
-	// Inner where compiled with the leaf alias as the new anchor.
-	// Self-via property reads inside the where then route through
-	// `<rp_leaf>.properties` — the relation-walk destination — and
-	// the term compiler's existing logic handles the JSONB read +
-	// cast + reserved-column dispatch unchanged.
+	// Inner where compiled with the leaf alias as the new anchor and
+	// the relation-path depth incremented. Self-via property reads
+	// inside the where then route through `<outer-leaf-alias>.properties`
+	// — the relation-walk destination — and the term compiler's
+	// existing logic handles the JSONB read + cast + reserved-column
+	// dispatch unchanged. The depth bump ensures any nested
+	// `compileRelationPath` invocation inside the inner where (a
+	// nested `exists`/`missing`, or a non-self-via prop term whose
+	// JSONB read needs another walk) emits a unique-per-depth alias
+	// so the outer correlation reference does not get shadowed by
+	// the inner subquery's same-named leaf alias.
+	const nextDepth = (ctx.relationPathDepth ?? 0) + 1;
 	const innerWhere =
 		pred.where !== undefined
 			? compilePredicate(pred.where, {
 					...ctx,
 					anchorAlias: compiledPath.leafAlias,
+					relationPathDepth: nextDepth,
 				})
 			: undefined;
 
@@ -1155,128 +1134,6 @@ function compileSelfViaQuantifier(
 	return where === undefined
 		? sql<SqlBool>`false`
 		: sql<SqlBool>`not (${compilePredicate(where, ctx)})`;
-}
-
-/**
- * Recursively check whether a `Predicate` AST contains any non-self
- * relation walk — either a nested `exists` / `missing` with a
- * non-self `via`, OR a property reference with a non-self `via`
- * inside any term. Used by `compileExistsOrMissing` to detect the
- * nested-walk shape that would silently break correlation under
- * the current single-aliased relation-path-leaf strategy.
- *
- * The traversal walks every operand slot the Predicate AST
- * exposes; the type-guard arms preserve TypeScript's narrowing
- * across the recursion. Term-bearing slots flow through
- * `valueExpressionContainsNonSelfWalk`; relation-path slots check
- * the path's `kind` directly.
- *
- * The detection is conservative: any structurally non-self
- * relation walk inside the inner `where` triggers the throw, even
- * if the runtime path would never reach a multi-walk shadowing.
- * Conservatism is the right tradeoff because a permissive checker
- * would let some correctness-broken shapes slip through.
- */
-function containsNonSelfRelationWalk(pred: Predicate): boolean {
-	switch (pred.kind) {
-		case "match-all":
-		case "match-none":
-			return false;
-		case "and":
-		case "or":
-			return pred.clauses.some(containsNonSelfRelationWalk);
-		case "not":
-			return containsNonSelfRelationWalk(pred.clause);
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			return (
-				valueExpressionContainsNonSelfWalk(pred.left) ||
-				valueExpressionContainsNonSelfWalk(pred.right)
-			);
-		case "in":
-			// `in.values` is a `Literal[]`; literals carry no `via`.
-			// Only `in.left` can carry a `via` term.
-			return valueExpressionContainsNonSelfWalk(pred.left);
-		case "between":
-			return (
-				valueExpressionContainsNonSelfWalk(pred.left) ||
-				(pred.lower !== undefined &&
-					valueExpressionContainsNonSelfWalk(pred.lower)) ||
-				(pred.upper !== undefined &&
-					valueExpressionContainsNonSelfWalk(pred.upper))
-			);
-		case "is-null":
-		case "is-blank":
-			return valueExpressionContainsNonSelfWalk(pred.left);
-		case "match":
-		case "multi-select-contains":
-			// Both arms's `property` slot is a direct `PropertyRef` —
-			// check its `via` directly.
-			return propertyRefContainsNonSelfVia(pred.property);
-		case "within-distance":
-			return (
-				propertyRefContainsNonSelfVia(pred.property) ||
-				valueExpressionContainsNonSelfWalk(pred.center)
-			);
-		case "exists":
-		case "missing":
-			// Either the via itself is non-self (which is the case
-			// we're guarding against) or the inner where contains a
-			// non-self walk.
-			return (
-				pred.via.kind !== "self" ||
-				(pred.where !== undefined && containsNonSelfRelationWalk(pred.where))
-			);
-		case "when-input-present":
-			return containsNonSelfRelationWalk(pred.clause);
-		default: {
-			const _exhaustive: never = pred;
-			throw new Error(
-				`compilePredicate.containsNonSelfRelationWalk: unhandled Predicate kind ${String(_exhaustive)}`,
-			);
-		}
-	}
-}
-
-/**
- * Check a single property reference for a non-self `via`. Self-via
- * (or absent `via`) routes through the anchor; non-self routes
- * through the relation-path leaf alias and triggers the
- * uniquification concern.
- */
-function propertyRefContainsNonSelfVia(prop: PropertyRef): boolean {
-	return prop.via !== undefined && prop.via.kind !== "self";
-}
-
-/**
- * Recursive companion to `containsNonSelfRelationWalk` for the
- * `ValueExpression` family. The predicate compiler accepts only
- * the `term` arm of `ValueExpression` at every operand slot
- * (`compileValueExprAsTerm` rejects every other arm with a clear
- * error), so this check returns false for every non-term arm —
- * those arms never reach the relation-walk emission path here.
- *
- * The Term variants split: `prop` is the only term carrying a
- * `via`; `input` / `session-user` / `session-context` / `literal`
- * never do. The dispatch returns true only for `prop` terms with
- * non-self via.
- */
-function valueExpressionContainsNonSelfWalk(expr: ValueExpression): boolean {
-	if (expr.kind !== "term") {
-		// Non-term ValueExpression operands reject at the SQL
-		// compile boundary in `compileValueExprAsTerm`, so the
-		// nested-walk check is dead for those arms.
-		return false;
-	}
-	const term = expr.term;
-	if (term.kind === "prop") {
-		return propertyRefContainsNonSelfVia(term);
-	}
-	return false;
 }
 
 // ---------------------------------------------------------------
@@ -1411,6 +1268,17 @@ function compileAbsenceCheck(
  * `boolean`; `NOT (... ? '<key>')` matches strict-absent, and the
  * `is-blank` form adds `OR (<source>.properties->>'<key>') = ''`
  * to widen to absent-or-empty.
+ *
+ * Non-self via: the absence check applies to the property on the
+ * walk's destination. The function builds a correlated scalar
+ * subquery against the relation-path leaf — same shape the term
+ * compiler emits for non-self via reads — and wraps the result
+ * with the standard `IS NULL` / `IS NULL OR = ''` test. The
+ * scalar-subquery semantic propagates the no-matching-row case as
+ * SQL `NULL`, which `IS NULL` reads as absent — "no related case
+ * has the property" reads as "the property is null on the related
+ * case", matching the term-compiler's value-bearing read of the
+ * same shape.
  */
 function compilePropertyAbsenceCheck(
 	property: Extract<Term, { kind: "prop" }>,
@@ -1418,12 +1286,29 @@ function compilePropertyAbsenceCheck(
 	op: "is-null" | "is-blank",
 ): RawBuilder<SqlBool> {
 	const isSelfVia = property.via === undefined || property.via.kind === "self";
-	const sourceAlias = isSelfVia ? ctx.anchorAlias : RELATION_PATH_LEAF_ALIAS;
 	const propertyName = property.property;
 
-	// Reserved scalar columns: the column itself's IS NULL is the
-	// strict-absent semantic. JSONB key-exists doesn't apply
-	// because the column lives outside the JSONB document.
+	if (!isSelfVia) {
+		// Non-self via: route through `compileTerm` to inherit the
+		// scalar-subquery shape for the value read, then apply the
+		// scalar `IS NULL` / `IS NULL OR = ''` test. Routing through
+		// the term compiler keeps the absence-check semantic aligned
+		// with the value-bearing read every other operand uses for
+		// the same shape — a "no related case" row reads as the
+		// subquery returning NULL, and `NULL IS NULL` is true.
+		const valueRead = compileTerm(property, ctx);
+		if (op === "is-null") {
+			return sql<SqlBool>`${valueRead} is null`;
+		}
+		return sql<SqlBool>`${valueRead} is null or ${valueRead} = ''`;
+	}
+
+	// Self-via dispatch — the JSONB key-existence shape for
+	// JSONB-document properties; the standard `IS NULL` / `OR <col> =
+	// ''` shape for reserved scalar columns. Reserved scalar columns
+	// live outside the JSONB document, so the `?` operator does not
+	// apply.
+	const sourceAlias = ctx.anchorAlias;
 	if (RESERVED_SCALAR_COLUMNS.has(propertyName)) {
 		const columnRef = sql.ref(`${sourceAlias}.${propertyName}`);
 		if (op === "is-null") {

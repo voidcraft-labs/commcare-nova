@@ -274,18 +274,23 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 });
 
 // ---------------------------------------------------------------
-// `prop` — non-self via reads through the leaf alias
+// `prop` — non-self via reads as correlated scalar subqueries
 // ---------------------------------------------------------------
 //
-// The Term compiler's contract for non-self `via`: the term's read
-// expression assumes the relation path's leaf subquery has already
-// been joined into the outer query under `RELATION_PATH_LEAF_ALIAS`.
-// The compiler returns the column-read expression that reads
-// through that alias; the predicate / expression compilers drive
-// the actual join.
+// A `prop` term carrying a non-self `via` compiles to a correlated
+// scalar subquery: `(SELECT (<leaf>.properties ->> '<key>')::cast
+// FROM (<relation-path-leaf>) AS <leafAlias> WHERE
+// <leafAlias>.anchor_case_id = <ctx.anchorAlias>.case_id LIMIT 1)`.
+// The scalar shape lets the term compiler return a value-bearing
+// expression for any operand slot the wider compiler exposes —
+// comparison sides, arithmetic operands, concat parts, etc.
+//
+// The leaf alias is the depth-aware identifier
+// `compileRelationPath` emits; at depth 0 it is the bare
+// `RELATION_PATH_LEAF_ALIAS` constant.
 
 describe("compileTerm — prop (non-self via)", () => {
-	it("reads through the relation-path leaf alias for a single-hop ancestor walk", () => {
+	it("emits a correlated scalar subquery for a single-hop ancestor walk", () => {
 		const compiled = compileTerm_(
 			compileTerm(
 				prop(
@@ -304,17 +309,22 @@ describe("compileTerm — prop (non-self via)", () => {
 		);
 		expect(compiled.sql).toContain("::int");
 		expect(compiled.parameters).toContain("size");
-		// Critically: the term compiler does NOT splice the JOIN.
-		// The compiled SQL has no `join` token because the test
-		// query never asked for one — proves the contract that the
-		// caller drives the join.
-		expect(compiled.sql).not.toMatch(/\binner join\b/i);
+		// The term compiler emits the relation-path leaf as part of
+		// the scalar subquery — the `inner join` between
+		// `case_indices` and `cases` lives inside the subquery body.
+		expect(compiled.sql).toMatch(/\binner join\b/i);
+		// `LIMIT 1` keeps the result scalar so the subquery
+		// composes in any value-bearing operand slot.
+		expect(compiled.sql).toContain("limit 1");
+		// The correlation reads back to the anchor alias's
+		// `case_id`.
+		expect(compiled.sql).toContain('"c"."case_id"');
 	});
 
 	it("reads reserved scalar columns through the leaf alias", () => {
 		// Reserved-column rule applies to relation-walk reads too —
-		// the scalar columns on the leaf row are read via `eb.ref`
-		// against the leaf alias.
+		// the scalar columns on the leaf row read via `eb.ref`
+		// against the leaf alias inside the scalar subquery body.
 		const compiled = compileTerm_(
 			compileTerm(
 				prop(
@@ -337,6 +347,10 @@ describe("compileTerm — prop (non-self via)", () => {
 		);
 		expect(compiled.sql).toContain(`"c"."properties" ->>`);
 		expect(compiled.sql).toContain("::text");
+		// Self-via reads emit no scalar subquery — the read is a
+		// direct JSONB extraction off the anchor's `cases` row.
+		expect(compiled.sql).not.toMatch(/\binner join\b/i);
+		expect(compiled.sql).not.toContain("limit 1");
 	});
 });
 

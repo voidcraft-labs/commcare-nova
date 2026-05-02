@@ -1240,20 +1240,110 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 		expect(rows).toEqual([{ case_id: PATIENT_2_CASE_ID }]);
 	});
 
-	test("rejects nested non-self relation walks at compile time", async ({
+	test("nests non-self relation walks: outer ancestor + inner ancestor with prop check", async ({
 		db,
 	}) => {
-		// Pin the rejection contract: a nested non-self `exists`
-		// (or any non-self relation walk inside the inner `where`)
-		// produces a second `rp_leaf`-aliased subquery that SQL
-		// scoping shadows onto the inner subquery, breaking the
-		// outer correlation silently. The compiler detects the
-		// shape and throws a clear error rather than emit wrong
-		// rows. Per-depth alias uniquification across the compiler
-		// stack is the cross-module fix because the leaf-alias
-		// constant is read in three places (compileTerm's non-self
-		// via reads, compileRelationPath's subquery alias, and
-		// compileExpression's `count` arm).
+		// Each `compileRelationPath` call produces an isolated
+		// subquery scope (`(select ... from case_indices ... ) as
+		// rp_leaf`). Subquery scoping makes the inner walk's `rp_leaf`
+		// alias invisible to the outer walk's correlation, so an
+		// outer `exists(parent, where: exists(parent, where: ...))`
+		// composes cleanly: the outer EXISTS correlates against the
+		// caller's anchor, and the inner EXISTS correlates against
+		// the outer leaf. No alias collision, no shadowing.
+		//
+		// Graph:
+		//   patient_1 --[parent]--> household_north --[parent]--> village_north
+		//   patient_2 --[parent]--> household_south --[parent]--> village_south
+		// Predicate:
+		//   exists(parent: household, where:
+		//     exists(parent: village, where: name = "North"))
+		// Expected match set: patient_1 only — the only patient whose
+		// household's village is named "North".
+		const HOUSEHOLD_NORTH = "50000000-0000-0000-0000-000000000001";
+		const HOUSEHOLD_SOUTH = "50000000-0000-0000-0000-000000000002";
+		const VILLAGE_NORTH = "50000000-0000-0000-0000-000000000003";
+		const VILLAGE_SOUTH = "50000000-0000-0000-0000-000000000004";
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_2_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: HOUSEHOLD_NORTH,
+					case_type: "household",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: HOUSEHOLD_SOUTH,
+					case_type: "household",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: VILLAGE_NORTH,
+					case_type: "village",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "North" }),
+				}),
+				makeCaseRow({
+					case_id: VILLAGE_SOUTH,
+					case_type: "village",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "South" }),
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values([
+				{
+					case_id: PATIENT_CASE_ID,
+					ancestor_id: HOUSEHOLD_NORTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+				{
+					case_id: PATIENT_2_CASE_ID,
+					ancestor_id: HOUSEHOLD_SOUTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+				{
+					case_id: HOUSEHOLD_NORTH,
+					ancestor_id: VILLAGE_NORTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+				{
+					case_id: HOUSEHOLD_SOUTH,
+					ancestor_id: VILLAGE_SOUTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+			])
+			.execute();
 		const pred = exists(
 			ancestorPath(relationStep("parent", "household")),
 			exists(
@@ -1261,9 +1351,133 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				eq(prop("village", "name"), literal("North")),
 			),
 		);
-		expect(() => compilePredicate(pred, makeCtx(db))).toThrow(
-			/nested non-self relation walks/,
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
 		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("nests non-self via prop read inside an outer exists body", async ({
+		db,
+	}) => {
+		// The other shape of nested non-self relation walk: an outer
+		// `exists(parent, ...)` whose inner `where` reads a property
+		// through ANOTHER non-self via. Here, the inner `where` is
+		// `eq(prop(household, "name", via=parent), "North")` — a JSONB
+		// read through a fresh ancestor walk from the outer leaf
+		// (a household) to its parent (a village). The term compiler
+		// reads through the relation-path leaf alias; under
+		// nested-EXISTS depth uniquification, the inner term-level
+		// via produces an alias that does not shadow the outer one.
+		//
+		// Same graph as the previous test. Predicate:
+		//   exists(parent: household, where:
+		//     eq(prop(household, "name", via=parent: village), "North"))
+		//
+		// `caseType=household` is the originating scope; the via
+		// walks household → village, resolving `name` on the village
+		// schema as the destination property.
+		const HOUSEHOLD_NORTH = "50000000-0000-0000-0000-000000000005";
+		const HOUSEHOLD_SOUTH = "50000000-0000-0000-0000-000000000006";
+		const VILLAGE_NORTH = "50000000-0000-0000-0000-000000000007";
+		const VILLAGE_SOUTH = "50000000-0000-0000-0000-000000000008";
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_2_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: HOUSEHOLD_NORTH,
+					case_type: "household",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: HOUSEHOLD_SOUTH,
+					case_type: "household",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+				makeCaseRow({
+					case_id: VILLAGE_NORTH,
+					case_type: "village",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "North" }),
+				}),
+				makeCaseRow({
+					case_id: VILLAGE_SOUTH,
+					case_type: "village",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "South" }),
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values([
+				{
+					case_id: PATIENT_CASE_ID,
+					ancestor_id: HOUSEHOLD_NORTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+				{
+					case_id: PATIENT_2_CASE_ID,
+					ancestor_id: HOUSEHOLD_SOUTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+				{
+					case_id: HOUSEHOLD_NORTH,
+					ancestor_id: VILLAGE_NORTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+				{
+					case_id: HOUSEHOLD_SOUTH,
+					ancestor_id: VILLAGE_SOUTH,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+			])
+			.execute();
+		const pred = exists(
+			ancestorPath(relationStep("parent", "household")),
+			eq(
+				prop(
+					"household",
+					"name",
+					ancestorPath(relationStep("parent", "village")),
+				),
+				literal("North"),
+			),
+		);
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
 });
 

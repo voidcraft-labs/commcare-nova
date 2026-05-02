@@ -598,18 +598,18 @@ function compileCount(
 		appId: ctx.appId,
 		ownerId: ctx.ownerId,
 		anchorAlias: ctx.anchorAlias,
+		relationPathDepth: ctx.relationPathDepth ?? 0,
 	});
 	if (compiledPath.kind === "self") {
 		throw new Error(
 			"compileExpression: 'count' with a `self` via is rejected by the type checker (see lib/domain/predicate/typeChecker.ts checkRelationalQuantifier). Reaching the SQL compiler with `count(self)` indicates a missing or bypassed type-check pass.",
 		);
 	}
-	// The leaf subquery is an `AliasedRawBuilder` already aliased
-	// `rp_leaf` (per `RELATION_PATH_LEAF_ALIAS` in
-	// `compileRelationPath`). Embedding the aliased expression in
-	// the FROM clause directly produces `(SELECT ...) AS "rp_leaf"`;
-	// `RELATION_PATH_LEAF_ALIAS` is the alias the optional WHERE
-	// predicate's fragments read through. The whole counting
+	// The leaf subquery is an `AliasedExpression` carrying the
+	// depth-aware leaf alias from `compiledPath.leafAlias`.
+	// Embedding the aliased expression in the FROM clause produces
+	// `(SELECT ...) AS "<leafAlias>"`; the optional WHERE predicate's
+	// fragments read through the same alias. The whole counting
 	// subquery is paren-wrapped so it slots into a wider `SELECT
 	// ... AS v` consumer site.
 	const leafSubquery = compiledPath.buildLeafSubquery();
@@ -622,7 +622,17 @@ function compileCount(
 			"compileExpression: 'count(via, where)' arm reached with a where clause but ctx.compilePredicate is not wired. The integrating caller must supply a predicate-compilation callback before the expression compiler is invoked. See `ExpressionCompileContext.compilePredicate` in compileExpression.ts.",
 		);
 	}
-	const whereSql = compilePredicate(where, ctx);
+	// Compile the inner where with the leaf alias as the new
+	// anchor and the relation-path depth incremented, mirroring
+	// the predicate compiler's `exists`/`missing` recursion. The
+	// depth bump ensures any non-self via prop reads inside the
+	// where construct unique-per-depth leaf aliases that do not
+	// shadow the outer count subquery's leaf.
+	const whereSql = compilePredicate(where, {
+		...ctx,
+		anchorAlias: compiledPath.leafAlias,
+		relationPathDepth: (ctx.relationPathDepth ?? 0) + 1,
+	});
 	return sql`(select count(*) from ${leafSubquery} where ${whereSql})`;
 }
 

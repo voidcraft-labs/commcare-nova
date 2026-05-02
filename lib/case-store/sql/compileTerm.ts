@@ -45,20 +45,25 @@
 //     yields a stringified JSON blob the JSONB operators can't
 //     operate on.
 //
-// ## Relation-path leaf alias contract
+// ## Non-self via reads as scalar subqueries
 //
-// When a `prop` carries a non-self `via`, the term's read
-// expression assumes the relation path's leaf subquery has already
-// been joined into the outer query under
-// `RELATION_PATH_LEAF_ALIAS`. The term compiler returns ONLY the
-// column-read expression that reads through the leaf alias; the
-// caller (predicate compiler / expression compiler) drives the
-// actual join via its own `compileRelationPath(...)` call and
-// `innerJoin` invocation. Splitting that responsibility lets one
-// outer query reuse a single relation-path subquery for multiple
-// term reads (a query with `eq(prop("name", via=parent), "X")`
-// AND `eq(prop("age", via=parent), "30")` joins the parent walk
-// once).
+// When a `prop` carries a non-self `via`, the term compiler
+// builds the relation-path leaf via `compileRelationPath` and
+// emits a correlated scalar subquery: `(SELECT
+// (<leaf>.properties ->> 'name')::cast FROM <leaf-aliased-expr>
+// WHERE <leaf>.anchor_case_id = <ctx.anchorAlias>.case_id LIMIT
+// 1)`. The subquery correlates back to the outer anchor, applies
+// the via's join chain, and returns the property value at the
+// walk's destination. `LIMIT 1` keeps the result scalar — the
+// AST authoring surface for term-level non-self vias targets the
+// 1-to-1 walk shape (parent / host etc.); a many-to-one walk
+// returns the first matching row.
+//
+// The wider compiler (predicate compiler's comparison / membership
+// operators; expression compiler's arithmetic / conditional /
+// concat operators) consumes the term compiler's output as a
+// generic value-bearing expression — the scalar-subquery shape
+// composes without additional wrapping.
 //
 // ## Tenant scoping
 //
@@ -77,7 +82,7 @@ import type { Kysely, RawBuilder } from "kysely";
 import { sql } from "kysely";
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
-import { RELATION_PATH_LEAF_ALIAS } from "./compileRelationPath";
+import { compileRelationPath } from "./compileRelationPath";
 import type { Database } from "./database";
 
 // ---------------------------------------------------------------
@@ -304,9 +309,25 @@ export interface TermCompileContext {
 	 * table. Property reads with `via: self` (or no `via`) emit
 	 * `<anchorAlias>.properties ->> '<key>'` (or `<anchorAlias>.<col>`
 	 * for reserved scalar columns); property reads with non-self
-	 * `via` route through `RELATION_PATH_LEAF_ALIAS` instead.
+	 * `via` build their own relation-path leaf subquery and
+	 * correlate `<leaf>.anchor_case_id = <anchorAlias>.case_id`.
 	 */
 	anchorAlias: string;
+
+	/**
+	 * The relation-walk nesting depth at this compile site. Zero
+	 * at the outermost compile; incremented by consumers that
+	 * recurse into a relation-walk leaf's inner `where` predicate.
+	 * Optional; defaults to 0 when callers do not thread it.
+	 *
+	 * The depth is forwarded to `compileRelationPath` calls inside
+	 * non-self via prop reads so the resulting leaf subquery uses
+	 * a unique alias (`rp_leaf_<depth>`) that does not shadow
+	 * outer-scope leaves with the same name. SQL identifier
+	 * resolution reads the innermost matching alias first; a
+	 * shadowed outer alias would silently break correlation.
+	 */
+	relationPathDepth?: number;
 
 	/**
 	 * Schema lookup for property-type → Postgres-cast mapping.
@@ -408,69 +429,174 @@ export function compileTerm(
  *
  *   1. The property is one of the four reserved scalar columns
  *      (`case_id`, `case_type`, `owner_id`, `status`) — read
- *      directly off the column, not through JSONB.
+ *      directly off the column or out of the via's leaf subquery
+ *      (the leaf row exposes every `cases` column).
  *   2. `via` is absent or `selfPath()` (the no-traversal degenerate)
  *      — JSONB read off the anchor alias's `properties` column.
  *      The property's `data_type` is resolved on the originating
  *      case type (`term.caseType`).
- *   3. `via` is a non-self relation walk — JSONB read off
- *      `RELATION_PATH_LEAF_ALIAS`'s `properties` column. The
- *      property's `data_type` is resolved on the destination case
- *      type the walk reaches (NOT on `term.caseType`, which is the
- *      originating scope per the AST contract on
- *      `propertyRefSchema.caseType`). The wider query (predicate /
- *      expression compiler) is responsible for joining the leaf
- *      subquery into scope before invoking the term compiler; this
- *      read assumes the alias is in scope.
+ *   3. `via` is a non-self relation walk — the term compiler
+ *      builds the leaf subquery via `compileRelationPath` and
+ *      emits a correlated scalar subquery: `(SELECT
+ *      (<leaf>.properties ->> 'name')::cast FROM <leaf-aliased-expr>
+ *      WHERE <leaf>.anchor_case_id = <ctx.anchorAlias>.case_id
+ *      LIMIT 1)`. The subquery applies the via's join chain inside
+ *      its own SQL scope and correlates back to the outer anchor.
+ *      The property's `data_type` is resolved on the destination
+ *      case type (NOT on `term.caseType`, which is the originating
+ *      scope per the AST contract on `propertyRefSchema.caseType`).
+ *      `LIMIT 1` keeps the result scalar — the AST authoring
+ *      surface for term-level non-self vias targets the 1-to-1
+ *      walk shape (parent / host); a many-to-one walk returns the
+ *      first matching row.
  */
 function compilePropertyRef(
 	term: Extract<Term, { kind: "prop" }>,
 	ctx: TermCompileContext,
 ): RawBuilder<unknown> {
 	const { caseType, property, via } = term;
-
-	// Resolve the read-source. Self via (or absent) reads through
-	// the anchor's `cases` row and resolves the property on the
-	// originating case type; any other relation walk reads through
-	// the leaf subquery's alias and resolves the property on the
-	// walk's destination case type.
 	const isSelfVia = via === undefined || via.kind === "self";
-	const sourceAlias = isSelfVia ? ctx.anchorAlias : RELATION_PATH_LEAF_ALIAS;
-	const lookupCaseType = isSelfVia
-		? caseType
-		: resolveDestinationCaseType(via, caseType, ctx.caseTypeSchemas);
 
-	// Reserved scalar columns bypass the JSONB document entirely —
-	// they're indexed columns on the `cases` table and the JSONB
-	// document doesn't store them. The reserved-column rule applies
-	// uniformly to anchor reads and leaf-alias reads (the
-	// `RelationPathLeafRow` in `compileRelationPath.ts` carries
-	// every `cases` column, so the leaf alias surfaces the same
-	// scalar columns the anchor does).
-	if (RESERVED_SCALAR_COLUMNS.has(property)) {
-		return sql`${sql.ref(`${sourceAlias}.${property}`)}`;
+	if (isSelfVia) {
+		return compileSelfViaPropertyRef({
+			anchorAlias: ctx.anchorAlias,
+			caseType,
+			property,
+			schemas: ctx.caseTypeSchemas,
+		});
 	}
 
-	// JSONB-document read. Pick the cast and read operator from the
-	// property's declared `data_type` in the case-type schema.
-	const dataType = lookupDataType(
-		lookupCaseType,
+	// Non-self via: build the relation-path leaf and emit a
+	// correlated scalar subquery. The destination case type is
+	// resolved by walking the via's chain from the originating
+	// scope — that destination is where the property's `data_type`
+	// (and so the cast / read operator) lives.
+	return compileNonSelfViaPropertyRef({
+		via,
+		anchorAlias: ctx.anchorAlias,
+		caseType,
 		property,
+		ctx,
+	});
+}
+
+/**
+ * Compile a self-via property read: a JSONB or scalar-column read
+ * off the anchor's `cases` row. Reserved scalar columns bypass
+ * the JSONB document entirely; everything else reads through the
+ * `properties` column with the per-`data_type` cast.
+ *
+ * The function is a thin wrapper around the column-emission
+ * helpers below. Splitting the self-via and non-self-via shapes
+ * into separate functions keeps each call site's intent clear and
+ * lets the non-self-via helper reuse the column-emission logic
+ * inside the scalar-subquery body.
+ */
+function compileSelfViaPropertyRef(args: {
+	anchorAlias: string;
+	caseType: string;
+	property: string;
+	schemas: ReadonlyMap<string, CaseType>;
+}): RawBuilder<unknown> {
+	const { anchorAlias, caseType, property, schemas } = args;
+	if (RESERVED_SCALAR_COLUMNS.has(property)) {
+		return sql`${sql.ref(`${anchorAlias}.${property}`)}`;
+	}
+	const dataType = lookupDataType(caseType, property, schemas);
+	return jsonbColumnRead({ sourceAlias: anchorAlias, property, dataType });
+}
+
+/**
+ * Compile a non-self via property read as a correlated scalar
+ * subquery over the relation-path leaf. The leaf is built via
+ * `compileRelationPath` against the via; the subquery correlates
+ * `<leaf>.anchor_case_id = <ctx.anchorAlias>.case_id` and reads
+ * the destination property out of the leaf row.
+ *
+ * The relation-path depth on the surrounding context is forwarded
+ * unchanged to `compileRelationPath` — the per-call leaf alias
+ * carries the depth suffix so a nested term-level walk does not
+ * shadow an outer relation-path leaf with the same name.
+ */
+function compileNonSelfViaPropertyRef(args: {
+	via: RelationPath;
+	anchorAlias: string;
+	caseType: string;
+	property: string;
+	ctx: TermCompileContext;
+}): RawBuilder<unknown> {
+	const { via, anchorAlias, caseType, property, ctx } = args;
+
+	// Resolve the destination case type the walk reaches. The
+	// `data_type` of the read property lives on the destination,
+	// NOT on the originating `caseType` — the AST contract pins
+	// this on `propertyRefSchema.caseType` (the originating scope).
+	const lookupCaseType = resolveDestinationCaseType(
+		via,
+		caseType,
 		ctx.caseTypeSchemas,
 	);
+
+	// Build the leaf subquery. `compileRelationPath` is exhaustive
+	// over `RelationPath`; the runtime narrows to `kind: "joined"`
+	// for every non-self via. `kind: "self"` is unreachable here
+	// because `isSelfVia` is the upstream branch.
+	const compiledPath = compileRelationPath(via, {
+		db: ctx.db,
+		appId: ctx.appId,
+		ownerId: ctx.ownerId,
+		anchorAlias,
+		relationPathDepth: ctx.relationPathDepth ?? 0,
+	});
+	if (compiledPath.kind !== "joined") {
+		throw new Error(
+			"compileTerm.compilePropertyRef: unreachable — non-self relation path produced a 'self' compiled result",
+		);
+	}
+
+	// Inner column-read inside the subquery body. Reserved scalars
+	// read directly off the leaf alias; everything else reads the
+	// JSONB `properties` column with the per-data-type cast.
+	const leafAlias = compiledPath.leafAlias;
+	const innerRead = RESERVED_SCALAR_COLUMNS.has(property)
+		? sql`${sql.ref(`${leafAlias}.${property}`)}`
+		: jsonbColumnRead({
+				sourceAlias: leafAlias,
+				property,
+				dataType: lookupDataType(lookupCaseType, property, ctx.caseTypeSchemas),
+			});
+
+	// Correlated scalar subquery: select the read expression from
+	// the aliased leaf with a correlation predicate to the outer
+	// anchor's `case_id`. `LIMIT 1` makes the result scalar — the
+	// term compiler's contract is "value-bearing expression";
+	// without `LIMIT 1`, a multi-row leaf would surface as a
+	// "more than one row returned by a subquery used as an
+	// expression" runtime error.
+	const leafSubquery = compiledPath.buildLeafSubquery();
+	const correlation = sql`${sql.ref(`${leafAlias}.anchor_case_id`)} = ${sql.ref(`${anchorAlias}.case_id`)}`;
+	return sql`(select ${innerRead} from ${leafSubquery} where ${correlation} limit 1)`;
+}
+
+/**
+ * Emit a JSONB property read with the per-data-type cast and
+ * read operator. Shared between self-via and non-self-via
+ * dispatch — both paths read JSONB documents the same way, only
+ * the source alias differs.
+ *
+ * `sql.raw` is safe for both `readOperator` and `cast` because
+ * each value comes from a closed-enum lookup keyed on
+ * `CasePropertyDataType`; no caller-supplied input flows into the
+ * raw-emission slot.
+ */
+function jsonbColumnRead(args: {
+	sourceAlias: string;
+	property: string;
+	dataType: CasePropertyDataType;
+}): RawBuilder<unknown> {
+	const { sourceAlias, property, dataType } = args;
 	const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
 	const readOperator = JSONB_READ_OPERATOR_FOR_DATA_TYPE[dataType];
-
-	// `(c.properties ->> 'name')::text` shape. Property name is a
-	// bound parameter, not interpolated — Postgres's `->>` operator
-	// takes a text expression for the key, and Kysely's `${value}`
-	// substitution binds it as a parameter (safe interpolation).
-	// The `sql.raw` for the cast token is safe because `cast` is a
-	// closed enum value mapped from `CasePropertyDataType` — every
-	// variant of the enum produces a known-safe Postgres type token,
-	// and adding a new variant requires updating
-	// `POSTGRES_CAST_FOR_DATA_TYPE` in the same edit (the typed
-	// Record forces it).
 	return sql`(${sql.ref(`${sourceAlias}.properties`)} ${sql.raw(readOperator)} ${property})::${sql.raw(cast)}`;
 }
 
