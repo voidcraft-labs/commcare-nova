@@ -35,7 +35,7 @@
 //     The Postgres runtime preserves the AST distinction natively.
 //   - `in`: value-equality set membership via or-of-equalities.
 //     Single-value collapses to a plain equality; multi-value expands
-//     to `(prop = v1 or prop = v2 ...)`. Or-of-equalities preserves
+//     to `(prop = 'a' or prop = 'b' ...)`. Or-of-equalities preserves
 //     each value as a single equality RHS, so spaces inside a value
 //     stay wire-side opaque (CCHQ's `selected-any` would tokenize the
 //     value argument by whitespace per
@@ -338,7 +338,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
  * multi-value expands to a parenthesized OR-of-equalities so the
  * semantics stay structurally continuous from one to many.
  *
- * CCHQ's `selected-any(prop, '<v1> <v2>')` looks like a candidate
+ * CCHQ's `selected-any(prop, '<a> <b>')` looks like a candidate
  * but carries multi-select-token semantics: ES's
  * `case_property_text_query` tokenizes the value string by
  * whitespace and matches ANY token (verified at
