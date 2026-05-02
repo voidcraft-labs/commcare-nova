@@ -165,8 +165,8 @@ export type CheckError = { path: CheckPath; message: string };
 export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
 
 /**
- * Internal sentinel for the `null` literal — comparable against any
- * declared property type. Authors writing
+ * Sentinel for the `null` literal — comparable against any declared
+ * property type. Authors writing
  * `eq(prop("patient", "age"), literal(null))` are asking "is this
  * property unset", which is a valid predicate at every wire target;
  * resolving the null literal to a concrete data type would force a
@@ -174,19 +174,34 @@ export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
  * both the ordered-types check in `checkComparison` and the
  * compatibility table in `typesCompatible`.
  *
- * Kept module-private — never exposed on the AST, never appears in
- * `CheckError.message`, never returned by a public function. The
- * `describe(...)` helper renders it as `"null"` for any error
- * message that would otherwise interpolate the resolved type.
+ * Cross-package consumer contract: this sentinel is exported so the
+ * sister Expression type checker (`lib/domain/expression/typeChecker.ts`)
+ * can re-use the same null-as-universal compatibility rule without
+ * duplicating the table. It is NOT a user-facing surface — it never
+ * appears in `CheckError.message` (the `describe(...)` helper renders
+ * it as `"null"`) and it never reaches the AST (literals carry their
+ * source value `null`, not the sentinel). External callers that surface
+ * resolved types in messages MUST route through `describe(...)` for the
+ * same reason. The cross-package re-use is the only path on which
+ * `ANY_TYPE` ever leaves this module.
  */
-const ANY_TYPE = "_any" as const;
+export const ANY_TYPE = "_any" as const;
 
-// Internal-only resolved type. The `_any` member is the null-sentinel
-// described above and must never appear on a public surface — do not
-// export this type. Public callers consume the type checker via
-// `CheckResult` (which pre-formats sentinels into user-readable
-// strings via `describe(...)` before they reach `CheckError.message`).
-type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
+/**
+ * Resolved type for any term — a `CasePropertyDataType` for declared
+ * properties, the `ANY_TYPE` sentinel for null-literal compatibility.
+ *
+ * Cross-package consumer contract: `ResolvedType` is exported so the
+ * sister Expression type checker can stage the same compatibility table.
+ * Both checkers route every value-bearing surface through the same
+ * widening rules (numeric promotion, select-to-text, null-as-universal),
+ * which they could not do without sharing the resolved-type alphabet.
+ *
+ * Public callers that surface a resolved type in user-facing strings
+ * route through `describe(...)` so the `_any` sentinel renders as
+ * `"null"` rather than the internal name.
+ */
+export type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
 
 /**
  * Data types whose values support a total order — `gt`/`gte`/`lt`/`lte`
@@ -198,7 +213,7 @@ type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
  * fuzzy match, a starts-with comparison, etc.) is preferable to
  * silently emitting a lexicographic compare.
  */
-const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
+export const ORDERED_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"int",
 	"decimal",
 	"date",
@@ -494,7 +509,7 @@ function checkComparison(
  * in the author's source, so that's the friendliest framing in the
  * error too.
  */
-function describe(t: ResolvedType): string {
+export function describe(t: ResolvedType): string {
 	return t === ANY_TYPE ? "null" : t;
 }
 
@@ -978,7 +993,7 @@ function checkBetween(
  * relationships is out of A5's scope; once landed, this helper widens
  * to consult the named-relationship table.
  */
-function checkRelationPath(
+export function checkRelationPath(
 	relationPath: RelationPath,
 	originCaseType: string,
 	ctx: TypeContext,
@@ -1155,7 +1170,7 @@ function checkRelationPath(
  * `resolveTermType` rather than walked here because it's a per-term
  * rule, not a structural recursion shape.
  */
-function checkInDestinationScope(
+export function checkInDestinationScope(
 	predicate: Predicate,
 	destinationCaseType: string,
 	ctx: TypeContext,
@@ -1253,7 +1268,7 @@ function checkRelationalQuantifier(
  * when the blueprint omits a data type, the property is treated as
  * text — CommCare's default for unannotated properties.
  */
-function resolveTermType(
+export function resolveTermType(
 	term: Term,
 	ctx: TypeContext,
 	errors: CheckError[],
@@ -1417,7 +1432,7 @@ function resolveTermType(
  *      `"True"` vs `"true"` vs `"1"`, live at the wire-emit boundary,
  *      not here).
  */
-function literalType(lit: Literal): ResolvedType {
+export function literalType(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;
 	if (lit.value === null) return ANY_TYPE;
 	switch (typeof lit.value) {
@@ -1469,7 +1484,7 @@ function literalType(lit: Literal): ResolvedType {
  * because the explicit per-pair statements read more clearly than a
  * "canonicalize then compare" detour.
  */
-function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
+export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
 	if (a === ANY_TYPE || b === ANY_TYPE) return true;
 	if (a === b) return true;
 	// int / decimal are mutually comparable.
