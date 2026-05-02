@@ -9,7 +9,7 @@
 **Architecture summary** (full detail in `docs/superpowers/specs/2026-04-30-case-list-search-design.md` v2):
 - Two AST families: Predicate (boolean) + Expression (value), sharing Term shapes
 - Three wire targets dispatched as separate visitors: case-list filter (on-device, plain XPath 1.0 + `selected()`), CSQL (server-side ES, full extension set), post-ES search filter (on-device, same as case-list filter)
-- Postgres SQL via Kysely as the runtime/preview target — full operator coverage, no losses
+- Postgres SQL via Kysely as the live runtime — full operator coverage, no losses
 - Representability checker surfaces unrepresentable / lossy shapes per target at authoring time
 
 **Tech Stack:** TypeScript (strict), Zod (AST validation), Vitest (tests), Kysely (typed SQL builder). Existing CommCare XPath infrastructure under `lib/commcare/xpath/`.
@@ -630,7 +630,7 @@ export function validateRepresentability(ast: Predicate, target: WireTarget): Re
 Walk the AST. For each node, check against a per-target operator table:
 
 **Unrepresentable on every CCHQ wire target (case-list-filter, CSQL, post-ES search filter):**
-- `is-null` — strict "left resolves to absent" has no CCHQ wire form. On every CCHQ dialect, `prop = ''` matches absent / cleared / empty alike; in CSQL the server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching all three states. Authoring `is-null` in a CCHQ-bound context is an authoring-time error; the author must use `is-blank` for portable behavior or restrict the predicate to Postgres-evaluated contexts (preview today; future Cloud SQL deploy). Same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context — reject loudly at authoring, never silently widen.
+- `is-null` — strict "left resolves to absent" has no CCHQ wire form. On every CCHQ dialect, `prop = ''` matches absent / cleared / empty alike; in CSQL the server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching all three states. v1 has no author-facing surface that produces `is-null` — `is-blank` is the only operator the v1 UI / SA / validator ever emit for CCHQ-bound predicates. The B5 representability checker stays as defense-in-depth: any programmatic source that ever produces `is-null` in a CCHQ-bound emission errors at authoring time. The Cloud SQL Postgres runtime executes `is-null` natively for future non-filter surfaces. Same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context.
 - `any-relation` — CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`); the direction-agnostic walk has no wire form on any CCHQ dialect.
 
 **Unrepresentable on case-list-filter target:**
@@ -699,23 +699,6 @@ Steps:
 - [ ] Write failing tests per operator per dialect, including the asymmetric coverage explicitly (`date-add` representability gates on case-list-filter; hoisted operators throw on CSQL)
 - [ ] Implement
 - [ ] Run tests, commit
-
-### Task C2-pre: Cloud SQL extension allowlist gate (verification)
-
-**Files:**
-- Create: `scripts/verify-cloud-sql-extensions.ts`
-- Document: `docs/superpowers/specs/2026-04-30-case-list-search-design.md` "Open verification gates" section
-
-Before any case-store code touches the trigger contract, verify whether `pg_jsonschema` is on Cloud SQL's extension allowlist. The script connects to the staging Cloud SQL instance, runs `SELECT * FROM pg_available_extensions WHERE name = 'pg_jsonschema'`, and reports the result. PostGIS, pg_trgm, fuzzystrmatch are also checked (used by the Postgres compiler).
-
-If `pg_jsonschema` is unavailable, the trigger implementation in Plan 2 falls back to a PL/pgSQL validator that calls a JSON-Schema-validation library compiled to PL/pgSQL (or a from-scratch PL/pgSQL implementation of the subset we use). The architecture is identical from the application's perspective; the choice is recorded in this gate's output.
-
-Steps:
-- [ ] Write the verification script
-- [ ] Run against staging; record the output in a sibling file `docs/superpowers/specs/cloud-sql-extension-availability.md`
-- [ ] If `pg_jsonschema` unavailable: schedule a Plan 2 task addendum for the PL/pgSQL fallback implementation
-- [ ] Commit script + output
-
 
 ### Task C2: Kysely Database type definitions
 
@@ -799,9 +782,9 @@ Steps:
 **Files:**
 - `package.json` — add `@testcontainers/postgresql` dev dependency
 - Create: `lib/case-store/sql/__tests__/setup.ts` — testcontainers boot + extension install + schema bootstrap
-- Test: validate the harness boots a container, installs `pg_trgm` / `fuzzystrmatch` / `postgis` (and `pg_jsonschema` if the C2-pre gate confirmed availability), seeds the schema from the JSON Schema generator, and accepts a smoke `INSERT` + `SELECT` round-trip.
+- Test: validate the harness boots a container, installs `pg_trgm` / `fuzzystrmatch` / `postgis` (and `pg_jsonschema` when available — Plan 2's extension allowlist gate determines which trigger implementation deploys against the live Cloud SQL instance), seeds the schema from the JSON Schema generator, and accepts a smoke `INSERT` + `SELECT` round-trip.
 
-Plan 1 introduces this infrastructure (rather than Plan 2) because Plan 1 needs to validate the AST → Kysely compiler against a real Postgres at unit-test time. Plan 2 Task 9 inherits this harness for cross-implementation parity tests; without it Plan 2 Task 9's stated 1-day estimate would balloon by the missing infra cost.
+Plan 1 introduces this infrastructure (rather than Plan 2) because Plan 1 needs to validate the AST → Kysely compiler against a real Postgres at unit-test time. Plan 2 inherits this harness for `PostgresCaseStore` integration tests.
 
 Steps:
 - [ ] Install `@testcontainers/postgresql`
@@ -833,6 +816,6 @@ Steps:
 
 ## Plan shape
 
-Three groups of tasks. Group A extends the shipped AST + type checker; Group B supersedes the broken emitter by splitting into per-dialect visitors and adds the CSQL hoisting pass; Group C lands the Postgres compiler with testcontainers infra and the Cloud SQL extension allowlist gate. Tasks within each group can run in dependency order; Groups A and B are largely additive on shipped work and can in principle interleave; Group C depends on Group A's full operator set being in place.
+Three groups of tasks. Group A extends the shipped AST + type checker; Group B supersedes the broken emitter by splitting into per-dialect visitors and adds the CSQL hoisting pass; Group C lands the Postgres compiler with testcontainers infra. Tasks within each group can run in dependency order; Groups A and B are largely additive on shipped work and can in principle interleave; Group C depends on Group A's full operator set being in place. Plan 2 picks up the Cloud SQL provisioning + extension allowlist gate against the live instance.
 
 The implementor's 33 shipped commits cover the comparison + logical + initial special-operator coverage at the AST + type-checker layers; what's left is everything called out in the v2 corrections above.
