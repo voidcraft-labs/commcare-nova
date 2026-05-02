@@ -96,7 +96,7 @@ Tests: schema parse; round-trip through Zod.
 
 **Files:** `components/builder/case-search-config/DefaultFiltersSection.tsx`, tests.
 
-Reuses Plan 3 Task 2's `PredicateCardEditor`. Adds a runtime-context affordance for referencing search inputs (input-ref term cards get a smart picker scoped to the module's declared inputs from Plan 3). Live-preview panel shows "this filter narrows results from X cases to Y" using Plan 2's `InMemoryCaseStore`.
+Reuses Plan 3 Task 2's `PredicateCardEditor`. Adds a runtime-context affordance for referencing search inputs (input-ref term cards get a smart picker scoped to the module's declared inputs from Plan 3). Live-preview panel shows "this filter narrows results from X cases to Y" using Plan 2's `PostgresCaseStore`.
 
 Tests: round-trip; input-ref scoping.
 

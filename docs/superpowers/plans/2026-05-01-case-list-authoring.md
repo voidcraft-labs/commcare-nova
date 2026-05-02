@@ -170,7 +170,7 @@ Tests: round-trip; conflicting types surface as errors (sorting an `int` propert
 
 **Files:** `components/builder/case-list-config/DisplaySection.tsx`, tests.
 
-Shell that mounts `ColumnEditor` (drag-orderable column list) + `SortKeyEditor` + `CalculatedColumnEditor` (which uses Task 3's expression editor). Renders a live-preview panel showing what the case list looks like with the current configuration (uses Plan 2's `InMemoryCaseStore` to query against generated sample data).
+Shell that mounts `ColumnEditor` (drag-orderable column list) + `SortKeyEditor` + `CalculatedColumnEditor` (which uses Task 3's expression editor). Renders a live-preview panel showing what the case list looks like with the current configuration (uses Plan 2's `PostgresCaseStore` to query against generated sample data).
 
 Tests: editing a column updates the preview; reordering columns reorders the preview; adding a calculated column shows the computed values.
 
@@ -179,7 +179,7 @@ Tests: editing a column updates the preview; reordering columns reorders the pre
 
 **Files:** `components/builder/case-list-config/FiltersSection.tsx`, tests.
 
-Mounts `PredicateCardEditor` for the always-on filter. Live-preview panel re-runs the case-list query through Plan 2's `InMemoryCaseStore` showing how many cases pass the filter.
+Mounts `PredicateCardEditor` for the always-on filter. Live-preview panel re-runs the case-list query through Plan 2's `PostgresCaseStore` showing how many cases pass the filter.
 
 Tests: editing the filter updates the result count and visible rows; clearing the filter shows all cases.
 
@@ -264,7 +264,7 @@ Tests: golden-file comparison; verifies the filter precedence (`@case_type` filt
 
 **Files:** `__tests__/integration/`.
 
-End-to-end: build a fixture blueprint with case-list-config; run the validator; emit suite XML; compare against golden file; run preview rendering against `InMemoryCaseStore` and verify the rendered case list matches expected.
+End-to-end: build a fixture blueprint with case-list-config; run the validator; emit suite XML; compare against golden file; run preview rendering against `PostgresCaseStore` and verify the rendered case list matches expected.
 
 
 ### Task 15: Migration script run + archive
