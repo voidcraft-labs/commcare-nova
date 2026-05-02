@@ -59,6 +59,11 @@
 // that's the same failure mode every other illegal-but-typeable
 // payload produces, so leaving it at the schema is consistent.
 
+import {
+	reduceAnd as reduceAndImpl,
+	reduceNot as reduceNotImpl,
+	reduceOr as reduceOrImpl,
+} from "./reduction";
 import type {
 	ArithOp,
 	ComparisonKind,
@@ -543,12 +548,6 @@ export function isIn(
 // preserves. The overload set declares each call shape's precise
 // return type, so callers passing two-or-more clauses still see the
 // `{ kind: "and", clauses }` shape directly without re-narrowing.
-
-import {
-	reduceAnd as reduceAndImpl,
-	reduceNot as reduceNotImpl,
-	reduceOr as reduceOrImpl,
-} from "./reduction";
 
 /**
  * Constructs a conjunction, applying construction-time reductions:
