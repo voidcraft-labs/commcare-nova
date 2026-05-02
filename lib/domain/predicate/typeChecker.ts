@@ -1747,11 +1747,11 @@ export function checkExpression(
 		case "coalesce": {
 			// `values` must agree on type (after empty-string-coerce-
 			// to-null). Walk each value, accumulate the agreed type via
-			// `typesCompatible`. The first concrete (non-`_any`) value
-			// becomes the seed; subsequent values must be compatible
-			// with it. If a value is `_any` (null literal), it widens
-			// freely. If the seed and a later value disagree, attach
-			// the mismatch to the disagreeing slot.
+			// `accumulateBranchType` — the first concrete (non-`_any`)
+			// value becomes the seed; subsequent values must be
+			// compatible with it. `_any` (null literal) widens freely.
+			// If the seed and a later value disagree, the helper pushes
+			// a mismatch error onto the disagreeing slot's path.
 			let agreed: ResolvedType | undefined;
 			for (let i = 0; i < expr.values.length; i++) {
 				const t = checkExpression(expr.values[i], ctx, errors, [
@@ -1759,18 +1759,13 @@ export function checkExpression(
 					"values",
 					i,
 				]);
-				if (t === undefined) continue;
-				if (t === ANY_TYPE) continue;
-				if (agreed === undefined || agreed === ANY_TYPE) {
-					agreed = t;
-					continue;
-				}
-				if (!typesCompatible(agreed, t)) {
-					errors.push({
-						path: [...path, "values", i],
-						message: `coalesce values must agree on type; '${describe(t)}' is not comparable with the established '${describe(agreed)}'.`,
-					});
-				}
+				agreed = accumulateBranchType(
+					agreed,
+					t,
+					errors,
+					[...path, "values", i],
+					"coalesce values must agree on type",
+				);
 			}
 			// Default to `_any` if every value resolved to null — the
 			// expression is structurally `coalesce(null, null, ...)`,
@@ -1782,8 +1777,11 @@ export function checkExpression(
 			// Recursively type-check `cond` as a Predicate. The
 			// dispatcher (`walk`) accumulates errors with path-
 			// threading so a violation deep inside the condition
-			// surfaces precisely. Then resolve both branches and
-			// require they agree on type via `typesCompatible`.
+			// surfaces precisely. Then resolve both branches via
+			// `accumulateBranchType` — the same helper coalesce /
+			// switch use, called twice with the same operator-scoped
+			// path so a then/else type mismatch surfaces with the
+			// uniform "not comparable with the established" message.
 			walk(expr.cond, ctx, errors, [...path, "if", "cond"]);
 			const thenType = checkExpression(expr.then, ctx, errors, [
 				...path,
@@ -1795,13 +1793,30 @@ export function checkExpression(
 				"if",
 				"else",
 			]);
-			return resolveBranchAgreement(thenType, elseType, errors, path, "if");
+			let agreed = accumulateBranchType(
+				undefined,
+				thenType,
+				errors,
+				[...path, "if"],
+				"if branches must agree on type",
+			);
+			agreed = accumulateBranchType(
+				agreed,
+				elseType,
+				errors,
+				[...path, "if"],
+				"if branches must agree on type",
+			);
+			return agreed;
 		}
 
 		case "switch": {
 			// Resolve `on` first so the per-case `when` literals can be
 			// compared against it. Each `case.when` is a `Literal` (not
 			// a Predicate), so the literal-type lookup runs directly.
+			// Per-case `then` types and the trailing `fallback` type
+			// thread through `accumulateBranchType` for the agreement
+			// check — same helper coalesce uses.
 			const onType = checkExpression(expr.on, ctx, errors, [
 				...path,
 				"switch",
@@ -1824,40 +1839,27 @@ export function checkExpression(
 					i,
 					"then",
 				]);
-				if (thenType === undefined) continue;
-				if (thenType === ANY_TYPE) {
-					agreed = agreed ?? ANY_TYPE;
-					continue;
-				}
-				if (agreed === undefined || agreed === ANY_TYPE) {
-					agreed = thenType;
-					continue;
-				}
-				if (!typesCompatible(agreed, thenType)) {
-					errors.push({
-						path: [...path, "switch", "cases", i, "then"],
-						message: `switch case 'then' type '${describe(thenType)}' is not comparable with the established '${describe(agreed)}'.`,
-					});
-				}
+				agreed = accumulateBranchType(
+					agreed,
+					thenType,
+					errors,
+					[...path, "switch", "cases", i, "then"],
+					"switch case 'then' type must agree with the established branch type",
+				);
 			}
 			const fallbackType = checkExpression(expr.fallback, ctx, errors, [
 				...path,
 				"switch",
 				"fallback",
 			]);
-			if (
-				fallbackType !== undefined &&
-				fallbackType !== ANY_TYPE &&
-				agreed !== undefined &&
-				agreed !== ANY_TYPE &&
-				!typesCompatible(agreed, fallbackType)
-			) {
-				errors.push({
-					path: [...path, "switch", "fallback"],
-					message: `switch fallback type '${describe(fallbackType)}' is not comparable with the established '${describe(agreed)}'.`,
-				});
-			}
-			return agreed ?? fallbackType ?? ANY_TYPE;
+			agreed = accumulateBranchType(
+				agreed,
+				fallbackType,
+				errors,
+				[...path, "switch", "fallback"],
+				"switch fallback type must agree with the established branch type",
+			);
+			return agreed ?? ANY_TYPE;
 		}
 
 		case "count": {
@@ -1989,40 +1991,59 @@ const TEXT_SHAPED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 ]);
 
 /**
- * Decide the agreed type of two branch arms (for `if` and per-case
- * `then`/`fallback` agreement in `switch`). Routes:
- *   - Either side `undefined` → return the other (resolution failure
- *     already pushed the error elsewhere).
- *   - Either side `_any` → return the other (null-as-universal).
- *   - Compatible per `typesCompatible` → return one (they widen the
- *     same way at every consumer).
- *   - Incompatible → push an error on the operator's path and return
- *     `_any` defensively so downstream compatibility checks don't
- *     cascade.
+ * Accumulate one branch's resolved type into the running `agreed` type
+ * across a multi-branch operator (`coalesce` values, `switch.cases[].then`
+ * + `switch.fallback`, `if`'s then/else pair). The first concrete (non-
+ * `_any`) candidate becomes the seed; later candidates must be
+ * compatible with it via `typesCompatible`. `_any` (the null-literal
+ * sentinel) widens freely. Resolution failures (`candidate === undefined`)
+ * are no-ops at this layer because the per-slot resolution call already
+ * pushed its own error.
  *
- * The function attaches the error to the operator's own path
- * (`[...path, operatorKind]`), not to a branch's slot, because the
- * mismatch is a property of the operator's branch agreement rather
- * than of either branch alone. Same convention as `checkComparison`'s
- * operator-level error attachment.
+ * Behaviour matrix:
+ *   - `candidate === undefined` → return `agreed` unchanged. The slot's
+ *     own resolution error is in `errors` already.
+ *   - `candidate === ANY_TYPE` → return `agreed ?? ANY_TYPE`. Null
+ *     widens to anything; if no agreed type yet, the slot resolves the
+ *     accumulator to ANY_TYPE so the next concrete candidate can take
+ *     over as seed.
+ *   - `agreed === undefined || agreed === ANY_TYPE` → return
+ *     `candidate`. First concrete candidate seeds the accumulator.
+ *   - `typesCompatible(agreed, candidate)` → return `agreed`. Compatible
+ *     types widen the same way at every consumer; one of them serves as
+ *     the agreed result.
+ *   - Otherwise → push a mismatch error on `errorPath` and return
+ *     `agreed` (don't let a later disagreement re-seed the accumulator
+ *     to a fresh type, which would mask the established branch type
+ *     and cascade further mismatches).
+ *
+ * Used by every multi-branch arm in `checkExpression` so the helper
+ * is the single place to update if the agreement-rule policy
+ * changes. The error message takes a per-call `errorPrefix` so the
+ * operator-context is named at the callsite (e.g. "coalesce values
+ * must agree on type") and the helper appends the standard
+ * "<candidate>' is not comparable with the established '<agreed>'"
+ * suffix. The `errorPath` lets per-element callsites attach the
+ * error to the disagreeing element's slot (e.g. the i-th
+ * `switch.cases[].then`); operator-level callers pass a path scoped
+ * to the operator itself.
  */
-function resolveBranchAgreement(
-	thenType: ResolvedType | undefined,
-	elseType: ResolvedType | undefined,
+function accumulateBranchType(
+	agreed: ResolvedType | undefined,
+	candidate: ResolvedType | undefined,
 	errors: CheckError[],
-	path: CheckPath,
-	operatorKind: string,
+	errorPath: CheckPath,
+	errorPrefix: string,
 ): ResolvedType | undefined {
-	if (thenType === undefined) return elseType;
-	if (elseType === undefined) return thenType;
-	if (thenType === ANY_TYPE) return elseType;
-	if (elseType === ANY_TYPE) return thenType;
-	if (typesCompatible(thenType, elseType)) return thenType;
+	if (candidate === undefined) return agreed;
+	if (candidate === ANY_TYPE) return agreed ?? ANY_TYPE;
+	if (agreed === undefined || agreed === ANY_TYPE) return candidate;
+	if (typesCompatible(agreed, candidate)) return agreed;
 	errors.push({
-		path: [...path, operatorKind],
-		message: `${operatorKind} branches must agree on type; got '${describe(thenType)}' and '${describe(elseType)}'.`,
+		path: errorPath,
+		message: `${errorPrefix}; '${describe(candidate)}' is not comparable with the established '${describe(agreed)}'.`,
 	});
-	return ANY_TYPE;
+	return agreed;
 }
 
 /**
