@@ -1,0 +1,146 @@
+# lib/case-store — Postgres case store
+
+The runtime storage layer for case data:
+
+- `sql/database.ts` — Kysely `Database` type definitions for the three
+  case-store tables (`cases`, `case_type_schemas`, `case_indices`). The
+  compile-time contract every typed query binds against. Source of
+  column names and column types; spec lines cited per column.
+- `sql/__tests__/` — the testcontainers harness shared by every
+  AST-to-Kysely compiler test in this package and by the
+  `PostgresCaseStore` integration tests once they land.
+
+## Testcontainers harness
+
+A real Postgres engine boots once per `vitest run` and every test in
+this package executes against it. The harness lives entirely under
+`sql/__tests__/`; consumers import the fixture from `setup.ts`:
+
+```ts
+import { test, expect, makeCaseRow } from "./setup";
+
+test("compiles `prop > 18`", async ({ db }) => {
+	await db.insertInto("cases").values(makeCaseRow({ /* ... */ })).execute();
+	// ... assertions against `db`
+});
+```
+
+### Container-per-run, transaction-per-test
+
+The harness pins to two non-negotiable rules. Future test authors:
+do not invent variants.
+
+1. **One container per `vitest run`, NOT one per test file.**
+   Vitest's `globalSetup` runs in the orchestrator process exactly
+   once per run; the harness boots a `PostgreSqlContainer` there and
+   publishes the connection URI via `project.provide()`. Every worker
+   reads the same URI through `inject()`. Per-file boots cost 5-15 s
+   each on `pg_ctl init` + extension install and make the watch loop
+   unusable; the harness is single-source by construction so no test
+   file can boot its own.
+
+2. **Per-test isolation comes from BEGIN/ROLLBACK, NOT separate
+   schemas / databases.** The `db` fixture in `setup.ts` opens a
+   transaction in `beforeEach`-equivalent setup and rolls it back in
+   the `try/finally` cleanup wrapper. Writes in test A never reach
+   test B even though both tests run against the same physical
+   database. Don't bypass this with raw `pg.Client.connect()` — your
+   writes will leak across tests and the harness's contract breaks
+   silently.
+
+The `harness-isolation.test.ts` sibling file exists specifically to
+catch a regression that splits one of these two rules: it inserts
+sentinel UUIDs in `harness.test.ts`, rolls them back, then asserts in
+the sibling file that those same UUIDs return zero rows. A regression
+to per-file containers OR per-test commits surfaces as a failing
+sibling test, not a silent leak.
+
+### Image and extensions
+
+`postgis/postgis:16-3.4` is the harness's pinned image: stock Postgres
+16 (matches Cloud SQL's supported major) plus PostGIS 3.4 preinstalled.
+The harness installs three extensions the case-store compilers depend
+on:
+
+- `pg_trgm` — `match(mode: fuzzy)` operator (Postgres `%` similarity)
+- `fuzzystrmatch` — phonetic match (Soundex / Metaphone)
+- `postgis` — `within-distance` operator (`ST_DWithin`)
+
+A fourth extension — `pg_jsonschema`, used by the write-time JSON
+Schema validator trigger — is allowlist-gated on Cloud SQL (spec
+§ "Cloud SQL extension allowlist for `pg_jsonschema`", line 545).
+The harness installs it when the running image happens to ship it
+(`supabase/postgres` does; `postgis/postgis` does not), and logs a
+single warning otherwise. The harness is NOT the place to write the
+validator trigger — that runtime choice (native trigger vs. PL/pgSQL
+fallback) lives in the case-store's runtime layer, not in this test
+infrastructure.
+
+### `case_type_schemas` seeding lives at the per-test layer
+
+`globalSetup.ts` seeds the three table DDL surfaces but does NOT seed
+any `case_type_schemas` rows. Test bodies that need a typed JSON
+Schema row (e.g. trigger tests, schema-aware compiler tests) insert
+it themselves via the `db` fixture — the row is wrapped in the
+test's transaction and rolls back along with everything else. That
+keeps the harness's global state minimal: tests that don't care
+about the schema row don't pay for it; tests that do care construct
+exactly the schema they need.
+
+### Writing new tests
+
+```ts
+import { test, expect, makeCaseRow } from "./setup";
+
+test("predicate compiler emits the expected JOIN", async ({ db }) => {
+	// Set up rows for the test
+	await db.insertInto("cases").values([
+		makeCaseRow({ case_id: "...", properties: JSON.stringify({ ... }) }),
+	]).execute();
+
+	// Run the compiler against the same `db` (transaction-scoped)
+	const compiled = compilePredicate(predicate, ...);
+	const rows = await db
+		.selectFrom("cases")
+		.where(compiled.where)
+		.execute();
+
+	expect(rows).toHaveLength(1);
+});
+```
+
+The `pgClient` fixture is the escape hatch for queries Kysely cannot
+compile (`EXPLAIN ANALYZE`, raw extension probes, `SET` statements):
+
+```ts
+test("EXPLAIN includes a Bitmap Heap Scan", async ({ pgClient }) => {
+	const result = await pgClient.query("EXPLAIN SELECT * FROM cases WHERE ...");
+	expect(result.rows.some(...)).toBe(true);
+});
+```
+
+Both fixtures share the same Postgres connection — they see each
+other's writes within the same transaction.
+
+### Hot-loop expectation
+
+Steady-state watch-loop iteration on a single test file should re-run
+in well under one second after the container is up. The container
+itself takes 5-15 s to boot on a cold start; once running, Vitest's
+worker reload + the per-test BEGIN/ROLLBACK round-trip is sub-second
+on a modern laptop. If you ever observe per-file boots in `docker ps`,
+that's a regression — file a fix against `globalSetup.ts`'s
+container-singleton contract.
+
+## Spec source
+
+All DDL is sourced from `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
+lines 254-284. Three surfaces stay in lockstep:
+
+1. The spec's SQL block (source of truth)
+2. `sql/database.ts` (Kysely type contract)
+3. `sql/__tests__/globalSetup.ts`'s `SCHEMA_DDL` (live engine seed)
+
+Any change to one requires updating the other two in the same change.
+The compile-only test in `sql/__tests__/database.test.ts` catches
+type-level drift; the harness smoke tests catch DDL-level drift.
