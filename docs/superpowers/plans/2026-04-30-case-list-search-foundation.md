@@ -833,19 +833,52 @@ Steps:
 - [ ] Wire the predicate emitters' operand sites to call the expression emitters (replace the deferred throws with the appropriate dispatch).
 - [ ] Run tests, commit.
 
-### Task C2: Kysely Database type definitions
+### Task C2: Kysely Database type definitions — SHIPPED
+
+Shipped across commits `97721548` → `fadb47ca`.
 
 **Files:**
-- Create: `lib/case-store/sql/database.ts`
-- Test: `__tests__/database.test.ts`
+- `lib/case-store/sql/database.ts` (new) — Kysely Database type plus per-table interfaces for `cases`, `case_type_schemas`, `case_indices`. Schema reflects the spec DDL verbatim (the plan task description had several deltas from the spec; the implementer correctly followed the spec as the single source of truth).
+- `lib/case-store/sql/__tests__/database.test.ts` (new, 13 tests) — `DummyDriver` + `PostgresAdapter` + `PostgresQueryCompiler` cold Kysely instance compiling representative typed queries via `.compile()`; assertions on `compiled.sql` shape (using `toContain` for identifiers / JSONB-operator fragments) plus exact-array assertions on `compiled.parameters`. `@ts-expect-error` test pin on the `relationship: "host"` invalid-arm narrowing.
+- `package.json` / `package-lock.json` — `kysely ^0.28.16` added to `dependencies` (not `devDependencies` — the runtime uses Kysely for query building, not just tests).
 
-`cases`, `case_type_schemas`, `case_indices` table definitions per the spec. Test verifies a typed query compiles via `.compile()` (no live DB needed).
+**Schema implemented (per spec lines 247-284):**
 
-Steps:
-- [ ] `npm install kysely`
-- [ ] Define Database interface
-- [ ] Test typed query compilation
-- [ ] Commit
+`cases` table:
+- `case_id` UUID PRIMARY KEY (typed as `string`; no UUID branding — the spec doesn't require it).
+- `app_id` TEXT NOT NULL, `case_type` TEXT NOT NULL, `owner_id` TEXT NULLABLE (multi-tenancy isolation key is `(app_id, owner_id)`).
+- `status`, `opened_on`, `modified_on`, `closed_on`, `parent_case_id`, `depth` — all NULLABLE except `case_id`/`app_id`/`case_type`.
+- `properties` JSONB NOT NULL — typed as `JSONColumnType<JsonObject>` where `JsonObject = Record<string, JsonValue>` and `JsonValue` is the standard recursive JSON-value union including `null`. The three-state distinction (key absent / key present with `null` / key present with empty string) is preserved at the JSONB runtime layer, not narrowed at the static type layer. Per-case-type narrowing happens via `case_type_schemas.schema`'s JSON Schema validator, not via column-type widening.
+- No `created_at` / `updated_at` columns (the spec does not specify them; the implementer verified absence in the spec DDL).
+
+`case_type_schemas` table:
+- Composite PRIMARY KEY `(app_id, case_type)`. NO surrogate UUID `id` column.
+- `app_id` TEXT, `case_type` TEXT, `schema` JSONB NOT NULL.
+
+`case_indices` table:
+- Composite PRIMARY KEY `(case_id, ancestor_id, identifier)` per spec line 280.
+- `relationship` typed as the literal union `"child" | "extension"` (exported as `CaseIndexRelationship`); `@ts-expect-error` test pins the narrowing.
+- `depth` INT NOT NULL — `depth=1` means a direct edge between a case and its immediate ancestor; higher values are reserved for storing transitive edges; the relation-path compiler reads whichever rows exist via recursive CTE (the `case_indices` materialization policy is owned by Plan 2's `caseIndices.ts` — the Database type stays neutral on the policy choice).
+
+**Architectural decisions:**
+
+1. **Spec DDL is the single source of truth.** Plan task description had seven drifts from the spec (`app_id`/`owner_id` UUID vs TEXT, `owner_id` non-nullable, surrogate `id` PK on `case_type_schemas`, `closed_at` vs `closed_on`, missing `status`/`opened_on`/`modified_on`/`parent_case_id`/`depth` columns, `parent_case_id`/`child_case_id` vs `case_id`/`ancestor_id` on `case_indices`, no `depth` column). The implementer followed the spec verbatim — correct behavior per `feedback_check_actual_code_not_spec.md`.
+2. **JSONB typing preserves Postgres-strict null semantics at the runtime layer.** `JSONColumnType<JsonObject>` produces `JsonObject` on `Selectable` and `string` (JSON-stringified) on `Insertable`. The `null` value is included in `JsonValue` recursively so a key value of `null` is well-typed.
+3. **No UUID branding on `case_id`.** Postgres pg-driver round-trips UUID as `string`; speculative branding would fight every value site.
+4. **`relationship` is a literal union, not open `string`.** The spec hardcodes the two values; static narrowing is structural.
+5. **`kysely` lives in `dependencies`, not `devDependencies`.** Runtime uses Kysely for query building.
+6. **`DummyDriver` + `PostgresAdapter` + `PostgresQueryCompiler` test pattern** — canonical compile-only setup that catches column-name typos, type mismatches on `where` values, and schema drift between the Database type and the SQL the eventual migrations produce. No live DB connection.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `97721548`. All seven plan-vs-spec drift corrections verified against the spec DDL at lines 247-284. Schema, types, PKs, nullability, literal unions all match.
+- Code-quality review (opus): ❌ Round 1 found 2 BLOCKING + 1 IMPORTANT + 1 SUGGESTION on `97721548` — JSDoc carried future-work language ("RLS lands ... once X"), staged a hypothetical migration ("switching is a one-line change ... already accommodates"), and asserted an invariant about a not-yet-existing `CaseStore` interface ("no path that bypasses the filter"). Plus a test-theatre `expect()` on a `@ts-expect-error` pin. Resolved in fix-pass `fadb47ca`: dropped the RLS sentence, rewrote the `depth` JSDoc as a present-tense statement, softened the `CaseStore` claim, replaced the test-theatre `expect` with `void _invalid;`. Bonus: implementer caught + fixed an adjacent TS2578 issue where the literal substring `@ts-expect-error` in an explanation comment was being matched by TypeScript's directive parser. Re-review APPROVED.
+
+**Verification gates (all green at HEAD `fadb47ca`):**
+- 2533 full-project tests pass / 14 skipped (vs 2520 pre-C2 baseline; +13 net new tests in `database.test.ts`)
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (zero warnings)
+- Strengthened eternal-present sweep returns zero hits across `database.ts` and `database.test.ts` (regex set extended in B6 with `\bB[0-9]\b|\bC[0-9]\b`)
 
 ### Task C3: Term compiler — Kysely
 
