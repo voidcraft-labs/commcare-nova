@@ -69,8 +69,8 @@ The two families share Term shapes — a `case-property` term, a `search-input` 
 type Term =
   | { kind: "case-property"; caseType: string; via?: RelationPath; property: string }
   | { kind: "search-input"; name: string }
-  | { kind: "session-user"; field: string }            // /session/user/data/<field>
-  | { kind: "session-context"; field: SessionContextField }  // /session/context/<field>
+  | { kind: "session-user"; field: string }                  // /session/user/data/<field> — open namespace, custom user-data fields
+  | { kind: "session-context"; field: SessionContextField }  // /session/context/<field> — closed enum: SESSION_CONTEXT_FIELDS
   | { kind: "literal"; type: PrimitiveType; value: string | number | boolean | null }
   | { kind: "value-expression"; expr: ValueExpression }
 ```
@@ -78,7 +78,7 @@ type Term =
 Notable shapes:
 
 - **`case-property` carries an optional `via: RelationPath`.** This is the relational read: `case-property("patient", "age")` reads `age` on the current case; `case-property("patient", "age", via: ancestorPath(relationStep("parent", "household")))` reads `age` on the parent `household` case. No slash-string templating; the relation is a typed structure. The `caseType` slot names the *originating scope* (the case type the predicate runs against — i.e., the case type at the predicate's "self" position), not where the property lives. When `via` is absent or `{ kind: "self" }`, the property is read on a case of `caseType`. When `via` is a relation walk, the walk resolves to a destination case type and `property` is read there. The `caseType` qualifier stays explicit even when `via` is present so the originating scope is always recoverable without tracing back through nesting.
-- **`session-user` and `session-context` are split.** `instance('commcaresession')/session/user/data/<field>` and `instance('commcaresession')/session/context/<field>` are two different wire targets with different valid field sets (`session-context` is restricted to `userid`, `username`, `appid`, `domain`, `device_id`); the v1 AST conflated them under one `kind: "user"`.
+- **`session-user` and `session-context` are split.** `instance('commcaresession')/session/user/data/<field>` (open namespace, custom user-data fields) and `instance('commcaresession')/session/context/<field>` (closed framework-controlled set) are two different wire targets. The full closed set populated by the framework is `deviceid` / `appversion` / `username` / `userid` / `drift` / `window_width` / `applanguage` per `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java:89-103`; v1's `SESSION_CONTEXT_FIELDS` exposes `userid` / `username` / `deviceid` / `appversion` (the four with clear authoring semantics — owner / display / device-targeting / version-gating). `drift` is a diagnostic clock-skew signal, `window_width` is a UI-internal viewport metric, and `applanguage` is a localization concern; none has an authoring semantic that justifies AST exposure today, and the closed-enum shape lets v2 add fields non-breakingly when a real authoring use case surfaces. The v1 AST conflated `/user/data/` and `/context/` under one `kind: "user"`, hiding the open/closed distinction.
 
 #### Predicate family
 
