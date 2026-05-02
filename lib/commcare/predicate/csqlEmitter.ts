@@ -686,23 +686,18 @@ function emitMatchSegments(
 	p: Extract<Predicate, { kind: "match" }>,
 ): CsqlSegment[] {
 	const wireFunction = matchModeToWireFunction(p.mode);
+	// `emitPropertyRefSegment` returns a `ConstantTermEmission` (the
+	// narrowed `kind: "constant"` arm of `TermEmission`) — a property
+	// reference is always a compile-time-known identifier. The match
+	// emitter consumes that constancy directly: one constant CSQL
+	// segment carries the entire `<fn>(<prop>, '<value>')` call.
 	const propEmission = emitPropertyRefSegment(p.property);
 	const valueLiteral = quoteLiteral(p.value, "csql");
-	if (propEmission.kind === "constant") {
-		return [
-			{
-				kind: "constant",
-				text: `${wireFunction}(${propEmission.text}, ${valueLiteral})`,
-			},
-		];
-	}
-	// PropertyRef always resolves to a compile-time-known identifier
-	// constant. The defensive runtime branch keeps the helper's shape
-	// uniform with the comparison emitter's runtime/constant split.
 	return [
-		{ kind: "constant", text: `${wireFunction}(` },
-		{ kind: "runtime", xpath: propEmission.xpath },
-		{ kind: "constant", text: `, ${valueLiteral})` },
+		{
+			kind: "constant",
+			text: `${wireFunction}(${propEmission.text}, ${valueLiteral})`,
+		},
 	];
 }
 
@@ -891,7 +886,8 @@ function emitExistsCallSegments(
 		// Direction-agnostic walk: emit both direction-specific forms
 		// and OR them together. A parent `missing` arm wraps the whole
 		// disjunction in `not(...)` at the caller (`emitExistsSegments`),
-		// matching B2's on-device any-relation expansion.
+		// mirroring the on-device emitter's any-relation expansion so
+		// both dialects expand to `(ancestor or subcase)`.
 		const ancestorSegs = emitAncestorExistsCall(
 			[{ identifier: via.identifier }],
 			p.where,
@@ -1010,7 +1006,12 @@ function emitFilterArgumentSegments(p: Predicate): CsqlSegment[] {
 /**
  * Two-shape result for term emission. Constants flow through
  * `quoteConstantSegmentForXPath` at the wrap layer; runtime refs
- * become bare `concat(...)` arguments.
+ * become bare `concat(...)` arguments. Each arm is a named alias
+ * (`ConstantTermEmission` / `RuntimeTermEmission`) so emitters that
+ * produce only one arm — `emitPropertyRefSegment`, which always
+ * returns the constant arm because a property reference is always a
+ * compile-time-known identifier — narrow their return type to that
+ * alias and lift the dead-branch guarantee into the type system.
  *
  *   - `constant` carries the CSQL wire-form text directly (e.g. a
  *     literal value, a property identifier, a reserved-attribute
@@ -1020,9 +1021,12 @@ function emitFilterArgumentSegments(p: Predicate): CsqlSegment[] {
  *     `instance('commcaresession')/session/user/data/<field>`,
  *     synthetic hoist refs sharing the search-input wire shape).
  */
-type TermEmission =
-	| { readonly kind: "constant"; readonly text: string }
-	| { readonly kind: "runtime"; readonly xpath: string };
+type ConstantTermEmission = {
+	readonly kind: "constant";
+	readonly text: string;
+};
+type RuntimeTermEmission = { readonly kind: "runtime"; readonly xpath: string };
+type TermEmission = ConstantTermEmission | RuntimeTermEmission;
 
 /**
  * Compile a term to its CSQL wire form. Terms with a compile-time-known
@@ -1075,7 +1079,7 @@ function emitPropertyRefText(t: PropertyRef): string {
 	return quoteIdentifier(t.property);
 }
 
-function emitPropertyRefSegment(t: PropertyRef): TermEmission {
+function emitPropertyRefSegment(t: PropertyRef): ConstantTermEmission {
 	return { kind: "constant", text: emitPropertyRefText(t) };
 }
 

@@ -316,8 +316,16 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			//
 			// `p.center` is a `ValueExpression`; only the term arm
 			// surfaces at this layer. Distance routes through
-			// `formatNumeric` for the scientific-notation guard.
-			return `within-distance(${emitTerm(p.property)}, ${emitTerm(unwrapTermFromExpression(p.center))}, ${formatNumeric(p.distance)}, '${p.unit}')`;
+			// `formatNumeric` for the scientific-notation guard. The
+			// unit routes through `quoteLiteral` for the per-dialect
+			// string-literal escape, mirroring the CSQL emitter's
+			// quoting path; the schema-layer enum constrains values to
+			// the safe `miles` / `kilometers` set so the alternating-
+			// quote fallback never fires here, but keeping both dialects
+			// on the same lexical helper preserves the centralised
+			// per-dialect escape rule that `stringQuoting.ts` exists to
+			// enforce.
+			return `within-distance(${emitTerm(p.property)}, ${emitTerm(unwrapTermFromExpression(p.center))}, ${formatNumeric(p.distance)}, ${quoteLiteral(p.unit, "case-list-filter")})`;
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
