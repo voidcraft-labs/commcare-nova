@@ -510,41 +510,114 @@ export function isIn(
 
 // ---------- Logical ----------
 //
-// `and` and `or` mirror the same first-required pattern as `isIn` —
-// the tuple-with-rest shape on `andSchema.clauses` / `orSchema.clauses`
-// becomes a compile-time error at the variadic signature. `not` is
-// unary so the constraint is moot.
+// `and` / `or` / `not` thread their inputs through the construction-
+// time reductions in `lib/domain/predicate/reduction.ts` before
+// falling through to the standard n-ary or unary construction. The
+// seven reductions (empty / single-clause unwrap for `and` and `or`,
+// double-negation elimination, and the two `not(sentinel)`
+// collapses) collapse degenerate input shapes into the canonical
+// sentinel or unwrapped predicate at the construction boundary, so
+// authors who construct `and()` / `or()` / `not(matchAll())` get the
+// canonical AST shape without having to compose the reduction by
+// hand.
+//
+// Why this lives at the builder layer (not the schema layer): the
+// reductions transform shape A into shape B, but the schema's job is
+// to validate that a given shape parses cleanly. A schema-level
+// "reduce on parse" would mutate user input on parse, which breaks
+// the round-trip equality guarantees the rest of the package relies
+// on (`expect(predicateSchema.parse(p)).toEqual(p)`). The builder is
+// the right layer: it normalizes input at construction, and the
+// schema validates the normalized output. The schema's
+// tuple-with-rest shape on `andSchema.clauses` / `orSchema.clauses`
+// stays as a defensive backstop — directly-constructed `{ kind:
+// "and", clauses: [] }` literals (e.g. parsing persisted JSON from
+// an older schema) reject at parse time.
+//
+// Why function overloads: the reductions can return any of three
+// shapes — the canonical envelope (`{ kind: "and", clauses: [...]
+// }`), an unwrapped inner predicate (`x` for `and([x])`), or a
+// sentinel (`match-all` for `and([])`). A single signature returning
+// `Predicate` would force every caller to re-narrow on `kind` to
+// access fields, losing the per-arm narrowing the rest of this file
+// preserves. The overload set declares each call shape's precise
+// return type, so callers passing two-or-more clauses still see the
+// `{ kind: "and", clauses }` shape directly without re-narrowing.
+
+import {
+	reduceAnd as reduceAndImpl,
+	reduceNot as reduceNotImpl,
+	reduceOr as reduceOrImpl,
+} from "./reduction";
 
 /**
- * Constructs a conjunction. Variadic with a required first clause:
- * the schema rejects an empty `and` (which evaluates trivially to
- * `true`), and a compile-time error is preferable to a runtime
- * parse failure.
+ * Constructs a conjunction, applying construction-time reductions:
+ * `and()` collapses to the `match-all` sentinel (the boolean-algebra
+ * identity element of conjunction), `and(x)` unwraps to `x`, and
+ * `and(x, y, ...)` constructs the standard n-ary envelope.
+ *
+ * Overload set: each argument count's return type is pinned
+ * precisely. Callers using the two-or-more case retain access to
+ * `.clauses` directly without re-narrowing on `kind` — preserving the
+ * per-arm narrowing the rest of the builder surface relies on.
  */
+export function and(): Extract<Predicate, { kind: "match-all" }>;
+export function and<T extends Predicate>(only: T): T;
 export function and(
 	first: Predicate,
+	second: Predicate,
 	...rest: Predicate[]
-): Extract<Predicate, { kind: "and" }> {
-	return { kind: "and", clauses: [first, ...rest] };
+): Extract<Predicate, { kind: "and" }>;
+export function and(...clauses: Predicate[]): Predicate {
+	const reduced = reduceAndImpl(clauses);
+	if (reduced !== undefined) return reduced;
+	// Two-or-more clauses: no reduction applies. Construct the
+	// standard `{ kind: "and", clauses }` envelope. The implementation
+	// signature accepts `Predicate[]`, but the overload set above
+	// guarantees the only path that reaches this branch carries
+	// `[Predicate, Predicate, ...Predicate[]]` — i.e. a non-empty
+	// tuple-with-rest shape that satisfies `andSchema.clauses` at
+	// parse time. The cast through `as` is unavoidable: TypeScript
+	// can't see the overload's two-or-more guarantee from inside the
+	// implementation body.
+	return { kind: "and", clauses: clauses as [Predicate, ...Predicate[]] };
 }
 
 /**
- * Constructs a disjunction. Variadic with a required first clause:
- * the schema rejects an empty `or` (which evaluates trivially to
- * `false`), so the builder demands at least one argument.
+ * Constructs a disjunction, applying construction-time reductions:
+ * `or()` collapses to the `match-none` sentinel (the boolean-algebra
+ * absorbing element of disjunction), `or(x)` unwraps to `x`, and
+ * `or(x, y, ...)` constructs the standard n-ary envelope. Symmetric
+ * with `and` — same overload pattern, same per-arm precise return
+ * types.
  */
+export function or(): Extract<Predicate, { kind: "match-none" }>;
+export function or<T extends Predicate>(only: T): T;
 export function or(
 	first: Predicate,
+	second: Predicate,
 	...rest: Predicate[]
-): Extract<Predicate, { kind: "or" }> {
-	return { kind: "or", clauses: [first, ...rest] };
+): Extract<Predicate, { kind: "or" }>;
+export function or(...clauses: Predicate[]): Predicate {
+	const reduced = reduceOrImpl(clauses);
+	if (reduced !== undefined) return reduced;
+	return { kind: "or", clauses: clauses as [Predicate, ...Predicate[]] };
 }
 
 /**
- * Constructs a negation. The body slot is named `clause` (matching
- * the schema), not `body` or `inner`, to keep the builder name and
- * the AST field name aligned for readers tracing values from
- * authored predicates to the wire emitter.
+ * Constructs a negation, applying construction-time reductions:
+ * `not(matchAll())` collapses to the `match-none` sentinel,
+ * `not(matchNone())` collapses to the `match-all` sentinel, and
+ * `not(not(x))` collapses to `x` (double-negation elimination). For
+ * any other inner predicate, the standard `{ kind: "not", clause }`
+ * envelope is constructed.
+ *
+ * Return type is the union `Predicate` because the three reduction
+ * cases each surface a different `kind` — the precise return type
+ * narrows only when the call site can statically determine the inner
+ * predicate's kind. Callers who need the non-reducing case to retain
+ * the precise `{ kind: "not", clause }` shape narrow on `kind` after
+ * construction (`if (p.kind === "not") { p.clause ... }`).
  *
  * Parameter-naming policy: builder parameter names track AST field
  * names where possible (`clause` here, `clause` on `whenInput`,
@@ -557,7 +630,9 @@ export function or(
  * is currently safe" to hold across edits, so the parameter takes
  * a non-shadowing name even at the cost of one layer of mismatch.
  */
-export function not(clause: Predicate): Extract<Predicate, { kind: "not" }> {
+export function not(clause: Predicate): Predicate {
+	const reduced = reduceNotImpl(clause);
+	if (reduced !== undefined) return reduced;
 	return { kind: "not", clause };
 }
 

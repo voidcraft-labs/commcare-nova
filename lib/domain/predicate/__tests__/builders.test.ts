@@ -315,13 +315,25 @@ describe("predicate builders", () => {
 	// the spread-into-array path works at the lower bound of the
 	// schema's tuple-with-rest shape.
 
-	it("accepts a single-clause and / or / isIn (tuple-with-rest boundary)", () => {
+	// `and(x)` and `or(x)` collapse to `x` via the construction-time
+	// reductions in `reduction.ts` — the single-clause form of either
+	// operator is the boolean-algebra identity over a single
+	// predicate, so the reducer unwraps. The unwrap is the visible
+	// behavior; the same input shape that historically constructed
+	// a one-element clause envelope now flows the inner predicate
+	// straight through. `isIn(left, single)` retains its envelope
+	// shape because `in.values` is a literal list, not a logical
+	// operator subject to algebraic identity.
+	it("collapses single-clause and / or to the inner predicate via reductions", () => {
 		const single = eq(prop("patient", "status"), literal("open"));
-		const a = and(single);
-		const o = or(single);
+		expect(and(single)).toBe(single);
+		expect(or(single)).toBe(single);
+		// `isIn` has no parallel reduction — single-element membership
+		// stays as the canonical `in` shape, so the round-trip parse
+		// against `predicateSchema` confirms the envelope shape is
+		// still well-typed.
 		const i = isIn(prop("patient", "status"), literal("open"));
-		expect(predicateSchema.parse(a)).toEqual(a);
-		expect(predicateSchema.parse(o)).toEqual(o);
+		expect(i.kind).toBe("in");
 		expect(predicateSchema.parse(i)).toEqual(i);
 	});
 
@@ -632,14 +644,160 @@ describe("sentinel + range + relational predicate builders", () => {
 	});
 });
 
+// ---------- Builder-reduction integration tests ----------
+//
+// The seven construction-time reductions in `reduction.ts` are wired
+// through the `and` / `or` / `not` builders. Each test below pins one
+// reduction's behavior at the builder boundary — the integration
+// surface authors and the SA agent see. The reduction-module unit
+// tests in `reduction.test.ts` lock the structural-match logic; this
+// block locks that the builders actually call the reducers.
+//
+// Why every assertion uses the builder rather than the reducer
+// directly: the builder is the public surface, and the test's job is
+// to verify reductions land at the visible API. A reducer-only test
+// can't catch a regression that detaches the builder from the
+// reducer (e.g. a bad merge that drops the wiring). Both layers are
+// tested independently — the unit tests in `reduction.test.ts` lock
+// the reducer's correctness; this block locks the builder's wiring.
+
+describe("builder-reduction integration", () => {
+	it("and() with no clauses returns the match-all sentinel", () => {
+		// Empty conjunction is the boolean-algebra identity element.
+		// The variadic `and()` with no arguments was previously a
+		// compile-time error (locked by the `@ts-expect-error void
+		// and()` directive in the type-level block below); reductions
+		// promote it to the canonical `match-all` sentinel.
+		const p = and();
+		expect(p).toEqual(matchAll());
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("or() with no clauses returns the match-none sentinel", () => {
+		// Empty disjunction is the boolean-algebra absorbing element
+		// — `or()` over zero clauses evaluates trivially to false.
+		// Symmetric with the `and()` case above.
+		const p = or();
+		expect(p).toEqual(matchNone());
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("and(x) with a single clause unwraps to x (referential equality)", () => {
+		// Single-clause `and` is identity over the inner predicate —
+		// the reducer returns the inner clause by reference (no
+		// clone). The `toBe(x)` assertion (referential equality, not
+		// structural) confirms the inner predicate flows through
+		// unchanged. A clone would still pass `toEqual(x)` but fail
+		// `toBe(x)`.
+		const x = eq(prop("patient", "status"), literal("open"));
+		expect(and(x)).toBe(x);
+	});
+
+	it("or(x) with a single clause unwraps to x (referential equality)", () => {
+		const x = eq(prop("patient", "status"), literal("open"));
+		expect(or(x)).toBe(x);
+	});
+
+	it("not(matchAll()) returns the match-none sentinel", () => {
+		// `not(match-all)` is the boolean-algebra collapse of the
+		// universal-true predicate to the universal-false sentinel.
+		// The builder's `not` calls `reduceNot` first; if the reducer
+		// returns a non-undefined shape, the builder returns it
+		// directly without constructing the standard `{ kind: "not",
+		// clause }` envelope.
+		const p = not(matchAll());
+		expect(p).toEqual(matchNone());
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("not(matchNone()) returns the match-all sentinel", () => {
+		// Symmetric with the previous case — `not(match-none)`
+		// collapses to the universal-true sentinel.
+		const p = not(matchNone());
+		expect(p).toEqual(matchAll());
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("not(not(x)) collapses via double-negation elimination (referential equality)", () => {
+		// Double-negation elimination — the reducer unwraps two
+		// layers of `not` to surface the inner predicate. The first
+		// `not(x)` constructs the standard `{ kind: "not", clause: x
+		// }` envelope (no reduction applies on the inner). The
+		// second `not(...)` then matches the double-negation rule:
+		// `reduceNot` sees `inner.kind === "not"` and returns
+		// `inner.clause` (which is `x`). `toBe(x)` confirms
+		// referential equality.
+		const x = eq(prop("patient", "status"), literal("open"));
+		const inner = not(x);
+		expect(inner.kind).toBe("not");
+		const collapsed = not(inner);
+		expect(collapsed).toBe(x);
+	});
+
+	it("not(eq(...)) preserves the standard envelope when no reduction applies", () => {
+		// Negative case — no reduction matches `not(eq(...))`, so
+		// the builder falls through to the standard `{ kind: "not",
+		// clause }` shape. The round-trip parse confirms the shape
+		// is well-typed.
+		const inner = eq(prop("patient", "status"), literal("open"));
+		const p = not(inner);
+		expect(p.kind).toBe("not");
+		// `p.clause` may not type-check if the overload pattern
+		// loses the precise return type for non-reducing inputs;
+		// narrowing on `kind` first keeps the access safe even
+		// under future overload refinements.
+		if (p.kind === "not") {
+			expect(p.clause).toBe(inner);
+		}
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("and(x, y) preserves the n-ary envelope when two-or-more clauses are supplied", () => {
+		// Two-clause `and` has no canonical reduction — the standard
+		// `{ kind: "and", clauses: [x, y] }` envelope is the canonical
+		// shape. The round-trip parse confirms the shape is
+		// well-typed.
+		const x = eq(prop("patient", "status"), literal("open"));
+		const y = gt(prop("patient", "age"), literal(18));
+		const p = and(x, y);
+		expect(p.kind).toBe("and");
+		if (p.kind === "and") {
+			expect(p.clauses).toHaveLength(2);
+		}
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("or(x, y) preserves the n-ary envelope when two-or-more clauses are supplied", () => {
+		const x = eq(prop("patient", "status"), literal("open"));
+		const y = eq(prop("patient", "status"), literal("closed"));
+		const p = or(x, y);
+		expect(p.kind).toBe("or");
+		if (p.kind === "or") {
+			expect(p.clauses).toHaveLength(2);
+		}
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+});
+
 /* --- Type-level tests -------------------------------------------------
  *
  * Compile-time regression lock for the variadic-with-required-first
- * contract on `and`, `or`, and `isIn`. The `@ts-expect-error`
- * directives below are the assertions: each one expects a real
- * TypeScript error on the call beneath it. If any builder is loosened
- * to plain `...args: T[]`, the matching call becomes valid, the
- * directive becomes unused, and TypeScript emits TS2578.
+ * contract on `isIn`, `multiSelectAny`, and `multiSelectAll`. The
+ * `@ts-expect-error` directives below are the assertions: each one
+ * expects a real TypeScript error on the call beneath it. If any
+ * builder is loosened to plain `...args: T[]`, the matching call
+ * becomes valid, the directive becomes unused, and TypeScript emits
+ * TS2578.
+ *
+ * Why `and` / `or` are NOT in this block: the construction-time
+ * reductions in `reduction.ts` collapse the empty argument list to a
+ * sentinel (`and()` → `match-all`, `or()` → `match-none`), so the
+ * zero-argument call is now a legitimate API surface — locking it as
+ * a compile-time error would conflict with the documented behavior.
+ * The remaining variadic builders (`isIn`, `multiSelectAny`,
+ * `multiSelectAll`) have no parallel reduction: their value lists are
+ * literal-only and the canonical "empty" shape isn't a sentinel, so
+ * the empty-list rejection stays at the type layer.
  *
  * Enforcement surface: `npm run typecheck`, wired into lefthook
  * pre-push. The push fails before the change lands. Vitest itself does
@@ -654,10 +812,6 @@ describe("sentinel + range + relational predicate builders", () => {
 function typeCheckVariadicMinOne(): void {
 	const neverRun = false;
 	if (neverRun) {
-		// @ts-expect-error — and() with no arguments must not type-check
-		void and();
-		// @ts-expect-error — or() with no arguments must not type-check
-		void or();
 		// @ts-expect-error — isIn requires a left term and at least one literal
 		void isIn(prop("patient", "status"));
 		// `multiSelectAny` / `multiSelectAll` require at least one literal
@@ -729,6 +883,18 @@ void typeCheckComparisonNarrowing;
  * `[Predicate, ...Predicate[]]`-acceptable. The directives below pin
  * that distinction so a regression to `z.array(T).min(1)` surfaces as
  * an unused `@ts-expect-error` (TS2578).
+ *
+ * Why the schema check still matters when the builders apply
+ * reductions: the `and` / `or` builders thread their inputs through
+ * the construction-time reductions in `reduction.ts` and never
+ * construct an empty-clauses literal. But code that bypasses the
+ * builders — directly composing an AST literal, or parsing
+ * persisted JSON via `predicateSchema.parse(...)` — must still be
+ * rejected for the empty-clauses shape. This block is the
+ * compile-time guard for the direct-literal path; the schema's
+ * tuple-with-rest is the runtime guard for the parse path. Both
+ * stay in place even after the builders started swallowing empty
+ * input.
  *
  * Note on scope: this block does NOT lock the indexed-access form
  * `result.clauses[0]`. Without `noUncheckedIndexedAccess` enabled in

@@ -1530,12 +1530,24 @@ const betweenSchema = z
 
 // `clauses` on `andSchema` and `orSchema` is non-empty: an empty `and`
 // trivially evaluates to `true` and an empty `or` trivially evaluates
-// to `false` — neither is useful and both almost always indicate an
-// authoring bug (e.g. a filter UI that produced no clauses). Reject at
-// the AST layer rather than surfacing tautologies/contradictions to
-// downstream consumers.
+// to `false` — neither is the canonical AST shape for those values
+// (the canonical shapes are `match-all` and `match-none` respectively).
+// The schema rejects the empty-list shape so a directly-parsed
+// `{ kind: "and", clauses: [] }` literal — e.g. parsing persisted
+// JSON from an older schema — fails loudly rather than reaching
+// downstream consumers as a tautology.
 //
-// Both use the Zod 4 tuple-with-rest idiom rather than
+// The `and` / `or` builders in `lib/domain/predicate/builders.ts`
+// thread their inputs through the construction-time reductions in
+// `lib/domain/predicate/reduction.ts` BEFORE the schema parse. The
+// reductions collapse the empty- and single-clause inputs to
+// canonical sentinel / unwrapped forms (`and()` → `match-all`,
+// `and(x)` → `x`, etc.), so the schema's non-empty shape is the
+// defensive backstop for direct schema use, not the primary surface
+// authors interact with. See the file-level comment in
+// `builders.ts`'s "Logical" section for the full reduction contract.
+//
+// Both schemas use the Zod 4 tuple-with-rest idiom rather than
 // `z.array(...).min(1)`. The inferred type is
 // `[Predicate, ...Predicate[]]` rather than `Predicate[]`, which lets
 // construction-site object literals like
