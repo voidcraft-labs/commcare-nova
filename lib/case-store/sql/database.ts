@@ -30,11 +30,9 @@
 // Tenant isolation on the `cases` table is the column pair
 // `(app_id, owner_id)`. There is no row-level security policy,
 // no per-tenant schema, no per-tenant database. The application
-// layer applies the filter on every read by funneling all access
-// through the `CaseStore` interface — there is no path that
-// bypasses the filter. RLS lands as defense-in-depth once the
-// application-layer pattern is exercised. (Spec § "CaseStore",
-// line 389.)
+// layer is expected to funnel all access through a `CaseStore`
+// interface that always supplies the owner-id filter from the
+// request boundary. (Spec § "CaseStore", line 389.)
 //
 // ## Postgres-strict null semantics
 //
@@ -306,15 +304,10 @@ export interface CaseIndicesTable {
 	relationship: CaseIndexRelationship;
 
 	/**
-	 * Edge depth. `depth=1` is the direct edge between case and
-	 * its immediate ancestor. The materialization policy stores
-	 * direct edges only; the relation-path compiler emits a
-	 * recursive CTE against the depth=1 rows for transitive
-	 * walks.
-	 *
-	 * Switching to a fully materialized closure is a one-line
-	 * change at the trigger that maintains this table — the
-	 * `depth` column already accommodates rows with `depth>1`.
+	 * Edge depth. `depth=1` means a direct edge between a case
+	 * and its immediate ancestor. Higher values are reserved for
+	 * storing transitive edges; the relation-path compiler reads
+	 * whichever rows exist via recursive CTE.
 	 *
 	 * Spec line 279: `depth INT NOT NULL` with comment
 	 * `1 = direct, 2 = grandparent`.

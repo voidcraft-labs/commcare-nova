@@ -324,13 +324,19 @@ describe("Database.case_indices", () => {
 		// (line 278). Anything else must be a TypeScript error.
 		// The narrowed literal-union type catches a stray
 		// "ancestor" / "host" string slipping in via app code.
+		// The valid-arm half is exercised at runtime; the
+		// invalid-arm half is exercised at typecheck time via the
+		// expect-error directive on the line below — its contract
+		// is "if this line stops failing typecheck, tsc errors out
+		// on an unused directive," which is the actual signal we
+		// want.
 		type Row = Selectable<CaseIndicesTable>;
 		const child: Row["relationship"] = "child";
 		const extension: Row["relationship"] = "extension";
 		expect([child, extension]).toEqual(["child", "extension"]);
 		// @ts-expect-error — only "child" and "extension" are valid.
-		const _bad: Row["relationship"] = "host";
-		expect(_bad).toBe("host");
+		const _invalid: Row["relationship"] = "host";
+		void _invalid;
 	});
 
 	it("exposes the spec's column shape via Selectable<CaseIndicesTable>", () => {
