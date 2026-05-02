@@ -616,11 +616,19 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * Distinct from `isBlank`: `is-null` matches only the absent state,
  * while `is-blank` widens to include the empty-string value too.
  * `is-null` is **unrepresentable on every CCHQ wire target** — the
- * wire layer collapses absent / cleared / empty into one match set
- * (`prop = ''` and `case_property_missing(prop)` both match all
- * three states), so emitting `is-null` against any CCHQ target would
- * silently widen the match set and lose the AST's strictness signal.
- * The B5 representability checker errors at authoring time when an
+ * wire layer collapses absent / cleared / empty into one match set.
+ * On-device, `prop = ''` matches all three states; in CSQL, the
+ * server-side `case_property_query()` short-circuits `value == ''`
+ * to `case_property_missing()` semantics at
+ * `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching
+ * all three states. There is no CSQL function authors can write to
+ * select strict-absent only — `case_property_missing` is a Python
+ * helper at `commcare-hq/corehq/apps/es/case_search.py:378`, not a
+ * CSQL function in the table at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+ * Emitting `is-null` against any CCHQ target would silently widen
+ * the match set and lose the AST's strictness signal. The B5
+ * representability checker errors at authoring time when an
  * `is-null` reaches a CCHQ-bound context; the per-dialect emitters
  * defensively throw. Authors who want a CCHQ-portable "field set /
  * unset" check reach for `isBlank` instead.
@@ -657,10 +665,14 @@ export function isNull(left: Term): Extract<Predicate, { kind: "is-null" }> {
  *     property refs; equivalent for input / session refs). The wide
  *     form preserves the AST's split between "absent" and "empty"
  *     for downstream consumers but matches both states alike.
- *   - **CSQL:** `case_property_missing(prop)`, registered at
- *     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:46`,
- *     which wraps the line-245 short-circuit collapsing absent /
- *     cleared / empty into one match set.
+ *   - **CSQL:** wire form `prop = ''`. The CCHQ server-side
+ *     `case_property_query()` short-circuits empty-value queries to
+ *     `case_property_missing()` semantics at
+ *     `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching
+ *     absent / cleared / empty alike. (`case_property_missing` is a
+ *     Python helper at the same file's line 378 — not a CSQL
+ *     function authors can write; the empty-equality form is the
+ *     only authorable shape, and CCHQ does the right thing.)
  *   - **Case-list / post-ES filter:** `prop = ''` for property refs
  *     (CCHQ's on-device idiom for absent-or-empty), with the
  *     `if(count(input), real, match-all())` wrapper for refs that

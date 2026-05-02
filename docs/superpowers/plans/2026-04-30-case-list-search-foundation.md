@@ -418,7 +418,7 @@ export const isBlank = (left: Term):
 
 Per-dialect emitter rules (encoded in B-stage emitters, but the contract locks here):
 - **Postgres** — `is-null(prop("X","Y"))` → `NOT (properties ? 'Y')` (or the dialect-equivalent `properties ? 'Y' = false`). `is-blank(prop("X","Y"))` → `(NOT (properties ? 'Y')) OR properties->>'Y' = ''`. For input refs and session refs, the equivalent presence check applies.
-- **CSQL** — `is-blank(prop)` → `case_property_missing(prop)` (registered at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:46`; wraps the line-245 short-circuit). `is-null(prop)` is **unrepresentable** in CSQL; the visitor throws and B5's representability checker errors at authoring time.
+- **CSQL** — `is-blank(prop)` → wire form `prop = ''`; the CCHQ server-side `case_property_query()` short-circuits empty-value queries to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching absent / cleared / empty alike. (`case_property_missing` is a Python helper at the same file's line 378 — not a CSQL function authors can write.) `is-null(prop)` is **unrepresentable** in CSQL; the visitor throws and B5's representability checker errors at authoring time.
 - **Case-list filter** — `is-blank(prop)` → `prop = ''` (CCHQ's on-device idiom for "absent OR empty"). `is-blank(input)` → wraps in the `if(count(input), ..., true())` form so absent inputs short-circuit cleanly. `is-null` is unrepresentable; same rejection rule.
 - **Post-ES search filter** — same dialect as case-list filter; same rules.
 
@@ -642,7 +642,7 @@ export function validateRepresentability(ast: Predicate, target: WireTarget): Re
 Walk the AST. For each node, check against a per-target operator table:
 
 **Unrepresentable on every CCHQ wire target (case-list-filter, CSQL, post-ES search filter):**
-- `is-null` — strict "left resolves to absent" has no CCHQ wire form. CCHQ collapses absent / cleared / empty into one match set (`prop = ''` and `case_property_missing(prop)` both match all three states). Authoring `is-null` in a CCHQ-bound context is an authoring-time error; the author must use `is-blank` for portable behavior or restrict the predicate to Postgres-evaluated contexts (preview today; future Cloud SQL deploy). Same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context — reject loudly at authoring, never silently widen.
+- `is-null` — strict "left resolves to absent" has no CCHQ wire form. On every CCHQ dialect, `prop = ''` matches absent / cleared / empty alike; in CSQL the server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching all three states. Authoring `is-null` in a CCHQ-bound context is an authoring-time error; the author must use `is-blank` for portable behavior or restrict the predicate to Postgres-evaluated contexts (preview today; future Cloud SQL deploy). Same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context — reject loudly at authoring, never silently widen.
 - `any-relation` — CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`); the direction-agnostic walk has no wire form on any CCHQ dialect.
 
 **Unrepresentable on case-list-filter target:**

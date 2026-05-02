@@ -791,10 +791,14 @@ const matchSchema = z.object({
  * absence check — the CCHQ wire matches absent / cleared / empty
  * alike — so the canonical authoring shapes for the intent are
  * `is-null(prop)` (strict-absent, Postgres-only) and
- * `is-blank(prop)` (absent-or-empty, the CCHQ-portable form that
- * emits `case_property_missing(prop)` in CSQL). Reject the all-null
- * list here so downstream consumers don't have to encode the policy.
- * Source citations live next to the `.refine(...)` call below.
+ * `is-blank(prop)` (absent-or-empty, the CCHQ-portable form;
+ * emits `prop = ''` on every CCHQ dialect, with the server-side
+ * `case_property_query()` short-circuit at
+ * `commcare-hq/corehq/apps/es/case_search.py:241-246` collapsing
+ * empty-value queries into the absent-or-empty match set in CSQL).
+ * Reject the all-null list here so downstream consumers don't have
+ * to encode the policy. Source citations live next to the
+ * `.refine(...)` call below.
  *
  * Wire-side whitespace tokenization on `values`: CCHQ's `selected-any`
  * / `selected-all` tokenize the values argument by whitespace at the
@@ -832,19 +836,23 @@ const multiSelectContainsSchema = z
 	// — the wire matches absent / cleared / empty alike on CCHQ — so
 	// the canonical authoring shapes for the intent are
 	// `is-null(prop)` (strict-absent, Postgres-only) and
-	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form that
-	// emits `case_property_missing(prop)` in CSQL).
+	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form;
+	// emits `prop = ''` on every CCHQ dialect).
 	//
 	// CSQL: `case_property_query(name, '', multivalue_mode=...)`
-	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py:245-246`
-	// to `case_property_missing(name)` — "the property is missing" —
-	// before reaching the multivalue tokenization branch. Every null
-	// literal lowers to the wire-form empty string at the term emitter,
-	// so an all-null list never reaches the `selected-any` /
-	// `selected-all` per-token logic; the entire predicate is a single
-	// "is missing" check duplicated by `quantifier`'s OR / AND. The
-	// CCHQ wire match-set covers absent / cleared / empty — the same
-	// match set `is-blank(prop)` expresses cleanly at the AST layer.
+	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py:241-246`
+	// (the `value == ''` arm) to `case_property_missing(name)` —
+	// "the property is missing" — before reaching the multivalue
+	// tokenization branch. `case_property_missing` is a Python helper
+	// at the same file's line 378, not a CSQL function authors can
+	// write; the empty-equality form is the only authorable shape and
+	// CCHQ does the right thing internally. Every null literal lowers
+	// to the wire-form empty string at the term emitter, so an all-
+	// null list never reaches the `selected-any` / `selected-all` per-
+	// token logic; the entire predicate is a single absence check
+	// duplicated by `quantifier`'s OR / AND. The CCHQ wire match-set
+	// covers absent / cleared / empty — the same match set
+	// `is-blank(prop)` expresses cleanly at the AST layer.
 	//
 	// On-device: `XPathSelectedFunc.multiSelected` at
 	// `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathSelectedFunc.java:38-54`
@@ -893,10 +901,15 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //
 // CCHQ's wire layer collapses three semantically distinct states —
 // *property never written* / *property written, then cleared* /
-// *property explicitly set to empty* — into one wire-readable state
-// (`prop = ''` matches all three on-device; `case_property_missing(prop)`
-// matches all three in CSQL). The wire conflation is a CCHQ-side
-// accumulation; **Nova's AST and runtime are not bound by it**.
+// *property explicitly set to empty* — into one wire-readable state.
+// On every CCHQ dialect, `prop = ''` matches all three states; in
+// CSQL the server-side `case_property_query()` short-circuits empty-
+// value queries to `case_property_missing()` semantics at
+// `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching
+// all three states. (`case_property_missing` is a Python helper at
+// the same file's line 378 — not a CSQL function authors can write.)
+// The wire conflation is a CCHQ-side accumulation; **Nova's AST and
+// runtime are not bound by it**.
 // Postgres JSONB distinguishes "key absent" from "key present with
 // empty-string value" (`NOT (properties ? 'X')` versus `properties->>'X'
 // = ''`); the in-memory `DummyCaseRow` does the same via
@@ -924,14 +937,18 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //     empty-string. Postgres / in-memory: emits the disjunction
 //     (`(NOT (properties ? 'X')) OR properties->>'X' = ''` for
 //     property refs; equivalent for input / session refs). CCHQ
-//     wire: cleanly representable on every target —
-//     `case_property_missing(prop)` in CSQL (registered at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:46`,
-//     which wraps the line-245 short-circuit collapsing absent /
-//     cleared / empty); `prop = ''` on-device for case-list /
-//     post-ES filters; `if(count(input), real_predicate,
-//     match-all())` wrapper for case-list / post-ES filters that
-//     read a search input.
+//     wire: cleanly representable on every target — wire form
+//     `prop = ''` (the on-device idiom for absent-or-empty; CSQL
+//     server-side `case_property_query()` short-circuits empty-value
+//     queries to `case_property_missing()` semantics at
+//     `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching
+//     absent / cleared / empty alike). `case_property_missing` is a
+//     Python helper at the same file's line 378, not a CSQL function
+//     authors can write — the empty-equality form is the only
+//     authorable shape, and CCHQ does the right thing on the server.
+//     Search-input refs in case-list / post-ES filters wrap the
+//     equality in `if(count(input), real_predicate, match-all())`
+//     so absent inputs short-circuit cleanly.
 //
 // Both schemas accept every Term variant in `left` — property refs,
 // search-input refs, both session-ref kinds, and (structurally only)

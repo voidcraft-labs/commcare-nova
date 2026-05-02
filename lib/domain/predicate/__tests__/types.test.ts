@@ -176,13 +176,15 @@ describe("predicate schema", () => {
 	});
 
 	// `in(...)` with all-null values is a structural degenerate: every
-	// wire emission collapses to "is unset OR is unset OR …", which
-	// duplicates the canonical `eq(prop, literal(null))` "is unset"
-	// form rather than expressing real set membership. Reject at the
-	// AST layer so downstream compilers don't have to encode the
-	// policy. Mixed null + non-null lists are accepted because they
-	// encode the meaningful "is unset OR equals one of these values"
-	// predicate.
+	// wire emission collapses to "is absent OR is absent OR …", which
+	// duplicates an absence check rather than expressing real set
+	// membership. The canonical authoring shapes for the absence-check
+	// intent are `is-null(prop)` (strict-absent, Postgres-only) and
+	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form).
+	// Reject at the AST layer so downstream compilers don't have to
+	// encode the policy. Mixed null + non-null lists are accepted
+	// because they encode the meaningful "absent OR equals one of
+	// these values" predicate.
 	it("rejects an in(...) where every value is null", () => {
 		expect(() =>
 			predicateSchema.parse({
@@ -563,10 +565,13 @@ describe("predicate schema", () => {
 
 	// All-null rejection mirrors the `inSchema` defense above. Both wire
 	// targets collapse an all-null `multi-select-contains` to a
-	// duplicated "is unset" check — see the source citations on
+	// duplicated absence check — the CCHQ wire matches absent /
+	// cleared / empty alike — see the source citations on
 	// `multiSelectContainsSchema`'s `.refine(...)` for the per-target
-	// dispatch — so the canonical authoring shape for the same intent is
-	// `is-null(prop)`, not a token list of nulls.
+	// dispatch. The canonical authoring shapes for the absence-check
+	// intent are `is-null(prop)` (strict-absent, Postgres-only) and
+	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form), not
+	// a token list of nulls.
 	it("rejects multi-select-contains where every value is null", () => {
 		expect(() =>
 			predicateSchema.parse({
@@ -582,7 +587,7 @@ describe("predicate schema", () => {
 	});
 
 	// Mixed null + non-null lists are accepted because they encode the
-	// meaningful "is unset OR / AND has token X" predicate. Pinning the
+	// meaningful "absent OR / AND has token X" predicate. Pinning the
 	// positive case keeps the rejection narrow to the all-null shape.
 	it("accepts multi-select-contains with a single null value alongside non-null values", () => {
 		const result = predicateSchema.parse({
@@ -1241,10 +1246,14 @@ describe("is-null predicate", () => {
 // Where `is-null` is strict (matches only the absent state),
 // `is-blank` widens the match set to include the empty-string value
 // too. The widening is the operator's purpose: `is-blank` is
-// representable on every CCHQ wire target (`case_property_missing`
-// in CSQL; `prop = ''` on-device; the `if(count(input), real,
-// match-all())` wrapper for input refs in case-list / post-ES
-// dialects), so authors who need a portable "field set / unset" check
+// representable on every CCHQ wire target — wire form `prop = ''`
+// (the on-device idiom for absent-or-empty; CSQL server-side
+// `case_property_query()` short-circuits empty-value queries to
+// `case_property_missing()` semantics at
+// `commcare-hq/corehq/apps/es/case_search.py:241-246`), with the
+// `if(count(input), real, match-all())` wrapper for input refs in
+// case-list / post-ES dialects so absent inputs short-circuit
+// cleanly. Authors who need a portable "field set / unset" check
 // reach for `is-blank` rather than `is-null` and the wire layer
 // emits a clean form. The schema is parallel-shaped to `isNullSchema`:
 // same `left: termSchema`, same admission of every Term variant

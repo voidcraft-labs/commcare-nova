@@ -736,10 +736,12 @@ function checkMultiSelectContains(
  *
  * The two operators are distinguished only at per-dialect wire
  * emission (`is-null` is unrepresentable on every CCHQ target;
- * `is-blank` emits `case_property_missing` in CSQL and `prop = ''`
- * on-device); the type-checker treats them identically because the
- * operand-shape question is the same. Spec subsection: "Null vs
- * blank semantics" under the Predicate family in
+ * `is-blank` emits `prop = ''` on every CCHQ dialect, with the
+ * server-side `case_property_query()` short-circuit collapsing empty-
+ * value queries to absent-or-empty semantics in CSQL); the type-
+ * checker treats them identically because the operand-shape question
+ * is the same. Spec subsection: "Null vs blank semantics" under the
+ * Predicate family in
  * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
  */
 function checkAbsenceOperator(
