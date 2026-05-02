@@ -124,10 +124,13 @@ export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
  * Builder for a Zod string-with-regex schema constrained to XML
- * element-name vocabulary — search-input names, user-context fields,
+ * element-name vocabulary — search-input names, session-user fields,
  * and relation identifiers all draw from this closed set. Hyphens are
  * NOT permitted; see the JSDoc on `XML_ELEMENT_NAME_PATTERN` for the
- * vocabulary divergence rationale.
+ * vocabulary divergence rationale. The closed-enum `session-context`
+ * arm uses `z.enum(SESSION_CONTEXT_FIELDS)` directly and does NOT flow
+ * through this helper — its field set is the framework-controlled
+ * narrowing in `types.ts`, not an open identifier vocabulary.
  */
 const xmlElementNameField = (label: string) =>
 	z
@@ -414,10 +417,19 @@ export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
  *     that label the active user.
  *   - `deviceid` — supports device-targeting filters (e.g. surfacing
  *     a specific device's submissions in a sync-status case list).
- *   - `appversion` — supports version-gating filters (e.g.
- *     "show only cases on app version >= 2.0"); lexicographic compare
- *     is acceptable because CommCare app-version strings sort
- *     correctly under text ordering.
+ *   - `appversion` — supports version-gating filters. The wire is a
+ *     string at `/session/context/appversion`, and lexicographic is
+ *     the only ordering CCHQ exposes against it: there is no
+ *     semantic-version-aware comparator at the wire layer. Authors
+ *     who write `appversion >= '2.10'` to gate "version 2.10 or
+ *     newer" should know that lex compare ranks `'10.0' < '2.0'`
+ *     (because `'1' < '2'`) and `'2.53.0' < '2.9.0'` — the wire
+ *     answer disagrees with semver intuition once digit counts
+ *     diverge. Authors who need a semver-correct gate compose
+ *     multiple comparisons (e.g. by exact-matching the major /
+ *     minor segments). Authoring-time correctness for version
+ *     gating is a Plan 3 / validator concern; the type checker's
+ *     job here is only to resolve the term to its wire type.
  *
  * The other three are intentionally excluded:
  *
@@ -712,13 +724,14 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  *
  * `value` is a string (not a term) — the predicate captures a static
  * match value baked at construction time. CCHQ's wire layer accepts
- * runtime substitution of search-input refs / user-context fields via
- * `unwrap_value` (`commcare-hq/corehq/apps/case_search/dsl_utils.py`),
- * so widening `value: termSchema` would have a wire target. The
- * narrowing here is a deliberate Nova-side AST scope decision — v1
- * authors reconstruct the predicate per input change rather than
- * driving the match value at runtime. Authors who need a dynamic match
- * value rebuild the predicate when the input changes.
+ * runtime substitution of search-input refs / session-user fields /
+ * session-context fields via `unwrap_value`
+ * (`commcare-hq/corehq/apps/case_search/dsl_utils.py`), so widening
+ * `value: termSchema` would have a wire target. The narrowing here is
+ * a deliberate Nova-side AST scope decision — v1 authors reconstruct
+ * the predicate per input change rather than driving the match value
+ * at runtime. Authors who need a dynamic match value rebuild the
+ * predicate when the input changes.
  *
  * `value` is non-empty: `match(prop, "")` has no useful semantics.
  * Each CCHQ mode collapses an empty value to a different non-match —
@@ -910,14 +923,14 @@ const isNullSchema = z.object({
 // Bound ordering: when both bounds are literal-typed and `lower >
 // upper`, the predicate is trivially false. The schema does NOT
 // reject this case at parse time because bounds may also be
-// search-input or user-context refs whose values aren't known until
-// runtime — adding a literal-pair-only refinement here would either
-// miss the term-pair case (silent wrong-answer in the runtime path)
-// or reject term-pair shapes the schema must accept. Detection of
-// the literal-pair impossibility is a type-checker rule (it has the
-// type information to recognise the literal pair); the term-pair
-// case is a runtime check. The schema's role here is structural
-// only.
+// search-input, session-user, or session-context refs whose values
+// aren't known until runtime — adding a literal-pair-only refinement
+// here would either miss the term-pair case (silent wrong-answer in
+// the runtime path) or reject term-pair shapes the schema must
+// accept. Detection of the literal-pair impossibility is a type-
+// checker rule (it has the type information to recognise the literal
+// pair); the term-pair case is a runtime check. The schema's role
+// here is structural only.
 
 const betweenSchema = z
 	.object({

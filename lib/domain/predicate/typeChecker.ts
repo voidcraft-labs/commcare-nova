@@ -16,8 +16,8 @@
 //
 // Coverage is per-operator and intentionally not uniform across kinds.
 // Term resolution (referenced property exists on the named case type,
-// named search input is declared, user-context refs and literals
-// resolve to their data type) runs uniformly across every operator
+// named search input is declared, session-user / session-context refs
+// and literals resolve to their data type) runs uniformly across every operator
 // that carries term operands — comparisons, the trigger-input slot of
 // `when-input-present`, and the term operands of `in` /
 // `within-distance` / `match` / `multi-select-contains`. Operand-type
@@ -779,21 +779,28 @@ function resolveTermType(
 			// resolve to text for v1's four-field set. The wire path
 			// `instance('commcaresession')/session/context/<field>` is
 			// populated by `addMetadata` at
-			// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
-			// Each of the four authoring-exposed fields
-			// (`SESSION_CONTEXT_FIELDS` in `types.ts`) is a wire string —
-			// `userid` / `username` / `deviceid` are identifiers and
-			// `appversion` is a version string whose lexicographic ordering
-			// happens to match semantic ordering (so `>=` checks like
-			// `appversion >= '2.0'` resolve correctly under text
-			// comparison). Returning `text` for the entire arm is therefore
-			// correct for v1.
+			// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`,
+			// which writes each of the four authoring-exposed fields
+			// (`SESSION_CONTEXT_FIELDS` in `types.ts`) as a wire string.
+			// `userid` / `username` / `deviceid` are identifiers; lex
+			// comparison is the natural order for identifier equality
+			// and prefix queries. `appversion` is also a wire string —
+			// CCHQ exposes no semver-aware comparator against
+			// `/session/context/appversion`, and lex ordering is the
+			// only ordering authors get there (with the caveat that
+			// e.g. `'10.0' < '2.0'` and `'2.53.0' < '2.9.0'` — once
+			// digit counts diverge, lex compare disagrees with semver
+			// intuition). Returning `"text"` reflects what the wire
+			// carries; whether an author's `appversion`-comparison
+			// expresses correct semantic gating is a Plan 3 / validator
+			// concern, not a type-checker concern.
 			//
-			// If `drift` (a numeric clock-skew metric) ever joins the enum,
-			// this arm becomes mode-aware: dispatch on `term.field` to
-			// return `int` for `drift` and `text` for the rest. The closed
-			// enum gives that future change a structural anchor — the
-			// dispatch is one switch, not a per-call lookup.
+			// If `drift` (a numeric clock-skew metric) ever joins the
+			// enum, this arm becomes mode-aware: dispatch on
+			// `term.field` to return `int` for `drift` and `text` for
+			// the rest. The closed enum gives that future change a
+			// structural anchor — the dispatch is one switch, not a
+			// per-call lookup.
 			return "text";
 		case "literal":
 			return literalType(term);

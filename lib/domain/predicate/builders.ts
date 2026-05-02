@@ -610,8 +610,9 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
 /**
  * Constructs an `is-null` predicate against a term. The `left` slot
  * accepts any term — property reference, search-input reference,
- * user-context reference, literal — so authors can ask "is the
- * property unset" / "is the input unset" / "is the user-data field
+ * session-user reference, session-context reference, literal — so
+ * authors can ask "is the property unset" / "is the input unset" /
+ * "is the user-data field unset" / "is the session-context field
  * unset" alongside the meaningless-but-structurally-permitted literal
  * form. Whether a checker rejects the literal shape is a type-checker
  * concern; the builder + schema accept it uniformly across every

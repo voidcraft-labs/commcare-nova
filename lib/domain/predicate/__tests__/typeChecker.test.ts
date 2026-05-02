@@ -12,7 +12,7 @@
 // logical wrappers (errors deep inside `and` / `or` / `not` /
 // `when-input-present` still surface), (3) special-case widenings
 // (numeric promotion both directions, select-to-text, null-as-universal,
-// user-context refs, boolean literals).
+// session-user / session-context refs, boolean literals).
 
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -295,10 +295,14 @@ describe("checkPredicate — comparison operators", () => {
 
 	// Session-context refs (closed-enum `/session/context/<field>`)
 	// also resolve to text for v1's four-field set — `userid` /
-	// `username` / `deviceid` / `appversion` are all wire strings.
-	// `appversion` lexicographic comparison happens to match semantic
-	// version ordering, so a `>=` against a text-typed property is
-	// well-typed under the type checker's text-shaped rule.
+	// `username` / `deviceid` / `appversion` are all wire strings at
+	// `/session/context/<field>`. The type checker's job here is to
+	// resolve the term's wire type, not to police semantic-version
+	// gating semantics on `appversion` (lex compare disagrees with
+	// semver once digit counts diverge — see the `session-context`
+	// arm comment in `typeChecker.ts` for the detail). A comparison
+	// against a text-typed property is well-typed under the
+	// text-shaped rule regardless.
 	it("accepts text prop = session-context field (both resolve to text)", () => {
 		const p = eq(prop("patient", "name"), sessionContext("username"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);

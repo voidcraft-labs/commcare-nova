@@ -1297,11 +1297,12 @@ describe("between predicate", () => {
 	});
 
 	it("parses a range whose bounds are search-input references", () => {
-		// Bounds are `termSchema`, not literal-only — search-input or
-		// user-context refs drive the bound at runtime. The pin locks
-		// that the schema does NOT narrow `lower`/`upper` to literals
-		// the way `inSchema.values` does (the latter has wire-target
-		// reasons to demand a static list; bounds don't).
+		// Bounds are `termSchema`, not literal-only — search-input,
+		// session-user, or session-context refs drive the bound at
+		// runtime. The pin locks that the schema does NOT narrow
+		// `lower`/`upper` to literals the way `inSchema.values` does
+		// (the latter has wire-target reasons to demand a static list;
+		// bounds don't).
 		const result = predicateSchema.parse({
 			kind: "between",
 			left: { kind: "prop", caseType: "patient", property: "age" },
