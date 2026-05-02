@@ -311,25 +311,36 @@ export const anyRelationPath = (identifier: string, ofCaseType?: string): Extrac
 
 **Wire-target portability for `any-relation`**: matches both CHILD and EXTENSION relationships under one identifier on the Postgres target. CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`), so `any-relation` has no direct CCHQ wire form. The representability checker (Task B5) rejects it for CCHQ targets; any consumer compiling to a CCHQ target must reject or rewrite the kind into a direction-specific one.
 
-### Task A4: Add Term split — session-context separated from session-user
+### Task A4: Add Term split — session-context separated from session-user — SHIPPED
 
-**Files:** `lib/domain/predicate/types.ts`, builders.ts, tests.
+Shipped across commits `6b221054` → `2d0c308a`.
 
-The shipped `userContextRefSchema` (one `kind: "user"` arm pointing to `/session/user/data/<field>`) hides the fact that CCHQ's `commcaresession` instance has two distinct wire paths under `/session/`:
+**Files modified:**
+- `lib/domain/predicate/types.ts`
+- `lib/domain/predicate/builders.ts`
+- `lib/domain/predicate/typeChecker.ts`
+- `lib/commcare/predicate/xpathEmitter.ts`
+- `lib/domain/predicate/__tests__/types.test.ts`
+- `lib/domain/predicate/__tests__/builders.test.ts`
+- `lib/domain/predicate/__tests__/typeChecker.test.ts`
+- `lib/commcare/predicate/__tests__/xpathEmitter.test.ts`
 
-- **`/session/user/data/<field>`** — populated by `addUserProperties` at `commcare-core/.../SessionInstanceBuilder.java:105-117`. **Open namespace**: arbitrary custom user-data field names (e.g., `commcare_location_id`, `commcare_project`, `is_supervisor`, `role`, `commtrack-supply-point`). Tests at `commcare-hq/.../tests/data/suite/autoload_supplypoint.xml` and `smart_link_remote_request.xml` exercise this path.
-- **`/session/context/<field>`** — populated by `addMetadata` at `commcare-core/.../SessionInstanceBuilder.java:89-103`. **Closed namespace** of seven framework-controlled fields: `deviceid`, `appversion`, `username`, `userid`, `drift`, `window_width`, `applanguage`. CCHQ docs and forms exercise the four authoring-meaningful ones (e.g., the `usercase` resolution at `corehq/apps/app_manager/xpath.py:248` uses `session_var(var='userid', path='context')`).
+**The wire layout this task encodes** (CCHQ source is `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`):
 
-The shipped schema accepts arbitrary field names against either path with no enum, so an author writing `userField("userid")` emits `/session/user/data/userid` (wrong path — that field is at `/session/context/userid`) and CCHQ silently returns empty. This is the kind of CCHQ-wire-shape leakage the typed AST is supposed to prevent.
+- **`/session/user/data/<field>`** — populated by `addUserProperties` at `:105-117`. Open namespace; arbitrary custom user-data field names (e.g., `commcare_location_id`, `commcare_project`, `is_supervisor`, `role`, `commtrack-supply-point`).
+- **`/session/context/<field>`** — populated by `addMetadata` at `:89-103`. Closed namespace; seven framework-controlled fields: `deviceid`, `appversion`, `username`, `userid`, `drift`, `window_width`, `applanguage`.
 
-Split into two arms:
+The shipped `userContextRefSchema` (one `kind: "user"` arm pointing only to `/session/user/data/<field>`) accepted any string at any field, so `userField("userid")` emitted `/session/user/data/userid` — a path that silently returns empty because `userid` lives at `/session/context/userid`. The split eliminates that leak.
+
+**Schemas that landed:**
+
 ```ts
 // Closed set of framework-populated /session/context/<field> entries with
 // authoring-meaningful semantics. The full framework set (per
-// commcare-core SessionInstanceBuilder.java:89-103) also includes `drift`,
-// `window_width`, and `applanguage` — diagnostic / UI-internal / localization
-// fields that have no authoring use case today. Adding to the enum is
-// non-breaking; promote them when a real use case surfaces.
+// SessionInstanceBuilder.java:89-103) also includes `drift`, `window_width`,
+// and `applanguage` — diagnostic / UI-internal / localization fields with
+// no authoring use case today. Adding to the enum is non-breaking; promote
+// when a real use case surfaces.
 const SESSION_CONTEXT_FIELDS = ["userid", "username", "deviceid", "appversion"] as const;
 
 const sessionUserSchema = z.object({
@@ -343,30 +354,33 @@ const sessionContextSchema = z.object({
 });
 ```
 
-The shipped `userContextRefSchema` is **replaced directly** — no migration helper, no deprecation alias. Same pattern A1/A2/A3 followed: the AST has not been persisted in production (`userContextRefSchema` is contained entirely within `lib/domain/predicate/` and the emitter; no Firestore reach), so call-site sweep is the right move and a migration helper would carry persistent debt for a problem that doesn't exist. Sweep: builders, type checker, emitter, tests in one change.
+**Builders that landed:**
 
-**Type-checker arm split**: the shipped `case "user"` arm at `lib/domain/predicate/typeChecker.ts:763-770` returns `"text"` unconditionally. Split into `case "session-user"` (still `"text"` — the `/user/data/` namespace returns string at the wire) and `case "session-context"` (also `"text"` for v1's four-field set: `userid`/`username`/`deviceid`/`appversion` are all wire strings; lexicographic comparison on `appversion` is correct for `>=` checks like "app version >= 2.0"). If `drift` (number) ever enters the enum, the arm becomes mode-aware then.
-
-**Emitter arm split** (in the shipped `xpathEmitter.ts`, slated for B6 deletion): split the `case "user"` arm at `lib/commcare/predicate/xpathEmitter.ts:438-439` into:
-- `case "session-user"` → `instance('commcaresession')/session/user/data/${term.field}`
-- `case "session-context"` → `instance('commcaresession')/session/context/${term.field}`
-
-Builders:
 ```ts
 export const sessionUser = (field: string): SessionUserRef => /* absent-not-undefined contract */;
 export const sessionContext = (field: SessionContextField): SessionContextRef => /* ... */;
 ```
 
-Per-kind narrowed return types match the A1/A2/A3 pattern (`SessionUserRef = Extract<Term, { kind: "session-user" }>` etc.).
+`SessionUserRef = z.infer<typeof sessionUserSchema>` and `SessionContextRef = z.infer<typeof sessionContextSchema>` — structurally equivalent to `Extract<Term, { kind: "..." }>`. The `z.infer` form matches every other Term builder in the file (`prop`, `input`, `literal`); the `Extract<...>` form is reserved for predicate and relation-path builders. This was a deviation from my initial implementer prompt, validated as the established convention by the code-quality reviewer.
 
-Steps:
-- [ ] Write failing tests for both schemas (positive + the four enum members, rejection on enum miss for `session-context`)
-- [ ] Add `SESSION_CONTEXT_FIELDS` constant + both schemas; delete shipped `userContextRefSchema` + `UserContextRef` type
-- [ ] Add `sessionUser` / `sessionContext` builders; delete shipped `userField` builder
-- [ ] Split type-checker `"user"` arm into `"session-user"` / `"session-context"`
-- [ ] Split emitter `"user"` arm into both arms
-- [ ] Sweep test references (`userField` calls in builders.test.ts, typeChecker.test.ts, xpathEmitter.test.ts; `kind: "user"` literals in types.test.ts)
-- [ ] Run `npm test lib/domain/predicate/ lib/commcare/predicate/`, `npm run typecheck`, commit
+The shipped `userContextRefSchema` was **replaced directly** — no migration helper, no deprecation alias. Same pattern A1/A2/A3 followed: the AST has not been persisted in production (`userContextRefSchema` was contained entirely within `lib/domain/predicate/` and the emitter), so call-site sweep is the right move.
+
+**Type-checker arm split** at `lib/domain/predicate/typeChecker.ts`: shipped `case "user"` (returning `"text"` unconditionally) became:
+- `case "session-user"` → `"text"` (the `/user/data/` namespace returns string at the wire because `addUserProperties` writes Hashtable<String,String> values).
+- `case "session-context"` → `"text"` (v1's four-field set is wire strings).
+
+**Emitter arm split** at `lib/commcare/predicate/xpathEmitter.ts` (slated for B6 deletion):
+- `case "session-user"` → `instance('commcaresession')/session/user/data/${term.field}`
+- `case "session-context"` → `instance('commcaresession')/session/context/${term.field}`
+
+**Deviations from the v2 plan's outline above (all principled improvements):**
+
+1. **Field-set rewrite from the v2 outline.** The original v2 outline specified `["userid", "username", "appid", "domain", "device_id"]`. Three of those were wrong vs CCHQ's actual wire form: `appid` is `appversion`; `device_id` is `deviceid`; `domain` doesn't exist anywhere in the session at all. Verified at `SessionInstanceBuilder.java:89-103` and corrected before dispatch.
+2. **No migration helper.** The v2 outline included a migration helper for the `kind: "user"` → split. The shipped AST has no Firestore reach, so call-site sweep is correct (matching A1/A2/A3); migration code would carry persistent debt for a problem that doesn't exist.
+3. **`appversion` lex-ordering rationale corrected post-implementation.** A first pass shipped a comment claiming "lex ordering on appversion happens to match semantic version ordering." That's false — `'10.0' < '2.0'` lexicographically, and CommCare HQ has crossed 9 → 10 routinely (e.g. `"2.53.0"` lex-compares as less than `"2.9.0"`). Rewrote the rationale across `types.ts`, `typeChecker.ts`, and the test comment to be honest: lex is the only wire-exposed ordering on `/session/context/appversion`; semver-correct gates compose multiple comparisons; authoring-correctness for version gating is Plan 3 / validator territory. The return type stays `"text"` (the wire is a string regardless of how authors compare it).
+4. **Holistic JSDoc sweep.** The `userField → sessionUser/sessionContext` rename initially missed five "user-context" JSDoc references that the rename should have updated (`xmlElementNameField` helper docstring, `match` operator's `unwrap_value` paragraph, `between` ordering JSDoc, file-header coverage comment in `typeChecker.ts`, `isNull`'s Term-variant list in `builders.ts`). Swept in the same follow-up commit; the `xmlElementNameField` docstring also now notes that the closed-enum `session-context` arm uses `z.enum(SESSION_CONTEXT_FIELDS)` directly rather than this helper.
+
+**Memory carry-forward to A5–A7 implementer prompts:** explicitly require a comment-prose grep at the end of any rename (`rg "<old-term>"` to verify zero leftovers); pre-verify any "lex ordering happens to work" / "semver compares correctly as text" claims against real CCHQ version strings before shipping rationale comments.
 
 ### Task A4.5: Add `is-blank` operator + lock null/blank semantic
 
