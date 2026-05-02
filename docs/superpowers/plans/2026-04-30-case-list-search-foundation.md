@@ -943,25 +943,41 @@ Steps:
 - [ ] Wire dispatch through `compilePredicate`'s operand handler — `term` → `compileTerm`, every other ValueExpression arm → `compileExpression`
 - [ ] Run tests, commit
 
-### Task C7.5: Postgres test infrastructure
+### Task C7.5: Postgres test infrastructure — SHIPPED
+
+Shipped across commits `d223d9b9` → `5171cd9a`.
 
 **Files:**
-- `package.json` — add `@testcontainers/postgresql` dev dependency
-- Create: `vitest.setup.ts` (or `lib/case-store/sql/__tests__/globalSetup.ts`) — Vitest `globalSetup` hook that boots the container once per test run
-- Create: `lib/case-store/sql/__tests__/setup.ts` — per-test fixture that opens a transaction and rolls it back on teardown
-- Test: validate the harness boots a single container per test run, installs `pg_trgm` / `fuzzystrmatch` / `postgis` (and `pg_jsonschema` when available — Plan 2's extension allowlist gate determines which trigger implementation deploys against the live Cloud SQL instance), seeds the schema from the JSON Schema generator once, and accepts a smoke `INSERT` + `SELECT` round-trip.
+- `package.json` / `package-lock.json` — `@testcontainers/postgresql ^11.14.0`, `pg ^8.20.0`, `@types/pg ^8.20.0` added to `devDependencies`.
+- `vitest.config.ts` (modified) — `globalSetup` hook + `hookTimeout: 30_000`.
+- `lib/case-store/sql/__tests__/globalSetup.ts` (new) — boots a single `postgis/postgis:16-3.4` container per Vitest run; installs `pg_trgm`, `fuzzystrmatch`, `postgis`; conditionally installs `pg_jsonschema` when the image supports it; seeds the schema verbatim from the spec DDL at lines 254-284; publishes the connection URI via `project.provide("postgresTestUrl", ...)`. `console.warn` for the `pg_jsonschema`-absent path because globalSetup runs in the orchestrator before any worker initializes its `@/lib/logger` mock.
+- `lib/case-store/sql/__tests__/setup.ts` (new) — per-test fixture via `test.extend<CaseStoreFixtures>` exposing two fixtures, `pgClient` (raw `pg.PoolClient` inside `BEGIN` / `ROLLBACK`) and `db` (a `Kysely<Database>` wrapping the same client through a single-connection pool adapter so the Kysely-side query pool's per-query release is a no-op and the BEGIN scope persists across the whole test). Both fixtures share one connection and one transaction. The empty-pattern fixture form `({}, use) => ...` per Vitest's documented constraint (the parser checks that the first arg starts with `{` and ends with `}`); the `biome-ignore` for `noEmptyPattern` is single-line and citation-anchored to `@vitest/runner/dist/chunk-artifact.js:528`.
+- `lib/case-store/sql/__tests__/harness.test.ts` + `harness-isolation.test.ts` (new, 10 smoke tests) — connectivity, extension installation, schema column inventory, INSERT/SELECT round-trip, intra-file rollback isolation, cross-file isolation (proves the container is shared and writes don't survive file boundaries).
+- `lib/case-store/CLAUDE.md` (new) — documents the container-per-run + transaction-per-test contract end-to-end, plus the spec→type→DDL three-surface lockstep rule.
 
-**Container-sharing strategy**: one container per Vitest run via `globalSetup`, NOT one container per file. Per-test isolation comes from wrapping each test in `BEGIN` + `ROLLBACK` so writes never persist beyond the test. This is the canonical pattern; without it, every test file pays a 5-15s container-boot cost and watch-loop iteration becomes unusable. Document the strategy in the harness JSDoc + a CLAUDE.md note in the case-store package.
+**Architectural decisions:**
 
-Plan 1 introduces this infrastructure (rather than Plan 2) because Plan 1 needs to validate the AST → Kysely compiler against a real Postgres at unit-test time. Plan 2 inherits this harness for `PostgresCaseStore` integration tests; the same container + the same per-test transaction-rollback pattern serve both.
+1. **Container-per-run, not per-file.** `globalSetup.ts` runs in the orchestrator process and boots one container; workers receive the connection URI via `project.provide()`. Per-test isolation comes from `BEGIN` / `ROLLBACK` wrapped around each test body. Without this strategy, every test file would pay a 5-15s container-boot cost and watch-loop iteration becomes unusable.
+2. **Both fixtures share one connection.** The `db` fixture wraps the `pgClient` connection through a single-connection pool adapter whose `release()` is a no-op so Kysely's per-query release doesn't unwind the `BEGIN` scope. Both fixtures see the same transaction's writes; tests can mix-and-match raw pg and Kysely against the same data.
+3. **`pg_jsonschema` allowlist-gated.** Probe `pg_available_extensions`; install if present, log a single `console.warn` if absent. The case-store compilers don't depend on the trigger; the harness's two code paths (extension installed / fallback expected) are both testable downstream.
+4. **Schema seeded from spec DDL verbatim**, not introspected from the Database type. Simpler for v1; the CLAUDE.md notes the three-surface (spec, Database type, harness DDL) lockstep so a future schema change updates all three.
+5. **`case_type_schemas` row seeding is per-test, not global.** Tests that need a typed schema row insert it through the transaction-scoped `db` fixture and let it roll back. CLAUDE.md documents this so a future test author doesn't add a global seed.
+6. **`console.warn` over `@/lib/logger`** for the `pg_jsonschema`-absent path. Both write to the orchestrator's stderr identically; `console.warn` keeps the harness module free of an internal-package import.
+7. **`max: 5` connection pool** — leaves headroom for tests that opt into `test.concurrent`. Each worker has its own pool; cross-worker isolation comes from distinct connections, not from this size. Vitest runs intra-file tests serially by default.
 
-Steps:
-- [ ] Install `@testcontainers/postgresql`
-- [ ] Implement Vitest `globalSetup` that boots the container, installs extensions, seeds schema, exports the connection string via env
-- [ ] Implement per-test fixture (`beforeEach` opens transaction, `afterEach` rolls back)
-- [ ] Verify watch-loop cost: `npm run test -- --watch` on a predicate test file should re-run in <1s after the container is up
-- [ ] Test: container boots, extensions present, schema bootstrapped, smoke round-trip succeeds, parallel test files share the container
-- [ ] Run tests, commit
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `d223d9b9`. All nine checklist items verified — devDependencies placement, globalSetup wiring (once per run), three required extensions, `pg_jsonschema` allowlist-gate, schema DDL match against spec lines 254-284, BEGIN/ROLLBACK isolation, smoke test coverage, CLAUDE.md content, no version-label leakage.
+- Code-quality review (opus): ❌ Round 1 found 3 BLOCKING + 2 IMPORTANT + 1 SUGGESTION on `d223d9b9` — Vitest fixture pattern misdiagnosed (used `({ task: _task }, use)` workaround when canonical empty-fixture is `({}, use)`), forward-reference comments throughout the harness ("once they land", "runtime trigger / PL/pgSQL fallback" framing in five places), incoherent `console.warn` rationale, missing inline comment on `client.query.bind` cast, wrong `max: 5` pool-size justification, duplicate CLAUDE.md example. All resolved in fix-pass `5171cd9a` (the `({}, use)` adoption needs a single-line `biome-ignore` for `noEmptyPattern`, citation-anchored to the Vitest source line). Re-review APPROVED.
+
+**Verification gates (all green at HEAD `5171cd9a`):**
+- 2556 full-project tests pass / 14 skipped (vs 2533 pre-C-phase baseline; +10 from C7.5 smoke + 13 from C5 RelationPath which landed mid-fix-pass).
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (zero warnings, zero errors)
+- Strengthened eternal-present sweep returns zero hits across the touched files (regex includes `\bB[0-9]\b|\bC[0-9]\b`).
+- Bonus forward-reference sweep (`once.*(land|ship)|will (land|ship|come)|until.*(land|ship|arriv)|runtime trigger|PL/pgSQL fallback|case-store.s runtime`) returns zero hits.
+
+**Boot-time delta:** ~3s on `npm test`. Well below the 5-15s ceiling the spec noted as an unusable threshold.
 
 ### Task C8: Barrel exports + CLAUDE.md updates
 
