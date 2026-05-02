@@ -927,18 +927,54 @@ Shipped across commits `16fb0eb2` → `e1711f6a`.
 - `npm run lint` clean (801 files; zero warnings, zero errors)
 - Strengthened eternal-present sweep returns zero hits across the three new files (regex includes `\bB[0-9]\b|\bC[0-9]\b`).
 
-### Task C4: Predicate compiler — Kysely
+### Task C4: Predicate compiler — Kysely — SHIPPED
+
+Shipped across commits `f8a8d212` → `7d0f78e7` (the fix-pass changes landed bundled with the C6 plan SHIPPED-sync due to a staging-area collision; the code lives at HEAD `7d0f78e7` for both predicate-compiler files and the cast-table export from `compileTerm.ts`).
 
 **Files:**
-- Create: `lib/case-store/sql/compilePredicate.ts`
-- Test: `__tests__/compilePredicate.test.ts`
+- `lib/case-store/sql/compilePredicate.ts` (new) — total `Predicate` compiler covering every kind in the union: sentinels (match-all/match-none), logical (and/or/not), comparison (six ops), null/blank (is-null, is-blank, with Postgres-strict semantics), membership (in, between), multi-select-contains (any/all quantifiers), match (fuzzy via pg_trgm, phonetic via fuzzystrmatch, fuzzy-date via permutation IN-list, starts-with), within-distance (PostGIS `ST_DWithin`), exists / missing (correlated `EXISTS (subquery)` against the relation-path leaf), when-input-present.
+- `lib/case-store/sql/compileTerm.ts` (modified) — `POSTGRES_CAST_FOR_DATA_TYPE` exported as `Readonly<Record<CasePropertyDataType, string>>` for shared use across the SQL package.
+- `lib/case-store/sql/__tests__/compilePredicate.test.ts` (new, 53+ cold tests via DummyDriver).
+- `lib/case-store/sql/__tests__/compilePredicate.harness.test.ts` (new, 29+ round-trips against the testcontainers harness; covers every arm + the four distinct null-semantic cases).
 
-All operators except relational. JSONB operators for multi-select (`?|`, `?&`); pg_trgm for fuzzy; fuzzystrmatch for phonetic; PostGIS for within-distance; standard SQL for the rest.
+**Postgres extension dispatch (per the plan):**
+- JSONB key-existence (`?`), `?|`, `?&` for multi-select-contains.
+- `pg_trgm` for fuzzy match (similarity operator + threshold).
+- `fuzzystrmatch` `dmetaphone` for phonetic match.
+- PostGIS `ST_DWithin` + `ST_GeogFromText` for within-distance.
+- Standard SQL for the rest.
 
-Steps:
-- [ ] Write failing tests per operator
-- [ ] Implement, with PostGIS / pg_trgm / fuzzystrmatch dependencies declared
-- [ ] Run tests, commit
+**Postgres-strict null semantics (4 distinct cases):**
+- `is-null(prop)` → `NOT (anchor.properties ? 'key')` for property refs (key-existence test); `<term> IS NULL` for non-prop terms. Strict-absent only.
+- `is-blank(prop)` → `(NOT (anchor.properties ? 'key')) OR (anchor.properties->>'key') = ''` for prop terms; `<term> IS NULL OR <term> = ''` for non-prop terms.
+- `compare(prop, literal(""))` → standard equality against JSONB `->>`. Strict-empty only.
+- `compare(prop, literal(null))` → equality against SQL `NULL` keyword. Strict-null only.
+
+All four cases round-trip-pinned in the harness against rows where the JSONB key is absent / present-with-empty-string / present-with-null. The wire-collapse that CCHQ does is NOT replicated on Postgres — the live runtime preserves the strict semantic per `feedback_postgres_strict_ast_null_semantics.md`.
+
+**`fuzzy-date` semantics — verified against CCHQ source.** NOT a partial-date range. CCHQ at `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:101-140` implements `date_permutations("2024-12-03")` producing 16 transposed-date variants (year/month/day swaps and digit reversals). The compiler emits `prop IN (perm1, perm2, ...)` over the structurally-valid permutation set. Algorithm matches the cited Python source.
+
+**Architectural decisions:**
+
+1. **`PredicateCompileContext = TermCompileContext`** — no extra fields. The EXISTS-based join strategy means no "joins to register" channel needs to thread through.
+2. **Correlated `EXISTS (subquery)` / `NOT EXISTS (subquery)` for `exists`/`missing`** — over side-channel join registration. Inner `where` compiles with `anchorAlias` swapped to the leaf alias so self-via terms inside route through the related case row. Self-via collapses to `where` directly (or trivial-true/false sentinels for the no-where case).
+3. **Reserved-column shadowing on `is-null`/`is-blank`** — the four reserved scalar columns (`case_id`, `case_type`, `owner_id`, `status`) dispatch through `IS NULL` / `OR <col> = ''` instead of the JSONB `?` operator. Matches the term compiler's reserved-column routing.
+4. **Tenant scope is the OUTER query's responsibility, not the predicate's.** The predicate compiler trusts the caller has applied tenant scope. Documented in JSDoc; positive-assertion test confirms no `(app_id, owner_id)` filter SQL appears in the predicate's emitted expression.
+5. **Nested non-self relation walks rejected at compile time.** `RELATION_PATH_LEAF_ALIAS = "rp_leaf"` is a fixed constant; a nested non-self `exists`/`missing` (or a non-self-via prop term inside the inner `where`) would produce a second `rp_leaf`-aliased subquery that SQL scoping shadows onto the inner subquery. `containsNonSelfRelationWalk` walks the inner `where` and throws a clear error. Per-depth alias uniquification across compileTerm / compileRelationPath / compileExpression is C7's integration concern (touches three modules in lockstep). Single-level non-self walks work correctly; the throw catches the breakage path.
+6. **Cast-table single-source via exported `POSTGRES_CAST_FOR_DATA_TYPE`** — `compileLiteralValue` reads the cast token directly from the table imported from `compileTerm.ts`. Earlier `SYNTHETIC_LITERAL_CONTEXT` with `db: undefined as never` was a fragile workaround; the export pattern eliminates the synthetic context entirely.
+7. **`multi-select-contains` rejects non-string literals at the SQL boundary.** `Literal({ value: 5 })` reaching the `?|` operator against a JSONB array containing the number `5` would silently mismatch (numbers and strings are distinct JSONB types). The rejection is at the SQL-emission layer with a clear error message; schema-layer narrowing was rejected as cross-cutting (would require splitting `literalSchema` shared with `inSchema.values`).
+8. **`when-input-present` "bound" definition documented as `bindings.has(name)` regardless of value.** The divergence from CCHQ's `count(input)` (which returns 0 for empty strings) is documented inline; callers wanting CCHQ alignment strip blank values from `searchInputs` before passing the bindings.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `f8a8d212`. Every Predicate kind dispatched; Postgres extension dispatch covers all four arms (JSONB / pg_trgm / fuzzystrmatch / PostGIS); Postgres-strict null semantics correctly implemented; `fuzzy-date` permutation algorithm verified against CCHQ source; relation-path EXISTS strategy clean; nested-non-self-walks rejection acceptable for the C4 stage with C7 deferral; tenant scope correctly the outer query's responsibility; coordination with C6 clean.
+- Code-quality review (opus): ❌ Round 1 found 1 BLOCKING + 2 IMPORTANT + 1 SUGGESTION on `f8a8d212` — pervasive eternal-present voice violations (11 sites positioning code relative to a not-yet-landed C7 integration; "for now", "until X integrates", "is not yet supported" leaked into both docstrings and runtime error messages); `SYNTHETIC_LITERAL_CONTEXT` `db: undefined as never` fragility; `compileMultiSelectContains` silent type coercion via `String(v)`; `when-input-present` empty-string semantic undocumented. All resolved in fix-pass `7d0f78e7` (Option A for the synthetic context, Option B for multi-select narrowing, suggestion punted with explicit JSDoc). Strengthened sweep regex extended with `integration layer|is not yet|for now\b|Until [Tt]he|integrat(es|ion) (covers|wires)` patterns. Re-review APPROVED.
+
+**Verification gates (all green at HEAD `7d0f78e7`):**
+- 2766 full-project tests pass / 14 skipped (was 2614 pre-C4-and-C6 baseline; C4's contribution: 53 cold + 29 harness + 1 fix-pass non-string-token rejection test).
+- `npx tsc --noEmit` clean
+- `npm run lint` clean (807 files; zero warnings, zero errors)
+- Strengthened eternal-present sweep returns zero hits across the four touched files (regex includes `\bB[0-9]\b|\bC[0-9]\b` plus the C4-fix-pass-added patterns).
 
 ### Task C5: RelationPath compiler — Kysely (case_indices joins) — SHIPPED
 
