@@ -39,8 +39,11 @@ import {
 	between,
 	concat,
 	count,
+	dateCoerce,
+	datetimeCoerce,
 	eq,
 	exists,
+	formatDate,
 	gt,
 	gte,
 	ifExpr,
@@ -411,7 +414,7 @@ describe("emitCsql — multi-select-contains", () => {
 		expect(result.wrapper).toBe(`concat("selected(tags, 'vip')")`);
 	});
 
-	it("emits multi-value any quantifier as selected-any(prop, 'v1 v2')", () => {
+	it("emits multi-value any quantifier as selected-any(prop, 'token1 token2')", () => {
 		const result = emitCsql(
 			multiSelectAny(
 				prop("patient", "tags"),
@@ -422,7 +425,7 @@ describe("emitCsql — multi-select-contains", () => {
 		expect(result.wrapper).toBe(`concat("selected-any(tags, 'vip alumni')")`);
 	});
 
-	it("emits all-quantifier as selected-all(prop, 'v1 v2')", () => {
+	it("emits all-quantifier as selected-all(prop, 'token1 token2')", () => {
 		const result = emitCsql(
 			multiSelectAll(
 				prop("patient", "tags"),
@@ -641,15 +644,48 @@ describe("emitCsql — exists / missing", () => {
 		).toThrow(/self/);
 	});
 
-	it("throws on exists with via.kind === 'any-relation'", () => {
-		expect(() =>
-			emitCsql(
-				exists(
-					anyRelationPath("rel"),
-					eq(prop("patient", "name"), literal("a")),
-				),
+	it("expands exists any-relation to (ancestor-exists or subcase-exists)", () => {
+		// Direction-agnostic walks have no single CCHQ wire form, so
+		// the emitter expands to the OR of both direction-specific
+		// forms — matching B2's on-device any-relation expansion.
+		const result = emitCsql(
+			exists(
+				anyRelationPath("rel"),
+				eq(prop("patient", "name"), literal("Alice")),
 			),
-		).toThrow(/any-relation/);
+		);
+		expect(result.wrapper).toBe(
+			`concat("(ancestor-exists('rel', name = 'Alice') or subcase-exists('rel', name = 'Alice'))")`,
+		);
+	});
+
+	it("expands missing any-relation to not((ancestor-exists or subcase-exists))", () => {
+		// Negation wraps the disjunction in `not(...)` rather than
+		// flipping the inner forms — symmetric with B2's on-device
+		// expansion.
+		const result = emitCsql(
+			missing(
+				anyRelationPath("rel"),
+				eq(prop("patient", "name"), literal("Alice")),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("not((ancestor-exists('rel', name = 'Alice') or subcase-exists('rel', name = 'Alice')))")`,
+		);
+	});
+
+	it("expands exists any-relation without a where filter using injected match-all() on the ancestor side", () => {
+		// CCHQ's `ancestor-exists` requires exactly two arguments
+		// (`confirm_args_count(node, 2)` at
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:109`),
+		// so the no-where path injects `match-all()` on the ancestor
+		// side. `subcase-exists` accepts the 1-arg form per
+		// `subcase_functions.py:201` and emits without a filter
+		// argument.
+		const result = emitCsql(exists(anyRelationPath("rel")));
+		expect(result.wrapper).toBe(
+			`concat("(ancestor-exists('rel', match-all()) or subcase-exists('rel'))")`,
+		);
 	});
 });
 
@@ -728,8 +764,8 @@ describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
 
 describe("emitCsql — concat() wrapping shape", () => {
 	it("wraps a fully-constant predicate in concat('<full string>')", () => {
-		// Even with no runtime interpolation, the wrap is unconditional
-		// so Plan 4's wire layer reads one shape.
+		// The wrap is unconditional even when no runtime interpolation
+		// appears, so the wire layer reads one shape per CSQL value.
 		const result = emitCsql(eq(prop("patient", "name"), literal("Alice")));
 		// Single concat() arg.
 		expect(result.wrapper).toMatch(/^concat\((?!.*,).*\)$/);
@@ -795,7 +831,7 @@ describe("emitCsql — hoist consumption", () => {
 		// One hoist; the wrapper interpolates the synthetic input ref
 		// in place of the arith.
 		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.inputName).toBe("csql_hoist_0");
+		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_0");
 		expect(result.hoists[0]?.expression).toEqual(lifted);
 		expect(result.wrapper).toBe(
 			`concat('"', instance('search-input:results')/input/field[@name='csql_hoist_0'], '" = 19')`,
@@ -817,7 +853,7 @@ describe("emitCsql — hoist consumption", () => {
 	it("lifts a count outside a top-level comparison as a wrapper", () => {
 		// `count(...)` in `is-blank`'s operand is not in a
 		// comparison-LHS slot; the hoist pass lifts it into an on-
-		// device wrapper. Plan 4's wire layer evaluates the count and
+		// device wrapper. The wire layer evaluates the count and
 		// injects the resolved numeric literal into the CSQL fragment
 		// via the synthetic search-input ref.
 		const lifted = count(subcasePath("child"));
@@ -897,5 +933,119 @@ describe("emitCsql — non-term ValueExpression arms hoist into wrappers", () =>
 		const result = emitCsql(eq(prop("patient", "display"), lifted));
 		expect(result.hoists).toHaveLength(1);
 		expect(result.hoists[0]?.expression).toEqual(lifted);
+	});
+
+	it("lifts a format-date expression into the wrapper list", () => {
+		// `format-date` is absent from CSQL's value-function whitelist
+		// at
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
+		// so the entire expression lifts as a wrapper that runs on-
+		// device (where `format-date` is available via JavaRosa) and
+		// produces the formatted string injected into the CSQL fragment
+		// via the synthetic search-input ref.
+		const lifted = formatDate(term(prop("patient", "dob")), "iso");
+		const result = emitCsql(eq(prop("patient", "dob_text"), lifted));
+		expect(result.hoists).toHaveLength(1);
+		expect(result.hoists[0]?.expression).toEqual(lifted);
+		expect(result.wrapper).toBe(
+			`concat('dob_text = "', instance('search-input:results')/input/field[@name='csql_hoist_0'], '"')`,
+		);
+	});
+});
+
+describe("emitCsql — date-coerce / datetime-coerce rename", () => {
+	// AST kind names diverge from CCHQ's CSQL value-function names.
+	// The hoist pass leaves both arms intact; the emitter renames at
+	// output time per CCHQ's `XPATH_VALUE_FUNCTIONS` registration at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+
+	it("emits date-coerce(literal) as date('<value>') in operand position", () => {
+		// AST `date-coerce(value)` maps to wire `date(value)` (line 28).
+		const result = emitCsql(
+			eq(prop("patient", "dob"), dateCoerce(term(literal("2024-12-03")))),
+		);
+		expect(result.wrapper).toBe(`concat("dob = date('2024-12-03')")`);
+	});
+
+	it("emits datetime-coerce(literal) as datetime('<value>') in operand position", () => {
+		// AST `datetime-coerce(value)` maps to wire `datetime(value)`
+		// (line 30).
+		const result = emitCsql(
+			eq(
+				prop("patient", "modified_on"),
+				datetimeCoerce(term(literal("2024-12-03T10:00:00"))),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("modified_on = datetime('2024-12-03T10:00:00')")`,
+		);
+	});
+
+	it("emits date-coerce of a runtime input ref with the runtime XPath inside the call", () => {
+		// `date-coerce(input("user_date"))` becomes
+		// `date(<runtime-xpath>)` — runtime XPath result interpolates
+		// inside the function-call argument unwrapped (CSQL function
+		// calls accept value arguments directly, no string-quote
+		// brackets).
+		const result = emitCsql(
+			eq(prop("patient", "dob"), dateCoerce(term(input("user_date")))),
+		);
+		expect(result.wrapper).toBe(
+			`concat('dob = date(', instance('search-input:results')/input/field[@name='user_date'], ')')`,
+		);
+	});
+
+	it("emits datetime-coerce of a runtime ref with the runtime XPath inside the call", () => {
+		const result = emitCsql(
+			eq(
+				prop("patient", "modified_on"),
+				datetimeCoerce(term(input("user_dt"))),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat('modified_on = datetime(', instance('search-input:results')/input/field[@name='user_dt'], ')')`,
+		);
+	});
+});
+
+describe("emitCsql — synthetic input collision avoidance", () => {
+	// The synthetic-name counter seeds past any author-written input
+	// ref that shares the `csql_hoist_` prefix and a numeric suffix,
+	// so synthetic refs never shadow author refs even when authors
+	// deliberately reuse the prefix.
+
+	it("seeds the synthetic counter past an author-written csql_hoist_<n> ref", () => {
+		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
+		// Author writes `csql_hoist_5` themselves (rare but typeable);
+		// the lifted arith should NOT collide with that name. The
+		// synthetic counter starts at 6.
+		const result = emitCsql(
+			and(
+				eq(prop("patient", "x"), input("csql_hoist_5")),
+				eq(lifted, term(literal(19))),
+			),
+		);
+		expect(result.hoists).toHaveLength(1);
+		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_6");
+	});
+
+	it("starts at 0 when no author ref shares the synthetic prefix", () => {
+		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
+		const result = emitCsql(eq(lifted, term(literal(19))));
+		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_0");
+	});
+
+	it("ignores author refs sharing the prefix but with non-numeric suffix", () => {
+		// `csql_hoist_foo` shares the prefix but the suffix doesn't
+		// parse as an integer; synthetic refs are always numeric, so
+		// no collision is possible. The counter starts at 0.
+		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
+		const result = emitCsql(
+			and(
+				eq(prop("patient", "x"), input("csql_hoist_foo")),
+				eq(lifted, term(literal(19))),
+			),
+		);
+		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_0");
 	});
 });

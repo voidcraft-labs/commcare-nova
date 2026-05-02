@@ -14,9 +14,15 @@
 // (lines 39-54). Every other shape — conditionals (`if`, `switch`),
 // arithmetic (`arith`), string concatenation (`concat`, `coalesce`),
 // `count(...)` outside the comparison-LHS slot CCHQ recognises as
-// `subcase-count` — lifts into an on-device wrapper expression that
-// runs at runtime and produces a string injected into the CSQL
-// fragment via a synthetic search-input ref.
+// `subcase-count`, on-device formatting (`format-date`) — lifts into
+// an on-device wrapper expression that runs at runtime and produces
+// a string injected into the CSQL fragment via a synthetic
+// search-input ref.
+//
+// `date-coerce` and `datetime-coerce` AST kinds correspond to CSQL's
+// `date` / `datetime` value functions; the names diverge between the
+// authoring AST and the wire vocabulary. The hoist pass leaves them
+// intact and the emitter performs the rename at output time.
 //
 // The pattern follows CCHQ's canonical example at
 // `commcare-hq/docs/case_search_query_language.rst:299-303` and
@@ -45,13 +51,16 @@
 // the hoist pass leaves both intact.
 //
 // `count(via, where)` outside a comparison-LHS subcase position
-// lifts as a wrapper expression. Plan 4's wire emission evaluates
-// the count on-device and injects the resolved number into the CSQL
-// fragment via the synthetic search-input ref.
+// lifts as a wrapper expression. The wire layer evaluates the count
+// on-device and injects the resolved number into the CSQL fragment
+// via the synthetic search-input ref.
 //
-// The pass is pure: the input AST is never mutated, every transformed
-// node is a fresh object literal, and the wrapper list is returned
-// alongside the rewritten predicate.
+// Mutation-safety contract: the input AST is never mutated. Returned
+// subtrees are either fresh objects (every arm that rebuilds, every
+// lift site) or shared with the input by reference (the leaf arms
+// for terms, sentinels, and grammar-only ValueExpressions where no
+// descendant lifts). Consumers may compose the hoist result with
+// other AST work without disturbing the input.
 
 import type {
 	Predicate,
@@ -76,22 +85,22 @@ import type {
 type HoistPosition = "comparison-operand" | "value";
 
 /**
- * A single lifted value expression. `inputName` is the synthetic
+ * A single lifted value expression. `inputRef` is the synthetic
  * search-input ref name that replaces the lifted node in the
  * transformed AST; `expression` is the original ValueExpression that
  * runs on-device before CSQL emission and produces the runtime
  * string interpolated into the CSQL fragment.
  *
- * Plan 4's wire layer emits one `<data>` element per wrapper before
- * the CSQL data element so the wrapper inputs resolve before the
- * CSQL fragment does. The CSQL fragment references the synthetic
- * name via the standard search-input wire path
+ * The wire layer emits one `<data>` element per wrapper before the
+ * CSQL data element so the wrapper inputs resolve before the CSQL
+ * fragment does. The CSQL fragment references the synthetic name via
+ * the standard search-input wire path
  * (`instance('search-input:results')/input/field[@name='<name>']`),
  * so downstream evaluation reads the runtime-built string in place of
  * the lifted expression.
  */
 export interface HoistedWrapper {
-	readonly inputName: string;
+	readonly inputRef: string;
 	readonly expression: ValueExpression;
 }
 
@@ -111,6 +120,14 @@ export interface CsqlHoistResult {
  * synthetic ref valid as a search-input `name` per the schema's XML
  * element-name vocabulary; the deterministic numeric suffix gives
  * stable round-trip shape for testability.
+ *
+ * The prefix's purpose is collision avoidance with author-written
+ * input refs. `seedNextIndex` walks the input AST before the hoist
+ * walk and seeds the synthetic counter past any author-written
+ * `csql_hoist_<n>` reference, so a synthetic name never shadows an
+ * existing author ref. Authors who deliberately use the prefix get
+ * their refs respected; the synthetic counter starts past the highest
+ * author-supplied index.
  */
 const HOIST_INPUT_NAME_PREFIX = "csql_hoist_";
 
@@ -134,14 +151,19 @@ interface HoistState {
  * recursive CSQL emission and the canonical
  * `if(count(<trigger>), <inner-csql>, 'match-all()')` wrapper).
  *
- * The input predicate is never mutated; every transformed node is a
- * fresh object. The wrapper list preserves the order lifted nodes
- * were encountered during the walk, which gives deterministic naming
- * for testability — `csql_hoist_0`, `csql_hoist_1`, etc.
+ * Before walking, `seedNextIndex` scans the input for author-written
+ * `csql_hoist_<n>` references and starts the synthetic counter past
+ * the highest one found. The seed-and-scan keeps synthetic refs
+ * distinct from author refs even when authors deliberately use the
+ * prefix.
+ *
+ * The input predicate is never mutated. The wrapper list preserves
+ * the order lifted nodes were encountered during the walk, so naming
+ * is deterministic for testability.
  */
 export function hoistForCsql(predicate: Predicate): CsqlHoistResult {
 	const state: HoistState = {
-		nextIndex: 0,
+		nextIndex: seedNextIndex(predicate),
 		wrappers: [],
 	};
 	const hoisted = walkPredicate(predicate, state);
@@ -149,6 +171,168 @@ export function hoistForCsql(predicate: Predicate): CsqlHoistResult {
 		hoisted,
 		wrappers: state.wrappers,
 	};
+}
+
+/**
+ * Scan the input predicate for author-written input refs that share
+ * the synthetic prefix and return the first synthetic index past the
+ * highest one found. Returning 0 when no collision exists keeps the
+ * default naming dense (`csql_hoist_0`, `csql_hoist_1`, ...); a
+ * single conflicting `csql_hoist_5` author ref shifts the synthetic
+ * counter to 6 so the first lift becomes `csql_hoist_6`.
+ *
+ * The scan visits every search-input ref reachable via terms; the
+ * walker is a separate pass from the rewriting walker so the
+ * rewriting walker can rely on a fixed seed throughout its descent.
+ */
+function seedNextIndex(predicate: Predicate): number {
+	const collisions: number[] = [];
+	collectInputRefIndices(predicate, collisions);
+	if (collisions.length === 0) return 0;
+	return Math.max(...collisions) + 1;
+}
+
+/**
+ * Recursive scan over the predicate tree collecting numeric suffixes
+ * from any author-written `csql_hoist_<n>` input ref. Operates only
+ * on input-ref terms; other terms / value expressions are walked
+ * structurally to find the input refs nested inside them.
+ */
+function collectInputRefIndices(p: Predicate, out: number[]): void {
+	switch (p.kind) {
+		case "match-all":
+		case "match-none":
+			return;
+		case "eq":
+		case "neq":
+		case "gt":
+		case "gte":
+		case "lt":
+		case "lte":
+			collectFromValueExpression(p.left, out);
+			collectFromValueExpression(p.right, out);
+			return;
+		case "in":
+			collectFromValueExpression(p.left, out);
+			return;
+		case "within-distance":
+			collectFromValueExpression(p.center, out);
+			return;
+		case "match":
+		case "multi-select-contains":
+			return;
+		case "is-null":
+		case "is-blank":
+			collectFromValueExpression(p.left, out);
+			return;
+		case "between":
+			collectFromValueExpression(p.left, out);
+			if (p.lower !== undefined) collectFromValueExpression(p.lower, out);
+			if (p.upper !== undefined) collectFromValueExpression(p.upper, out);
+			return;
+		case "and":
+		case "or":
+			for (const c of p.clauses) collectInputRefIndices(c, out);
+			return;
+		case "not":
+			collectInputRefIndices(p.clause, out);
+			return;
+		case "when-input-present":
+			collectInputRefIndex(p.input.name, out);
+			collectInputRefIndices(p.clause, out);
+			return;
+		case "exists":
+		case "missing":
+			if (p.where !== undefined) collectInputRefIndices(p.where, out);
+			return;
+		default: {
+			const _exhaustive: never = p;
+			throw new Error(
+				`csqlHoist: unhandled predicate kind in collector ${String(_exhaustive)}`,
+			);
+		}
+	}
+}
+
+/**
+ * Recursive scan over a ValueExpression collecting input-ref
+ * collision indices. Term refs of `kind: "input"` go through
+ * `collectInputRefIndex`; nested value expressions recurse.
+ */
+function collectFromValueExpression(
+	expr: ValueExpression,
+	out: number[],
+): void {
+	switch (expr.kind) {
+		case "term":
+			if (expr.term.kind === "input") {
+				collectInputRefIndex(expr.term.name, out);
+			}
+			return;
+		case "today":
+		case "now":
+			return;
+		case "date-add":
+			collectFromValueExpression(expr.date, out);
+			collectFromValueExpression(expr.quantity, out);
+			return;
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "unwrap-list":
+			collectFromValueExpression(expr.value, out);
+			return;
+		case "format-date":
+			collectFromValueExpression(expr.date, out);
+			return;
+		case "arith":
+			collectFromValueExpression(expr.left, out);
+			collectFromValueExpression(expr.right, out);
+			return;
+		case "concat":
+			for (const part of expr.parts) collectFromValueExpression(part, out);
+			return;
+		case "coalesce":
+			for (const v of expr.values) collectFromValueExpression(v, out);
+			return;
+		case "if":
+			collectInputRefIndices(expr.cond, out);
+			collectFromValueExpression(expr.then, out);
+			collectFromValueExpression(expr.else, out);
+			return;
+		case "switch":
+			collectFromValueExpression(expr.on, out);
+			for (const c of expr.cases) collectFromValueExpression(c.then, out);
+			collectFromValueExpression(expr.fallback, out);
+			return;
+		case "count":
+			if (expr.where !== undefined) collectInputRefIndices(expr.where, out);
+			return;
+		default: {
+			const _exhaustive: never = expr;
+			throw new Error(
+				`csqlHoist: unhandled value expression kind in collector ${String(_exhaustive)}`,
+			);
+		}
+	}
+}
+
+/**
+ * Append the numeric suffix from `<prefix><digits>` if `name` matches
+ * the synthetic-prefix shape and the suffix parses as a non-negative
+ * integer. Names that share the prefix but carry non-numeric suffixes
+ * (e.g. `csql_hoist_foo`) don't enter the seed math; they remain
+ * distinct from synthetic refs naturally because synthetic suffixes
+ * are always numeric.
+ */
+function collectInputRefIndex(name: string, out: number[]): void {
+	if (!name.startsWith(HOIST_INPUT_NAME_PREFIX)) return;
+	const suffix = name.slice(HOIST_INPUT_NAME_PREFIX.length);
+	// `Number.parseInt` would accept `"5abc"`; require the entire
+	// suffix to be a non-negative integer to avoid spurious matches.
+	if (!/^\d+$/.test(suffix)) return;
+	const n = Number.parseInt(suffix, 10);
+	if (Number.isFinite(n)) out.push(n);
 }
 
 /**
@@ -166,10 +350,6 @@ export function hoistForCsql(predicate: Predicate): CsqlHoistResult {
  * pattern at `case_search_query_language.rst:299-303` where a
  * `subcase-exists("parent", ... clinic_case_id = "', instance(...),
  * '")')` interpolates a runtime user clinic id into the inner CSQL.
- *
- * Every returned predicate is a fresh allocation regardless of
- * whether anything was hoisted, keeping the caller's contract
- * uniform.
  */
 function walkPredicate(p: Predicate, state: HoistState): Predicate {
 	switch (p.kind) {
@@ -213,7 +393,7 @@ function walkPredicate(p: Predicate, state: HoistState): Predicate {
 			// `match.value` is a plain string and
 			// `multi-select-contains.values` is a literal tuple — neither
 			// carries a recursive ValueExpression slot, so the walker
-			// leaves them unchanged.
+			// returns the input by reference.
 			return p;
 		case "is-null":
 		case "is-blank":
@@ -221,55 +401,8 @@ function walkPredicate(p: Predicate, state: HoistState): Predicate {
 				kind: p.kind,
 				left: walkValueExpression(p.left, state, "value"),
 			};
-		case "between": {
-			// Between's bounds are optional; the absent-not-undefined
-			// contract from the schema layer requires the rebuilt object
-			// to omit absent bound keys rather than materialise them as
-			// `undefined`. Rebuild conditionally to preserve that shape.
-			const left = walkValueExpression(p.left, state, "value");
-			const lower =
-				p.lower !== undefined
-					? walkValueExpression(p.lower, state, "value")
-					: undefined;
-			const upper =
-				p.upper !== undefined
-					? walkValueExpression(p.upper, state, "value")
-					: undefined;
-			if (lower !== undefined && upper !== undefined) {
-				return {
-					kind: "between",
-					left,
-					lower,
-					upper,
-					lowerInclusive: p.lowerInclusive,
-					upperInclusive: p.upperInclusive,
-				};
-			}
-			if (lower !== undefined) {
-				return {
-					kind: "between",
-					left,
-					lower,
-					lowerInclusive: p.lowerInclusive,
-					upperInclusive: p.upperInclusive,
-				};
-			}
-			if (upper !== undefined) {
-				return {
-					kind: "between",
-					left,
-					upper,
-					lowerInclusive: p.lowerInclusive,
-					upperInclusive: p.upperInclusive,
-				};
-			}
-			return {
-				kind: "between",
-				left,
-				lowerInclusive: p.lowerInclusive,
-				upperInclusive: p.upperInclusive,
-			};
-		}
+		case "between":
+			return rebuildBetween(p, state);
 		case "and":
 			return {
 				kind: "and",
@@ -314,7 +447,45 @@ function walkPredicate(p: Predicate, state: HoistState): Predicate {
 			}
 			return { kind: p.kind, via: p.via, where };
 		}
+		default: {
+			const _exhaustive: never = p;
+			throw new Error(
+				`csqlHoist: unhandled predicate kind ${String(_exhaustive)}`,
+			);
+		}
 	}
+}
+
+/**
+ * Rebuild a `between` predicate, threading each present bound through
+ * the value-expression walker. The schema's `.refine()` guarantees at
+ * least one of `lower` / `upper` is present; the rebuild preserves
+ * the absent-key contract from the schema layer (no `lower: undefined`
+ * or `upper: undefined` materialised). Three valid bound combinations
+ * collapse to a single conditional-spread shape rather than four
+ * cross-product branches.
+ */
+function rebuildBetween(
+	p: Extract<Predicate, { kind: "between" }>,
+	state: HoistState,
+): Predicate {
+	const left = walkValueExpression(p.left, state, "value");
+	const lower =
+		p.lower !== undefined
+			? walkValueExpression(p.lower, state, "value")
+			: undefined;
+	const upper =
+		p.upper !== undefined
+			? walkValueExpression(p.upper, state, "value")
+			: undefined;
+	return {
+		kind: "between",
+		left,
+		...(lower !== undefined ? { lower } : {}),
+		...(upper !== undefined ? { upper } : {}),
+		lowerInclusive: p.lowerInclusive,
+		upperInclusive: p.upperInclusive,
+	};
 }
 
 /**
@@ -326,7 +497,11 @@ function walkPredicate(p: Predicate, state: HoistState): Predicate {
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`
  * registers exactly eight value functions: `date`, `date-add`,
  * `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`.
- * Plus terms (which are not function calls). Every other arm lifts.
+ * Plus terms (which are not function calls). The AST's `date-coerce`
+ * and `datetime-coerce` arms map to CSQL's `date` / `datetime` value
+ * functions and survive the walk; the emitter performs the rename at
+ * output time. Every other arm — including `format-date`, which
+ * CCHQ's CSQL whitelist does not include — lifts into the wrapper.
  */
 function walkValueExpression(
 	expr: ValueExpression,
@@ -336,12 +511,14 @@ function walkValueExpression(
 	switch (expr.kind) {
 		case "term":
 			// Terms carry no recursive ValueExpression slot; the schema's
-			// term union is flat. Pass through unchanged.
+			// term union is flat. The walker returns the input by
+			// reference.
 			return expr;
 		case "today":
 		case "now":
 			// CCHQ value functions at
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33-34`.
+			// Discriminator-only; no descendant slots to walk.
 			return expr;
 		case "date-add":
 			// CCHQ value function at
@@ -355,11 +532,19 @@ function walkValueExpression(
 				quantity: walkValueExpression(expr.quantity, state, "value"),
 			};
 		case "date-coerce":
+			// AST's `date-coerce(value)` maps to CSQL's `date(value)`
+			// value function at
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:28`.
+			// The emitter performs the name rename; the hoist walks
+			// recursively so any nested non-grammar shape lifts.
 			return {
 				kind: "date-coerce",
 				value: walkValueExpression(expr.value, state, "value"),
 			};
 		case "datetime-coerce":
+			// AST's `datetime-coerce(value)` maps to CSQL's
+			// `datetime(value)` value function at
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:30`.
 			return {
 				kind: "datetime-coerce",
 				value: walkValueExpression(expr.value, state, "value"),
@@ -375,11 +560,14 @@ function walkValueExpression(
 				value: walkValueExpression(expr.value, state, "value"),
 			};
 		case "format-date":
-			return {
-				kind: "format-date",
-				date: walkValueExpression(expr.date, state, "value"),
-				pattern: expr.pattern,
-			};
+			// `format-date` is absent from CSQL's value-function
+			// whitelist at
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+			// On-device XPath has `format-date` available via JavaRosa,
+			// so the entire expression lifts as a wrapper that runs at
+			// runtime and produces the formatted string injected into
+			// the CSQL fragment via the synthetic search-input ref.
+			return liftAsWrapper(expr, state);
 		case "arith":
 		case "concat":
 		case "coalesce":
@@ -392,6 +580,12 @@ function walkValueExpression(
 			return liftAsWrapper(expr, state);
 		case "count":
 			return walkCount(expr, state, position);
+		default: {
+			const _exhaustive: never = expr;
+			throw new Error(
+				`csqlHoist: unhandled value expression kind ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
@@ -409,8 +603,8 @@ function walkValueExpression(
  *   - In any other position (including `comparison-operand` with
  *     non-subcase direction): lift the entire `count(...)` as a
  *     wrapper expression. The on-device wrapper computes the
- *     cardinality and Plan 4's wire layer injects the resulting
- *     numeric literal into the CSQL fragment at the appropriate
+ *     cardinality and the wire layer injects the resulting numeric
+ *     literal into the CSQL fragment at the appropriate
  *     concat-segment position.
  */
 function walkCount(
@@ -437,15 +631,18 @@ function walkCount(
  * for author-written input refs.
  *
  * Naming is deterministic from the walker's `nextIndex` counter,
- * giving stable test fixtures and stable round-trip shape.
+ * giving stable test fixtures and stable round-trip shape. The
+ * counter is seeded by `seedNextIndex` past any author-written
+ * `csql_hoist_<n>` reference so synthetic names never shadow author
+ * refs.
  */
 function liftAsWrapper(
 	expr: ValueExpression,
 	state: HoistState,
 ): ValueExpression {
-	const inputName = `${HOIST_INPUT_NAME_PREFIX}${state.nextIndex}`;
+	const syntheticName = `${HOIST_INPUT_NAME_PREFIX}${state.nextIndex}`;
 	state.nextIndex += 1;
-	state.wrappers.push({ inputName, expression: expr });
-	const inputRef: SearchInputRef = { kind: "input", name: inputName };
-	return { kind: "term", term: inputRef };
+	state.wrappers.push({ inputRef: syntheticName, expression: expr });
+	const ref: SearchInputRef = { kind: "input", name: syntheticName };
+	return { kind: "term", term: ref };
 }

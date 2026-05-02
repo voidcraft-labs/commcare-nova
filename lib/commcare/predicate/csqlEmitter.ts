@@ -12,12 +12,13 @@
 // The emitter runs a three-stage pipeline:
 //
 //   1. Hoist non-grammar value expressions (`if` / `switch` /
-//      `arith` / `concat` / `coalesce` / non-comparison-LHS `count`)
-//      out of the predicate AST via `csqlHoist.ts`. The lifted
-//      expressions become wrapper expressions that Plan 4's wire layer
-//      threads into the enclosing form's `<data>` section. The hoist
-//      pass is total — every input AST produces a faithful CSQL
-//      emission via grammar shapes plus on-device wrappers.
+//      `arith` / `concat` / `coalesce` / `format-date` /
+//      non-comparison-LHS `count`) out of the predicate AST via
+//      `csqlHoist.ts`. The lifted expressions become wrapper
+//      expressions that the wire layer threads into the enclosing
+//      form's `<data>` section. The hoist pass is total — every input
+//      AST produces a faithful CSQL emission via grammar shapes plus
+//      on-device wrappers.
 //   2. Walk the hoisted AST emitting a `CsqlSegment[]` IR — each
 //      segment is either a constant CSQL fragment or a runtime XPath
 //      expression that produces a string interpolated into the CSQL
@@ -29,6 +30,11 @@
 //      CSQL value is wrapped in `concat(...)`, even predicates with no
 //      runtime interpolation, so the downstream wire layer reads one
 //      uniform shape.
+//
+// `mergeAdjacentConstants` runs once at the wrap layer; per-arm
+// emitters produce raw segment lists without internal merging. This
+// keeps the per-arm code straight-line and the merge logic
+// centralised at the top-level wrap.
 //
 // CSQL value strings interpolating runtime refs use double-quoted
 // CSQL string literals (`= "<value>"`) so the surrounding XPath
@@ -58,8 +64,8 @@ import { type HoistedWrapper, hoistForCsql } from "./csqlHoist";
 import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
 
 /**
- * Output of the CSQL emission pipeline. Plan 4's wire layer consumes
- * both fields:
+ * Output of the CSQL emission pipeline. The wire layer consumes both
+ * fields:
  *
  *   - `wrapper` is the on-device XPath expression that builds the CSQL
  *     `_xpath_query` string at runtime. It is always a `concat(...)`
@@ -68,9 +74,10 @@ import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
  *     key="_xpath_query" ref="...">` slot uniformly.
  *   - `hoists` is the wrapper-expression list returned from the hoist
  *     pass — each entry binds a synthetic search-input name to the
- *     ValueExpression that builds its runtime value. Plan 4 emits one
- *     `<data>` element per wrapper before the CSQL data element so
- *     the wrapper inputs resolve before the CSQL fragment does.
+ *     ValueExpression that builds its runtime value. The wire layer
+ *     emits one `<data>` element per wrapper before the CSQL data
+ *     element so the wrapper inputs resolve before the CSQL fragment
+ *     does.
  */
 export interface CsqlEmissionResult {
 	readonly wrapper: string;
@@ -94,11 +101,13 @@ type CsqlSegment =
 	| { readonly kind: "runtime"; readonly xpath: string };
 
 /**
- * Comparison-operator AST kind → CSQL wire token. CSQL accepts the same
- * six operators on-device as XPath does, registered as the binary
- * comparison ops `=`, `!=`, `<`, `<=`, `>`, `>=` at
- * `commcare-hq/corehq/apps/case_search/const.py:53-103` (the
- * `OPERATOR_MAPPING` table).
+ * Comparison-operator AST kind → CSQL wire token. CSQL inherits the
+ * six XPath-1.0 binary comparison operators (`=`, `!=`, `<`, `<=`,
+ * `>`, `>=`); the parser dispatches them at
+ * `commcare-hq/corehq/apps/case_search/filter_dsl.py:88-90` via
+ * `property_comparison_query`, drawing the comparator set from
+ * `commcare-hq/corehq/apps/case_search/const.py:124-132`
+ * (`COMPARISON_OPERATORS = [EQ, NEQ] + list(RANGE_OP_MAPPING.keys())`).
  */
 const COMPARISON_OPS: Record<ComparisonKind, string> = {
 	eq: "=",
@@ -142,38 +151,50 @@ const PREC_AND = 2;
  * returns both the wrapper string and the hoisted-wrapper list. The
  * hoist pass is total — every input AST produces a faithful CSQL
  * emission via grammar shapes plus on-device wrappers.
+ *
+ * `emitCsql` is the public entry that runs the hoist pass first;
+ * internal callers that already hold a hoisted AST (e.g. the
+ * `when-input-present` recursive emitter) call `emitHoistedCsql`
+ * directly to skip the redundant scan.
  */
 export function emitCsql(predicate: Predicate): CsqlEmissionResult {
 	const hoistResult = hoistForCsql(predicate);
-	const segments = emitPredicateSegments(hoistResult.hoisted, 0);
 	return {
-		wrapper: wrapInConcat(segments),
+		wrapper: emitHoistedWrapper(hoistResult.hoisted),
 		hoists: hoistResult.wrappers,
 	};
 }
 
 /**
+ * Internal entry that takes a pre-hoisted predicate and produces the
+ * `concat(...)` wrapper string. Used by the recursive emitter for
+ * `when-input-present` (where the inner clause is already hoisted as
+ * part of the outer hoist walk).
+ */
+function emitHoistedWrapper(predicate: Predicate): string {
+	const segments = emitPredicateSegments(predicate, 0);
+	return wrapInConcat(segments);
+}
+
+/**
  * Wrap a segment list in a `concat(...)` XPath expression. The wrap
  * is unconditional: even a predicate with no runtime interpolation
- * produces `concat('<full csql>')` so Plan 4's wire layer reads one
+ * produces `concat('<full csql>')` so the wire layer reads one
  * uniform shape per `_xpath_query` value.
  *
- * Each constant segment lifts via `quoteConstantSegmentForXPath`,
- * which can produce one or more comma-separated XPath args depending
- * on whether the constant contains both `'` and `"` — XPath 1.0 has
- * no string-escape syntax and the wrap is itself a `concat(...)`
- * argument list, so a both-quotes constant splits into a sequence of
- * single- or double-quoted runs joined by `"'"` separators (the
- * `concat()` alternating-quote idiom). Runtime segments pass through
- * verbatim as their own concat args.
+ * The wrap layer is the single merge point for adjacent constant
+ * segments; per-arm emitters produce raw segment lists without
+ * internal merging. After merging, each constant segment lifts via
+ * `quoteConstantSegmentForXPath`, which can produce one or more
+ * comma-separated XPath args depending on whether the constant
+ * contains both `'` and `"` — XPath 1.0 has no string-escape syntax
+ * and the wrap is itself a `concat(...)` argument list, so a
+ * both-quotes constant splits into a sequence of single- or
+ * double-quoted runs joined by `"'"` separators (the `concat()`
+ * alternating-quote idiom). Runtime segments pass through verbatim
+ * as their own concat args.
  */
 function wrapInConcat(segments: readonly CsqlSegment[]): string {
-	// Pre-merge adjacent constants so the wrap layer's per-segment
-	// quote-style handling sees one constant per contiguous run.
-	// Without the merge, the `mergeAdjacentConstants` calls inside
-	// the operator emitters produce non-overlapping merges (each
-	// operator merges its own output but adjacency across operators
-	// goes unmerged), so the final wrap step needs the second pass.
 	const merged = mergeAdjacentConstants(segments);
 	const args: string[] = [];
 	for (const seg of merged) {
@@ -198,8 +219,8 @@ function wrapInConcat(segments: readonly CsqlSegment[]): string {
  *
  * The split rule:
  *
- *   - No `'` in the value → single-quoted XPath literal. This is the
- *     common case.
+ *   - No `'` in the value → single-quoted XPath literal. The common
+ *     case.
  *   - No `"` in the value → double-quoted XPath literal.
  *   - Both quote styles present → split on `'`. Each fragment becomes
  *     a single-quoted literal `'<frag>'`; between fragments, emit
@@ -241,7 +262,8 @@ function quoteConstantSegmentForXPath(value: string): string[] {
  * (` and ` / ` or `); leaf operators emit either a single constant
  * segment (when no runtime ref appears) or three segments around an
  * interpolated runtime ref (when a value-position term resolves at
- * runtime).
+ * runtime). The wrap layer collapses adjacent constant segments — per-
+ * arm code does not pre-merge.
  */
 function emitPredicateSegments(
 	p: Predicate,
@@ -308,6 +330,12 @@ function emitPredicateSegments(
 			return emitExistsSegments(p, "missing");
 		case "when-input-present":
 			return emitWhenInputPresentSegments(p);
+		default: {
+			const _exhaustive: never = p;
+			throw new Error(
+				`csqlEmitter: unhandled predicate kind ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
@@ -326,30 +354,22 @@ function emitPredicateSegments(
  * returns the inner clause's CSQL fragment, which the server
  * evaluates against the case data.
  *
- * The inner clause's CSQL emission goes through a recursive
- * `emitCsql`-like path: hoist the inner predicate, walk its
- * segments, wrap in `concat(...)`. Any wrappers the inner clause
- * produces propagate up through the wrapping layer's hoist surface
- * — the inner clause's hoisted ValueExpression wrappers thread into
- * the outer wrapper's `<data>` chain unchanged, and Plan 4's wire
- * layer threads them all in document order so the synthetic-input
- * dependencies resolve before the outer CSQL fragment evaluates.
+ * The inner clause is already hoisted by the outer `hoistForCsql`
+ * call (which walked into `p.clause`), so this emitter calls
+ * `emitHoistedWrapper` directly rather than re-running
+ * `hoistForCsql`. The inner clause's hoists already live on the
+ * outer wrapper list; the inner emission produces only the
+ * `concat(...)` XPath expression.
  *
  * The `if(...)` wrapper expression flows out as a single runtime
  * segment in the outer concat, exactly the shape used elsewhere for
- * search-input refs. The hoists from the inner clause's recursive
- * emission accumulate via the shared hoist state.
+ * search-input refs.
  */
 function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 ): CsqlSegment[] {
 	const triggerXPath = emitSearchInputXPath(p.input);
-	const innerWrapper = emitCsql(p.clause).wrapper;
-	// The inner clause's hoists are surfaced through the outer
-	// hoistForCsql call (which walked into `p.clause`), not here. The
-	// inner clause emitted at this layer is purely the post-hoist
-	// segment walk wrapped in `concat(...)`; its hoists already live
-	// on the shared wrapper list at the outer call.
+	const innerWrapper = emitHoistedWrapper(p.clause);
 	const conditionalXPath = `if(count(${triggerXPath}), ${innerWrapper}, 'match-all()')`;
 	return [{ kind: "runtime", xpath: conditionalXPath }];
 }
@@ -372,16 +392,21 @@ function emitComparisonSegments(
 }
 
 /**
- * Compile a comparison operand to a segment list. The hoist pass
- * leaves `count(subcasePath, ...)` untouched in comparison-LHS
- * position because CCHQ's `_is_subcase_count` recogniser at
- * `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86` matches
- * the literal `subcase-count` function name in that slot. This
- * helper emits the `subcase-count('<id>', <filter>)` wire form,
- * splicing the filter's segment list inline so any runtime refs
- * inside the filter compose into the outer concat. Every other
- * ValueExpression arm routes through the term unwrap and emits as a
- * single-segment operand.
+ * Compile a comparison operand to a segment list. Three operand
+ * shapes can reach this slot after the hoist pass:
+ *
+ *   - `term`-arm ValueExpression (the common case): unwrap, emit via
+ *     `emitTermSegment`, wrap runtime refs in CSQL double-quoted
+ *     brackets.
+ *   - `count(subcasePath, ...)` (CCHQ's recognised `subcase-count`
+ *     form per `_is_subcase_count` at
+ *     `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`):
+ *     emit as `subcase-count('<id>', <filter>)`. The filter
+ *     argument's segments splice inline so any runtime refs
+ *     compose into the outer concat.
+ *   - `date-coerce` / `datetime-coerce`: emit as the CSQL value
+ *     functions `date(...)` / `datetime(...)` (the AST kind name
+ *     diverges from the wire function name).
  */
 function emitComparisonOperandSegments(expr: ValueExpression): CsqlSegment[] {
 	if (expr.kind === "count") {
@@ -390,27 +415,75 @@ function emitComparisonOperandSegments(expr: ValueExpression): CsqlSegment[] {
 				`csqlEmitter: count with via.kind === '${expr.via.kind}' reached the comparison-LHS emitter; the hoist pass should have lifted it`,
 			);
 		}
-		const identifier = expr.via.identifier;
+		const identifierLiteral = quoteLiteral(expr.via.identifier, "csql");
 		if (expr.where === undefined) {
-			return [{ kind: "constant", text: `subcase-count('${identifier}')` }];
+			return [
+				{ kind: "constant", text: `subcase-count(${identifierLiteral})` },
+			];
 		}
 		const filterSegments = emitFilterArgumentSegments(expr.where);
 		return [
-			{ kind: "constant", text: `subcase-count('${identifier}', ` },
+			{ kind: "constant", text: `subcase-count(${identifierLiteral}, ` },
 			...filterSegments,
 			{ kind: "constant", text: ")" },
 		];
 	}
+	if (expr.kind === "date-coerce" || expr.kind === "datetime-coerce") {
+		return emitCoerceCallSegments(expr);
+	}
 	const term = emitTermSegment(unwrapTermFromExpression(expr));
+	return wrapTermAsSegmentList(term);
+}
+
+/**
+ * Wrap a single `TermEmission` into a `CsqlSegment[]`. Constant
+ * emissions become a single constant segment; runtime emissions wrap
+ * in CSQL double-quoted brackets so the runtime XPath result
+ * interpolates as a CSQL string value (the canonical pattern at
+ * `commcare-hq/docs/case_search_query_language.rst:403-407`).
+ *
+ * Centralising the wrap shape here keeps every operand emission path
+ * — comparison operands, `in` values, `between` bounds — consistent
+ * on the runtime-bracketing rule.
+ */
+function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
 	if (term.kind === "constant") {
 		return [{ kind: "constant", text: term.text }];
 	}
-	// Runtime-resolved operand — wrap in CSQL double-quoted bracket
-	// so the runtime XPath result interpolates as a CSQL string value.
 	return [
 		{ kind: "constant", text: '"' },
 		{ kind: "runtime", xpath: term.xpath },
 		{ kind: "constant", text: '"' },
+	];
+}
+
+/**
+ * Emit a `date-coerce` or `datetime-coerce` ValueExpression as its
+ * CSQL value-function form. The AST kind names diverge from the wire
+ * function names: AST `date-coerce(value)` becomes wire `date(value)`
+ * (registered at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:28`);
+ * AST `datetime-coerce(value)` becomes wire `datetime(value)`
+ * (registered at line 30).
+ *
+ * The argument flows through the term emitter; runtime refs
+ * interpolate inside the function-call parens unwrapped (CSQL
+ * function-call argument position accepts a runtime XPath result
+ * directly without surrounding string-quote brackets, since the
+ * function consumes a value, not a quoted string literal).
+ */
+function emitCoerceCallSegments(
+	expr: Extract<ValueExpression, { kind: "date-coerce" | "datetime-coerce" }>,
+): CsqlSegment[] {
+	const fnName = expr.kind === "date-coerce" ? "date" : "datetime";
+	const inner = emitTermSegment(unwrapTermFromExpression(expr.value));
+	if (inner.kind === "constant") {
+		return [{ kind: "constant", text: `${fnName}(${inner.text})` }];
+	}
+	return [
+		{ kind: "constant", text: `${fnName}(` },
+		{ kind: "runtime", xpath: inner.xpath },
+		{ kind: "constant", text: ")" },
 	];
 }
 
@@ -437,32 +510,20 @@ function joinComparisonSegmentLists(
 /**
  * Single-segment-operand variant of `joinComparisonSegmentLists`,
  * used by `in` and `between` whose value lists are always single-
- * segment terms or literals on either side. The helper wraps each
- * runtime operand in the CSQL double-quoted bracket so the join
- * matches the comparison emission's runtime-interpolation shape.
+ * segment terms or literals on either side. Each operand routes
+ * through `wrapTermAsSegmentList` so the runtime-bracketing shape
+ * matches the comparison emission's runtime-interpolation rule.
  */
 function joinComparisonSegments(
 	left: TermEmission,
 	op: string,
 	right: TermEmission,
 ): CsqlSegment[] {
-	const leftSegs: CsqlSegment[] =
-		left.kind === "constant"
-			? [{ kind: "constant", text: left.text }]
-			: [
-					{ kind: "constant", text: '"' },
-					{ kind: "runtime", xpath: left.xpath },
-					{ kind: "constant", text: '"' },
-				];
-	const rightSegs: CsqlSegment[] =
-		right.kind === "constant"
-			? [{ kind: "constant", text: right.text }]
-			: [
-					{ kind: "constant", text: '"' },
-					{ kind: "runtime", xpath: right.xpath },
-					{ kind: "constant", text: '"' },
-				];
-	return joinComparisonSegmentLists(leftSegs, op, rightSegs);
+	return joinComparisonSegmentLists(
+		wrapTermAsSegmentList(left),
+		op,
+		wrapTermAsSegmentList(right),
+	);
 }
 
 /**
@@ -486,11 +547,11 @@ function emitLogicalSegments(
 	if (parentPrec > prec) {
 		return [
 			{ kind: "constant", text: "(" },
-			...mergeAdjacentConstants(parts),
+			...parts,
 			{ kind: "constant", text: ")" },
 		];
 	}
-	return mergeAdjacentConstants(parts);
+	return parts;
 }
 
 /**
@@ -498,9 +559,11 @@ function emitLogicalSegments(
  * plain equality; multi-value expands to an OR-of-equalities wrapped
  * in parens. The expansion is a deliberate design choice over CCHQ's
  * `selected-any` because `selected-any` tokenizes its value argument
- * by whitespace at the wire layer
- * (`commcare-hq/corehq/apps/es/case_search.py:291-296`), which would
- * silently break `in` semantics on multi-word values.
+ * by whitespace via ElasticSearch's `match`-query analyzer, which
+ * `case_property_text_query` at
+ * `commcare-hq/corehq/apps/es/case_search.py:291-302` forwards to;
+ * `selected-any` would silently break `in` semantics on multi-word
+ * values.
  */
 function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
 	const left = emitTermSegment(unwrapTermFromExpression(p.left));
@@ -517,13 +580,14 @@ function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
 		parts.push(...joinComparisonSegments(left, "=", right));
 	}
 	parts.push({ kind: "constant", text: ")" });
-	return mergeAdjacentConstants(parts);
+	return parts;
 }
 
 /**
  * Emit a `between` predicate by expanding into the conjunction of two
  * boundary comparisons. CSQL recognises the six binary comparison
- * operators natively at `const.py`'s `OPERATOR_MAPPING`; expanding
+ * operators per
+ * `commcare-hq/corehq/apps/case_search/const.py:124-132`; expanding
  * `between` keeps the wire form within that vocabulary.
  *
  * The `lowerInclusive` / `upperInclusive` flags pick the per-bound
@@ -553,15 +617,11 @@ function emitBetweenSegments(
 		// `in` multi-value branch makes.
 		const lowerPart = joinComparisonSegments(left, lowerOp, lowerSeg);
 		const upperPart = joinComparisonSegments(left, upperOp, upperSeg);
-		const inner: CsqlSegment[] = [
+		return [
+			{ kind: "constant", text: "(" },
 			...lowerPart,
 			{ kind: "constant", text: " and " },
 			...upperPart,
-		];
-		const merged = mergeAdjacentConstants(inner);
-		return [
-			{ kind: "constant", text: "(" },
-			...merged,
 			{ kind: "constant", text: ")" },
 		];
 	}
@@ -574,7 +634,7 @@ function emitBetweenSegments(
 	// Schema's `.refine()` rejects the both-bounds-absent shape;
 	// keep the branch defensive in case a pre-validated AST reaches
 	// this emitter with both bounds stripped.
-	throw new Error("emitCsql: 'between' has no bounds");
+	throw new Error("csqlEmitter: 'between' has no bounds");
 }
 
 /**
@@ -658,6 +718,12 @@ function matchModeToWireFunction(
 			return "fuzzy-date";
 		case "starts-with":
 			return "starts-with";
+		default: {
+			const _exhaustive: never = mode;
+			throw new Error(
+				`csqlEmitter: unhandled match mode ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
@@ -672,9 +738,10 @@ function matchModeToWireFunction(
  *
  * Multi-value `any` and any-arity `all` share the space-joined-token
  * shape — CCHQ's `case_property_text_query` at
- * `commcare-hq/corehq/apps/es/case_search.py:291-302` tokenizes the
- * value argument by whitespace and applies the per-quantifier `OR` /
- * `AND` operator in ElasticSearch's match query.
+ * `commcare-hq/corehq/apps/es/case_search.py:291-302` forwards the
+ * value argument to ElasticSearch's `match` query, whose analyzer
+ * tokenizes by whitespace and applies the per-quantifier `OR` /
+ * `AND` operator.
  *
  * Each value flows through the literal emitter at the segment level;
  * the values join with a single space and the joined string flows
@@ -765,10 +832,8 @@ function emitWithinDistanceSegments(
 }
 
 /**
- * Emit `exists` / `missing` as `ancestor-exists(...)` /
- * `subcase-exists(...)` (with `not(...)` wrap for the `missing` arm).
- *
- * Direction dispatch follows CCHQ's per-direction registration:
+ * Emit `exists` / `missing` per direction. CCHQ exposes two
+ * direction-specific query functions:
  *
  *   - `via.kind === "ancestor"` → `ancestor-exists(<slash-joined steps>, <filter>)`
  *     per `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`.
@@ -777,11 +842,16 @@ function emitWithinDistanceSegments(
  *     expression at `ancestor_functions.py:74-87`.
  *   - `via.kind === "subcase"` → `subcase-exists('<identifier>', <filter>)`
  *     per `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`.
- *     The identifier is a quoted string literal.
- *   - `via.kind === "self"` / `"any-relation"` — neither has a CSQL
- *     wire form. Self has no traversal; any-relation has no
- *     direction-agnostic CSQL function. Both throw at this layer;
- *     authors compose the explicit direction-specific predicate.
+ *
+ * `via.kind === "any-relation"` is direction-agnostic and expands to
+ * `(<ancestor-form> or <subcase-form>)` so the predicate matches a
+ * related case in either direction. The `missing` form negates the
+ * disjunction (`not((ancestor or subcase))`).
+ *
+ * `via.kind === "self"` has no traversal — it represents
+ * "no-relation" semantics with no CSQL wire form. Throws at this
+ * layer; the no-traversal author shape composes via direct
+ * predicates on the current scope.
  *
  * The optional `where` filter argument routes through the segment
  * walker recursively at `parentPrec: 0` (function-call argument
@@ -814,45 +884,90 @@ function emitExistsCallSegments(
 	const via = p.via;
 	if (via.kind === "self") {
 		throw new Error(
-			"emitCsql: 'exists' / 'missing' with via.kind === 'self' has no CSQL wire form",
+			"csqlEmitter: 'exists' / 'missing' with via.kind === 'self' has no CSQL wire form",
 		);
 	}
 	if (via.kind === "any-relation") {
-		throw new Error(
-			"emitCsql: 'any-relation' has no CSQL wire form (CCHQ's whitelists expose only direction-specific operators)",
+		// Direction-agnostic walk: emit both direction-specific forms
+		// and OR them together. A parent `missing` arm wraps the whole
+		// disjunction in `not(...)` at the caller (`emitExistsSegments`),
+		// matching B2's on-device any-relation expansion.
+		const ancestorSegs = emitAncestorExistsCall(
+			[{ identifier: via.identifier }],
+			p.where,
 		);
-	}
-	if (via.kind === "ancestor") {
-		// CCHQ's `ancestor-exists` requires exactly two arguments per
-		// `confirm_args_count(node, 2)` at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:109`.
-		// When the predicate carries no `where` clause, inject a
-		// `match-all()` filter — the natural "any case along this
-		// ancestor path exists" semantic, expressed in a single
-		// grammar-compliant CSQL function. `match-all()` is itself a
-		// CSQL query function at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52`.
-		const path = serializeAncestorPath(via.via);
-		const filterSegments =
-			p.where !== undefined
-				? emitFilterArgumentSegments(p.where)
-				: ([{ kind: "constant", text: "match-all()" }] as const);
+		const subcaseSegs = emitSubcaseExistsCall(via.identifier, p.where);
 		return [
-			{ kind: "constant", text: `ancestor-exists('${path}', ` },
-			...filterSegments,
+			{ kind: "constant", text: "(" },
+			...ancestorSegs,
+			{ kind: "constant", text: " or " },
+			...subcaseSegs,
 			{ kind: "constant", text: ")" },
 		];
 	}
-	// `subcase` direction. CCHQ's `subcase-exists` accepts a 1-or-2-arg
-	// form per `subcase_functions.py:201` (`if not 1 <= len(args) <= 2`),
-	// so the no-where case emits as a single-arg call.
-	const identifier = via.identifier;
-	if (p.where === undefined) {
-		return [{ kind: "constant", text: `subcase-exists('${identifier}')` }];
+	if (via.kind === "ancestor") {
+		return emitAncestorExistsCall(via.via, p.where);
 	}
-	const filterSegments = emitFilterArgumentSegments(p.where);
+	return emitSubcaseExistsCall(via.identifier, p.where);
+}
+
+/**
+ * Emit a single `ancestor-exists('<path>', <filter>)` call. CCHQ's
+ * `ancestor-exists` requires exactly two arguments per
+ * `confirm_args_count(node, 2)` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:109`.
+ * When `where` is absent, inject `match-all()` as the filter — the
+ * natural "any case along this ancestor path exists" semantic,
+ * expressed in a single grammar-compliant CSQL function. `match-all()`
+ * is a CSQL query function at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52`.
+ *
+ * The path argument routes through `quoteLiteral` so the
+ * slash-joined identifier list emits as a properly-quoted CSQL
+ * string literal. Schema-layer regex constraints on each step's
+ * `identifier` already restrict the character set; `quoteLiteral`
+ * mirrors the property emitters' quoting rule for consistency.
+ */
+function emitAncestorExistsCall(
+	steps: readonly RelationStep[],
+	where: Predicate | undefined,
+): CsqlSegment[] {
+	const path = serializeAncestorPath(steps);
+	const pathLiteral = quoteLiteral(path, "csql");
+	const filterSegments =
+		where !== undefined
+			? emitFilterArgumentSegments(where)
+			: ([{ kind: "constant", text: "match-all()" }] as const);
 	return [
-		{ kind: "constant", text: `subcase-exists('${identifier}', ` },
+		{ kind: "constant", text: `ancestor-exists(${pathLiteral}, ` },
+		...filterSegments,
+		{ kind: "constant", text: ")" },
+	];
+}
+
+/**
+ * Emit a single `subcase-exists('<id>', <filter>)` call. CCHQ's
+ * `subcase-exists` accepts a 1-or-2-arg form per
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:201`
+ * (`if not 1 <= len(args) <= 2`), so the no-where case emits as a
+ * single-arg call.
+ *
+ * The identifier argument routes through `quoteLiteral` for the same
+ * reason as `ancestor-exists` — schema constraints already restrict
+ * the character set; `quoteLiteral` mirrors the property emitters'
+ * quoting rule.
+ */
+function emitSubcaseExistsCall(
+	identifier: string,
+	where: Predicate | undefined,
+): CsqlSegment[] {
+	const identifierLiteral = quoteLiteral(identifier, "csql");
+	if (where === undefined) {
+		return [{ kind: "constant", text: `subcase-exists(${identifierLiteral})` }];
+	}
+	const filterSegments = emitFilterArgumentSegments(where);
+	return [
+		{ kind: "constant", text: `subcase-exists(${identifierLiteral}, ` },
 		...filterSegments,
 		{ kind: "constant", text: ")" },
 	];
@@ -894,8 +1009,8 @@ function emitFilterArgumentSegments(p: Predicate): CsqlSegment[] {
 
 /**
  * Two-shape result for term emission. Constants flow through
- * `quoteXPathString` at the wrap layer; runtime refs become bare
- * `concat(...)` arguments.
+ * `quoteConstantSegmentForXPath` at the wrap layer; runtime refs
+ * become bare `concat(...)` arguments.
  *
  *   - `constant` carries the CSQL wire-form text directly (e.g. a
  *     literal value, a property identifier, a reserved-attribute
@@ -927,6 +1042,12 @@ function emitTermSegment(t: Term): TermEmission {
 			return { kind: "runtime", xpath: emitSessionContextXPath(t) };
 		case "literal":
 			return emitLiteralSegment(t.value);
+		default: {
+			const _exhaustive: never = t;
+			throw new Error(
+				`csqlEmitter: unhandled term kind ${String(_exhaustive)}`,
+			);
+		}
 	}
 }
 
@@ -943,9 +1064,9 @@ function emitTermSegment(t: Term): TermEmission {
  * the comparison's left side
  * (`<rel>/<prop> = <value>` parsed via `is_ancestor_comparison` at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:13-22`),
- * which the v1 emitter does not generate. The intended path for
- * relational reads in v1 is `exists` / `missing` predicates that
- * carry the relation walk explicitly.
+ * which the emitter does not generate. The intended path for
+ * relational reads is `exists` / `missing` predicates that carry the
+ * relation walk explicitly.
  */
 function emitPropertyRefText(t: PropertyRef): string {
 	if (RESERVED_CASE_ATTRIBUTES.has(t.property)) {
@@ -1024,7 +1145,7 @@ function emitLiteralSegment(
  * the emission walker, every operand slot is guaranteed to carry a
  * `term`-arm wrapper (either an author-written term or a synthetic
  * hoist ref). Any other arm reaching this helper indicates the hoist
- * pass missed an unrepresentable shape, which is a programming error
+ * pass missed a non-grammar shape, which is a programming error
  * at the AST → emitter boundary.
  */
 function unwrapTermFromExpression(expr: ValueExpression): Term {
@@ -1035,25 +1156,17 @@ function unwrapTermFromExpression(expr: ValueExpression): Term {
 }
 
 /**
- * Coalesce adjacent constant segments into one — keeps the wrapper
- * output compact when a logical operator sits next to a comparison
- * with no runtime interpolation. Without this pass, a predicate like
- * `eq(prop, literal("a")) and eq(prop, literal("b"))` would emit four
- * adjacent constant segments around the `' and '` separator; the
- * merge keeps the segment list to one constant per contiguous
- * constant run.
+ * Coalesce adjacent constant segments into one. Centralised at the
+ * wrap layer so per-arm emitters produce raw segment lists without
+ * needing their own merge passes. Without this pass, a predicate
+ * like `eq(prop, literal("a")) and eq(prop, literal("b"))` would
+ * emit four adjacent constant segments around the `' and '`
+ * separator; the merge keeps the segment list to one constant per
+ * contiguous constant run.
  *
- * The pass preserves runtime segments untouched — they always sit as
- * their own segment because `concat(...)` argument boundaries are the
- * one place a constant↔runtime transition is authoritative.
- *
- * Also handles a redundancy specific to the comparison emitter: when
- * a runtime LHS ends with `"` and a runtime RHS begins with `"`,
- * adjacent constants like `'" '` and `'"...'` are not merged — the
- * boundary is a constant↔runtime↔constant↔runtime↔constant chain by
- * construction, so adjacent constants only arise in the logical-
- * operator case where two child segment lists meet through a
- * separator.
+ * Runtime segments pass through untouched — they always sit as their
+ * own segment because `concat(...)` argument boundaries are the one
+ * place a constant↔runtime transition is authoritative.
  */
 function mergeAdjacentConstants(
 	segments: readonly CsqlSegment[],

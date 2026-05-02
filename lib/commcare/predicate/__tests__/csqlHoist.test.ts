@@ -25,8 +25,11 @@ import {
 	arith,
 	concat,
 	count,
+	dateCoerce,
+	datetimeCoerce,
 	eq,
 	exists,
+	formatDate,
 	gt,
 	ifExpr,
 	input,
@@ -99,7 +102,7 @@ describe("hoistForCsql — value-position hoists", () => {
 		const result = hoistForCsql(p);
 		expect(result.wrappers).toHaveLength(1);
 		expect(result.wrappers[0]).toEqual({
-			inputName: "csql_hoist_0",
+			inputRef: "csql_hoist_0",
 			expression: original,
 		});
 		// The hoisted predicate replaces the arith with a synthetic
@@ -151,6 +154,32 @@ describe("hoistForCsql — value-position hoists", () => {
 		expect(result.wrappers[0]?.expression).toEqual(original);
 	});
 
+	it("lifts a format-date expression in a comparison's right operand", () => {
+		// `format-date` is absent from CSQL's value-function whitelist
+		// at
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
+		// so the entire expression lifts as a wrapper that runs on
+		// device (where `format-date` is available via JavaRosa).
+		const original = formatDate(term(prop("patient", "dob")), "iso");
+		const p = eq(prop("patient", "dob_text"), original);
+		const result = hoistForCsql(p);
+		expect(result.wrappers).toHaveLength(1);
+		expect(result.wrappers[0]?.expression).toEqual(original);
+	});
+
+	it("preserves date-coerce / datetime-coerce intact through the walker", () => {
+		// Both arms map to CSQL value functions (`date(...)` /
+		// `datetime(...)` per
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:28,30`)
+		// — the AST kind names diverge from the wire function names,
+		// but the hoist pass leaves them intact and the emitter
+		// renames at output time.
+		const dateExpr = dateCoerce(term(literal("2024-12-03")));
+		const datetimeExpr = datetimeCoerce(term(literal("2024-12-03T10:00:00")));
+		expect(hoistForCsql(eq(prop("p", "x"), dateExpr)).wrappers).toEqual([]);
+		expect(hoistForCsql(eq(prop("p", "y"), datetimeExpr)).wrappers).toEqual([]);
+	});
+
 	it("lifts a non-grammar bound on a between predicate", () => {
 		// `between.lower` and `between.upper` are ValueExpression slots;
 		// each routes through the value-position walker with the same
@@ -187,9 +216,9 @@ describe("hoistForCsql — count operator", () => {
 	});
 
 	it("lifts count outside a comparison-LHS as a wrapper", () => {
-		// Plan 4's wire layer evaluates the count on-device and
-		// injects the resolved numeric literal into the CSQL fragment
-		// via the synthetic search-input ref.
+		// The on-device wrapper computes the cardinality and the wire
+		// layer injects the resolved numeric literal into the CSQL
+		// fragment via the synthetic search-input ref.
 		const original = count(subcasePath("child"));
 		const p = isBlank(original);
 		const result = hoistForCsql(p);
@@ -231,8 +260,8 @@ describe("hoistForCsql — naming + multi-hoist composition", () => {
 		);
 		const result = hoistForCsql(p);
 		expect(result.wrappers).toEqual([
-			{ inputName: "csql_hoist_0", expression: lifted0 },
-			{ inputName: "csql_hoist_1", expression: lifted1 },
+			{ inputRef: "csql_hoist_0", expression: lifted0 },
+			{ inputRef: "csql_hoist_1", expression: lifted1 },
 		]);
 	});
 
