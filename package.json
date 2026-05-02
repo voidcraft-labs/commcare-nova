@@ -63,6 +63,7 @@
 		"fuse.js": "^7.3.0",
 		"htmlparser2": "^10.1.0",
 		"immer": "^11.1.4",
+		"kysely": "^0.28.16",
 		"markdown-to-jsx": "^9.7.13",
 		"mcp-handler": "^1.1.0",
 		"motion": "^12.35.1",
