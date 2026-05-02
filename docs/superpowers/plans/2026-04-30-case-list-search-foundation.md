@@ -457,13 +457,21 @@ Helpers and rules:
 - `npx tsc --noEmit` clean
 - `npx @biomejs/biome check lib/domain/predicate/` clean
 
-### Task A6: ValueExpression schemas + predicate operand widening
+### Task A6: ValueExpression schemas + predicate operand widening — SHIPPED
+
+Shipped across commits `69879f04` → `a289b39d` → `929866ea` → `85fdd8a6` → `48a1e04b` → `bb82ce9d` → `cf2836b0` → `86935519` → `c73f25e1` → `718eceb4` → `f6cb20f6`.
 
 **Files modified:**
 - `lib/domain/predicate/types.ts` — adds 14 `ValueExpression` arms + widens 9 predicate operand fields across 6 schemas (`comparison.left`/`right`, `in.left`, `within-distance.center`, `between.left`/`lower`/`upper`, `is-null.left`, `is-blank.left`) from `Term` to `ValueExpression`. Both unions hand-declared because z.lazy slots break z.infer; drift guards expanded to cover every operand-widened predicate arm and every ValueExpression arm.
 - `lib/domain/predicate/builders.ts` — adds `toValueExpression(...)` auto-wrap helper plus all 14 ValueExpression builders (`term`, `today`, `now`, `dateAdd`, `dateCoerce`, `datetimeCoerce`, `double`, `arith`, `concat`, `coalesce`, `ifExpr`, `switchCase` + `switchExpr`, `count`, `unwrapList`, `formatDate`). Predicate-operand builders (`eq`, `isIn`, `within`, `isNull`, `isBlank`, `between`) accept `Term | ValueExpression` and route Term inputs through the auto-wrap so existing call sites compose unchanged.
-- `lib/domain/predicate/typeChecker.ts` — adds `checkExpression(...)` (the value-side analogue of `resolveTermType`) plus the `SEQUENCE_TYPE` sentinel for `unwrap-list`'s output. Operand callsites (`checkComparison`, `checkIn`, `checkWithinDistance`, `checkBetween`, `checkAbsenceOperator`) swap from `resolveTermType` to `checkExpression`; the literal-pair impossibility check on `between` and the literal-rejection rule on `is-null`/`is-blank` unwrap the operand's `term` arm.
-- `lib/commcare/predicate/xpathEmitter.ts` — adds `unwrapTermFromExpression(...)` with an exhaustive switch that accepts the `term` arm and throws on every other arm with a "supersede in B-phase" error pointing at Tasks B1-B6.
+- `lib/domain/predicate/typeChecker.ts` — adds `checkExpression(...)` (the value-side analogue of `resolveTermType`), the `SEQUENCE_TYPE` sentinel for `unwrap-list`'s output, and the `accumulateBranchType` helper shared across `if` / `switch` / `coalesce` branch-agreement loops. Operand callsites (`checkComparison`, `checkIn`, `checkWithinDistance`, `checkBetween`, `checkAbsenceOperator`) swap from `resolveTermType` to `checkExpression`; the literal-pair impossibility check on `between` and the literal-rejection rule on `is-null`/`is-blank` unwrap the operand's `term` arm.
+- `lib/commcare/predicate/xpathEmitter.ts` — adds `unwrapTermFromExpression(...)` with an exhaustive switch that accepts the `term` arm and throws on every other arm with an operator-scope error stating only the term-arm structural lifter is supported by this emitter. Per-dialect arm support lives in the per-dialect emitter modules.
+
+**Architecture pivot from option (a) to (b)+(c):**
+
+The first commit (`69879f04`) exported shared type-checker helpers (`ORDERED_TYPES`, `typesCompatible`, `ResolvedType`, etc.) under an option-(a) shape — separate `lib/domain/predicate/` and `lib/domain/expression/` packages bridged by a `value-expression` Term arm via cross-package `z.lazy`. After that commit landed, the architecture pivoted to (b)+(c): drop the `value-expression` Term arm; widen Predicate operands directly to `ValueExpression`; collapse both families into a single package. The pivot eliminates cross-package `z.lazy` in favor of intra-file `z.lazy` for genuine self-recursion only — the canonical Zod 4 pattern. The exported helpers from `69879f04` survive the pivot intact and stay in the predicate package.
+
+**What landed:**
 
 The two families collapse into one package: `lib/domain/predicate` houses both `Predicate` and `ValueExpression`. Cross-cycle recursion (Predicate operators → ValueExpression operands; ValueExpression `if` / `switch` / `count` arms → Predicate clauses) goes through `z.lazy(...)` intra-file. No cross-package z.lazy.
 
@@ -481,19 +489,23 @@ Type-checker rules:
 - `if`: cond is Predicate (recursed via the predicate walker); then/else types must agree.
 - `switch`: on is value; cases.when literals must be compatible with `on`'s type; cases.then must agree with each other and with fallback.
 - `count` returns int; the relation walk is type-checked via `checkRelationPath`; the optional `where` clause is type-checked recursively in the destination scope.
-- `unwrap-list` accepts text-shaped; returns the `_sequence` sentinel. v1 has no AST consumer for the sequence type — `multi-select-contains.values` and `in.values` stay literal-only because every wire target demands a static value list. The CSQL emitter will route `unwrap-list` into `selected-any(prop, unwrap-list(...))` at wire-emit time when that pattern lands in B-phase. The compatibility table treats `_sequence` as incompatible with every scalar (including itself) so a v1 author who composes a sequence into a scalar slot gets a clear error.
+- `unwrap-list` accepts text-shaped; returns the `_sequence` sentinel. v1 has no AST consumer for the sequence type — `multi-select-contains.values` and `in.values` stay literal-only because every wire target demands a static value list. The CSQL emitter routes `unwrap-list` into `selected-any(prop, unwrap-list(...))` at wire-emit time; that pattern lands in B-phase. The compatibility table treats `_sequence` as incompatible with every scalar (including itself) so a v1 author who composes a sequence into a scalar slot gets a clear error.
 - `format-date` accepts date or datetime; returns text.
 
 The `then` field name on `if` and `switch.cases` triggers Biome's `noThenProperty` rule. Suppressed inline with rationale on `ifSchema`'s JSDoc: the slot holds a ValueExpression object (one of fifteen non-function shapes), never a callable, and the AST never reaches a Promise-resolution boundary, so the thenable hazard the rule defends against doesn't apply.
 
-Steps:
-- [x] Add `ValueExpression` schemas + widened predicate operand types in `types.ts`; expand drift guards
-- [x] Add `toValueExpression` auto-wrap + 14 ValueExpression builders in `builders.ts`; widen predicate-operand builders
-- [x] Add `checkExpression` + `SEQUENCE_TYPE` in `typeChecker.ts`; swap operand callsites
-- [x] Add `unwrapTermFromExpression` + exhaustive switch in `xpathEmitter.ts`
-- [x] Migrate existing predicate-operand tests to the wrapped shape
-- [x] Add coverage for new behavior (ValueExpression schemas, checkExpression rules, auto-wrap, xpathEmitter throws)
-- [x] Sync spec + plan to (b)+(c) shape
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ Compliant. Zero findings ≥80 confidence; the 14-arm coverage, 9-operand widening, builder surface, type-checker rules, and xpathEmitter scope all match the spec.
+- Code-quality review (opus): 11 findings. All addressed in the fix-pass commit chain (`48a1e04b` → `f6cb20f6`) — eternal-present sweep across comments + runtime errors + test assertions, `TERM_KINDS` cast removal, `asValueExpr` test-helper consistency, `accumulateBranchType` extraction, object-shape `it.each` parameterization, Zod 4 `z.lazy().optional()` verification, and re-review minor follow-ups on residual forward-temporal framing in the `is-null` / `count` JSDoc. Re-review approved.
+- Findings deferred: the drift-guard optional-vs-required gap on stripped recursive slots (a hypothetical drift mode the current guard doesn't pin); documented inline as a known limitation, not patched.
+
+**Verification gates (all green at HEAD `f6cb20f6`):**
+- 494 predicate-domain tests pass
+- Full repo: 2270 tests / 138 files
+- `npx tsc --noEmit` clean
+- `npm run lint` clean
+- Eternal-present sweep grep returns zero hits
 
 ### Task A7: Reduction module
 
