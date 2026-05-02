@@ -897,49 +897,512 @@ describe("checkPredicate — sentinel predicates", () => {
 	});
 });
 
-// The dispatch arm in `walk` throws on `between` / `exists` /
-// `missing` — these three kinds have no dedicated semantic rules in
-// this checker, and throwing prevents them from silently producing
-// false-positive type-clean verdicts on unchecked predicates (the
-// failure mode the checker itself exists to prevent). `is-null` and
-// `is-blank` get their own dedicated arms in this file's `describe`
-// blocks below — both reject literal-shaped `left` and accept every
-// other Term variant. The error-message regex is matched loosely
-// against the kind name so phrasing changes around the kind don't
-// trip the lock.
-describe("checkPredicate — kinds without dedicated semantic rules throw", () => {
-	it("throws on between", () => {
+// `between` is the structural range predicate — bounded interval on
+// `left` with optional lower / upper bounds and per-bound inclusivity
+// flags. The type checker enforces three rules:
+//   1. `left` must resolve to an ordered type (int / decimal / date /
+//      datetime / time) — the same `ORDERED_TYPES` set comparison
+//      operators reuse for the `gt` / `gte` / `lt` / `lte` family.
+//   2. Each provided bound (`lower` / `upper`) must resolve to a type
+//      compatible with `left` — same `typesCompatible` widenings
+//      comparison operators use, so numeric promotion / null-as-
+//      universal carry over.
+//   3. When both bounds are typed-literal Terms and `lower > upper`,
+//      the predicate is identically false at every wire target. The
+//      schema admits this shape because bounds may be Term refs whose
+//      values aren't known at parse time; the checker is the right
+//      place to catch the literal-pair case (per the spec's "Range
+//      predicate" subsection).
+describe("checkPredicate — between operator rules", () => {
+	it("accepts between on an int property with int bounds", () => {
+		// Canonical positive case: `age` is int, both bounds are int
+		// literals, the predicate type-checks cleanly. Pins the happy
+		// path through the ordered-type + per-bound resolution +
+		// per-bound compatibility cascade.
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+		});
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts between on a date property with typed dateLiteral bounds", () => {
+		// Date kinds are ordered; typed-date literals carry their
+		// `data_type` explicitly so the comparator resolves them as
+		// `date` rather than the generic JS-string fallback.
+		const p = between(prop("patient", "dob"), {
+			lower: dateLiteral("2000-01-01"),
+			upper: dateLiteral("2024-12-31"),
+		});
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts between with only a lower bound (open-upper interval)", () => {
+		// The schema admits the half-open interval shape. The checker
+		// resolves the present bound and skips the absent one — pinning
+		// the absence-tolerant resolution rule.
 		const p = between(prop("patient", "age"), { lower: literal(18) });
-		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'between'/);
+		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	it("throws on exists", () => {
-		const p = exists(subcasePath("parent"));
-		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'exists'/);
+	it("accepts between with only an upper bound (open-lower interval)", () => {
+		// Symmetric to the lower-only case — locks both halves of the
+		// optional-bound resolution against a one-sided regression.
+		const p = between(prop("patient", "age"), { upper: literal(65) });
+		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	it("throws on missing", () => {
-		const p = missing(subcasePath("parent"));
-		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'missing'/);
+	it("rejects between on a text property (text is not ordered)", () => {
+		// Text is intentionally excluded from `ORDERED_TYPES` — locale-
+		// dependent string ordering rarely produces meaningful filters,
+		// and routing authors to a different operator (`match` /
+		// `starts-with`) is the deliberate UX. The error attaches to
+		// the predicate's own path (parallel to comparison operators'
+		// ordered-type rejection).
+		const p = between(prop("patient", "name"), {
+			lower: literal("a"),
+			upper: literal("m"),
+		});
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual([]);
+			expect(result.errors[0].message).toMatch(/ordered|not ordered/i);
+		}
 	});
 
-	it("throws when a kind without dedicated rules is composed inside a logical wrapper", () => {
-		// The JSDoc on `checkPredicate` documents this case explicitly.
-		// The walker recurses through `and` / `or` / `not` /
-		// `when-input-present` before dispatching, so a kind without
-		// dedicated rules nested inside a wrapper triggers the same
-		// throw as the standalone case. Pinning the `and(eq, between)`
-		// shape locks the wrapper-recursion contract; pinning every
-		// wrapper × kind pair would be overkill, but the shape called
-		// out in the JSDoc is load-bearing. `between` is the canonical
-		// example here because `is-null` / `is-blank` now have
-		// dedicated rules — they accept inside wrappers rather than
-		// throw.
+	it("rejects between when a bound's type is incompatible with left", () => {
+		// `age` is int, the literal `"forty-two"` resolves to text —
+		// the per-bound compatibility check rejects with the same
+		// "type mismatch" framing comparison operators use, on the
+		// failing bound's own path so the editor highlights the
+		// offending operand directly.
+		const p = between(prop("patient", "age"), {
+			lower: literal("forty-two"),
+			upper: literal(65),
+		});
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].path).toEqual(["lower"]);
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
+	});
+
+	it("rejects between when literal bounds are inverted (lower > upper)", () => {
+		// Both bounds are typed-literal Terms with comparable values:
+		// `100 > 18`, so the interval `[100, 18]` is empty by
+		// construction. The checker rejects with a dedicated message
+		// naming the impossibility — the schema admits the shape
+		// because bounds may be Term refs whose values aren't known
+		// at parse time, but the literal-pair case is statically
+		// decidable here.
+		const p = between(prop("patient", "age"), {
+			lower: literal(100),
+			upper: literal(18),
+		});
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/lower.*greater|inverted|empty/i,
+			);
+		}
+	});
+
+	it("accepts between with mixed numeric promotion (int prop, decimal bounds)", () => {
+		// Numeric promotion (`int` ↔ `decimal`) carries over from the
+		// comparison checker's compatibility table — locks the rule
+		// that bounds reuse `typesCompatible` rather than enforcing
+		// strict type identity.
+		const p = between(prop("patient", "age"), {
+			lower: literal(18.5),
+			upper: literal(65.0),
+		});
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("propagates errors through wrapper recursion (between inside and)", () => {
+		// Pins the wrapper-recursion contract: a `between` violation
+		// nested inside `and` surfaces with a path that threads the
+		// wrapper's `kind` and clause index. Replaces the throw-on-
+		// between coverage that the dedicated A5 rule supersedes —
+		// the regression target shifts from "throws inside wrappers"
+		// to "real rule fires inside wrappers."
 		const p = and(
 			eq(prop("patient", "name"), literal("Alice")),
-			between(prop("patient", "age"), { lower: literal(18) }),
+			between(prop("patient", "name"), {
+				lower: literal("a"),
+				upper: literal("m"),
+			}),
 		);
-		expect(() => checkPredicate(p, ctx)).toThrow(/no rules for kind 'between'/);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/ordered|not ordered/i);
+			expect(result.errors[0].path).toEqual(["and", 1]);
+		}
+	});
+});
+
+// `exists` and `missing` are the relational quantifiers — "at least
+// one related case along `via` satisfies `where`" / "no related case
+// along `via` satisfies `where`." The type checker enforces:
+//   1. `via` resolves to a destination case type via `checkRelationPath`
+//      (walks `parent_type` for ancestors; reverse-walks for subcase /
+//      any-relation). The destination must exist in `ctx.caseTypes`.
+//   2. `where` (if present) is type-checked recursively in the
+//      destination scope — `prop` references inside `where` resolve
+//      against the destination case type, not the originating one.
+//   3. `via.kind === "self"` at the top-level (no parent destination
+//      to anchor on) is a meaningless self-relation and emits an
+//      error; inside a `where` clause `self` is the explicit no-
+//      traversal form and routes through to the current scope.
+//
+// Fixtures below model a small relationship graph: visit → patient →
+// household. Visit is a child of patient; patient is a child of
+// household. Subcase / any-relation walks reverse the direction.
+const HOUSEHOLD: CaseType = {
+	name: "household",
+	properties: [
+		{ name: "region", label: "Region", data_type: "text" },
+		{ name: "size", label: "Size", data_type: "int" },
+	],
+};
+
+const PATIENT_WITH_PARENT: CaseType = {
+	...PATIENT,
+	parent_type: "household",
+};
+
+const VISIT: CaseType = {
+	name: "visit",
+	properties: [
+		{ name: "kind", label: "Kind", data_type: "text" },
+		{ name: "completed", label: "Completed", data_type: "text" },
+	],
+	parent_type: "patient",
+};
+
+// Sibling subcase under patient — used to exercise ambiguity rejection
+// when both `visit` and `lab_result` carry `parent_type === "patient"`
+// and the author hasn't disambiguated via `ofCaseType`.
+const LAB_RESULT: CaseType = {
+	name: "lab_result",
+	properties: [{ name: "value", label: "Value", data_type: "decimal" }],
+	parent_type: "patient",
+};
+
+const ctxRelations = {
+	caseTypes: [HOUSEHOLD, PATIENT_WITH_PARENT, VISIT, LAB_RESULT],
+	knownInputs: [],
+};
+
+describe("checkPredicate — exists / missing relation-path resolution", () => {
+	it("accepts exists with an ancestor walk (single hop) and no where clause", () => {
+		// From `patient`, the ancestor walk via `parent` lands on
+		// `household` (patient's `parent_type`). No where-clause means
+		// the predicate degenerates to "any household ancestor exists,"
+		// which is structurally well-typed regardless of household's
+		// properties.
+		const p = exists(ancestorPath(relationStep("parent")));
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("accepts exists with an ancestor walk and a destination-scope where clause", () => {
+		// From `patient`, walking the parent index reaches `household`;
+		// the where-clause filters that destination by `household.region`.
+		// The where-clause's `prop` references explicitly name
+		// `household` as the originating scope (matching the spec's
+		// originating-scope contract — the case type qualifier names
+		// the predicate's "self" position, which inside a where-clause
+		// is the destination of the outer `via`).
+		const p = exists(
+			ancestorPath(relationStep("parent")),
+			eq(prop("household", "region"), literal("north")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("accepts exists with a multi-hop ancestor walk (visit → patient → household)", () => {
+		// Two-step walk — locks the chained-resolution rule. From
+		// `visit`, the first hop's destination is `patient`
+		// (visit.parent_type), and the second hop's destination is
+		// `household` (patient.parent_type). The where-clause names
+		// `household` as its originating scope.
+		const p = exists(
+			ancestorPath(relationStep("parent"), relationStep("parent")),
+			eq(prop("household", "region"), literal("north")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "visit",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("accepts ancestor step with a matching throughCaseType qualifier", () => {
+		// The qualifier validates `origin.parent_type ===
+		// step.throughCaseType` at each hop. From `patient`, the
+		// expected destination is `household`, and the step explicitly
+		// names that — locking the rule that valid qualifiers pass
+		// through transparently.
+		const p = exists(
+			ancestorPath(relationStep("parent", "household")),
+			eq(prop("household", "region"), literal("north")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects ancestor step when throughCaseType disagrees with the actual parent_type", () => {
+		// From `patient`, the actual `parent_type` is `household`. A
+		// step that claims to walk `through visit` is a structural
+		// mismatch the type-checker catches — the qualifier exists to
+		// pin authoring intent against the schema, not to override it.
+		const p = exists(
+			ancestorPath(relationStep("parent", "visit")),
+			eq(prop("visit", "kind"), literal("intake")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/throughCaseType|parent_type|household/i,
+			);
+		}
+	});
+
+	it("rejects ancestor walk when origin has no parent_type", () => {
+		// `household` is the root of the relationship graph — no
+		// `parent_type` field. An ancestor walk from `household`
+		// resolves to nothing; the checker emits an error rather than
+		// returning a silent undefined.
+		const p = exists(ancestorPath(relationStep("parent")));
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "household",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/no parent|household.*parent/i);
+		}
+	});
+
+	it("accepts subcase walk with ofCaseType disambiguation", () => {
+		// Both `visit` and `lab_result` are subcases of `patient`. The
+		// `ofCaseType` qualifier picks the destination unambiguously —
+		// pinning the disambiguation rule that resolves the multi-
+		// candidate case at authoring time rather than letting the
+		// emitter / runtime guess.
+		const p = exists(
+			subcasePath("parent", "visit"),
+			eq(prop("visit", "kind"), literal("intake")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("accepts subcase walk when only one candidate exists (no ofCaseType needed)", () => {
+		// Modify the fixture so only `visit` carries `parent_type ===
+		// "patient"`; resolution is unambiguous and `ofCaseType` is
+		// unnecessary. Locks the single-candidate happy path.
+		const ctxOneSubcase = {
+			caseTypes: [HOUSEHOLD, PATIENT_WITH_PARENT, VISIT],
+			knownInputs: [],
+			currentCaseType: "patient" as const,
+		};
+		const p = exists(
+			subcasePath("parent"),
+			eq(prop("visit", "kind"), literal("intake")),
+		);
+		expect(checkPredicate(p, ctxOneSubcase).ok).toBe(true);
+	});
+
+	it("rejects subcase walk when multiple candidates exist and ofCaseType is omitted", () => {
+		// Both `visit` and `lab_result` carry `parent_type === "patient"`,
+		// so the destination is ambiguous. Without `ofCaseType`, the
+		// type-checker rejects rather than picking one silently.
+		const p = exists(
+			subcasePath("parent"),
+			eq(prop("visit", "kind"), literal("intake")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/ambiguous|ofCaseType|multiple/i,
+			);
+		}
+	});
+
+	it("rejects subcase walk when ofCaseType names a non-existent case type", () => {
+		// `ghost` isn't in `ctx.caseTypes`. The walk fails with an
+		// unknown-case-type error, parallel to the comparison
+		// checker's unknown-case-type message.
+		const p = exists(subcasePath("parent", "ghost"));
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/unknown case type|ghost/i);
+		}
+	});
+
+	it("accepts any-relation walk with ofCaseType", () => {
+		// Direction-agnostic kind — the resolution semantics mirror
+		// `subcase` (find candidates whose `parent_type` matches the
+		// origin) because the current `CaseType` schema models only
+		// one direction. The ofCaseType qualifier disambiguates exactly
+		// as it does for `subcase`.
+		const p = exists(
+			anyRelationPath("parent", "visit"),
+			eq(prop("visit", "kind"), literal("intake")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects exists at top-level with via: self (meaningless self-relation)", () => {
+		// `exists(selfPath())` asks "does the current case have itself,"
+		// which is always true and almost certainly an authoring bug.
+		// At the top level there's no destination to anchor on, so the
+		// kind is rejected. (Inside a where-clause, `selfPath()` is
+		// the explicit no-traversal form and routes through to the
+		// current scope — see the nested-self test below.)
+		const p = exists(selfPath());
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/self|meaningless|relation/i);
+		}
+	});
+
+	it("rejects exists when the originating case type is not provided", () => {
+		// The checker has no top-level `currentCaseType` to anchor
+		// from — the relation walk has no origin. Plan 3 wires this
+		// in at the case-list config UI; the error here pins the
+		// requirement so a programmatic source that omits the field
+		// fails loudly rather than silently bypassing the walk.
+		const p = exists(ancestorPath(relationStep("parent")));
+		const result = checkPredicate(p, ctxRelations); // no currentCaseType
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/originating|case type|currentCaseType/i,
+			);
+		}
+	});
+
+	it("rejects when prop.caseType inside where-clause disagrees with the destination", () => {
+		// The where-clause's `prop` references must name the
+		// destination case type as their originating scope. From
+		// `patient`, the parent walk lands on `household`, but the
+		// where-clause names `patient` — the constraint catches this
+		// at the destination-scope check.
+		const p = exists(
+			ancestorPath(relationStep("parent")),
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/destination|household|patient.*scope/i,
+			);
+		}
+	});
+
+	it("rebinds the originating scope across nested exists (chained relation walks)", () => {
+		// Outer `exists` walks visit → patient. The where-clause
+		// itself contains another `exists` walking patient → household.
+		// The inner exists's relation walk anchors on the outer's
+		// destination (`patient`) via the `currentCaseType`
+		// rebinding inside `checkInDestinationScope`. The innermost
+		// where-clause references `household.region` after the second
+		// walk lands. Pins the scope-rebinding contract across
+		// arbitrarily-nested walks rather than implying it from the
+		// single-walk tests alone.
+		const p = exists(
+			ancestorPath(relationStep("parent")),
+			exists(
+				ancestorPath(relationStep("parent")),
+				eq(prop("household", "region"), literal("north")),
+			),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "visit",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("missing operates symmetrically with exists (parallel rule shape)", () => {
+		// `missing` is sugar for `not(exists(...))` at the wire layer
+		// but carries the same type-checker rule shape — locking the
+		// symmetry pins the rule reuse (both kinds dispatch through
+		// the same helper) rather than relying on `missing`'s
+		// non-coverage to imply `exists`'s coverage.
+		const p = missing(
+			ancestorPath(relationStep("parent")),
+			eq(prop("household", "region"), literal("north")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("propagates errors from inside the where-clause through wrapper recursion", () => {
+		// A type-mismatch deep inside the where-clause surfaces with a
+		// path that threads the outer operator's `kind` and the inner
+		// slot. Locks the recursion contract for the new arms — the
+		// where-clause doesn't bypass the walker.
+		const p = exists(
+			ancestorPath(relationStep("parent")),
+			eq(prop("household", "size"), literal("not-a-number")),
+		);
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
 	});
 });
 
@@ -1099,86 +1562,110 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 // "look up `property` on the destination case type, not on
 // `caseType`" — is the destination-scope check. The originating-
 // scope check (does `property` exist on `caseType`?) is
-// structural and runs unconditionally; the destination-scope
-// check has no dedicated rule. The arm in `resolveTermType`
-// emits a `CheckError` and returns `undefined` rather than
-// silently stripping `via` and resolving against the originating
-// scope alone — silent acceptance would be a false-positive
-// type-clean verdict on a cross-type traversal that wasn't
-// validated, the same failure mode the throw arms in `walk`
-// defend against.
-describe("checkPredicate — prop.via routing", () => {
-	it("reports an error on prop with an ancestor via", () => {
+// structural and runs unconditionally when `via` is absent or
+// `self`; with a non-self `via`, the resolution flips: `caseType`
+// names the originating scope (the predicate's "self" position),
+// the walk resolves to a destination case type, and `property` is
+// looked up on the destination. This is the originating-scope
+// contract locked by the JSDoc on `propertyRefSchema.caseType`.
+describe("checkPredicate — prop.via destination-scope resolution", () => {
+	it("resolves prop with an ancestor via on the destination case type", () => {
+		// From `patient`, the ancestor walk via `parent` reaches
+		// `household`. The property `region` is read on `household`
+		// (the destination), not on `patient` (the originating scope).
+		// The comparison's compatibility check confirms `region`
+		// resolved to text, matching the text literal on the right.
+		const p = eq(
+			prop("patient", "region", ancestorPath(relationStep("parent"))),
+			literal("north"),
+		);
+		expect(checkPredicate(p, ctxRelations).ok).toBe(true);
+	});
+
+	it("resolves prop with multi-hop ancestor via on the final destination", () => {
+		// From `visit`, the two-hop walk lands on `household`. The
+		// property `region` is read on `household` — locks the chained-
+		// resolution rule for property terms (parallel to the chained
+		// rule `exists` uses for relation paths).
 		const p = eq(
 			prop(
-				"patient",
+				"visit",
 				"region",
-				ancestorPath(relationStep("parent", "household")),
+				ancestorPath(relationStep("parent"), relationStep("parent")),
 			),
 			literal("north"),
 		);
-		const result = checkPredicate(p, ctx);
+		expect(checkPredicate(p, ctxRelations).ok).toBe(true);
+	});
+
+	it("resolves prop with a subcase via on the destination case type", () => {
+		// From `patient`, the subcase walk to `visit` (disambiguated
+		// via `ofCaseType`) puts `kind` on the destination. The
+		// originating scope stays `patient`; the destination scope
+		// is where `kind` is resolved.
+		const p = eq(
+			prop("patient", "kind", subcasePath("parent", "visit")),
+			literal("intake"),
+		);
+		expect(checkPredicate(p, ctxRelations).ok).toBe(true);
+	});
+
+	it("rejects prop.via when the property is unknown on the destination", () => {
+		// `region` exists on `household` but not on `visit`. The
+		// destination-scope lookup fails — the error message names
+		// the destination case type so the editor can highlight the
+		// real cause rather than steering the author back to
+		// `patient`'s property surface.
+		const p = eq(
+			prop("patient", "region", subcasePath("parent", "visit")),
+			literal("x"),
+		);
+		const result = checkPredicate(p, ctxRelations);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			// One error: the prop.via arm emits-and-returns; the
-			// surrounding comparison short-circuits on `undefined` and
-			// adds no cascading mismatch error.
+			expect(result.errors[0].path).toEqual(["left"]);
+			expect(result.errors[0].message).toMatch(
+				/unknown property.*region.*visit|region.*visit/i,
+			);
+		}
+	});
+
+	it("rejects prop.via when the relation-path resolution itself fails", () => {
+		// `household` has no `parent_type`, so the ancestor walk from
+		// `household` resolves to nothing. The property lookup never
+		// runs; the relation-path error surfaces alone (no cascading
+		// "unknown property" message piled on top, matching the
+		// resolution-failure short-circuit pattern that comparison
+		// operators use).
+		const p = eq(
+			prop("household", "size", ancestorPath(relationStep("parent"))),
+			literal(10),
+		);
+		const result = checkPredicate(p, ctxRelations);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
 			expect(result.errors).toHaveLength(1);
 			expect(result.errors[0].path).toEqual(["left"]);
-			expect(result.errors[0].message).toMatch(
-				/via.*relation walks?|destination scope/i,
-			);
 		}
 	});
 
-	it("reports an error on prop with a subcase via", () => {
-		// All non-self via kinds route through the same arm; pinning
-		// `subcase` separately locks the rejection across the union
-		// rather than implying it from the ancestor case alone.
-		const p = eq(
-			prop("household", "status", subcasePath("parent", "patient")),
-			literal("active"),
-		);
-		const result = checkPredicate(p, {
-			...ctx,
-			caseTypes: [{ ...PATIENT, name: "household" }],
-		});
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors[0].message).toMatch(
-				/via.*relation walks?|destination scope/i,
-			);
-		}
-	});
-
-	it("reports an error on prop with an any-relation via", () => {
-		// `any-relation` is the third non-self kind. The walker
-		// branches uniformly on `term.via.kind !== "self"`, so a
-		// regression that special-cased one kind without breaking
-		// the others would slip past the ancestor + subcase tests
-		// alone. Pinning all three non-self kinds locks the union
-		// rather than implying it from any one case.
-		const p = eq(
-			prop("patient", "linked_id", anyRelationPath("linked", "referral")),
-			literal("abc-123"),
-		);
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors[0].message).toMatch(
-				/via.*relation walks?|destination scope/i,
-			);
-			expect(result.errors[0].path).toEqual(["left"]);
-		}
-	});
-
-	it("accepts prop with via: self (no-traversal form)", () => {
+	it("accepts prop with via: self (no-traversal form, originating-scope lookup)", () => {
 		// `selfPath()` is the explicit no-traversal kind; the arm
-		// passes through to the originating-scope check rather than
-		// emitting a via-rejection error. Pinning the positive case
+		// passes through to the originating-scope check (looks up
+		// `name` on `patient` directly). Pinning the positive case
 		// keeps the no-traversal shape distinct from the cross-type
-		// traversal kinds the arm rejects.
+		// traversal kinds.
 		const p = eq(prop("patient", "name", selfPath()), literal("Alice"));
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts prop without via (originating-scope lookup, baseline)", () => {
+		// Sanity-check the absent-via shape continues to resolve on
+		// the originating scope after the destination-scope code path
+		// landed. Locks the no-`via` regression target — a refactor
+		// that rerouted absent-via through the destination-scope code
+		// would silently break every existing predicate.
+		const p = eq(prop("patient", "name"), literal("Alice"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 });

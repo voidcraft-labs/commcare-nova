@@ -21,12 +21,11 @@
 // that carries term operands — comparisons, the trigger-input slot of
 // `when-input-present`, and the term operands of `in` /
 // `within-distance` / `match` / `multi-select-contains` / `is-null` /
-// `is-blank`. Operand-type compatibility (the "comparable types"
-// check between resolved operand types) runs for the comparison
-// operators (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`) and for
-// `in`'s and `multi-select-contains`'s membership values (every
-// literal in `values` is checked for type compatibility against the
-// resolved property type). Per-operator semantic checks beyond
+// `is-blank` / `between`. Operand-type compatibility (the "comparable
+// types" check between resolved operand types) runs for the comparison
+// operators (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`), `in`'s and
+// `multi-select-contains`'s membership values, and `between`'s
+// per-bound check against `left`. Per-operator semantic checks beyond
 // resolution + compatibility run in dedicated arms: `within-distance`
 // requires the `property` slot to resolve to `geopoint` and the
 // `center` slot to resolve to `geopoint` or `text` (the wire-form
@@ -41,10 +40,17 @@
 // error (a literal is the value itself, not a runtime read whose
 // presence is in question — see `checkAbsenceOperator` for the
 // rationale and the spec subsection "Null vs blank semantics" under
-// the Predicate family). Logical wrappers (`and` / `or` / `not`)
-// and the wrapped clause of `when-input-present` recurse so
-// violations inside them surface here, with paths threading the
-// operator name and (for the multi-clause arms) the array index.
+// the Predicate family); `between` requires `left` and any provided
+// bounds to resolve to one of the ordered types and detects literal-
+// pair `lower > upper` impossibility (see `checkBetween`); `exists` /
+// `missing` walk `via` to a destination case type and recursively
+// type-check `where` (if present) in that destination scope, with
+// `prop.caseType` inside the where-clause pinned to the destination
+// scope (see `checkRelationalQuantifier` and `checkRelationPath`).
+// Logical wrappers (`and` / `or` / `not`) and the wrapped clause of
+// `when-input-present` recurse so violations inside them surface
+// here, with paths threading the operator name and (for the multi-
+// clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type {
@@ -52,6 +58,7 @@ import type {
 	Literal,
 	MatchMode,
 	Predicate,
+	RelationPath,
 	Term,
 } from "./types";
 
@@ -79,15 +86,40 @@ export type SearchInputDecl = {
 
 /**
  * The schema-derived context the checker validates a predicate against.
- * Composed at the call site from the blueprint (`caseTypes`) and the
- * search-screen's declared inputs (`knownInputs`). Property references
- * carry their own `caseType` qualifier on `PropertyRef`, so the
- * checker has no notion of a "current" case type — every reference
- * resolves against `caseTypes` directly by name.
+ * Composed at the call site from the blueprint (`caseTypes`), the
+ * search-screen's declared inputs (`knownInputs`), and the originating
+ * case-type scope the predicate runs against (`currentCaseType`).
+ *
+ * Property references carry their own `caseType` qualifier on
+ * `PropertyRef` — naming the originating scope, per the contract on
+ * `propertyRefSchema.caseType` — so resolution against `caseTypes` is
+ * driven by the term itself rather than any "current" anchor at the
+ * walker.
+ *
+ * `currentCaseType` is required only by the relational quantifiers
+ * (`exists` / `missing`) and by the destination-scope pin inside their
+ * `where` clauses. At the top level it identifies the case type the
+ * predicate runs against — i.e., where an `ancestor` walk starts and
+ * what an `exists(self)` would mean. Inside a `where` clause it tracks
+ * the destination of the surrounding `via`, used by `walk` →
+ * `checkInDestinationScope` to enforce `prop.caseType ===
+ * currentCaseType` when set. The slot is optional at the type layer so
+ * call sites that exercise no relational features (the existing
+ * comparison / membership / absence tests) compose the context as
+ * `{ caseTypes, knownInputs }` literally and the field stays absent
+ * without a value-construction step. Plan 3 wires this through at the
+ * case-list config UI when the relational surface lands.
+ *
+ * The prop.caseType-vs-currentCaseType pin in `resolveTermType` gates
+ * on `currentCaseType !== undefined` — when absent, every property
+ * reference resolves on its own qualifier, matching the pre-A5
+ * behavior. When present, the constraint enforces the destination-
+ * scope contract the spec locks at the `where`-clause boundary.
  */
 export type TypeContext = {
 	caseTypes: CaseType[];
 	knownInputs: SearchInputDecl[];
+	currentCaseType?: string;
 };
 
 /**
@@ -251,17 +283,11 @@ const MATCH_PROPERTY_TYPES_BY_MODE: Record<
  * pass rather than forcing the author through one-error-at-a-time
  * fix-and-retry cycles.
  *
- * Throws synchronously when the walk reaches a kind without dedicated
- * semantic rules — `between`, `exists`, `missing`. The throw also
- * fires when one of those kinds is nested inside a logical wrapper
- * (`and` / `or` / `not` / `when-input-present`) — e.g.
- * `and(eq(...), between(...))` — because the walker recurses through
- * the wrapper's clauses before it dispatches on the inner kind.
- *
- * Throwing prevents those kinds from silently producing false-positive
- * "type-checks clean" verdicts on unchecked predicates, the exact
- * failure mode the checker exists to prevent. Callers either handle
- * the throw or scope inputs to the kinds with rules.
+ * Every kind in the `Predicate` discriminated union has a dedicated
+ * semantic rule (no throw arms). Adding a new kind without a parallel
+ * arm in `walk` is a TypeScript compile error via the exhaustiveness
+ * assertion at the bottom of the switch — the runtime throw guards
+ * untyped boundaries that bypass the type system.
  */
 export function checkPredicate(
 	predicate: Predicate,
@@ -371,19 +397,21 @@ function walk(
 			checkAbsenceOperator(p, ctx, errors, path);
 			return;
 		case "between":
+			checkBetween(p, ctx, errors, path);
+			return;
 		case "exists":
 		case "missing":
-			// These three kinds have no dedicated semantic rules in
-			// this checker; the walker throws to prevent silent type-
-			// clean verdicts on unchecked predicates (the failure mode
-			// the checker itself exists to prevent). The walker also
-			// does not recurse into these kinds' operand slots
-			// (`exists.where` / `missing.where` for predicate
-			// recursion, `between.lower` / `between.upper` for term
-			// resolution) — operand walking belongs with the per-kind
-			// rule that interprets those operands, so both move together
-			// rather than walking without a rule to apply at the leaves.
-			throw new Error(`checkPredicate: no rules for kind '${p.kind}'`);
+			// `exists` and `missing` share one rule shape — both walk
+			// their `via` to a destination case type and recursively
+			// type-check the optional `where` clause in that destination
+			// scope. The two operators diverge only at per-dialect wire
+			// emission (`missing` is sugar for `not(exists(...))`), which
+			// is irrelevant to type-checking. Spec subsection: "Relation
+			// paths" and the `exists`/`missing` arms of the Predicate
+			// family in
+			// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
+			checkRelationalQuantifier(p, ctx, errors, path);
+			return;
 		default: {
 			// Exhaustiveness assertion — adding a new kind to `Predicate`
 			// without a parallel arm here breaks the build. The runtime
@@ -760,6 +788,420 @@ function checkAbsenceOperator(
 	resolveTermType(p.left, ctx, errors, [...path, "left"]);
 }
 
+/**
+ * Range-predicate rules for `between`. Three constraints, in order:
+ *
+ *   1. `left` resolves to one of the ordered types (`ORDERED_TYPES`).
+ *      Strings, selects, geopoints, booleans cannot anchor a range
+ *      because their wire targets either lack ordering semantics
+ *      (text — see `ORDERED_TYPES`'s JSDoc) or aren't numerically /
+ *      temporally meaningful (geopoint, select). Same allow-list the
+ *      ordering arm of the comparison checker uses, locked to one
+ *      constant so a future expansion (e.g. adding a duration type)
+ *      reaches both surfaces in one edit.
+ *
+ *   2. Each provided bound (`lower` / `upper`) resolves to a type
+ *      compatible with `left`'s resolved type via `typesCompatible`.
+ *      The widenings comparison operators carry over — numeric
+ *      promotion (`int` ↔ `decimal`), null-as-universal — so authors
+ *      don't relearn compatibility per operator.
+ *
+ *   3. When both bounds are typed-literal Terms with statically
+ *      comparable values and `lower > upper`, the predicate is
+ *      identically false at every wire target. The schema admits the
+ *      shape because bounds may also be Term refs (search-input,
+ *      session-user, session-context) whose values aren't known until
+ *      runtime — adding a literal-pair-only refinement at the schema
+ *      layer would either miss the term-pair case (silent
+ *      wrong-answer in the runtime path) or reject term-pair shapes
+ *      the schema must accept. The type-checker is the right layer
+ *      for the literal-pair check because it has the type context to
+ *      recognise a typed-literal pair.
+ *
+ * Spec subsection: "Range predicate" under the Predicate family in
+ * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`. CCHQ
+ * has no dedicated `between` function — it compiles to `>= AND <=` at
+ * every wire target — so no per-dialect citation belongs here.
+ */
+function checkBetween(
+	p: Extract<Predicate, { kind: "between" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const leftType = resolveTermType(p.left, ctx, errors, [...path, "left"]);
+	if (leftType === undefined) return;
+
+	// Ordered-types check parallels the comparison checker's
+	// `gt`/`gte`/`lt`/`lte` arm — `_any` (the null sentinel) bypasses
+	// the check because `between(prop, null, null)` is meaningless but
+	// `_any` itself never reaches `left` (the schema requires a Term,
+	// not a literal-only slot).
+	if (leftType !== ANY_TYPE && !ORDERED_TYPES.has(leftType)) {
+		errors.push({
+			path,
+			message: `Operator 'between' requires an ordered left operand (int, decimal, date, datetime, time); got '${describe(leftType)}'. Strings are not ordered.`,
+		});
+		return;
+	}
+
+	// Per-bound resolution + compatibility. Bound errors attach to
+	// the bound's own slot so the editor highlights the failing
+	// operand directly. `_any` (null literal) widens via
+	// `typesCompatible` — same null-as-universal carry-over the `in`
+	// operator uses for its membership values.
+	if (p.lower !== undefined) {
+		const lowerType = resolveTermType(p.lower, ctx, errors, [...path, "lower"]);
+		if (lowerType !== undefined && !typesCompatible(leftType, lowerType)) {
+			errors.push({
+				path: [...path, "lower"],
+				message: `Type mismatch: lower bound '${describe(lowerType)}' is not comparable with left operand type '${describe(leftType)}'.`,
+			});
+		}
+	}
+	if (p.upper !== undefined) {
+		const upperType = resolveTermType(p.upper, ctx, errors, [...path, "upper"]);
+		if (upperType !== undefined && !typesCompatible(leftType, upperType)) {
+			errors.push({
+				path: [...path, "upper"],
+				message: `Type mismatch: upper bound '${describe(upperType)}' is not comparable with left operand type '${describe(leftType)}'.`,
+			});
+		}
+	}
+
+	// Literal-pair impossibility check. Only fires when both bounds
+	// are literal-shaped Terms with statically comparable JS values
+	// — Term refs to inputs / session fields don't reach this branch
+	// because their values are unknown at check time. The check uses
+	// JS-level `>` rather than a type-aware comparator: typed-date
+	// literals carry ISO strings whose lexicographic order matches
+	// chronological order ("2024-01-01" < "2024-12-31"), and numeric
+	// literals compare numerically by JS semantics. Booleans /
+	// strings without a `data_type` qualifier reach this branch too;
+	// they fail the ordered-types check above before getting here, so
+	// the literal-pair detector only sees ordered-typed literal pairs.
+	if (
+		p.lower !== undefined &&
+		p.upper !== undefined &&
+		p.lower.kind === "literal" &&
+		p.upper.kind === "literal" &&
+		p.lower.value !== null &&
+		p.upper.value !== null &&
+		p.lower.value > p.upper.value
+	) {
+		errors.push({
+			path,
+			message: `Operator 'between' has lower bound '${String(p.lower.value)}' greater than upper bound '${String(p.upper.value)}'; the interval is empty.`,
+		});
+	}
+}
+
+/**
+ * Resolve a `RelationPath` to its destination case-type name. Returns
+ * `undefined` on resolution failure (and pushes a `CheckError`),
+ * mirroring `resolveTermType`'s short-circuit pattern so callers don't
+ * have to handle resolution-failure cascades.
+ *
+ * The four kinds:
+ *
+ *   - `self` — no traversal. The destination is the originating case
+ *     type. Inside a `where` clause this is the explicit no-traversal
+ *     form (route through to the surrounding scope); at the top level
+ *     it's a meaningless self-relation handled by the caller (the
+ *     relational-quantifier helper rejects `via.kind === "self"`
+ *     standalone before this function runs).
+ *
+ *   - `ancestor` — walk `parent_type` chain, one hop per `RelationStep`.
+ *     The current `CaseType` schema models at most one parent, so each
+ *     hop is `origin.parent_type` lookup. `throughCaseType` (when
+ *     provided) validates `origin.parent_type === step.throughCaseType`
+ *     at the hop. CCHQ source: `ancestor-exists` registered at
+ *     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:51`,
+ *     implementation at `ancestor_functions.py:97-118` (mandatory
+ *     2-arg `confirm_args_count` at `:109` — the wire-layer optionality
+ *     diverges from this schema's uniformly-optional `where`, but
+ *     that's a B5 representability concern, not a type-checker rule).
+ *
+ *   - `subcase` — find case types whose `parent_type` matches the
+ *     origin. `ofCaseType` disambiguates when multiple candidates
+ *     exist; with one candidate, the qualifier is optional. CCHQ
+ *     source: `subcase-exists` registered at `__init__.py:41`,
+ *     implementation at `subcase_functions.py:51-62` with the
+ *     optional-filter check at `:207` — this matches the schema's
+ *     uniformly-optional `where` shape.
+ *
+ *   - `any-relation` — direction-agnostic. The current `CaseType`
+ *     schema models only one direction (a child names its
+ *     `parent_type`), so the resolution semantics mirror `subcase`:
+ *     find case types whose `parent_type` matches the origin. The
+ *     directional-agnosticism is meaningful only when the underlying
+ *     schema carries both directions, which is foundation work for a
+ *     future `CaseType` extension. The kind exists in the AST today
+ *     because the persisted-shape contract has to settle now (per the
+ *     spec's "RelationPath" subsection); the representability checker
+ *     (B5) rejects it for CCHQ wire targets where direction-specific
+ *     operators are the only choice.
+ *
+ * **Principled narrowing — identifier→relationship matching:** the
+ * current `CaseType` schema doesn't carry named relationships (no
+ * `relationships` array; `parent_type` is a single nullable string,
+ * `relationship` is a single nullable enum). The walk's `identifier`
+ * field on each step is validated as XML-element-name vocabulary at
+ * the schema layer (`relationStepSchema` in `types.ts`) but is not
+ * matched against any case-type record here — the current schema has
+ * no named-relationship surface to match against. Authors writing
+ * `relationStep("parent")` and `relationStep("custom_index")` reach
+ * the same destination via the same `parent_type` lookup; the
+ * identifier rounds out the wire form (CCHQ emits the identifier
+ * literally as the index name) but doesn't constrain destination
+ * resolution at type-check time. Extending `CaseType` with named
+ * relationships is out of A5's scope; once landed, this helper widens
+ * to consult the named-relationship table.
+ */
+function checkRelationPath(
+	relationPath: RelationPath,
+	originCaseType: string,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): string | undefined {
+	switch (relationPath.kind) {
+		case "self":
+			// No traversal — destination is the originating case type.
+			// Inside a `where` clause this is the explicit no-traversal
+			// form. The relational-quantifier helper rejects
+			// `via.kind === "self"` at the top level before reaching
+			// this function, so by the time we land here `self`
+			// always means "stay in scope."
+			return originCaseType;
+
+		case "ancestor": {
+			// Walk the parent_type chain hop-by-hop. Each hop's origin
+			// is the previous hop's destination; the first hop's origin
+			// is the function's `originCaseType` argument.
+			let current = originCaseType;
+			for (let i = 0; i < relationPath.via.length; i++) {
+				const step = relationPath.via[i];
+				const ct = ctx.caseTypes.find((c) => c.name === current);
+				if (!ct) {
+					// Should not happen — `originCaseType` is supplied by
+					// the caller from a known case-type, and each hop's
+					// destination is validated below before becoming the
+					// next origin. Defensive guard for untyped boundaries.
+					errors.push({
+						path,
+						message: `Unknown case type '${current}' at ancestor hop ${i}.`,
+					});
+					return undefined;
+				}
+				if (!ct.parent_type) {
+					errors.push({
+						path,
+						message: `Ancestor walk failed: case type '${current}' has no parent_type.`,
+					});
+					return undefined;
+				}
+				if (
+					step.throughCaseType !== undefined &&
+					step.throughCaseType !== ct.parent_type
+				) {
+					errors.push({
+						path,
+						message: `throughCaseType '${step.throughCaseType}' on ancestor step does not match the actual parent_type '${ct.parent_type}' of '${current}'.`,
+					});
+					return undefined;
+				}
+				current = ct.parent_type;
+			}
+			// Confirm the final destination exists in the case-type
+			// table. Catches the dangling-parent case where a case type
+			// names a `parent_type` that doesn't exist as a sibling
+			// `CaseType` record.
+			if (!ctx.caseTypes.some((c) => c.name === current)) {
+				errors.push({
+					path,
+					message: `Ancestor walk's destination case type '${current}' is not declared.`,
+				});
+				return undefined;
+			}
+			return current;
+		}
+
+		case "subcase":
+		case "any-relation": {
+			// Find case types whose `parent_type` matches the origin.
+			// `subcase` and `any-relation` share resolution semantics
+			// because the current `CaseType` schema models only one
+			// direction (see the helper's JSDoc); they diverge at the
+			// wire layer (B5 representability), not at type-check time.
+			const candidates = ctx.caseTypes.filter(
+				(c) => c.parent_type === originCaseType,
+			);
+			if (relationPath.ofCaseType !== undefined) {
+				// `ofCaseType` validates against `caseTypes` directly:
+				// it must name a declared case type (otherwise the
+				// destination scope is unknowable) and that case type
+				// must in fact be a subcase of the origin. The two
+				// arms produce distinct messages so the editor can
+				// route the user-facing fix correctly.
+				const named = ctx.caseTypes.find(
+					(c) => c.name === relationPath.ofCaseType,
+				);
+				if (!named) {
+					errors.push({
+						path,
+						message: `Unknown case type '${relationPath.ofCaseType}' on '${relationPath.kind}' walk.`,
+					});
+					return undefined;
+				}
+				if (named.parent_type !== originCaseType) {
+					errors.push({
+						path,
+						message: `Case type '${relationPath.ofCaseType}' is not a subcase of '${originCaseType}' (its parent_type is '${named.parent_type ?? "<none>"}').`,
+					});
+					return undefined;
+				}
+				return relationPath.ofCaseType;
+			}
+			// No qualifier — accept the unique candidate, reject the
+			// ambiguous case. The zero-candidate case is its own
+			// failure mode (no case type names the origin as a
+			// parent), distinct from the ambiguous case.
+			if (candidates.length === 0) {
+				errors.push({
+					path,
+					message: `'${relationPath.kind}' walk failed: no case type declares '${originCaseType}' as its parent_type.`,
+				});
+				return undefined;
+			}
+			if (candidates.length > 1) {
+				errors.push({
+					path,
+					message: `'${relationPath.kind}' walk is ambiguous: multiple case types (${candidates.map((c) => `'${c.name}'`).join(", ")}) declare '${originCaseType}' as their parent_type. Add 'ofCaseType' to disambiguate.`,
+				});
+				return undefined;
+			}
+			return candidates[0].name;
+		}
+
+		default: {
+			// Exhaustiveness assertion — adding a `RelationPath` kind
+			// without a parallel arm here is a compile-time error.
+			const _exhaustive: never = relationPath;
+			throw new Error(
+				`checkRelationPath: unhandled relation-path kind ${String(_exhaustive)}`,
+			);
+		}
+	}
+}
+
+/**
+ * Recursively type-check a predicate in a destination scope rebound
+ * via `currentCaseType`. Used by `checkRelationalQuantifier` to walk
+ * `exists.where` / `missing.where` against the destination of the
+ * outer `via` rather than the originating scope.
+ *
+ * The scope rebinding is the load-bearing primitive: nested `exists`
+ * / `missing` inside the where-clause read the new
+ * `currentCaseType` from the rebound context, so chained relational
+ * walks resolve correctly without further plumbing. The
+ * `prop.caseType === currentCaseType` constraint inside
+ * `resolveTermType` fires whenever `currentCaseType` is set —
+ * enforcing the destination-scope contract uniformly across
+ * top-level and nested arms.
+ *
+ * Spec contract: the where-clause's `prop` references must name the
+ * destination case type as their originating scope (the spec's
+ * "originating-scope rule" locked by the JSDoc on
+ * `propertyRefSchema.caseType`). The constraint is encoded inside
+ * `resolveTermType` rather than walked here because it's a per-term
+ * rule, not a structural recursion shape.
+ */
+function checkInDestinationScope(
+	predicate: Predicate,
+	destinationCaseType: string,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const scopedCtx: TypeContext = {
+		...ctx,
+		currentCaseType: destinationCaseType,
+	};
+	walk(predicate, scopedCtx, errors, path);
+}
+
+/**
+ * Type-check `exists` / `missing`. The two kinds share one rule shape:
+ *
+ *   1. `via` resolves to a destination case type via
+ *      `checkRelationPath`. Top-level `via.kind === "self"` is
+ *      rejected as meaningless (a self-relation says "does this case
+ *      have itself," which is always true). Nested `self` inside a
+ *      where-clause routes through to the enclosing scope and is
+ *      handled inside `checkRelationPath`.
+ *
+ *   2. The originating scope must be set on the context. At the top
+ *      level Plan 3 supplies it from the case-list / search config;
+ *      inside a where-clause `checkInDestinationScope` rebinds it to
+ *      the parent's destination. Without an origin, the walk has no
+ *      anchor — emit a precise error rather than silently bypassing
+ *      the rule.
+ *
+ *   3. `where` (if present) is type-checked recursively in the
+ *      destination scope via `checkInDestinationScope`. The path
+ *      threads the kind segment so a where-clause violation surfaces
+ *      with `[..., "exists" | "missing", "where", ...]`.
+ *
+ * Spec subsection: "Relation paths" and the `exists` / `missing` arms
+ * of the Predicate family in
+ * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`. CCHQ
+ * source citations live on `checkRelationPath`'s JSDoc and on the
+ * relation-path schemas in `types.ts`.
+ */
+function checkRelationalQuantifier(
+	p: Extract<Predicate, { kind: "exists" | "missing" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	if (ctx.currentCaseType === undefined) {
+		errors.push({
+			path,
+			message: `'${p.kind}' requires an originating case type to anchor the relation walk; supply 'currentCaseType' on the type-checker context.`,
+		});
+		return;
+	}
+	if (p.via.kind === "self") {
+		// At the top level, `via: self` is a self-relation — "does
+		// this case have itself" — which is always true and almost
+		// certainly an authoring bug. Inside a where-clause `self`
+		// has well-defined semantics (no further traversal), but the
+		// relational-quantifier wrapper itself never makes sense at
+		// the outer position with `self`. Reject loudly.
+		errors.push({
+			path,
+			message: `'${p.kind}' with 'via: self' is meaningless: every case has itself, so the predicate is identically true. Use 'self' inside a 'where' clause to express "no further traversal."`,
+		});
+		return;
+	}
+	const destination = checkRelationPath(
+		p.via,
+		ctx.currentCaseType,
+		ctx,
+		errors,
+		path,
+	);
+	if (destination === undefined) return;
+	if (p.where !== undefined) {
+		checkInDestinationScope(p.where, destination, ctx, errors, [
+			...path,
+			p.kind,
+			"where",
+		]);
+	}
+}
+
 // ---------- Term resolution ----------
 
 /**
@@ -781,34 +1223,58 @@ function resolveTermType(
 ): ResolvedType | undefined {
 	switch (term.kind) {
 		case "prop": {
-			// `via` carries a relation walk (`ancestor` / `subcase` /
-			// `any-relation`) whose resolution rule — "look up `property`
-			// on the destination case type, not on `caseType`" — is the
-			// destination-scope check. The walker has the originating-
-			// scope check below ("does `property` exist on `caseType`?"),
-			// but no rule for the destination scope, so emitting an
-			// error here is the right level of loudness: the rest of
-			// the predicate still gets walked (matching the
-			// unknown-property / unknown-input policy in the arms
-			// below) and the verdict comes back as `{ ok: false }` with
-			// a clear message rather than a silent type-clean
-			// false-positive on a cross-type traversal that wasn't
-			// validated. `{ kind: "self" }` is the explicit
-			// no-traversal form (semantically equivalent to absent
-			// `via`), so it routes through the originating-scope check
-			// without an error.
-			if (term.via !== undefined && term.via.kind !== "self") {
+			// `caseType` names the originating scope (the predicate's
+			// "self" position), per the contract on
+			// `propertyRefSchema.caseType`. With `via` absent or
+			// `{ kind: "self" }`, the property is read directly on
+			// `caseType`. With a non-self `via`, the walk resolves to a
+			// destination case type and the property is read on the
+			// destination — `caseType` stays the originating scope and
+			// the destination is recovered via `checkRelationPath`.
+			//
+			// Destination-scope pin: when `ctx.currentCaseType` is set
+			// (top-level by Plan 3, inside a where-clause by
+			// `checkInDestinationScope`'s rebinding), the term's
+			// originating-scope qualifier MUST equal it. The pin enforces
+			// the spec contract that a where-clause's `prop` references
+			// name the destination of the surrounding `via`. The check
+			// gates on `currentCaseType !== undefined` so call sites that
+			// don't exercise relational features (existing comparison /
+			// membership / absence tests) compose the context without a
+			// `currentCaseType` field and the constraint stays inert.
+			if (
+				ctx.currentCaseType !== undefined &&
+				term.caseType !== ctx.currentCaseType
+			) {
 				errors.push({
 					path,
-					message: `Property reference uses 'via: ${term.via.kind}' — type-checker resolution through relation walks has no dedicated rule. The originating-scope check (does '${term.property}' exist on '${term.caseType}'?) is structural; checking the destination scope is a separate concern.`,
+					message: `Property reference originating scope '${term.caseType}' must equal the current scope '${ctx.currentCaseType}'.`,
 				});
 				return undefined;
 			}
-			const ct = ctx.caseTypes.find((c) => c.name === term.caseType);
+			// Determine the case type the property is actually read on.
+			// `self` and absent `via` route through the originating
+			// scope; non-self `via` routes through `checkRelationPath`'s
+			// destination resolution.
+			let lookupCaseType: string;
+			if (term.via === undefined || term.via.kind === "self") {
+				lookupCaseType = term.caseType;
+			} else {
+				const destination = checkRelationPath(
+					term.via,
+					term.caseType,
+					ctx,
+					errors,
+					path,
+				);
+				if (destination === undefined) return undefined;
+				lookupCaseType = destination;
+			}
+			const ct = ctx.caseTypes.find((c) => c.name === lookupCaseType);
 			if (!ct) {
 				errors.push({
 					path,
-					message: `Unknown case type '${term.caseType}'.`,
+					message: `Unknown case type '${lookupCaseType}'.`,
 				});
 				return undefined;
 			}
@@ -816,7 +1282,7 @@ function resolveTermType(
 			if (!property) {
 				errors.push({
 					path,
-					message: `Unknown property '${term.property}' on case type '${term.caseType}'.`,
+					message: `Unknown property '${term.property}' on case type '${lookupCaseType}'.`,
 				});
 				return undefined;
 			}
