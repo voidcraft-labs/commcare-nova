@@ -40,18 +40,12 @@ The v2 plan landing order: extend the AST + type checker first (Group A), then s
 ## File Structure
 
 ```
-lib/domain/predicate/                    # Predicate AST family
-├── types.ts                             # extended with new operators
-├── builders.ts                          # extended
+lib/domain/predicate/                    # Predicate AST + ValueExpression AST (one package)
+├── types.ts                             # both unions: predicate operators + ValueExpression arms
+├── builders.ts                          # both surfaces: predicate builders + ValueExpression builders + auto-wrap
 ├── reduction.ts                         # NEW — and([]) → match-all etc.
 ├── jsonSchema.ts                        # unchanged
-├── typeChecker.ts                       # extended
-└── __tests__/
-
-lib/domain/expression/                   # NEW — Expression AST family
-├── types.ts                             # ValueExpression schemas
-├── builders.ts                          # typed construction helpers
-├── typeChecker.ts                       # expression type checker
+├── typeChecker.ts                       # checkPredicate + checkExpression
 └── __tests__/
 
 lib/commcare/predicate/                  # NEW: three visitors, not one
@@ -77,6 +71,8 @@ lib/case-store/sql/                      # NEW — Postgres compiler
 ```
 
 The shipped `lib/commcare/predicate/xpathEmitter.ts` is **deprecated and removed** in Task B1. Its content migrates into the three per-dialect emitters; the `stringQuoting.ts` helpers extract the shared logic.
+
+The Predicate and ValueExpression families live in one package because predicates ARE expressions that resolve to boolean — the boolean-typed arm of the broader expression family. Predicate operators carry `ValueExpression` operands so arithmetic / conditional expressions can drive comparisons; `ValueExpression` arms (`if` / `switch` / `count`) carry `Predicate` clauses so boolean conditions can drive value selection. Both unions reference each other through `z.lazy(...)` within this single module — the canonical Zod pattern for self-recursion through discriminated unions. Splitting the families across packages would have required cross-package `z.lazy` (a module-loading workaround, not a real recursion mechanism); collapsing into one module eliminates that and lets every consumer import both families through one barrel. The wire-emission boundary (`lib/commcare/predicate` + `lib/commcare/expression`) keeps two directories because the per-dialect emitter sets diverge between predicate and value position — that split is wire-side, not authoring-side.
 
 ---
 
@@ -131,13 +127,16 @@ const missingSchema = z.object({
 ```ts
 export const matchAll = (): Extract<Predicate, { kind: "match-all" }> => /* discriminator-only */
 export const matchNone = (): Extract<Predicate, { kind: "match-none" }> => /* discriminator-only */
-export const isNull = (left: Term): Extract<Predicate, { kind: "is-null" }> => /* leaf */
-export function between(left: Term, opts: BetweenOptions): Extract<Predicate, { kind: "between" }>
+export const isNull = (left: Term | ValueExpression): Extract<Predicate, { kind: "is-null" }> => /* operand auto-wraps */
+export function between(left: Term | ValueExpression, opts: BetweenOptions): Extract<Predicate, { kind: "between" }>
   // lowerInclusive / upperInclusive default to true (mathematical [lower, upper])
   // absent-not-undefined contract: omitted bounds produce no key on the result
+  // Term-shaped operands auto-wrap as the `term` arm of ValueExpression (Task A6).
 export const exists = (via: RelationPath, where?: Predicate): Extract<Predicate, { kind: "exists" }> => /* absent-where */
 export const missing = (via: RelationPath, where?: Predicate): Extract<Predicate, { kind: "missing" }> => /* absent-where */
 ```
+
+(`is-null` / `between` operand types are widened to `Term | ValueExpression` in Task A6 — see the `Task A6` block below for the full operand-widening change set across `eq`/`neq`/`gt`/`gte`/`lt`/`lte`/`isIn`/`within`/`isNull`/`isBlank`/`between`.)
 
 **Type-checker policy that landed** (encoded in `walk()`'s switch):
 
@@ -458,36 +457,43 @@ Helpers and rules:
 - `npx tsc --noEmit` clean
 - `npx @biomejs/biome check lib/domain/predicate/` clean
 
-### Task A6: Expression AST — types, builders, type checker
+### Task A6: ValueExpression schemas + predicate operand widening
 
-**Files:**
-- Create: `lib/domain/expression/types.ts`
-- Create: `lib/domain/expression/builders.ts`
-- Create: `lib/domain/expression/typeChecker.ts`
-- Test: `lib/domain/expression/__tests__/`
+**Files modified:**
+- `lib/domain/predicate/types.ts` — adds 14 `ValueExpression` arms + widens 9 predicate operand fields across 6 schemas (`comparison.left`/`right`, `in.left`, `within-distance.center`, `between.left`/`lower`/`upper`, `is-null.left`, `is-blank.left`) from `Term` to `ValueExpression`. Both unions hand-declared because z.lazy slots break z.infer; drift guards expanded to cover every operand-widened predicate arm and every ValueExpression arm.
+- `lib/domain/predicate/builders.ts` — adds `toValueExpression(...)` auto-wrap helper plus all 14 ValueExpression builders (`term`, `today`, `now`, `dateAdd`, `dateCoerce`, `datetimeCoerce`, `double`, `arith`, `concat`, `coalesce`, `ifExpr`, `switchCase` + `switchExpr`, `count`, `unwrapList`, `formatDate`). Predicate-operand builders (`eq`, `isIn`, `within`, `isNull`, `isBlank`, `between`) accept `Term | ValueExpression` and route Term inputs through the auto-wrap so existing call sites compose unchanged.
+- `lib/domain/predicate/typeChecker.ts` — adds `checkExpression(...)` (the value-side analogue of `resolveTermType`) plus the `SEQUENCE_TYPE` sentinel for `unwrap-list`'s output. Operand callsites (`checkComparison`, `checkIn`, `checkWithinDistance`, `checkBetween`, `checkAbsenceOperator`) swap from `resolveTermType` to `checkExpression`; the literal-pair impossibility check on `between` and the literal-rejection rule on `is-null`/`is-blank` unwrap the operand's `term` arm.
+- `lib/commcare/predicate/xpathEmitter.ts` — adds `unwrapTermFromExpression(...)` with an exhaustive switch that accepts the `term` arm and throws on every other arm with a "supersede in B-phase" error pointing at Tasks B1-B6.
 
-Schemas for the Expression family per the spec — `today`, `now`, `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `coalesce`, `if`, `switch`, `count`, `unwrap-list`, `format-date`, plus the `term` lifter.
+The two families collapse into one package: `lib/domain/predicate` houses both `Predicate` and `ValueExpression`. Cross-cycle recursion (Predicate operators → ValueExpression operands; ValueExpression `if` / `switch` / `count` arms → Predicate clauses) goes through `z.lazy(...)` intra-file. No cross-package z.lazy.
+
+Schemas cover the spec's 14 arms verbatim — `term`, `today`, `now`, `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `coalesce`, `if`, `switch`, `count`, `unwrap-list`, `format-date`. Non-empty arms (`concat.parts`, `coalesce.values`, `switch.cases`) use the tuple-with-rest pattern matching `and.clauses` / `or.clauses` for compile-time empty-list rejection.
 
 Type-checker rules:
+- `term` delegates to `resolveTermType`.
 - `today` returns `date`; `now` returns `datetime`.
-- `date-add` returns the same type as `date` (date or datetime); `quantity` must be int.
-- `date-coerce` / `datetime-coerce` accept text and return date/datetime.
-- `double` accepts any term; returns decimal.
+- `date-add` returns the same type as `date` (date or datetime); `quantity` must be numeric.
+- `date-coerce` / `datetime-coerce` accept text-shaped operands; return date/datetime.
+- `double` accepts text or numeric; returns decimal.
 - `arith` operands must be numeric; result type follows int×int=int, mixed=decimal.
 - `concat` parts cast to text; result is text.
-- `coalesce` values must agree on type (after empty-string-coerce-to-null); result is the agreed type. Empty `values` array is rejected.
-- `if`: cond is Predicate, then/else types must agree.
-- `switch`: on is value; cases.when literals match `on`'s type; cases.then types must agree with each other and with fallback.
-- `count` returns int.
-- `unwrap-list` accepts text; returns a sequence type. The sequence type is V1's only sequence-producing operator; downstream operators that consume it (currently only `multi-select-contains` via the CSQL emitter's `selected-any(prop, unwrap-list(...))` pattern) must accept it.
-- `format-date` accepts date/datetime; returns text.
+- `coalesce` values must agree on type (after empty-string-coerce-to-null); result is the agreed type.
+- `if`: cond is Predicate (recursed via the predicate walker); then/else types must agree.
+- `switch`: on is value; cases.when literals must be compatible with `on`'s type; cases.then must agree with each other and with fallback.
+- `count` returns int; the relation walk is type-checked via `checkRelationPath`; the optional `where` clause is type-checked recursively in the destination scope.
+- `unwrap-list` accepts text-shaped; returns the `_sequence` sentinel. v1 has no AST consumer for the sequence type — `multi-select-contains.values` and `in.values` stay literal-only because every wire target demands a static value list. The CSQL emitter will route `unwrap-list` into `selected-any(prop, unwrap-list(...))` at wire-emit time when that pattern lands in B-phase. The compatibility table treats `_sequence` as incompatible with every scalar (including itself) so a v1 author who composes a sequence into a scalar slot gets a clear error.
+- `format-date` accepts date or datetime; returns text.
 
-Steps per sub-section:
-- [ ] Write failing tests for ValueExpression construction + round-trip
-- [ ] Build `types.ts` Zod schemas with `z.lazy` + hand-declared arms for recursive shapes
-- [ ] Build `builders.ts`
-- [ ] Build `typeChecker.ts`
-- [ ] Run tests, commit per sub-section
+The `then` field name on `if` and `switch.cases` triggers Biome's `noThenProperty` rule. Suppressed inline with rationale on `ifSchema`'s JSDoc: the slot holds a ValueExpression object (one of fifteen non-function shapes), never a callable, and the AST never reaches a Promise-resolution boundary, so the thenable hazard the rule defends against doesn't apply.
+
+Steps:
+- [x] Add `ValueExpression` schemas + widened predicate operand types in `types.ts`; expand drift guards
+- [x] Add `toValueExpression` auto-wrap + 14 ValueExpression builders in `builders.ts`; widen predicate-operand builders
+- [x] Add `checkExpression` + `SEQUENCE_TYPE` in `typeChecker.ts`; swap operand callsites
+- [x] Add `unwrapTermFromExpression` + exhaustive switch in `xpathEmitter.ts`
+- [x] Migrate existing predicate-operand tests to the wrapped shape
+- [x] Add coverage for new behavior (ValueExpression schemas, checkExpression rules, auto-wrap, xpathEmitter throws)
+- [x] Sync spec + plan to (b)+(c) shape
 
 ### Task A7: Reduction module
 
@@ -785,11 +791,11 @@ Steps:
 
 **Files:** existing compilePredicate.ts updated.
 
-Some Predicates take Term operands that may be Expression-lifted (`compare(prop, value-expression(today()), gt)`). The Term compiler delegates to the Expression compiler for `value-expression` term variants.
+Predicate operator schemas carry `ValueExpression` operands at every widened slot (`compare.left`/`right`, `in.left`, `within-distance.center`, `between.left`/`lower`/`upper`, `is-null.left`, `is-blank.left` — see Task A6). The compiler's predicate-operand handler dispatches on the operand's `kind` discriminator: a `term` arm delegates to the Term compiler; every other arm (`arith`, `if`, `count`, etc.) delegates to the Expression compiler. The Postgres path executes value-expressions natively in any operand position (mixed with predicate-side scalars via the same compatibility table the type checker uses).
 
 Steps:
-- [ ] Write failing tests covering Predicates that contain ValueExpressions
-- [ ] Wire delegation through compileTerm
+- [ ] Write failing tests covering Predicates that contain ValueExpressions in operand position (`gt(arith("+", prop, literal(1)), literal(18))`, `eq(count(via), prop("expected"))`)
+- [ ] Wire dispatch through `compilePredicate`'s operand handler — `term` → `compileTerm`, every other ValueExpression arm → `compileExpression`
 - [ ] Run tests, commit
 
 ### Task C7.5: Postgres test infrastructure
@@ -815,12 +821,12 @@ Steps:
 ### Task C8: Barrel exports + CLAUDE.md updates
 
 **Files:**
-- `lib/domain/predicate/index.ts`, `lib/domain/expression/index.ts`, `lib/commcare/predicate/index.ts`, `lib/commcare/expression/index.ts`, `lib/case-store/sql/index.ts`
-- `lib/domain/predicate/CLAUDE.md` (update) + new `lib/domain/expression/CLAUDE.md`
+- `lib/domain/predicate/index.ts`, `lib/commcare/predicate/index.ts`, `lib/commcare/expression/index.ts`, `lib/case-store/sql/index.ts`
+- `lib/domain/predicate/CLAUDE.md` (update) — covers both Predicate and ValueExpression AST families since they live in the same package post-A6.
 
 Steps:
 - [ ] Write barrels
-- [ ] Update CLAUDE.md to reflect the dual AST architecture
+- [ ] Update CLAUDE.md to reflect the two-AST-families-in-one-package architecture
 - [ ] Run full test suite
 - [ ] Commit
 
@@ -830,7 +836,7 @@ Steps:
 
 - [ ] `npm run test` — all tests green including pre-existing
 - [ ] `npm run lint` — no errors, no warnings
-- [ ] `grep -rn "TODO\|FIXME\|XXX" lib/domain/predicate lib/domain/expression lib/commcare/predicate lib/commcare/expression lib/case-store` — empty
+- [ ] `grep -rn "TODO\|FIXME\|XXX" lib/domain/predicate lib/commcare/predicate lib/commcare/expression lib/case-store` — empty
 - [ ] Cross-check: every operator from the spec's V1-IN list has type-checker, three wire emitters (where representable), and Postgres compiler coverage. Build a coverage matrix as a docs artifact.
 - [ ] Cross-check: every issue in `representability.ts` traces back to a tested case in the wire emitter throw-or-skip behavior.
 

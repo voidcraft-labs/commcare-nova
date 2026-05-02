@@ -60,7 +60,9 @@ CommCare authoring requires two distinct AST families that share Term shapes but
 
 The v1 of this spec collapsed calculated columns onto the Predicate AST. That was a category error: calculated columns return values, not booleans. Splitting into two families lets each carry the operators that make sense for it (`if` / `switch` / `concat` / `arith` / `count` are Expression-only; `compare` / `exists` / `match-all` are Predicate-only) and lets the type checker validate that an expression appears where an expression is expected.
 
-The two families share Term shapes — a `case-property` term, a `search-input` term, a `session-context` term, a typed literal — and Predicates compose Expressions and other Predicates, while Expressions compose other Expressions and may compose Predicates inside `if` / `switch` conditionals.
+The two families share Term shapes — a `case-property` term, a `search-input` term, a `session-context` term, a typed literal — and Predicates compose Expressions through their operand slots, while Expressions compose other Expressions and may compose Predicates inside `if` / `switch` / `count` arms.
+
+The two families live in one package (`lib/domain/predicate`). Predicates ARE expressions that resolve to boolean — the boolean-typed arm of the broader expression family — so collapsing the families into one module eliminates the cross-package `z.lazy` an earlier design needed. Cross-cycle recursion (Predicate operators carrying `ValueExpression` operands; ValueExpression's `if` / `switch` / `count` carrying `Predicate` clauses) goes through `z.lazy` intra-file — the canonical Zod pattern for self-recursion through discriminated unions.
 
 #### Term family
 
@@ -71,8 +73,9 @@ type Term =
   | { kind: "session-user"; field: string }                  // /session/user/data/<field> — open namespace, custom user-data fields
   | { kind: "session-context"; field: SessionContextField }  // /session/context/<field> — closed enum: SESSION_CONTEXT_FIELDS
   | { kind: "literal"; type: PrimitiveType; value: string | number | boolean | null }
-  | { kind: "value-expression"; expr: ValueExpression }
 ```
+
+`Term` does NOT carry a `value-expression` arm. The cross-family composition lives one level up — Predicate operators take `ValueExpression` operands directly, and `ValueExpression`'s `term` arm lifts any Term where a value is expected. Builders auto-wrap Term-shaped inputs at the call site (`eq(prop("name"), literal("Alice"))` keeps working — both arguments lift through the structural `term` arm) so the wire-shape change is invisible to existing call sites.
 
 Notable shapes:
 
@@ -80,6 +83,8 @@ Notable shapes:
 - **`session-user` and `session-context` are split.** `instance('commcaresession')/session/user/data/<field>` (open namespace, custom user-data fields) and `instance('commcaresession')/session/context/<field>` (closed framework-controlled set) are two different wire targets. The full closed set populated by the framework is `deviceid` / `appversion` / `username` / `userid` / `drift` / `window_width` / `applanguage` per `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java:89-103`; v1's `SESSION_CONTEXT_FIELDS` exposes `userid` / `username` / `deviceid` / `appversion` (the four with clear authoring semantics — owner / display / device-targeting / version-gating). `drift` is a diagnostic clock-skew signal, `window_width` is a UI-internal viewport metric, and `applanguage` is a localization concern; none has an authoring semantic that justifies AST exposure today, and the closed-enum shape lets v2 add fields non-breakingly when a real authoring use case surfaces. The v1 AST conflated `/user/data/` and `/context/` under one `kind: "user"`, hiding the open/closed distinction.
 
 #### Predicate family
+
+Operand-widening note: every value-bearing slot below (`compare.left`/`right`, `in.left`, `within-distance.center`, `between.left`/`lower`/`upper`, `is-null.left`, `is-blank.left`) carries `ValueExpression`, not bare `Term`. The widening lets arithmetic / conditional / aggregation expressions sit in operand position (`gt(arith("+", prop("age"), literal(1)), literal(18))`) at the AST. Term-shaped operands flow through unchanged — builders auto-wrap them as `{ kind: "term", term: <Term> }` at the call site. The slots that intentionally do NOT widen are `multi-select-contains.values` and `in.values` (literal-only, demanded by the wire-target's static-list expectation), `multi-select-contains.property`, `match.property`, and `within-distance.property` (geo / multi-select dispatches key off a property name, not a value expression), and `match.value` (the operator captures a static match value baked at construction time).
 
 ```ts
 type Predicate =
@@ -93,7 +98,7 @@ type Predicate =
   | { kind: "not"; clause: Predicate }
 
   // Comparison
-  | { kind: "compare"; op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte"; left: Term; right: Term }
+  | { kind: "compare"; op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte"; left: ValueExpression; right: ValueExpression }
 
   // Multi-select reasoning — one operator with quantifier
   | { kind: "multi-select-contains"; property: PropertyRef; values: Literal[]; quantifier: "any" | "all" }
@@ -102,26 +107,27 @@ type Predicate =
   | { kind: "match"; property: PropertyRef; value: string; mode: "fuzzy" | "phonetic" | "fuzzy-date" | "starts-with" }
 
   // Geo
-  | { kind: "within-distance"; property: PropertyRef; center: Term; distance: number; unit: "miles" | "kilometers" | "meters" }
+  | { kind: "within-distance"; property: PropertyRef; center: ValueExpression; distance: number; unit: "miles" | "kilometers" | "meters" }
 
   // Set membership over scalars (or-of-eq)
-  | { kind: "in"; left: Term; values: Literal[] }
+  | { kind: "in"; left: ValueExpression; values: Literal[] }
 
   // Range — first-class for date-range search inputs.
   // At least one of `lower` / `upper` is required (refined by the schema).
   // Builders default `lowerInclusive` / `upperInclusive` to true (mathematical
-  // [lower, upper] convention). When both bounds are literal-typed and
-  // `lower > upper`, the predicate is trivially false; the schema does NOT
-  // reject this at parse time because bounds may be Term refs (search-input,
-  // user-context) whose values are unknown until runtime. The type checker
-  // detects the literal-pair impossibility; runtime checking handles
-  // term-pair shapes.
-  | { kind: "between"; left: Term; lower?: Term; upper?: Term; lowerInclusive: boolean; upperInclusive: boolean }
+  // [lower, upper] convention). When both bounds are literal-typed (lifted
+  // through the `term` arm of `ValueExpression`) and `lower > upper`, the
+  // predicate is trivially false; the schema does NOT reject this at parse
+  // time because bounds may also be expression-shaped (search-input refs,
+  // arithmetic-derived bounds) whose values are unknown until runtime. The
+  // type checker detects the literal-pair impossibility by unwrapping the
+  // term arm; runtime checking handles non-literal shapes.
+  | { kind: "between"; left: ValueExpression; lower?: ValueExpression; upper?: ValueExpression; lowerInclusive: boolean; upperInclusive: boolean }
 
   // Null / blank checks — see "Null vs blank semantics" below for the per-dialect
   // representability table. `is-null` is strict; `is-blank` is portable.
-  | { kind: "is-null"; left: Term }       // strict: left resolves to absent
-  | { kind: "is-blank"; left: Term }      // portable: absent OR empty-string
+  | { kind: "is-null"; left: ValueExpression }       // strict: left resolves to absent
+  | { kind: "is-blank"; left: ValueExpression }      // portable: absent OR empty-string
 
   // Relational — typed paths, no string templates
   | { kind: "exists"; via: RelationPath; where?: Predicate }
@@ -554,7 +560,7 @@ Each gate below is a concrete blocking check that must pass before the correspon
 - **`case_indices` row-count growth** — start with Option B (direct edges + recursive CTE) for write predictability; switch to Option A if CTE cost dominates. Both within the same architectural commitment.
 - **Cross-platform divergence confusion** — representability checker surfaces unrepresentable + lossy AST shapes per dialect at authoring time, not upload time.
 - **Existing app migration** — one-shot script, dry-run first, no permanent migration code in runtime; broken references after migration become validator warnings.
-- **Spec drift from implementation** — the spec lives at `docs/superpowers/specs/2026-04-30-case-list-search-design.md` and must move with the code. Any PR touching `lib/domain/predicate`, `lib/domain/expression`, `lib/commcare/predicate`, `lib/commcare/expression`, `lib/case-store`, or the case-list/search authoring UI must include a one-line "Spec touchpoints" note in the PR description naming the affected spec sections (or "no spec impact"). The CLAUDE.md files in each package list the spec as the source of design truth; the per-PR check ties refresh discipline to the existing review flow rather than to a calendar.
+- **Spec drift from implementation** — the spec lives at `docs/superpowers/specs/2026-04-30-case-list-search-design.md` and must move with the code. Any PR touching `lib/domain/predicate` (Predicate + ValueExpression families), `lib/commcare/predicate`, `lib/commcare/expression`, `lib/case-store`, or the case-list/search authoring UI must include a one-line "Spec touchpoints" note in the PR description naming the affected spec sections (or "no spec impact"). The CLAUDE.md files in each package list the spec as the source of design truth; the per-PR check ties refresh discipline to the existing review flow rather than to a calendar.
 
 ## Scope shape (not effort)
 
