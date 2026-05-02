@@ -1023,6 +1023,29 @@ describe("checkPredicate — between operator rules", () => {
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
+	it("accepts between directly on a decimal property", () => {
+		// Decimal is in `ORDERED_TYPES`. Direct decimal-to-decimal bound
+		// pairing exercises the path that numeric promotion (above) only
+		// reaches transitively — locks the rule that decimal is a
+		// first-class ordered type, not just a target for int-promotion.
+		const p = between(prop("patient", "weight_kg"), {
+			lower: literal(40.0),
+			upper: literal(120.0),
+		});
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("accepts between directly on a time property with timeLiteral bounds", () => {
+		// Time is in `ORDERED_TYPES` alongside date/datetime. timeLiteral
+		// carries `data_type: "time"` so the comparator resolves the
+		// bounds as time rather than the generic JS-string fallback.
+		const p = between(prop("patient", "appointment_time"), {
+			lower: timeLiteral("09:00:00"),
+			upper: timeLiteral("17:00:00"),
+		});
+		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
 	it("propagates errors through wrapper recursion (between inside and)", () => {
 		// Pins the wrapper-recursion contract: a `between` violation
 		// nested inside `and` surfaces with a path that threads the
@@ -1286,6 +1309,27 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/not a subcase|parent_type/i);
+		}
+	});
+
+	it("rejects subcase walk when zero candidates declare the origin as parent_type", () => {
+		// `lab_result` has no case types declaring `parent_type ===
+		// "lab_result"` (the schema models lab_result as a leaf in the
+		// fixture). The walk produces a distinct error message from
+		// "ambiguous" (which fires on multiple candidates) and from
+		// "not a subcase" (which fires when ofCaseType names a wrong
+		// type). Locks the third reverse-walk failure mode — the
+		// no-candidates case — so the editor surfaces the right hint.
+		const p = exists(subcasePath("parent"));
+		const result = checkPredicate(p, {
+			...ctxRelations,
+			currentCaseType: "lab_result",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/no.*subcase|no case type.*parent_type|no candidate/i,
+			);
 		}
 	});
 
@@ -1689,5 +1733,26 @@ describe("checkPredicate — prop.via destination-scope resolution", () => {
 		// would silently break every existing predicate.
 		const p = eq(prop("patient", "name"), literal("Alice"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("rejects prop.via when the originating case type itself is unknown", () => {
+		// `phantom_origin` is not in `ctx.caseTypes`. Combined with a
+		// non-self `via`, the relation walk's first hop fails on the
+		// origin lookup — distinct from the "destination case type
+		// not found" failure that fires on later hops. Locks the
+		// originating-side error message ("Unknown originating case
+		// type") so the editor surfaces the right hint when the author
+		// typo's the originating case-type name.
+		const p = eq(
+			prop("phantom_origin", "x", ancestorPath(relationStep("parent"))),
+			literal("anything"),
+		);
+		const result = checkPredicate(p, ctxRelations);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(
+				/unknown originating|phantom_origin/i,
+			);
+		}
 	});
 });

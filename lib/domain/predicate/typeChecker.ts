@@ -880,6 +880,16 @@ function checkBetween(
 	// strings without a `data_type` qualifier reach this branch too;
 	// they fail the ordered-types check above before getting here, so
 	// the literal-pair detector only sees ordered-typed literal pairs.
+	//
+	// Caveat for typed `datetime` literals: TZ-suffixed ISO strings
+	// can lex-disagree with UTC-instant ordering — e.g.,
+	// "2024-01-01T00:00+05:00" lex-compares greater than
+	// "2024-01-01T00:00+00:00" while the second names the later UTC
+	// instant. CCHQ's wire convention is naive datetimes (no TZ
+	// suffix) and the Nova `datetimeLiteral` builder produces the
+	// same shape, so this check is correct in practice; if a future
+	// surface admits TZ-suffixed datetimes the comparator needs to
+	// parse + compare instants instead of strings.
 	if (
 		p.lower !== undefined &&
 		p.upper !== undefined &&
@@ -1001,19 +1011,24 @@ function checkRelationPath(
 		case "ancestor": {
 			// Walk the parent_type chain hop-by-hop. Each hop's origin
 			// is the previous hop's destination; the first hop's origin
-			// is the function's `originCaseType` argument.
+			// is the function's `originCaseType` argument. The i==0
+			// lookup can fail when the caller passed an originating case
+			// type the schema doesn't declare (e.g., a `prop` term with
+			// a typo'd `caseType`); subsequent hops fail when the
+			// previously-resolved destination type is missing from the
+			// schema, which Plan 3's blueprint validator should prevent
+			// but the type checker still guards.
 			let current = originCaseType;
 			for (let i = 0; i < relationPath.via.length; i++) {
 				const step = relationPath.via[i];
 				const ct = ctx.caseTypes.find((c) => c.name === current);
 				if (!ct) {
-					// Should not happen — `originCaseType` is supplied by
-					// the caller from a known case-type, and each hop's
-					// destination is validated below before becoming the
-					// next origin. Defensive guard for untyped boundaries.
 					errors.push({
 						path,
-						message: `Unknown case type '${current}' at ancestor hop ${i}.`,
+						message:
+							i === 0
+								? `Unknown originating case type '${current}' on relation walk.`
+								: `Unknown case type '${current}' at ancestor hop ${i}.`,
 					});
 					return undefined;
 				}
