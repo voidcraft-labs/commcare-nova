@@ -42,9 +42,11 @@ import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	dateLiteral,
+	datetimeLiteral,
 	literal,
 	prop,
 	relationStep,
+	timeLiteral,
 } from "@/lib/domain/predicate/builders";
 import { compileRelationPath } from "../compileRelationPath";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
@@ -66,7 +68,11 @@ const HOUSEHOLD_CASE_ID = "10000000-0000-0000-0000-000000000002";
 
 // `patient` carries one property per data_type variant — the same
 // schema shape used by the cold compile-only suite. `parent_type:
-// "household"` enables the ancestor-walk test below.
+// "household"` enables the ancestor-walk test below. Every
+// `CasePropertyDataType` variant declared in
+// `lib/domain/blueprint.ts` has a property here so each cast token
+// in `POSTGRES_CAST_FOR_DATA_TYPE` round-trips against the live
+// Postgres engine at least once.
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
@@ -75,9 +81,11 @@ const PATIENT_SCHEMA: CaseType = {
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
+		{ name: "appointment_at", label: "Appointment", data_type: "time" },
 		{ name: "registered_at", label: "When", data_type: "datetime" },
 		{ name: "color", label: "Color", data_type: "single_select" },
 		{ name: "tags", label: "Tags", data_type: "multi_select" },
+		{ name: "home_location", label: "Home", data_type: "geopoint" },
 	],
 };
 
@@ -220,6 +228,162 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.where("c.app_id", "=", APP_ID)
 			.where("c.owner_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} > ${right}`)
+			.execute();
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("time property casts to time and ordered comparison works", async ({
+		db,
+	}) => {
+		// `::time` is a unique cast token — a typo on the cast
+		// (e.g. `::times`) would still pass every cold-suite
+		// `toContain("::time")` check because Postgres rejects the
+		// typo only at parse time. The round-trip pins the cast
+		// token against Postgres's actual type system.
+		//
+		// Wire form for time literals is `HH:MM[:SS]` per
+		// `timeLiteral`'s JSDoc; storing `09:00:00` and comparing
+		// against an `08:00:00` literal forces the cast to land on
+		// both sides for the `>` operator to dispatch ordinally.
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ appointment_at: "09:00:00" }),
+				}),
+			)
+			.execute();
+
+		const left = compileTerm(prop("patient", "appointment_at"), makeCtx(db));
+		const right = compileTerm(timeLiteral("08:00:00"), makeCtx(db));
+		const rows = await db
+			.selectFrom("cases as c")
+			.select(["c.case_id"])
+			.where("c.app_id", "=", APP_ID)
+			.where("c.owner_id", "=", OWNER_ID)
+			.where(sql<boolean>`${left} > ${right}`)
+			.execute();
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("datetime property casts to timestamptz and ordered comparison works", async ({
+		db,
+	}) => {
+		// `::timestamptz` is a unique cast token (chosen over
+		// `::timestamp` so timezone information from the wire
+		// string round-trips). The wire form is the ISO 8601
+		// datetime per `datetimeLiteral`'s JSDoc; storing
+		// `2026-01-01T12:00:00Z` and comparing against
+		// `2026-01-01T11:00:00Z` forces the cast to land on both
+		// sides for the `>` operator to dispatch ordinally.
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({
+						registered_at: "2026-01-01T12:00:00Z",
+					}),
+				}),
+			)
+			.execute();
+
+		const left = compileTerm(prop("patient", "registered_at"), makeCtx(db));
+		const right = compileTerm(
+			datetimeLiteral("2026-01-01T11:00:00Z"),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.select(["c.case_id"])
+			.where("c.app_id", "=", APP_ID)
+			.where("c.owner_id", "=", OWNER_ID)
+			.where(sql<boolean>`${left} > ${right}`)
+			.execute();
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("single_select property casts to text and equality matches", async ({
+		db,
+	}) => {
+		// `single_select` casts to `::text` — byte-identical with
+		// the cast token plain `text` properties get, but the
+		// schema-driven dispatch path is structurally distinct
+		// (the `data_type: "single_select"` arm in
+		// `POSTGRES_CAST_FOR_DATA_TYPE`). The round-trip exercises
+		// that the dispatch arm reaches the live engine and that
+		// the JSON-stringified option value round-trips through
+		// the `->>` read.
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ color: "red" }),
+				}),
+			)
+			.execute();
+
+		const left = compileTerm(prop("patient", "color"), makeCtx(db));
+		const right = compileTerm(literal("red"), makeCtx(db));
+		const rows = await db
+			.selectFrom("cases as c")
+			.select(["c.case_id"])
+			.where("c.app_id", "=", APP_ID)
+			.where("c.owner_id", "=", OWNER_ID)
+			.where(sql<boolean>`${left} = ${right}`)
+			.execute();
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("geopoint property casts to text and equality matches the wire string", async ({
+		db,
+	}) => {
+		// `geopoint` casts to `::text` — Postgres has no native
+		// geopoint type at the term-read layer (the `within-distance`
+		// predicate dispatches through PostGIS's `ST_DWithin`, which
+		// is the predicate compiler's concern). The term-layer cast
+		// surfaces the wire-form string as text so equality
+		// comparisons and field-display paths work without PostGIS.
+		//
+		// CommCare's wire form is four space-separated decimals:
+		// `latitude longitude altitude accuracy`, verified against
+		// CCHQ's parser at
+		// `commcare-hq/corehq/ex-submodules/couchforms/geopoint.py`
+		// and pinned by `GEOPOINT_PATTERN` in
+		// `lib/domain/predicate/jsonSchema.ts`.
+		const wireFormPoint = "42.3739063 -71.1109113 0.0 886.0";
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ home_location: wireFormPoint }),
+				}),
+			)
+			.execute();
+
+		const left = compileTerm(prop("patient", "home_location"), makeCtx(db));
+		const right = compileTerm(literal(wireFormPoint), makeCtx(db));
+		const rows = await db
+			.selectFrom("cases as c")
+			.select(["c.case_id"])
+			.where("c.app_id", "=", APP_ID)
+			.where("c.owner_id", "=", OWNER_ID)
+			.where(sql<boolean>`${left} = ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
