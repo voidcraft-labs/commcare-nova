@@ -13,14 +13,16 @@
 // multi-select containment, text match (four modes), geo,
 // relational, conditional, and the null / blank operators. Term
 // emission delegates to `./compileTerm`; relation-path subqueries
-// delegate to `./compileRelationPath`. The expression family
-// (`ValueExpression`'s non-`term` arms — `arith`, `if`, `count`,
-// etc.) compiles in a sibling module and threads back through the
-// predicate-using-expression integration layer. Every predicate-
-// operand site routes through one helper (`compileValueExprAsTerm`)
-// that admits the `term` arm of `ValueExpression` directly and
-// throws on every other arm, surfacing the integration boundary
-// at the call site rather than emitting wrong SQL silently.
+// delegate to `./compileRelationPath`. The compiler accepts only
+// the `term` arm of `ValueExpression` at every operand slot —
+// `comparison.left` / `.right`, `in.left`, `between.left` /
+// `.lower` / `.upper`, `is-null.left`, `is-blank.left`, and
+// `within-distance.center` — and rejects every other arm with a
+// clear error at the call site. The non-`term` arms of
+// `ValueExpression` (`arith`, `if`, `count`, etc.) belong to a
+// sibling expression-compiler module; calling code that needs
+// expression-shaped operands routes them through that module
+// before passing them to the predicate compiler.
 //
 // ## Tenant scoping
 //
@@ -101,13 +103,12 @@
 // `containsNonSelfRelationWalk` walks the inner `where` at compile
 // time and throws a clear error when any nested non-self walk is
 // present; this surfaces the limitation at the call site rather
-// than producing wrong rows. The integration layer that wires the
-// expression compiler into the predicate compiler is the right
-// place to add per-depth alias uniquification across compileTerm,
-// compileRelationPath, and compileExpression in lockstep — the fix
-// touches every reader of `RELATION_PATH_LEAF_ALIAS`, so doing it
-// inside this module alone would silently desynchronize the term
-// compiler's reads from the leaf-subquery's alias.
+// than producing wrong rows. Per-depth alias uniquification is
+// the cross-module fix because the leaf-alias constant is read
+// in three places (`compileTerm`'s non-self via reads,
+// `compileRelationPath`'s subquery alias, and `compileExpression`'s
+// `count` arm), so the change has to land in lockstep across the
+// readers of `RELATION_PATH_LEAF_ALIAS` to keep them synchronized.
 //
 // Single-level non-self walks (the standard `exists(parent,
 // inner-where-without-walks)` shape) work correctly and are
@@ -129,7 +130,11 @@ import {
 	compileRelationPath,
 	RELATION_PATH_LEAF_ALIAS,
 } from "./compileRelationPath";
-import { compileTerm, type TermCompileContext } from "./compileTerm";
+import {
+	compileTerm,
+	POSTGRES_CAST_FOR_DATA_TYPE,
+	type TermCompileContext,
+} from "./compileTerm";
 
 // ---------------------------------------------------------------
 // Public types
@@ -334,12 +339,11 @@ export function compilePredicate(
 
 /**
  * Compile a `ValueExpression` operand to a Kysely expression by
- * routing the `term` arm through `compileTerm`. Every other arm
- * (`arith`, `if`, `switch`, `count`, etc.) is a sibling-module
- * concern that integrates through the predicate-using-expression
- * integration layer; the helper throws a clear error on every
- * non-term arm so that boundary surfaces at the call site rather
- * than emitting wrong SQL silently.
+ * routing the `term` arm through `compileTerm`. The predicate
+ * compiler accepts only the `term` arm of `ValueExpression` at
+ * every operand slot; every other arm (`arith`, `if`, `switch`,
+ * `count`, etc.) belongs to the sibling expression-compiler module
+ * and is rejected here with a clear error.
  *
  * Centralizing the dispatch in one helper means the throw-site is
  * one place. Every predicate operator that accepts
@@ -351,8 +355,9 @@ export function compilePredicate(
  * `comparison.left` / `.right`, `in.left`, `between.left` /
  * `.lower` / `.upper`, `is-null.left`, `is-blank.left`, and
  * `within-distance.center`. Each call site below routes through
- * this helper; the integration layer wires the expression compiler
- * in for the non-term arms.
+ * this helper. Calling code that needs expression-shaped operands
+ * compiles them through the expression compiler before reaching
+ * the predicate compiler.
  */
 function compileValueExprAsTerm(
 	expr: ValueExpression,
@@ -362,7 +367,7 @@ function compileValueExprAsTerm(
 		return compileTerm(expr.term, ctx);
 	}
 	throw new Error(
-		`compilePredicate: non-term ValueExpression operand of kind '${expr.kind}' is not yet supported — the expression compiler integration covers every non-term arm. Pass a Term-shaped operand for now.`,
+		`compilePredicate accepts only term-arm ValueExpression operands; received kind '${expr.kind}'. Compile non-term ValueExpression operands through the sibling expression compiler before passing them to compilePredicate.`,
 	);
 }
 
@@ -495,51 +500,29 @@ function compileIn(
  * the corresponding cast token so equality dispatch against a
  * typed property read stays well-typed.
  *
- * The cast-token table is single-source on `compileTerm`; lifting
- * a literal Term shape into `compileTerm` reuses the existing
- * mapping rather than mirroring it here. The bindings / schemas /
- * alias fields on the synthesized context are unused on the
- * literal-arm path — the literal branch returns immediately
- * without consulting any of them — so passing zero-value
- * placeholders is safe.
+ * The cast-token lookup reads `POSTGRES_CAST_FOR_DATA_TYPE` (the
+ * `data_type` → Postgres type mapping exported from compileTerm)
+ * directly rather than threading the literal back through
+ * compileTerm with a synthesized context. Reading the table
+ * directly keeps the cast logic single-source — extending the
+ * blueprint's `data_type` enum forces a `Record<...>` exhaustivity
+ * check in the one shared table — without coupling literal-emission
+ * here to compileTerm's internal context surface.
  */
 function compileLiteralValue(lit: Literal): RawBuilder<unknown> {
 	if (lit.value === null) {
 		return sql`null`;
 	}
 	if (lit.data_type !== undefined) {
-		// `compileTerm` owns the cast-token lookup. Synthesizing a
-		// minimal context here avoids duplicating the cast table.
-		// The literal arm in compileTerm returns without consulting
-		// the bindings / schemas / alias, so the placeholders never
-		// reach SQL.
-		return compileTerm(
-			{ kind: "literal", value: lit.value, data_type: lit.data_type },
-			SYNTHETIC_LITERAL_CONTEXT,
-		);
+		const cast = POSTGRES_CAST_FOR_DATA_TYPE[lit.data_type];
+		// `${lit.value}` binds as a parameter; `sql.raw(cast)` is safe
+		// because the cast token comes from a closed-enum lookup, with
+		// no path for an attacker-controlled string to reach the
+		// raw-emission slot.
+		return sql`${lit.value}::${sql.raw(cast)}`;
 	}
 	return sql`${lit.value}`;
 }
-
-/**
- * Synthetic context used only to thread literal terms through
- * `compileTerm` from `compileLiteralValue`. The literal branch in
- * `compileTerm` reads only `term.value` / `term.data_type`; every
- * other field on the context is unused on that path. Centralizing
- * the placeholder here makes the unused-field discipline visible
- * at one site.
- */
-const SYNTHETIC_LITERAL_CONTEXT: TermCompileContext = {
-	// The Kysely `db` handle is not consulted by the literal arm —
-	// it returns a `sql` template directly. The `as never` cast
-	// signals the unused-by-design relationship.
-	db: undefined as never,
-	appId: "",
-	ownerId: null,
-	anchorAlias: "",
-	caseTypeSchemas: new Map(),
-	bindings: {},
-};
 
 // ---------------------------------------------------------------
 // `between` — bounded interval
@@ -616,13 +599,20 @@ function compileBetween(
  * Both operators take a JSONB on the left and a `text[]` on the
  * right. The schema's `values` slot is non-empty `Literal[]` and
  * the `.refine(...)` rejects all-null lists, so the runtime
- * `text[]` is always non-empty and contains at least one non-null
- * value. Null literals (from a mixed-null-and-non-null list) drop
- * out at the runtime array construction — JSONB key-exists has no
- * notion of a NULL key, so feeding `NULL` into the array would
- * produce a Postgres error at execute time. Filtering null values
- * here is the structural defense the schema's all-null-rejection
- * starts; the SQL stays well-formed for every parse-accepted shape.
+ * `text[]` is always non-empty.
+ *
+ * Token typing: multi-select tokens on CommCare are wire-form
+ * strings (the property's stored value is a space-separated string
+ * blob; each token is a single label / option-value identifier).
+ * The Postgres JSONB key-existence operators (`?|` / `?&`) match
+ * by string equality against array elements — the JSONB types of
+ * the array elements and the candidate values must agree. Numeric
+ * or boolean literals would silently mismatch a JSONB array of
+ * strings (and vice versa), so the compiler rejects every
+ * non-string token at the SQL boundary with a clear error rather
+ * than `String(v)`-coerce and emit a never-matching predicate.
+ * Null literals also drop here for the same reason — JSONB
+ * key-exists has no NULL semantic.
  *
  * The single-value `any` form could collapse to the `?` operator
  * (key-exists, single string RHS) but the `?|` operator with a
@@ -642,14 +632,26 @@ function compileMultiSelectContains(
 	// directly avoids TypeScript's spread-overwrite warning.
 	const left = compileTerm(pred.property, ctx);
 
-	// Filter null values — the all-null defense lives at the schema
-	// layer (`.refine(...)`), but a mixed list with embedded nulls
-	// is parse-accepted. JSONB key-exists has no NULL semantic, so
-	// drop null literals at the array-construction boundary.
-	const stringValues = pred.values
-		.map((v) => v.value)
-		.filter((v): v is string | number | boolean => v !== null)
-		.map((v) => String(v));
+	// Token validation: every literal value in the array must be a
+	// string. Null literals drop silently (the all-null defense lives
+	// at the schema layer's `.refine(...)`; mixed-with-non-null
+	// lists are parse-accepted but the JSONB array-element-typing
+	// excludes null). Non-string tokens (numbers, booleans) reject
+	// here with a clear error so a `String(v)`-coerced token doesn't
+	// silently produce a never-matching predicate against a JSONB
+	// array of strings.
+	const stringValues: string[] = [];
+	for (const v of pred.values) {
+		if (v.value === null) {
+			continue;
+		}
+		if (typeof v.value !== "string") {
+			throw new Error(
+				`compilePredicate: multi-select-contains accepts only string-typed token literals; received ${typeof v.value} (${String(v.value)}). Multi-select tokens are wire-form strings, and the JSONB key-existence operators (?| / ?&) match by string equality only.`,
+			);
+		}
+		stringValues.push(v.value);
+	}
 
 	const operatorToken = quantifierToOperator(pred.quantifier);
 	// `text[]`-bound array literal: each element binds as a
@@ -1073,13 +1075,14 @@ function compileExistsOrMissing(
 	// non-self `via` inside the inner `where` hit the same shadowing
 	// because the term compiler reads through the literal alias too.
 	// Throw at compile time so the limitation surfaces at the call
-	// site rather than producing wrong rows. The integration layer
-	// that wires the expression compiler in is the right place to
-	// add per-depth alias uniquification across compileTerm /
-	// compileRelationPath / compileExpression in lockstep.
+	// site rather than producing wrong rows. Per-depth alias
+	// uniquification is the cross-module fix because the leaf-alias
+	// constant is read in three places (`compileTerm`'s non-self
+	// via reads, `compileRelationPath`'s subquery alias, and
+	// `compileExpression`'s `count` arm).
 	if (pred.where !== undefined && containsNonSelfRelationWalk(pred.where)) {
 		throw new Error(
-			"compilePredicate: nested non-self relation walks (an exists/missing whose inner `where` contains another non-self exists/missing or a property reference with non-self `via`) require per-depth leaf-alias uniquification — the integration layer wires this across the compiler stack. Refactor the inner where to a self-via shape, or split the nesting into a separate join.",
+			"compilePredicate: nested non-self relation walks (an exists/missing whose inner `where` contains another non-self exists/missing or a property reference with non-self `via`) are rejected because the relation-path leaf alias is a fixed constant and a nested walk produces shadowing aliases that silently break correlation. Refactor the inner where to a self-via shape, or split the nesting into a separate join.",
 		);
 	}
 
@@ -1251,24 +1254,22 @@ function propertyRefContainsNonSelfVia(prop: PropertyRef): boolean {
 
 /**
  * Recursive companion to `containsNonSelfRelationWalk` for the
- * `ValueExpression` family. Until the expression compiler
- * integrates, the `term` arm is the only kind reachable through
- * predicate operand slots; non-term arms throw at compile time
- * elsewhere in this module, so the check covers every shape the
- * compile path actually produces.
+ * `ValueExpression` family. The predicate compiler accepts only
+ * the `term` arm of `ValueExpression` at every operand slot
+ * (`compileValueExprAsTerm` rejects every other arm with a clear
+ * error), so this check returns false for every non-term arm —
+ * those arms never reach the relation-walk emission path here.
  *
  * The Term variants split: `prop` is the only term carrying a
  * `via`; `input` / `session-user` / `session-context` / `literal`
- * never do. The dispatch here returns true only for `prop` terms
- * with non-self via.
+ * never do. The dispatch returns true only for `prop` terms with
+ * non-self via.
  */
 function valueExpressionContainsNonSelfWalk(expr: ValueExpression): boolean {
 	if (expr.kind !== "term") {
-		// Non-term ValueExpression operands throw later in the
-		// compile path — this check is conservative but correct.
-		// The integration layer that wires the expression compiler
-		// in extends this traversal to cover every ValueExpression
-		// arm.
+		// Non-term ValueExpression operands reject at the SQL
+		// compile boundary in `compileValueExprAsTerm`, so the
+		// nested-walk check is dead for those arms.
 		return false;
 	}
 	const term = expr.term;
@@ -1302,6 +1303,20 @@ function valueExpressionContainsNonSelfWalk(expr: ValueExpression): boolean {
  * an `if(count(<input>), <clause>, true())` runtime conditional
  * because their evaluation engine doesn't have a compile step
  * separate from execution; the Postgres pipeline does.
+ *
+ * Bound-vs-blank semantic: "bound" means
+ * `ctx.bindings.searchInputs.has(name)` is true regardless of the
+ * bound value. An empty-string or null binding is still considered
+ * bound and the wrapped clause runs against it. This diverges from
+ * CCHQ's wire `count(input)` semantic, which returns 0 for empty
+ * strings and skips the clause. The diverge is deliberate: the
+ * Postgres pipeline keeps the boundary at "did the request include
+ * a value for this input", which is the request-shape signal the
+ * caller controls; "is the value semantically empty" is a clause-
+ * specific concern the wrapped predicate handles via `is-blank`
+ * etc. when the author wants that behavior. Callers that want the
+ * CCHQ-aligned semantic strip blank values from `searchInputs`
+ * before passing the bindings to the compiler.
  */
 function compileWhenInputPresent(
 	pred: Extract<Predicate, { kind: "when-input-present" }>,
@@ -1336,8 +1351,10 @@ function compileWhenInputPresent(
  *      the type-checker layer rejects this case, so the SQL
  *      compiler trusts the rejection upstream and emits the
  *      standard scalar `IS NULL` form.
- *   4. Non-`term` `ValueExpression` arm → expression-compiler
- *      integration concern; throws.
+ *   4. Non-`term` `ValueExpression` arm → rejected at this layer;
+ *      compile non-term ValueExpression operands through the
+ *      sibling expression compiler before reaching the predicate
+ *      compiler.
  *
  * Postgres-strict null semantics: the property-ref branch reads
  * through the JSONB key-existence operator (`?`), which
@@ -1354,7 +1371,7 @@ function compileAbsenceCheck(
 ): RawBuilder<SqlBool> {
 	if (left.kind !== "term") {
 		throw new Error(
-			`compilePredicate: non-term ValueExpression operand of kind '${left.kind}' on '${op}' is not yet supported — the expression compiler integration covers every non-term arm.`,
+			`compilePredicate '${op}' accepts only term-arm ValueExpression operands; received kind '${left.kind}'. Compile non-term ValueExpression operands through the sibling expression compiler before passing them to compilePredicate.`,
 		);
 	}
 	const term = left.term;

@@ -407,6 +407,23 @@ describe("compilePredicate — multi-select-contains", () => {
 		// JSONB all-keys-exist operator.
 		expect(compiled.sql).toContain("?&");
 	});
+
+	it("rejects non-string token literals at the SQL boundary", () => {
+		// Multi-select tokens are wire-form strings on CommCare;
+		// JSONB key-existence operators (?| / ?&) match by string
+		// equality, so a numeric or boolean literal would silently
+		// produce a never-matching predicate against a JSONB array
+		// of strings. The compiler rejects with a clear error rather
+		// than `String(v)`-coerce.
+		const pred = multiSelectAny(
+			prop("patient", "tags"),
+			literal("urgent"),
+			literal(5),
+		);
+		expect(() => compilePredicate(pred, makeCtx())).toThrow(
+			/string-typed token literals/,
+		);
+	});
 });
 
 // ---------------------------------------------------------------
@@ -759,16 +776,16 @@ describe("compilePredicate — tenant scope contract", () => {
 
 describe("compilePredicate — non-term ValueExpression operands", () => {
 	it("throws on a non-term ValueExpression in compare.left", () => {
-		// Non-term ValueExpression operand. The predicate compiler
-		// throws on every non-term arm so the expression-compiler
-		// integration boundary surfaces at the call site rather than
-		// silently emitting wrong SQL.
+		// The predicate compiler accepts only the `term` arm of
+		// `ValueExpression` at every operand slot. Every other arm
+		// rejects with a clear error at the call site so a non-term
+		// operand never silently emits wrong SQL.
 		const pred = {
 			kind: "eq" as const,
 			left: { kind: "today" as const },
 			right: { kind: "term" as const, term: dateLiteral("2026-01-01") },
 		};
-		expect(() => compilePredicate(pred, makeCtx())).toThrow(/non-term/i);
+		expect(() => compilePredicate(pred, makeCtx())).toThrow(/term-arm/i);
 	});
 
 	it("throws on a non-term ValueExpression in is-null.left", () => {
@@ -776,6 +793,6 @@ describe("compilePredicate — non-term ValueExpression operands", () => {
 			kind: "is-null" as const,
 			left: { kind: "now" as const },
 		};
-		expect(() => compilePredicate(pred, makeCtx())).toThrow(/non-term/i);
+		expect(() => compilePredicate(pred, makeCtx())).toThrow(/term-arm/i);
 	});
 });

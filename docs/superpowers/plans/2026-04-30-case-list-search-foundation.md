@@ -982,18 +982,46 @@ Shipped across commits `48c2eac5` → `2a0550ca`.
 - `npm run lint` clean (798 files; zero warnings, zero errors)
 - Strengthened eternal-present sweep returns zero hits across the four touched files (regex includes `\bB[0-9]\b|\bC[0-9]\b`)
 
-### Task C6: Expression compiler — Kysely
+### Task C6: Expression compiler — Kysely — SHIPPED
+
+Shipped across commits `a74da3c4` → `e25d2525`.
 
 **Files:**
-- Create: `lib/case-store/sql/compileExpression.ts`
-- Test: `__tests__/compileExpression.test.ts`
+- `lib/case-store/sql/compileExpression.ts` (new) — total `ValueExpression` compiler covering all 15 union arms (term, today, now, date-coerce, datetime-coerce, double, arith, concat, coalesce, if, switch, count, unwrap-list, format-date, date-add). Public surface: `compileExpression(expr, ctx) → Expression<unknown>`. Context shape: `ExpressionCompileContext extends TermCompileContext` plus an optional `compilePredicate?: CompilePredicateThunk` callback.
+- `lib/case-store/sql/__tests__/compileExpression.test.ts` (new, 37 cold-suite tests) — DummyDriver coverage of every arm + per-op for `arith` (5 ops) + per-interval for `date-add` (7 units) + per-preset for `format-date` (3 presets + free-form) + 3 `if`/`switch` shape tests + 4 `count` tests (subquery shape, thunk thread, self-via throw, missing-thunk throw).
+- `lib/case-store/sql/__tests__/compileExpression.harness.test.ts` (new, 32 round-trip tests against the testcontainers harness) — `today`/`now` constants, 3 coercion arms, 5 `arith` ops, 2 `concat` (join + NULL-as-empty), 2 `coalesce`, 4 `format-date` (iso/short/long presets + custom pattern), 8 `date-add` intervals + negative quantity, 3 `count` shapes, 3 `if`/`switch` end-to-end via stub thunks. C5-class regression defense: round-trips fire every cast token through Postgres's parse step.
 
-Each ValueExpression variant compiles to Kysely. `today` → `CURRENT_DATE`, `now` → `NOW()`, `date-add` → `+ INTERVAL`. `if` / `switch` → `CASE WHEN`. `count` uses C5's RelationPath compiler + `COUNT(*)` aggregate.
+**Operator coverage and SQL shapes:**
+- Date / time constants: `today` → `current_date`; `now` → `now()`.
+- Date coercion: `date-coerce(value)` → `(<value>)::date`; `datetime-coerce(value)` → `(<value>)::timestamptz`.
+- Numeric: `double(value)` → `(<value>)::numeric`; `arith(left, op, right)` → `(<left>) <op> (<right>)` over the five AST ops.
+- String: `concat(parts)` → Postgres `concat(...)` (NULL-tolerant — "NULL arguments are ignored" per the official docs, observably identical to coercing-to-empty); `format-date(date, format)` → `to_char((<date>)::timestamptz, '<format>')` with a typed preset Record (`short` → `MM/DD/YYYY`; `long` → `FMMonth FMDD, YYYY` (FM strips Postgres's fixed-width month-name fill); `iso` → `YYYY-MM-DD`); free-form strings pass through.
+- Conditional: `coalesce(parts)` → `COALESCE(<part1>, ...)`; `if(condition, then, else)` → searched `CASE WHEN <cond> THEN <then> ELSE <else> END`; `switch(on, branches, default)` → simple `CASE <on> WHEN <when_1> THEN <then_1> ... ELSE <default> END` (discriminator evaluates once — important for expensive `on` shapes like `count(...)`).
+- Aggregation: `count(via, where?)` → calls `compileRelationPath(via, ctx)` and wraps `buildLeafSubquery()` in `(SELECT COUNT(*) FROM (<rp_leaf>) AS rp)` with the optional `where` filter applied via the predicate-compiler callback.
+- Date arithmetic: `date-add(value, interval, quantity)` → `(<value>)::timestamptz + (<quantity> * INTERVAL '1 <interval>')`. Result type is `timestamptz` for every interval unit (day-only intervals lose the date-typed return but preserve uniform downstream consumption).
+- List: `unwrap-list(value)` — defensive throw with citation. The CSQL hoist pass at the wire-emission boundary handles `unwrap-list`; no Postgres consumer exists at the SQL-compiler layer.
+- Term lifter: `term(t)` → delegates to `compileTerm(t, ctx)`.
 
-Steps:
-- [ ] Write failing tests per Expression variant
-- [ ] Implement
-- [ ] Run tests, commit
+**Architectural decisions:**
+
+1. **Thunk-based predicate decoupling.** `compilePredicate?: CompilePredicateThunk` callback on `ExpressionCompileContext`. The Expression compiler does not import the Predicate compiler — the integrating caller (C7) wires the callback. Defensive throws fire on `if.cond` and `count.where` when the callback is absent. Zero direct import of `compilePredicate.ts` from `compileExpression.ts` — no cycle. C7 wires the callback as one ctx field.
+2. **`switch` uses simple-CASE form** (`CASE <on> WHEN ... END`), not searched-CASE. Discriminator evaluates once — important for expensive `on` shapes like `count(...)`.
+3. **`format-date` preset Record + Postgres-pattern pass-through.** Authors target Postgres's `to_char` vocabulary directly on Nova-runtime apps; the preset Record is a typed lookup, not a CCHQ-vocabulary translation layer. The runtime preset-key set derives from `Object.keys(FORMAT_DATE_PRESET_TO_PATTERN)` so adding a preset to the Record auto-extends the dispatch.
+4. **`date-add` casts the base to `timestamptz`** for every interval unit; the result type is uniform `timestamptz`. Day-only intervals lose the date-typed return; that's acceptable for the v1 surface.
+5. **`concat` uses Postgres `concat(...)`** (NULL-tolerant), matching the type checker's "each part casts to text at evaluation" spec.
+6. **`unwrap-list` defensive throw** — the CSQL hoist at the wire-emission boundary handles this kind. The throw catches any unexpected reach into the Postgres compiler.
+7. **`long` preset pattern uses `FM` prefix on `Month`** (`FMMonth FMDD, YYYY`) to strip Postgres's fixed-width month-name fill, so the rendered output is `"May 2, 2026"` not `"May      2, 2026"`. Round-trip-pinned in the harness.
+
+**Reviews:**
+
+- Spec-compliance review (sonnet): ✅ COMPLIANT on `a74da3c4`. All 12 checklist items verified — every ValueExpression arm, plan's wire forms (`current_date`, `now()`, `+ INTERVAL`, `CASE WHEN`, `COUNT(*)`), thunk-based decoupling shape, `format-date` preset translation, `switch` simple-CASE form, `date-add` `timestamptz` cast, `concat` NULL-tolerance, `unwrap-list` defensive throw, object args, harness coverage, no version-label leakage, C4 coordination clean.
+- Code-quality review (opus): ❌ Round 1 found 1 BLOCKING + 2 SUGGESTIONS on `a74da3c4` — dead `ExpressionCompileDatabase` / `ExpressionCompileSchemas` exports + their dragged-in `Kysely` / `CaseType` imports; `concat` docstring mis-cited the Postgres semantic ("NULL parts coerce to empty" → actually "NULL arguments are ignored"); `format-date` harness coverage gap on `short` and `long` presets. All resolved in fix-pass `e25d2525` (the `long` preset pattern shift to `FMMonth FMDD, YYYY` discovered during the harness round-trip + drive-by header fix on `switch` simple-CASE description). Re-review APPROVED.
+
+**Verification gates (all green at HEAD `e25d2525`):**
+- 2765 full-project tests pass / 14 skipped (vs 2614 pre-C6 baseline; +69 net new from C6 = 37 cold + 32 harness, plus +82 from C4's parallel landing).
+- `npx tsc --noEmit` clean
+- `npm run lint` clean on C6-touched files (worktree-wide lint has C4 cleanup territory not in C6's scope)
+- Strengthened eternal-present sweep returns zero hits across the three new files (regex includes `\bB[0-9]\b|\bC[0-9]\b`).
 
 ### Task C7: Predicate-using-Expression integration
 

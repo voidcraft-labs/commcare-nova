@@ -1243,15 +1243,17 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 	test("rejects nested non-self relation walks at compile time", async ({
 		db,
 	}) => {
-		// Pin the deferred-shape contract: a nested non-self
-		// `exists` (or any non-self relation walk inside the inner
-		// `where`) produces a second `rp_leaf`-aliased subquery
-		// that SQL scoping shadows onto the inner subquery, breaking
-		// the outer correlation silently. The compiler detects the
+		// Pin the rejection contract: a nested non-self `exists`
+		// (or any non-self relation walk inside the inner `where`)
+		// produces a second `rp_leaf`-aliased subquery that SQL
+		// scoping shadows onto the inner subquery, breaking the
+		// outer correlation silently. The compiler detects the
 		// shape and throws a clear error rather than emit wrong
-		// rows. The integration layer that wires the expression
-		// compiler in is the right place to add per-depth alias
-		// uniquification across the compiler stack.
+		// rows. Per-depth alias uniquification across the compiler
+		// stack is the cross-module fix because the leaf-alias
+		// constant is read in three places (compileTerm's non-self
+		// via reads, compileRelationPath's subquery alias, and
+		// compileExpression's `count` arm).
 		const pred = exists(
 			ancestorPath(relationStep("parent", "household")),
 			exists(

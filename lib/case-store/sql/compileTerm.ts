@@ -156,7 +156,7 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
  *     JSONB) rather than `->>` — see
  *     `JSONB_READ_OPERATOR_FOR_DATA_TYPE` below.
  */
-const POSTGRES_CAST_FOR_DATA_TYPE: Readonly<
+export const POSTGRES_CAST_FOR_DATA_TYPE: Readonly<
 	Record<CasePropertyDataType, string>
 > = {
 	text: "text",
