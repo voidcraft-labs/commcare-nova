@@ -9,10 +9,9 @@
 //
 // Emission policy: this visitor produces the maximum CCHQ-supported
 // feature subset. Every wire string is well-formed XPath that
-// CommCare HQ accepts on import. What individual runtime players
-// (web apps, Android, iOS) do with each function call is the
-// player's concern, not the emitter's — the visitor commits to the
-// wire-syntax surface CCHQ HQ exposes.
+// CommCare HQ accepts on import as defined by its query-function
+// registry — the visitor commits to that wire-syntax surface and
+// nothing narrower.
 //
 // File ownership: this file owns operator dispatch for the on-device
 // dialect. Lexical concerns (string quoting, identifier emission,
@@ -768,6 +767,10 @@ function emitTerm(term: Term): string {
 			return `instance('commcaresession')/session/context/${term.field}`;
 		case "literal":
 			return emitLiteralValue(term.value);
+		default: {
+			const _exhaustive: never = term;
+			throw new Error(`emitTerm: unhandled term kind ${String(_exhaustive)}`);
+		}
 	}
 }
 

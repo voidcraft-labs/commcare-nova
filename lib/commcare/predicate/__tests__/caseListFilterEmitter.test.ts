@@ -5,12 +5,8 @@
 // `<detail nodeset>` slot and the post-ES `<search_filter>` slot
 // (both run on the same on-device XPath evaluator).
 //
-// Pinning policy: every wire string emitted is what CommCare HQ
-// accepts on import for the maximum CCHQ feature subset (web-apps
-// player). We do not reject AST shapes for divergence between
-// Dimagi's per-platform runtime players — what runs on the
-// web-apps player is what Nova supports. Each test pins the exact
-// wire string the emitter produces; CCHQ wire-syntax citations live
+// Each test pins the exact wire string the emitter produces against
+// CCHQ HQ's query-function grammar. CCHQ wire-syntax citations live
 // in the source file alongside each operator arm.
 //
 // Coverage organizes around four shells: (1) shared-operator
@@ -21,9 +17,10 @@
 // is-null collapsing to is-blank's wire form, exists / missing
 // across all four relation kinds, the inline relational read on a
 // `prop` term); (3) defensive throws for the structural-bypass
-// shape `between` with both bounds absent, plus per-arm
-// exhaustiveness on the ValueExpression operand walk; (4)
-// term-arm-unwrap happy path.
+// shape `between` with both bounds absent, plus spot-checks of
+// non-term `ValueExpression` operand rejection (the compile-time
+// `_exhaustive: never` on `unwrapTermFromExpression` covers the
+// rest of the union); (4) term-arm-unwrap happy path.
 
 import { describe, expect, it } from "vitest";
 import {
