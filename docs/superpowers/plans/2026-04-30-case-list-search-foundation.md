@@ -382,57 +382,45 @@ The shipped `userContextRefSchema` was **replaced directly** — no migration he
 
 **Memory carry-forward to A5–A7 implementer prompts:** explicitly require a comment-prose grep at the end of any rename (`rg "<old-term>"` to verify zero leftovers); pre-verify any "lex ordering happens to work" / "semver compares correctly as text" claims against real CCHQ version strings before shipping rationale comments.
 
-### Task A4.5: Add `is-blank` operator + lock null/blank semantic
+### Task A4.5: Add `is-blank` operator + lock null/blank semantic — SHIPPED
 
-**Files:** `lib/domain/predicate/types.ts`, `lib/domain/predicate/builders.ts`, `lib/domain/predicate/typeChecker.ts`, `lib/commcare/predicate/xpathEmitter.ts`, `lib/domain/predicate/__tests__/*`.
+Shipped across commits `c2d2b393` → `2f7941d0` → `510441fb`.
 
-`is-null` shipped in A1 with a wishy-washy "does the property carry a value?" rationale that didn't pick a semantic. This task locks the semantic and adds the parallel `is-blank` operator. Spec section "Null vs blank semantics" (under the Predicate family) is the source of truth.
+**Files modified:**
+- `lib/domain/predicate/types.ts`
+- `lib/domain/predicate/builders.ts`
+- `lib/domain/predicate/typeChecker.ts`
+- `lib/commcare/predicate/xpathEmitter.ts`
+- `lib/domain/predicate/__tests__/types.test.ts`
+- `lib/domain/predicate/__tests__/builders.test.ts`
+- `lib/domain/predicate/__tests__/typeChecker.test.ts`
+- `lib/commcare/predicate/__tests__/xpathEmitter.test.ts`
+- `docs/superpowers/specs/2026-04-30-case-list-search-design.md` (Null vs blank semantics subsection)
+- `docs/superpowers/plans/2026-04-30-case-list-search-foundation.md` (this section + B5 representability table)
 
-**The locked semantic, family-wide**: the AST is **Postgres-strict**. Every operator that touches null / empty-string / missing-property semantics distinguishes the three states (absent / cleared / explicit-empty) at the data-model layer. CCHQ's wire collapse is a per-dialect emitter concern + B5 representability checker error, not an AST design constraint. Same dispatch pattern A2 established for `match(mode: fuzzy)` in case-list-filter context.
+**What landed:**
 
-Schemas:
+- `isBlankSchema` (portable: absent OR empty-string), parallel-shaped to the shipped `isNullSchema` (strict: absent only). Both accept any Term in `left`; literal-rejection is the type-checker's job.
+- `isBlank` builder mirroring `isNull` with `Extract<Predicate, { kind: "is-blank" }>` return type.
+- Type-checker `walk` switch has dedicated arms for both operators sharing a `checkAbsenceOperator` helper that rejects literal-shaped `left` and resolves non-literal terms for unknown-property / unknown-input error propagation.
+- Transitional emitter (`xpathEmitter.ts`, slated for B6 deletion) emits `<term> = ''` for `is-blank` and throws on `is-null` — minimal arms; the per-dialect B-stage emitters write the correct wire forms from the spec subsection, not by copying this transitional code.
+- The shipped `isNullSchema` JSDoc was rewritten to lock the strict-absent semantic ("key not present in JSONB / Map") and drop the "does the property carry a value?" hedge.
 
-```ts
-const isNullSchema = z.object({
-  kind: z.literal("is-null"),    // strict: left resolves to absent (key not in JSONB / Map)
-  left: termSchema,
-});
+**Locked semantic, family-wide**: the AST is **Postgres-strict**. Every operator that touches null / empty-string / missing-property semantics distinguishes the three states (absent / cleared / explicit-empty) at the data-model layer. CCHQ's wire collapse is a per-dialect emitter concern + B5 representability checker error, not an AST design constraint.
 
-const isBlankSchema = z.object({
-  kind: z.literal("is-blank"),   // portable: left resolves to absent OR empty-string
-  left: termSchema,
-});
-```
+**v1 surface scoping** (per the user's "apps are always in a valid state" principle): v1 authoring surfaces (filter UI, SA tool surface, validator) emit only `is-blank` for predicates targeting CCHQ. `is-null` has no v1 author-facing path — it's foundation infrastructure consumed by future non-filter surfaces (case-data inspection, audit / admin views, expression operators that need to distinguish absent from empty, Phase-2 Cloud SQL deploy where strict-absent is natively representable). The B5 representability checker stays as defense-in-depth for any programmatic source that ever produces `is-null` in a CCHQ-bound emission.
 
-The shipped `isNullSchema` carries the strict semantic; rewrite the JSDoc to lock "absent" (drop the "does the property carry a value" hedge). Add `isBlankSchema` parallel-shaped — same `left: termSchema` slot, same operand-validation handoff to the type checker, different wire-emission rule.
+**Deviations from the v2 plan's outline above (all principled improvements):**
 
-Builders:
+1. **CCHQ citation correction (Finding 1 from code-quality review)**: the initial commit cited `case_property_missing(prop)` as registered at `xpath_functions/__init__.py:46`. Verified false against `/Users/braxtonperry/code/commcare-hq` — line 46 is `'within-distance'`; `case_property_missing` is not a CSQL XPath function at all. It's a Python helper at `corehq/apps/es/case_search.py:378`, called internally by `case_property_query()` at lines 241-246 when value == ''. The actual CSQL wire form for `is-blank(prop)` is `prop = ''`, which the server short-circuits internally. Citations corrected across all sites in the follow-up commit `2f7941d0`.
+2. **Architectural reframing (Finding 3 from code-quality review)**: the initial commit's "four-layer practical defense" framing (Representability checker / UI default card with `is-null` opt-in / SA prompt / Platform-divergence panel) leaked CCHQ's "click through warnings" pattern into Nova. Reworked in `510441fb` to the v1-surface-scoping framing: there is no v1 path producing `is-null` for users; the operator exists in the AST as foundation infrastructure for future surfaces. Documented in the spec and in code JSDoc.
+3. **Test-comment sweep (Finding 2)**: production JSDocs in `inSchema` and `multiSelectContainsSchema` were updated to cite both `is-null` and `is-blank` as canonical absence-check shapes; parallel test-file comments needed the same sweep. Done in `2f7941d0`.
 
-```ts
-export const isNull = (left: Term):
-  Extract<Predicate, { kind: "is-null" }> => /* unchanged shape; tighter JSDoc */;
+**Memory carry-forward to A5–A7 / B-stage / C-stage implementer prompts:**
 
-export const isBlank = (left: Term):
-  Extract<Predicate, { kind: "is-blank" }> => /* parallel to isNull */;
-```
-
-Per-dialect emitter rules (encoded in B-stage emitters, but the contract locks here):
-- **Postgres** — `is-null(prop("X","Y"))` → `NOT (properties ? 'Y')` (or the dialect-equivalent `properties ? 'Y' = false`). `is-blank(prop("X","Y"))` → `(NOT (properties ? 'Y')) OR properties->>'Y' = ''`. For input refs and session refs, the equivalent presence check applies.
-- **CSQL** — `is-blank(prop)` → wire form `prop = ''`; the CCHQ server-side `case_property_query()` short-circuits empty-value queries to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching absent / cleared / empty alike. (`case_property_missing` is a Python helper at the same file's line 378 — not a CSQL function authors can write.) `is-null(prop)` is **unrepresentable** in CSQL; the visitor throws and B5's representability checker errors at authoring time.
-- **Case-list filter** — `is-blank(prop)` → `prop = ''` (CCHQ's on-device idiom for "absent OR empty"). `is-blank(input)` → wraps in the `if(count(input), ..., true())` form so absent inputs short-circuit cleanly. `is-null` is unrepresentable; same rejection rule.
-- **Post-ES search filter** — same dialect as case-list filter; same rules.
-
-Type-checker rule (lifted from A5; lands here so the operator is whole when A4.5 closes): `is-null` and `is-blank` accept any non-literal Term in `left`. `is-null(literal(...))` and `is-blank(literal(...))` are rejected — a literal can't be "unset"; the predicate is a category error. Property refs, input refs, session-user refs, session-context refs all valid; the type checker resolves the term type but doesn't constrain it (any type can be absent).
-
-Validator hint (Plan 3+ work, but the contract lives here): `compare(prop, literal(""))` and `compare(prop, literal(null))` stay valid in the AST — the author may genuinely mean "value is the literal empty string and not absent." The Plan 3 validator surfaces a soft hint at authoring time: *"`prop = ''` matches absent fields too on CCHQ. Did you mean `is-blank(prop)`?"* Foundation work doesn't ship the hint; it documents the shape so Plan 3's validator has a target.
-
-Steps:
-- [ ] Write failing tests for `isBlankSchema` (positive round-trip per Term variant in `left`; rejection on literal-shaped `left`); test rewrite for `isNullSchema` to lock the strict-semantic JSDoc claim
-- [ ] Add `isBlankSchema` to `types.ts`; rewrite `isNullSchema` JSDoc to lock the strict semantic; extend `predicateSchema` discriminated union
-- [ ] Add `isBlank` builder; tighten `isNull` JSDoc
-- [ ] Extend type-checker `walk` switch with `case "is-blank"` (parallel to the existing `case "is-null"` arm); both reject literal-shaped `left`
-- [ ] Extend the shipped emitter (`xpathEmitter.ts` — slated for B6 deletion) with a `case "is-blank"` arm and a defensive throw arm for `is-null` (which the current emitter targets case-list-filter, where strict is unrepresentable). Throw-on-`is-null` keeps the build green and surfaces the unrepresentability cleanly until B5 lands the proper representability checker.
-- [ ] Run tests, commit
+- "Apps are always in a valid state" is the deeper design principle — never propose authoring flows that introduce a state the user has authored but cannot instantly export. Construction-time rejection is the right gate; opt-in / are-you-sure / advanced-toggle framing imports CCHQ's click-through-warnings pattern back in.
+- For B-stage emitters: wire forms come from the spec's "Null vs blank semantics" table, NOT from copying the transitional `xpathEmitter.ts`.
+- For any future operator touching null/empty/missing semantics: design Postgres-strict at the AST, the wire layer handles the constraint via per-dialect emitter + B5 representability checker.
 
 ### Task A5: Type-checker rules for new Predicate operators
 
