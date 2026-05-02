@@ -596,7 +596,8 @@ Operator coverage (the on-device subset):
 - Sentinels: `match-all` → `true()`, `match-none` → `false()`
 - Logical: `and`, `or`, `not`
 - Comparison: `compare` (six ops)
-- `is-null`: `prop = ''`
+- `is-blank`: `prop = ''` (portable absent-or-empty; matches absent / cleared / empty alike — the only null/blank operator emitted to CCHQ wire)
+- `is-null`: **throw** (defensive backstop — strict-absent semantics has no CCHQ wire form per the AST-is-Postgres-strict lock; B5 representability checker catches at authoring time, the emitter throw protects the bypass path)
 - `in`: or-of-eq (always; never `selected-any`)
 - `between`: expand to `and(gte, lte)`
 - `multi-select-contains` quantifier=any single-value: `selected(prop, 'v')`
@@ -651,7 +652,8 @@ Conditionals (`if`, `switch`), aggregations (`count` outside top-level compariso
 - `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')` (multi-hop slashes).
 - `exists` subcase: `subcase-exists('rel', '<csql filter>')`.
 - `match-all` / `match-none`: emit `match-all()` / `match-none()`.
-- `is-null`: `prop = ''`.
+- `is-blank`: `prop = ''` — the server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching absent / cleared / empty alike.
+- `is-null`: **throw** (defensive backstop — same lock as B2; B5 representability checker catches at authoring time).
 - `between`: expand to `and(gte, lte)`.
 - Value functions allowed inside terms: `today`, `now`, `date`, `date-add`, `datetime`, `datetime-add`, `double`, `unwrap-list` (CCHQ's value-function set, verified above).
 
