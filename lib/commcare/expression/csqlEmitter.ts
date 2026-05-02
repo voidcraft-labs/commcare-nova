@@ -19,8 +19,8 @@
 //
 // If the bypass path ever surfaced one of the seven non-whitelist
 // arms, the emitter throws with a "should have been hoisted" message
-// rather than emit broken CSQL. Same exhaustive-defense pattern as
-// `lib/commcare/predicate/csqlEmitter.ts`'s `unwrapTermFromExpression`.
+// rather than emit broken CSQL. The local `_exhaustive: never`
+// default catches new ValueExpression kinds at compile time.
 //
 // File ownership: this file owns operator dispatch for the CSQL
 // value-expression surface. Term emission and shared lexical helpers

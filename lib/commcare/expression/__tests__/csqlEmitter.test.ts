@@ -213,8 +213,8 @@ describe("emitCsqlExpressionSegments — term arm structural lifter", () => {
 // non-whitelist value-expression arm into an on-device wrapper before
 // the emitter runs. If the bypass path ever surfaced one of these
 // arms, the emitter throws with a "should have been hoisted" message
-// rather than emit broken CSQL — same exhaustive-defense pattern the
-// predicate emitter uses on `unwrapTermFromExpression`.
+// rather than emit broken CSQL — the local `_exhaustive: never`
+// default catches new ValueExpression kinds at compile time.
 
 describe("emitCsqlExpressionSegments — non-whitelist arms throw", () => {
 	it("throws on arith", () => {
