@@ -75,8 +75,8 @@ import { type EmissionContext, emitXPath } from "../xpathEmitter";
 
 // Both contexts run through the same operator + quoting logic, so
 // every cross-context invariant test parameterizes over this tuple.
-// Listed once here so adding a third context (if one ever lands)
-// surfaces as a single edit site.
+// Centralizing the listing here means adding another context surfaces
+// as a single edit site.
 const CONTEXTS: readonly EmissionContext[] = ["case-list-filter", "csql"];
 
 describe("emitXPath — comparison operators", () => {

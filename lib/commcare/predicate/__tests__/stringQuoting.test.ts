@@ -40,8 +40,8 @@ import {
 // `case-list-filter` and `search-filter` produce identical output for
 // every input — both run in the on-device XPath 1.0 environment with
 // `concat()` available. Listing them once here parameterizes the
-// shared-behavior tests so adding a third concat-fallback dialect (if
-// one ever lands) surfaces as a single edit site.
+// shared-behavior tests so adding another concat-fallback dialect
+// surfaces as a single edit site.
 const CONCAT_FALLBACK_DIALECTS: readonly WireDialect[] = [
 	"case-list-filter",
 	"search-filter",
