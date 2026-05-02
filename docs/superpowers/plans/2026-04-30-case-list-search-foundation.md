@@ -4,13 +4,13 @@
 
 **Status:** v2 — supersedes v1 of this same file. v1 had a fundamental scope error (missing AST coverage for relational queries, expression family entirely absent, three wire dialects collapsed to two) that surfaced after the implementor had shipped Tasks 1–8. v2 reconciles with shipped work where possible and supersedes where the shipped emitter design is structurally wrong.
 
-**Goal:** Build the typed Predicate AST + typed Expression AST, schema-driven type checker, JSON Schema generator, three per-dialect CommCare wire emitters, AST → Kysely compiler, and the representability checker. Ships as tested library code with no consumer yet — Plans 2–5 wire it up.
+**Goal:** Build the typed Predicate AST + typed Expression AST, schema-driven type checker, JSON Schema generator, two CommCare wire emitters (on-device XPath + CSQL with total hoisting), and the AST → Kysely compiler. Ships as tested library code with no consumer yet — Plans 2–5 wire it up.
 
 **Architecture summary** (full detail in `docs/superpowers/specs/2026-04-30-case-list-search-design.md` v2):
 - Two AST families: Predicate (boolean) + Expression (value), sharing Term shapes
 - Three wire targets dispatched as separate visitors: case-list filter (on-device, plain XPath 1.0 + `selected()`), CSQL (server-side ES, full extension set), post-ES search filter (on-device, same as case-list filter)
 - Postgres SQL via Kysely as the live runtime — full operator coverage, no losses
-- Representability checker surfaces unrepresentable / lossy shapes per target at authoring time
+- Wire emitters are total — every AST shape produces a wire string via closest-CCHQ-form-or-literal-emission (no per-dialect rejection)
 
 **Tech Stack:** TypeScript (strict), Zod (AST validation), Vitest (tests), Kysely (typed SQL builder). Existing CommCare XPath infrastructure under `lib/commcare/xpath/`.
 
@@ -28,7 +28,7 @@ The implementor (working in `.worktrees/case-foundation` on branch `feat/case-li
 - `lib/commcare/predicate/xpathEmitter.ts` — base structure, comparison + logical + `not` emission, the per-context string-escape strategy, the source-citation pattern. v2 splits this into three visitors.
 
 **What v2 explicitly supersedes from shipped work (tasks below):**
-- The single-emitter-with-context-branch shape — split into three per-dialect visitors. The shipped emitter's `EmissionContext = "case-list-filter" | "csql"` branch in one function is structurally wrong; the on-device dialect supports a strict subset of CSQL functions, not the same set with different escape rules. Verified at `commcare-core/.../ASTNodeFunctionCall.java:113-269` and `commcare-hq/.../xpath_functions/__init__.py:39-54`.
+- The single-emitter-with-context-branch shape — split into two emitters (on-device XPath + CSQL with hoisting). The shipped emitter's `EmissionContext = "case-list-filter" | "csql"` branch in one function conflated two grammars: the on-device XPath grammar (parsed by the runtime player) and the CSQL grammar (parsed by ElasticSearch at search time). The CSQL grammar genuinely rejects nodes outside its function whitelists (`commcare-hq/.../xpath_functions/__init__.py`); the hoisting pass handles that constraint. The on-device XPath grammar is permissive — Nova emits the maximum CCHQ feature subset and runtime player support is Dimagi's concern, not ours.
 - The `in` operator's emission to `selected-any` for multi-value cases in case-list-filter context — broken on Android (CSQL-only function in an on-device dialect). Already partially fixed by the `isIn or-of-=` commit on this branch (or-of-eq for case-list filter), but the multi-select-vs-scalar dispatch needs the new `multi-select-contains` operator to land cleanly.
 - The `fuzzy` operator's emission to case-list-filter context — same problem; CSQL-only.
 - `within-distance` operator emission to case-list-filter context — same problem.
@@ -52,7 +52,6 @@ lib/commcare/predicate/                  # NEW: three visitors, not one
 ├── caseListFilterEmitter.ts             # NEW (replaces single xpathEmitter for case-list-filter context)
 ├── csqlEmitter.ts                       # NEW (replaces single xpathEmitter for csql context, with concat() wrapping)
 ├── searchFilterEmitter.ts               # NEW (post-ES on-device dialect; mostly shared with caseListFilterEmitter)
-├── representability.ts                  # NEW — validateRepresentability(ast, target)
 ├── stringQuoting.ts                     # NEW — shared quoting helpers extracted from shipped xpathEmitter
 └── __tests__/
 
@@ -70,7 +69,7 @@ lib/case-store/sql/                      # NEW — Postgres compiler
 └── __tests__/
 ```
 
-The shipped `lib/commcare/predicate/xpathEmitter.ts` is **deprecated and removed** in Task B1. Its content migrates into the three per-dialect emitters; the `stringQuoting.ts` helpers extract the shared logic.
+The transitional `lib/commcare/predicate/xpathEmitter.ts` is **deleted** in Task B6 once Tasks B2 and B3 ship. Its lexical helpers already migrated into `stringQuoting.ts` in Task B1; its operator dispatch migrates into the two new emitters in Tasks B2 (on-device XPath) and B3 (CSQL with total hoisting).
 
 The Predicate and ValueExpression families live in one package because predicates ARE expressions that resolve to boolean — the boolean-typed arm of the broader expression family. Predicate operators carry `ValueExpression` operands so arithmetic / conditional expressions can drive comparisons; `ValueExpression` arms (`if` / `switch` / `count`) carry `Predicate` clauses so boolean conditions can drive value selection. Both unions reference each other through `z.lazy(...)` within this single module — the canonical Zod pattern for self-recursion through discriminated unions. Splitting the families across packages would have required cross-package `z.lazy` (a module-loading workaround, not a real recursion mechanism); collapsing into one module eliminates that and lets every consumer import both families through one barrel. The wire-emission boundary (`lib/commcare/predicate` + `lib/commcare/expression`) keeps two directories because the per-dialect emitter sets diverge between predicate and value position — that split is wire-side, not authoring-side.
 
@@ -308,7 +307,7 @@ export const anyRelationPath = (identifier: string, ofCaseType?: string): Extrac
 
 `caseType` names the **originating scope** — the case type the predicate runs against (the predicate's "self" position) — NOT where the property lives when `via` is present. With `via` absent or `{ kind: "self" }`, the property is read on a case of `caseType`. With `via` a relation walk, the walk resolves to a destination case type and `property` is read on that destination. The `caseType` qualifier stays explicit even when `via` is present so the originating scope is always recoverable without tracing back through nesting. Task A5's type checker encodes this contract.
 
-**Wire-target portability for `any-relation`**: matches both CHILD and EXTENSION relationships under one identifier on the Postgres target. CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`), so `any-relation` has no direct CCHQ wire form. The representability checker (Task B5) rejects it for CCHQ targets; any consumer compiling to a CCHQ target must reject or rewrite the kind into a direction-specific one.
+**Wire-target portability for `any-relation`**: matches both CHILD and EXTENSION relationships under one identifier on the Postgres target. CCHQ's wire grammars expose only direction-specific operators (`ancestor-exists` / `subcase-exists`), so the wire emitters expand `any-relation` to `(<ancestor-form> or <subcase-form>)` on every CCHQ slot — direction-specific OR'd. Postgres natively supports the direction-agnostic form via the `case_indices.identifier` index.
 
 ### Task A4: Add Term split — session-context separated from session-user — SHIPPED
 
@@ -395,7 +394,7 @@ Shipped across commits `c2d2b393` → `2f7941d0` → `510441fb`.
 - `lib/domain/predicate/__tests__/typeChecker.test.ts`
 - `lib/commcare/predicate/__tests__/xpathEmitter.test.ts`
 - `docs/superpowers/specs/2026-04-30-case-list-search-design.md` (Null vs blank semantics subsection)
-- `docs/superpowers/plans/2026-04-30-case-list-search-foundation.md` (this section + B5 representability table)
+- `docs/superpowers/plans/2026-04-30-case-list-search-foundation.md` (this section + the B-phase emitter behavior on `is-blank` / `is-null`)
 
 **What landed:**
 
@@ -405,9 +404,9 @@ Shipped across commits `c2d2b393` → `2f7941d0` → `510441fb`.
 - Transitional emitter (`xpathEmitter.ts`, slated for B6 deletion) emits `<term> = ''` for `is-blank` and throws on `is-null` — minimal arms; the per-dialect B-stage emitters write the correct wire forms from the spec subsection, not by copying this transitional code.
 - The shipped `isNullSchema` JSDoc was rewritten to lock the strict-absent semantic ("key not present in JSONB / Map") and drop the "does the property carry a value?" hedge.
 
-**Locked semantic, family-wide**: the AST is **Postgres-strict**. Every operator that touches null / empty-string / missing-property semantics distinguishes the three states (absent / cleared / explicit-empty) at the data-model layer. CCHQ's wire collapse is a per-dialect emitter concern + B5 representability checker error, not an AST design constraint.
+**Locked semantic, family-wide**: the AST is **Postgres-strict**. Every operator that touches null / empty-string / missing-property semantics distinguishes the three states (absent / cleared / explicit-empty) at the data-model layer. CCHQ's wire collapse is a per-emitter concern: the wire emitters faithfully emit `prop = ''` for both `is-null` and `is-blank` (CCHQ's `case_property_query()` short-circuits absent / cleared / empty alike). The Postgres runtime executes the strict semantic natively. No representability checker; no validator hint; no soft-warning UI.
 
-**v1 surface scoping** (per the user's "apps are always in a valid state" principle): v1 authoring surfaces (filter UI, SA tool surface, validator) emit only `is-blank` for predicates targeting CCHQ. `is-null` has no v1 author-facing path — it's foundation infrastructure consumed by future non-filter surfaces (case-data inspection, audit / admin views, expression operators that need to distinguish absent from empty, Phase-2 Cloud SQL deploy where strict-absent is natively representable). The B5 representability checker stays as defense-in-depth for any programmatic source that ever produces `is-null` in a CCHQ-bound emission.
+**v1 surface scoping**: v1 authoring surfaces (filter UI, SA tool surface) default to `is-blank` for "field is empty" intents — the canonical author-facing operator for absent-or-empty semantics. `is-null` is available for any caller that wants strict-absent semantics; on Postgres it executes natively, on CCHQ wire it emits as `prop = ''` (the wire's lossiness collapses absent / cleared / empty alike). Both AST kinds emit faithfully; the AST distinction is preserved end-to-end on Postgres surfaces (case-data inspection, audit / admin views, expression operators that need to distinguish absent from empty).
 
 **Deviations from the v2 plan's outline above (all principled improvements):**
 
@@ -419,7 +418,7 @@ Shipped across commits `c2d2b393` → `2f7941d0` → `510441fb`.
 
 - "Apps are always in a valid state" is the deeper design principle — never propose authoring flows that introduce a state the user has authored but cannot instantly export. Construction-time rejection is the right gate; opt-in / are-you-sure / advanced-toggle framing imports CCHQ's click-through-warnings pattern back in.
 - For B-stage emitters: wire forms come from the spec's "Null vs blank semantics" table, NOT from copying the transitional `xpathEmitter.ts`.
-- For any future operator touching null/empty/missing semantics: design Postgres-strict at the AST, the wire layer handles the constraint via per-dialect emitter + B5 representability checker.
+- For any future operator touching null/empty/missing semantics: design Postgres-strict at the AST. The wire emitters faithfully emit the closest CCHQ form (typically `prop = ''` for empty/absent intents). No representability checker.
 
 ### Task A5: Type-checker rules for new Predicate operators — SHIPPED
 
@@ -548,31 +547,31 @@ Shipped across commits `73724f51` → `a8374aa0` → `09946c67` → `14ffcc7a` �
 
 ---
 
-## Group B — Supersede the broken emitter (split into per-dialect visitors)
+## Group B — Replace the transitional emitter with two faithful emitters
 
-These tasks delete `lib/commcare/predicate/xpathEmitter.ts` and replace it with three per-dialect emitters. The shipped CCHQ source citations and the per-context string-escape strategy migrate into shared helpers.
+These tasks delete `lib/commcare/predicate/xpathEmitter.ts` and replace it with two emitters: one for on-device XPath (the case-list-filter and post-ES search-filter slots — same XPath grammar, different wire-format positions) and one for CSQL (the `_xpath_query` slot, with total hoisting for nodes outside CSQL's grammar). Both emitters are total — no `throw` arms for "feature unsupported on a runtime player". Per `feedback_max_subset_no_dimagi_litter.md`, Nova emits the maximum web-apps feature subset of CCHQ; runtime player capabilities are Dimagi's concern, not Nova's authoring concern.
 
 ### Task B1: Extract shared quoting helpers — SHIPPED
 
 Shipped across commits `670ce644` → `a090e557` → `fad0a6a5`.
 
 **Files modified:**
-- `lib/commcare/predicate/stringQuoting.ts` (new, 180 lines) — three permanent helpers + the canonical `WireDialect` union (`"case-list-filter" | "csql" | "search-filter"`) the per-dialect emitters and the B5 representability checker share.
+- `lib/commcare/predicate/stringQuoting.ts` (new, 180 lines) — three permanent helpers + the canonical `WireDialect` union (`"case-list-filter" | "csql" | "search-filter"`) shared by the on-device XPath emitter (B2) and the CSQL emitter (B3). The `WireDialect` arms label the three CCHQ wire slots — same XPath grammar for `case-list-filter` and `search-filter`, distinct CSQL grammar for `csql`.
 - `lib/commcare/predicate/__tests__/stringQuoting.test.ts` (new, 41 tests) — per-dialect coverage for `quoteLiteral`, pass-through assertions for `quoteIdentifier`, and exponent-form expansion pinning for `formatNumeric` (exact decimal output strings asserted, including the `1e-7` / `1e21` boundaries).
 - `lib/commcare/predicate/xpathEmitter.ts` — slimmed to delegate every literal-emission and identifier-emission callsite into `stringQuoting`. The transitional emitter's `EmissionContext` (`"case-list-filter" | "csql"`) stays a structural subset of `WireDialect` with no aliasing back-and-forth, preserving the type-system constraint that the transitional emitter does not handle `search-filter`.
 
 **Helper surface (the new `stringQuoting.ts` module exports):**
-- `WireDialect` — the canonical three-arm union; B2-B5 import the type from here rather than redeclaring.
+- `WireDialect` — the canonical three-arm union (one arm per CCHQ wire slot); B2 and B3 import the type from here rather than redeclaring.
 - `quoteLiteral(value, dialect)` — per-dialect string-literal escape. `case-list-filter` and `search-filter` (both XPath 1.0 on-device) share the alternating-quote `concat()` fallback for embedded single quotes; `csql` switches between single- and double-quoted literals and throws on values containing both quote styles (CSQL excludes `concat()` from its value-function whitelist per `corehq/apps/case_search/xpath_functions/__init__.py:27-36`, with `dsl_utils.unwrap_value` raising `CaseFilterError` on any function name outside that whitelist).
 - `quoteIdentifier(name)` — pass-through. Centralized so the per-dialect emitters call one place rather than open-coding the rule.
 - `formatNumeric(value)` — verbatim port of the prior numeric-literal expansion (CommCare's XPath grammar at `lib/commcare/xpath/grammar.lezer.grammar:133-136` admits decimal-only literals; JavaScript's `String(n)` switches to exponent form below ~1e-6 and at or above 1e21, so the helper rebuilds the decimal manually for those magnitudes).
 
 **Architectural decisions:**
 
-1. **Single canonical `WireDialect` union exported from `stringQuoting.ts`** (over redeclaring per-emitter or scattering in `types.ts`) — B5's representability checker, the three per-dialect emitters, and `quoteLiteral` itself all share one type-level definition; drift is structurally impossible.
+1. **Single canonical `WireDialect` union exported from `stringQuoting.ts`** (over redeclaring per-emitter or scattering in `types.ts`) — B2's on-device XPath emitter, B3's CSQL emitter, and `quoteLiteral` itself all share one type-level definition; drift is structurally impossible.
 2. **`EmissionContext` stays distinct from `WireDialect`** (no alias, no re-export) — the transitional emitter's narrower union preserves the type-system signal that it does not yet handle `search-filter`; assignment compiles cleanly at the `quoteLiteral` callsite because `EmissionContext` is a structural subset.
 3. **`quoteIdentifier` wired through the transitional emitter's `prop` arm** (both reserved-attribute branch and bare-name branch) — the JSDoc claim that "every emitter funnels identifier emission through it" is factual today, not aspirational.
-4. **Transitional emitter trimmed to minimal comments** per `feedback_minimize_transitional_docs.md` (the file is deleted in B6) — citation depth migrates to the permanent `stringQuoting.ts` module and to the per-dialect emitters in B2-B5; no rich JSDoc on doomed surfaces.
+4. **Transitional emitter trimmed to minimal comments** per `feedback_minimize_transitional_docs.md` (the file is deleted in B6) — citation depth migrates to the permanent `stringQuoting.ts` module and to the two new emitters in B2 (on-device XPath) and B3 (CSQL with hoisting); no rich JSDoc on doomed surfaces.
 5. **Three test-suite voice patterns scrubbed in the same task** — the original sweep regex missed `supersed`, `until X land`, and `if one ever lands`; the strengthened regex set is now part of the verification gate for all subsequent B-tasks.
 
 **Reviews:**
@@ -586,155 +585,118 @@ Shipped across commits `670ce644` → `a090e557` → `fad0a6a5`.
 - `npm run lint` clean (zero warnings)
 - Strengthened eternal-present sweep returns zero hits across the four predicate-package files (regex extends the prior sweep with `supersed`, `until [^.]*(land|come|arriv)`, `future change`, `will (eventually|land|move|migrate)`, `transitional emitter knows`, `deleted in (B|C)`, `ever lands`, `if one ever`, `hypothetical`)
 
-### Task B2: Build the case-list-filter visitor
+### Task B2: Build the on-device XPath emitter
 
 **Files:**
-- Create: `lib/commcare/predicate/caseListFilterEmitter.ts`
+- Create: `lib/commcare/predicate/caseListFilterEmitter.ts` — the file name reflects the primary slot but the same emitter serves the post-ES search-filter slot. Both are on-device XPath strings; the wire layer drops them into different positions in the CCHQ XML.
 - Test: `__tests__/caseListFilterEmitter.test.ts`
 
-Operator coverage (the on-device subset):
-- Sentinels: `match-all` → `true()`, `match-none` → `false()`
-- Logical: `and`, `or`, `not`
-- Comparison: `compare` (six ops)
-- `is-blank`: `prop = ''` (portable absent-or-empty; matches absent / cleared / empty alike — the only null/blank operator emitted to CCHQ wire)
-- `is-null`: **throw** (defensive backstop — strict-absent semantics has no CCHQ wire form per the AST-is-Postgres-strict lock; B5 representability checker catches at authoring time, the emitter throw protects the bypass path)
-- `in`: or-of-eq (always; never `selected-any`)
-- `between`: expand to `and(gte, lte)`
-- `multi-select-contains` quantifier=any single-value: `selected(prop, 'v')`
-- `multi-select-contains` quantifier=any multi-value: expand to OR of `selected()` calls
-- `multi-select-contains` quantifier=all: expand to AND of `selected()` calls
-- `match` mode=starts-with: `starts-with(prop, 'v')`
-- `match` other modes: **throw** (representability checker should have caught earlier; throw is a defense)
-- `within-distance`: throw (CSQL-only)
-- `exists`: expand to count-presence test against `instance('casedb')` join
-- `missing`: `not(exists(...))`
-- `when-input-present`: `if(count(<input>), <clause>, true())`
+The emitter is total: every Predicate AST node + every Term emits a wire string. No `throw` arms for "feature unsupported on a runtime player". For AST shapes with no exact CCHQ-wire equivalent, the emission is the closest CCHQ form (e.g. `is-null` → `prop = ''`); for shapes whose AST kind has a literal XPath function-call form, the emission is the literal call (e.g. `match(mode: fuzzy)` → `fuzzy-match(prop, 'v')`). The wire string is well-formed XPath that CCHQ HQ accepts at import time. What a runtime player chooses to render is its concern.
 
-The `exists` expansion is the on-device join pattern: `count(instance('casedb')/casedb/case[@case_id=current()/index/parent][<filter>]) > 0` for an ancestor walk; reverse-direction joins for subcase. Multi-hop ancestors compose nested joins.
+Operator coverage:
+- Sentinels: `match-all` → `true()`, `match-none` → `false()` — XPath boolean values that function as filter predicates.
+- Logical: `and`, `or`, `not` with precedence-aware paren wrapping (XPath's `and` binds tighter than `or`).
+- Comparison: `compare` (six ops) — `<left> <op> <right>`.
+- `is-blank` and `is-null`: both emit as `<term> = ''`. CCHQ wire's server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching absent / cleared / empty alike — faithful emission of the wire's lossiness. The AST distinction is preserved on Postgres (where `is-null` runs strict-absent natively).
+- `in` single-value: `prop = 'v'`. Multi-value: `(prop = 'v1' or prop = 'v2' or ...)` — value-equality OR-of-eq, never `selected-any` (which carries multi-select-token semantics per `corehq/apps/es/case_search.py:291-296`).
+- `between`: expand to `(prop >= lo and prop <= lo)` (gte AND lte).
+- `multi-select-contains` quantifier=any single value: `selected(prop, 'v')`.
+- `multi-select-contains` quantifier=any multi-value: expand to OR of `selected()` calls.
+- `multi-select-contains` quantifier=all: expand to AND of `selected()` calls.
+- `match`: emit literally as the named function call. starts-with → `starts-with(prop, 'v')`; fuzzy → `fuzzy-match(prop, 'v')`; phonetic → `phonetic-match(prop, 'v')`; fuzzy-date → `fuzzy-date(prop, 'v')`.
+- `within-distance`: `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` per the function signature at `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+- `exists` / `missing`: walk the `RelationPath`. Single-hop ancestor: `count(instance('casedb')/casedb/case[@case_id=current()/index/<rel>][<filter>]) > 0`. Multi-hop ancestors compose by chaining the inner anchor: `count(instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<r1>]/index/<r2>][<filter>]) > 0`. Subcase walks reverse the join direction: `count(instance('casedb')/casedb/case[index/<rel>=current()/@case_id][<filter>]) > 0`. `missing` uses `count(...) = 0`. `via.kind === "self"` is degenerate — `exists(self, filter)` collapses to the inner `<filter>`; `missing(self)` collapses to `false()`. `via.kind === "any-relation"` expands to `(<ancestor-form> or <subcase-form>)`.
+- `when-input-present`: `if(count(<input>), <clause>, true())` — `true()` (not `''`) is the AND-chain identity element; XPath's boolean coercion of `''` is `false`, which would silently exclude every case on input-unset.
+
+Term arms:
+- `prop` with `via.kind === "self"`: bare property reference `<name>`, with `@`-prefix for the four reserved attribute names per `corehq/ex-submodules/casexml/apps/case/xml/generator.py:237-246` and `corehq/apps/case_search/const.py:53-103`.
+- `prop` with non-self `via`: inline path expression — `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]/<prop>` for ancestor walks; multi-hop composes by chaining the inner anchor; subcase walks reverse the join direction. Authors composing existence checks rather than value reads use `exists(via, where: ...)` instead.
+- `input`: `instance('search-input:results')/input/field[@name='<n>']` per `docs/case_search_query_language.rst:299` and `corehq/apps/app_manager/suite_xml/post_process/instances.py:354`.
+- `session-user`: `instance('commcaresession')/session/user/data/<field>` per `corehq/apps/app_manager/xpath.py:114-119`'s `session_var(var, path='data')` builder.
+- `session-context`: `instance('commcaresession')/session/context/<field>` per `corehq/apps/app_manager/xpath.py:248`'s userid resolution.
+- `literal`: route through `quoteLiteral(value, "case-list-filter")` for strings, `formatNumeric` for numbers, `'true'` / `'false'` for booleans, `''` for null.
+
+Operand handling: predicate-side operands carry `ValueExpression`. The emitter accepts only the `term` arm and throws on every other arm — that throw is structural exhaustiveness (catches a new ValueExpression kind added to the union as a TypeScript compile error). Same exhaustiveness pattern for `between` with both bounds absent (the schema's `.refine` rejects at parse time; the emitter throw defends the bypass path), the `match` mode switch, and the `multi-select-contains` quantifier switch. C1's expression emitter wires per-slot ValueExpression emission later.
 
 Steps:
-- [ ] Port shipped emitter tests for comparison + logical to this file (verify behavior unchanged)
-- [ ] Write failing tests for new operators (sentinels, between, multi-select expansions, match starts-with, exists join expansion)
-- [ ] Implement visitor
-- [ ] Add throw branches for CSQL-only operators with clear error messages
-- [ ] Run tests, commit
+- [ ] Port shipped emitter tests for the operators with pinned wire forms in `xpathEmitter.test.ts` (comparison, logical, `in`, `is-blank`, reserved attributes, `when-input-present`).
+- [ ] Write failing tests for the new operators (sentinels, `between` expansion, `multi-select-contains` quantifiers, `match` modes including `fuzzy`/`phonetic`/`fuzzy-date` literal emission, `exists`/`missing` walk expansions, `is-null` faithful `prop = ''` emission, `prop` cross-relation reads, `within-distance` literal emission, `any-relation` OR-expansion).
+- [ ] Implement visitor.
+- [ ] Run tests, commit.
 
-### Task B3: Build the CSQL visitor with hoisting + `concat()` wrapping
+### Task B3: Build the CSQL emitter with total hoisting + `concat()` wrapping
 
 **Files:**
 - Create: `lib/commcare/predicate/csqlEmitter.ts`
 - Create: `lib/commcare/predicate/csqlHoist.ts`
-- Test: `__tests__/csqlEmitter.test.ts`, `csqlHoist.test.ts`
+- Test: `__tests__/csqlEmitter.test.ts`, `__tests__/csqlHoist.test.ts`
 
-CCHQ's CSQL function vocabulary is split into two disjoint sets, verified at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py`:
-- **Query functions** (predicate-position; lines 39-54): `selected`, `selected-any`, `selected-all`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`, `not`, `starts-with`, `=`, `!=`, `<`, `<=`, `>`, `>=`.
+CSQL is the only B-phase wire grammar that ES literally rejects at parse time — the `_xpath_query` value is parsed by ElasticSearch as CSQL, which has its own restricted grammar. Two CCHQ function whitelists at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py`:
+- **Query functions** (predicate-position; lines 39-54): `selected`, `selected-any`, `selected-all`, `fuzzy-match`, `phonetic-match`, `fuzzy-date`, `within-distance`, `subcase-exists`, `subcase-count`, `ancestor-exists`, `match-all`, `match-none`, `not`, `starts-with`, plus the six comparison operators.
 - **Value functions** (term-position; lines 27-36): `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`.
 
-Conditionals (`if`, `switch`), aggregations (`count` outside top-level comparison), arithmetic (`arith`), and string concatenation (`concat`) are **not** in either set. They cannot appear inside the CSQL fragment; they must be hoisted into the on-device XPath wrapper that builds the `_xpath_query` string.
+Conditionals (`if`, `switch`), aggregations (`count`), arithmetic (`arith`), string concatenation (`concat`), and `when-input-present` are NOT in either set. They cannot appear inside the CSQL fragment ES parses. **The hoisting pass lifts them into the on-device XPath wrapper that builds the `_xpath_query` string.** Hoisting is **total**: every AST node has a CSQL emission via hoist + faithful emission. There are no error states.
 
 **`csqlHoist.ts` performs the hoisting pass** as a separate AST → AST transformation before emission:
 - Walks the predicate AST.
-- For each `if` / `switch` / `arith` / `concat` / non-comparison `count` node found in a position the CSQL emitter cannot represent, lifts the node into a wrapper expression and replaces it in the inner AST with a synthetic input ref (so the inner emission sees a stable interpolation point).
-- The wrapper output is what gets emitted into `<data key="_xpath_query" ref="...">` — it's an on-device XPath expression that builds the CSQL fragment string. Plan 4's wire emission consumes the wrapper expression, not the bare CSQL fragment.
+- For each non-CSQL-grammar node, lifts the node into a wrapper expression and replaces it in the inner AST with a synthetic input ref. The wrapper computes the lifted node's value at runtime (on-device XPath has full grammar access); the synthetic input ref is the stable interpolation point for the inner CSQL emission.
+- The wrapper output is what gets emitted into `<data key="_xpath_query" ref="...">` — an on-device XPath expression that builds the CSQL fragment string. Plan 4's wire emission consumes the wrapper expression, not the bare CSQL fragment.
 
-`subcase-count` is recognized only as the LHS of a binary comparison (`commcare-hq/.../filter_dsl.py:89-95`); the hoisting pass treats `count(...)` outside a top-level comparison as unrepresentable and emits a representability error rather than hoisting it (CSQL has no value-context home for it).
-
-**Operator coverage of the CSQL emission visitor** (after hoisting):
-- Comparison + logical (from B2 patterns, `not` from CSQL's query function set).
-- `multi-select-contains` quantifier=any: `selected-any(prop, 'v1 v2')`.
-- `multi-select-contains` quantifier=all: `selected-all(prop, 'v1 v2')`.
-- `multi-select-contains` quantifier=any single value: `selected(prop, 'v')` (`commcare-hq/.../xpath_functions/__init__.py:43` aliases `selected` to `selected-any` server-side; we emit the alias for readability).
-- `match` mode=fuzzy: `fuzzy-match(prop, 'v')`.
-- `match` mode=phonetic: `phonetic-match(prop, 'v')`.
-- `match` mode=fuzzy-date: `fuzzy-date(prop, 'v')`.
-- `match` mode=starts-with: `starts-with(prop, 'v')`.
-- `within-distance`: `within-distance(prop, '<lat lon>', dist, 'unit')`.
-- `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')` (multi-hop slashes).
-- `exists` subcase: `subcase-exists('rel', '<csql filter>')`.
-- `match-all` / `match-none`: emit `match-all()` / `match-none()`.
-- `is-blank`: `prop = ''` — the server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching absent / cleared / empty alike.
-- `is-null`: **throw** (defensive backstop — same lock as B2; B5 representability checker catches at authoring time).
-- `between`: expand to `and(gte, lte)`.
-- Value functions allowed inside terms: `today`, `now`, `date`, `date-add`, `datetime`, `datetime-add`, `double`, `unwrap-list` (CCHQ's value-function set, verified above).
-
-**`concat()` wrapping**: the emitter wraps its output in `concat(...)` unconditionally — every CSQL value is a `concat()` template; downstream code reads one shape. The wrapping pass walks the post-emission string, identifies runtime-instance interpolation points (input refs, session-user refs, session-context refs from the hoisting pass's synthetic inputs), and lifts them as `concat()` arguments. Constant string parts become quoted string literals; runtime parts become path expressions.
-
-Steps:
-- [ ] Write failing tests for the hoisting pass: every `if`/`switch`/`arith`/`concat`/`count` node in non-representable positions surfaces as a hoist or a representability error
-- [ ] Implement `csqlHoist.ts`
-- [ ] Write failing tests for the emitter (CSQL-specific operators, the CCHQ value-function set, concat() wrapping shape)
-- [ ] Implement `csqlEmitter.ts`
-- [ ] Run tests, commit
-
-### Task B4: Build the post-ES search-filter visitor
-
-**Files:**
-- Create: `lib/commcare/predicate/searchFilterEmitter.ts`
-- Test: `__tests__/searchFilterEmitter.test.ts`
-
-Same operator coverage as B2 (case-list-filter dialect — on-device subset). Most code is shared with B2 via composition, not duplication. The visitor exists as a separate file because the post-ES context has different scoping (the case-list emitter resolves property refs in the case-list module's case-type scope; the post-ES filter resolves in the search results scope, which is the same case-type but different XPath context root).
-
-Steps:
-- [ ] Port B2 emission code as a shared helper module
-- [ ] Implement search-filter visitor as thin wrapper specifying the context root
-- [ ] Write failing tests
-- [ ] Run tests, commit
-
-### Task B5: Build the representability checker
-
-**Files:**
-- Create: `lib/commcare/predicate/representability.ts`
-- Test: `__tests__/representability.test.ts`
+The hoist result shape:
 
 ```ts
-type RepresentabilityIssue =
-  | { kind: "unrepresentable"; node: Predicate | ValueExpression; target: WireTarget; reason: string }
-  | { kind: "lossy"; node: Predicate | ValueExpression; target: WireTarget; transformation: string };
+export interface HoistedWrapper {
+  /** Synthetic input ref name; the inner CSQL references this. */
+  inputRef: string;
+  /** Expression that runs on-device and produces the wire-bound value
+      injected into the CSQL string at the synthetic input ref's
+      interpolation point. */
+  expression: ValueExpression | Predicate;
+}
 
-type WireTarget = "case-list-filter" | "csql" | "search-filter";
+export interface CsqlHoistResult {
+  hoisted: Predicate;
+  wrappers: HoistedWrapper[];
+}
 
-export function validateRepresentability(ast: Predicate, target: WireTarget): RepresentabilityIssue[];
+export function hoistForCsql(predicate: Predicate): CsqlHoistResult;
 ```
 
-Walk the AST. For each node, check against a per-target operator table:
+`subcase-count` carries a special case: CSQL recognizes `subcase-count` natively only as the LHS of a binary comparison (`commcare-hq/corehq/apps/case_search/filter_dsl.py:89-95`). When `count(via: subcase-walk)` appears as a top-level comparison's LHS, the hoist leaves it untransformed; ES parses the native form. For other `count(...)` shapes, the hoist lifts the count into the wrapper, computes the numeric result on-device, and injects the literal value into the CSQL string at the synthetic input ref's position.
 
-**Unrepresentable on every CCHQ wire target (case-list-filter, CSQL, post-ES search filter):**
-- `is-null` — strict "left resolves to absent" has no CCHQ wire form. On every CCHQ dialect, `prop = ''` matches absent / cleared / empty alike; in CSQL the server-side `case_property_query()` short-circuits to `case_property_missing()` semantics at `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching all three states. v1 has no author-facing surface that produces `is-null` — `is-blank` is the only operator the v1 UI / SA / validator ever emit for CCHQ-bound predicates. The B5 representability checker stays as defense-in-depth: any programmatic source that ever produces `is-null` in a CCHQ-bound emission errors at authoring time. The Cloud SQL Postgres runtime executes `is-null` natively for future non-filter surfaces. Same dispatch pattern as `match(mode: fuzzy)` in case-list-filter context.
-- `any-relation` — CCHQ's on-device and CSQL function sets expose only direction-specific operators (`ancestor-exists` / `subcase-exists`); the direction-agnostic walk has no wire form on any CCHQ dialect.
+`when-input-present` always hoists. The canonical CCHQ pattern at `docs/case_search_query_language.rst:299-303` is `if(count(<input>), '<csql-with-input>', '<csql-without-input>')` — the conditional lives in the wrapper, the inner CSQL strings are unconditional. Every `when-input-present` produces a hoist that selects between two pre-built inner-CSQL emissions at runtime.
 
-**Unrepresentable on case-list-filter target:**
-- `match` mode∈{fuzzy, phonetic, fuzzy-date} — CSQL-only; no on-device equivalent.
-- `within-distance` — CSQL-only.
-- `date-add` value expression — `date-add` is **not** in `commcare-core/.../parser/ast/ASTNodeFunctionCall.java:113-269`'s on-device dispatcher (it falls through to `XPathCustomRuntimeFunc`, and the case-list-filter context registers no handler for it). Date arithmetic with day-only intervals can be emitted as XPath operator arithmetic (`date(prop) + days`); month/year arithmetic is unrepresentable on-device.
+**Operator coverage of the CSQL emission visitor** (after hoisting):
+- Comparison + logical (CSQL's `not` is in the query function set).
+- `multi-select-contains` quantifier=any: `selected-any(prop, 'v1 v2')`.
+- `multi-select-contains` quantifier=all: `selected-all(prop, 'v1 v2')`.
+- `multi-select-contains` quantifier=any single value: `selected(prop, 'v')` — `xpath_functions/__init__.py:43` aliases `selected` to `selected-any` server-side; the alias emits for readability.
+- `match` modes: emit the named function call from the CSQL query function set. starts-with → `starts-with`; fuzzy → `fuzzy-match`; phonetic → `phonetic-match`; fuzzy-date → `fuzzy-date`.
+- `within-distance`: `within-distance(prop, '<lat,lon>', <distance>, '<unit>')` per `query_functions.py:54-81`.
+- `exists` ancestor: `ancestor-exists('parent/parent', '<csql filter>')` (multi-hop slashes).
+- `exists` subcase: `subcase-exists('rel', '<csql filter>')`.
+- `exists` / `missing` with `via.kind === "any-relation"`: expand to `(<ancestor-exists> or <subcase-exists>)`.
+- `match-all` / `match-none`: emit `match-all()` / `match-none()`.
+- `is-blank` and `is-null`: both emit as `prop = ''`. CCHQ's `case_property_query()` short-circuit at `case_search.py:241-246` collapses absent / cleared / empty alike — faithful emission of CCHQ's wire lossiness.
+- `between`: expand to `(<gte> and <lte>)`.
+- Value functions allowed inside terms: `today`, `now`, `date`, `date-add`, `datetime`, `datetime-add`, `double`, `unwrap-list`.
 
-**Unrepresentable on CSQL target:**
-- `if` / `switch` / `arith` / `concat` value expressions appearing inside a position the hoisting pass cannot lift (e.g., inside `subcase-exists`'s filter argument). The hoisting pass produces a representability error in this case.
-- `count(...)` value expression outside a top-level binary comparison — `subcase-count` is recognized in CSQL only as the LHS of a comparison (`commcare-hq/.../filter_dsl.py:89-95`); standalone `count(...)` has no value-context home.
-
-**Unrepresentable on search-filter target:** same set as case-list-filter (the post-ES dialect mirrors on-device).
-
-**Lossy-but-representable hint surfaces (Plan 3 validator wires the UI message):**
-- `compare(prop, literal(""))` and `compare(prop, literal(null))` — emit cleanly to every target but silently match absent fields too on CCHQ wire (CCHQ collapses absent / cleared / empty). The B5 checker flags the node with a `kind: "lossy"` issue carrying the rationale "did you mean is-blank?"; the Plan 3 validator renders the hint as a soft warning on the offending card.
-
-**Lossy on case-list-filter:**
-- `multi-select-contains` quantifier=any multi-value: expands to OR-of-`selected()` (still works; slower than CSQL's native `selected-any`).
-- `multi-select-contains` quantifier=all: expands to AND-of-`selected()`.
-- Multi-hop `exists` — expands to nested `instance('casedb')` joins (works; performs worse with depth).
-
-Returns a list of issues with paths so the UI can highlight the offending card.
+**`concat()` wrapping**: the emitter wraps its output in `concat(...)` unconditionally — every CSQL value is a `concat()` template; downstream code reads one shape. The wrapping pass walks the post-emission string, identifies runtime-instance interpolation points (search-input refs, session-user refs, session-context refs, synthetic inputs from the hoisting pass), and lifts them as `concat()` arguments. Constant string parts become quoted XPath string literals; runtime parts become path expressions evaluated on-device at runtime.
 
 Steps:
-- [ ] Write failing tests covering each target × operator combo
-- [ ] Implement walker + per-target table
-- [ ] Run tests, commit
+- [ ] Write failing tests for the hoisting pass: every `if` / `switch` / `arith` / `concat` / `count` / `when-input-present` node lifts into a wrapper; the `subcase-count` LHS-of-comparison special case stays untransformed.
+- [ ] Implement `csqlHoist.ts`.
+- [ ] Write failing tests for the emitter (CSQL-specific operators, the CCHQ value-function set, concat() wrapping shape, faithful is-null / is-blank emission).
+- [ ] Implement `csqlEmitter.ts`.
+- [ ] Run tests, commit.
 
-### Task B6: Delete the shipped `xpathEmitter.ts`
+### Task B6: Delete the transitional `xpathEmitter.ts`
 
 **Files:**
 - Delete: `lib/commcare/predicate/xpathEmitter.ts`
-- Modify: `lib/commcare/predicate/index.ts` to export new visitors instead
+- Modify: `lib/commcare/predicate/index.ts` to export the two new emitters instead.
 
-Once Tasks B1–B5 are green, delete the old emitter. Update tests/imports across the codebase. The deletion is a structural defense: keeping it around as a "shim" risks future regressions where someone imports the old emitter and bypasses the per-dialect dispatch.
+Once Tasks B2 and B3 ship, delete the transitional emitter. Update tests / imports across the codebase. The deletion is a structural defense: keeping it around as a "shim" risks future regressions where a consumer imports the transitional emitter and bypasses the per-slot dispatch.
 
 Steps:
 - [ ] Verify no consumers of `xpathEmitter` outside `lib/commcare/predicate/`
@@ -757,15 +719,15 @@ The two emitters cover **different operator sets** because the dialects support 
 
 **case-list-filter emitter** (on-device dispatcher at `commcare-core/.../ASTNodeFunctionCall.java:113-269` registers `today`, `now`, `date`, `format-date`, `if`, `count`, `cond`, `coalesce`, `concat`, plus standard XPath operators):
 - `today`, `now`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `coalesce`, `if`, `switch` (nested-`if` expansion), `format-date`, `count` (uses relational join expansion against `instance('casedb')`), term lifter.
-- `date-add`: emit only when `interval === "days"` and `quantity` is a numeric literal — compiles to XPath operator arithmetic `date(prop) + days_n`. For other intervals (months/years) or non-literal quantities, surface as **unrepresentable** (the representability checker catches this earlier; the emitter throws as a defense).
-- `unwrap-list`: unrepresentable on-device.
+- `date-add`: when `interval === "days"` and `quantity` is a numeric literal, emit XPath operator arithmetic `date(prop) + days_n`. For other intervals (months/years) or non-literal quantities, emit a literal `date-add(prop, '<n><unit>')` function call — well-formed XPath syntax, accepted by CCHQ HQ at import. Runtime players that don't dispatch `date-add` are Dimagi's concern.
+- `unwrap-list`: emit a literal `unwrap-list(...)` function call.
 
 **csql emitter** (CCHQ value-function set at `commcare-hq/.../xpath_functions/__init__.py:27-36`: `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`):
 - `today`, `now`, `date-coerce` (emits as `date(...)`), `datetime-coerce` (emits as `datetime(...)`), `double`, `date-add` (all interval kinds; CSQL supports them natively), `unwrap-list`, `format-date`, term lifter.
 - `if`, `switch`, `arith`, `concat`, `coalesce`, `count`: **not emitted by this visitor**. Plan 1 Task B3's hoisting pass lifts them into the on-device wrapper that builds the `_xpath_query` string before the CSQL emitter sees the AST. If the visitor encounters one, it throws (defense; the hoist pass should have caught it).
 
 Steps:
-- [ ] Write failing tests per operator per dialect, including the asymmetric coverage explicitly (`date-add` representability gates on case-list-filter; hoisted operators throw on CSQL)
+- [ ] Write failing tests per operator per dialect (literal-emission coverage on the on-device emitter; hoist-driven coverage on the CSQL emitter for nodes outside the CSQL grammar)
 - [ ] Implement
 - [ ] Run tests, commit
 
@@ -885,8 +847,7 @@ Steps:
 - [ ] `npm run test` — all tests green including pre-existing
 - [ ] `npm run lint` — no errors, no warnings
 - [ ] `grep -rn "TODO\|FIXME\|XXX" lib/domain/predicate lib/commcare/predicate lib/commcare/expression lib/case-store` — empty
-- [ ] Cross-check: every operator from the spec's V1-IN list has type-checker, three wire emitters (where representable), and Postgres compiler coverage. Build a coverage matrix as a docs artifact.
-- [ ] Cross-check: every issue in `representability.ts` traces back to a tested case in the wire emitter throw-or-skip behavior.
+- [ ] Cross-check: every operator from the spec's V1-IN list has type-checker coverage, an on-device XPath emission, a CSQL emission (via hoist + faithful emission), and a Postgres compiler emission. Build a coverage matrix as a docs artifact.
 
 ## Plan shape
 
