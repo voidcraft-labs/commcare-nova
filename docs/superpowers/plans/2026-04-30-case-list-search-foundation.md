@@ -736,28 +736,51 @@ Shipped across commits `9b4c113e` → `f4f74101`.
 
 ## Group C — Expression emitters + Postgres compiler
 
-### Task C1: Expression emitters (per dialect)
+### Task C1: Expression emitters
 
 **Files:**
-- Create: `lib/commcare/expression/caseListFilterEmitter.ts`
+- Create: `lib/commcare/expression/onDeviceEmitter.ts`
 - Create: `lib/commcare/expression/csqlEmitter.ts`
-- Test: `__tests__/`
+- Tests: `lib/commcare/expression/__tests__/`
 
-The two emitters cover **different operator sets** because the dialects support different functions.
+Two emitters mirror the predicate-side B2 / B3 split — same wire-grammar reasoning, applied to `ValueExpression` instead of `Predicate`. Both emitters are total: every `ValueExpression` AST node produces a wire string. No per-runtime-player rejection, no representability surface, no error states. The closest-CCHQ-form-or-literal-emission rule applies (consistent with B2 / B3).
 
-**case-list-filter emitter** (on-device dispatcher at `commcare-core/.../ASTNodeFunctionCall.java:113-269` registers `today`, `now`, `date`, `format-date`, `if`, `count`, `cond`, `coalesce`, `concat`, plus standard XPath operators):
-- `today`, `now`, `date-coerce`, `datetime-coerce`, `double`, `arith`, `concat`, `coalesce`, `if`, `switch` (nested-`if` expansion), `format-date`, `count` (uses relational join expansion against `instance('casedb')`), term lifter.
-- `date-add`: when `interval === "days"` and `quantity` is a numeric literal, emit XPath operator arithmetic `date(prop) + days_n`. For other intervals (months/years) or non-literal quantities, emit a literal `date-add(prop, '<n><unit>')` function call — well-formed XPath syntax, accepted by CCHQ HQ at import. Runtime players that don't dispatch `date-add` are Dimagi's concern.
-- `unwrap-list`: emit a literal `unwrap-list(...)` function call.
+**On-device emitter** (`onDeviceEmitter.ts`) — emits XPath value expressions usable in any on-device expression slot (calculated columns, sort keys, late-flag arguments, etc.):
+- `today` → `today()`; `now` → `now()`.
+- `date-coerce(value)` → `date(<value>)`; `datetime-coerce(value)` → `datetime(<value>)` (rename at emission, same operator semantically).
+- `double(value)` → `double(<value>)`.
+- `arith(left, op, right)` → `(<left> <xpath-op> <right>)`.
+- `concat(parts)` → `concat(<part1>, <part2>, ...)`.
+- `coalesce(parts)` → `coalesce(<part1>, <part2>, ...)`.
+- `if(condition, then, else)` → `if(<predicate-emit(condition)>, <then>, <else>)` — recursively calls the on-device predicate emitter for the condition.
+- `switch(branches, default)` → expand to nested `if(...)` chain (XPath has no native `switch`).
+- `format-date(date, format)` → `format-date(<date>, '<format>')`.
+- `count(via, where?)` → relational join expansion against `instance('casedb')`, identical shape to the on-device predicate emitter's `exists` join (re-uses the join helper for consistency).
+- `date-add(value, interval, quantity)` → emit literally as `date-add(<value>, '<n><unit>')` — well-formed XPath function-call syntax. Whether a runtime player dispatches `date-add` is Dimagi's concern.
+- `unwrap-list(value)` → emit literally as `unwrap-list(<value>)`.
+- `term(t)` → delegate to the on-device term emitter (already shipped in `lib/commcare/predicate/caseListFilterEmitter.ts`; lift it as a shared helper or call across packages).
 
-**csql emitter** (CCHQ value-function set at `commcare-hq/.../xpath_functions/__init__.py:27-36`: `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`):
-- `today`, `now`, `date-coerce` (emits as `date(...)`), `datetime-coerce` (emits as `datetime(...)`), `double`, `date-add` (all interval kinds; CSQL supports them natively), `unwrap-list`, `format-date`, term lifter.
-- `if`, `switch`, `arith`, `concat`, `coalesce`, `count`: **not emitted by this visitor**. Plan 1 Task B3's hoisting pass lifts them into the on-device wrapper that builds the `_xpath_query` string before the CSQL emitter sees the AST. If the visitor encounters one, it throws (defense; the hoist pass should have caught it).
+**CSQL emitter** (`csqlEmitter.ts`) — emits the `ValueExpression` arms that ARE in CCHQ's CSQL value-function whitelist (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`):
+- `today` → `today()`; `now` → `now()`.
+- `date-coerce(value)` → `date(<value>)`; `datetime-coerce(value)` → `datetime(<value>)`.
+- `double(value)` → `double(<value>)`.
+- `date-add(value, interval, quantity)` → `date-add(<value>, '<n><unit>')` (CSQL supports all interval kinds natively).
+- `unwrap-list(value)` → `unwrap-list(<value>)`.
+- `term(t)` → delegate to the CSQL term emitter (already shipped in `lib/commcare/predicate/csqlEmitter.ts` as the segment-list IR producer; lift the helper).
+- `arith` / `concat` / `coalesce` / `if` / `switch` / `count` / `format-date` → throw with a "should have been hoisted before this emitter ran" defensive message. The B3 CSQL hoisting pass lifts these arms into the on-device wrapper that builds the `_xpath_query` string before the CSQL emitter sees them; this throw defends the bypass path. Same exhaustiveness pattern as B3's emitter throws on non-term ValueExpression arms in operand position.
+
+**Integration with B2 / B3 predicate emitters:** the predicate emitters' operand-side currently throws on non-term ValueExpression arms (the structural exhaustiveness defense documented as the B3-deferred scope boundary in `feedback_max_subset_no_dimagi_litter.md`). C1 wires the predicate emitters to call the appropriate expression emitter for the slot:
+- `caseListFilterEmitter.ts` operand sites → call `onDeviceEmitter.ts`.
+- `csqlEmitter.ts` operand sites → call this `csqlEmitter.ts` (segment-list IR-aware so the wrapper-IR composition stays clean).
+
+The barrel at `lib/commcare/predicate/index.ts` may need a sibling barrel at `lib/commcare/expression/index.ts` exporting the two emitter entry points + their result types; consumers compose the two packages as a single wire-emission surface.
 
 Steps:
-- [ ] Write failing tests per operator per dialect (literal-emission coverage on the on-device emitter; hoist-driven coverage on the CSQL emitter for nodes outside the CSQL grammar)
-- [ ] Implement
-- [ ] Run tests, commit
+- [ ] Decide on the term-emitter sharing shape (extract to `lib/commcare/predicate/terms/` for cross-package reuse, OR have the expression emitters import the term helpers directly from the predicate package). Pick the lower-churn option.
+- [ ] Write failing tests per operator per emitter — pinned wire strings; integration tests covering the predicate-emitter → expression-emitter handoff for non-term operands.
+- [ ] Implement both emitters.
+- [ ] Wire the predicate emitters' operand sites to call the expression emitters (replace the deferred throws with the appropriate dispatch).
+- [ ] Run tests, commit.
 
 ### Task C2: Kysely Database type definitions
 
