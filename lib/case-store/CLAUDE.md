@@ -6,6 +6,13 @@ The runtime storage layer for case data:
   case-store tables (`cases`, `case_type_schemas`, `case_indices`). The
   compile-time contract every typed query binds against. Source of
   column names and column types; spec lines cited per column.
+- `sql/{compileTerm,compilePredicate,compileExpression,compileRelationPath,compileLiteral}.ts`
+  — the AST → Kysely compiler stack. Lowers `Predicate` /
+  `ValueExpression` / `RelationPath` AST nodes (from
+  `lib/domain/predicate`) into typed-builder calls Postgres
+  executes natively. Compiler-stack contract documented in
+  `sql/CLAUDE.md`; public surface exposed through the barrel at
+  `sql/index.ts`.
 - `sql/__tests__/` — the testcontainers harness shared by every
   AST-to-Kysely compiler test in this package and by future
   Postgres-backed integration tests.

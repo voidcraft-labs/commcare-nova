@@ -133,7 +133,6 @@ import { expressionBuilder, sql } from "kysely";
 import type {
 	ComparisonKind,
 	DistanceUnit,
-	Literal,
 	MultiSelectQuantifier,
 	Predicate,
 	PropertyRef,
@@ -145,12 +144,9 @@ import {
 	compileExpression,
 	type ExpressionCompileContext,
 } from "./compileExpression";
+import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
-import {
-	compileTerm,
-	POSTGRES_CAST_FOR_DATA_TYPE,
-	type TermCompileContext,
-} from "./compileTerm";
+import { compileTerm, type TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
 
 // ---------------------------------------------------------------
@@ -555,46 +551,14 @@ function compileIn(
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	const left = compileValueExprOperand(pred.left, ctx);
-	const compiledValues = pred.values.map((v) => compileLiteralValue(v));
+	const compiledValues = pred.values.map((v) => compileLiteral(v));
 	// `eb(left, 'in', [...exprs])` accepts an array of value-bearing
-	// expressions; each literal compiles through
-	// `compileLiteralValue` which preserves typed casts and emits
-	// `eb.lit(null)` for the null literal. Kysely's `in` operator
-	// is in `COMPARISON_OPERATORS`, so the binary call returns a
-	// `SqlBool` expression directly.
+	// expressions; each literal compiles through `compileLiteral`
+	// which preserves typed casts and emits `eb.lit(null)` for the
+	// null literal. Kysely's `in` operator is in
+	// `COMPARISON_OPERATORS`, so the binary call returns a `SqlBool`
+	// expression directly.
 	return eb(left, "in", compiledValues);
-}
-
-/**
- * Compile a literal value to a Kysely expression for use in
- * `in.values`. Each literal binds as a parameter (or emits as the
- * SQL `NULL` keyword for null literals); typed-data literals
- * (`dateLiteral` / `datetimeLiteral` / `timeLiteral`) emit with
- * the corresponding cast token so equality dispatch against a
- * typed property read stays well-typed.
- *
- * The cast-token lookup reads `POSTGRES_CAST_FOR_DATA_TYPE` (the
- * `data_type` → Postgres type mapping exported from compileTerm)
- * directly rather than threading the literal back through
- * compileTerm with a synthesized context. Reading the table
- * directly keeps the cast logic single-source — extending the
- * blueprint's `data_type` enum forces a `Record<...>` exhaustivity
- * check in the one shared table — without coupling literal-emission
- * here to compileTerm's internal context surface.
- */
-function compileLiteralValue(lit: Literal): AliasableExpression<unknown> {
-	if (lit.value === null) {
-		return eb.lit(null);
-	}
-	if (lit.data_type !== undefined) {
-		const cast = POSTGRES_CAST_FOR_DATA_TYPE[lit.data_type];
-		// `eb.cast(eb.val(value), <ColumnDataType>)` emits a typed
-		// `CAST(<param> AS <type>)` expression. The closed-enum
-		// lookup keeps the cast token within Kysely's accepted
-		// `ColumnDataType` literals.
-		return eb.cast(eb.val(lit.value), cast);
-	}
-	return eb.val(lit.value);
 }
 
 // ---------------------------------------------------------------

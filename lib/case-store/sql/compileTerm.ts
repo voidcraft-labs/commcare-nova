@@ -100,6 +100,7 @@ import type { AliasableExpression, ColumnDataType, Kysely } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
+import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
 import type { Database } from "./database";
 
@@ -830,60 +831,6 @@ function lookupDataType(
 	// Absent `data_type` defaults to `text`, matching the JSON
 	// Schema generator's behavior at `jsonSchema.ts:144-148`.
 	return propDef.data_type ?? "text";
-}
-
-// ---------------------------------------------------------------
-// `literal` — primitive constant compiler
-// ---------------------------------------------------------------
-
-/**
- * Compile a `literal` term to a Kysely expression.
- *
- * Three concerns interact:
- *
- *   1. Value typing — the AST admits string / number / boolean /
- *      null. Each maps to a corresponding Postgres-bindable value;
- *      `null` is handled specially because SQL's `NULL` is a
- *      keyword, not a value, and binding it as a parameter inflates
- *      the parameter list without expressivity gain.
- *   2. Parameter binding — non-null primitives flow through
- *      Kysely's `eb.val(value)` which binds as a parameter (`$N`
- *      placeholder). Inlining values is unsafe (no escaping) and
- *      shifts plan-cache invariants off-spec; binding is the
- *      canonical pattern.
- *   3. Optional `data_type` cast — when the literal carries an
- *      explicit `data_type` (typed temporal literals construct
- *      this shape via `dateLiteral` / `datetimeLiteral` /
- *      `timeLiteral` builders), the compiler emits `cast($N as
- *      <type>)` via `eb.cast<T>(eb.val(value), dataType)` so the
- *      bound parameter is well-typed for comparison against a
- *      typed `prop` read. Without `data_type`, the parameter is
- *      bound bare and Postgres's implicit type coercion handles
- *      the comparison.
- */
-function compileLiteral(
-	term: Extract<Term, { kind: "literal" }>,
-): AliasableExpression<unknown> {
-	const { value, data_type } = term;
-
-	// `null` literal: emit the SQL `NULL` keyword via `eb.lit(null)`
-	// — Kysely inlines the keyword rather than binding a parameter,
-	// since SQL's NULL is a literal token, not a value.
-	if (value === null) {
-		return eb.lit(null);
-	}
-
-	// Bind the value as a parameter via `eb.val(value)`. The
-	// optional `data_type` lifts the parameter into a typed
-	// Postgres value via `eb.cast<T>(expr, dataType)` so the
-	// resulting comparison composes well against a typed `prop`
-	// read. Without `data_type`, the parameter is bound bare and
-	// Postgres's implicit type coercion handles the comparison.
-	if (data_type !== undefined) {
-		const cast = POSTGRES_CAST_FOR_DATA_TYPE[data_type];
-		return eb.cast(eb.val(value), cast);
-	}
-	return eb.val(value);
 }
 
 // ---------------------------------------------------------------
