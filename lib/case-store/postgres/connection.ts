@@ -62,10 +62,6 @@
 //     connector resolves this to the private IP on demand via the
 //     SQL Admin API.
 //
-// Phase 6 also wires `NOVA_DB_HOST` (the captured private IP). This
-// file does not consume it — the connector resolves the address
-// from `instanceConnectionName` + `ipType: 'PRIVATE'`.
-//
 // Missing or empty required variables throw at module-init time
 // with a clear error naming which variable is missing. The
 // Postgres-strict null discipline applies here: a missing
@@ -223,9 +219,6 @@ enforceConnectionBudget();
 // ---------------------------------------------------------------
 //
 // Three required variables are consumed by the connector path.
-// `NOVA_DB_HOST` is also wired by Phase 6 but the connector
-// resolves the private IP from `instanceConnectionName`, so this
-// file does not read it (see file-level comment for the rationale).
 
 /**
  * The set of environment variables this module reads at runtime.
