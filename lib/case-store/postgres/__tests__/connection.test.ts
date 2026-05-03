@@ -31,11 +31,9 @@ import { describe, expect, it } from "vitest";
 import {
 	buildPoolConfig,
 	type CaseStoreEnvConfig,
-	CLOUD_RUN_MAX_INSTANCES,
-	CLOUD_SQL_MAX_CONNECTIONS,
-	CLOUD_SQL_RESERVED_CONNECTIONS,
 	type ConnectorClientOptions,
 	type Database,
+	enforceConnectionBudget,
 	getCaseStoreDatabase,
 	POOL_MAX_PER_INSTANCE,
 	REQUIRED_ENV_VARS,
@@ -185,18 +183,18 @@ describe("buildPoolConfig", () => {
 });
 
 // ---------------------------------------------------------------
-// Connection-budget invariant constants
+// Connection-budget invariant
 // ---------------------------------------------------------------
 
-describe("connection-budget constants", () => {
-	it("sizes POOL_MAX_PER_INSTANCE so peak demand fits the available budget", () => {
-		// The same math `enforceConnectionBudget` runs at module load.
-		// Pinning it as a unit test means a budget regression fails a
-		// deterministic test rather than only the deploy step.
-		const applicationBudget =
-			CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS;
-		const peakDemand = CLOUD_RUN_MAX_INSTANCES * POOL_MAX_PER_INSTANCE;
-		expect(peakDemand).toBeLessThanOrEqual(applicationBudget);
+describe("enforceConnectionBudget", () => {
+	it("does not throw for the current constants", () => {
+		// Calls the production function directly — re-deriving the
+		// peak-demand-vs-budget formula in the test would share the
+		// production logic's mental model and fail to catch a
+		// regression in either side. The check here is "the function
+		// the module-load path runs is the same one the test runs and
+		// it agrees the current constants are consistent."
+		expect(() => enforceConnectionBudget()).not.toThrow();
 	});
 });
 

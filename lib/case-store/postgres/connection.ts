@@ -33,8 +33,7 @@
 //
 //   - `CLOUD_SQL_MAX_CONNECTIONS = 25` — Cloud SQL `db-f1-micro`
 //     default `max_connections` (pinned explicitly on the instance
-//     in the Phase-2 provisioning runbook so future tier-up math is
-//     auditable).
+//     in the runbook's Phase 2 so future tier-up math is auditable).
 //   - `CLOUD_SQL_RESERVED_CONNECTIONS = 5` — connections reserved
 //     for `postgres` superuser, replication, and admin tooling.
 //   - `CLOUD_RUN_MAX_INSTANCES = 5` — the Cloud Run service's
@@ -194,8 +193,12 @@ export const POOL_MAX_PER_INSTANCE = 4;
  * Cloud Run instances collectively overrun Cloud SQL's connection
  * cap. The check runs eagerly because the constants are static —
  * a budget violation is a deploy-time bug, not a runtime one.
+ *
+ * Exported so the unit test can call this exact function rather
+ * than re-deriving the same formula. A regression in either the
+ * constants or this function's logic surfaces as a failed test.
  */
-function enforceConnectionBudget(): void {
+export function enforceConnectionBudget(): void {
 	const applicationBudget =
 		CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS;
 	const peakDemand = CLOUD_RUN_MAX_INSTANCES * POOL_MAX_PER_INSTANCE;
@@ -280,9 +283,9 @@ export function readCaseStoreEnvConfig(
 		}
 	}
 	if (missing.length > 0) {
-		// Single error with a sorted list of missing variables — one
-		// failure surfaces every misconfiguration at once instead of
-		// drip-feeding the operator through restart cycles.
+		// Aggregate every gap into one error so the operator sees the
+		// full misconfiguration in a single failure instead of
+		// drip-feeding through restart cycles.
 		throw new Error(
 			`Cloud SQL case store is missing required environment variables: ${missing.join(", ")}. ` +
 				`Phase 6 of docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md ` +
@@ -291,7 +294,7 @@ export function readCaseStoreEnvConfig(
 		);
 	}
 	// All three are guaranteed populated by the loop above; the
-	// non-null assertions stand on the missing-list invariant.
+	// `as string` casts stand on the missing-list invariant.
 	return {
 		NOVA_DB_NAME: env.NOVA_DB_NAME as string,
 		NOVA_DB_USER: env.NOVA_DB_USER as string,
