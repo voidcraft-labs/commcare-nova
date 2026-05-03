@@ -30,152 +30,29 @@
 // honors it (fragile). Per-database isolation has none of those
 // concerns.
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Client, Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import { runMigration } from "../runner";
 
 // ---------------------------------------------------------------
 // Per-test database lifecycle
 // ---------------------------------------------------------------
+// `setupPerTestDatabase` (shared with the extension-allowlist gate
+// tests at `lib/case-store/postgres/__tests__/checkExtensions.test.ts`)
+// wires `beforeEach` / `afterEach` for `CREATE DATABASE
+// runner_test_<rand>` + `DROP DATABASE WITH (FORCE)`. Each test
+// gets a fresh empty-schema database; the runner's
+// migrate-from-empty + roll-back-to-empty paths require one,
+// which the harness's `BEGIN/ROLLBACK` fixture cannot supply.
+//
+// The shared helper installs the three required extensions
+// post-CREATE-DATABASE (`pg_trgm`, `fuzzystrmatch`, `postgis`) so
+// the migration runner exercises the same DDL surface in tests
+// that production sees on a freshly-provisioned Cloud SQL instance
+// after Phase 5 runs.
 
-/**
- * Build a connection URI targeting the per-test database name,
- * preserving the superuser credentials and host/port from the
- * harness's published URI. Hand-rolled because Node's `URL` class
- * doesn't expose a setter that preserves percent-encoded user/
- * password components reliably across versions.
- */
-function urlForDatabase(baseUri: string, databaseName: string): string {
-	// `postgresql://user:pass@host:port/oldDb?params` →
-	// `postgresql://user:pass@host:port/newDb?params`. Search
-	// from the right so query strings (if any) remain intact;
-	// search past the `:port` slash by anchoring on the last `/`
-	// before any `?`.
-	const queryStart = baseUri.indexOf("?");
-	const pathPart = queryStart === -1 ? baseUri : baseUri.slice(0, queryStart);
-	const queryPart = queryStart === -1 ? "" : baseUri.slice(queryStart);
-	const lastSlash = pathPart.lastIndexOf("/");
-	return `${pathPart.slice(0, lastSlash + 1)}${databaseName}${queryPart}`;
-}
-
-/**
- * Connect to the testcontainer's default superuser database
- * (the one globalSetup created — `case_store_test`), CREATE a
- * new database named `runner_test_<rand>`, install the three
- * required extensions in it, and return the URI for connecting.
- *
- * Extension install runs here (not in the migration) because
- * the runner deliberately doesn't install extensions —
- * production Cloud SQL has them pre-installed via Studio under
- * the postgres superuser, and the IAM-auth runtime user
- * couldn't run `CREATE EXTENSION` if it tried. Mirroring that
- * shape in the test means the migration runner exercises the
- * same DDL surface in both environments.
- */
-async function createIsolatedDatabase(): Promise<{
-	databaseName: string;
-	uri: string;
-}> {
-	const baseUri = inject("postgresTestUrl");
-	const databaseName = `runner_test_${Math.random().toString(36).slice(2, 10)}`;
-
-	const adminClient = new Client({ connectionString: baseUri });
-	await adminClient.connect();
-	try {
-		await adminClient.query(`CREATE DATABASE ${databaseName}`);
-	} finally {
-		await adminClient.end();
-	}
-
-	const targetUri = urlForDatabase(baseUri, databaseName);
-	const targetClient = new Client({ connectionString: targetUri });
-	await targetClient.connect();
-	try {
-		// Three extensions, same set the harness installs into the
-		// shared database. The runner expects them present.
-		await targetClient.query("CREATE EXTENSION IF NOT EXISTS pg_trgm");
-		await targetClient.query("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch");
-		await targetClient.query("CREATE EXTENSION IF NOT EXISTS postgis");
-	} finally {
-		await targetClient.end();
-	}
-
-	return { databaseName, uri: targetUri };
-}
-
-/**
- * Drop the per-test database. Runs in `afterEach` so the
- * superuser database stays clean for the next test.
- *
- * `WITH (FORCE)` (PG 13+) terminates any open connection to the
- * target database so a leaked client doesn't keep the drop
- * blocked. Clients should be closed by the test before this
- * runs; this is the belt-and-suspenders fallback.
- */
-async function dropIsolatedDatabase(databaseName: string): Promise<void> {
-	const baseUri = inject("postgresTestUrl");
-	const adminClient = new Client({ connectionString: baseUri });
-	await adminClient.connect();
-	try {
-		await adminClient.query(
-			`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`,
-		);
-	} finally {
-		await adminClient.end();
-	}
-}
-
-/**
- * Build a `Kysely<unknown>` + the underlying pool for a per-test
- * database. Returns both so the caller can teardown the pool
- * before dropping the database.
- *
- * `max: 1` mirrors the production migration CLI at
- * `scripts/migrate/run.ts`. Every migration runs inside a single
- * Kysely transaction, and Postgres's migration lock is
- * `pg_advisory_xact_lock` (verified at
- * `node_modules/kysely/dist/cjs/dialect/postgres/postgres-adapter.js`)
- * — a transaction-scoped advisory lock acquired on the
- * transaction's already-checked-out connection. Kysely's pre-
- * transaction probes (ensureMigrationTablesExist + lock-row
- * probe) are sequential awaits that release the connection
- * between calls, so one connection suffices end-to-end.
- */
-function buildIsolatedDb(uri: string): {
-	db: Kysely<unknown>;
-	pool: Pool;
-} {
-	const pool = new Pool({ connectionString: uri, max: 1 });
-	const db = new Kysely<unknown>({
-		dialect: new PostgresDialect({
-			pool: pool as unknown as PostgresPool,
-		}),
-	});
-	return { db, pool };
-}
-
-// ---------------------------------------------------------------
-// Lifecycle wiring
-// ---------------------------------------------------------------
-
-let isolated: { databaseName: string; uri: string };
-let dbHandle: { db: Kysely<unknown>; pool: Pool };
-
-beforeEach(async () => {
-	isolated = await createIsolatedDatabase();
-	dbHandle = buildIsolatedDb(isolated.uri);
-});
-
-afterEach(async () => {
-	// `db.destroy()` calls `pool.end()` exactly once via the
-	// dialect-destroy contract; calling pool.end() separately
-	// throws `Called end on pool more than once`. The pool is
-	// reachable from `dbHandle.pool` for raw catalog probes
-	// during the test body but only the Kysely-side close is
-	// invoked here.
-	await dbHandle.db.destroy();
-	await dropIsolatedDatabase(isolated.databaseName);
+const dbHandle = setupPerTestDatabase({
+	databaseNamePrefix: "runner_test_",
 });
 
 // ---------------------------------------------------------------

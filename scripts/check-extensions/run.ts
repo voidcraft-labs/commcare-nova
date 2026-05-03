@@ -152,14 +152,9 @@ async function buildCloudSqlDb(): Promise<CheckResources> {
 }
 
 /**
- * Choose between the two connection sources. `NOVA_DATABASE_URL`
- * always wins when set (developer override / testcontainer path);
- * otherwise the connector path runs.
- *
- * Exposed as a module-internal helper so the dispatch logic stays
- * readable in `main()` and a future caller (e.g. a debugging
- * script that wants to wire its own Kysely instance) can branch
- * on the same env contract.
+ * Pure dispatch helper. `NOVA_DATABASE_URL` always wins when set
+ * (developer override / testcontainer path); otherwise the
+ * connector path runs against Cloud SQL.
  */
 async function buildDbForCurrentEnvironment(): Promise<CheckResources> {
 	const directUrl = process.env.NOVA_DATABASE_URL;

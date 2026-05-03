@@ -41,9 +41,8 @@
 // shape combinations the function handles. The integration tests
 // then pin that the SQL probes feed those rows correctly.
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Client, Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import {
 	type AvailableExtensionRow,
 	assembleResult,
@@ -57,108 +56,13 @@ import {
 // ---------------------------------------------------------------
 // Per-test database lifecycle
 // ---------------------------------------------------------------
-// Mirrors `migrations/__tests__/runner.test.ts`'s isolation pattern
-// because failure-path tests mutate the extension surface (DROP
-// EXTENSION) which BEGIN/ROLLBACK can't unwind.
-
-/**
- * Build a connection URI targeting the per-test database name,
- * preserving the superuser credentials and host/port from the
- * harness's published URI. Same hand-rolled function as
- * `runner.test.ts` — Node's `URL` class doesn't expose a setter
- * that preserves percent-encoded user/password components
- * reliably across versions.
- */
-function urlForDatabase(baseUri: string, databaseName: string): string {
-	const queryStart = baseUri.indexOf("?");
-	const pathPart = queryStart === -1 ? baseUri : baseUri.slice(0, queryStart);
-	const queryPart = queryStart === -1 ? "" : baseUri.slice(queryStart);
-	const lastSlash = pathPart.lastIndexOf("/");
-	return `${pathPart.slice(0, lastSlash + 1)}${databaseName}${queryPart}`;
-}
-
-/**
- * The set of extensions to install in a per-test database.
- * Defaults to the full required set; tests that exercise the
- * "available but not installed" failure path pass a narrower set.
- */
-type ExtensionInstallSet = ReadonlyArray<string>;
-
-/**
- * Connect to the testcontainer's superuser default database, CREATE
- * a new database named `check_test_<rand>`, install the given
- * subset of required extensions, and return the URI.
- *
- * `extensionsToInstall` accepts a subset of `REQUIRED_EXTENSIONS`
- * so tests can construct intermediate states (no extensions, only
- * one of three, etc.) without further DROP statements at the test
- * boundary.
- */
-async function createIsolatedDatabase(
-	extensionsToInstall: ExtensionInstallSet = REQUIRED_EXTENSIONS,
-): Promise<{ databaseName: string; uri: string }> {
-	const baseUri = inject("postgresTestUrl");
-	const databaseName = `check_test_${Math.random().toString(36).slice(2, 10)}`;
-
-	const adminClient = new Client({ connectionString: baseUri });
-	await adminClient.connect();
-	try {
-		await adminClient.query(`CREATE DATABASE ${databaseName}`);
-	} finally {
-		await adminClient.end();
-	}
-
-	const targetUri = urlForDatabase(baseUri, databaseName);
-	const targetClient = new Client({ connectionString: targetUri });
-	await targetClient.connect();
-	try {
-		for (const extension of extensionsToInstall) {
-			// Identifier interpolation is safe here: every value comes
-			// from `REQUIRED_EXTENSIONS`, a static literal-string tuple.
-			await targetClient.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
-		}
-	} finally {
-		await targetClient.end();
-	}
-
-	return { databaseName, uri: targetUri };
-}
-
-/**
- * Drop the per-test database. `WITH (FORCE)` (PG 13+) terminates
- * any open connection so a leaked client doesn't keep the drop
- * blocked. Same pattern as `runner.test.ts`.
- */
-async function dropIsolatedDatabase(databaseName: string): Promise<void> {
-	const baseUri = inject("postgresTestUrl");
-	const adminClient = new Client({ connectionString: baseUri });
-	await adminClient.connect();
-	try {
-		await adminClient.query(
-			`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`,
-		);
-	} finally {
-		await adminClient.end();
-	}
-}
-
-/**
- * Build a `Kysely<unknown>` + the underlying pool for a per-test
- * database. Returns both so the caller can teardown the pool
- * before dropping the database. Same shape as `runner.test.ts`.
- */
-function buildIsolatedDb(uri: string): {
-	db: Kysely<unknown>;
-	pool: Pool;
-} {
-	const pool = new Pool({ connectionString: uri, max: 1 });
-	const db = new Kysely<unknown>({
-		dialect: new PostgresDialect({
-			pool: pool as unknown as PostgresPool,
-		}),
-	});
-	return { db, pool };
-}
+// `setupPerTestDatabase` (shared with `migrations/__tests__/runner.test.ts`
+// at `lib/case-store/sql/__tests__/perTestDatabase.ts`) wires
+// `beforeEach` / `afterEach` for `CREATE DATABASE
+// check_test_<rand>` + `DROP DATABASE WITH (FORCE)`. The integration
+// tests below mutate the extension surface (`DROP EXTENSION`)
+// which the harness's `BEGIN/ROLLBACK` fixture cannot unwind, so
+// each test gets its own database.
 
 // ---------------------------------------------------------------
 // Pure result assembly tests — no database
@@ -364,22 +268,10 @@ describe("formatVerificationResult — operator-facing report", () => {
 // ---------------------------------------------------------------
 
 describe("verifyExtensions — integration against real Postgres", () => {
-	let isolated: { databaseName: string; uri: string };
-	let dbHandle: { db: Kysely<unknown>; pool: Pool };
-
-	afterEach(async () => {
-		// Always teardown — the dbHandle was set in beforeEach if any
-		// runs reach this point. Using try/catch so a failed test
-		// inside the body doesn't strand the database.
-		await dbHandle.db.destroy();
-		await dropIsolatedDatabase(isolated.databaseName);
-	});
-
 	describe("success path — all three extensions installed", () => {
-		beforeEach(async () => {
-			// Fresh DB with the full required set — production parity.
-			isolated = await createIsolatedDatabase();
-			dbHandle = buildIsolatedDb(isolated.uri);
+		// Fresh DB with the full required set — production parity.
+		const dbHandle = setupPerTestDatabase({
+			databaseNamePrefix: "check_test_",
 		});
 
 		it("reports passed=true with every required extension available + installed", async () => {
@@ -421,13 +313,18 @@ describe("verifyExtensions — integration against real Postgres", () => {
 	});
 
 	describe("failure path — extension installed but then dropped", () => {
+		// Start with all three installed; the test's own beforeEach
+		// drops one to construct the failure shape. This is the more
+		// realistic failure than a never-installed gap because Cloud
+		// SQL allowlists the extension (so `pg_available_extensions`
+		// carries it) yet `pg_extension` shows it absent — the same
+		// shape an operator hits when re-provisioning at a different
+		// extension surface and forgetting to re-run Phase 5.
+		const dbHandle = setupPerTestDatabase({
+			databaseNamePrefix: "check_test_",
+		});
+
 		beforeEach(async () => {
-			// Start with all three installed, then drop one. This is
-			// the more realistic failure shape — Cloud SQL allowlists
-			// the extension (so `pg_available_extensions` carries it)
-			// but no `CREATE EXTENSION` has run in this database.
-			isolated = await createIsolatedDatabase();
-			dbHandle = buildIsolatedDb(isolated.uri);
 			await dbHandle.pool.query("DROP EXTENSION fuzzystrmatch CASCADE");
 		});
 
@@ -457,14 +354,14 @@ describe("verifyExtensions — integration against real Postgres", () => {
 	});
 
 	describe("failure path — extension never installed", () => {
-		beforeEach(async () => {
-			// Install only two of three at DB-create time. The third
-			// is allowlisted (Cloud SQL exposes it via
-			// `pg_available_extensions`) but no `CREATE EXTENSION` has
-			// run for it. Mirrors the post-Phase-2 / pre-Phase-5 state
-			// of a freshly-provisioned Cloud SQL instance.
-			isolated = await createIsolatedDatabase(["pg_trgm", "fuzzystrmatch"]);
-			dbHandle = buildIsolatedDb(isolated.uri);
+		// Install only two of three at DB-create time. The third is
+		// allowlisted (Cloud SQL exposes it via
+		// `pg_available_extensions`) but no `CREATE EXTENSION` has
+		// run for it. Mirrors the post-Phase-2 / pre-Phase-5 state
+		// of a freshly-provisioned Cloud SQL instance.
+		const dbHandle = setupPerTestDatabase({
+			databaseNamePrefix: "check_test_",
+			extensionsToInstall: ["pg_trgm", "fuzzystrmatch"],
 		});
 
 		it("reports postgis as not-installed", async () => {
@@ -477,14 +374,14 @@ describe("verifyExtensions — integration against real Postgres", () => {
 	});
 
 	describe("aggregate failure path — multiple extensions missing", () => {
-		beforeEach(async () => {
-			// Install nothing — every extension is allowlisted (the
-			// harness's superuser has `pg_trgm`, `fuzzystrmatch`, and
-			// `postgis` available via the imresamu/postgis image's
-			// contrib set), but none have been installed in this fresh
-			// DB.
-			isolated = await createIsolatedDatabase([]);
-			dbHandle = buildIsolatedDb(isolated.uri);
+		// Install nothing — every extension is allowlisted (the
+		// harness's superuser has `pg_trgm`, `fuzzystrmatch`, and
+		// `postgis` available via the imresamu/postgis image's
+		// contrib set), but none have been installed in this fresh
+		// DB.
+		const dbHandle = setupPerTestDatabase({
+			databaseNamePrefix: "check_test_",
+			extensionsToInstall: [],
 		});
 
 		it("aggregates every install gap into one failures array", async () => {

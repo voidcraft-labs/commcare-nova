@@ -301,9 +301,12 @@ export function assembleResult(
 	installed: ReadonlyArray<InstalledExtensionRow>,
 ): VerificationResult {
 	// Index the two row arrays by name for constant-time lookup.
-	// `Map` over plain object lets the `RequiredExtension` literal
-	// type narrow correctly on `.get(name)` — `Record<string, ...>`
-	// would lose the literal-union narrowing.
+	// `Map` rather than a plain object so dynamic-key access doesn't
+	// collide with `Object.prototype` keys (`__proto__`, `constructor`,
+	// etc.) — system catalogs return whatever extension names the
+	// operator has installed, and a `Record<string, ...>` lookup of
+	// `__proto__` would walk the prototype chain instead of returning
+	// `undefined` like a Map does.
 	const availableByName = new Map<string, AvailableExtensionRow>(
 		available.map((row) => [row.name, row]),
 	);
