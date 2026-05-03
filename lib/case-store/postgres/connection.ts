@@ -125,7 +125,7 @@ import {
 } from "kysely";
 import type { PoolConfig } from "pg";
 import { Pool } from "pg";
-import type { Database } from "../sql/database";
+import type { Database } from "../sql/database.js";
 
 // ---------------------------------------------------------------
 // Re-exports — single import line for downstream consumers
@@ -137,7 +137,7 @@ import type { Database } from "../sql/database";
 // `getCaseStoreDatabase`) and the type contract reachable from
 // one import path.
 
-export type { Database } from "../sql/database";
+export type { Database } from "../sql/database.js";
 
 // ---------------------------------------------------------------
 // Pool-sizing invariant — named constants, not magic numbers

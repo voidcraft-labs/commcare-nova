@@ -1,0 +1,4 @@
+{
+	"//": "Local package.json that scopes the check-extensions CLI to ESM. The CLI imports from lib/case-store/postgres/checkExtensions and from lib/case-store/postgres/connection (re-uses readCaseStoreEnvConfig). Without matching scopes between the CLI folder and any sibling ESM scope, the Dockerfile's nodenext-mode tsc compilation surfaces a Kysely<unknown> CJS-vs-ESM type identity mismatch. At runtime the same mismatch manifests as ERR_REQUIRE_ESM. The root project stays CommonJS for Next.js; this scoped declaration only affects files under scripts/check-extensions/. Same shape and reasoning as scripts/migrate/package.json.",
+	"type": "module"
+}

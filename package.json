@@ -15,7 +15,9 @@
 		"db:migrate:deploy": "./scripts/migrate/deploy-job.sh",
 		"db:migrate": "./scripts/migrate/execute-job.sh latest",
 		"db:rollback": "./scripts/migrate/execute-job.sh down",
-		"db:status": "./scripts/migrate/execute-job.sh status"
+		"db:status": "./scripts/migrate/execute-job.sh status",
+		"db:check-extensions:deploy": "./scripts/check-extensions/deploy-job.sh",
+		"db:check-extensions": "./scripts/check-extensions/execute-job.sh"
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^4.0.0-beta.31",
