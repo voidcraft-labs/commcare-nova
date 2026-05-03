@@ -1111,11 +1111,16 @@ function compileWithinDistance(
 
 	// `ST_DWithin(geography, geography, meters)` — the `geography`
 	// cast (rather than `geometry`) interprets the coordinates as
-	// lat/lon on the WGS-84 ellipsoid. `geography` is NOT a Kysely
-	// `ColumnDataType` literal; `eb.cast<T>(expr, dataType)` accepts
-	// any `Expression<any>` for `dataType`, so a `sql.raw` token
-	// widens the cast to PostGIS's extension type. The token is a
-	// compile-time constant — no caller-supplied input reaches the
+	// lat/lon on the WGS-84 ellipsoid. `geography` is a PostGIS
+	// extension type, not in Kysely's `SIMPLE_COLUMN_DATA_TYPES`
+	// list (verified at `node_modules/kysely/dist/cjs/operation-
+	// node/data-type-node.js`), so the typed `eb.cast<T>(expr,
+	// ColumnDataType)` overload rejects it. The
+	// `eb.cast<T>(expr, Expression<any>)` overload (per
+	// `parseDataTypeExpression` at `node_modules/kysely/dist/cjs/
+	// parser/data-type-parser.js`) is the documented escape hatch
+	// for extension types; `sql.raw('geography')` provides the
+	// Expression with no caller-controlled input flowing into the
 	// raw-emission slot.
 	const propPoint = eb.cast(
 		eb.fn("st_makepoint", [propLon, propLat]),

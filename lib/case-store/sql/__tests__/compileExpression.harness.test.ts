@@ -754,4 +754,76 @@ describe("compileExpression — round-trip — if / switch arms", () => {
 			.execute();
 		expect(Number(rows[0].v)).toBe(99);
 	});
+
+	test("switch dispatches simple CASE end-to-end against an outer-row property discriminator", async ({
+		db,
+	}) => {
+		// Pin the simple-CASE shape end-to-end against a
+		// row-correlated discriminator (`prop("patient", "age")`).
+		// Three patients at distinct ages exercise all three switch
+		// arms; the runtime returns the correct branch per row only
+		// if the discriminator evaluates correctly per-row and the
+		// `when` literal comparisons match Postgres's semantics for
+		// simple CASE.
+		//
+		// A regression to searched-CASE (`case when <on> = <when>
+		// then ...`) would still produce correct rows on this
+		// fixture but re-evaluate the JSONB-cast read per branch.
+		// The cold-suite sibling (`compileExpression.test.ts`)
+		// pins the structural shape (`count(*)` discriminator
+		// emitted exactly once); this harness pins the runtime
+		// correctness end-to-end.
+		const PATIENT_LOW = "60000000-0000-0000-0000-000000000001";
+		const PATIENT_MEDIUM = "60000000-0000-0000-0000-000000000002";
+		const PATIENT_HIGH = "60000000-0000-0000-0000-000000000003";
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_LOW,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ age: 5 }),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_MEDIUM,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ age: 30 }),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_HIGH,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ age: 80 }),
+				}),
+			])
+			.execute();
+		const expr = compileExpression(
+			switchExpr(
+				term(prop("patient", "age")),
+				[
+					switchCase(literal(5), term(literal("low"))),
+					switchCase(literal(30), term(literal("medium"))),
+				],
+				term(literal("high")),
+			),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "in", [PATIENT_LOW, PATIENT_MEDIUM, PATIENT_HIGH])
+			.select(["c.case_id", sql<string>`${expr}`.as("category")])
+			.orderBy("c.case_id")
+			.execute();
+		// Each patient resolves to its expected switch branch.
+		expect(rows).toEqual([
+			{ case_id: PATIENT_LOW, category: "low" },
+			{ case_id: PATIENT_MEDIUM, category: "medium" },
+			{ case_id: PATIENT_HIGH, category: "high" },
+		]);
+	});
 });

@@ -37,15 +37,16 @@
 //     else <else> end`. The `cond` slot carries a Predicate; the
 //     compiler routes it through the `compilePredicate` thunk on
 //     the context (see "Predicate-thunk strategy" below).
-//   - `switch(on, cases, fallback)` — SQL searched `case` form:
-//     `case when <on> = <when_1> then <then_1> when <on> =
-//     <when_2> then <then_2> ... else <fallback> end`. The simple
-//     `case <on> when ...` form would re-use the discriminator
-//     once, but Kysely's typed simple-CASE shape requires a typed
-//     discriminator that the open `Expression<unknown>` operand
-//     cannot satisfy; the searched form composes through the
-//     typed builder while emitting equivalent rows (Postgres's
-//     planner recognises the equivalence).
+//   - `switch(on, cases, fallback)` — SQL simple `case` form:
+//     `case <on> when <when_1> then <then_1> when <when_2> then
+//     <then_2> ... else <fallback> end`. The discriminator `<on>`
+//     evaluates ONCE and each branch's `when` expression compares
+//     against the cached value — load-bearing when `<on>` is
+//     expensive (a `count(...)` subquery, an `arith` chain). The
+//     searched-CASE form (`case when <on> = <when> then ...`)
+//     would re-evaluate `<on>` per branch; Postgres's planner
+//     does NOT deduplicate non-idempotent operands across CASE
+//     arms.
 //   - `count(via, where?)` — relational aggregation. Compiles to
 //     `(select count(*) from <rp_leaf-subquery> [where
 //     <where-pred>])`. The relation-path leaf is built via
@@ -341,10 +342,13 @@ const eb = expressionBuilder<Database, keyof Database>();
  * Postgres documents with parentheses.
  *
  * Emitted via `sql.raw` because Kysely's `eb.fn(name, args)`
- * always wraps the function name in `(<args>)` parens, which
- * Postgres's parser rejects for `current_date`. The token is a
- * compile-time constant — no caller-supplied input reaches the
- * raw-emission slot.
+ * always wraps the function name in `(<args>)` parens (verified
+ * at `node_modules/kysely/dist/cjs/query-compiler/default-query-
+ * compiler.js:visitFunction`), and Postgres 16 rejects
+ * `current_date()` with `syntax error at or near "("` (verified
+ * end-to-end against the `postgis/postgis:16-3.4` harness). The
+ * token is a compile-time constant — no caller-supplied input
+ * reaches the raw-emission slot.
  */
 function compileToday(): AliasableExpression<unknown> {
 	return sql.raw("current_date");
@@ -462,8 +466,12 @@ const DATE_ADD_INTERVAL_TO_SQL: Readonly<Record<DateAddInterval, string>> = {
  * (a property read, a search input, an `arith` result) without
  * pre-resolving it to a static interval.
  *
- * The unit token comes from a closed mapping, so `sql.raw` is safe
- * — no caller-supplied input flows into the token.
+ * The unit token comes from a closed mapping. Postgres's
+ * `interval` type is not in Kysely's typed `ColumnDataType`
+ * literal set, so the cast type passes through `sql.raw('interval')`
+ * via Kysely's `Expression<any>` overload on `eb.cast` — the
+ * documented escape hatch for extension / non-standard Postgres
+ * types. No caller-supplied input flows into the token.
  */
 function compileDateAdd(
 	date: ValueExpression,
@@ -478,12 +486,19 @@ function compileDateAdd(
 	// uniformly with a datetime-typed input. Postgres's `+
 	// INTERVAL` returns `timestamptz` from either input shape.
 	const dateAsTimestamp = eb.cast(dateExpr, "timestamptz");
-	// Build the typed interval literal `INTERVAL '1 <unit>'` via
-	// `eb.cast(eb.val(...), <interval-data-type>)`. The unit token
-	// is a closed mapping. Expressed as `eb.cast<unknown>(eb.val,
-	// sql.raw('interval'))` because `interval` is not a Kysely
-	// `ColumnDataType` literal — Kysely accepts an `Expression<any>`
-	// from `sql.raw` to widen the cast token to any Postgres type.
+	// Build the typed interval literal `cast('1 <unit>' as
+	// interval)` via `eb.cast(eb.val(value), dataType)`. The unit
+	// token is a closed mapping. `interval` is not in Kysely's
+	// `SIMPLE_COLUMN_DATA_TYPES` list (verified at
+	// `node_modules/kysely/dist/cjs/operation-node/data-type-node.js`),
+	// so the typed `eb.cast<T>(expr, ColumnDataType)` overload
+	// rejects it. The `eb.cast<T>(expr, Expression<any>)` overload
+	// (per `parseDataTypeExpression` at
+	// `node_modules/kysely/dist/cjs/parser/data-type-parser.js`)
+	// is Kysely's documented escape hatch for extension types and
+	// non-standard Postgres types; `sql.raw('interval')` provides
+	// the Expression with no caller-controlled input flowing into
+	// the raw-emission slot.
 	const intervalLiteral = eb.cast(
 		eb.val(`1 ${unitToken}`),
 		sql.raw("interval"),
@@ -639,33 +654,49 @@ function compileSwitch(
 	fallback: ValueExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const onExpr = compileExpression(on, ctx);
+	const onExpr: Expression<unknown> = compileExpression(on, ctx);
 	const fallbackExpr = compileExpression(fallback, ctx);
-	// Searched CASE form: `CASE WHEN <on> = <when_lit_1> THEN <then_1>
-	// WHEN <on> = <when_lit_2> THEN <then_2> ... ELSE <fallback> END`.
-	// The simple CASE form (`CASE <on> WHEN <when_1> THEN <then_1> ...`)
-	// re-uses the discriminator once and would be marginally cheaper
-	// for an expensive discriminator, but Kysely's typed simple-CASE
-	// shape requires a typed `W` discriminator that the open
-	// `Expression<unknown>` shape from `compileExpression` cannot
-	// satisfy. The searched form composes cleanly through `eb.case()`
-	// with `eb(<on>, '=', <when>)` boolean operands and produces
-	// equivalent rows; Postgres's planner recognises the equivalence.
-	let builder = eb.case();
+	// Simple `CASE` form: `CASE <on> WHEN <when_1> THEN <then_1> WHEN
+	// <when_2> THEN <then_2> ... ELSE <fallback> END`. The
+	// discriminator `<on>` evaluates ONCE and each branch's `<when>`
+	// expression compares against the cached value — important when
+	// `<on>` is an expensive shape like a `count(...)` subquery
+	// (verified at the Postgres docs § "Conditional Expressions —
+	// CASE": "the search-result expression is computed and then
+	// compared to each WHEN expression"). The searched-CASE form
+	// (`CASE WHEN <on> = <when> THEN ...`) would re-evaluate `<on>`
+	// per branch — Postgres's planner does not deduplicate
+	// non-idempotent operands across CASE arms, and a `count(...)`
+	// discriminator would scan its relation-walk leaf N times.
+	//
+	// Kysely's typed surface accepts `eb.case<E extends Expression<any>>(
+	// expression: E)`; with `E = Expression<unknown>` the resulting
+	// `CaseBuilder<DB, TB, unknown, never>` has `.when(expression:
+	// Expression<W>)` overloads where `W = unknown`. The
+	// `Expression<unknown>` overload composes through the open
+	// discriminator type, so `.when(<typed-expression>)` accepts
+	// every `compileExpression` result. The intermediate `as unknown
+	// as` widening through the loop is the same shape the
+	// type-erased typed-builder views below use — TS cannot
+	// enumerate the per-iteration `O` accumulation because the
+	// fluent chain accumulates each branch's then-type into the
+	// builder's parameter.
+	let builder = eb.case(onExpr);
 	for (const c of cases) {
 		const whenExpr = compileExpression({ kind: "term", term: c.when }, ctx);
 		const thenExpr = compileExpression(c.then, ctx);
 		builder = builder
-			.when(eb(onExpr, "=", whenExpr))
-			.then(thenExpr) as unknown as ReturnType<typeof eb.case>;
+			.when(whenExpr)
+			.then(thenExpr) as unknown as typeof builder;
 	}
-	// `.else(...).end()` closes the operator. The intermediate type
-	// dance widens through the loop because TS cannot enumerate the
-	// per-iteration `O` accumulation; the cast pins the public
-	// `AliasableExpression<unknown>` contract on the final
-	// `.end()` result.
+	// `.else(...).end()` closes the operator. The cast pins the
+	// public `AliasableExpression<unknown>` contract on the final
+	// `.end()` result; the typed `else: ... end:` chain shape is
+	// asserted at the boundary because the per-iteration `O`
+	// accumulation widens to the union of every branch's `then`
+	// type (which TS cannot enumerate through the runtime loop).
 	return (
-		builder as unknown as ReturnType<typeof eb.case> & {
+		builder as unknown as {
 			else: (e: AliasableExpression<unknown>) => {
 				end: () => AliasableExpression<unknown>;
 			};

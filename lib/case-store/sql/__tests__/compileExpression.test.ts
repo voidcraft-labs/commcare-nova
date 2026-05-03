@@ -432,9 +432,10 @@ describe("compileExpression — switch arm", () => {
 		);
 		const sqlText = compiled.sql.toLowerCase();
 		// Simple CASE: the discriminator is named once between
-		// `case` and the first `when`. Match the structural shape
-		// rather than the inline operand text so the assertion stays
-		// stable against operand-emission tweaks.
+		// `case` and the first `when`, with no equality operator
+		// between them. Match the structural shape rather than the
+		// inline operand text so the assertion stays stable against
+		// operand-emission tweaks.
 		expect(sqlText).toMatch(/\bcase\b[\s\S]*\bwhen\b[\s\S]*\bthen\b/);
 		expect(sqlText).toContain("else");
 		expect(sqlText).toContain("end");
@@ -443,6 +444,49 @@ describe("compileExpression — switch arm", () => {
 		expect(compiled.parameters).toContain("adult");
 		expect(compiled.parameters).toContain("teen");
 		expect(compiled.parameters).toContain("child");
+	});
+
+	it("emits the simple CASE discriminator exactly once (not searched CASE)", () => {
+		// Pin the simple-CASE shape against a regression to
+		// searched-CASE (`case when <on> = <when_1> then ...`).
+		// Searched-CASE re-evaluates the discriminator per branch;
+		// for an expensive `<on>` (`count(...)`, `arith(...)` over
+		// joined cases) Postgres's planner does not deduplicate
+		// non-idempotent operands, so a regression here would show
+		// up as N relation-walk scans per row at runtime.
+		//
+		// The fingerprint test: a simple-CASE SQL emits the
+		// discriminator exactly once between `case` and the first
+		// `when`. A searched-CASE SQL emits the discriminator N
+		// times — once per `when` arm. Discriminator chosen here
+		// is a `count(...)` subquery so the fingerprint matches a
+		// recognisable substring (`count(*)`) rather than an
+		// opaque cast token.
+		const compiled = compileExpression_(
+			compileExpression(
+				switchExpr(
+					count(ancestorPath(relationStep("parent", "household"))),
+					[
+						switchCase(literal(0), term(literal("none"))),
+						switchCase(literal(1), term(literal("one"))),
+					],
+					term(literal("many")),
+				),
+				makeCtx(),
+			),
+		);
+		const sqlText = compiled.sql.toLowerCase();
+		// Simple-CASE: the `count(*)` discriminator appears exactly
+		// ONCE in the entire SQL, NOT once per `when` arm (which
+		// would be 2 in this test). A regression to searched-CASE
+		// would emit `count(*)` twice, failing this assertion.
+		const countMatches = sqlText.match(/count\(\*\)/g) ?? [];
+		expect(countMatches).toHaveLength(1);
+		// Simple-CASE never has the searched-CASE shape `case
+		// when` (the keyword `when` immediately following the
+		// `case` keyword). Simple-CASE always has a discriminator
+		// expression between `case` and the first `when`.
+		expect(sqlText).not.toMatch(/\bcase\s+when\b/);
 	});
 });
 
