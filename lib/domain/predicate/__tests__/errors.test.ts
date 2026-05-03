@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	compilerBugMessage,
+	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
 } from "../errors";
@@ -135,5 +136,46 @@ describe("typeCheckerBypassMessage", () => {
 		// The narrative paragraph still renders so the reader gets the
 		// "what to do" context regardless of whether expected/got applies.
 		expect(message).toContain("The type checker (");
+	});
+});
+
+describe("missingPredicateThunkMessage", () => {
+	it("formats the canonical caller-setup shape", () => {
+		const message = missingPredicateThunkMessage({
+			where: "compileExpression",
+			arm: "if",
+			slot: "`if` arm carries a `Predicate` condition",
+		});
+
+		expect(message).toBe(
+			[
+				"`compileExpression` — `if` reached the expression compiler without a wired predicate compiler.",
+				"",
+				"The `if` arm carries a `Predicate` condition, but `ctx.compilePredicate` is `undefined`. The expression",
+				"compiler does not import `compilePredicate` directly (the cycle would",
+				"close on itself); the integrating caller is responsible for supplying",
+				"the callback.",
+				"",
+				"Hint: pass `compilePredicate` (from `lib/case-store/sql`) on",
+				"`ExpressionCompileContext.compilePredicate` before invoking",
+				"`compileExpression` on any AST that may contain `if` or `count(via, where)`.",
+			].join("\n"),
+		);
+	});
+
+	it("interpolates the arm and slot for the count(via, where) site", () => {
+		const message = missingPredicateThunkMessage({
+			where: "compileExpression",
+			arm: "count(via, where)",
+			slot: "`count(via, where)`'s `where` clause is a `Predicate`",
+		});
+		// The arm name appears in the header; the slot phrase appears in the
+		// narrative. Both are interpolated, not hardcoded — verifies a
+		// future predicate-bearing arm gets the same message shape just by
+		// passing different `arm` / `slot` values.
+		expect(message).toContain("`count(via, where)` reached the expression");
+		expect(message).toContain(
+			"`count(via, where)`'s `where` clause is a `Predicate`",
+		);
 	});
 });

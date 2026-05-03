@@ -542,11 +542,11 @@ function compileNonSelfViaPropertyRef(args: {
 	if (compiledPath.kind !== "joined") {
 		throw new Error(
 			compilerBugMessage({
-				where: "compileTerm.compilePropertyRef",
+				where: "compileTerm.compileNonSelfViaPropertyRef",
 				invariant:
 					"a non-`self` `RelationPath` produced a `self` compiled result",
 				detail:
-					"The upstream `isSelfVia` branch is supposed to route every `self` walk away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self` — a contract violation between the two helpers.",
+					"The upstream `isSelfVia` branch in `compilePropertyRef` is supposed to route every `self` walk away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self` — a contract violation between the two helpers.",
 			}),
 		);
 	}
@@ -748,7 +748,10 @@ function resolveDestinationCaseType(
 			throw new Error(
 				typeCheckerBypassMessage({
 					where: "compileTerm.resolveDestinationCaseType",
-					summary: `\`${via.kind}\` walk from origin \`${originCaseType}\` is under-qualified — \`ofCaseType\` is required to disambiguate the destination`,
+					summary:
+						candidates.length === 0
+							? `\`${via.kind}\` walk from origin \`${originCaseType}\` has no destination — no case type declares \`parent_type: '${originCaseType}'\``
+							: `\`${via.kind}\` walk from origin \`${originCaseType}\` is ambiguous — \`ofCaseType\` is required to disambiguate the destination`,
 					expected:
 						candidates.length === 0
 							? `at least one case type whose \`parent_type\` is \`${originCaseType}\`, or an explicit \`ofCaseType\` qualifier on the walk`

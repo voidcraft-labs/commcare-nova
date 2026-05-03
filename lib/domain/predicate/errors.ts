@@ -4,15 +4,16 @@
 //
 // ## Why a dedicated module
 //
-// Throws across the foundation fall into three repeating shapes —
+// Throws across the foundation fall into four repeating shapes —
 // exhaustive-switch defaults, internal-invariant violations,
-// type-checker bypass — and the value of a thrown Error is dominated
-// by the `.message` text the developer reads in the failing test or
-// stack trace. Three small helpers produce consistent, multi-section
-// messages for those shapes so call sites do not have to redesign
-// the voice each time. The remaining one-off shapes (caller-setup,
-// domain semantic, schema bypass) inline directly with the same
-// voice the helpers establish.
+// type-checker bypass, and missing-predicate-thunk caller setup —
+// and the value of a thrown Error is dominated by the `.message`
+// text the developer reads in the failing test or stack trace. Four
+// small helpers produce consistent, multi-section messages for
+// those shapes so call sites do not have to redesign the voice
+// each time. The remaining one-off shapes (domain semantic, schema
+// bypass) inline directly with the same voice the helpers
+// establish.
 //
 // Both layers consume the helpers — the type checker
 // (`checkPredicate` / `checkExpression` / `resolveTermType` /
@@ -204,4 +205,54 @@ export function typeCheckerBypassMessage(args: TypeCheckerBypassArgs): string {
 		`Hint: ${hint ?? DEFAULT_BYPASS_HINT}`,
 	);
 	return lines.join("\n");
+}
+
+// ---------------------------------------------------------------
+// missingPredicateThunkMessage — caller did not wire ctx.compilePredicate
+// ---------------------------------------------------------------
+
+interface MissingPredicateThunkArgs {
+	/** The function or method that detected the missing thunk, e.g. `"compileExpression"`. */
+	readonly where: string;
+
+	/** The expression-side AST arm whose evaluation needs the thunk, e.g. `"if"` or `"count(via, where)"`. */
+	readonly arm: string;
+
+	/** A short noun-phrase describing the slot whose `Predicate` operand needs compiling, e.g. `"\`if\` arm carries a \`Predicate\` condition"` or `"\`count(via, where)\`'s \`where\` clause is a \`Predicate\`"`. */
+	readonly slot: string;
+}
+
+/**
+ * Format the message for the "predicate thunk not wired" caller-setup
+ * error.
+ *
+ * The expression compiler does not import `compilePredicate` directly
+ * — the cycle would close on itself, since the predicate compiler in
+ * turn calls `compileExpression` for its widened operand slots. The
+ * cycle break is `ExpressionCompileContext.compilePredicate`, an
+ * optional callback the integrating caller supplies. Two arms (`if`
+ * and `count(via, where)`) carry `Predicate` operands and so trigger
+ * this throw when the callback is absent.
+ *
+ * Distinct from `typeCheckerBypassMessage` because the AST is well-
+ * typed; the failure is in the runtime call-site setup, not the AST
+ * shape. Distinct from `compilerBugMessage` because the fix is on the
+ * caller side (wire the callback), not on the compiler side.
+ */
+export function missingPredicateThunkMessage(
+	args: MissingPredicateThunkArgs,
+): string {
+	const { where, arm, slot } = args;
+	return [
+		`\`${where}\` — \`${arm}\` reached the expression compiler without a wired predicate compiler.`,
+		``,
+		`The ${slot}, but \`ctx.compilePredicate\` is \`undefined\`. The expression`,
+		"compiler does not import `compilePredicate` directly (the cycle would",
+		"close on itself); the integrating caller is responsible for supplying",
+		"the callback.",
+		``,
+		"Hint: pass `compilePredicate` (from `lib/case-store/sql`) on",
+		"`ExpressionCompileContext.compilePredicate` before invoking",
+		"`compileExpression` on any AST that may contain `if` or `count(via, where)`.",
+	].join("\n");
 }

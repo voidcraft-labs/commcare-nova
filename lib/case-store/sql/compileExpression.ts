@@ -116,6 +116,7 @@ import type {
 } from "kysely";
 import { expressionBuilder } from "kysely";
 import {
+	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
@@ -644,18 +645,11 @@ function compileIf(
 	const compilePredicate = ctx.compilePredicate;
 	if (compilePredicate === undefined) {
 		throw new Error(
-			[
-				"`compileExpression` — `if` reached the expression compiler without a wired predicate compiler.",
-				"",
-				"The `if` arm carries a `Predicate` condition, but `ctx.compilePredicate`",
-				"is `undefined`. The expression compiler does not import",
-				"`compilePredicate` directly (the cycle would close on itself); the",
-				"integrating caller is responsible for supplying the callback.",
-				"",
-				"Hint: pass `compilePredicate` (from `lib/case-store/sql`) on",
-				"`ExpressionCompileContext.compilePredicate` before invoking",
-				"`compileExpression` on any AST that may contain `if` or `count(via, where)`.",
-			].join("\n"),
+			missingPredicateThunkMessage({
+				where: "compileExpression",
+				arm: "if",
+				slot: "`if` arm carries a `Predicate` condition",
+			}),
 		);
 	}
 	const condExpr = compilePredicate(cond, ctx);
@@ -841,18 +835,11 @@ function compileCount(
 	const compilePredicate = ctx.compilePredicate;
 	if (compilePredicate === undefined) {
 		throw new Error(
-			[
-				"`compileExpression` — `count(via, where)` reached the expression compiler without a wired predicate compiler.",
-				"",
-				"The `where` clause is a `Predicate`, but `ctx.compilePredicate` is",
-				"`undefined`. The expression compiler does not import `compilePredicate`",
-				"directly (the cycle would close on itself); the integrating caller is",
-				"responsible for supplying the callback.",
-				"",
-				"Hint: pass `compilePredicate` (from `lib/case-store/sql`) on",
-				"`ExpressionCompileContext.compilePredicate` before invoking",
-				"`compileExpression` on any AST that may contain `if` or `count(via, where)`.",
-			].join("\n"),
+			missingPredicateThunkMessage({
+				where: "compileExpression",
+				arm: "count(via, where)",
+				slot: "`count(via, where)`'s `where` clause is a `Predicate`",
+			}),
 		);
 	}
 	// Compile the inner where with the leaf alias as the new
