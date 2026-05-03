@@ -408,12 +408,16 @@ describe("compileExpression — if arm", () => {
 // `switch` — value-driven multi-case selector
 // ---------------------------------------------------------------
 //
-// SQL `CASE WHEN <on> = <when1> THEN <then1> WHEN ... ELSE <fallback> END`.
-// The `on` operand is a ValueExpression; each case's `when` is a
-// Literal compared by equality; `fallback` is the no-match value.
-// `switch` does NOT carry a Predicate (each `when` is a literal,
-// per `switchCaseSchema` in `types.ts:867-871`), so it does not
-// need the predicate thunk.
+// SQL simple `CASE` form: `CASE <on> WHEN <when_1> THEN <then_1>
+// WHEN <when_2> THEN <then_2> ... ELSE <fallback> END`. The
+// discriminator `<on>` evaluates ONCE and each branch's `<when>`
+// expression compares against the cached value — load-bearing for
+// expensive discriminators like `count(...)` subqueries (Postgres's
+// planner does not deduplicate non-idempotent operands across CASE
+// arms). Each `cases[].when` is a Literal compared by equality;
+// `fallback` is the no-match value. `switch` does NOT carry a
+// Predicate (each `when` is a literal, per `switchCaseSchema` in
+// `types.ts:867-871`), so it does not need the predicate thunk.
 
 describe("compileExpression — switch arm", () => {
 	it("emits CASE <on> WHEN <when> THEN <then> ... ELSE <fallback> END (simple CASE form)", () => {
