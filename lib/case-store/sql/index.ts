@@ -46,13 +46,21 @@
 // context (no extra fields); expression-compile context extends it
 // with the `compilePredicate` thunk.
 //
-// The `compileLiteral` helper is sibling-module placement — both the
-// term compiler's `literal` arm and the predicate compiler's
-// `in.values` arm consume it. It is INTENTIONALLY NOT exported here:
-// outside callers route literal emission through the term compiler
-// (the `Literal` arm of the `Term` discriminated union), so re-
-// exporting `compileLiteral` would expose an internal-only helper as
-// public API.
+// `compileLiteral` and `dataTypeTokens` are package-internal sibling
+// modules. `compileLiteral` is consumed by both the term compiler's
+// `literal` arm and the predicate compiler's `in.values` arm;
+// `dataTypeTokens` owns the two `Record<CasePropertyDataType,
+// <Postgres-token>>` tables (`POSTGRES_CAST_FOR_DATA_TYPE` and the
+// internal `JSONB_READ_OPERATOR_FOR_DATA_TYPE`) that compileTerm
+// and compileLiteral both read. Three sibling compiler modules of
+// equal weight import from one shared data module — no compiler
+// imports from another compiler's internals. Outside callers route
+// literal emission through the term compiler (the `Literal` arm of
+// the `Term` discriminated union), so `compileLiteral` is not
+// re-exported here. `POSTGRES_CAST_FOR_DATA_TYPE` IS re-exported
+// (callers composing externally-supplied expressions thread the
+// cast token through call sites that need to lift their operand
+// into the typed Postgres value the comparison expects).
 //
 // ## Tenant-scope contract (callers must apply outer-query filter)
 //
@@ -80,12 +88,18 @@
 //
 // ## What this barrel does NOT export
 //
-// Internal dispatch helpers stay private to their owning modules:
+// Internal dispatch helpers and package-internal data tables stay
+// private to their owning modules:
 //
 //   - `compileLiteral` — sibling helper consumed by both the term
 //     compiler's `literal` arm and the predicate compiler's
 //     `in.values` arm; outside callers consume literals through the
 //     term compiler.
+//   - `JSONB_READ_OPERATOR_FOR_DATA_TYPE` — the `data_type` →
+//     JSONB-read-operator (`->>` / `->`) mapping on `dataTypeTokens`.
+//     Read only by `compileTerm`'s `jsonbColumnRead`; outside callers
+//     route property reads through `compileTerm` rather than
+//     constructing a JSONB read directly.
 //   - `compileValueExprOperand`, `expressionContextFor` — internal
 //     dispatch helpers in `compilePredicate` that route widened
 //     operands and lift the predicate-compile context into an
@@ -110,7 +124,11 @@ export type {
 	TermBindingValue,
 	TermCompileContext,
 } from "./compileTerm";
-export { compileTerm, POSTGRES_CAST_FOR_DATA_TYPE } from "./compileTerm";
+export { compileTerm } from "./compileTerm";
+
+// ----- Data-type → Postgres-token tables -----
+
+export { POSTGRES_CAST_FOR_DATA_TYPE } from "./dataTypeTokens";
 
 // ----- Expression compiler -----
 

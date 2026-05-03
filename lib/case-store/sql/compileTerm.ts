@@ -96,13 +96,17 @@
 // `AliasableExpression` (rather than the bare `Expression`) keeps
 // that call site type-checked at the public boundary.
 
-import type { AliasableExpression, ColumnDataType, Kysely } from "kysely";
+import type { AliasableExpression, Kysely } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
 import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
 import type { Database } from "./database";
+import {
+	JSONB_READ_OPERATOR_FOR_DATA_TYPE,
+	POSTGRES_CAST_FOR_DATA_TYPE,
+} from "./dataTypeTokens";
 
 // ---------------------------------------------------------------
 // Reserved scalar columns
@@ -146,87 +150,6 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
 	"owner_id",
 	"status",
 ]);
-
-// ---------------------------------------------------------------
-// data_type → Postgres cast token
-// ---------------------------------------------------------------
-
-/**
- * The Postgres cast token a `data_type` lifts into. The values are
- * Postgres type names; callers apply the cast through Kysely's
- * `eb.cast<T>(expr, dataType)`. Tokens are spelled in
- * Kysely-recognised `ColumnDataType` form so the typed builder
- * accepts them directly without falling back to a raw SQL escape
- * hatch.
- *
- * Cast choices:
- *
- *   - `text` — explicit cast on text-flavored properties (`text`,
- *     `single_select`, `geopoint`, undefined). `properties->>'X'`
- *     already returns text, but the explicit cast documents intent
- *     and stays uniform with the other arms' shape.
- *   - `integer` — `data_type: "int"`. Rejects fractional decoding
- *     from a JSONB number that happens to be stored without a
- *     decimal point. Spelled `integer` rather than `int` so the
- *     typed builder accepts it as a `ColumnDataType` literal;
- *     Postgres parses the two forms identically.
- *   - `numeric` — `data_type: "decimal"`. Postgres's arbitrary-
- *     precision decimal; matches the JSON Schema generator's
- *     `{ type: "number" }` shape.
- *   - `date` / `time` / `timestamptz` — temporal cast tokens. The
- *     JSONB read returns the wire-form ISO string; the cast lifts
- *     to the typed temporal value Postgres can compare ordinally.
- *     `timestamptz` (rather than `timestamp`) preserves timezone
- *     info from the wire string.
- *   - `jsonb` — `data_type: "multi_select"`. The predicate compiler
- *     needs JSONB on the left side of `?|` / `?&` / `@>`; reading
- *     via `->>` yields a stringified blob those operators can't
- *     process. The corresponding read operator is `->` (returns
- *     JSONB) rather than `->>` — see
- *     `JSONB_READ_OPERATOR_FOR_DATA_TYPE` below.
- */
-export const POSTGRES_CAST_FOR_DATA_TYPE: Readonly<
-	Record<CasePropertyDataType, ColumnDataType>
-> = {
-	text: "text",
-	int: "integer",
-	decimal: "numeric",
-	date: "date",
-	time: "time",
-	datetime: "timestamptz",
-	single_select: "text",
-	multi_select: "jsonb",
-	geopoint: "text",
-};
-
-/**
- * The JSONB property-read operator used to read a property of a
- * given `data_type`. Two variants:
- *
- *   - `->>` returns text. Used for every text-flavored arm — the
- *     JSON Schema generator stores these as JSON strings, and the
- *     outer `cast(... as <type>)` lifts the text into the typed
- *     Postgres value.
- *   - `->` returns jsonb. Used for `multi_select` because the
- *     predicate compiler's `multi-select-contains` arm operates on
- *     JSONB arrays. The `cast(... as jsonb)` wrapper is
- *     structurally redundant (the operator already returns jsonb)
- *     but stays uniform with the other arms' "read + cast" shape
- *     and makes the column-type explicit at the read site.
- */
-const JSONB_READ_OPERATOR_FOR_DATA_TYPE: Readonly<
-	Record<CasePropertyDataType, "->" | "->>">
-> = {
-	text: "->>",
-	int: "->>",
-	decimal: "->>",
-	date: "->>",
-	time: "->>",
-	datetime: "->>",
-	single_select: "->>",
-	multi_select: "->",
-	geopoint: "->>",
-};
 
 // ---------------------------------------------------------------
 // Public types

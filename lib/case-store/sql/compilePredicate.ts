@@ -529,7 +529,7 @@ function compileComparison(
 
 /**
  * Compile an `in` predicate: `<left> IN (<value>, <value>, ...)`. Each
- * literal value flows through `compileLiteralValue` for parameter
+ * literal value flows through `compileLiteral` for parameter
  * binding — inlining values would be unsafe (no escaping) and
  * shifts plan-cache invariants off-spec.
  *

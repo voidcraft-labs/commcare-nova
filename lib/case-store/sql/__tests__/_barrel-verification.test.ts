@@ -1,36 +1,33 @@
 // lib/case-store/sql/__tests__/_barrel-verification.test.ts
 //
-// Type-only verification that the case-store SQL package's public
-// barrel (`./index.ts`) exposes every name the per-module imports
-// would otherwise need to reach into. Reading every barrel export
-// site here makes the public-surface contract a tested invariant
-// rather than a hand-maintained list — adding a new external-facing
-// symbol forces a parallel addition here for the test to stay green.
+// Tested invariants of the case-store SQL package's public barrel
+// (`./index.ts`):
 //
-// Tested invariants:
+//   1. Every public compiler entry point and supporting runtime
+//      constant is reachable through the barrel — asserted by
+//      runtime presence checks (`typeof X === "function"`, equality
+//      against the known constant value).
+//   2. Every public compile-context interface and supporting type is
+//      reachable through the barrel — asserted at compile time by the
+//      `import type { ... } from "../index"` statement below. If the
+//      barrel ever drops a re-export, `tsc` errors with "Module
+//      '../index' has no exported member 'X'" on the import line, and
+//      the file fails to compile.
+//   3. Internal helpers (`compileLiteral`, `JSONB_READ_OPERATOR_FOR_DATA_TYPE`)
+//      do NOT leak through the barrel — asserted by enumerating the
+//      barrel's runtime export record and checking the helper names
+//      are absent.
 //
-//   1. Every public compiler entry point is reachable through the
-//      barrel (`compileTerm`, `compileExpression`, `compilePredicate`,
-//      `compileRelationPath`).
-//   2. Every public compile-context interface and supporting type
-//      reaches through the barrel — TypeScript's `verbatimModuleSyntax`
-//      means a type-only re-export through `export type { ... }` is
-//      structurally distinct from a runtime export, and the test
-//      asserts both.
-//   3. The internal `compileLiteral` helper does NOT leak through
-//      the barrel — sibling-module placement keeps it package-private,
-//      and a test asserting against its absence catches a future
-//      accidental re-export.
-//
-// The runtime side asserts only that runtime-exported symbols are
-// present. Type-only re-exports surface as compile-time errors when
-// the import line below them references a missing name; the tsc
-// gate is the load-bearing assertion.
+// The aggregating-type alias `_BarrelTypeSurface` aggregates every
+// re-exported type through one struct, so all `import type` names are
+// "used" from a Biome organize-imports standpoint without 14 separate
+// per-name pin sites. The struct itself is not asserted at runtime —
+// the load-bearing assertion is the import line resolving each name
+// through the barrel at compile time.
 
 import { expect, it } from "vitest";
-// Type-only re-exports — referencing each name in a position that
-// requires the type to resolve forces the TypeScript compiler to
-// fail if the barrel doesn't re-export it.
+// Type-only re-exports — the import line itself is the load-bearing
+// assertion; if the barrel drops any of these, `tsc` errors here.
 import type {
 	CaseIndexRelationship,
 	CaseIndicesTable,
@@ -57,6 +54,31 @@ import {
 	RELATION_PATH_LEAF_ALIAS,
 } from "../index";
 
+// Aggregating struct that references each re-exported type once. The
+// struct keeps every type-import "used" (so Biome's organize-imports
+// rule doesn't strip it) without 14 per-name pin sites. The type is
+// declared `type` (not `interface`) so `tsc` is forced to resolve
+// every member type at declaration time.
+type _BarrelTypeSurface = {
+	caseIndexRelationship: CaseIndexRelationship;
+	caseIndicesTable: CaseIndicesTable;
+	casesTable: CasesTable;
+	caseTypeSchemasTable: CaseTypeSchemasTable;
+	compiledRelationPath: CompiledRelationPath;
+	compilePredicateThunk: CompilePredicateThunk;
+	database: Database;
+	expressionCompileContext: ExpressionCompileContext;
+	predicateCompileContext: PredicateCompileContext;
+	relationPathCompileContext: RelationPathCompileContext;
+	relationPathLeafRow: RelationPathLeafRow;
+	termBindings: TermBindings;
+	termBindingValue: TermBindingValue;
+	termCompileContext: TermCompileContext;
+};
+// Touch the alias once so the unused-variable lint stays quiet
+// without adding a per-member runtime assertion.
+void (undefined as unknown as _BarrelTypeSurface | undefined);
+
 // ---------------------------------------------------------------
 // Runtime symbol surface
 // ---------------------------------------------------------------
@@ -80,58 +102,24 @@ it("barrel exposes the relation-path leaf alias and cast table", () => {
 	expect(POSTGRES_CAST_FOR_DATA_TYPE.multi_select).toBe("jsonb");
 });
 
-it("barrel does NOT leak the package-private compileLiteral helper", async () => {
-	// `compileLiteral` is the sibling helper consumed by both
-	// `compileTerm`'s `literal` arm and `compilePredicate`'s
-	// `in.values` arm. Outside callers route literal emission through
-	// `compileTerm`, so re-exporting it through the barrel would
-	// expose internal-only API as public surface. The dynamic import
-	// reads the actual barrel module record — `compileLiteral`
-	// must NOT appear among the exported keys.
+it("barrel does NOT leak package-internal helpers", async () => {
+	// Two names stay package-internal:
+	//
+	//   - `compileLiteral` — the helper consumed by both
+	//     `compileTerm`'s `literal` arm and `compilePredicate`'s
+	//     `in.values` arm. Outside callers route literal emission
+	//     through `compileTerm`, so re-exporting it would expose
+	//     internal-only API as public surface.
+	//   - `JSONB_READ_OPERATOR_FOR_DATA_TYPE` — the `data_type` →
+	//     JSONB-read-operator mapping on `dataTypeTokens`. Read only
+	//     by `compileTerm`'s `jsonbColumnRead`; outside callers route
+	//     property reads through `compileTerm` rather than
+	//     constructing a JSONB read directly.
+	//
+	// The dynamic import reads the actual barrel module record;
+	// neither helper name appears among the exported keys.
 	const barrel = await import("../index");
-	expect(Object.keys(barrel)).not.toContain("compileLiteral");
+	const exportedKeys = Object.keys(barrel);
+	expect(exportedKeys).not.toContain("compileLiteral");
+	expect(exportedKeys).not.toContain("JSONB_READ_OPERATOR_FOR_DATA_TYPE");
 });
-
-// ---------------------------------------------------------------
-// Type-only surface — compile-time pin via type aliases
-// ---------------------------------------------------------------
-//
-// Type-only re-exports don't survive to runtime, so the compile-time
-// proof lives here: each `type _Pin_X = X` assignment forces the
-// TypeScript compiler to resolve the type through the barrel. If the
-// barrel ever drops a type-only re-export, the assignment fails with
-// a "cannot find name" error and the file fails to compile.
-
-type _PinCaseIndexRelationship = CaseIndexRelationship;
-type _PinCaseIndicesTable = CaseIndicesTable;
-type _PinCasesTable = CasesTable;
-type _PinCaseTypeSchemasTable = CaseTypeSchemasTable;
-type _PinCompiledRelationPath = CompiledRelationPath;
-type _PinCompilePredicateThunk = CompilePredicateThunk;
-type _PinDatabase = Database;
-type _PinExpressionCompileContext = ExpressionCompileContext;
-type _PinPredicateCompileContext = PredicateCompileContext;
-type _PinRelationPathCompileContext = RelationPathCompileContext;
-type _PinRelationPathLeafRow = RelationPathLeafRow;
-type _PinTermBindings = TermBindings;
-type _PinTermBindingValue = TermBindingValue;
-type _PinTermCompileContext = TermCompileContext;
-
-// The `void` ... pattern below documents that the per-name `_Pin_*`
-// aliases above exist solely to pin the public surface — referencing
-// each here keeps the unused-variable lint quiet without creating any
-// runtime side effect.
-void (0 as unknown as _PinCaseIndexRelationship);
-void (0 as unknown as _PinCaseIndicesTable);
-void (0 as unknown as _PinCasesTable);
-void (0 as unknown as _PinCaseTypeSchemasTable);
-void (0 as unknown as _PinCompiledRelationPath);
-void (0 as unknown as _PinCompilePredicateThunk);
-void (0 as unknown as _PinDatabase);
-void (0 as unknown as _PinExpressionCompileContext);
-void (0 as unknown as _PinPredicateCompileContext);
-void (0 as unknown as _PinRelationPathCompileContext);
-void (0 as unknown as _PinRelationPathLeafRow);
-void (0 as unknown as _PinTermBindings);
-void (0 as unknown as _PinTermBindingValue);
-void (0 as unknown as _PinTermCompileContext);

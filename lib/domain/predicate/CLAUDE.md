@@ -224,10 +224,10 @@ The checker's per-arm rules combine:
   inside `where` clauses resolve against the surrounding `via`'s
   destination scope.
 - **Sequence handling** — `unwrap-list` resolves to the
-  `SEQUENCE_TYPE` sentinel; v1 has no operator that consumes a
-  sequence at the type checker (the consuming wire pattern is
-  `selected-any(prop, unwrap-list(...))` which the CSQL emitter
-  builds directly).
+  `SEQUENCE_TYPE` sentinel; no Predicate or Expression operator
+  consumes a sequence at the type checker — the only consuming
+  surface is the CSQL wire emitter via the `selected-any(prop,
+  unwrap-list(...))` pattern.
 
 The checker is the gate every wire emitter and the Postgres
 compiler trust upstream. Compiler / emitter rules that the type

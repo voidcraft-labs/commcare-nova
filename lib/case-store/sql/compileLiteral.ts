@@ -38,42 +38,30 @@
 //      typed `prop` read. Without `data_type`, the parameter binds bare
 //      and Postgres's implicit type coercion handles the comparison.
 //
-// ## Why this is a sibling module rather than a re-export from compileTerm
+// ## Module placement — three siblings of equal weight, one data module
 //
 // The `Literal` type lives in `lib/domain/predicate/types.ts:560-565`
-// and carries `{ kind: "literal", value, data_type? }`. Both consumers
-// have a `Literal`-shaped input at the call site:
+// and carries `{ kind: "literal", value, data_type? }`. Both
+// compile-stack consumers (`compileTerm`'s `literal` arm and
+// `compilePredicate`'s `in.values` arm) have a `Literal`-shaped input
+// at the call site, so a single module both consumers import from is
+// the natural shape.
 //
-//   - `compileTerm`'s switch dispatches `case "literal": return
-//     compileLiteral(term)` where `term` narrows to
-//     `Extract<Term, { kind: "literal" }>` — structurally identical to
-//     `Literal` (both carry the same three fields including the
-//     discriminator).
-//   - `compilePredicate`'s `compileIn` walks `pred.values: Literal[]`
-//     and calls `compileLiteral(v)` per value.
-//
-// A re-export from `compileTerm` would force the predicate-side caller
-// to import a helper from a sibling module that owns Term-shaped
-// dispatch, coupling literal emission to term-compiler internals.
-// Sibling-module placement (this file) keeps each consumer's import
-// graph local: the Term compiler imports `compileLiteral` from `./
-// compileLiteral`, and so does the Predicate compiler.
-//
-// ## Cast-token lookup is single-source via POSTGRES_CAST_FOR_DATA_TYPE
-//
-// The `data_type` → Postgres cast-token mapping
-// (`POSTGRES_CAST_FOR_DATA_TYPE`) lives on the Term compiler because
-// every property-read site uses it too. Importing the same constant
-// here keeps the cast logic single-source — extending the blueprint's
-// `data_type` enum forces the `Record<...>` exhaustivity check in the
-// one shared table to surface the missing entry. No parallel table
-// lives on this module's surface.
+// The cast-token lookup (`POSTGRES_CAST_FOR_DATA_TYPE`) lives on its
+// own data-only module at `./dataTypeTokens` rather than on
+// `compileTerm`. The two readers (this module and `compileTerm`)
+// import from `./dataTypeTokens` independently — three sibling
+// compiler modules of equal weight, none importing from another
+// compiler's internals, no edges between any pair of compiler
+// modules. Extending the blueprint's `data_type` enum surfaces a
+// `Record<...>` exhaustivity error on the one closed-enum table the
+// data module owns; no parallel table lives on this surface.
 
 import type { AliasableExpression } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { Literal } from "@/lib/domain/predicate/types";
-import { POSTGRES_CAST_FOR_DATA_TYPE } from "./compileTerm";
 import type { Database } from "./database";
+import { POSTGRES_CAST_FOR_DATA_TYPE } from "./dataTypeTokens";
 
 // ---------------------------------------------------------------
 // Shared expression builder
@@ -112,8 +100,8 @@ const eb = expressionBuilder<Database, keyof Database>();
  *     emits the value-position `NULL`).
  *   - `data_type !== undefined` → `eb.cast(eb.val(value), <token>)`.
  *     The cast token comes from the closed `POSTGRES_CAST_FOR_DATA_TYPE`
- *     table on `compileTerm`. The cast lifts the bound parameter into
- *     the typed Postgres value the comparison expects on the other
+ *     table on `./dataTypeTokens`. The cast lifts the bound parameter
+ *     into the typed Postgres value the comparison expects on the other
  *     side — without it, `cast(date '2025-01-01' as date) =
  *     properties->>'birthdate'::date` would compare typed `date`
  *     against text on the right, surfacing as a type-mismatch error
