@@ -28,11 +28,11 @@
 import {
 	type CompiledQuery,
 	DummyDriver,
+	type Expression,
 	Kysely,
 	PostgresAdapter,
 	PostgresIntrospector,
 	PostgresQueryCompiler,
-	type RawBuilder,
 	sql,
 } from "kysely";
 import { describe, expect, it } from "vitest";
@@ -127,7 +127,7 @@ const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
 // predicate inspect the stub's call log via the `predicateLog`
 // closure.
 function makeStubPredicateThunk(): {
-	thunk: (_p: unknown, _c: ExpressionCompileContext) => RawBuilder<unknown>;
+	thunk: (_p: unknown, _c: ExpressionCompileContext) => Expression<unknown>;
 	log: unknown[];
 } {
 	const log: unknown[] = [];
@@ -182,7 +182,7 @@ describe("compileExpression — term arm", () => {
 		);
 		// JSONB read shape from `compileTerm`'s self-via property arm.
 		expect(compiled.sql).toContain('"c"."properties" ->>');
-		expect(compiled.sql).toContain("::text");
+		expect(compiled.sql).toContain("as text)");
 		expect(compiled.parameters).toContain("name");
 	});
 
@@ -228,30 +228,30 @@ describe("compileExpression — today / now constants", () => {
 //   - `double` → `::numeric` (Postgres's arbitrary-precision decimal)
 
 describe("compileExpression — coercion casts", () => {
-	it("emits ::date for date-coerce", () => {
+	it("emits date cast for date-coerce", () => {
 		const compiled = compileExpression_(
 			compileExpression(dateCoerce(term(literal("2026-01-01"))), makeCtx()),
 		);
-		expect(compiled.sql).toContain("::date");
+		expect(compiled.sql).toContain("as date)");
 		expect(compiled.parameters).toContain("2026-01-01");
 	});
 
-	it("emits ::timestamptz for datetime-coerce", () => {
+	it("emits timestamptz cast for datetime-coerce", () => {
 		const compiled = compileExpression_(
 			compileExpression(
 				datetimeCoerce(term(literal("2026-01-01T12:00:00Z"))),
 				makeCtx(),
 			),
 		);
-		expect(compiled.sql).toContain("::timestamptz");
+		expect(compiled.sql).toContain("as timestamptz)");
 		expect(compiled.parameters).toContain("2026-01-01T12:00:00Z");
 	});
 
-	it("emits ::numeric for double", () => {
+	it("emits numeric cast for double", () => {
 		const compiled = compileExpression_(
 			compileExpression(double(term(literal("42.5"))), makeCtx()),
 		);
-		expect(compiled.sql).toContain("::numeric");
+		expect(compiled.sql).toContain("as numeric)");
 		expect(compiled.parameters).toContain("42.5");
 	});
 });
@@ -536,7 +536,7 @@ describe("compileExpression — date-add arm", () => {
 	];
 
 	for (const interval of intervals) {
-		it(`emits an INTERVAL '1 ${interval}' fragment for the ${interval} arm`, () => {
+		it(`binds a '1 ${interval}' interval parameter for the ${interval} arm`, () => {
 			const compiled = compileExpression_(
 				compileExpression(
 					dateAdd(today(), interval, term(literal(1))),
@@ -544,8 +544,14 @@ describe("compileExpression — date-add arm", () => {
 				),
 			);
 			const sqlText = compiled.sql.toLowerCase();
-			expect(sqlText).toContain("interval");
-			expect(sqlText).toContain(`'1 ${interval}'`);
+			// Typed builder casts a `'1 <unit>'` parameter to
+			// Postgres `interval` rather than splicing the unit token
+			// inline. The cold suite's structural check is "the
+			// interval cast is present and the unit string is a
+			// parameter"; the harness pins the runtime equivalence
+			// against `+ INTERVAL '1 <unit>'`.
+			expect(sqlText).toContain("as interval)");
+			expect(compiled.parameters).toContain(`1 ${interval}`);
 		});
 	}
 });
@@ -653,7 +659,7 @@ describe("compileExpression — composition", () => {
 			),
 		);
 		expect(compiled.sql).toContain("+");
-		expect(compiled.sql).toContain("::int");
+		expect(compiled.sql).toContain("as integer)");
 		expect(compiled.parameters).toContain("age");
 		expect(compiled.parameters).toContain(1);
 	});

@@ -27,10 +27,12 @@
 //   3. Tenant scope (`appId` / `ownerId`) is exposed on the
 //      context surface but not consumed by the predicate compiler
 //      — tenant filtering is the caller's concern.
-//   4. The non-term `ValueExpression` operand surface throws a
-//      clear error that surfaces the expression-compiler
-//      integration boundary at the call site rather than emitting
-//      wrong SQL silently.
+//   4. Non-term `ValueExpression` operands at the seven widened
+//      operand slots (compare.left/right, in.left, between.left/
+//      .lower/.upper, is-null.left, is-blank.left, within-distance
+//      .center) dispatch through the expression compiler. Each
+//      slot composes arith / count / if / coalesce expressions
+//      without rejection.
 //
 // Tests use the AST builders from `lib/domain/predicate/builders.ts`
 // to construct predicates — the one supported construction surface,
@@ -52,12 +54,14 @@ import {
 	ancestorPath,
 	and,
 	anyRelationPath,
+	arith,
 	between,
-	dateLiteral,
+	count,
 	eq,
 	exists,
 	gt,
 	gte,
+	ifExpr,
 	input,
 	isBlank,
 	isIn,
@@ -78,6 +82,7 @@ import {
 	relationStep,
 	selfPath,
 	subcasePath,
+	term,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -151,9 +156,8 @@ function makeCtx(
  * Compile shorthand: wrap the predicate in a minimal `SELECT 1
  * FROM cases AS c WHERE <pred>` so Kysely renders the surrounding
  * SQL consistently. The `where(...)` call accepts any
- * `Expression<SqlBool>`; `compilePredicate`'s `RawBuilder<SqlBool>`
- * return satisfies that interface, so the test never has to
- * reach for `eb.fn(...)` adapters.
+ * `Expression<SqlBool>`, which `compilePredicate`'s typed return
+ * satisfies directly.
  */
 function compileWith(pred: ReturnType<typeof compilePredicate>): CompiledQuery {
 	return db
@@ -212,7 +216,16 @@ describe("compilePredicate — logical operators", () => {
 	it("composes a `not` wrapping an inner clause", () => {
 		const pred = not(eq(prop("patient", "name"), literal("Alice")));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain("not (");
+		// Kysely's typed `eb.not(...)` emits the SQL `NOT <expr>`
+		// keyword. Postgres operator precedence ranks `NOT` below
+		// `=` (per docs § "Operator Precedence"), so `NOT a = b`
+		// parses as `NOT (a = b)` without explicit parens — the
+		// inner clause's grouping is preserved by the precedence
+		// rules even when the SQL string lacks the literal `(...)`
+		// wrap. The regex anchors `not` to the JSONB `cast(...)`
+		// read so a stray `is not null` or `not in (...)` in
+		// unrelated SQL would not satisfy the assertion.
+		expect(compiled.sql.toLowerCase()).toMatch(/\bnot\s+cast\b/);
 	});
 
 	it("preserves grouping for `and` containing `or`", () => {
@@ -705,23 +718,31 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 
 	// is-blank: absent-or-empty. Adds the empty-string disjunction
 	// to the is-null shape.
-	it("emits OR ='' disjunction for is-blank on a JSONB-document property", () => {
+	it("emits OR =-empty disjunction for is-blank on a JSONB-document property", () => {
 		const pred = isBlank(prop("patient", "name"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		// Both branches present: `NOT (... ? key)` and `... ->> key
-		// = ''`.
+		// Both branches present: the JSONB key-existence check
+		// (`... ? key`) negation plus the `->> key = ''` empty-
+		// string disjunction. The empty-string literal binds as a
+		// parameter (`$N`) rather than inlining as `''` because
+		// `eb.val("")` routes through Kysely's parameter channel —
+		// inspect via the parameters list rather than the SQL
+		// string.
 		expect(compiled.sql).toContain("?");
 		expect(compiled.sql).toContain("->>");
 		expect(compiled.sql.toLowerCase()).toContain(" or ");
-		expect(compiled.sql).toContain("= ''");
+		expect(compiled.parameters).toContain("");
 	});
 
-	it("emits IS NULL OR ='' for is-blank on a reserved scalar column", () => {
+	it("emits IS NULL OR =-empty for is-blank on a reserved scalar column", () => {
 		const pred = isBlank(prop("patient", "status"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		// Reserved scalar column reads through `<alias>.<col>`
+		// directly; the absence check is `IS NULL`, the blank
+		// addition is the `= <empty-parameter>` disjunction.
 		expect(compiled.sql.toLowerCase()).toContain("is null");
 		expect(compiled.sql.toLowerCase()).toContain(" or ");
-		expect(compiled.sql).toContain("= ''");
+		expect(compiled.parameters).toContain("");
 	});
 
 	// compare(prop, "") — strict empty-string match. Distinct from
@@ -770,29 +791,133 @@ describe("compilePredicate — tenant scope contract", () => {
 });
 
 // ---------------------------------------------------------------
-// Non-term ValueExpression operand — surface the integration
-// boundary cleanly
+// Non-term ValueExpression operand dispatch — seven sites
 // ---------------------------------------------------------------
+//
+// The predicate compiler exposes seven slots that accept any
+// `ValueExpression` (not just the `term` arm): comparison.left /
+// .right, in.left, between.left / .lower / .upper, is-null.left,
+// is-blank.left, and within-distance.center. Each test below
+// builds a non-term expression at the corresponding slot and
+// verifies the dispatch routes through the expression compiler —
+// the SQL contains the expression's signature shape (e.g. an
+// arithmetic operator, a `case when ... end`, a counting
+// subquery) without throwing the legacy "non-term operand"
+// rejection error.
 
-describe("compilePredicate — non-term ValueExpression operands", () => {
-	it("throws on a non-term ValueExpression in compare.left", () => {
-		// The predicate compiler accepts only the `term` arm of
-		// `ValueExpression` at every operand slot. Every other arm
-		// rejects with a clear error at the call site so a non-term
-		// operand never silently emits wrong SQL.
-		const pred = {
-			kind: "eq" as const,
-			left: { kind: "today" as const },
-			right: { kind: "term" as const, term: dateLiteral("2026-01-01") },
-		};
-		expect(() => compilePredicate(pred, makeCtx())).toThrow(/term-arm/i);
+describe("compilePredicate — non-term ValueExpression operand dispatch", () => {
+	it("dispatches arith on compare.left through the expression compiler", () => {
+		// `gt(prop.age + 1, 18)` — the canonical "future-age check"
+		// shape from the AST docs. compare.left is an `arith`, not a
+		// term; the dispatch routes it through compileExpression and
+		// emits the arithmetic SQL.
+		const pred = gt(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+			term(literal(18)),
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		// The arithmetic operator and both operands are present.
+		expect(compiled.sql).toContain("+");
+		expect(compiled.parameters).toContain(1);
+		expect(compiled.parameters).toContain(18);
 	});
 
-	it("throws on a non-term ValueExpression in is-null.left", () => {
-		const pred = {
-			kind: "is-null" as const,
-			left: { kind: "now" as const },
-		};
-		expect(() => compilePredicate(pred, makeCtx())).toThrow(/term-arm/i);
+	it("dispatches count on compare.left through the expression compiler", () => {
+		// `eq(count(parent), 2)` — count's relational subquery on
+		// the LHS of an equality. The dispatch routes it through
+		// compileExpression and emits a counting subquery.
+		const pred = eq(
+			count(ancestorPath(relationStep("parent", "household"))),
+			term(literal(2)),
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql.toLowerCase()).toContain("count(*)");
+		expect(compiled.parameters).toContain(2);
+	});
+
+	it("dispatches arith on in.left through the expression compiler", () => {
+		// `isIn(prop.age + 1, 10, 20, 30)` — arithmetic on the LHS
+		// of an IN list. The dispatch routes through
+		// compileExpression and emits a typed arith expression.
+		const pred = isIn(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+			literal(10),
+			literal(20),
+			literal(30),
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql).toContain("+");
+		expect(compiled.sql.toLowerCase()).toContain(" in (");
+		expect(compiled.parameters).toContain(10);
+		expect(compiled.parameters).toContain(30);
+	});
+
+	it("dispatches arith on between.left with literal bounds through the expression compiler", () => {
+		// `between(prop.age + 1, { lower: 0, upper: 100 })`. The
+		// dispatch routes the arith on `.left` while keeping
+		// literal bounds as terms.
+		const pred = between(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+			{ lower: literal(0), upper: literal(100) },
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql).toContain("+");
+		expect(compiled.sql).toContain(">=");
+		expect(compiled.sql).toContain("<=");
+		expect(compiled.parameters).toContain(0);
+		expect(compiled.parameters).toContain(100);
+	});
+
+	it("dispatches arith on is-null.left as a scalar IS NULL check", () => {
+		// `isNull(prop.age + 1)` — the strict-absent semantic on a
+		// scalar arithmetic expression. The dispatch routes through
+		// compileExpression; the result is a scalar `IS NULL` check
+		// (NOT a JSONB key-existence test, which is reserved for
+		// property-ref operands).
+		const pred = isNull(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql.toLowerCase()).toContain("is null");
+		// The JSONB `?` key-existence operator is property-ref
+		// specific; arithmetic operands route through scalar IS
+		// NULL.
+		expect(compiled.sql).not.toMatch(/\bnot\b\s*\([^)]*\?[^)]*\)/);
+	});
+
+	it("dispatches arith on is-blank.left as a scalar IS NULL OR =-empty check", () => {
+		// `isBlank(prop.age + 1)` — same dispatch as is-null on the
+		// arith arm, with the empty-string disjunction added.
+		const pred = isBlank(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql.toLowerCase()).toContain("is null");
+		expect(compiled.sql.toLowerCase()).toContain(" or ");
+		expect(compiled.parameters).toContain("");
+	});
+
+	it("dispatches a non-term `if` expression on within-distance.center", () => {
+		// `within(prop.loc, if(<true>, "x", "y"), 1000, miles)` — the
+		// conditional expression on the center slot. The dispatch
+		// routes through compileExpression; the conditional resolves
+		// to a CASE WHEN expression, which `split_part` parses for
+		// the lat/lon decomposition. The `if`'s predicate body
+		// recurses back through `compilePredicate` via the
+		// expression compiler's predicate-thunk wiring.
+		const pred = within(
+			prop("patient", "loc"),
+			ifExpr(
+				matchAll(),
+				term(literal("42.37 -71.11 0 0")),
+				term(literal("0 0 0 0")),
+			),
+			1000,
+			"miles",
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql.toLowerCase()).toContain("case when");
+		expect(compiled.sql.toLowerCase()).toContain("st_dwithin(");
+		expect(compiled.parameters).toContain("42.37 -71.11 0 0");
 	});
 });

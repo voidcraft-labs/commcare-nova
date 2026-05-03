@@ -32,12 +32,14 @@
 //
 //   - `->>` returns the value as `text`. The compiler uses this
 //     for every scalar `data_type` (`text`, `int`, `decimal`,
-//     `date`, `time`, `datetime`, `single_select`, `geopoint`) and
-//     applies a Postgres cast (`::int`, `::numeric`, `::date`, etc.)
-//     to lift the text value into the typed comparison world.
-//     Verified at the Postgres docs reference at
-//     `https://www.postgresql.org/docs/16/functions-json.html` —
-//     "JSON Object Field as Text" returns `text`.
+//     `date`, `time`, `datetime`, `single_select`, `geopoint`)
+//     and applies a Postgres cast (`cast(<expr> as integer)`,
+//     `cast(<expr> as numeric)`, `cast(<expr> as date)`, etc.) to
+//     lift the text value into the typed comparison world. Cast
+//     emission goes through Kysely's typed `eb.cast<T>(expr,
+//     dataType)` helper. Verified at the Postgres docs reference
+//     at `https://www.postgresql.org/docs/16/functions-json.html`
+//     — "JSON Object Field as Text" returns `text`.
 //   - `->` returns the value as `jsonb`. The compiler uses this
 //     for `multi_select` because the predicate compiler's
 //     `multi-select-contains` arm needs the JSONB array on the
@@ -49,9 +51,9 @@
 //
 // When a `prop` carries a non-self `via`, the term compiler
 // builds the relation-path leaf via `compileRelationPath` and
-// emits a correlated scalar subquery: `(SELECT
-// (<leaf>.properties ->> 'name')::cast FROM <leaf-aliased-expr>
-// WHERE <leaf>.anchor_case_id = <ctx.anchorAlias>.case_id LIMIT
+// emits a correlated scalar subquery: `(select cast(<leaf>.
+// properties ->> 'name' as <type>) from <leaf-aliased-expr>
+// where <leaf>.anchor_case_id = <ctx.anchorAlias>.case_id limit
 // 1)`. The subquery correlates back to the outer anchor, applies
 // the via's join chain, and returns the property value at the
 // walk's destination. `LIMIT 1` keeps the result scalar — the
@@ -77,9 +79,25 @@
 // every term-read site. Surfacing the fields anyway keeps the
 // context shape uniform for inspection and for forwarding into
 // `compileRelationPath` when a non-self `via` arrives.
+//
+// ## Why `AliasableExpression<unknown>` is the public return type
+//
+// Every arm produces a value-bearing operand — JSONB read, scalar
+// column reference, parameter binding, or correlated scalar
+// subquery. `AliasableExpression<T>` is Kysely's generic operand
+// contract that also exposes `.as(alias)`; every concrete return
+// shape (`ExpressionWrapper`, `RawBuilder`, `SelectQueryBuilder`)
+// implements it. The wider compilers (predicate, expression,
+// integrating callers) consume the result through `eb(...)`,
+// `eb.selectFrom(...).where(...)`, and the `where(...)` clause's
+// `Expression<SqlBool>` accepting surface — each accepts any
+// `Expression<T>` of the right type. Tests call `.as("v")` against
+// the returned value to wrap it in a select column; surfacing
+// `AliasableExpression` (rather than the bare `Expression`) keeps
+// that call site type-checked at the public boundary.
 
-import type { Kysely, RawBuilder } from "kysely";
-import { sql } from "kysely";
+import type { AliasableExpression, ColumnDataType, Kysely } from "kysely";
+import { expressionBuilder } from "kysely";
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
 import { compileRelationPath } from "./compileRelationPath";
@@ -134,8 +152,11 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
 
 /**
  * The Postgres cast token a `data_type` lifts into. The values are
- * Postgres type names (without the leading `::`); the caller
- * applies the cast as `(<expr>)::<cast>` via the `sql` template tag.
+ * Postgres type names; callers apply the cast through Kysely's
+ * `eb.cast<T>(expr, dataType)`. Tokens are spelled in
+ * Kysely-recognised `ColumnDataType` form so the typed builder
+ * accepts them directly without falling back to a raw SQL escape
+ * hatch.
  *
  * Cast choices:
  *
@@ -143,9 +164,11 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
  *     `single_select`, `geopoint`, undefined). `properties->>'X'`
  *     already returns text, but the explicit cast documents intent
  *     and stays uniform with the other arms' shape.
- *   - `int` — `data_type: "int"`. Rejects fractional decoding from
- *     a JSONB number that happens to be stored without a decimal
- *     point.
+ *   - `integer` — `data_type: "int"`. Rejects fractional decoding
+ *     from a JSONB number that happens to be stored without a
+ *     decimal point. Spelled `integer` rather than `int` so the
+ *     typed builder accepts it as a `ColumnDataType` literal;
+ *     Postgres parses the two forms identically.
  *   - `numeric` — `data_type: "decimal"`. Postgres's arbitrary-
  *     precision decimal; matches the JSON Schema generator's
  *     `{ type: "number" }` shape.
@@ -162,10 +185,10 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
  *     `JSONB_READ_OPERATOR_FOR_DATA_TYPE` below.
  */
 export const POSTGRES_CAST_FOR_DATA_TYPE: Readonly<
-	Record<CasePropertyDataType, string>
+	Record<CasePropertyDataType, ColumnDataType>
 > = {
 	text: "text",
-	int: "int",
+	int: "integer",
 	decimal: "numeric",
 	date: "date",
 	time: "time",
@@ -181,13 +204,14 @@ export const POSTGRES_CAST_FOR_DATA_TYPE: Readonly<
  *
  *   - `->>` returns text. Used for every text-flavored arm — the
  *     JSON Schema generator stores these as JSON strings, and the
- *     `::cast` lifts the text into the typed Postgres value.
+ *     outer `cast(... as <type>)` lifts the text into the typed
+ *     Postgres value.
  *   - `->` returns jsonb. Used for `multi_select` because the
  *     predicate compiler's `multi-select-contains` arm operates on
- *     JSONB arrays. Casting the result to `::jsonb` is structurally
- *     redundant (the operator already returns jsonb) but stays
- *     uniform with the other arms' "read + cast" shape and makes
- *     the column-type explicit at the read site.
+ *     JSONB arrays. The `cast(... as jsonb)` wrapper is
+ *     structurally redundant (the operator already returns jsonb)
+ *     but stays uniform with the other arms' "read + cast" shape
+ *     and makes the column-type explicit at the read site.
  */
 const JSONB_READ_OPERATOR_FOR_DATA_TYPE: Readonly<
 	Record<CasePropertyDataType, "->" | "->>">
@@ -351,6 +375,30 @@ export interface TermCompileContext {
 }
 
 // ---------------------------------------------------------------
+// Shared expression builder
+// ---------------------------------------------------------------
+
+/**
+ * The standalone expression builder bound to the case-store
+ * `Database` type with every table in scope. Used by every compiler
+ * helper below to construct typed operands without threading a
+ * Kysely callback through each call site. Kysely's
+ * `expressionBuilder<DB, TB>()` factory returns a builder whose
+ * `eb.ref(...)` / `eb.cast(...)` / `eb.val(...)` calls type-check
+ * against `DB[TB]` columns; with `TB = keyof Database` the
+ * builder accepts column references through any of the three
+ * tables (`cases`, `case_type_schemas`, `case_indices`).
+ *
+ * Strings carrying a runtime alias prefix (`<anchorAlias>.case_id`,
+ * `<leafAlias>.properties`) read as `Database`-table-qualified
+ * `${alias}.${column}` references through the type-erased local
+ * helpers below — TS cannot enumerate the runtime alias accumulation
+ * but the runtime values are always table aliases for the same
+ * tables in the typed scope.
+ */
+const eb = expressionBuilder<Database, keyof Database>();
+
+// ---------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------
 
@@ -363,29 +411,31 @@ export interface TermCompileContext {
  *     four reserved columns), routed through the anchor alias for
  *     self-via reads or through the relation-path leaf alias for
  *     non-self-via reads.
- *   - `literal` → parameter binding via the `sql` template tag for
- *     non-null primitives, the `null` SQL keyword for the null
- *     literal, wrapped in a Postgres cast when the literal carries
- *     a `data_type`.
+ *   - `literal` → typed parameter binding for non-null primitives
+ *     (lifted into the declared `data_type` cast when the literal
+ *     carries one), or the SQL `NULL` keyword for the null literal.
  *   - `input` / `session-user` / `session-context` → parameter
  *     binding from the corresponding `bindings` map; throws a
  *     clear error when the binding is missing.
  *
- * The return type is `RawBuilder<unknown>` rather than the wider
- * `Expression<unknown>` because every arm produces a value-bearing
- * SQL fragment built from the `sql` template tag, and consumers
- * (the predicate compiler / expression compiler / their caller-side
- * `as(...)` aliases) need `RawBuilder`'s `.as(alias)` and
- * `.toOperationNode()` methods that `Expression` alone doesn't
- * expose. The unknown payload is deliberate — each arm resolves to
- * a different per-Postgres-type expression but the runtime
- * dispatches by `term.kind`, and the wider compilers consume the
- * return as a generic operand.
+ * The return type is `AliasableExpression<unknown>` — Kysely's
+ * `.as(alias)`-bearing operand contract that every concrete return
+ * shape (`ExpressionWrapper`, `RawBuilder`, `SelectQueryBuilder`)
+ * implements. Consumers (predicate / expression compilers,
+ * integrating callers) thread the result into `eb(left, op, right)`
+ * binary operations and `where(...)` clauses uniformly; the
+ * select-column tests in this package call `.as("v")` against the
+ * returned value to wrap it in a select column.
+ *
+ * The `unknown` payload is deliberate — each arm resolves to a
+ * different per-Postgres-type expression but the runtime dispatches
+ * by `term.kind`, and the wider compilers consume the return as a
+ * generic operand.
  */
 export function compileTerm(
 	term: Term,
 	ctx: TermCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	switch (term.kind) {
 		case "prop":
 			return compilePropertyRef(term, ctx);
@@ -437,11 +487,12 @@ export function compileTerm(
  *      case type (`term.caseType`).
  *   3. `via` is a non-self relation walk — the term compiler
  *      builds the leaf subquery via `compileRelationPath` and
- *      emits a correlated scalar subquery: `(SELECT
- *      (<leaf>.properties ->> 'name')::cast FROM <leaf-aliased-expr>
- *      WHERE <leaf>.anchor_case_id = <ctx.anchorAlias>.case_id
- *      LIMIT 1)`. The subquery applies the via's join chain inside
- *      its own SQL scope and correlates back to the outer anchor.
+ *      emits a correlated scalar subquery: `(select
+ *      cast(<leaf>.properties ->> 'name' as <type>) from
+ *      <leaf-aliased-expr> where <leaf>.anchor_case_id =
+ *      <ctx.anchorAlias>.case_id limit 1)`. The subquery applies
+ *      the via's join chain inside its own SQL scope and
+ *      correlates back to the outer anchor.
  *      The property's `data_type` is resolved on the destination
  *      case type (NOT on `term.caseType`, which is the originating
  *      scope per the AST contract on `propertyRefSchema.caseType`).
@@ -453,7 +504,7 @@ export function compileTerm(
 function compilePropertyRef(
 	term: Extract<Term, { kind: "prop" }>,
 	ctx: TermCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	const { caseType, property, via } = term;
 	const isSelfVia = via === undefined || via.kind === "self";
 
@@ -497,10 +548,10 @@ function compileSelfViaPropertyRef(args: {
 	caseType: string;
 	property: string;
 	schemas: ReadonlyMap<string, CaseType>;
-}): RawBuilder<unknown> {
+}): AliasableExpression<unknown> {
 	const { anchorAlias, caseType, property, schemas } = args;
 	if (RESERVED_SCALAR_COLUMNS.has(property)) {
-		return sql`${sql.ref(`${anchorAlias}.${property}`)}`;
+		return scalarColumnRef(anchorAlias, property);
 	}
 	const dataType = lookupDataType(caseType, property, schemas);
 	return jsonbColumnRead({ sourceAlias: anchorAlias, property, dataType });
@@ -524,7 +575,7 @@ function compileNonSelfViaPropertyRef(args: {
 	caseType: string;
 	property: string;
 	ctx: TermCompileContext;
-}): RawBuilder<unknown> {
+}): AliasableExpression<unknown> {
 	const { via, anchorAlias, caseType, property, ctx } = args;
 
 	// Resolve the destination case type the walk reaches. The
@@ -559,7 +610,7 @@ function compileNonSelfViaPropertyRef(args: {
 	// JSONB `properties` column with the per-data-type cast.
 	const leafAlias = compiledPath.leafAlias;
 	const innerRead = RESERVED_SCALAR_COLUMNS.has(property)
-		? sql`${sql.ref(`${leafAlias}.${property}`)}`
+		? scalarColumnRef(leafAlias, property)
 		: jsonbColumnRead({
 				sourceAlias: leafAlias,
 				property,
@@ -568,14 +619,30 @@ function compileNonSelfViaPropertyRef(args: {
 
 	// Correlated scalar subquery: select the read expression from
 	// the aliased leaf with a correlation predicate to the outer
-	// anchor's `case_id`. `LIMIT 1` makes the result scalar — the
+	// anchor's `case_id`. `LIMIT 1` keeps the result scalar — the
 	// term compiler's contract is "value-bearing expression";
 	// without `LIMIT 1`, a multi-row leaf would surface as a
 	// "more than one row returned by a subquery used as an
 	// expression" runtime error.
+	//
+	// Type-erased local view via `DynamicCorrelatedQuery` because TS
+	// cannot enumerate the runtime alias through the typed builder
+	// — the leaf alias is `${RELATION_PATH_LEAF_ALIAS}` at depth 0
+	// and `${RELATION_PATH_LEAF_ALIAS}_<N>` at deeper nestings, both
+	// runtime-derived. Each method call's `<alias>.<column>` strings
+	// resolve at runtime against the leaf row's actual columns,
+	// which match `RelationPathLeafRow`'s shape by construction;
+	// the cast at the boundary pins the public `Expression<unknown>`
+	// contract.
 	const leafSubquery = compiledPath.buildLeafSubquery();
-	const correlation = sql`${sql.ref(`${leafAlias}.anchor_case_id`)} = ${sql.ref(`${anchorAlias}.case_id`)}`;
-	return sql`(select ${innerRead} from ${leafSubquery} where ${correlation} limit 1)`;
+	const innerQuery = ctx.db.selectFrom(
+		leafSubquery as unknown as never,
+	) as unknown as DynamicCorrelatedQuery;
+	const correlated = innerQuery
+		.whereRef(`${leafAlias}.anchor_case_id`, "=", `${anchorAlias}.case_id`)
+		.select(innerRead.as("v"))
+		.limit(1);
+	return correlated as unknown as AliasableExpression<unknown>;
 }
 
 /**
@@ -584,20 +651,51 @@ function compileNonSelfViaPropertyRef(args: {
  * dispatch — both paths read JSONB documents the same way, only
  * the source alias differs.
  *
- * `sql.raw` is safe for both `readOperator` and `cast` because
- * each value comes from a closed-enum lookup keyed on
- * `CasePropertyDataType`; no caller-supplied input flows into the
- * raw-emission slot.
+ * Composition: `eb.cast<T>(eb(<properties-ref>, <readOp>, <key>),
+ * <cast>)`. The inner binary expression reads the JSONB key via
+ * `->>` (text) or `->` (jsonb); the outer cast lifts the read into
+ * the typed Postgres value the predicate / expression compilers
+ * compare against. Both `readOp` and `cast` come from closed-enum
+ * lookups keyed on `CasePropertyDataType`, so the typed builder's
+ * accepted-string-literal surfaces are uniformly satisfied.
  */
 function jsonbColumnRead(args: {
 	sourceAlias: string;
 	property: string;
 	dataType: CasePropertyDataType;
-}): RawBuilder<unknown> {
+}): AliasableExpression<unknown> {
 	const { sourceAlias, property, dataType } = args;
 	const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
 	const readOperator = JSONB_READ_OPERATOR_FOR_DATA_TYPE[dataType];
-	return sql`(${sql.ref(`${sourceAlias}.properties`)} ${sql.raw(readOperator)} ${property})::${sql.raw(cast)}`;
+	const propertiesRef = `${sourceAlias}.properties` as const;
+	// Type-erased binary-op call: the runtime alias prefix produces
+	// a string the typed builder cannot enumerate against
+	// `Database`. The runtime call resolves correctly because the
+	// alias names a `cases` (or `cases`-shaped leaf) row at every
+	// concrete site; the cast pins the public expression type.
+	const jsonRead = (eb as DynamicExprBuilder)(
+		propertiesRef,
+		readOperator,
+		property,
+	);
+	return eb.cast(jsonRead, cast);
+}
+
+/**
+ * Emit a reserved scalar column reference (`<alias>.<column>`).
+ * Used both for self-via reads off the anchor alias and for
+ * non-self-via reads off the relation-path leaf alias. The runtime
+ * alias prefix is type-erased through `DynamicExprBuilder` because
+ * the typed builder cannot enumerate `${alias}.${column}` against
+ * `Database`'s static column set; the actual alias names a
+ * `cases`-shaped row at every concrete site, so the runtime
+ * column reference is well-formed.
+ */
+function scalarColumnRef(
+	alias: string,
+	column: string,
+): AliasableExpression<unknown> {
+	return (eb as DynamicExprBuilder).ref(`${alias}.${column}`);
 }
 
 /**
@@ -748,40 +846,44 @@ function lookupDataType(
  *      `null` is handled specially because SQL's `NULL` is a
  *      keyword, not a value, and binding it as a parameter inflates
  *      the parameter list without expressivity gain.
- *   2. Parameter binding — non-null primitives flow through Kysely's
- *      `${value}` substitution which binds as a parameter (`$N`
+ *   2. Parameter binding — non-null primitives flow through
+ *      Kysely's `eb.val(value)` which binds as a parameter (`$N`
  *      placeholder). Inlining values is unsafe (no escaping) and
  *      shifts plan-cache invariants off-spec; binding is the
  *      canonical pattern.
  *   3. Optional `data_type` cast — when the literal carries an
  *      explicit `data_type` (typed temporal literals construct
  *      this shape via `dateLiteral` / `datetimeLiteral` /
- *      `timeLiteral` builders), the compiler emits `$N::cast` so
- *      the bound parameter is well-typed for comparison against a
+ *      `timeLiteral` builders), the compiler emits `cast($N as
+ *      <type>)` via `eb.cast<T>(eb.val(value), dataType)` so the
+ *      bound parameter is well-typed for comparison against a
  *      typed `prop` read. Without `data_type`, the parameter is
  *      bound bare and Postgres's implicit type coercion handles
  *      the comparison.
  */
 function compileLiteral(
 	term: Extract<Term, { kind: "literal" }>,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	const { value, data_type } = term;
 
-	// `null` literal: emit the SQL `NULL` keyword. Kysely's `eb.lit`
-	// is the canonical way to embed a literal token rather than a
-	// parameter; for `null` it produces the keyword.
+	// `null` literal: emit the SQL `NULL` keyword via `eb.lit(null)`
+	// — Kysely inlines the keyword rather than binding a parameter,
+	// since SQL's NULL is a literal token, not a value.
 	if (value === null) {
-		return sql`null`;
+		return eb.lit(null);
 	}
 
-	// Bind the value as a parameter. The `${value}` substitution in
-	// the `sql` template tag treats it as a parameter (matching
-	// Kysely's docs § "raw SQL"); `data_type` adds the cast.
+	// Bind the value as a parameter via `eb.val(value)`. The
+	// optional `data_type` lifts the parameter into a typed
+	// Postgres value via `eb.cast<T>(expr, dataType)` so the
+	// resulting comparison composes well against a typed `prop`
+	// read. Without `data_type`, the parameter is bound bare and
+	// Postgres's implicit type coercion handles the comparison.
 	if (data_type !== undefined) {
 		const cast = POSTGRES_CAST_FOR_DATA_TYPE[data_type];
-		return sql`${value}::${sql.raw(cast)}`;
+		return eb.cast(eb.val(value), cast);
 	}
-	return sql`${value}`;
+	return eb.val(value);
 }
 
 // ---------------------------------------------------------------
@@ -810,13 +912,76 @@ function compileBoundRef(
 	key: string,
 	bindings: ReadonlyMap<string, TermBindingValue> | undefined,
 	descriptor: string,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	if (bindings === undefined || !bindings.has(key)) {
 		throw new Error(
 			`compileTerm: missing binding for ${descriptor} — the wider pipeline must thread runtime values through ctx.bindings before calling compileTerm`,
 		);
 	}
 	const value = bindings.get(key);
-	// `${value}` substitution binds as a parameter.
-	return sql`${value}`;
+	// `eb.val(value)` binds the runtime value as a parameter.
+	return eb.val(value);
 }
+
+// ---------------------------------------------------------------
+// Type-erased typed-builder views
+// ---------------------------------------------------------------
+//
+// Two narrow type-erased aliases exist because Kysely's typed
+// builder cannot enumerate runtime-derived alias / column strings
+// against `Database`'s static column set:
+//
+//   - `${anchorAlias}.${column}` references on the term layer
+//     point at a `cases`-shaped row, but the alias is a runtime
+//     value the caller threads through `TermCompileContext`.
+//   - The leaf-subquery alias from `compileRelationPath` is
+//     `RELATION_PATH_LEAF_ALIAS` (or its depth suffix) at runtime;
+//     the typed builder cannot resolve it against `Database`'s
+//     table set because the leaf is a synthesized subquery, not a
+//     table key.
+//
+// Both views surface only the methods the call site uses; the
+// underlying concrete builder still drives runtime dispatch.
+
+/**
+ * Type-erased local view of the standalone expression builder for
+ * binary-op calls and column references whose first argument is a
+ * runtime-derived `${alias}.${column}` string. The runtime call
+ * resolves correctly because every concrete site names a
+ * `cases`-shaped row at the alias position; the cast pins the
+ * public `AliasableExpression<unknown>` contract.
+ */
+type DynamicExprBuilder = {
+	(left: string, op: string, right: unknown): AliasableExpression<unknown>;
+	ref: (reference: string) => AliasableExpression<unknown>;
+};
+
+/**
+ * Type-erased local view of the correlated scalar subquery's
+ * builder during `compileNonSelfViaPropertyRef`. The subquery
+ * starts from the leaf `AliasedExpression`, applies a correlation
+ * predicate against the outer anchor's `case_id`, projects the
+ * inner read column, and limits to one row. The typed builder
+ * cannot enumerate the leaf alias against `Database`'s table keys
+ * (the leaf is a synthesized subquery), so the calls operate
+ * through this minimal interface and the cast back to
+ * `AliasableExpression<unknown>` happens at the public boundary.
+ *
+ * Each method returns the same `DynamicCorrelatedQuery` shape so
+ * the chain composes without re-narrowing.
+ */
+interface DynamicCorrelatedQuery {
+	whereRef: (left: string, op: string, right: string) => DynamicCorrelatedQuery;
+	select: (selection: AliasedExpressionLike) => DynamicCorrelatedQuery;
+	limit: (n: number) => DynamicCorrelatedQuery;
+}
+
+/**
+ * Minimum surface needed by `DynamicCorrelatedQuery.select` — the
+ * expression returned by `<column-read>.as("v")`. Surfaces only
+ * the marker shape the typed builder's `select(...)` accepts as
+ * an `AliasedExpression`.
+ */
+type AliasedExpressionLike = {
+	readonly expression: unknown;
+};

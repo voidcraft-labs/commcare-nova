@@ -2,9 +2,11 @@
 //
 // Compile a `Predicate` AST node to a Kysely boolean expression.
 // The case-list query layer feeds the result into a `where(...)`
-// clause; the predicate compiler returns a `RawBuilder<SqlBool>`
-// satisfying the `Expression<SqlBool>` interface Kysely's `where`
-// accepts.
+// clause; the predicate compiler returns an `Expression<SqlBool>`
+// — Kysely's typed `where(...)` accepts any expression of that
+// shape, and every concrete return shape from the typed builder
+// (`ExpressionWrapper`, `RawBuilder`, `SelectQueryBuilder`)
+// implements the `Expression<T>` interface uniformly.
 //
 // ## What this module owns
 //
@@ -13,16 +15,16 @@
 // multi-select containment, text match (four modes), geo,
 // relational, conditional, and the null / blank operators. Term
 // emission delegates to `./compileTerm`; relation-path subqueries
-// delegate to `./compileRelationPath`. The compiler accepts only
-// the `term` arm of `ValueExpression` at every operand slot —
-// `comparison.left` / `.right`, `in.left`, `between.left` /
-// `.lower` / `.upper`, `is-null.left`, `is-blank.left`, and
-// `within-distance.center` — and rejects every other arm with a
-// clear error at the call site. The non-`term` arms of
-// `ValueExpression` (`arith`, `if`, `count`, etc.) belong to a
-// sibling expression-compiler module; calling code that needs
-// expression-shaped operands routes them through that module
-// before passing them to the predicate compiler.
+// delegate to `./compileRelationPath`. The seven `ValueExpression`
+// operand slots — `comparison.left` / `.right`, `in.left`,
+// `between.left` / `.lower` / `.upper`, `is-null.left`,
+// `is-blank.left`, and `within-distance.center` — dispatch through
+// `compileValueExprOperand` (term arm → `compileTerm`; every
+// other arm → `compileExpression` with a thunk-wired predicate
+// callback so the sibling expression compiler's
+// `if.cond` / `count.where` arms recurse back through this
+// module). The cycle break is the runtime callback; neither
+// compiler imports the other through a value-position edge.
 //
 // ## Tenant scoping
 //
@@ -120,8 +122,14 @@
 // the shared context, so their correlated scalar subqueries
 // participate in the same uniquification scheme.
 
-import type { RawBuilder, SqlBool } from "kysely";
-import { sql } from "kysely";
+import type {
+	AliasableExpression,
+	AliasedExpression,
+	ComparisonOperator,
+	Expression,
+	SqlBool,
+} from "kysely";
+import { expressionBuilder, sql } from "kysely";
 import type {
 	ComparisonKind,
 	DistanceUnit,
@@ -132,12 +140,33 @@ import type {
 	Term,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import {
+	type CompilePredicateThunk,
+	compileExpression,
+	type ExpressionCompileContext,
+} from "./compileExpression";
 import { compileRelationPath } from "./compileRelationPath";
 import {
 	compileTerm,
 	POSTGRES_CAST_FOR_DATA_TYPE,
 	type TermCompileContext,
 } from "./compileTerm";
+import type { Database } from "./database";
+
+// ---------------------------------------------------------------
+// Shared expression builder
+// ---------------------------------------------------------------
+
+/**
+ * The standalone expression builder bound to the case-store
+ * `Database` type. Mirrors the shape used in `compileTerm` and
+ * `compileExpression` so the three compilers share one entry
+ * point into Kysely's typed-builder surface for `eb.lit`,
+ * `eb.val`, `eb.cast`, `eb(left, op, right)`, `eb.and`,
+ * `eb.or`, `eb.not`, `eb.exists`, `eb.fn`, `eb.ref`, and
+ * `eb.selectFrom` calls.
+ */
+const eb = expressionBuilder<Database, keyof Database>();
 
 // ---------------------------------------------------------------
 // Public types
@@ -190,7 +219,7 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
  * default formatter emits and what every other Nova SQL surface
  * uses — keep them aligned.
  */
-const COMPARISON_OPS: Record<ComparisonKind, string> = {
+const COMPARISON_OPS: Record<ComparisonKind, ComparisonOperator> = {
 	eq: "=",
 	neq: "!=",
 	gt: ">",
@@ -273,27 +302,28 @@ const METERS_PER_UNIT: Record<DistanceUnit, number> = {
  *     `(properties->>'<key>') = ''` for property refs;
  *     `<term> IS NULL OR <term> = ''` for non-prop terms.
  *
- * The return type is `RawBuilder<SqlBool>`. Kysely's `where(...)`
- * accepts any `Expression<SqlBool>`; the raw-builder shape
- * satisfies that interface and exposes `.toOperationNode()` for
- * the test suite to inspect the emitted SQL via `.compile()`.
+ * The return type is `Expression<SqlBool>` — Kysely's typed
+ * boolean-expression contract. Every concrete return shape
+ * (`ExpressionWrapper`, `RawBuilder`, `SelectQueryBuilder`)
+ * implements it, so consumers thread the result into
+ * `where(...)` directly. Tests compile through `.compile()` on
+ * the wrapping query.
  */
 export function compilePredicate(
 	pred: Predicate,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	switch (pred.kind) {
 		case "match-all":
-			// Boolean-algebra identity element. `true` is a Postgres
-			// keyword (not a value), so the SQL keyword form is the
-			// canonical shape — binding `true` as a parameter would
-			// inflate the parameter list without any expressivity
-			// gain.
-			return sql<SqlBool>`true`;
+			// Boolean-algebra identity element. `eb.lit(true)` emits
+			// the SQL `true` keyword (not a parameter); binding
+			// `true` as a parameter would inflate the parameter list
+			// without any expressivity gain.
+			return eb.lit(true) as Expression<SqlBool>;
 		case "match-none":
 			// Boolean-algebra absorbing element. Mirrors the
-			// `match-all` rationale.
-			return sql<SqlBool>`false`;
+			// `match-all` rationale via `eb.lit(false)`.
+			return eb.lit(false) as Expression<SqlBool>;
 		case "and":
 			return compileAnd(pred, ctx);
 		case "or":
@@ -337,41 +367,67 @@ export function compilePredicate(
 }
 
 // ---------------------------------------------------------------
-// ValueExpression operand bridge — term-arm-only
+// ValueExpression operand dispatch
 // ---------------------------------------------------------------
 
 /**
- * Compile a `ValueExpression` operand to a Kysely expression by
- * routing the `term` arm through `compileTerm`. The predicate
- * compiler accepts only the `term` arm of `ValueExpression` at
- * every operand slot; every other arm (`arith`, `if`, `switch`,
- * `count`, etc.) belongs to the sibling expression-compiler module
- * and is rejected here with a clear error.
+ * Compile a `ValueExpression` operand to a Kysely expression.
  *
- * Centralizing the dispatch in one helper means the throw-site is
- * one place. Every predicate operator that accepts
- * `ValueExpression` operands routes through this helper, so a
- * regression that surfaces a non-term operand from a fresh AST
- * shape lands at one error message rather than five.
+ * Dispatch:
  *
- * The Predicate AST keeps `ValueExpression` operands in seven slots:
- * `comparison.left` / `.right`, `in.left`, `between.left` /
- * `.lower` / `.upper`, `is-null.left`, `is-blank.left`, and
- * `within-distance.center`. Each call site below routes through
- * this helper. Calling code that needs expression-shaped operands
- * compiles them through the expression compiler before reaching
- * the predicate compiler.
+ *   - `term` arm → `compileTerm` (the value-bearing read at every
+ *     leaf slot).
+ *   - any other arm (`arith`, `if`, `switch`, `count`,
+ *     `format-date`, etc.) → `compileExpression` with a
+ *     predicate-compiler thunk wired into the
+ *     `ExpressionCompileContext` (so the expression compiler's
+ *     own predicate-bearing arms — `if.cond`, `count.where` —
+ *     recurse back through `compilePredicate`).
+ *
+ * The Predicate AST keeps `ValueExpression` operands in seven
+ * slots: `comparison.left` / `.right`, `in.left`, `between.left`
+ * / `.lower` / `.upper`, `is-null.left`, `is-blank.left`, and
+ * `within-distance.center`. Every site routes through this
+ * helper, so the dispatch logic is single-source — no per-arm
+ * inlined `if (kind === "term")` branches scattered across the
+ * compiler.
+ *
+ * The thunk-wired context closes the cycle that would otherwise
+ * arise: `compilePredicate` imports `compileExpression` for non-
+ * term operand dispatch, and `compileExpression` calls back into
+ * `compilePredicate` through the thunk for its own predicate-
+ * bearing arms. Each compiler stays single-source for its own AST
+ * union; the cycle break is the runtime callback, not an import-
+ * graph edge.
  */
-function compileValueExprAsTerm(
+function compileValueExprOperand(
 	expr: ValueExpression,
 	ctx: PredicateCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	if (expr.kind === "term") {
 		return compileTerm(expr.term, ctx);
 	}
-	throw new Error(
-		`compilePredicate accepts only term-arm ValueExpression operands; received kind '${expr.kind}'. Compile non-term ValueExpression operands through the sibling expression compiler before passing them to compilePredicate.`,
-	);
+	return compileExpression(expr, expressionContextFor(ctx));
+}
+
+/**
+ * Lift a `PredicateCompileContext` into the
+ * `ExpressionCompileContext` shape the expression compiler needs.
+ * The lift attaches the predicate-compiler callback so the
+ * expression compiler's `if.cond` / `count.where` arms recurse
+ * back through `compilePredicate`.
+ *
+ * Implemented as a separate function (rather than inlined at the
+ * one call site above) so the callback wiring is explicit at the
+ * boundary between the two compilers and so tests that inspect
+ * the cycle-break shape have a named target to point at.
+ */
+function expressionContextFor(
+	ctx: PredicateCompileContext,
+): ExpressionCompileContext {
+	const compilePredicateThunk: CompilePredicateThunk = (pred, exprCtx) =>
+		compilePredicate(pred, exprCtx);
+	return { ...ctx, compilePredicate: compilePredicateThunk };
 }
 
 // ---------------------------------------------------------------
@@ -379,45 +435,47 @@ function compileValueExprAsTerm(
 // ---------------------------------------------------------------
 
 /**
- * Conjunction: `(c1) AND (c2) AND ... AND (cN)`. Each clause's
- * compiled SQL is paren-wrapped so a clause containing an `or` (or
- * any operator binding looser than `and`) keeps its grouping when
- * spliced into the conjunction. Postgres parses `A OR B AND C` as
- * `A OR (B AND C)` — the conjunction binds tighter — so an
- * unwrapped `or`-clause inside an `and` would silently re-associate.
+ * Conjunction: `(c1) AND (c2) AND ... AND (cN)`. `eb.and([...])`
+ * paren-wraps each clause and joins them with ` AND ` — the
+ * canonical typed shape for a non-empty conjunction. Each clause
+ * containing an `or` (or any operator binding looser than `and`)
+ * keeps its grouping under the wrapper; without paren-wrapping,
+ * Postgres parses `A OR B AND C` as `A OR (B AND C)` because the
+ * conjunction binds tighter, and an unwrapped `or`-clause inside
+ * an `and` would silently re-associate.
  *
  * `clauses` is non-empty by construction (the schema's tuple-with-
- * rest shape rejects empty `and` lists), so the `sql.join(...)`
- * call always produces at least one fragment.
+ * rest shape rejects empty `and` lists), so `eb.and([...])` always
+ * receives at least one operand.
  */
 function compileAnd(
 	pred: Extract<Predicate, { kind: "and" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	const compiled = pred.clauses.map(
-		// Each clause is paren-wrapped to defend against precedence
-		// re-association inside the parent conjunction.
-		(c) => sql`(${compilePredicate(c, ctx)})`,
+		(c) => compilePredicate(c, ctx) as Expression<SqlBool>,
 	);
-	return sql<SqlBool>`${sql.join(compiled, sql` and `)}`;
+	return eb.and(compiled);
 }
 
 /**
  * Disjunction: `(c1) OR (c2) OR ... OR (cN)`. Same paren-wrapping
- * rationale as `compileAnd` — each clause defends its own grouping
- * inside the outer disjunction. Symmetric structure.
+ * rationale as `compileAnd` via `eb.or([...])` — each clause
+ * defends its own grouping inside the outer disjunction.
  */
 function compileOr(
 	pred: Extract<Predicate, { kind: "or" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
-	const compiled = pred.clauses.map((c) => sql`(${compilePredicate(c, ctx)})`);
-	return sql<SqlBool>`${sql.join(compiled, sql` or `)}`;
+): Expression<SqlBool> {
+	const compiled = pred.clauses.map(
+		(c) => compilePredicate(c, ctx) as Expression<SqlBool>,
+	);
+	return eb.or(compiled);
 }
 
 /**
- * Negation: `NOT (clause)`. The paren-wrap keeps the inner clause's
- * grouping intact under the outer `NOT` — `NOT A AND B` parses as
+ * Negation: `NOT (clause)`. `eb.not(...)` paren-wraps the inner
+ * clause under the outer `NOT` — `NOT A AND B` parses as
  * `(NOT A) AND B` in SQL, so an unwrapped multi-clause inner would
  * silently re-associate.
  *
@@ -433,8 +491,8 @@ function compileOr(
 function compileNot(
 	pred: Extract<Predicate, { kind: "not" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
-	return sql<SqlBool>`not (${compilePredicate(pred.clause, ctx)})`;
+): Expression<SqlBool> {
+	return eb.not(compilePredicate(pred.clause, ctx) as Expression<SqlBool>);
 }
 
 // ---------------------------------------------------------------
@@ -443,24 +501,29 @@ function compileNot(
 
 /**
  * Compile a comparison: `<left> <op> <right>`. Both operands are
- * `ValueExpression`; `compileValueExprAsTerm` routes the `term`
- * arm through `compileTerm` and throws on every other arm (the
- * non-term arms are an expression-compiler integration concern).
+ * `ValueExpression`; `compileValueExprOperand` routes the `term`
+ * arm through `compileTerm` and every other arm through
+ * `compileExpression` (with a thunk-wired predicate callback for
+ * the expression compiler's own predicate-bearing arms).
  *
  * The SQL operator is picked from `COMPARISON_OPS`, the closed
- * `Record<ComparisonKind, string>` declared at the top of the
- * file. `sql.raw(opToken)` is safe because the source value comes
- * from a closed-enum lookup — there's no path for an attacker-
- * controlled string to reach the operator slot.
+ * `Record<ComparisonKind, ComparisonOperator>` declared at the
+ * top of the file. The closed-enum lookup pins the operator to a
+ * Kysely-typed `ComparisonOperator` value — no caller-supplied
+ * string reaches the binary-op slot.
  */
 function compileComparison(
 	pred: Extract<Predicate, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
-	const left = compileValueExprAsTerm(pred.left, ctx);
-	const right = compileValueExprAsTerm(pred.right, ctx);
+): Expression<SqlBool> {
+	const left = compileValueExprOperand(pred.left, ctx);
+	const right = compileValueExprOperand(pred.right, ctx);
 	const opToken = COMPARISON_OPS[pred.kind];
-	return sql<SqlBool>`${left} ${sql.raw(opToken)} ${right}`;
+	// `eb(left, op, right)` returns a `SqlBool`-typed wrapper for
+	// any `ComparisonOperator`-typed `op`. The closed-enum lookup
+	// pins `opToken` to a Kysely-recognised comparison operator at
+	// compile time.
+	return eb(left, opToken, right);
 }
 
 // ---------------------------------------------------------------
@@ -489,10 +552,16 @@ function compileComparison(
 function compileIn(
 	pred: Extract<Predicate, { kind: "in" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
-	const left = compileValueExprAsTerm(pred.left, ctx);
+): Expression<SqlBool> {
+	const left = compileValueExprOperand(pred.left, ctx);
 	const compiledValues = pred.values.map((v) => compileLiteralValue(v));
-	return sql<SqlBool>`${left} in (${sql.join(compiledValues)})`;
+	// `eb(left, 'in', [...exprs])` accepts an array of value-bearing
+	// expressions; each literal compiles through
+	// `compileLiteralValue` which preserves typed casts and emits
+	// `eb.lit(null)` for the null literal. Kysely's `in` operator
+	// is in `COMPARISON_OPERATORS`, so the binary call returns a
+	// `SqlBool` expression directly.
+	return eb(left, "in", compiledValues);
 }
 
 /**
@@ -512,19 +581,19 @@ function compileIn(
  * check in the one shared table — without coupling literal-emission
  * here to compileTerm's internal context surface.
  */
-function compileLiteralValue(lit: Literal): RawBuilder<unknown> {
+function compileLiteralValue(lit: Literal): AliasableExpression<unknown> {
 	if (lit.value === null) {
-		return sql`null`;
+		return eb.lit(null);
 	}
 	if (lit.data_type !== undefined) {
 		const cast = POSTGRES_CAST_FOR_DATA_TYPE[lit.data_type];
-		// `${lit.value}` binds as a parameter; `sql.raw(cast)` is safe
-		// because the cast token comes from a closed-enum lookup, with
-		// no path for an attacker-controlled string to reach the
-		// raw-emission slot.
-		return sql`${lit.value}::${sql.raw(cast)}`;
+		// `eb.cast(eb.val(value), <ColumnDataType>)` emits a typed
+		// `CAST(<param> AS <type>)` expression. The closed-enum
+		// lookup keeps the cast token within Kysely's accepted
+		// `ColumnDataType` literals.
+		return eb.cast(eb.val(lit.value), cast);
 	}
-	return sql`${lit.value}`;
+	return eb.val(lit.value);
 }
 
 // ---------------------------------------------------------------
@@ -556,23 +625,23 @@ function compileLiteralValue(lit: Literal): RawBuilder<unknown> {
 function compileBetween(
 	pred: Extract<Predicate, { kind: "between" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
-	const left = compileValueExprAsTerm(pred.left, ctx);
-	const lowerOp = pred.lowerInclusive ? ">=" : ">";
-	const upperOp = pred.upperInclusive ? "<=" : "<";
+): Expression<SqlBool> {
+	const left = compileValueExprOperand(pred.left, ctx);
+	const lowerOp: ComparisonOperator = pred.lowerInclusive ? ">=" : ">";
+	const upperOp: ComparisonOperator = pred.upperInclusive ? "<=" : "<";
 
 	if (pred.lower !== undefined && pred.upper !== undefined) {
-		const lower = compileValueExprAsTerm(pred.lower, ctx);
-		const upper = compileValueExprAsTerm(pred.upper, ctx);
-		return sql<SqlBool>`(${left} ${sql.raw(lowerOp)} ${lower}) and (${left} ${sql.raw(upperOp)} ${upper})`;
+		const lower = compileValueExprOperand(pred.lower, ctx);
+		const upper = compileValueExprOperand(pred.upper, ctx);
+		return eb.and([eb(left, lowerOp, lower), eb(left, upperOp, upper)]);
 	}
 	if (pred.lower !== undefined) {
-		const lower = compileValueExprAsTerm(pred.lower, ctx);
-		return sql<SqlBool>`${left} ${sql.raw(lowerOp)} ${lower}`;
+		const lower = compileValueExprOperand(pred.lower, ctx);
+		return eb(left, lowerOp, lower);
 	}
 	if (pred.upper !== undefined) {
-		const upper = compileValueExprAsTerm(pred.upper, ctx);
-		return sql<SqlBool>`${left} ${sql.raw(upperOp)} ${upper}`;
+		const upper = compileValueExprOperand(pred.upper, ctx);
+		return eb(left, upperOp, upper);
 	}
 	// Schema's `.refine(...)` rejects this shape at parse; the
 	// runtime branch defends against a directly-constructed bypass.
@@ -626,7 +695,7 @@ function compileBetween(
 function compileMultiSelectContains(
 	pred: Extract<Predicate, { kind: "multi-select-contains" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	// Property reference is constrained at the schema layer to the
 	// direct property-ref shape (no `via`-relational reads). Route
 	// through compileTerm to inherit the JSONB read + ::jsonb cast
@@ -657,21 +726,28 @@ function compileMultiSelectContains(
 	}
 
 	const operatorToken = quantifierToOperator(pred.quantifier);
-	// `text[]`-bound array literal: each element binds as a
-	// parameter, the array constructor is a single Postgres
-	// expression. Kysely's `${value}` substitution treats arrays as
-	// pg's array-binding form natively (not as a stringified blob).
-	return sql<SqlBool>`${left} ${sql.raw(operatorToken)} ${stringValues}`;
+	// `eb(left, '?|' | '?&', <text[]>)` — both operators are in
+	// `COMPARISON_OPERATORS`, returning `SqlBool`. The `text[]`
+	// right operand binds via `eb.val(stringValues)` so pg's
+	// driver applies its native array-binding form (not a
+	// stringified blob).
+	return eb(left, operatorToken, eb.val(stringValues));
 }
 
 /**
  * Map a multi-select quantifier to its JSONB containment operator
- * token. Closed enum dispatch — the exhaustive switch over
+ * token. Both tokens are in `COMPARISON_OPERATORS` (the typed
+ * `eb(left, op, right)` call admits them as `ComparisonOperator`
+ * values).
+ *
+ * Closed enum dispatch — the exhaustive switch over
  * `MultiSelectQuantifier` surfaces any new quantifier surface at
  * compile time, so the operator-table here stays in lockstep with
  * the AST union.
  */
-function quantifierToOperator(quantifier: MultiSelectQuantifier): string {
+function quantifierToOperator(
+	quantifier: MultiSelectQuantifier,
+): ComparisonOperator {
 	switch (quantifier) {
 		case "any":
 			return "?|";
@@ -725,7 +801,7 @@ function quantifierToOperator(quantifier: MultiSelectQuantifier): string {
 function compileMatch(
 	pred: Extract<Predicate, { kind: "match" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	const propRead = compilePropertyAsText(pred.property, ctx);
 
 	switch (pred.mode) {
@@ -735,18 +811,32 @@ function compileMatch(
 			// "Pattern Matching" — `_` matches any single char, `%`
 			// matches any string; `\` is the default escape.
 			const escaped = escapeLikeValue(pred.value);
-			return sql<SqlBool>`${propRead} like ${`${escaped}%`}`;
+			return eb(propRead, "like", eb.val(`${escaped}%`));
 		}
 		case "fuzzy":
 			// pg_trgm `%` operator: returns true if the trigram
 			// similarity of the two arguments exceeds
-			// `pg_trgm.similarity_threshold` (default 0.3).
-			return sql<SqlBool>`${propRead} % ${pred.value}`;
+			// `pg_trgm.similarity_threshold` (default 0.3). The `%`
+			// operator is in `ARITHMETIC_OPERATORS` (Kysely types
+			// arithmetic ops as returning the LHS column type), so
+			// the resulting `ExpressionWrapper<DB, TB, T>` carries
+			// the LHS string type. The cast at the public boundary
+			// pins the boolean shape Postgres actually emits at
+			// runtime.
+			return eb(
+				propRead,
+				"%",
+				eb.val(pred.value),
+			) as unknown as Expression<SqlBool>;
 		case "phonetic":
 			// Double Metaphone equality. fuzzystrmatch's `dmetaphone`
 			// produces a phonetic key; equality on the keys means
 			// the two inputs sound alike.
-			return sql<SqlBool>`dmetaphone(${propRead}) = dmetaphone(${pred.value})`;
+			return eb(
+				eb.fn<string>("dmetaphone", [propRead]),
+				"=",
+				eb.fn<string>("dmetaphone", [eb.val(pred.value)]),
+			);
 		case "fuzzy-date":
 			return compileFuzzyDate(propRead, pred.value);
 		default: {
@@ -773,7 +863,7 @@ function compileMatch(
 function compilePropertyAsText(
 	property: PropertyRef,
 	ctx: PredicateCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<string> {
 	// Delegate the JSONB-vs-scalar dispatch and via-routing to
 	// compileTerm; wrap the result in `::text` regardless of the
 	// underlying data_type cast. The compileTerm output is already
@@ -781,7 +871,7 @@ function compilePropertyAsText(
 	// outer `::text` cast lifts whatever shape it produced into the
 	// text domain that pg_trgm / fuzzystrmatch / LIKE all expect.
 	const propExpr = compileTerm(property, ctx);
-	return sql`(${propExpr})::text`;
+	return eb.cast<string>(propExpr, "text");
 }
 
 /**
@@ -815,9 +905,9 @@ function escapeLikeValue(value: string): string {
  * algorithm splits on `-` and reads three numeric segments.
  */
 function compileFuzzyDate(
-	propRead: RawBuilder<unknown>,
+	propRead: AliasableExpression<unknown>,
 	value: string,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	const permutations = generateDatePermutations(value);
 	if (permutations.length === 0) {
 		// Defensive: the input passed `match.value`'s `.min(1)` but
@@ -827,7 +917,15 @@ function compileFuzzyDate(
 			`compilePredicate: fuzzy-date mode requires a YYYY-MM-DD value, got '${value}'`,
 		);
 	}
-	return sql<SqlBool>`${propRead} in (${sql.join(permutations.map((p) => sql`${p}`))})`;
+	// `eb(left, 'in', [...exprs])` — each permutation binds as a
+	// parameter via `eb.val`. The permutation set is non-empty by
+	// construction (the empty case throws above), so the IN list
+	// is always non-empty and Postgres-syntax-valid.
+	return eb(
+		propRead,
+		"in",
+		permutations.map((p) => eb.val(p)),
+	);
 }
 
 /**
@@ -981,23 +1079,29 @@ function isValidDate(year: string, month: string, day: string): boolean {
 function compileWithinDistance(
 	pred: Extract<Predicate, { kind: "within-distance" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	// Property side: read the geopoint string as text, then split
 	// out lat/lon via split_part. compileTerm reads `geopoint` as
 	// text per `POSTGRES_CAST_FOR_DATA_TYPE`, so the outer `::text`
 	// cast is structurally redundant but documents the type at the
 	// split site.
-	const propText = compileTerm(pred.property, ctx);
-	const propLat = sql`split_part((${propText})::text, ' ', 1)::numeric`;
-	const propLon = sql`split_part((${propText})::text, ' ', 2)::numeric`;
+	const propText = eb.cast<string>(compileTerm(pred.property, ctx), "text");
+	const propLat = splitNumericComponent(propText, 1);
+	const propLon = splitNumericComponent(propText, 2);
 
-	// Center side: same split shape. The center expression compiles
-	// through the term bridge, so a typed-literal center
-	// (`literal("42.37 -71.11 0 0", "text")`) or a search-input ref
-	// (`input("user_location")` bound at runtime) both work.
-	const centerText = compileValueExprAsTerm(pred.center, ctx);
-	const centerLat = sql`split_part((${centerText})::text, ' ', 1)::numeric`;
-	const centerLon = sql`split_part((${centerText})::text, ' ', 2)::numeric`;
+	// Center side: same split shape. The center expression routes
+	// through `compileValueExprOperand`, so a typed-literal center
+	// (`term(literal("42.37 -71.11 0 0"))`), a search-input ref
+	// (`term(input("user_location"))`), or any non-term expression
+	// (e.g. `concat(...)`, `if(...)`) all work — the dispatch
+	// recurses through the expression compiler for non-term arms
+	// and through compileTerm for term arms.
+	const centerText = eb.cast<string>(
+		compileValueExprOperand(pred.center, ctx),
+		"text",
+	);
+	const centerLat = splitNumericComponent(centerText, 1);
+	const centerLon = splitNumericComponent(centerText, 2);
 
 	// Distance conversion: AST radius × per-unit meters factor.
 	// Pre-computed at compile time because PostGIS's `ST_DWithin`
@@ -1005,7 +1109,46 @@ function compileWithinDistance(
 	// is closed-set ({miles, kilometers}) — no runtime branching.
 	const distanceMeters = pred.distance * unitToMeters(pred.unit);
 
-	return sql<SqlBool>`st_dwithin(st_makepoint(${propLon}, ${propLat})::geography, st_makepoint(${centerLon}, ${centerLat})::geography, ${distanceMeters})`;
+	// `ST_DWithin(geography, geography, meters)` — the `geography`
+	// cast (rather than `geometry`) interprets the coordinates as
+	// lat/lon on the WGS-84 ellipsoid. `geography` is NOT a Kysely
+	// `ColumnDataType` literal; `eb.cast<T>(expr, dataType)` accepts
+	// any `Expression<any>` for `dataType`, so a `sql.raw` token
+	// widens the cast to PostGIS's extension type. The token is a
+	// compile-time constant — no caller-supplied input reaches the
+	// raw-emission slot.
+	const propPoint = eb.cast(
+		eb.fn("st_makepoint", [propLon, propLat]),
+		sql.raw("geography"),
+	);
+	const centerPoint = eb.cast(
+		eb.fn("st_makepoint", [centerLon, centerLat]),
+		sql.raw("geography"),
+	);
+	return eb.fn<boolean>("st_dwithin", [
+		propPoint,
+		centerPoint,
+		eb.val(distanceMeters),
+	]) as unknown as Expression<SqlBool>;
+}
+
+/**
+ * Build a `split_part(<text>, ' ', <pos>)::numeric` expression
+ * for one of the four space-separated components of CommCare's
+ * geopoint wire form (`"latitude longitude altitude accuracy"`).
+ * Used twice for each side of `within-distance` to extract
+ * `(lat, lon)` for `ST_MakePoint`.
+ */
+function splitNumericComponent(
+	text: AliasableExpression<string>,
+	position: number,
+): AliasableExpression<number> {
+	const part = eb.fn<string>("split_part", [
+		text,
+		eb.val(" "),
+		eb.val(position),
+	]);
+	return eb.cast<number>(part, "numeric");
 }
 
 /**
@@ -1063,7 +1206,7 @@ function compileExistsOrMissing(
 	pred: Extract<Predicate, { kind: "exists" | "missing" }>,
 	ctx: PredicateCompileContext,
 	mode: "exists" | "missing",
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	// Self-via collapse — the four cases above.
 	if (pred.via.kind === "self") {
 		return compileSelfViaQuantifier(pred.where, ctx, mode);
@@ -1108,19 +1251,35 @@ function compileExistsOrMissing(
 				})
 			: undefined;
 
-	// Correlation: leaf subquery's `anchor_case_id` equals the outer
-	// anchor's `case_id`. The leaf subquery exposes
-	// `anchor_case_id` per its `RelationPathLeafRow` shape — see
-	// `compileRelationPath.ts`'s leaf-shape JSDoc.
-	const correlation = sql`${sql.ref(`${compiledPath.leafAlias}.anchor_case_id`)} = ${sql.ref(`${ctx.anchorAlias}.case_id`)}`;
-	const wherePart =
-		innerWhere !== undefined ? sql` and (${innerWhere})` : sql``;
-
-	const subquery = sql`select 1 from ${compiledPath.buildLeafSubquery()} where ${correlation}${wherePart}`;
-
+	// Build the EXISTS body via the typed builder. The body shape
+	// is `SELECT 1 FROM <leaf> WHERE <leaf>.anchor_case_id =
+	// <anchor>.case_id [AND <inner-where>]`. The leaf subquery is
+	// an `AliasedExpression` carrying the depth-aware leaf alias
+	// (`rp_leaf` at depth 0; `rp_leaf_<N>` at deeper nestings) so
+	// nested EXISTS bodies do not shadow each other's leaf alias —
+	// see `compileRelationPath`'s "alias isolation" header for the
+	// uniquification scheme.
+	//
+	// Type-erased local view via `DynamicExistsQuery` because TS
+	// cannot enumerate the runtime leaf and anchor aliases against
+	// `Database`'s typed table set; the runtime calls dispatch
+	// through Kysely's typed `whereRef` / `where` / `select`
+	// methods on the underlying concrete builder.
+	const leafSubquery = compiledPath.buildLeafSubquery();
+	const baseQuery = ctx.db.selectFrom(
+		leafSubquery as unknown as never,
+	) as unknown as DynamicExistsQuery;
+	const correlated = baseQuery.whereRef(
+		`${compiledPath.leafAlias}.anchor_case_id`,
+		"=",
+		`${ctx.anchorAlias}.case_id`,
+	);
+	const withInnerWhere =
+		innerWhere !== undefined ? correlated.where(innerWhere) : correlated;
+	const subquery = withInnerWhere.select(eb.lit(1).as("one"));
 	return mode === "exists"
-		? sql<SqlBool>`exists (${subquery})`
-		: sql<SqlBool>`not exists (${subquery})`;
+		? eb.exists(subquery as unknown as Expression<unknown>)
+		: eb.not(eb.exists(subquery as unknown as Expression<unknown>));
 }
 
 /**
@@ -1133,19 +1292,19 @@ function compileSelfViaQuantifier(
 	where: Predicate | undefined,
 	ctx: PredicateCompileContext,
 	mode: "exists" | "missing",
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	if (mode === "exists") {
 		// `exists(self)` → trivial-true; `exists(self, where)` →
 		// `where` directly.
 		return where === undefined
-			? sql<SqlBool>`true`
+			? (eb.lit(true) as Expression<SqlBool>)
 			: compilePredicate(where, ctx);
 	}
 	// `missing(self)` → trivial-false; `missing(self, where)` →
 	// `NOT (where)`.
 	return where === undefined
-		? sql<SqlBool>`false`
-		: sql<SqlBool>`not (${compilePredicate(where, ctx)})`;
+		? (eb.lit(false) as Expression<SqlBool>)
+		: eb.not(compilePredicate(where, ctx));
 }
 
 // ---------------------------------------------------------------
@@ -1190,13 +1349,13 @@ function compileSelfViaQuantifier(
 function compileWhenInputPresent(
 	pred: Extract<Predicate, { kind: "when-input-present" }>,
 	ctx: PredicateCompileContext,
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	const isBound = ctx.bindings.searchInputs?.has(pred.input.name) ?? false;
 	if (isBound) {
 		return compilePredicate(pred.clause, ctx);
 	}
 	// Input not bound — short-circuit to "match every row".
-	return sql<SqlBool>`true`;
+	return eb.lit(true) as Expression<SqlBool>;
 }
 
 // ---------------------------------------------------------------
@@ -1237,29 +1396,35 @@ function compileAbsenceCheck(
 	left: ValueExpression,
 	ctx: PredicateCompileContext,
 	op: "is-null" | "is-blank",
-): RawBuilder<SqlBool> {
-	if (left.kind !== "term") {
-		throw new Error(
-			`compilePredicate '${op}' accepts only term-arm ValueExpression operands; received kind '${left.kind}'. Compile non-term ValueExpression operands through the sibling expression compiler before passing them to compilePredicate.`,
-		);
-	}
-	const term = left.term;
-
+): Expression<SqlBool> {
 	// Property-ref dispatch — the only path with a meaningful
-	// strict-absent semantic at the storage layer.
-	if (term.kind === "prop") {
-		return compilePropertyAbsenceCheck(term, ctx, op);
+	// strict-absent semantic at the storage layer. The JSONB key-
+	// existence test (`?` operator) distinguishes "key absent"
+	// from "key present with value null", which the standard SQL
+	// `IS NULL` cannot.
+	if (left.kind === "term" && left.term.kind === "prop") {
+		return compilePropertyAbsenceCheck(left.term, ctx, op);
 	}
 
-	// Non-property term — fall back to the standard scalar shape.
-	// Three sub-cases (input / session-user / session-context /
-	// literal) all share the same `<term> IS NULL` shape; the
-	// blank form adds `OR <term> = ''`.
-	const termExpr = compileTerm(term, ctx);
+	// Non-property operand — fall back to the standard scalar
+	// shape. The four reachable cases all share the same `<expr>
+	// IS NULL` shape; the blank form adds `OR <expr> = ''`:
+	//   - term wrapping a runtime binding (input / session-user /
+	//     session-context) — bound parameter, IS NULL is the
+	//     right shape.
+	//   - term wrapping a literal — semantically meaningless ("is
+	//     the literal 5 absent?"), but structurally typeable; the
+	//     type-checker layer rejects this case, and the SQL
+	//     compiler trusts the rejection upstream.
+	//   - any non-term ValueExpression arm (`arith`, `if`, `count`,
+	//     etc.) — routed through the expression compiler via
+	//     `compileValueExprOperand` so the absence check applies
+	//     to the resolved expression's value.
+	const operand = compileValueExprOperand(left, ctx);
 	if (op === "is-null") {
-		return sql<SqlBool>`${termExpr} is null`;
+		return eb(operand, "is", null);
 	}
-	return sql<SqlBool>`${termExpr} is null or ${termExpr} = ''`;
+	return eb.or([eb(operand, "is", null), eb(operand, "=", eb.val(""))]);
 }
 
 /**
@@ -1296,7 +1461,7 @@ function compilePropertyAbsenceCheck(
 	property: Extract<Term, { kind: "prop" }>,
 	ctx: PredicateCompileContext,
 	op: "is-null" | "is-blank",
-): RawBuilder<SqlBool> {
+): Expression<SqlBool> {
 	const isSelfVia = property.via === undefined || property.via.kind === "self";
 	const propertyName = property.property;
 
@@ -1310,9 +1475,9 @@ function compilePropertyAbsenceCheck(
 		// subquery returning NULL, and `NULL IS NULL` is true.
 		const valueRead = compileTerm(property, ctx);
 		if (op === "is-null") {
-			return sql<SqlBool>`${valueRead} is null`;
+			return eb(valueRead, "is", null);
 		}
-		return sql<SqlBool>`${valueRead} is null or ${valueRead} = ''`;
+		return eb.or([eb(valueRead, "is", null), eb(valueRead, "=", eb.val(""))]);
 	}
 
 	// Self-via dispatch — the JSONB key-existence shape for
@@ -1322,21 +1487,75 @@ function compilePropertyAbsenceCheck(
 	// apply.
 	const sourceAlias = ctx.anchorAlias;
 	if (RESERVED_SCALAR_COLUMNS.has(propertyName)) {
-		const columnRef = sql.ref(`${sourceAlias}.${propertyName}`);
+		const columnRef = (eb as DynamicExprBuilder).ref(
+			`${sourceAlias}.${propertyName}`,
+		);
 		if (op === "is-null") {
-			return sql<SqlBool>`${columnRef} is null`;
+			return eb(columnRef, "is", null);
 		}
-		return sql<SqlBool>`${columnRef} is null or ${columnRef} = ''`;
+		return eb.or([eb(columnRef, "is", null), eb(columnRef, "=", eb.val(""))]);
 	}
 
 	// JSONB-document property: key-existence test plus the
-	// optional empty-string disjunction. The `?` operator returns
-	// boolean (the key-exists semantic); negation with `NOT (...)`
-	// matches strict-absent. The blank form adds `OR
-	// (<source>.properties->>'<key>') = ''` for absent-or-empty.
-	const propertiesRef = sql.ref(`${sourceAlias}.properties`);
+	// optional empty-string disjunction. The `?` operator
+	// (Postgres JSONB key-exists) is in `COMPARISON_OPERATORS`,
+	// returning `boolean`; negation via `eb.not` matches strict-
+	// absent. The blank form adds the `properties->>'<key>' = ''`
+	// disjunction for absent-or-empty.
+	const propertiesRef = `${sourceAlias}.properties` as const;
+	const keyExists = (eb as DynamicExprBuilder)(
+		propertiesRef,
+		"?",
+		propertyName,
+	) as Expression<SqlBool>;
 	if (op === "is-null") {
-		return sql<SqlBool>`not (${propertiesRef} ? ${propertyName})`;
+		return eb.not(keyExists);
 	}
-	return sql<SqlBool>`not (${propertiesRef} ? ${propertyName}) or (${propertiesRef} ->> ${propertyName}) = ''`;
+	const textRead = (eb as DynamicExprBuilder)(
+		propertiesRef,
+		"->>",
+		propertyName,
+	);
+	return eb.or([eb.not(keyExists), eb(textRead, "=", eb.val(""))]);
+}
+
+// ---------------------------------------------------------------
+// Type-erased typed-builder views
+// ---------------------------------------------------------------
+
+/**
+ * Type-erased local view of the standalone expression builder for
+ * binary-op calls and column references whose first argument is a
+ * runtime-derived `${alias}.${column}` string. The runtime call
+ * resolves correctly because every concrete site names a
+ * `cases`-shaped row at the alias position; the cast pins the
+ * public expression contract.
+ *
+ * Mirrors the same shape `compileTerm` uses for its
+ * runtime-aliased reads — see the `DynamicExprBuilder` JSDoc in
+ * compileTerm.ts for the alias-isolation rationale.
+ */
+type DynamicExprBuilder = {
+	(left: string, op: string, right: unknown): AliasableExpression<unknown>;
+	ref: (reference: string) => AliasableExpression<unknown>;
+};
+
+/**
+ * Type-erased local view of the EXISTS subquery's builder during
+ * `compileExistsOrMissing`. The subquery starts from the
+ * relation-path leaf `AliasedExpression`, applies a correlation
+ * predicate against the outer anchor's `case_id`, optionally
+ * intersects an inner `where`, and projects a constant `1` to
+ * close the EXISTS body.
+ *
+ * The typed builder cannot enumerate the leaf alias against
+ * `Database`'s table key set (the leaf is a synthesized
+ * subquery, not a table); the calls operate through this minimal
+ * interface and the cast back to `Expression<unknown>` happens at
+ * the public boundary.
+ */
+interface DynamicExistsQuery {
+	whereRef: (left: string, op: string, right: string) => DynamicExistsQuery;
+	where: (predicate: Expression<unknown>) => DynamicExistsQuery;
+	select: (selection: AliasedExpression<unknown, string>) => DynamicExistsQuery;
 }

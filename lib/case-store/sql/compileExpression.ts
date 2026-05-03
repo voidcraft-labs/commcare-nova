@@ -14,16 +14,16 @@
 //   - `term(t)` — delegates to `compileTerm` for property reads,
 //     literals, and runtime bindings (search inputs, session-user,
 //     session-context).
-//   - `today` — Postgres `CURRENT_DATE` (returns `date`).
-//   - `now` — Postgres `NOW()` (returns `timestamptz`).
-//   - `date-coerce(value)` — `(<value>)::date`. Wire-string → typed
-//     date.
-//   - `datetime-coerce(value)` — `(<value>)::timestamptz`. Wire-
-//     string → typed datetime; preserves timezone information.
-//   - `double(value)` — `(<value>)::numeric`. Forced numeric
+//   - `today` — Postgres `current_date` (returns `date`).
+//   - `now` — Postgres `now()` (returns `timestamptz`).
+//   - `date-coerce(value)` — `cast(<value> as date)`. Wire-string →
+//     typed date.
+//   - `datetime-coerce(value)` — `cast(<value> as timestamptz)`.
+//     Wire-string → typed datetime; preserves timezone information.
+//   - `double(value)` — `cast(<value> as numeric)`. Forced numeric
 //     coercion via Postgres's arbitrary-precision decimal.
-//   - `arith(op, left, right)` — five-op binary arithmetic. The AST's
-//     wire-vocabulary names map to SQL operators per
+//   - `arith(op, left, right)` — five-op binary arithmetic. The
+//     AST's wire-vocabulary names map to SQL operators per
 //     `ARITH_OP_TO_SQL`: `+` / `-` / `*` are byte-identical, `div`
 //     maps to `/`, `mod` maps to `%`.
 //   - `concat(parts)` — Postgres `concat(...)` function. NULL parts
@@ -31,19 +31,23 @@
 //     (observably identical to coercing to empty), matching the
 //     type checker's spec ("each part casts to text at
 //     evaluation").
-//   - `coalesce(values)` — SQL `COALESCE(...)`. Returns the first
+//   - `coalesce(values)` — SQL `coalesce(...)`. Returns the first
 //     non-null value.
-//   - `if(cond, then, else)` — SQL `CASE WHEN <cond> THEN <then> ELSE
-//     <else> END`. The `cond` slot carries a Predicate; the
+//   - `if(cond, then, else)` — SQL `case when <cond> then <then>
+//     else <else> end`. The `cond` slot carries a Predicate; the
 //     compiler routes it through the `compilePredicate` thunk on
 //     the context (see "Predicate-thunk strategy" below).
-//   - `switch(on, cases, fallback)` — SQL "simple CASE" form:
-//     `CASE <on> WHEN <when_1> THEN <then_1> WHEN <when_2> THEN
-//     <then_2> ... ELSE <fallback> END`. The discriminator `<on>`
-//     evaluates once and each branch's `when` Literal compares
-//     against it — no Predicate operands on this arm.
+//   - `switch(on, cases, fallback)` — SQL searched `case` form:
+//     `case when <on> = <when_1> then <then_1> when <on> =
+//     <when_2> then <then_2> ... else <fallback> end`. The simple
+//     `case <on> when ...` form would re-use the discriminator
+//     once, but Kysely's typed simple-CASE shape requires a typed
+//     discriminator that the open `Expression<unknown>` operand
+//     cannot satisfy; the searched form composes through the
+//     typed builder while emitting equivalent rows (Postgres's
+//     planner recognises the equivalence).
 //   - `count(via, where?)` — relational aggregation. Compiles to
-//     `(SELECT COUNT(*) FROM (<rp_leaf-subquery>) AS rp [WHERE
+//     `(select count(*) from <rp_leaf-subquery> [where
 //     <where-pred>])`. The relation-path leaf is built via
 //     `compileRelationPath`; the optional `where` predicate filters
 //     leaf rows before counting and routes through the
@@ -57,12 +61,12 @@
 //     wire-emission boundary; that path does not flow through the
 //     SQL compiler. Reaching this arm is an invariant violation,
 //     so the compiler throws.
-//   - `format-date(date, pattern)` — SQL `to_char((<date>)::timestamptz,
-//     '<pattern>')`. The three preset names (`short` / `long` /
-//     `iso`) map to fixed Postgres `to_char` patterns; arbitrary
-//     pattern strings pass through verbatim under the assumption
-//     that authors target Postgres's pattern vocabulary on Nova-
-//     runtime apps. Postgres `to_char` documented at
+//   - `format-date(date, pattern)` — SQL `to_char(cast(<date> as
+//     timestamptz), '<pattern>')`. The three preset names (`short`
+//     / `long` / `iso`) map to fixed Postgres `to_char` patterns;
+//     arbitrary pattern strings pass through verbatim under the
+//     assumption that authors target Postgres's pattern vocabulary
+//     on Nova-runtime apps. Postgres `to_char` documented at
 //     `https://www.postgresql.org/docs/16/functions-formatting.html`.
 //
 // ## Predicate-thunk strategy
@@ -87,19 +91,27 @@
 // not a Predicate. The Expression compiler handles the equality
 // dispatch directly.
 //
-// ## Why `RawBuilder<unknown>` over `Expression<unknown>`
+// ## Why `AliasableExpression<unknown>` is the public return type
 //
 // Same shape the Term compiler returns. Consumers — the Predicate
 // compiler and the integrating callers that compose Predicates and
-// Expressions into wider queries — need `RawBuilder`'s `.as(alias)`
-// and `.toOperationNode()` methods that the wider `Expression`
-// interface alone does not surface. The unknown payload is
-// deliberate: each arm resolves to a different per-Postgres-type
-// expression but the runtime dispatches by `expr.kind`, and the
-// wider compilers consume the return as a generic operand.
+// Expressions into wider queries — thread the result into
+// `eb(left, op, right)` binary operations and `select(... .as(...))`
+// projection sites uniformly. `AliasableExpression<T>` is Kysely's
+// `.as(alias)`-bearing operand contract; every concrete return
+// shape (`ExpressionWrapper`, `RawBuilder`, `SelectQueryBuilder`)
+// implements it. The unknown payload is deliberate: each arm
+// resolves to a different per-Postgres-type expression but the
+// runtime dispatches by `expr.kind`, and the wider compilers
+// consume the return as a generic operand.
 
-import type { RawBuilder } from "kysely";
-import { sql } from "kysely";
+import type {
+	AliasableExpression,
+	AliasedExpression,
+	BinaryOperator,
+	Expression,
+} from "kysely";
+import { expressionBuilder, sql } from "kysely";
 import type {
 	ArithOp,
 	DateAddInterval,
@@ -111,6 +123,7 @@ import type {
 } from "@/lib/domain/predicate/types";
 import { compileRelationPath } from "./compileRelationPath";
 import { compileTerm, type TermCompileContext } from "./compileTerm";
+import type { Database } from "./database";
 
 // ---------------------------------------------------------------
 // Public types
@@ -123,16 +136,19 @@ import { compileTerm, type TermCompileContext } from "./compileTerm";
  * compiler, and tests inject stubs that exercise arm dispatch
  * without coupling to the predicate compiler's internals.
  *
- * The signature mirrors `compileExpression`'s — `(predicate, ctx) =>
- * RawBuilder<unknown>`. The context surface is the Expression
- * context so the predicate compiler can recurse back into
- * `compileExpression` for its own value-bearing operand slots
- * (`comparison.left/right`, `between.lower/upper`, etc.).
+ * The signature mirrors `compileExpression`'s contract — the
+ * callback returns an `Expression<unknown>` so the wider compilers
+ * thread its result into `case().when(<predicate-expr>)` and
+ * `where(<predicate-expr>)` slots without re-narrowing. The
+ * context surface is the Expression context so the predicate
+ * compiler can recurse back into `compileExpression` for its own
+ * value-bearing operand slots (`comparison.left/right`,
+ * `between.lower/upper`, etc.).
  */
 export type CompilePredicateThunk = (
 	predicate: Predicate,
 	ctx: ExpressionCompileContext,
-) => RawBuilder<unknown>;
+) => Expression<unknown>;
 
 /**
  * The compile context every `compileExpression` call requires.
@@ -177,7 +193,7 @@ export interface ExpressionCompileContext extends TermCompileContext {
  * to `ARITH_OPS` without a parallel mapping entry surfaces as a
  * TypeScript error.
  */
-const ARITH_OP_TO_SQL: Readonly<Record<ArithOp, string>> = {
+const ARITH_OP_TO_SQL: Readonly<Record<ArithOp, BinaryOperator>> = {
 	"+": "+",
 	"-": "-",
 	"*": "*",
@@ -246,13 +262,16 @@ const FORMAT_DATE_PRESET_KEYS: ReadonlySet<FormatDatePreset> = new Set(
  * @param ctx  - compile context (database handle, tenant pair,
  *               anchor alias, schema map, runtime bindings, optional
  *               predicate-compilation callback)
- * @returns a `RawBuilder<unknown>` the wider compilers consume as a
- *          generic value-bearing operand
+ * @returns an `AliasableExpression<unknown>` the wider compilers
+ *          consume as a generic value-bearing operand. Tests call
+ *          `.as("v")` against the return value to wrap it in a
+ *          select column; `AliasableExpression` (rather than the
+ *          bare `Expression`) keeps that call site type-checked.
  */
 export function compileExpression(
 	expr: ValueExpression,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	switch (expr.kind) {
 		case "term":
 			return compileTerm(expr.term, ctx);
@@ -296,6 +315,20 @@ export function compileExpression(
 }
 
 // ---------------------------------------------------------------
+// Shared expression builder
+// ---------------------------------------------------------------
+
+/**
+ * The standalone expression builder bound to the case-store
+ * `Database` type. Used to construct typed operands (`eb.cast`,
+ * `eb.fn`, `eb.case()`, `eb.val`, etc.) without threading a
+ * Kysely callback through every helper. Mirrors the shape used
+ * in `compileTerm` and `compilePredicate` so the three compilers
+ * share one entry point into Kysely's typed-builder surface.
+ */
+const eb = expressionBuilder<Database, keyof Database>();
+
+// ---------------------------------------------------------------
 // `today` / `now` constants
 // ---------------------------------------------------------------
 
@@ -303,22 +336,32 @@ export function compileExpression(
  * `today` → `CURRENT_DATE`. Postgres returns a `date`-typed value
  * representing the project-timezone date at evaluation time. Per
  * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`,
- * `CURRENT_DATE` is not parenthesised (sister functions `NOW()` /
- * `LOCALTIMESTAMP()` are documented with parentheses).
+ * `CURRENT_DATE` is the SQL-standard niladic form (no parens),
+ * distinct from sister functions `NOW()` / `LOCALTIMESTAMP()` that
+ * Postgres documents with parentheses.
+ *
+ * Emitted via `sql.raw` because Kysely's `eb.fn(name, args)`
+ * always wraps the function name in `(<args>)` parens, which
+ * Postgres's parser rejects for `current_date`. The token is a
+ * compile-time constant — no caller-supplied input reaches the
+ * raw-emission slot.
  */
-function compileToday(): RawBuilder<unknown> {
-	return sql`current_date`;
+function compileToday(): AliasableExpression<unknown> {
+	return sql.raw("current_date");
 }
 
 /**
- * `now` → `NOW()`. Postgres returns a `timestamptz`-typed value
+ * `now` → `now()`. Postgres returns a `timestamptz`-typed value
  * representing the start of the current transaction (the
  * documented Postgres behavior; `NOW()` returns a transaction-
  * stable timestamp). Per
  * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
+ *
+ * `eb.fn<Date>('now')` emits `now()` directly — the parenthesised
+ * form Postgres documents as canonical.
  */
-function compileNow(): RawBuilder<unknown> {
-	return sql`now()`;
+function compileNow(): AliasableExpression<unknown> {
+	return eb.fn<Date>("now");
 }
 
 // ---------------------------------------------------------------
@@ -330,17 +373,18 @@ function compileNow(): RawBuilder<unknown> {
  * `date-coerce` (cast to `date`), `datetime-coerce` (cast to
  * `timestamptz`), and `double` (cast to `numeric`).
  *
- * The cast token (`date` / `timestamptz` / `numeric`) is a
- * compile-time constant chosen at the call site, so `sql.raw` is
- * safe — no caller-supplied input flows into the token.
+ * The cast token is a compile-time constant chosen at the call
+ * site and typed as `ColumnDataType`; `eb.cast<T>(expr, dataType)`
+ * accepts the `ColumnDataType` shape directly and emits the
+ * canonical Postgres `CAST` form.
  */
 function compileCast(
 	value: ValueExpression,
 	cast: "date" | "timestamptz" | "numeric",
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	const inner = compileExpression(value, ctx);
-	return sql`(${inner})::${sql.raw(cast)}`;
+	return eb.cast(inner, cast);
 }
 
 // ---------------------------------------------------------------
@@ -364,11 +408,15 @@ function compileArith(
 	left: ValueExpression,
 	right: ValueExpression,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
-	const leftSql = compileExpression(left, ctx);
-	const rightSql = compileExpression(right, ctx);
+): AliasableExpression<unknown> {
+	const leftExpr = compileExpression(left, ctx);
+	const rightExpr = compileExpression(right, ctx);
 	const opToken = ARITH_OP_TO_SQL[op];
-	return sql`(${leftSql}) ${sql.raw(opToken)} (${rightSql})`;
+	// `eb(left, op, right)` produces a binary expression with the
+	// operator typed against `ARITHMETIC_OPERATORS`. Each operand
+	// is itself an `Expression`, so a nested `arith` composes
+	// without re-wrapping.
+	return eb(leftExpr, opToken, rightExpr);
 }
 
 // ---------------------------------------------------------------
@@ -422,11 +470,27 @@ function compileDateAdd(
 	interval: DateAddInterval,
 	quantity: ValueExpression,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
-	const dateSql = compileExpression(date, ctx);
-	const quantitySql = compileExpression(quantity, ctx);
+): AliasableExpression<unknown> {
+	const dateExpr = compileExpression(date, ctx);
+	const quantityExpr = compileExpression(quantity, ctx);
 	const unitToken = DATE_ADD_INTERVAL_TO_SQL[interval];
-	return sql`(${dateSql})::timestamptz + ((${quantitySql}) * interval '1 ${sql.raw(unitToken)}')`;
+	// Cast the base to `timestamptz` so a date-typed input lifts
+	// uniformly with a datetime-typed input. Postgres's `+
+	// INTERVAL` returns `timestamptz` from either input shape.
+	const dateAsTimestamp = eb.cast(dateExpr, "timestamptz");
+	// Build the typed interval literal `INTERVAL '1 <unit>'` via
+	// `eb.cast(eb.val(...), <interval-data-type>)`. The unit token
+	// is a closed mapping. Expressed as `eb.cast<unknown>(eb.val,
+	// sql.raw('interval'))` because `interval` is not a Kysely
+	// `ColumnDataType` literal — Kysely accepts an `Expression<any>`
+	// from `sql.raw` to widen the cast token to any Postgres type.
+	const intervalLiteral = eb.cast(
+		eb.val(`1 ${unitToken}`),
+		sql.raw("interval"),
+	);
+	// Multiply quantity by the unit interval, then add to the base.
+	const scaledInterval = eb(quantityExpr, "*", intervalLiteral);
+	return eb(dateAsTimestamp, "+", scaledInterval);
 }
 
 // ---------------------------------------------------------------
@@ -451,9 +515,14 @@ function compileDateAdd(
 function compileConcat(
 	parts: ReadonlyArray<ValueExpression>,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
-	const partSqls = parts.map((p) => compileExpression(p, ctx));
-	return sql`concat(${sql.join(partSqls, sql`, `)})`;
+): AliasableExpression<unknown> {
+	const partExprs = parts.map((p) => compileExpression(p, ctx));
+	// `eb.fn<string>('concat', [...])` emits the typed `concat(...)`
+	// call. Postgres's `concat()` ignores NULL parts (per docs §
+	// "String Functions"), matching the AST's "each part casts to
+	// text at evaluation" semantic without per-part `COALESCE`
+	// wrapping.
+	return eb.fn<string>("concat", partExprs);
 }
 
 // ---------------------------------------------------------------
@@ -475,9 +544,14 @@ function compileConcat(
 function compileCoalesce(
 	values: ReadonlyArray<ValueExpression>,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
-	const valueSqls = values.map((v) => compileExpression(v, ctx));
-	return sql`coalesce(${sql.join(valueSqls, sql`, `)})`;
+): AliasableExpression<unknown> {
+	const valueExprs = values.map((v) => compileExpression(v, ctx));
+	// `eb.fn<unknown>('coalesce', [...])` emits the typed
+	// `COALESCE(...)` call. Kysely's typed `eb.fn.coalesce` helper
+	// accepts up to five operands as separate positional args; the
+	// generic `eb.fn` form takes an array and works for any
+	// arity, matching the AST's open-ended `values` list shape.
+	return eb.fn<unknown>("coalesce", valueExprs);
 }
 
 // ---------------------------------------------------------------
@@ -504,17 +578,31 @@ function compileIf(
 	thenBranch: ValueExpression,
 	elseBranch: ValueExpression,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	const compilePredicate = ctx.compilePredicate;
 	if (compilePredicate === undefined) {
 		throw new Error(
 			"compileExpression: 'if' arm reached but ctx.compilePredicate is not wired. The integrating caller must supply a predicate-compilation callback before the expression compiler is invoked. See `ExpressionCompileContext.compilePredicate` in compileExpression.ts.",
 		);
 	}
-	const condSql = compilePredicate(cond, ctx);
-	const thenSql = compileExpression(thenBranch, ctx);
-	const elseSql = compileExpression(elseBranch, ctx);
-	return sql`case when ${condSql} then ${thenSql} else ${elseSql} end`;
+	const condExpr = compilePredicate(cond, ctx);
+	const thenExpr = compileExpression(thenBranch, ctx);
+	const elseExpr = compileExpression(elseBranch, ctx);
+	// Searched `CASE WHEN <cond> THEN <then> ELSE <else> END` form.
+	// `eb.case()` opens the operator; `.when(<expression>)` accepts
+	// the boolean predicate's compiled expression directly; `.then`
+	// / `.else` accept value expressions. Passing the typed
+	// expressions (rather than raw values) keeps the parameter
+	// channel consistent — Kysely otherwise inlines numbers /
+	// booleans / null directly into the SQL on `then` / `else`,
+	// which would change the parameter list shape the cold tests
+	// pin.
+	return eb
+		.case()
+		.when(condExpr as Expression<boolean>)
+		.then(thenExpr)
+		.else(elseExpr)
+		.end();
 }
 
 // ---------------------------------------------------------------
@@ -550,15 +638,41 @@ function compileSwitch(
 	cases: ReadonlyArray<SwitchCase>,
 	fallback: ValueExpression,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
-	const onSql = compileExpression(on, ctx);
-	const branches = cases.map((c) => {
-		const whenSql = compileExpression({ kind: "term", term: c.when }, ctx);
-		const thenSql = compileExpression(c.then, ctx);
-		return sql`when ${whenSql} then ${thenSql}`;
-	});
-	const fallbackSql = compileExpression(fallback, ctx);
-	return sql`case ${onSql} ${sql.join(branches, sql` `)} else ${fallbackSql} end`;
+): AliasableExpression<unknown> {
+	const onExpr = compileExpression(on, ctx);
+	const fallbackExpr = compileExpression(fallback, ctx);
+	// Searched CASE form: `CASE WHEN <on> = <when_lit_1> THEN <then_1>
+	// WHEN <on> = <when_lit_2> THEN <then_2> ... ELSE <fallback> END`.
+	// The simple CASE form (`CASE <on> WHEN <when_1> THEN <then_1> ...`)
+	// re-uses the discriminator once and would be marginally cheaper
+	// for an expensive discriminator, but Kysely's typed simple-CASE
+	// shape requires a typed `W` discriminator that the open
+	// `Expression<unknown>` shape from `compileExpression` cannot
+	// satisfy. The searched form composes cleanly through `eb.case()`
+	// with `eb(<on>, '=', <when>)` boolean operands and produces
+	// equivalent rows; Postgres's planner recognises the equivalence.
+	let builder = eb.case();
+	for (const c of cases) {
+		const whenExpr = compileExpression({ kind: "term", term: c.when }, ctx);
+		const thenExpr = compileExpression(c.then, ctx);
+		builder = builder
+			.when(eb(onExpr, "=", whenExpr))
+			.then(thenExpr) as unknown as ReturnType<typeof eb.case>;
+	}
+	// `.else(...).end()` closes the operator. The intermediate type
+	// dance widens through the loop because TS cannot enumerate the
+	// per-iteration `O` accumulation; the cast pins the public
+	// `AliasableExpression<unknown>` contract on the final
+	// `.end()` result.
+	return (
+		builder as unknown as ReturnType<typeof eb.case> & {
+			else: (e: AliasableExpression<unknown>) => {
+				end: () => AliasableExpression<unknown>;
+			};
+		}
+	)
+		.else(fallbackExpr)
+		.end();
 }
 
 // ---------------------------------------------------------------
@@ -592,7 +706,7 @@ function compileCount(
 	via: RelationPath,
 	where: Predicate | undefined,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
+): AliasableExpression<unknown> {
 	const compiledPath = compileRelationPath(via, {
 		db: ctx.db,
 		appId: ctx.appId,
@@ -607,14 +721,26 @@ function compileCount(
 	}
 	// The leaf subquery is an `AliasedExpression` carrying the
 	// depth-aware leaf alias from `compiledPath.leafAlias`.
-	// Embedding the aliased expression in the FROM clause produces
-	// `(SELECT ...) AS "<leafAlias>"`; the optional WHERE predicate's
-	// fragments read through the same alias. The whole counting
-	// subquery is paren-wrapped so it slots into a wider `SELECT
-	// ... AS v` consumer site.
+	// `selectFrom(<aliased-expression>)` accepts the leaf as a
+	// table source; the count subquery exposes one column
+	// (`COUNT(*)`) with `eb.fn.countAll()`, and Kysely's
+	// scalar-subquery typing returns the row's column type when
+	// the outer query treats it as an expression operand.
+	//
+	// Type-erased local view via `DynamicCountQuery` because TS
+	// cannot enumerate the runtime leaf alias against `Database`'s
+	// table key set — the leaf is a synthesized subquery, not a
+	// table. Each method call's `<alias>` references resolve at
+	// runtime against the leaf row's actual columns; the cast at
+	// the boundary pins the public expression contract.
 	const leafSubquery = compiledPath.buildLeafSubquery();
+	const baseQuery = ctx.db.selectFrom(
+		leafSubquery as unknown as never,
+	) as unknown as DynamicCountQuery;
 	if (where === undefined) {
-		return sql`(select count(*) from ${leafSubquery})`;
+		return baseQuery.select(
+			eb.fn.countAll().as("n"),
+		) as unknown as AliasableExpression<unknown>;
 	}
 	const compilePredicate = ctx.compilePredicate;
 	if (compilePredicate === undefined) {
@@ -628,12 +754,16 @@ function compileCount(
 	// depth bump ensures any non-self via prop reads inside the
 	// where construct unique-per-depth leaf aliases that do not
 	// shadow the outer count subquery's leaf.
-	const whereSql = compilePredicate(where, {
+	const whereExpr = compilePredicate(where, {
 		...ctx,
 		anchorAlias: compiledPath.leafAlias,
 		relationPathDepth: (ctx.relationPathDepth ?? 0) + 1,
 	});
-	return sql`(select count(*) from ${leafSubquery} where ${whereSql})`;
+	return baseQuery
+		.where(whereExpr)
+		.select(
+			eb.fn.countAll().as("n"),
+		) as unknown as AliasableExpression<unknown>;
 }
 
 // ---------------------------------------------------------------
@@ -661,8 +791,8 @@ function compileFormatDate(
 	date: ValueExpression,
 	pattern: FormatDatePreset | string,
 	ctx: ExpressionCompileContext,
-): RawBuilder<unknown> {
-	const dateSql = compileExpression(date, ctx);
+): AliasableExpression<unknown> {
+	const dateExpr = compileExpression(date, ctx);
 	// Resolve the wire pattern. The `pattern` AST slot is the union
 	// `FormatDatePreset | string`; the preset branch maps through
 	// the table, the free-form branch is a Postgres pattern by
@@ -670,7 +800,12 @@ function compileFormatDate(
 	const wirePattern = isFormatDatePreset(pattern)
 		? FORMAT_DATE_PRESET_TO_PATTERN[pattern]
 		: pattern;
-	return sql`to_char((${dateSql})::timestamptz, ${wirePattern})`;
+	const dateAsTimestamp = eb.cast(dateExpr, "timestamptz");
+	// `eb.fn<string>('to_char', [<timestamp>, <pattern>])` emits
+	// the typed `to_char(...)` call. The pattern parameter binds
+	// through `eb.val` so author-supplied free-form patterns are
+	// safely escaped at the driver layer.
+	return eb.fn<string>("to_char", [dateAsTimestamp, eb.val(wirePattern)]);
 }
 
 /**
@@ -686,4 +821,28 @@ function isFormatDatePreset(
 	pattern: FormatDatePreset | string,
 ): pattern is FormatDatePreset {
 	return FORMAT_DATE_PRESET_KEYS.has(pattern as FormatDatePreset);
+}
+
+// ---------------------------------------------------------------
+// Type-erased typed-builder views
+// ---------------------------------------------------------------
+
+/**
+ * Type-erased local view of the counting subquery's builder during
+ * `compileCount`. The subquery starts from the relation-path leaf
+ * `AliasedExpression`, optionally filters via `where`, and selects
+ * `COUNT(*)` as a single column. The typed builder cannot
+ * enumerate the leaf alias against `Database`'s table key set
+ * (the leaf is a synthesized subquery, not a table); the calls
+ * operate through this minimal interface and the cast back to
+ * `AliasableExpression<unknown>` happens at the public boundary.
+ *
+ * Each method returns the same `DynamicCountQuery` shape so the
+ * chain composes without re-narrowing.
+ */
+interface DynamicCountQuery {
+	where: (predicate: Expression<unknown>) => DynamicCountQuery;
+	select: (
+		selection: AliasedExpression<unknown, string>,
+	) => AliasableExpression<unknown>;
 }

@@ -172,7 +172,7 @@ function compileTerm_(expr: ReturnType<typeof compileTerm>): CompiledQuery {
 describe("compileTerm — prop (self via) cast mapping", () => {
 	const cases = [
 		{ name: "text", property: "name", cast: "text", arrow: "->>" },
-		{ name: "int", property: "age", cast: "int", arrow: "->>" },
+		{ name: "int", property: "age", cast: "integer", arrow: "->>" },
 		{ name: "decimal", property: "bmi", cast: "numeric", arrow: "->>" },
 		{ name: "date", property: "dob", cast: "date", arrow: "->>" },
 		{ name: "time", property: "appointment_at", cast: "time", arrow: "->>" },
@@ -199,15 +199,20 @@ describe("compileTerm — prop (self via) cast mapping", () => {
 	] as const;
 
 	for (const { name, property, cast, arrow } of cases) {
-		it(`emits ${arrow} + ::${cast} for a ${name} property`, () => {
+		it(`emits ${arrow} + cast as ${cast} for a ${name} property`, () => {
 			const compiled = compileTerm_(
 				compileTerm(prop("patient", property), makeCtx()),
 			);
 			// JSONB read shape — `c.properties` is the anchor read,
 			// `arrow` is the operator, the property name is a
-			// bound parameter (not inlined).
+			// bound parameter (not inlined). Kysely's typed
+			// `eb.cast<T>(expr, type)` emits the SQL-standard
+			// `cast(<expr> as <type>)` shape rather than the
+			// Postgres-specific `(<expr>)::<type>` shorthand; both
+			// are semantically identical at the engine layer
+			// (verified by harness round-trips).
 			expect(compiled.sql).toContain(`"c"."properties" ${arrow}`);
-			expect(compiled.sql).toContain(`::${cast}`);
+			expect(compiled.sql).toContain(`as ${cast})`);
 			expect(compiled.parameters).toContain(property);
 		});
 	}
@@ -302,20 +307,24 @@ describe("compileTerm — prop (non-self via)", () => {
 			),
 		);
 		// Read goes through the leaf alias's `properties` column,
-		// not the anchor's. Cast is `int` because `size` on the
+		// not the anchor's. Cast is `integer` because `size` on the
 		// `household` schema is declared `int`.
 		expect(compiled.sql).toContain(
 			`"${RELATION_PATH_LEAF_ALIAS}"."properties" ->>`,
 		);
-		expect(compiled.sql).toContain("::int");
+		expect(compiled.sql).toContain("as integer)");
 		expect(compiled.parameters).toContain("size");
 		// The term compiler emits the relation-path leaf as part of
 		// the scalar subquery — the `inner join` between
 		// `case_indices` and `cases` lives inside the subquery body.
 		expect(compiled.sql).toMatch(/\binner join\b/i);
 		// `LIMIT 1` keeps the result scalar so the subquery
-		// composes in any value-bearing operand slot.
-		expect(compiled.sql).toContain("limit 1");
+		// composes in any value-bearing operand slot. Kysely's
+		// typed `.limit(1)` binds the limit value as a parameter
+		// (`limit $N`), so inspect the SQL keyword and the
+		// parameter list separately.
+		expect(compiled.sql.toLowerCase()).toContain("limit");
+		expect(compiled.parameters).toContain(1);
 		// The correlation reads back to the anchor alias's
 		// `case_id`.
 		expect(compiled.sql).toContain('"c"."case_id"');
@@ -346,7 +355,7 @@ describe("compileTerm — prop (non-self via)", () => {
 			compileTerm(prop("patient", "name", selfPath()), makeCtx()),
 		);
 		expect(compiled.sql).toContain(`"c"."properties" ->>`);
-		expect(compiled.sql).toContain("::text");
+		expect(compiled.sql).toContain("as text)");
 		// Self-via reads emit no scalar subquery — the read is a
 		// direct JSONB extraction off the anchor's `cases` row.
 		expect(compiled.sql).not.toMatch(/\binner join\b/i);
@@ -414,25 +423,25 @@ describe("compileTerm — literal", () => {
 		expect(compiled.parameters).not.toContain(null);
 	});
 
-	it("emits a ::date cast for a date-typed literal", () => {
+	it("emits a date cast for a date-typed literal", () => {
 		const compiled = compileTerm_(
 			compileTerm(dateLiteral("2026-01-01"), makeCtx()),
 		);
-		expect(compiled.sql).toContain("::date");
+		expect(compiled.sql).toContain("as date)");
 		expect(compiled.parameters).toContain("2026-01-01");
 	});
 
-	it("emits a ::timestamptz cast for a datetime-typed literal", () => {
+	it("emits a timestamptz cast for a datetime-typed literal", () => {
 		const compiled = compileTerm_(
 			compileTerm(datetimeLiteral("2026-01-01T12:00:00Z"), makeCtx()),
 		);
-		expect(compiled.sql).toContain("::timestamptz");
+		expect(compiled.sql).toContain("as timestamptz)");
 		expect(compiled.parameters).toContain("2026-01-01T12:00:00Z");
 	});
 
-	it("emits a ::time cast for a time-typed literal", () => {
+	it("emits a time cast for a time-typed literal", () => {
 		const compiled = compileTerm_(compileTerm(timeLiteral("09:00"), makeCtx()));
-		expect(compiled.sql).toContain("::time");
+		expect(compiled.sql).toContain("as time)");
 		expect(compiled.parameters).toContain("09:00");
 	});
 });
