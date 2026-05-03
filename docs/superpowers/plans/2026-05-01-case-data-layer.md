@@ -128,25 +128,37 @@ SHIPPED 2026-05-03 in code; the Cloud Run job is built but not yet deployed (sup
 
 Commit chain: `1e554960` (initial) → `664faae8` (production tsc fix-pass — scoped ESM + .js suffixes) → `6fafe247` (spec-review fix-pass — `case_id` ColumnType + JSDoc) → `33b211bc` (CR fix-pass — `max: 1` for production parity).
 
-### Task 2: Cloud SQL extension allowlist gate
+### Task 2: Cloud SQL extension allowlist gate — SHIPPED
 
-**Files:** `scripts/check-postgres-extensions.ts`.
+SHIPPED 2026-05-03 against the live `commcare-nova:us-central1:nova-cases` instance via a deployed Cloud Run job (execution `check-postgres-extensions-wwjld`, succeeded 2026-05-03T17:46:47Z). All three extensions confirmed available + installed: `pg_trgm` 1.6, `fuzzystrmatch` 1.2, `postgis` 3.6.0.
 
-Run `gcloud sql instances describe ... --format='value(databaseFlags)'` and `SELECT * FROM pg_available_extensions WHERE name IN ('pg_trgm', 'fuzzystrmatch', 'postgis')` against the provisioned instance. Record availability in a generated TypeScript constant.
+**Files shipped:**
+- `lib/case-store/postgres/checkExtensions.ts` — pure verification function. `verifyExtensions(db)` runs the two queries (`pg_available_extensions` for Cloud SQL allowlist + `pg_extension` for installation state), assembles a `VerificationResult` per the three required extensions, returns `passed: boolean` + per-extension status. Pure-data architecture: queries return rows; assembly is side-effect-free; failure aggregation via the helper named `assembleResult`.
+- `lib/case-store/postgres/__tests__/checkExtensions.test.ts` — covers the pass / fail (dropped) / fail (never installed) / aggregation paths against per-test isolated databases (the testcontainer image has all three on its allowlist, so `not-allowlisted` paths use hand-rolled rows against the typed `AvailableExtensionRow` / `InstalledExtensionRow` interfaces — runtime row-shape mismatch surfaces at compile time).
+- `lib/case-store/sql/__tests__/perTestDatabase.ts` — shared `setupPerTestDatabase({ databaseNamePrefix, extensionsToInstall })` extracted from Task 1's runner test pattern. Wires `beforeEach`/`afterEach`, exposes a getter handle that throws if accessed outside a test, bakes `try { db.destroy(); } finally { dropDatabase(); }` into teardown so leaked databases don't survive test failures. Both `runner.test.ts` and `checkExtensions.test.ts` consume it.
+- `scripts/check-extensions/{run.ts, deploy-job.sh, execute-job.sh, package.json}` + `Dockerfile.check-extensions` — the production CLI + Cloud Run job pattern, mirroring `scripts/migrate/`. The CLI dispatches between `NOVA_DATABASE_URL` (developer-override / testcontainer) and the connector + IAM auth path (Cloud Run). The job container runs the same `verifyExtensions` function used in tests.
+- npm scripts: `db:check-extensions` (executes the deployed job) + `db:check-extensions:deploy` (builds + deploys).
+- Side-effect changes (called out by the implementer per `feedback_no_silent_scope_flips.md`):
+  - `lib/case-store/postgres/package.json` (new) — `"type": "module"` scoping for nodenext-mode `tsc` in Dockerfile builds.
+  - `lib/case-store/postgres/connection.ts` — `.js` suffix on the `../sql/database` import for nodenext ESM resolution. Vitest bundler accepts both forms; production tsc requires the suffix.
+  - `.dockerignore` — `!scripts/check-extensions` exception so the COPY can reach the script.
+
+**Plan filename divergence reconciliation:** the original Plan 2 Task 2 file structure listed `scripts/check-postgres-extensions.ts` (single file). The shipped architecture is `lib/case-store/postgres/checkExtensions.ts` (the verification function, colocated with `connection.ts` so it shares the connector + env-var contract) plus `scripts/check-extensions/run.ts` (the CLI wrapper). The split mirrors Task 1's `lib/case-store/migrations/runner.ts` + `scripts/migrate/run.ts` shape and matches the canonical Cloud Run job pattern.
+
+**No generated TypeScript constant:** Plan 2's "Record availability in a generated TypeScript constant" framing is intentionally not implemented. Per `feedback_max_subset_no_dimagi_litter.md`, production parity is non-negotiable — there is no graceful-degradation path that branches on extension availability at runtime. The Plan 1 compilers assume all three extensions are available; the gate's halt-if-missing semantic is the structural enforcement, not a constant downstream code reads.
 
 **Extensions Plan 1's compiler depends on (NON-OPTIONAL on the production Cloud SQL instance):**
-- `pg_trgm` — `match` mode "fuzzy" / "starts-with" / "fuzzy-date" all emit `%` similarity; without `pg_trgm`, these queries fail at execution time. The harness installs it (verified at `lib/case-store/sql/__tests__/globalSetup.ts`); production parity is non-negotiable.
+- `pg_trgm` — `match` mode "fuzzy" / "starts-with" / "fuzzy-date" all emit `%` similarity; without `pg_trgm`, these queries fail at execution time.
 - `fuzzystrmatch` — `match` mode "phonetic" emits `dmetaphone(...)` calls; without it, the function does not exist.
 - `postgis` — `within-distance` emits `ST_GeogFromText` and `ST_DWithin`; without `postgis`, neither function exists.
 
-All three are on Cloud SQL's documented allowlist for PG 18 (per `https://cloud.google.com/sql/docs/postgres/extensions` and the Cloud SQL release notes confirming PostGIS 3.6.0 is bundled). The gate is a structural check that the provisioned instance hasn't been configured to disable any of them. If any is missing, the corresponding search modes / operators are unauthorable — Plan 4's search-input UI must reject those mode selections at construction time, OR the Cloud SQL instance must be re-provisioned with the extension enabled.
+All three are on Cloud SQL's documented allowlist for PG 18 (per `https://docs.cloud.google.com/sql/docs/postgres/extensions` and the Cloud SQL release notes confirming PostGIS 3.6.0 is bundled).
 
 **Validation lives in TypeScript, not in Postgres.** Every `cases` write flows through `PostgresCaseStore.insert` / `.update` (Task 4), which validates the candidate `properties` payload against `case_type_schemas[appId, caseType].schema` via `lib/domain/predicate/jsonSchema.ts` + `ajv` before the row hits the database. The API route is the trust boundary; the database is internal. There is no in-database trigger and no `pg_jsonschema` extension dependency — Cloud SQL doesn't allowlist `pg_jsonschema`, and a hand-rolled PL/pgSQL JSON Schema implementation duplicating the TypeScript validator's behavior would just create a second validator to keep in sync. The single TypeScript validator is the single source of truth.
 
-Steps:
-- [ ] Write the extension-availability gate script
-- [ ] Run against the provisioned Cloud SQL instance; record results
-- [ ] If any of the three required extensions is missing, halt provisioning and re-provision with the extension enabled (do not proceed to Task 4 with a partial extension surface)
+Commit chain: `f03b6e72` (initial) → `8f4f952c` (CR fix-pass — shared `perTestDatabase` helper extraction + drift fixes).
+
+**Dockerfile.migrate latent ESM bug (queued supervisor follow-up):** the same nodenext ESM issue affects `Dockerfile.migrate`. It hasn't surfaced because the migrate job hasn't been deployed yet. The supervisor's follow-up: add `!scripts/migrate` to `.dockerignore` and verify `Dockerfile.migrate` carries the new `lib/case-store/postgres/package.json` forward in its COPY chain. Tracked separately from Task 2's implementer scope per `feedback_no_silent_scope_flips.md`.
 
 ### Task 3: `CaseStore` interface + `withOwnerContext` factory
 
