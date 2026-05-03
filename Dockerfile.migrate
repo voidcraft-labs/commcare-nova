@@ -81,15 +81,24 @@ RUN npx tsc \
     lib/case-store/sql/database.ts \
     scripts/migrate/run.ts
 
-# Carry the migrations folder's scoped package.json forward —
-# `tsc` only emits `.js`, so a non-TS file like a sibling
-# package.json is otherwise dropped. Without `"type": "module"`
-# in scope, Node falls back to CommonJS speculation when
-# FileMigrationProvider's dynamic import hits the compiled
-# `0001_init.js` and emits MODULE_TYPELESS_PACKAGE_JSON warnings
-# in the Cloud Run job's logs. Copying the scoped package.json
-# preserves the test-side fix on the production path.
+# Carry the two scoped package.json files forward — `tsc` only
+# emits `.js`, so non-TS sibling package.json files are otherwise
+# dropped from the build output. Both folders need their
+# `"type": "module"` declarations at runtime:
+#
+#   - `lib/case-store/migrations/package.json` — without it, Node
+#     falls back to CommonJS speculation when FileMigrationProvider's
+#     dynamic import hits the compiled `0001_init.js`, emitting
+#     MODULE_TYPELESS_PACKAGE_JSON warnings in the Cloud Run job's
+#     logs.
+#   - `scripts/migrate/package.json` — `run.js` imports the migration
+#     runner (which is ESM under its scoped package.json); without
+#     matching the scope here, Kysely's dual-mode export resolves to
+#     a different file path on each side and TypeScript's
+#     `Kysely<unknown>` type identity disagrees across the boundary.
+#     At runtime the same mismatch surfaces as ERR_REQUIRE_ESM.
 RUN cp lib/case-store/migrations/package.json /app/build/lib/case-store/migrations/package.json
+RUN cp scripts/migrate/package.json /app/build/scripts/migrate/package.json
 
 # Compiled output: /app/build/scripts/migrate/run.js +
 # /app/build/lib/case-store/migrations/*.js + the scoped

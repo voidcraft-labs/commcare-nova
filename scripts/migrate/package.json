@@ -1,0 +1,4 @@
+{
+	"//": "Local package.json that scopes the migrate CLI to ESM. The CLI imports the migration runner at lib/case-store/migrations/runner, which lives under a sibling scoped package.json declaring \"type\": \"module\". Without matching scopes, the Dockerfile's nodenext-mode tsc compilation surfaces a Kysely<unknown> CJS-vs-ESM type identity mismatch (each scope resolves Kysely's dual-mode export to a different file path, and TS treats the two Kysely<> signatures as nominally distinct). At runtime the same mismatch manifests as ERR_REQUIRE_ESM. The root project stays CommonJS for Next.js; this scoped declaration only affects files under scripts/migrate/.",
+	"type": "module"
+}

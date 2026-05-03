@@ -49,8 +49,8 @@ import {
 	formatMigrationOutcome,
 	type MigrationAction,
 	runMigration,
-} from "../../lib/case-store/migrations/runner";
-import { readCaseStoreEnvConfig } from "../../lib/case-store/postgres/connection";
+} from "../../lib/case-store/migrations/runner.js";
+import { readCaseStoreEnvConfig } from "../../lib/case-store/postgres/connection.js";
 
 // ---------------------------------------------------------------
 // Argument parsing
