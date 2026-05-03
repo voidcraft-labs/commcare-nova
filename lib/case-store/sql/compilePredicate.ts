@@ -1105,7 +1105,7 @@ function compileWithinDistance(
 	// typed point inputs interpret the coordinates as lat/lon on
 	// the WGS-84 ellipsoid (the geography type's documented
 	// reference frame, per
-	// `https://postgis.net/docs/manual-3.4/ST_GeogFromText.html`:
+	// `https://postgis.net/docs/manual-3.6/ST_GeogFromText.html`:
 	// "SRID 4326 is assumed if unspecified"), which is what the
 	// stored geopoint format encodes. `ST_GeogFromText('POINT(<lon>
 	// <lat>)')` returns a geography directly — no separate cast
@@ -1142,7 +1142,7 @@ function compileWithinDistance(
  * WKT (Well-Known Text) coordinate order is `POINT(<lon> <lat>)` —
  * the same `(lon, lat)` order `ST_MakePoint` accepts. SRID 4326 is
  * the documented default per
- * `https://postgis.net/docs/manual-3.4/ST_GeogFromText.html`.
+ * `https://postgis.net/docs/manual-3.6/ST_GeogFromText.html`.
  */
 function geographyPoint(
 	lon: AliasableExpression<unknown>,

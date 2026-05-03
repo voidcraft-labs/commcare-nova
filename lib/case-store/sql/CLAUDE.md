@@ -153,14 +153,14 @@ instead routed through typed-builder primitives:
   is in Kysely's `SIMPLE_COLUMN_DATA_TYPES` so `eb.cast<E>(expr,
   "date")` accepts it. Postgres documents `current_date` and
   `now()::date` as transaction-stable equivalents per
-  `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
+  `https://www.postgresql.org/docs/18/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
 - **`interval` cast for `date-add`** — `interval` is not in
   Kysely's `SIMPLE_COLUMN_DATA_TYPES`, so `cast(... as interval)`
   cannot be reached through `eb.cast<E>(expr, "interval")`.
   `date-add` instead constructs the interval through Postgres's
   `make_interval(years, months, weeks, days, hours, mins, secs)`
   function (per
-  `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-TABLE`),
+  `https://www.postgresql.org/docs/18/functions-datetime.html#FUNCTIONS-DATETIME-TABLE`),
   which returns the `interval` value directly — no cast token
   needed. The quantity expression occupies the positional slot for
   the AST unit (zero-padded through every preceding slot).
@@ -170,7 +170,7 @@ instead routed through typed-builder primitives:
   geography point via `ST_GeogFromText('POINT(<lon> <lat>)')`
   which returns geography directly (SRID 4326 is the documented
   default per
-  `https://postgis.net/docs/manual-3.4/ST_GeogFromText.html`).
+  `https://postgis.net/docs/manual-3.6/ST_GeogFromText.html`).
   The WKT payload composes through Postgres's `concat(...)` so
   the lon/lat numerics flow as typed-builder arguments rather
   than being interpolated into a raw string.

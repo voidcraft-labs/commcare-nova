@@ -303,7 +303,7 @@ describe("compileExpression — arith arm", () => {
 //
 // Postgres's `concat(...)` function treats NULL inputs as empty
 // strings (verified at
-// `https://www.postgresql.org/docs/16/functions-string.html#FUNCTIONS-STRING-OTHER`).
+// `https://www.postgresql.org/docs/18/functions-string.html#FUNCTIONS-STRING-OTHER`).
 // This NULL-tolerant behavior matches the type checker's spec at
 // `lib/domain/predicate/typeChecker.ts:1525-1526` ("each part casts
 // to text at evaluation, so no per-part type rule beyond
@@ -630,7 +630,7 @@ describe("compileExpression — date-add arm", () => {
 //
 // SQL: `to_char((<date>)::timestamptz, '<pattern>')`. Postgres's
 // `to_char` is documented at
-// `https://www.postgresql.org/docs/16/functions-formatting.html`.
+// `https://www.postgresql.org/docs/18/functions-formatting.html`.
 // The three preset names (`short` / `long` / `iso`) map to fixed
 // Postgres patterns; arbitrary author-supplied strings pass
 // through verbatim under the assumption that authors target

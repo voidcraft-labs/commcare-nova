@@ -70,7 +70,7 @@
 //     arbitrary pattern strings pass through verbatim under the
 //     assumption that authors target Postgres's pattern vocabulary
 //     on Nova-runtime apps. Postgres `to_char` documented at
-//     `https://www.postgresql.org/docs/16/functions-formatting.html`.
+//     `https://www.postgresql.org/docs/18/functions-formatting.html`.
 //
 // ## Predicate-thunk strategy
 //
@@ -189,7 +189,7 @@ export interface ExpressionCompileContext extends TermCompileContext {
  * because XPath's `/` is the path separator and `%` has no XPath
  * meaning. Postgres recognises `/` and `%` for integer division
  * and modulo respectively (per
- * `https://www.postgresql.org/docs/16/functions-math.html`).
+ * `https://www.postgresql.org/docs/18/functions-math.html`).
  *
  * The `Record<ArithOp, string>` typing forces every variant of the
  * AST enum to map to a SQL token at compile time; adding a new arm
@@ -339,7 +339,7 @@ const eb = expressionBuilder<Database, keyof Database>();
  * `today` → `cast(now() as date)`. Postgres returns a `date`-typed
  * value representing the date at evaluation time, sliced from the
  * transaction-stable timestamp `now()` returns. Per
- * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`,
+ * `https://www.postgresql.org/docs/18/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`,
  * `now()` and `current_date` share the same transaction-stable
  * timestamp source, so `now()::date` and `current_date` resolve to
  * the same date value within a transaction.
@@ -359,7 +359,7 @@ function compileToday(): AliasableExpression<unknown> {
  * representing the start of the current transaction (the
  * documented Postgres behavior; `NOW()` returns a transaction-
  * stable timestamp). Per
- * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
+ * `https://www.postgresql.org/docs/18/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
  *
  * `eb.fn<Date>('now')` emits `now()` directly — the parenthesised
  * form Postgres documents as canonical.
@@ -431,7 +431,7 @@ function compileArith(
  * Positional slot index for each `DateAddInterval` arm in
  * Postgres's `make_interval(years, months, weeks, days, hours,
  * mins, secs)` signature (per
- * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-TABLE`,
+ * `https://www.postgresql.org/docs/18/functions-datetime.html#FUNCTIONS-DATETIME-TABLE`,
  * "make_interval ( years int default 0, months int default 0,
  * weeks int default 0, days int default 0, hours int default 0,
  * mins int default 0, secs double precision default 0 )"). The
@@ -532,7 +532,7 @@ function makeIntervalForUnit(
  * Compile a `concat` AST node to Postgres's `concat(...)` function.
  *
  * Postgres's `concat(...)` is documented at
- * `https://www.postgresql.org/docs/16/functions-string.html#FUNCTIONS-STRING-OTHER`:
+ * `https://www.postgresql.org/docs/18/functions-string.html#FUNCTIONS-STRING-OTHER`:
  * "Concatenates the text representations of all the arguments. NULL
  * arguments are ignored." The NULL-ignored behavior — observably
  * identical to coercing NULL parts to empty — is the deliberate
@@ -563,7 +563,7 @@ function compileConcat(
 /**
  * Compile a `coalesce` AST node to SQL `COALESCE(...)`. Returns
  * the first non-null argument per
- * `https://www.postgresql.org/docs/16/functions-conditional.html#FUNCTIONS-COALESCE-NVL-IFNULL`.
+ * `https://www.postgresql.org/docs/18/functions-conditional.html#FUNCTIONS-COALESCE-NVL-IFNULL`.
  *
  * Each value compiles recursively; the resulting expressions are
  * joined into the function call. Empty-string-as-null coercion
@@ -602,7 +602,7 @@ function compileCoalesce(
  * silent fall-through.
  *
  * `CASE WHEN ... END` syntax is documented at
- * `https://www.postgresql.org/docs/16/functions-conditional.html#FUNCTIONS-CASE`.
+ * `https://www.postgresql.org/docs/18/functions-conditional.html#FUNCTIONS-CASE`.
  */
 function compileIf(
 	cond: Predicate,
@@ -648,7 +648,7 @@ function compileIf(
  * Every `cases[].when` is a Literal (per `switchCaseSchema` in
  * `lib/domain/predicate/types.ts:867-871`), so the equality
  * comparison can run as Postgres's "simple CASE" form (per
- * `https://www.postgresql.org/docs/16/functions-conditional.html#FUNCTIONS-CASE`):
+ * `https://www.postgresql.org/docs/18/functions-conditional.html#FUNCTIONS-CASE`):
  * the discriminator expression evaluates ONCE before the branches,
  * and each branch's `when` literal compares against it. The
  * "searched CASE" form (`CASE WHEN <on>=<lit_a> THEN ... WHEN
@@ -823,7 +823,7 @@ function compileCount(
  * arbitrary author-supplied strings pass through verbatim.
  *
  * Postgres `to_char` documented at
- * `https://www.postgresql.org/docs/16/functions-formatting.html`.
+ * `https://www.postgresql.org/docs/18/functions-formatting.html`.
  * The function expects a timestamp-typed first argument; the
  * compiler casts via `::timestamptz` so a date-typed input lifts
  * cleanly (Postgres's date-to-timestamptz cast is implicit but

@@ -38,7 +38,7 @@
 //     lift the text value into the typed comparison world. Cast
 //     emission goes through Kysely's typed `eb.cast<T>(expr,
 //     dataType)` helper. Verified at the Postgres docs reference
-//     at `https://www.postgresql.org/docs/16/functions-json.html`
+//     at `https://www.postgresql.org/docs/18/functions-json.html`
 //     — "JSON Object Field as Text" returns `text`.
 //   - `->` returns the value as `jsonb`. The compiler uses this
 //     for `multi_select` because the predicate compiler's
