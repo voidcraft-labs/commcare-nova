@@ -63,13 +63,9 @@
 //     connector resolves this to the private IP on demand via the
 //     SQL Admin API.
 //
-// Phase 6 also wires `NOVA_DB_HOST` (the captured private IP). The
-// connector path does not consume `NOVA_DB_HOST` — `instanceConnectionName`
-// + `ipType: 'PRIVATE'` resolves the address itself. The variable
-// stays wired in Phase 6 for parity with any future tooling that
-// might reach the database without the connector (a Cloud Run job
-// that opens a single short-lived connection, for example), but
-// this file does not read it.
+// Phase 6 also wires `NOVA_DB_HOST` (the captured private IP). This
+// file does not consume it — the connector resolves the address
+// from `instanceConnectionName` + `ipType: 'PRIVATE'`.
 //
 // Missing or empty required variables throw at module-init time
 // with a clear error naming which variable is missing. The
