@@ -47,10 +47,7 @@ lib/case-store/
 │   ├── store.ts                      # PostgresCaseStore — wraps the Kysely DB
 │   ├── connection.ts                 # Cloud SQL connection pool, Auth Proxy / private IP
 │   ├── queryCompile.ts               # Plan 1 Kysely compiler integration glue
-│   ├── caseIndices.ts                # case_indices materialization (Option B: direct edges + recursive CTE)
-│   └── triggers/
-│       ├── jsonSchemaValidator.sql   # `pg_jsonschema` trigger (when allowlisted)
-│       └── plpgsqlValidator.sql      # PL/pgSQL fallback trigger
+│   └── caseIndices.ts                # case_indices materialization (Option B: direct edges + recursive CTE)
 ├── sample/
 │   ├── generator.ts                  # SampleCaseGenerator interface
 │   ├── heuristic.ts                  # HeuristicCaseGenerator
@@ -120,31 +117,25 @@ Steps:
 - [ ] Run migrations against local Cloud SQL Auth Proxy + against testcontainers Postgres in CI
 - [ ] Document the migration workflow in `lib/case-store/CLAUDE.md`
 
-### Task 2: Cloud SQL extension allowlist gate (formerly Plan 1 Task C2-pre)
+### Task 2: Cloud SQL extension allowlist gate
 
-**Files:** `scripts/check-postgres-extensions.ts`, `lib/case-store/postgres/triggers/`.
+**Files:** `scripts/check-postgres-extensions.ts`.
 
-Run `gcloud sql instances describe ... --format='value(databaseFlags)'` and `SELECT * FROM pg_available_extensions WHERE name IN ('pg_jsonschema', 'pg_trgm', 'fuzzystrmatch', 'postgis')` against the provisioned instance. Record availability in a generated TypeScript constant.
+Run `gcloud sql instances describe ... --format='value(databaseFlags)'` and `SELECT * FROM pg_available_extensions WHERE name IN ('pg_trgm', 'fuzzystrmatch', 'postgis')` against the provisioned instance. Record availability in a generated TypeScript constant.
 
 **Extensions Plan 1's compiler depends on (NON-OPTIONAL on the production Cloud SQL instance):**
 - `pg_trgm` — `match` mode "fuzzy" / "starts-with" / "fuzzy-date" all emit `%` similarity; without `pg_trgm`, these queries fail at execution time. The harness installs it (verified at `lib/case-store/sql/__tests__/globalSetup.ts`); production parity is non-negotiable.
 - `fuzzystrmatch` — `match` mode "phonetic" emits `dmetaphone(...)` calls; without it, the function does not exist.
 - `postgis` — `within-distance` emits `ST_GeogFromText` and `ST_DWithin`; without `postgis`, neither function exists.
 
-If any of the three is unavailable on the provisioned Cloud SQL instance, the corresponding search modes / operators are unauthorable — Plan 4's search-input UI must reject those mode selections at construction time, OR the Cloud SQL instance must be re-provisioned with the extension enabled. Cloud SQL's documented allowlist (per `https://cloud.google.com/sql/docs/postgres/extensions`) includes all three at the time of writing.
+All three are on Cloud SQL's documented allowlist for PG 18 (per `https://cloud.google.com/sql/docs/postgres/extensions` and the Cloud SQL release notes confirming PostGIS 3.6.0 is bundled). The gate is a structural check that the provisioned instance hasn't been configured to disable any of them. If any is missing, the corresponding search modes / operators are unauthorable — Plan 4's search-input UI must reject those mode selections at construction time, OR the Cloud SQL instance must be re-provisioned with the extension enabled.
 
-`pg_jsonschema` is the one extension that's allowlist-gated and may genuinely be unavailable; the trigger has a documented PL/pgSQL fallback.
-
-If `pg_jsonschema` is available: deploy `triggers/jsonSchemaValidator.sql` as the BEFORE INSERT/UPDATE trigger on `cases`.
-If not: deploy `triggers/plpgsqlValidator.sql` (a PL/pgSQL implementation that walks the JSON Schema row from `case_type_schemas` against the candidate `properties` value). Architecture identical from the application's perspective; performance differs.
-
-Either way, the trigger is defense-in-depth — the application's `PostgresCaseStore.insert` / `.update` path validates against the same JSON Schema in TypeScript before every write. The trigger catches anything that bypasses the application layer (direct SQL, future bulk imports, replication tooling).
+**Validation lives in TypeScript, not in Postgres.** Every `cases` write flows through `PostgresCaseStore.insert` / `.update` (Task 4), which validates the candidate `properties` payload against `case_type_schemas[appId, caseType].schema` via `lib/domain/predicate/jsonSchema.ts` + `ajv` before the row hits the database. The API route is the trust boundary; the database is internal. There is no in-database trigger and no `pg_jsonschema` extension dependency — Cloud SQL doesn't allowlist `pg_jsonschema`, and a hand-rolled PL/pgSQL JSON Schema implementation duplicating the TypeScript validator's behavior would just create a second validator to keep in sync. The single TypeScript validator is the single source of truth.
 
 Steps:
 - [ ] Write the extension-availability gate script
 - [ ] Run against the provisioned Cloud SQL instance; record results
-- [ ] Pick the trigger SQL based on the gate result; deploy via migration `0003_validate_trigger.sql`
-- [ ] Test: `INSERT INTO cases ... { invalid }` raises EXCEPTION
+- [ ] If any of the three required extensions is missing, halt provisioning and re-provision with the extension enabled (do not proceed to Task 4 with a partial extension surface)
 
 ### Task 3: `CaseStore` interface + `withOwnerContext` factory
 
@@ -258,7 +249,8 @@ Document:
 - The "no preview mode" architecture: the running-app view operates on the same rows the editor sees; sample-data generation is a user action.
 - The `(app_id, owner_id)` isolation pattern.
 - The migration workflow (`db:migrate`, `db:rollback`, `db:status`).
-- The Cloud SQL extension gate and trigger-deployment policy.
+- The Cloud SQL extension allowlist gate (Task 2) — required extensions, what halts provisioning if any is missing.
+- Why validation lives in TypeScript, not in Postgres triggers: `lib/domain/predicate/jsonSchema.ts` + `ajv` at the API-route trust boundary; no `pg_jsonschema` (Cloud SQL doesn't allowlist it) and no PL/pgSQL fallback (would duplicate the TS validator's logic).
 
 ---
 

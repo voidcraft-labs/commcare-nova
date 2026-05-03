@@ -1156,6 +1156,28 @@ Shipped across commits `d223d9b9` → `5171cd9a`.
 
 **Boot-time delta:** ~3s on `npm test`. Well below the 5-15s ceiling the spec noted as an unusable threshold.
 
+#### Post-shipped amendment 2026-05-03 — image bump + pg_jsonschema removal
+
+The original SHIPPED bullets above are preserved as the historical record of what landed at `d223d9b9`. This amendment captures two architectural decisions that landed after the spec-compliance review and required code + spec + Plan 2 sweeps to reflect.
+
+**1. Image bump: `postgis/postgis:16-3.4` → `imresamu/postgis:18-3.6.1-alpine3.23` (digest-pinned).**
+
+- Cloud SQL's default Postgres major has been **18** since 2025-09-25; the prior PG-16 pin was stale.
+- Cloud SQL bundles **PostGIS 3.6.0** with PG 18 (release notes 2025-10-27); the `imresamu/postgis:18-3.6.1` image is one PostGIS patch ahead of production — strictly closer than the static extensions docs page suggests (that page's PostGIS table only goes through PG 17 and shows 3.5.2).
+- The official `postgis/postgis` image publishes `linux/amd64` only at every major version. The `imresamu/postgis` rebuild publishes both `amd64` and `arm64` manifests, which lets Apple Silicon dev machines run the testcontainer natively rather than under emulation. Maintainer Imre Samu is a verified `@postgis` GitHub-org member.
+- Supply-chain mitigation: the harness pins by SHA-256 content digest (`@sha256:8990ec…712bac`), not by floating tag. A maintainer-account compromise can't push a malicious image into our test runs without a conscious digest bump in `globalSetup.ts`.
+
+**2. `pg_jsonschema` architecture removed: validation moves to TypeScript only.**
+
+- Cloud SQL **does not allowlist** `pg_jsonschema`. The original spec's "use `pg_jsonschema` if Cloud SQL allows it; PL/pgSQL fallback if not" pattern was based on an unverified premise. Production was always going to take the fallback path.
+- Hand-rolling PL/pgSQL to mirror the TypeScript JSON-Schema validator's behavior creates a second validator to keep in sync — the divergence becomes the bug surface, not a defense.
+- `pg_jsonschema` exists for architectures where the database is the trust boundary (Supabase, PostgREST). Nova's API routes are the trust boundary; the database is internal. The TypeScript validator at `lib/domain/predicate/jsonSchema.ts` + `ajv` runs at every write and is the single source of truth.
+- Code changes: `globalSetup.ts` `OPTIONAL_EXTENSIONS` constant + probe loop deleted; `harness.test.ts` `pg_jsonschema` test deleted; `lib/case-store/CLAUDE.md` "fourth extension" paragraph rewritten to document the TS-side validator decision.
+- Spec changes: § "Write-time validation" rewritten to commit to TS-side validation; verification gate at line 545 retargeted to the three required extensions; risk-mitigation entry for `pg_jsonschema` deleted.
+- Plan 2 changes: file-structure tree's `triggers/` directory removed; Task 2 rewritten to drop `pg_jsonschema` and the trigger-deployment policy; Task 9 (CLAUDE.md outline) updated.
+
+**Surfaces bullets 1130, 1139, 1142, 1147 in the original SHIPPED record are now stale on the new architecture** but are preserved verbatim as the accurate historical record at the time of `d223d9b9` review. The new state lives in this amendment block and in the touched files themselves.
+
 ### Task C8: Barrel exports + CLAUDE.md updates + literal-emission consolidation + true zero raw SQL — SHIPPED
 
 Shipped across commits `1b35db8e` → `72baaba6` → `52e04036`. The first commit landed the initial barrels + CLAUDE.md + the deferred Phase-2 SUGGESTION-1 (literal-emission consolidation). The second was the code-quality reviewer fix-pass (drift sweep + cast-table extraction to a third sibling module + barrel-test simplification). The third eliminated all four `sql.raw(...)` escape hatches the supervisor had initially accepted as "documented Kysely API gaps" — the user's correction that the locked goal was ZERO raw SQL emission across the package, not just zero `sql\`` template literals, drove the rewrites against verified typed-builder alternatives.
