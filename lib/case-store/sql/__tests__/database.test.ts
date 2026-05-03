@@ -44,6 +44,7 @@ import {
 import { describe, expect, it } from "vitest";
 import type {
 	CaseIndicesTable,
+	CasesQuarantineTable,
 	CasesTable,
 	CaseTypeSchemasTable,
 	Database,
@@ -349,5 +350,63 @@ describe("Database.case_indices", () => {
 			depth: 1,
 		};
 		expect(_typecheck.depth).toBe(1);
+	});
+});
+
+// -- `cases_quarantine` table --------------------------------------
+
+describe("Database.cases_quarantine", () => {
+	it("compiles a quarantine-row insert with reason + default-stamped timestamp", () => {
+		// `applySchemaChange` writes here for rows that fail
+		// migration. The `quarantined_at` column is server-defaulted
+		// to `now()` so omitting it from the insert is the canonical
+		// shape; Kysely's `Insertable<CasesQuarantineTable>` shape
+		// with `ColumnType<Date, Date | string | undefined, ...>`
+		// accepts `undefined` for the default to fire. Spec §
+		// "Schema migration policy" lines 309-340.
+		const compiled = compile(
+			db.insertInto("cases_quarantine").values({
+				case_id: "case-uuid",
+				app_id: "app-uuid",
+				case_type: "patient",
+				owner_id: "owner-uuid",
+				status: "open",
+				opened_on: new Date("2026-05-02T00:00:00Z"),
+				modified_on: new Date("2026-05-02T00:00:00Z"),
+				closed_on: null,
+				parent_case_id: null,
+				properties: JSON.stringify({ age: "abc" }),
+				quarantine_reason:
+					"cast text→int failed for property 'age': value 'abc' is not numeric",
+				// `quarantined_at` omitted — server default fires.
+			}),
+		);
+
+		expect(compiled.sql).toContain('insert into "cases_quarantine"');
+		expect(compiled.sql).toContain('"quarantine_reason"');
+		// 11 explicit columns set; `quarantined_at` is defaulted.
+		expect(compiled.parameters).toHaveLength(11);
+	});
+
+	it("exposes the spec's column shape via Selectable<CasesQuarantineTable>", () => {
+		type SelectedRow = Selectable<CasesQuarantineTable>;
+		// Type-level assertion: every column reachable, with the
+		// quarantine-specific additions (`quarantine_reason`,
+		// `quarantined_at`) present and typed correctly.
+		const _typecheck: SelectedRow = {
+			case_id: "case-uuid",
+			app_id: "app-uuid",
+			case_type: "patient",
+			owner_id: "owner-uuid",
+			status: "open",
+			opened_on: new Date(),
+			modified_on: new Date(),
+			closed_on: null,
+			parent_case_id: null,
+			properties: { age: "abc" },
+			quarantine_reason: "cast failed",
+			quarantined_at: new Date(),
+		};
+		expect(_typecheck.quarantine_reason).toBe("cast failed");
 	});
 });

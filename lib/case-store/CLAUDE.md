@@ -2,10 +2,11 @@
 
 The runtime storage layer for case data:
 
-- `sql/database.ts` — Kysely `Database` type definitions for the three
-  case-store tables (`cases`, `case_type_schemas`, `case_indices`). The
-  compile-time contract every typed query binds against. Source of
-  column names and column types; spec lines cited per column.
+- `sql/database.ts` — Kysely `Database` type definitions for the four
+  case-store tables (`cases`, `case_type_schemas`, `case_indices`,
+  `cases_quarantine`). The compile-time contract every typed query
+  binds against. Source of column names and column types; spec lines
+  cited per column.
 - `sql/{compileTerm,compilePredicate,compileExpression,compileRelationPath,compileLiteral}.ts`
   — the AST → Kysely compiler stack. Lowers `Predicate` /
   `ValueExpression` / `RelationPath` AST nodes (from
@@ -13,9 +14,118 @@ The runtime storage layer for case data:
   executes natively. Compiler-stack contract documented in
   `sql/CLAUDE.md`; public surface exposed through the barrel at
   `sql/index.ts`.
+- `migrations/` — schema migrations. `0001_init.ts` creates the four
+  tables; `0002_indices.ts` creates the per-spec static indexes;
+  `runner.ts` wraps Kysely's canonical `Migrator` + `FileMigrationProvider`.
+  See "Migrations" below for the production / test split.
+- `postgres/connection.ts` — Cloud SQL runtime singleton (Plan 2 Task 0).
+  Lazy `Kysely<Database>` backed by `pg.Pool` + `@google-cloud/cloud-sql-connector`.
 - `sql/__tests__/` — the testcontainers harness shared by every
   AST-to-Kysely compiler test in this package and by future
   Postgres-backed integration tests.
+
+## Migrations
+
+Schema migrations live at `lib/case-store/migrations/`. The directory
+contains:
+
+- `0001_init.ts` / `0002_indices.ts` — the migration files. Each
+  exports `up(db: Kysely<unknown>)` and `down(db: Kysely<unknown>)`
+  per Kysely's documented canonical pattern at
+  `https://kysely.dev/docs/migrations`. Naming convention is
+  `<NNNN>_<descriptive-name>.ts`; Kysely orders alphanumerically
+  so the four-digit prefix is the canonical ordering anchor.
+- `runner.ts` — shared core. `runMigration(db, action)` constructs
+  Kysely's `Migrator` + `FileMigrationProvider` against this folder
+  and runs the chosen action (`latest` / `down` / `status`). One
+  function, two callers (production + tests), no duplication.
+
+### Why `Kysely<unknown>` and not `Kysely<Database>`
+
+Migrations run against a schema that is mid-creation. Before the
+first migration, the database has no tables; the `Database` type
+describes a fully-migrated schema. Typing the runner against the
+full type would let migration code call `.selectFrom("cases")`
+against a database where `cases` doesn't yet exist — a runtime
+crash with no compile-time signal. `Kysely<unknown>` matches the
+canonical Kysely migration pattern (every doc example uses
+`Kysely<any>`) and forces migration code through the schema
+builder (`db.schema.createTable`, `db.schema.createIndex`) which
+is the right surface regardless of pre/post-migration shape.
+
+### Production: Cloud Run job
+
+Production migrations run as a Cloud Run job, NOT from a developer
+laptop. Cloud SQL is private-IP-only (`--no-assign-ip`) and
+`cloud-sql-proxy --private-ip` from a developer laptop does not
+reach the instance — see the Plan 2 Task 0 runbook §2.12 for the
+verification.
+
+The Cloud Run job (`db-migrate` in `us-central1`) is built from
+`Dockerfile.migrate` at the repo root. The image bundles only the
+runner + migration files (compiled to JS via `tsc`) and the
+production deps; no Next.js, no devDependencies. The job attaches
+to the same `default`/`default` network/subnet as the main service
+via Direct VPC Egress, runs as the runtime service account, and
+inherits the same IAM-auth path the main service uses.
+
+Three npm scripts wrap the job:
+
+| Script | Action |
+|---|---|
+| `npm run db:migrate:deploy` | Build the image via Cloud Build + deploy/update the `db-migrate` Cloud Run job |
+| `npm run db:migrate` | Execute the job with action `latest` (apply all pending migrations) |
+| `npm run db:rollback` | Execute the job with action `down` (roll back the most-recently-applied migration) |
+| `npm run db:status` | Execute the job with action `status` (read-only — report current migration state) |
+
+The deploy step is heavy (Cloud Build → Artifact Registry push →
+job redeploy); the execute step is fast (~10 s round-trip). Run
+deploy when the migration code or the schema files change; run
+execute every time a new migration set is ready. The deploy script
+lives at `scripts/migrate/deploy-job.sh`; the execute wrapper is
+at `scripts/migrate/execute-job.sh`. The CLI entry point inside
+the job container is `scripts/migrate/run.ts`.
+
+### Tests: testcontainers harness
+
+Tests run the same migrations against a per-`vitest run` Postgres
+container (`imresamu/postgis:18-3.6.1-alpine3.23`, digest-pinned)
+that globalSetup boots. The harness:
+
+1. Boots the container and waits for `pg_isready`.
+2. Installs the three required extensions (`pg_trgm`,
+   `fuzzystrmatch`, `postgis`) as the container's superuser. These
+   are NOT migrations — `CREATE EXTENSION` requires
+   `cloudsqlsuperuser` on production, and the runtime SA running
+   migrations doesn't have superuser. The runbook's Phase 5
+   installs them under `postgres` superuser at provisioning time;
+   the harness mirrors that split.
+3. Runs the production migration set via `runMigration(db, "latest")`
+   from the same shared core production uses. Test code therefore
+   exercises the same DDL the live Cloud SQL instance receives —
+   no second source of truth to drift.
+
+Two surfaces stay in lockstep:
+
+1. `lib/case-store/migrations/0001_init.ts` + `0002_indices.ts`
+   (the source of truth — runs in production AND in tests)
+2. `sql/database.ts` (the Kysely type contract)
+
+A schema change updates ONE migration file plus the type;
+nothing else. The compile-only test in `sql/__tests__/database.test.ts`
+catches type drift; the harness smoke tests catch DDL drift.
+
+### Migration runner tests
+
+`migrations/__tests__/runner.test.ts` exercises the runner end-to-
+end against a per-test database (created via `CREATE DATABASE
+runner_test_<rand>` against the testcontainer's superuser URI,
+dropped on `afterEach`). Per-test isolation here can't reuse the
+harness's BEGIN/ROLLBACK fixture: the tests exercise migrate-from-
+empty + roll-back-to-empty paths, neither of which is reachable
+from inside an already-migrated database, and re-running
+migrations against the shared database would conflict with the
+`kysely_migration` ledger globalSetup already initialized.
 
 ## Testcontainers harness
 
@@ -46,6 +156,12 @@ do not invent variants.
    database. Don't bypass this with raw `pg.Client.connect()` — your
    writes will leak across tests and the harness's contract breaks
    silently.
+
+   Migration-runner tests are the documented exception: they need
+   migrate-from-empty paths that BEGIN/ROLLBACK can't supply, so
+   they create their own per-test database and drop it on cleanup.
+   That pattern is **only** for runner-internal tests — every other
+   test in this package uses the BEGIN/ROLLBACK fixture.
 
 The `harness-isolation.test.ts` sibling file exists specifically to
 catch a regression that splits one of these two rules: it inserts
@@ -85,7 +201,7 @@ at the right layer for our architecture.
 
 ### `case_type_schemas` seeding lives at the per-test layer
 
-`globalSetup.ts` seeds the three table DDL surfaces but does NOT seed
+`globalSetup.ts` runs the schema migrations but does NOT seed
 any `case_type_schemas` rows. Test bodies that need a typed JSON
 Schema row (schema-aware compiler tests, schema-sync round-trip tests)
 insert it themselves via the `db` fixture — the row is wrapped in the
@@ -142,12 +258,15 @@ container-singleton contract.
 ## Spec source
 
 All DDL is sourced from `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
-lines 254-284. Three surfaces stay in lockstep:
+lines 254-284 (the four base tables + indexes) and lines 309-340
+(the `cases_quarantine` shape from "Schema migration policy"). Two
+surfaces stay in lockstep:
 
-1. The spec's SQL block (source of truth)
-2. `sql/database.ts` (Kysely type contract)
-3. `sql/__tests__/globalSetup.ts`'s `SCHEMA_DDL` (live engine seed)
+1. The migration files at `migrations/0001_init.ts` and
+   `0002_indices.ts` (the runtime source of truth — runs in
+   production via the Cloud Run job AND in tests via globalSetup)
+2. `sql/database.ts` (the Kysely type contract)
 
-Any change to one requires updating the other two in the same change.
+Any change to one requires updating the other in the same change.
 The compile-only test in `sql/__tests__/database.test.ts` catches
 type-level drift; the harness smoke tests catch DDL-level drift.

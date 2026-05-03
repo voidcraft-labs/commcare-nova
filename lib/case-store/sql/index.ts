@@ -161,6 +161,7 @@ export {
 export type {
 	CaseIndexRelationship,
 	CaseIndicesTable,
+	CasesQuarantineTable,
 	CasesTable,
 	CaseTypeSchemasTable,
 	Database,

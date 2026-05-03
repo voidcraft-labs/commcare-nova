@@ -12,13 +12,15 @@
 // 5-15 s of `pg_ctl init` + extension installation per file and
 // make the watch loop unusable.
 //
-// The orchestrator boots the container, seeds the schema, and
-// publishes the connection URI through `project.provide()`. Worker
-// processes pick the URI up via `inject()` from the per-test
-// fixture in `setup.ts`. Per-test isolation is the worker's job:
-// every test wraps its body in a Kysely transaction that the
-// fixture rolls back on teardown, so writes never persist across
-// tests even though the database itself is shared.
+// The orchestrator boots the container, installs the required
+// extensions, runs the production migration set (which creates
+// every case-store table), and publishes the connection URI
+// through `project.provide()`. Worker processes pick the URI up
+// via `inject()` from the per-test fixture in `setup.ts`. Per-
+// test isolation is the worker's job: every test wraps its body
+// in a Kysely transaction that the fixture rolls back on
+// teardown, so writes never persist across tests even though the
+// database itself is shared.
 //
 // ## Container reaping
 //
@@ -69,34 +71,47 @@
 // can't push a malicious image into our test runs without a
 // conscious digest bump in this file.
 //
-// ## DDL seeding strategy
+// ## Schema seeding strategy — migrations are the source of truth
 //
-// Hardcoded DDL, sourced verbatim from the spec at
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
-// lines 254-284. The Kysely Database type at
-// `lib/case-store/sql/database.ts` already cites the same lines
-// per column; this file is the runtime mirror of that contract.
-// Auto-derivation from the Kysely type was rejected because the
-// Database type intentionally hides nullability + `NOT NULL`
-// constraints behind `ColumnType<...>` wrappers, and reverse-
-// engineering DDL from those wrappers would re-implement the
-// migrator surface for no test value.
+// The harness boots the container, installs three required
+// Postgres extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`)
+// that the case-store compilers' operators depend on, and then
+// runs the production migration set from
+// `lib/case-store/migrations/` end-to-end via the shared
+// `runMigration(db, "latest")` core. Test code therefore exercises
+// the same DDL the production Cloud SQL instance will receive —
+// no second source of truth to drift, no harness-only schema
+// shape that masks a migration bug.
 //
-// Any change to the DDL must update three surfaces in lockstep:
+// Extensions stay in the harness (NOT in a migration) because
+// `CREATE EXTENSION` requires the `cloudsqlsuperuser` role on
+// production Cloud SQL. The runbook §Phase 5 installs them via
+// Cloud SQL Studio under the briefly-opened `postgres` superuser
+// account; the migration runner runs as the IAM-authenticated
+// runtime SA, which doesn't have superuser privileges. Installing
+// extensions here mirrors what `postgres` did in production
+// without giving the test harness a non-production privilege
+// shape.
 //
-//   1. spec lines 254-284 (the source-of-truth SQL block)
-//   2. `lib/case-store/sql/database.ts` (the Kysely type)
-//   3. this file's `SCHEMA_DDL` constant
+// Two surfaces stay in lockstep:
+//
+//   1. `lib/case-store/migrations/0001_init.ts` + `0002_indices.ts`
+//      (the source of truth — runs in production AND in tests)
+//   2. `lib/case-store/sql/database.ts` (the Kysely type contract)
 //
 // The compile-only test in `database.test.ts` catches type drift;
-// this harness's smoke test catches DDL drift on the live engine.
+// the harness's smoke tests catch DDL drift on the live engine.
+// A schema change updates ONE migration file plus the type;
+// nothing else.
 
 import {
 	PostgreSqlContainer,
 	type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import { Client } from "pg";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Client, Pool } from "pg";
 import type { TestProject } from "vitest/node";
+import { runMigration } from "../../migrations/runner";
 
 // -- Provided-context type augmentation -----------------------------
 //
@@ -166,57 +181,16 @@ const DATABASE_NAME = "case_store_test";
  * (`pg_trgm` for fuzzy match, `fuzzystrmatch` for phonetic match,
  * `postgis` for geographic-distance predicates). Cloud SQL
  * allowlists all three; production parity is non-negotiable.
+ *
+ * Extensions are NOT migrations because `CREATE EXTENSION`
+ * requires the `cloudsqlsuperuser` role on production Cloud SQL.
+ * The runbook installs them via Studio under the postgres
+ * superuser at provisioning time, not via the application's
+ * IAM-auth migration runner. Mirroring that split in the harness
+ * keeps the migration runner's privilege shape production-
+ * accurate.
  */
 const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
-
-// -- Schema DDL -----------------------------------------------------
-//
-// Three CREATE TABLE statements, two CREATE INDEX statements.
-// Verbatim from spec lines 254-284. Every column is annotated
-// against the spec line that defines it so any cross-surface
-// edit can trace both lockstep changes in a single read.
-
-const SCHEMA_DDL = `
--- ---------------------------------------------------------------
--- cases — spec lines 254-265
--- ---------------------------------------------------------------
-CREATE TABLE cases (
-  case_id        UUID PRIMARY KEY,            -- spec 255
-  app_id         TEXT NOT NULL,               -- spec 256
-  case_type      TEXT NOT NULL,               -- spec 257
-  owner_id       TEXT,                        -- spec 258
-  status         TEXT,                        -- spec 259
-  opened_on      TIMESTAMPTZ,                 -- spec 260
-  modified_on    TIMESTAMPTZ,                 -- spec 261
-  closed_on      TIMESTAMPTZ,                 -- spec 262
-  parent_case_id UUID,                        -- spec 263
-  properties     JSONB NOT NULL               -- spec 264
-);
-
--- ---------------------------------------------------------------
--- case_type_schemas — spec lines 267-272
--- ---------------------------------------------------------------
-CREATE TABLE case_type_schemas (
-  app_id    TEXT NOT NULL,                    -- spec 268
-  case_type TEXT NOT NULL,                    -- spec 269
-  schema    JSONB NOT NULL,                   -- spec 270
-  PRIMARY KEY (app_id, case_type)             -- spec 271
-);
-
--- ---------------------------------------------------------------
--- case_indices — spec lines 274-283
--- ---------------------------------------------------------------
-CREATE TABLE case_indices (
-  case_id      UUID NOT NULL,                 -- spec 275
-  ancestor_id  UUID NOT NULL,                 -- spec 276
-  identifier   TEXT NOT NULL,                 -- spec 277
-  relationship TEXT NOT NULL,                 -- spec 278
-  depth        INT NOT NULL,                  -- spec 279
-  PRIMARY KEY (case_id, ancestor_id, identifier)  -- spec 280
-);
-CREATE INDEX ON case_indices (ancestor_id, identifier);  -- spec 282
-CREATE INDEX ON case_indices (case_id, identifier);      -- spec 283
-`;
 
 // -- Setup orchestration --------------------------------------------
 
@@ -233,8 +207,8 @@ let runningContainer: StartedPostgreSqlContainer | null = null;
 
 /**
  * Vitest globalSetup entry point. Boots the container, installs
- * extensions, seeds the schema, and publishes the connection URI
- * for worker processes to consume.
+ * extensions, runs the production migration set, and publishes
+ * the connection URI for worker processes to consume.
  *
  * Vitest passes the orchestrator's `TestProject` instance; we use
  * `project.provide("postgresTestUrl", ...)` to make the URI
@@ -250,32 +224,73 @@ export async function setup(project: TestProject): Promise<void> {
 		.start();
 
 	runningContainer = container;
+	const connectionString = container.getConnectionUri();
 
-	const client = new Client({
-		connectionString: container.getConnectionUri(),
-	});
-	await client.connect();
+	// -- Install extensions via raw `pg.Client`. ----------------------
+	//
+	// The container's default postgres user is a superuser inside
+	// the testcontainer (matching the briefly-opened postgres role
+	// the production runbook §Phase 5 uses), so `CREATE EXTENSION`
+	// succeeds without IAM auth. Single client, single connection;
+	// closes immediately after the install.
+	const extClient = new Client({ connectionString });
+	await extClient.connect();
 	try {
-		// Install required extensions. `IF NOT EXISTS` guards against
-		// the rare case where an image ships an extension preinstalled
-		// in the template database — it's a no-op then.
 		for (const extension of REQUIRED_EXTENSIONS) {
-			await client.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
+			await extClient.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
 		}
-
-		// Seed the schema. Single statement string; pg's protocol
-		// happily parses multi-statement SQL when there are no
-		// parameters.
-		await client.query(SCHEMA_DDL);
 	} finally {
-		await client.end();
+		await extClient.end();
+	}
+
+	// -- Run the production migration set. ---------------------------
+	//
+	// The migration runner constructs its own `Migrator` from
+	// `FileMigrationProvider`; we hand it a one-shot `Kysely<unknown>`
+	// backed by a small `pg.Pool` and tear that pool down before
+	// publishing the URI to workers. The migration runner DOES NOT
+	// own pool lifecycle — the caller does — and the harness's
+	// per-test `pg.Pool` (created in `setup.ts`) is a separate pool
+	// that workers own.
+	//
+	// `max: 2` for the migration's internal needs: Kysely's
+	// `Migrator` opens a transaction for the migration run plus a
+	// short-lived connection for the lock probe; one-connection
+	// pool would deadlock on the second open.
+	// `db.destroy()` calls the underlying pool's `end()` exactly
+	// once via Kysely's dialect-destroy contract, so we don't
+	// double-end the pool here. Idempotency is NOT preserved by
+	// pg.Pool (`Called end on pool more than once`), so the cleanup
+	// path closes via `db.destroy()` only.
+	const migrationPool = new Pool({ connectionString, max: 2 });
+	const migrationDb = new Kysely<unknown>({
+		dialect: new PostgresDialect({
+			pool: migrationPool as unknown as PostgresPool,
+		}),
+	});
+	try {
+		const outcome = await runMigration(migrationDb, "latest");
+		if (!outcome.success) {
+			// The migration runner returned a failure — surface the
+			// detail in the orchestrator's stderr so the entire run
+			// fails fast with a clear cause. Throwing here aborts
+			// globalSetup, which Vitest treats as a fatal harness
+			// error.
+			const message =
+				outcome.error instanceof Error
+					? outcome.error.message
+					: String(outcome.error);
+			throw new Error(`testcontainer migration runner failed: ${message}`);
+		}
+	} finally {
+		await migrationDb.destroy();
 	}
 
 	// Publish the connection URI for workers. `project.provide` is
 	// the only sanctioned channel for cross-process state in
 	// Vitest 4 — env vars work too but lose the type-augmentation
 	// guarantee on the consumer side.
-	project.provide("postgresTestUrl", container.getConnectionUri());
+	project.provide("postgresTestUrl", connectionString);
 }
 
 /**

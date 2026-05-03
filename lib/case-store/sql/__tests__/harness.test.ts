@@ -78,16 +78,22 @@ describe("case-store harness — extensions", () => {
 // -- Schema ---------------------------------------------------------
 
 describe("case-store harness — schema", () => {
-	test("seeds the three case-store tables with spec columns", async ({
+	test("seeds the four case-store tables with spec columns", async ({
 		pgClient,
 	}) => {
 		// `information_schema.columns` is the portable inspector for
-		// table shape. Pulling all columns for our three tables in
+		// table shape. Pulling all columns for our four tables in
 		// one query keeps the test focused on shape, not on
 		// per-column reachability — the type-level reachability
 		// tests live next door in `database.test.ts`. This test
 		// catches DDL drift that would prevent every other live-DB
 		// test from running.
+		//
+		// `cases_quarantine` is the failed-migration sink the
+		// `applySchemaChange` orchestration writes to (Plan 2 Task
+		// 8); its shape is `cases` columns plus `quarantine_reason`
+		// + `quarantined_at`. Spec § "Schema migration policy"
+		// lines 309-340.
 		const result = await pgClient.query<{
 			table_name: string;
 			column_name: string;
@@ -95,7 +101,7 @@ describe("case-store harness — schema", () => {
 			`SELECT table_name, column_name
 			 FROM information_schema.columns
 			 WHERE table_schema = 'public'
-			   AND table_name IN ('cases', 'case_type_schemas', 'case_indices')`,
+			   AND table_name IN ('cases', 'case_type_schemas', 'case_indices', 'cases_quarantine')`,
 		);
 
 		const columnsByTable = new Map<string, Set<string>>();
@@ -108,7 +114,7 @@ describe("case-store harness — schema", () => {
 			bucket.add(column_name);
 		}
 
-		// Spec-line citations match `globalSetup.ts`'s SCHEMA_DDL.
+		// Spec-line citations match the `0001_init.ts` migration.
 		expect(columnsByTable.get("cases")).toEqual(
 			new Set([
 				"case_id",
@@ -133,6 +139,22 @@ describe("case-store harness — schema", () => {
 				"identifier",
 				"relationship",
 				"depth",
+			]),
+		);
+		expect(columnsByTable.get("cases_quarantine")).toEqual(
+			new Set([
+				"case_id",
+				"app_id",
+				"case_type",
+				"owner_id",
+				"status",
+				"opened_on",
+				"modified_on",
+				"closed_on",
+				"parent_case_id",
+				"properties",
+				"quarantine_reason",
+				"quarantined_at",
 			]),
 		);
 	});

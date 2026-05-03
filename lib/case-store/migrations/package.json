@@ -1,0 +1,4 @@
+{
+	"//": "Local package.json that scopes the migrations folder to ESM module type. Without this, Node speculates on every dynamic import of a sibling .ts file (the FileMigrationProvider's load path) and emits MODULE_TYPELESS_PACKAGE_JSON warnings on every vitest run. The root package.json stays CommonJS to match Next.js's expectations; this scoped declaration only affects files under lib/case-store/migrations/. See https://nodejs.org/api/packages.html#determining-module-system for the per-folder package.json scoping rule.",
+	"type": "module"
+}

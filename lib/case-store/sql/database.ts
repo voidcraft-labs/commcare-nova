@@ -2,7 +2,7 @@
 //
 // The Kysely `Database` type for Nova's case store.
 //
-// Three tables make up the case store:
+// Four tables make up the case store:
 //
 //   - `cases` — one row per case, across all apps and tenants. The
 //     live runtime table that every case-list query reads from and
@@ -22,11 +22,19 @@
 //     `(case_id, identifier)` resolves each hop, and the chain
 //     stays statically known from the AST so no recursion is
 //     needed.
+//   - `cases_quarantine` — failed-migration sink. Every column
+//     `cases` has plus `quarantine_reason TEXT NOT NULL` and
+//     `quarantined_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
+//     `applySchemaChange` (Plan 2 Task 8) writes here when a
+//     blueprint mutation produces values incompatible with the
+//     new schema; author-facing review UI reads from this table.
+//     Spec § "Schema migration policy" lines 309-340.
 //
 // The DDL the types mirror is the single source of truth at
 // `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
-// lines 249-284. Any change to the SQL schema must update both
-// surfaces in lockstep.
+// lines 249-284 (the four base tables + indexes) and lines 309-340
+// (the quarantine policy). Any change to the SQL schema must
+// update both surfaces in lockstep.
 //
 // ## Multi-tenancy model
 //
@@ -69,10 +77,17 @@
 // ## Why the Database interface owns no migration logic
 //
 // This module is a single-responsibility type module. Schema
-// migrations, sample-data seeding, and the case-store query
-// surface live in sibling modules under `lib/case-store/`. The
-// only export here is the type contract; the runtime behavior
-// composes on top.
+// migrations live in `lib/case-store/migrations/`; sample-data
+// seeding and the case-store query surface live in other
+// `lib/case-store/` siblings. The only export here is the type
+// contract; the runtime behavior composes on top.
+//
+// The migration runner uses `Kysely<unknown>` (NOT `Kysely<Database>`)
+// against this codebase intentionally — migrations run against a
+// schema that is mid-creation, so a fully-typed `Database` would
+// give a false compile-time guarantee that all four tables exist.
+// See `lib/case-store/migrations/runner.ts`'s file-level header
+// for the rationale.
 
 import type { ColumnType, JSONColumnType } from "kysely";
 
@@ -325,6 +340,121 @@ export interface CaseIndicesTable {
 }
 
 // ---------------------------------------------------------------
+// `cases_quarantine` table — spec § "Schema migration policy"
+// (lines 309-340)
+// ---------------------------------------------------------------
+
+/**
+ * Failed-migration sink. `applySchemaChange` (Plan 2 Task 8)
+ * writes a row here whenever a blueprint mutation produces a
+ * value the new schema rejects — a `data_type` change that can't
+ * cast, a `single_select` option removal that orphans existing
+ * values. The original row stays preserved verbatim alongside
+ * the failure reason so the author UI can surface the conflict
+ * for review and resolution.
+ *
+ * The shape is the `cases` columns plus two quarantine-specific
+ * additions:
+ *
+ *   - `quarantine_reason` — non-null free-text reason. Authored
+ *     by the migration code that performed the quarantine; the
+ *     reason text is the cast-failure detail or the narrowed-
+ *     option value that disqualified the row.
+ *   - `quarantined_at` — non-null timestamp; defaults to `now()`
+ *     server-side so the migration code doesn't compute it
+ *     client-side and the value is monotonic per-server.
+ *
+ * The composite primary key `(case_id, quarantined_at)` admits
+ * the same case_id being quarantined more than once across
+ * separate migrations (e.g. a retype quarantines, the author
+ * edits, a second retype quarantines again). The single-column
+ * `(case_id)` PK that `cases` uses would conflict on the second
+ * quarantine; the composite admits the multi-version history
+ * without collision and preserves the prior quarantine record
+ * so the author UI can show the migration sequence.
+ */
+export interface CasesQuarantineTable {
+	/**
+	 * The case_id of the row that was quarantined. NOT defaulted
+	 * to `uuidv7()` — quarantine writes always carry the original
+	 * `case_id` of the source row so the quarantine record is
+	 * traceable back. UUID type matches `cases.case_id`.
+	 */
+	case_id: string;
+
+	/**
+	 * Owning app identifier. Mirrors `cases.app_id`; quarantine
+	 * rows are per-tenant the same way live rows are.
+	 */
+	app_id: string;
+
+	/**
+	 * The case-type the row belonged to at quarantine time. For
+	 * a property-type-change quarantine this is the case-type
+	 * whose schema rejected the row — same shape as `cases.case_type`.
+	 */
+	case_type: string;
+
+	/** Mirrors `cases.owner_id` — nullable for the same reasons. */
+	owner_id: string | null;
+
+	/** Mirrors `cases.status`. */
+	status: string | null;
+
+	/** Mirrors `cases.opened_on`. */
+	opened_on: ColumnType<
+		Date | null,
+		Date | string | null,
+		Date | string | null
+	>;
+
+	/** Mirrors `cases.modified_on`. */
+	modified_on: ColumnType<
+		Date | null,
+		Date | string | null,
+		Date | string | null
+	>;
+
+	/** Mirrors `cases.closed_on`. */
+	closed_on: ColumnType<
+		Date | null,
+		Date | string | null,
+		Date | string | null
+	>;
+
+	/** Mirrors `cases.parent_case_id`. */
+	parent_case_id: string | null;
+
+	/**
+	 * The `cases.properties` JSONB document captured verbatim at
+	 * quarantine time. Preserved (not normalized to the new
+	 * schema) so the author UI can display the conflicting value
+	 * to the author for resolution.
+	 */
+	properties: JSONColumnType<JsonObject>;
+
+	/**
+	 * Free-text failure reason. Authored by the migration code
+	 * that performed the quarantine; e.g. `"cast text→int failed
+	 * for property 'age': value 'abc' is not numeric"` or
+	 * `"option 'red' removed from single_select 'color'"`.
+	 *
+	 * Schema spec lines 309-340.
+	 */
+	quarantine_reason: string;
+
+	/**
+	 * When the row was quarantined. Defaulted server-side to
+	 * `now()` so the application code can omit the column on
+	 * INSERT and rely on the database to stamp the timestamp.
+	 * The `ColumnType<...>` shape mirrors `cases.opened_on`'s
+	 * insert/update widening: a `Date`, an ISO string, or
+	 * `undefined` to take the default.
+	 */
+	quarantined_at: ColumnType<Date, Date | string | undefined, Date | string>;
+}
+
+// ---------------------------------------------------------------
 // Database interface
 // ---------------------------------------------------------------
 
@@ -343,4 +473,5 @@ export interface Database {
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
 	case_indices: CaseIndicesTable;
+	cases_quarantine: CasesQuarantineTable;
 }
