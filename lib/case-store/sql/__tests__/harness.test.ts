@@ -164,8 +164,16 @@ describe("case-store harness — schema", () => {
 
 describe("case-store harness — INSERT/SELECT round-trip", () => {
 	test("inserts a case via Kysely and reads it back", async ({ db }) => {
+		// Pin the case_id locally so the SELECT-side WHERE clause has
+		// a concrete `string` to compare against. `makeCaseRow`'s
+		// `case_id` is `Insertable<CasesTable>['case_id']` which is
+		// `string | undefined` (the database-generated `uuidv7()`
+		// default makes the column optional on insert), and TS widens
+		// the field through the override merge. The explicit local
+		// keeps the test type clean without a non-null assertion.
+		const caseId = "11111111-1111-1111-1111-111111111111";
 		const caseRow = makeCaseRow({
-			case_id: "11111111-1111-1111-1111-111111111111",
+			case_id: caseId,
 			properties: JSON.stringify({ name: "Alice", age: 30 }),
 		});
 
@@ -174,7 +182,7 @@ describe("case-store harness — INSERT/SELECT round-trip", () => {
 		const fetched = await db
 			.selectFrom("cases")
 			.selectAll()
-			.where("case_id", "=", caseRow.case_id)
+			.where("case_id", "=", caseId)
 			.executeTakeFirstOrThrow();
 
 		expect(fetched.app_id).toBe("app-test");
