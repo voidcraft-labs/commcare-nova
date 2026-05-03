@@ -193,7 +193,15 @@ describe("predicate builders", () => {
 	it.each(MATCH_MODES)("constructs a match predicate with mode: %s", (mode) => {
 		const p = match(prop("patient", "name"), "alice", mode);
 		expect(p.kind).toBe("match");
-		expect(p.value).toBe("alice");
+		// Builder auto-wraps the bare string into a term-arm
+		// ValueExpression so the persisted shape matches the widened
+		// matchSchema (per types.ts § matchSchema). Existing call sites
+		// keep the ergonomic string argument; the on-disk AST carries
+		// the fully-qualified term-arm wrapping.
+		expect(p.value).toEqual({
+			kind: "term",
+			term: { kind: "literal", value: "alice" },
+		});
 		expect(p.mode).toBe(mode);
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});

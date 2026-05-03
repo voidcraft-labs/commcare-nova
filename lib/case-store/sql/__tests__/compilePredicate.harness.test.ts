@@ -56,6 +56,7 @@ import {
 	or,
 	prop,
 	relationStep,
+	term,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
@@ -961,6 +962,62 @@ describe("compilePredicate — round-trip — match", () => {
 		);
 		// pg_trgm's `Alise` ~ `Alice` similarity is ~0.45;
 		// `Alise` ~ `Zelda` is far below 0.3.
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("fuzzy with a search-input ref drives the match value at runtime (Plan 4 use case)", async ({
+		db,
+		pgClient,
+	}) => {
+		// The widened `match.value: ValueExpression` (per the schema
+		// at types.ts § matchSchema) lets a search-input ref drive
+		// the match value at runtime. Plan 4's search-input modes
+		// (fuzzy / phonetic / starts-with) bind the field worker's
+		// typed value into the predicate context's `searchInputs`
+		// map; the foundation's compileTerm resolves the input ref
+		// to its bound value, and the match dispatch consumes the
+		// resolved value just as it would a literal.
+		await pgClient.query(`SET LOCAL pg_trgm.similarity_threshold = 0.3`);
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "Alice" }),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_2_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "Zelda" }),
+				}),
+			])
+			.execute();
+		// `match(prop, term(input("name_search")), "fuzzy")` —
+		// builder accepts any `Term | ValueExpression` for the
+		// value slot; here it carries a search-input ref. The
+		// context's bindings map resolves the ref to "Alise" at
+		// compile time (the foundation's compileTerm does the
+		// resolution; the wider runtime would bind from the field
+		// worker's typed input).
+		const pred = match(
+			prop("patient", "name"),
+			term(input("name_search")),
+			"fuzzy",
+		);
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				pred,
+				makeCtx(db, {
+					bindings: { searchInputs: new Map([["name_search", "Alise"]]) },
+				}),
+			),
+		);
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
 

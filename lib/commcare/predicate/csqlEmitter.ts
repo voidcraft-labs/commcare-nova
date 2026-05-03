@@ -557,12 +557,25 @@ function emitMatchSegments(
 ): CsqlSegment[] {
 	const wireFunction = matchModeToWireFunction(p.mode);
 	const propEmission = emitCsqlPropertyRefSegment(p.property);
-	const valueLiteral = quoteLiteral(p.value, "csql");
+	// `match.value` is a term-arm `ValueExpression` (per the type
+	// checker's `checkMatch` rule). Non-term arms are rejected at
+	// type-check time; reaching this throw indicates a bypass.
+	if (p.value.kind !== "term") {
+		throw new Error(
+			`csqlEmitter: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${p.value.kind}'.`,
+		);
+	}
+	// Term-arm value compiles via the shared `emitTermSegment`. A
+	// literal value emits as a single constant segment; a non-literal
+	// term (search-input ref, session ref, property ref) emits as a
+	// runtime segment, which the wrapper concat lifts into the CSQL
+	// `_xpath_query` string. Both cases compose with the function-
+	// call constant segments via the standard segment-list shape.
+	const valueSegment = emitTermSegment(p.value.term);
 	return [
-		{
-			kind: "constant",
-			text: `${wireFunction}(${propEmission.text}, ${valueLiteral})`,
-		},
+		{ kind: "constant", text: `${wireFunction}(${propEmission.text}, ` },
+		valueSegment,
+		{ kind: "constant", text: ")" },
 	];
 }
 

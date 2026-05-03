@@ -100,6 +100,7 @@ type SearchInputDef = {
   label: string;
   type: "text" | "select" | "date" | "date-range" | "barcode";
   property?: string;                                   // case property the input targets; absent for inputs that drive an `xpath`-bound advanced predicate
+  via?: RelationPath;                                  // relation walk to a related case-type; absent ≡ self (the module's case-type). Drives Plan 2's index-DDL emission against the destination case-type rather than the module's case-type — e.g., a patient-module input searching the household's name targets `via=ancestorPath(parent: household)` so the index lands on `household.name`, not `patient.name`
   mode?: SearchInputMode;                              // explicit search mode; defaults per `type` (text → exact, date → exact, date-range → range, etc.)
   default?: ValueExpression;
   xpath?: Predicate;                                   // advanced shape; when present, replaces the (property, mode)-derived predicate
@@ -119,11 +120,20 @@ interface CaseListConfig {
 
 The migration script at `scripts/migrate-case-list-config.ts` reads each app doc in Firestore, transforms `{ field, header }[]` into `Column[]` with `kind: "plain"`, leaves `filter` / `calculatedColumns` / `searchInputs` empty, writes back. Idempotent. Operator-run, archived after run (per the spec's migration policy).
 
-The Module schema mutator wires `CaseStore.applySchemaChange` (Plan 2 Task 3) into every blueprint mutation that affects a case-type's property surface (`data_type` change, property add/remove/rename, option add/remove). The call runs synchronously on the blueprint write path before the mutation returns success.
+The Module schema mutator wires `CaseStore.applySchemaChange` (Plan 2 Task 3) into every blueprint mutation that affects a case-type's property surface (`data_type` change, property add/remove/rename, option add/remove). The mutator owns the cross-store coordination between Firestore (the blueprint) and Postgres (the case store) per the saga pattern below.
 
-For additive changes (property add, option add): the mutator calls `applySchemaChange({ appId, caseType })` with no `property` / `change` — schema sync only.
+**Cross-store coordination — saga pattern with compensation.** Firestore and Postgres are independent commit boundaries; without orchestration, the two stores can drift after a partial failure (Firestore commits a rename then Postgres `applySchemaChange` fails → blueprint says renamed but `case_type_schemas` validates against the old name → exports / writes fail until manual recovery). The mutator owns the orchestration:
 
-For changes requiring per-row migration (retype, narrow-options, rename): the mutator calls `applySchemaChange({ appId, caseType, property, change })` with the discriminated-union change shape. The schema sync and the per-row migration run in a single Postgres transaction; the transaction commits when both halves succeed or rolls back atomically. The database never holds a new schema with rows that fail validation against it.
+1. Compute the prospective new blueprint state in memory.
+2. Call `applySchemaChange({ appId, caseType, blueprint, property?, change? })` against the prospective blueprint snapshot. Plan 2 Task 8's interface accepts a blueprint snapshot directly (rather than fetching from Firestore) precisely so this orchestration can pass either the current or a hypothetical snapshot — see Plan 2 Task 3's amended interface.
+3. On `applySchemaChange` success, commit the new blueprint to Firestore.
+4. On Firestore commit failure, run a compensating `applySchemaChange({ appId, caseType, blueprint: previousBlueprintState })` call to revert Postgres to the pre-mutation state. The compensation is idempotent because `applySchemaChange` re-derives the schema + index DDL from its input snapshot — calling it with the prior blueprint reconstructs the prior Postgres state.
+
+The Plan 2 amendment (interface gains `blueprint: BlueprintDoc` parameter) and this Plan 3 orchestration together close the cross-store atomicity gap. The "apps are always in a valid state" lock holds end-to-end across the boundary.
+
+For additive changes (property add, option add): the mutator calls `applySchemaChange({ appId, caseType, blueprint: prospective })` with no `property` / `change` — schema sync + index DDL diff only.
+
+For changes requiring per-row migration (retype, narrow-options, rename): the mutator calls `applySchemaChange({ appId, caseType, blueprint: prospective, property, change })` with the discriminated-union change shape. The schema sync, the per-property index DDL diff, and the per-row migration run in a single Postgres transaction (per Plan 2 Task 8); the transaction commits when all three halves succeed or rolls back atomically. The database never holds a new schema with rows that fail validation against it AND never holds a search input that references an unindexed property.
 
 Tests: schema parse, migration script idempotent on fixture docs, additive blueprint mutation triggers schema-sync-only `applySchemaChange`, retype mutation runs schema sync + migration in one transaction (verified by simulating a mid-migration failure and confirming the schema row is not present after rollback).
 

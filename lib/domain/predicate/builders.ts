@@ -687,15 +687,26 @@ export function within(
  *
  * Like `within`, the `property` slot is constrained to a direct
  * property reference — text match against a literal or input has no
- * useful semantics. The match `value` is a plain string (not a term)
- * because every mode is unambiguously textual at every wire target.
+ * useful semantics.
+ *
+ * `value` accepts any `Term` or `ValueExpression` plus a bare string
+ * for ergonomic call sites. Strings auto-wrap to `term(literal(value))`
+ * so existing `match(prop, "alice", "fuzzy")` calls keep working.
+ * Term / ValueExpression operands flow through the same operand-
+ * widening pattern the other Predicate value slots use; the value
+ * being a `term(input("name_search"))` lets the match value flow at
+ * runtime from a search-input binding (Plan 4's primary use case).
  */
 export function match(
 	property: PropertyRef,
-	value: string,
+	value: string | Term | ValueExpression,
 	mode: MatchMode,
 ): Extract<Predicate, { kind: "match" }> {
-	return { kind: "match", property, value, mode };
+	const wrapped =
+		typeof value === "string"
+			? toValueExpression(literal(value))
+			: toValueExpression(value);
+	return { kind: "match", property, value: wrapped, mode };
 }
 
 /**

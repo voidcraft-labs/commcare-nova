@@ -769,15 +769,33 @@ function compileMatch(
 ): Expression<SqlBool> {
 	const propRead = compilePropertyAsText(pred.property, ctx);
 
+	// `match.value` is a term-arm `ValueExpression` (per the type
+	// checker's `checkMatch` rule). Non-term arms are rejected at
+	// type-check time; reaching this throw indicates a bypass.
+	if (pred.value.kind !== "term") {
+		throw new Error(
+			`compilePredicate: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${pred.value.kind}'.`,
+		);
+	}
+	// Compile the value term as text. Literal values bind through
+	// Kysely's parameter channel; non-literal terms (search-input
+	// refs, session refs, property refs) compile through the term
+	// compiler and produce typed expressions Postgres consumes
+	// directly. The outer `::text` cast lifts whatever type the term
+	// resolved to into the text domain pg_trgm / fuzzystrmatch / LIKE
+	// all expect.
+	const valueRead = eb.cast<string>(compileTerm(pred.value.term, ctx), "text");
+
 	switch (pred.mode) {
-		case "starts-with": {
-			// Escape LIKE meta-characters so they're matched
-			// literally rather than as wildcards. Postgres docs § 9.7
-			// "Pattern Matching" — `_` matches any single char, `%`
-			// matches any string; `\` is the default escape.
-			const escaped = escapeLikeValue(pred.value);
-			return eb(propRead, "like", eb.val(`${escaped}%`));
-		}
+		case "starts-with":
+			// Postgres `starts_with(string, prefix)` returns boolean
+			// directly without LIKE-meta-character escaping concerns
+			// (no wildcard semantics on the prefix argument). Works
+			// with any text expression; safe for runtime values.
+			return eb.fn<boolean>("starts_with", [
+				propRead,
+				valueRead,
+			]) as unknown as Expression<SqlBool>;
 		case "fuzzy":
 			// pg_trgm `%` operator: returns true if the trigram
 			// similarity of the two arguments exceeds
@@ -788,11 +806,7 @@ function compileMatch(
 			// the LHS string type. The cast at the public boundary
 			// pins the boolean shape Postgres actually emits at
 			// runtime.
-			return eb(
-				propRead,
-				"%",
-				eb.val(pred.value),
-			) as unknown as Expression<SqlBool>;
+			return eb(propRead, "%", valueRead) as unknown as Expression<SqlBool>;
 		case "phonetic":
 			// Double Metaphone equality. fuzzystrmatch's `dmetaphone`
 			// produces a phonetic key; equality on the keys means
@@ -800,10 +814,33 @@ function compileMatch(
 			return eb(
 				eb.fn<string>("dmetaphone", [propRead]),
 				"=",
-				eb.fn<string>("dmetaphone", [eb.val(pred.value)]),
+				eb.fn<string>("dmetaphone", [valueRead]),
 			);
 		case "fuzzy-date":
-			return compileFuzzyDate(propRead, pred.value);
+			// fuzzy-date generates digit-permutation candidates from
+			// the input value at compile time when the value is a
+			// literal text constant. Non-literal values (search-input
+			// refs, session refs, property refs) cannot pre-compute
+			// the permutation set; they require a runtime permutation
+			// helper that Plan 2 owns (the `fuzzy_date_permutations`
+			// Postgres function would mirror CCHQ's
+			// `date_permutations` algorithm at
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:101-140`).
+			// Until that helper lands, the Postgres compiler accepts
+			// only literal-value fuzzy-date matches; the wire
+			// emitters accept dynamic values via CCHQ's
+			// `_xpath_query` wrapper concat. The harness preserves
+			// behavior for the literal path; the dynamic path throws
+			// here with a clear pointer at the missing infrastructure.
+			if (
+				pred.value.term.kind !== "literal" ||
+				typeof pred.value.term.value !== "string"
+			) {
+				throw new Error(
+					"compilePredicate: 'match' mode='fuzzy-date' with a non-literal value requires the fuzzy_date_permutations Postgres function (Plan 2 case-data-layer). The wire emitters accept the dynamic value; only the Postgres runtime path is constrained.",
+				);
+			}
+			return compileFuzzyDate(propRead, pred.value.term.value);
 		default: {
 			const _exhaustive: never = pred.mode;
 			throw new Error(
@@ -837,20 +874,6 @@ function compilePropertyAsText(
 	// text domain that pg_trgm / fuzzystrmatch / LIKE all expect.
 	const propExpr = compileTerm(property, ctx);
 	return eb.cast<string>(propExpr, "text");
-}
-
-/**
- * Escape Postgres `LIKE` metacharacters so they're matched
- * literally. The default escape character is `\`; replacing each
- * `\` first defends against double-escaping (the user's literal
- * `\` would otherwise become an escape token after `%` and `_` are
- * escaped). Postgres docs § 9.7 "Pattern Matching" — `_` matches
- * any single character, `%` matches any string, and the escape
- * character is `\` unless overridden via `LIKE pattern ESCAPE
- * '<char>'`.
- */
-function escapeLikeValue(value: string): string {
-	return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
 /**

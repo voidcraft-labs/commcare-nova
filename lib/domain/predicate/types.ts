@@ -1154,35 +1154,46 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * direct property reference — text match against a literal or input is
  * meaningless.
  *
- * `value` is a string (not a term) — the predicate captures a static
- * match value baked at construction time. CCHQ's wire layer accepts
- * runtime substitution of search-input refs / session-user fields /
- * session-context fields via `unwrap_value`
- * (`commcare-hq/corehq/apps/case_search/dsl_utils.py`), so widening
- * `value: termSchema` would have a wire target. The narrowing here is
- * a deliberate Nova-side AST scope decision — v1 authors reconstruct
- * the predicate per input change rather than driving the match value
- * at runtime. Authors who need a dynamic match value rebuild the
- * predicate when the input changes.
+ * `value` carries any `ValueExpression` — a literal text constant
+ * lifted through the `term` arm (`term(literal("alice"))`), a
+ * search-input ref (`term(input("name_search"))`), a session ref, or
+ * a derived value expression. The widening matches the operand-
+ * widening pattern at every other Predicate operator's value slot
+ * (`compare`, `between`, `in`, `is-null`, `is-blank`,
+ * `within-distance`); search inputs driving fuzzy / phonetic /
+ * starts-with / fuzzy-date matches at runtime is the load-bearing
+ * use case (Plan 4). The wire target supports runtime substitution
+ * via the on-device wrapper that builds the CSQL `_xpath_query`
+ * string — see CCHQ's `unwrap_value` at
+ * `commcare-hq/corehq/apps/case_search/dsl_utils.py:11-42` and the
+ * canonical concat pattern in
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`.
  *
- * `value` is non-empty: `match(prop, "")` has no useful semantics.
- * Each CCHQ mode collapses an empty value to a different non-match —
- * `starts-with` is vacuously true (empty prefix matches every
- * property), `fuzzy-match` short-circuits to `case_property_missing`
- * (`case_property_query` in `commcare-hq/corehq/apps/es/case_search.py`,
- * the `value == ''` arm), `phonetic-match` matches nothing (empty
- * Elasticsearch `match` produces no tokens to score), `fuzzy-date`
- * depends on `date_permutations("")`. None expresses what an author
- * typing `match(prop, "")` intends; the canonical authoring shapes
- * for the absence-check intent are `is-null(prop)` (strict-absent,
+ * The type checker rejects values that don't resolve to a text-
+ * coercible type — `term(literal(5))` matched against a text property
+ * is ill-typed at construction.
+ *
+ * Empty-string literals (`term(literal(""))`) are a category error and
+ * the type checker rejects them. Each CCHQ mode collapses an empty
+ * value to a different non-match — `starts-with` is vacuously true
+ * (empty prefix matches every property), `fuzzy-match` short-circuits
+ * to `case_property_missing` (`case_property_query` in
+ * `commcare-hq/corehq/apps/es/case_search.py`, the `value == ''` arm),
+ * `phonetic-match` matches nothing (empty Elasticsearch `match`
+ * produces no tokens to score), `fuzzy-date` depends on
+ * `date_permutations("")`. None expresses what an author typing
+ * `match(prop, "")` intends; the canonical authoring shapes for the
+ * absence-check intent are `is-null(prop)` (strict-absent,
  * Postgres-only) and `is-blank(prop)` (absent-or-empty, portable to
- * CCHQ). Reject at the schema layer so emitters don't carry per-mode
- * policy.
+ * CCHQ). Runtime values (search-input refs, session refs) that resolve
+ * to empty strings at evaluation time pass through the same wire
+ * collapse — the foundation does not rewrite them; the wire layer's
+ * lossiness is the wire layer's concern.
  */
 const matchSchema = z.object({
 	kind: z.literal("match"),
 	property: propertyRefSchema,
-	value: z.string().min(1),
+	value: z.lazy(() => valueExpressionSchema),
 	mode: z.enum(MATCH_MODES),
 });
 

@@ -730,6 +730,52 @@ function checkMatch(
 			message: `match mode='${p.mode}' requires a property of type ${allowed}; got '${describe(propType)}'.`,
 		});
 	}
+	// `value` is a widened `ValueExpression` (per `matchSchema` in
+	// `types.ts`) so search-input refs / session refs / typed literals
+	// can drive runtime match values. The type checker restricts the
+	// shape to a `term`-arm ValueExpression — every wire target's
+	// match emission consumes terms via the shared term-emission
+	// infrastructure. Non-term ValueExpression arms (`arith`, `if`,
+	// `count`, `format-date`, etc.) lack semantic meaning at a match
+	// value position; reject them at construction so the wire-emission
+	// layer never sees them.
+	if (p.value.kind !== "term") {
+		errors.push({
+			path: [...path, "value"],
+			message: `match value must be a term-arm ValueExpression (literal / property ref / search input / session ref); got '${p.value.kind}'.`,
+		});
+		return;
+	}
+	// Reject empty-string literals — every CCHQ match mode collapses
+	// an empty value to a non-match per the schema JSDoc.
+	if (p.value.term.kind === "literal" && p.value.term.value === "") {
+		errors.push({
+			path: [...path, "value"],
+			message: `match value cannot be the empty string — every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-null(prop) for strict-absent or is-blank(prop) for absent-or-empty.`,
+		});
+	}
+	// Type-check the value via the term resolver and verify its
+	// resolved type is text-coercible for the chosen mode. text /
+	// single_select / multi_select coerce naturally; `fuzzy-date`
+	// additionally accepts date / datetime values (which the wire
+	// layer renders as ISO strings). ANY_TYPE bypasses (null literal
+	// compatibility).
+	const valueType = resolveTermType(p.value.term, ctx, errors, [
+		...path,
+		"value",
+		"term",
+	]);
+	if (
+		valueType !== undefined &&
+		valueType !== ANY_TYPE &&
+		!allowList.has(valueType as CasePropertyDataType)
+	) {
+		const allowed = [...allowList].sort().join(", ");
+		errors.push({
+			path: [...path, "value"],
+			message: `match mode='${p.mode}' requires a value resolving to ${allowed}; got '${describe(valueType)}'.`,
+		});
+	}
 }
 
 /**

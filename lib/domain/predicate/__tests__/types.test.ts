@@ -505,12 +505,15 @@ describe("predicate schema", () => {
 		const result = predicateSchema.parse({
 			kind: "match",
 			property: { kind: "prop", caseType: "patient", property: "name" },
-			value: "alice",
+			value: { kind: "term", term: { kind: "literal", value: "alice" } },
 			mode: "fuzzy",
 		});
 		expect(result.kind).toBe("match");
 		if (result.kind === "match") {
-			expect(result.value).toBe("alice");
+			expect(result.value).toEqual({
+				kind: "term",
+				term: { kind: "literal", value: "alice" },
+			});
 			expect(result.mode).toBe("fuzzy");
 		}
 	});
@@ -529,7 +532,7 @@ describe("predicate schema", () => {
 		const result = predicateSchema.parse({
 			kind: "match",
 			property: { kind: "prop", caseType: "patient", property: "name" },
-			value: "alice",
+			value: { kind: "term", term: { kind: "literal", value: "alice" } },
 			mode,
 		});
 		expect(result.kind).toBe("match");

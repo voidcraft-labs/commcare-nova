@@ -338,10 +338,10 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
  * Emit text-match per `mode`. Each mode maps to a CCHQ wire
  * function:
  *
- *   - `starts-with` → `starts-with(prop, 'v')` (XPath 1.0 standard).
- *   - `fuzzy` → `fuzzy-match(prop, 'v')`.
- *   - `phonetic` → `phonetic-match(prop, 'v')`.
- *   - `fuzzy-date` → `fuzzy-date(prop, 'v')`.
+ *   - `starts-with` → `starts-with(prop, <value>)` (XPath 1.0 standard).
+ *   - `fuzzy` → `fuzzy-match(prop, <value>)`.
+ *   - `phonetic` → `phonetic-match(prop, <value>)`.
+ *   - `fuzzy-date` → `fuzzy-date(prop, <value>)`.
  *
  * The three CCHQ extensions (`fuzzy-match`, `phonetic-match`,
  * `fuzzy-date`) are registered in CSQL's query-function table at
@@ -349,13 +349,25 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
  * The wire syntax is the same well-formed function-call shape
  * regardless of slot.
  *
- * `match.value` is a plain string (not a term) at the schema
- * layer, so it routes through `quoteLiteral` directly without
- * unwrapping.
+ * `match.value` is a `term`-arm `ValueExpression` (per the type
+ * checker's restriction at `typeChecker.ts:checkMatch`); the on-
+ * device XPath grammar accepts any term shape — a quoted literal
+ * for `term(literal("..."))`, an `instance(...)` path expression for
+ * `term(input(...))` / `term(sessionUser(...))` / `term(sessionContext(...))`
+ * — through the shared term emitter, which composes naturally with
+ * the function-call syntax.
  */
 function emitMatch(p: Extract<Predicate, { kind: "match" }>): string {
 	const wireFunction = matchModeToWireFunction(p.mode);
-	return `${wireFunction}(${emitTerm(p.property)}, ${quoteLiteral(p.value, "case-list-filter")})`;
+	// `match.value` is a term-arm `ValueExpression` (per the type
+	// checker's `checkMatch` rule). Non-term arms are rejected at
+	// type-check time; reaching this throw indicates a bypass.
+	if (p.value.kind !== "term") {
+		throw new Error(
+			`caseListFilterEmitter: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${p.value.kind}'.`,
+		);
+	}
+	return `${wireFunction}(${emitTerm(p.property)}, ${emitTerm(p.value.term)})`;
 }
 
 /**

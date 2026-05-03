@@ -444,22 +444,26 @@ describe("compilePredicate — multi-select-contains", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — match", () => {
-	it("emits LIKE for starts-with mode", () => {
+	it("emits starts_with for starts-with mode", () => {
 		const pred = match(prop("patient", "name"), "Ali", "starts-with");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain("like");
-		// The pattern with the `%` suffix is parameter-bound (not
-		// inlined). Kysely substitutes `${value}` as a parameter.
-		expect(compiled.parameters).toContain("Ali%");
+		// Postgres `starts_with(text, prefix)` — typed boolean prefix
+		// match without LIKE meta-character escaping concerns. Works
+		// for any text expression including dynamic search-input
+		// values (per the match.value widening to ValueExpression).
+		expect(compiled.sql.toLowerCase()).toContain("starts_with(");
+		expect(compiled.parameters).toContain("Ali");
 	});
 
-	it("escapes LIKE meta-characters in the pattern", () => {
+	it("does NOT escape user input characters for starts-with mode", () => {
+		// `starts_with()` has no wildcard semantics, so user-typed
+		// `%` and `_` are matched literally — no escaping required at
+		// the compiler layer. Pin the absence of escape transforms so
+		// a future regression that reintroduces LIKE-meta escaping
+		// surfaces here.
 		const pred = match(prop("patient", "name"), "100% pure", "starts-with");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		// `%` and `_` are escaped to `\%` / `\_`; the user-typed
-		// literal `%` is matched as a literal `%` rather than a
-		// wildcard.
-		expect(compiled.parameters).toContain("100\\% pure%");
+		expect(compiled.parameters).toContain("100% pure");
 	});
 
 	it("emits pg_trgm `%` operator for fuzzy mode", () => {
