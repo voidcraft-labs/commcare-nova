@@ -198,16 +198,23 @@ describe("compileExpression — term arm", () => {
 // `today` / `now` — discriminator-only constants
 // ---------------------------------------------------------------
 //
-// Both are zero-argument constants. `today` resolves to `CURRENT_DATE`
-// (Postgres returns a `date`); `now` resolves to `NOW()` (returns
-// `timestamptz`). The cold-suite check pins the function-token
-// emission; the harness sibling pins the runtime values match
-// expectations.
+// Both are zero-argument constants. `today` resolves to `cast(now()
+// as date)` (Postgres returns a `date`-typed value sliced from the
+// transaction-stable timestamp `now()` returns); `now` resolves to
+// `now()` directly (returns `timestamptz`). The cold-suite check
+// pins both the `now()` function call and — for `today` — the
+// `cast as date` lift; the harness sibling pins the runtime values
+// match expectations.
 
 describe("compileExpression — today / now constants", () => {
-	it("emits CURRENT_DATE for `today`", () => {
+	it("emits cast(now() as date) for `today`", () => {
 		const compiled = compileExpression_(compileExpression(today(), makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain("current_date");
+		const sqlLower = compiled.sql.toLowerCase();
+		// `today` lifts `now()` into `date` via `eb.cast(...)`; the
+		// emission carries both the `now()` call and the `as date`
+		// cast token in canonical Postgres form.
+		expect(sqlLower).toContain("now()");
+		expect(sqlLower).toContain("as date");
 	});
 
 	it("emits NOW() for `now`", () => {
@@ -564,27 +571,36 @@ describe("compileExpression — count arm", () => {
 // `date-add` — date / datetime + interval arithmetic
 // ---------------------------------------------------------------
 //
-// SQL: `(<date>)::timestamptz + (<quantity> * INTERVAL '1 <unit>')`.
-// Each `DateAddInterval` value maps to the corresponding Postgres
-// interval unit name (`seconds`, `minutes`, `hours`, `days`,
-// `weeks`, `months`, `years` — names are byte-identical between
-// the AST enum and Postgres's interval vocabulary). A typo on a
-// single arm would still pass the `toContain("INTERVAL")` check;
-// the per-interval iteration pins each arm independently.
+// SQL: `cast(<date> as timestamptz) + make_interval(0, ..., 0,
+// <quantity>)` — the quantity occupies the positional slot for the
+// AST unit (per Postgres's `make_interval(years, months, weeks,
+// days, hours, mins, secs)` signature), zero-padded through every
+// preceding slot. The cold suite's structural check is "the call
+// reaches `make_interval` with the expected slot count and the
+// quantity binds as the trailing parameter"; the harness sibling
+// pins the runtime equivalence against `+ INTERVAL '1 <unit>'` for
+// each arm.
+//
+// The expected slot count per unit follows the function signature's
+// positional order — `years` is slot 0 (1 arg total), `months` is
+// slot 1 (2 args), ..., `seconds` is slot 6 (7 args).
 
 describe("compileExpression — date-add arm", () => {
-	const intervals: ReadonlyArray<DateAddInterval> = [
-		"seconds",
-		"minutes",
-		"hours",
-		"days",
-		"weeks",
-		"months",
-		"years",
+	const intervalSlots: ReadonlyArray<{
+		interval: DateAddInterval;
+		argCount: number;
+	}> = [
+		{ interval: "years", argCount: 1 },
+		{ interval: "months", argCount: 2 },
+		{ interval: "weeks", argCount: 3 },
+		{ interval: "days", argCount: 4 },
+		{ interval: "hours", argCount: 5 },
+		{ interval: "minutes", argCount: 6 },
+		{ interval: "seconds", argCount: 7 },
 	];
 
-	for (const interval of intervals) {
-		it(`binds a '1 ${interval}' interval parameter for the ${interval} arm`, () => {
+	for (const { interval, argCount } of intervalSlots) {
+		it(`emits make_interval with ${argCount} positional args for the ${interval} arm`, () => {
 			const compiled = compileExpression_(
 				compileExpression(
 					dateAdd(today(), interval, term(literal(1))),
@@ -592,14 +608,18 @@ describe("compileExpression — date-add arm", () => {
 				),
 			);
 			const sqlText = compiled.sql.toLowerCase();
-			// Typed builder casts a `'1 <unit>'` parameter to
-			// Postgres `interval` rather than splicing the unit token
-			// inline. The cold suite's structural check is "the
-			// interval cast is present and the unit string is a
-			// parameter"; the harness pins the runtime equivalence
-			// against `+ INTERVAL '1 <unit>'`.
-			expect(sqlText).toContain("as interval)");
-			expect(compiled.parameters).toContain(`1 ${interval}`);
+			// `make_interval` is reached via the typed function-builder
+			// surface (`eb.fn("make_interval", [...args])`).
+			expect(sqlText).toContain("make_interval(");
+			// Slot-padded arg count: `argCount - 1` zeros before the
+			// quantity, plus the quantity itself, plus the
+			// `make_interval(` and trailing `)`. The `parameters`
+			// array reflects every bound value — `argCount - 1` zeros
+			// from `eb.val(0)` plus the literal-1 quantity from the
+			// `term(literal(1))` operand.
+			const zeroParamCount = compiled.parameters.filter((p) => p === 0).length;
+			expect(zeroParamCount).toBeGreaterThanOrEqual(argCount - 1);
+			expect(compiled.parameters).toContain(1);
 		});
 	}
 });

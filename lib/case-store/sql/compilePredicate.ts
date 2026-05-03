@@ -129,7 +129,7 @@ import type {
 	Expression,
 	SqlBool,
 } from "kysely";
-import { expressionBuilder, sql } from "kysely";
+import { expressionBuilder } from "kysely";
 import type {
 	ComparisonKind,
 	DistanceUnit,
@@ -1078,32 +1078,72 @@ function compileWithinDistance(
 	// is closed-set ({miles, kilometers}) — no runtime branching.
 	const distanceMeters = pred.distance * unitToMeters(pred.unit);
 
-	// `ST_DWithin(geography, geography, meters)` — the `geography`
-	// cast (rather than `geometry`) interprets the coordinates as
-	// lat/lon on the WGS-84 ellipsoid. `geography` is a PostGIS
-	// extension type, not in Kysely's `SIMPLE_COLUMN_DATA_TYPES`
-	// list (verified at `node_modules/kysely/dist/cjs/operation-
-	// node/data-type-node.js`), so the typed `eb.cast<T>(expr,
-	// ColumnDataType)` overload rejects it. The
-	// `eb.cast<T>(expr, Expression<any>)` overload (per
-	// `parseDataTypeExpression` at `node_modules/kysely/dist/cjs/
-	// parser/data-type-parser.js`) is the documented escape hatch
-	// for extension types; `sql.raw('geography')` provides the
-	// Expression with no caller-controlled input flowing into the
-	// raw-emission slot.
-	const propPoint = eb.cast(
-		eb.fn("st_makepoint", [propLon, propLat]),
-		sql.raw("geography"),
-	);
-	const centerPoint = eb.cast(
-		eb.fn("st_makepoint", [centerLon, centerLat]),
-		sql.raw("geography"),
-	);
+	// `ST_DWithin(geography, geography, meters)` — the geography-
+	// typed point inputs interpret the coordinates as lat/lon on
+	// the WGS-84 ellipsoid (the geography type's documented
+	// reference frame, per
+	// `https://postgis.net/docs/manual-3.4/ST_GeogFromText.html`:
+	// "SRID 4326 is assumed if unspecified"), which is what the
+	// stored geopoint format encodes. `ST_GeogFromText('POINT(<lon>
+	// <lat>)')` returns a geography directly — no separate cast
+	// needed. The WKT string composes through Postgres's
+	// `concat(...)` so `<lon>` and `<lat>` flow as typed-builder
+	// arguments rather than being interpolated into a raw string.
+	const propPoint = geographyPoint(propLon, propLat);
+	const centerPoint = geographyPoint(centerLon, centerLat);
 	return eb.fn<boolean>("st_dwithin", [
 		propPoint,
 		centerPoint,
 		eb.val(distanceMeters),
 	]) as unknown as Expression<SqlBool>;
+}
+
+/**
+ * Build a PostGIS geography point from runtime longitude / latitude
+ * expressions via `ST_GeogFromText('POINT(<lon> <lat>)')`. The WKT
+ * payload is constructed at runtime through Postgres's typed
+ * `concat(...)` so `lon` and `lat` flow as bound parameters (or
+ * computed expressions) rather than being substituted into a raw
+ * SQL string.
+ *
+ * Why `ST_GeogFromText` over `ST_MakePoint(lon, lat)::geography`:
+ * `ST_GeogFromText` returns a `geography` value directly so no
+ * separate cast token is needed. `geography` is a PostGIS extension
+ * type and not in Kysely's `SIMPLE_COLUMN_DATA_TYPES` list (per
+ * `node_modules/kysely/dist/cjs/operation-node/data-type-node.d.ts`),
+ * so the cast-via-named-type path requires an `Expression<any>`
+ * cast token — i.e., raw SQL emission. Routing through
+ * `ST_GeogFromText` keeps the entire compose path in the typed
+ * function-call surface.
+ *
+ * WKT (Well-Known Text) coordinate order is `POINT(<lon> <lat>)` —
+ * the same `(lon, lat)` order `ST_MakePoint` accepts. SRID 4326 is
+ * the documented default per
+ * `https://postgis.net/docs/manual-3.4/ST_GeogFromText.html`.
+ */
+function geographyPoint(
+	lon: AliasableExpression<unknown>,
+	lat: AliasableExpression<unknown>,
+): AliasableExpression<unknown> {
+	// Each `eb.val(...)` literal binds as an unknown-typed parameter
+	// at prepared-statement time; without an explicit cast Postgres
+	// rejects the `concat(...)` call with "could not determine data
+	// type of parameter $N" (the prepared-statement type inference
+	// cannot route an `unknown` parameter through `concat`'s
+	// "implicit cast to text on every arg" promise — `concat`'s arg
+	// types are `any`, so Postgres needs each parameter pre-typed).
+	// Cast each constant fragment to `text` and each numeric
+	// component to `text` so the call binds against
+	// `concat(text, text, text, text, text)` — a fully-typed
+	// signature Postgres resolves at parse time.
+	const wkt = eb.fn<string>("concat", [
+		eb.cast<string>(eb.val("POINT("), "text"),
+		eb.cast<string>(lon, "text"),
+		eb.cast<string>(eb.val(" "), "text"),
+		eb.cast<string>(lat, "text"),
+		eb.cast<string>(eb.val(")"), "text"),
+	]);
+	return eb.fn("st_geogfromtext", [wkt]);
 }
 
 /**

@@ -135,30 +135,51 @@ leaf. `compileTerm`'s non-self via prop reads inherit the same
 depth via the shared context, so their correlated scalar subqueries
 participate in the same uniquification scheme.
 
-## The four documented `sql.raw` escape hatches
+## Zero raw-SQL emission
 
-Kysely's typed builder cannot enumerate three Postgres tokens:
-`current_date` (a function-shaped keyword that takes no parens),
-`interval` (a non-standard cast type), and `geography` (a PostGIS
-extension type). Four call sites use `sql.raw(...)` against closed
-compile-time constants — no caller-supplied input flows into raw
-emission:
+The compiler stack emits ZERO raw SQL — no `sql\`...\`` template
+literals, no `sql.raw(...)` calls. Every Postgres expression the
+stack produces flows through Kysely's typed builder surface
+(`eb.fn`, `eb.cast`, `eb()`, `eb.val`, `eb.lit`, `eb.and`, `eb.or`,
+`eb.not`, `eb.exists`, `eb.case()`, `eb.selectFrom`, `eb.ref`).
 
-- **`compileExpression.ts:354`** — `sql.raw("current_date")` for
-  the `today` AST arm. Postgres's `current_date` is a function-
-  shaped keyword without parens; `eb.fn("current_date", [])`
-  emits invalid `current_date()`.
-- **`compileExpression.ts:504`** — `sql.raw("interval")` inside
-  the `date-add` arm's interval cast. `cast(... as interval)` is
-  not in Kysely's `ColumnDataType` literal set.
-- **`compilePredicate.ts:1096,1100`** — two `sql.raw("geography")`
-  casts inside `compileWithinDistance` (LHS property and RHS
-  center expression). PostGIS `geography` cast type, same API gap
-  as `interval`.
+Three Postgres features that look like they need raw emission are
+instead routed through typed-builder primitives:
 
-Each site has an in-source comment naming the gap, the closed
-constant, and the Postgres docs reference. Future `sql.raw` use
-sites need the same documentation discipline.
+- **`current_date`** — a niladic SQL keyword Kysely's `eb.fn`
+  cannot emit (the function module always wraps the name in
+  parens). `today` lifts `now()::date` instead — `now()` is a
+  paren-friendly function `eb.fn<Date>("now")` accepts and `date`
+  is in Kysely's `SIMPLE_COLUMN_DATA_TYPES` so `eb.cast<E>(expr,
+  "date")` accepts it. Postgres documents `current_date` and
+  `now()::date` as transaction-stable equivalents per
+  `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
+- **`interval` cast for `date-add`** — `interval` is not in
+  Kysely's `SIMPLE_COLUMN_DATA_TYPES`, so `cast(... as interval)`
+  cannot be reached through `eb.cast<E>(expr, "interval")`.
+  `date-add` instead constructs the interval through Postgres's
+  `make_interval(years, months, weeks, days, hours, mins, secs)`
+  function (per
+  `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-TABLE`),
+  which returns the `interval` value directly — no cast token
+  needed. The quantity expression occupies the positional slot for
+  the AST unit (zero-padded through every preceding slot).
+- **`geography` cast for `within-distance`** — same reason
+  `interval` doesn't fit `eb.cast`. Instead of casting
+  `ST_MakePoint(lon, lat)::geography`, the compiler builds the
+  geography point via `ST_GeogFromText('POINT(<lon> <lat>)')`
+  which returns geography directly (SRID 4326 is the documented
+  default per
+  `https://postgis.net/docs/manual-3.4/ST_GeogFromText.html`).
+  The WKT payload composes through Postgres's `concat(...)` so
+  the lon/lat numerics flow as typed-builder arguments rather
+  than being interpolated into a raw string.
+
+A new compiler arm that needs to reach a Postgres feature outside
+Kysely's typed-builder surface should follow the same shape:
+identify the function-call surface that returns the typed value
+directly, rather than reaching for `sql.raw` to spell a token
+Kysely's `ColumnDataType` enum doesn't include.
 
 ## Postgres-strict null semantics
 

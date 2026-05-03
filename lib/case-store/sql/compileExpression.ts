@@ -14,7 +14,9 @@
 //   - `term(t)` — delegates to `compileTerm` for property reads,
 //     literals, and runtime bindings (search inputs, session-user,
 //     session-context).
-//   - `today` — Postgres `current_date` (returns `date`).
+//   - `today` — Postgres `cast(now() as date)` (returns `date`;
+//     equivalent to `current_date` per Postgres's transaction-
+//     stable timestamp semantics).
 //   - `now` — Postgres `now()` (returns `timestamptz`).
 //   - `date-coerce(value)` — `cast(<value> as date)`. Wire-string →
 //     typed date.
@@ -112,7 +114,7 @@ import type {
 	BinaryOperator,
 	Expression,
 } from "kysely";
-import { expressionBuilder, sql } from "kysely";
+import { expressionBuilder } from "kysely";
 import type {
 	ArithOp,
 	DateAddInterval,
@@ -334,24 +336,22 @@ const eb = expressionBuilder<Database, keyof Database>();
 // ---------------------------------------------------------------
 
 /**
- * `today` → `CURRENT_DATE`. Postgres returns a `date`-typed value
- * representing the project-timezone date at evaluation time. Per
+ * `today` → `cast(now() as date)`. Postgres returns a `date`-typed
+ * value representing the date at evaluation time, sliced from the
+ * transaction-stable timestamp `now()` returns. Per
  * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`,
- * `CURRENT_DATE` is the SQL-standard niladic form (no parens),
- * distinct from sister functions `NOW()` / `LOCALTIMESTAMP()` that
- * Postgres documents with parentheses.
+ * `now()` and `current_date` share the same transaction-stable
+ * timestamp source, so `now()::date` and `current_date` resolve to
+ * the same date value within a transaction.
  *
- * Emitted via `sql.raw` because Kysely's `eb.fn(name, args)`
- * always wraps the function name in `(<args>)` parens (verified
- * at `node_modules/kysely/dist/cjs/query-compiler/default-query-
- * compiler.js:visitFunction`), and Postgres 16 rejects
- * `current_date()` with `syntax error at or near "("` (verified
- * end-to-end against the `postgis/postgis:16-3.4` harness). The
- * token is a compile-time constant — no caller-supplied input
- * reaches the raw-emission slot.
+ * Composed from two typed-builder primitives — `eb.fn<Date>("now")`
+ * for the parenthesised function and `eb.cast<E>(expr, "date")` for
+ * the cast (`date` is in Kysely's `SIMPLE_COLUMN_DATA_TYPES` list at
+ * `node_modules/kysely/dist/cjs/operation-node/data-type-node.d.ts`).
+ * No raw-SQL emission.
  */
 function compileToday(): AliasableExpression<unknown> {
-	return sql.raw("current_date");
+	return eb.cast(eb.fn<Date>("now"), "date");
 }
 
 /**
@@ -428,50 +428,50 @@ function compileArith(
 // ---------------------------------------------------------------
 
 /**
- * The `DATE_ADD_INTERVALS` AST enum mapped to Postgres interval-
- * unit names. The unit names are byte-identical between the AST
- * enum and Postgres's interval vocabulary
- * (`https://www.postgresql.org/docs/16/datatype-datetime.html#DATATYPE-INTERVAL-INPUT`),
- * so the mapping is the identity. Surfacing the table anyway pins
- * each enum value to a known-safe Postgres token at compile time
- * (rather than concatenating the AST enum value into a SQL string
- * directly), and adding a new arm to `DATE_ADD_INTERVALS` without
- * a parallel mapping entry surfaces as a TypeScript error.
+ * Positional slot index for each `DateAddInterval` arm in
+ * Postgres's `make_interval(years, months, weeks, days, hours,
+ * mins, secs)` signature (per
+ * `https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-TABLE`,
+ * "make_interval ( years int default 0, months int default 0,
+ * weeks int default 0, days int default 0, hours int default 0,
+ * mins int default 0, secs double precision default 0 )"). The
+ * `Record<DateAddInterval, number>` typing forces every arm of the
+ * AST enum to map to a slot index at compile time — adding a new
+ * arm to `DATE_ADD_INTERVALS` without a parallel mapping entry
+ * surfaces as a TypeScript error.
  */
-const DATE_ADD_INTERVAL_TO_SQL: Readonly<Record<DateAddInterval, string>> = {
-	seconds: "seconds",
-	minutes: "minutes",
-	hours: "hours",
-	days: "days",
-	weeks: "weeks",
-	months: "months",
-	years: "years",
-};
+const DATE_ADD_INTERVAL_SLOT_INDEX: Readonly<Record<DateAddInterval, number>> =
+	{
+		years: 0,
+		months: 1,
+		weeks: 2,
+		days: 3,
+		hours: 4,
+		minutes: 5,
+		seconds: 6,
+	};
 
 /**
  * Compile a `date-add` AST node to Postgres interval arithmetic.
  *
- * Shape: `(<date>)::timestamptz + (<quantity> * INTERVAL '1
- * <unit>')`. The base expression casts to `timestamptz` so a
- * date-typed input lifts uniformly with a datetime-typed input —
- * Postgres's `+ INTERVAL` operator returns `timestamptz` in both
- * cases, and downstream comparisons / formatters consume the
- * timestamptz result without further coercion.
+ * Shape: `cast(<date> as timestamptz) + make_interval(0, ..., 0,
+ * <quantity>)` — the quantity occupies the slot for the AST unit
+ * with zero-padding through every preceding slot. The base
+ * expression casts to `timestamptz` so a date-typed input lifts
+ * uniformly with a datetime-typed input — Postgres's `+ interval`
+ * operator returns `timestamptz` in both cases, and downstream
+ * comparisons / formatters consume the result without further
+ * coercion.
  *
- * The quantity expression multiplies into a `INTERVAL '1 <unit>'`
- * literal. Postgres's interval arithmetic supports `<integer> *
- * INTERVAL '1 day'` directly per
- * `https://www.postgresql.org/docs/16/functions-datetime.html#OPERATORS-DATETIME-TABLE`,
- * which lets the AST's `quantity` slot accept a runtime expression
- * (a property read, a search input, an `arith` result) without
- * pre-resolving it to a static interval.
- *
- * The unit token comes from a closed mapping. Postgres's
- * `interval` type is not in Kysely's typed `ColumnDataType`
- * literal set, so the cast type passes through `sql.raw('interval')`
- * via Kysely's `Expression<any>` overload on `eb.cast` — the
- * documented escape hatch for extension / non-standard Postgres
- * types. No caller-supplied input flows into the token.
+ * `make_interval` returns the `interval` value directly, so the
+ * compose path is `cast(<date> as timestamptz) + make_interval(...)`
+ * — no separate cast token needed for the interval side. The
+ * quantity expression flows in as a typed-builder argument
+ * (property read, search input, `arith` result, etc.) without
+ * pre-resolving to a static value; Postgres treats numeric
+ * arguments to `make_interval`'s integer-typed slots as truncated-
+ * to-int, matching the shape the AST's `quantity` slot already
+ * carries.
  */
 function compileDateAdd(
 	date: ValueExpression,
@@ -481,31 +481,47 @@ function compileDateAdd(
 ): AliasableExpression<unknown> {
 	const dateExpr = compileExpression(date, ctx);
 	const quantityExpr = compileExpression(quantity, ctx);
-	const unitToken = DATE_ADD_INTERVAL_TO_SQL[interval];
 	// Cast the base to `timestamptz` so a date-typed input lifts
 	// uniformly with a datetime-typed input. Postgres's `+
-	// INTERVAL` returns `timestamptz` from either input shape.
+	// interval` returns `timestamptz` from either input shape.
 	const dateAsTimestamp = eb.cast(dateExpr, "timestamptz");
-	// Build the typed interval literal `cast('1 <unit>' as
-	// interval)` via `eb.cast(eb.val(value), dataType)`. The unit
-	// token is a closed mapping. `interval` is not in Kysely's
-	// `SIMPLE_COLUMN_DATA_TYPES` list (verified at
-	// `node_modules/kysely/dist/cjs/operation-node/data-type-node.js`),
-	// so the typed `eb.cast<T>(expr, ColumnDataType)` overload
-	// rejects it. The `eb.cast<T>(expr, Expression<any>)` overload
-	// (per `parseDataTypeExpression` at
-	// `node_modules/kysely/dist/cjs/parser/data-type-parser.js`)
-	// is Kysely's documented escape hatch for extension types and
-	// non-standard Postgres types; `sql.raw('interval')` provides
-	// the Expression with no caller-controlled input flowing into
-	// the raw-emission slot.
-	const intervalLiteral = eb.cast(
-		eb.val(`1 ${unitToken}`),
-		sql.raw("interval"),
-	);
-	// Multiply quantity by the unit interval, then add to the base.
-	const scaledInterval = eb(quantityExpr, "*", intervalLiteral);
-	return eb(dateAsTimestamp, "+", scaledInterval);
+	const intervalExpr = makeIntervalForUnit(interval, quantityExpr);
+	return eb(dateAsTimestamp, "+", intervalExpr);
+}
+
+/**
+ * Build a `make_interval(...)` call that places `quantityExpr` in
+ * the positional slot for `unit`, zero-padding every preceding
+ * slot. Trailing slots are omitted — Postgres applies the
+ * function's documented zero defaults to every unprovided slot.
+ *
+ * Example emissions:
+ *
+ *   - `unit = "days"`, `quantity = 7` → `make_interval(0, 0, 0, 7)`
+ *   - `unit = "seconds"`, `quantity = q` → `make_interval(0, 0, 0,
+ *     0, 0, 0, q)`
+ *   - `unit = "years"`, `quantity = q` → `make_interval(q)`
+ *
+ * `eb.fn<unknown>(name, args)` accepts any
+ * `ReadonlyArray<ReferenceExpression<DB, TB>>` per the function-
+ * module signature at
+ * `node_modules/kysely/dist/cjs/query-builder/function-module.d.ts`,
+ * and `ReferenceExpression` resolves to
+ * `SimpleReferenceExpression | ExpressionOrFactory<DB, TB, any>`
+ * (per `node_modules/kysely/dist/cjs/parser/reference-parser.d.ts`).
+ * Each `eb.val(0)` and the `quantityExpr` slot satisfy that
+ * `Expression<any>` arm, so the call is fully typed-builder.
+ */
+function makeIntervalForUnit(
+	unit: DateAddInterval,
+	quantityExpr: AliasableExpression<unknown>,
+): AliasableExpression<unknown> {
+	const slot = DATE_ADD_INTERVAL_SLOT_INDEX[unit];
+	const args: AliasableExpression<unknown>[] = [];
+	for (let i = 0; i <= slot; i++) {
+		args.push(i === slot ? quantityExpr : eb.val(0));
+	}
+	return eb.fn("make_interval", args);
 }
 
 // ---------------------------------------------------------------

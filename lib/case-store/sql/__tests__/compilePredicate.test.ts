@@ -517,10 +517,18 @@ describe("compilePredicate — within-distance", () => {
 		// against a geopoint center literal (both wire-form
 		// strings) within 10 miles.
 		expect(compiled.sql.toLowerCase()).toContain("st_dwithin(");
-		expect(compiled.sql.toLowerCase()).toContain("st_makepoint(");
+		// Geography points are constructed via `ST_GeogFromText`
+		// (returns geography directly — no separate cast token
+		// needed). The lat/lon components are split out via
+		// `split_part` and composed into a `POINT(<lon> <lat>)`
+		// WKT string through Postgres's `concat`.
+		expect(compiled.sql.toLowerCase()).toContain("st_geogfromtext(");
 		expect(compiled.sql.toLowerCase()).toContain("split_part(");
-		// Geography cast is the WGS-84-aware shape.
-		expect(compiled.sql.toLowerCase()).toContain("geography");
+		expect(compiled.sql.toLowerCase()).toContain("concat(");
+		// The WKT prefix / suffix tokens bind as text parameters so
+		// `concat`'s implicit text resolution stays well-typed.
+		expect(compiled.parameters).toContain("POINT(");
+		expect(compiled.parameters).toContain(")");
 	});
 
 	it("converts miles to meters in the distance scalar", () => {
