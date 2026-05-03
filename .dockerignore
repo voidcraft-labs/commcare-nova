@@ -7,16 +7,19 @@ node_modules
 .playwright-mcp
 # Exclude the broad scripts directory (Next.js / inspect / dev
 # tooling that the runtime images don't need) but re-include the
-# Cloud Run extension-check CLI subdirectory. Dockerfile.check-extensions
-# COPYs from `scripts/check-extensions/` explicitly; without the
-# !-exception, the COPY fails with "file not found in build
-# context" because Docker excludes the whole `scripts/` directory
-# before the COPY runs.
+# Cloud Run job CLI subdirectories explicitly. Each !-exception
+# is paired with a Dockerfile that COPYs from that subdirectory:
 #
-# Note: Dockerfile.migrate has the same shape (COPYs `scripts/migrate/`)
-# but is not yet deployed — when its first deploy runs, the same
-# !-exception will need adding for that subdirectory. Left as a
-# follow-up rather than silently expanded here so the change scope
-# stays tied to Plan 2 Task 2.
+#   - `!scripts/check-extensions` → Dockerfile.check-extensions
+#   - `!scripts/migrate`          → Dockerfile.migrate
+#
+# Without the matching exception, the COPY fails with "file not
+# found in build context" because Docker excludes the whole
+# `scripts/` directory before the COPY runs. Listing each Cloud
+# Run job's subdirectory as a separate narrow allowlist (rather
+# than re-including all of `scripts/`) keeps the build context
+# small and pins the failure surface to the directories the
+# Dockerfiles actually consume.
 scripts
 !scripts/check-extensions
+!scripts/migrate

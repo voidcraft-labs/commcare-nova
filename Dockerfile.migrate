@@ -81,16 +81,24 @@ RUN npx tsc \
     lib/case-store/sql/database.ts \
     scripts/migrate/run.ts
 
-# Carry the two scoped package.json files forward — `tsc` only
+# Carry the three scoped package.json files forward — `tsc` only
 # emits `.js`, so non-TS sibling package.json files are otherwise
-# dropped from the build output. Both folders need their
-# `"type": "module"` declarations at runtime:
+# dropped from the build output. Every folder along the import
+# graph needs its `"type": "module"` declaration at runtime so
+# Kysely's dual-mode export resolves to the same module-system
+# scope across every cross-folder import:
 #
 #   - `lib/case-store/migrations/package.json` — without it, Node
 #     falls back to CommonJS speculation when FileMigrationProvider's
 #     dynamic import hits the compiled `0001_init.js`, emitting
 #     MODULE_TYPELESS_PACKAGE_JSON warnings in the Cloud Run job's
 #     logs.
+#   - `lib/case-store/postgres/package.json` — without it,
+#     `connection.js` resolves Kysely to CJS while the importing
+#     `scripts/migrate/run.js` (under its own ESM scope) resolves
+#     to ESM, surfacing the same `Kysely<unknown>` type identity
+#     mismatch the check-extensions Dockerfile already documents.
+#     At runtime the mismatch manifests as ERR_REQUIRE_ESM.
 #   - `scripts/migrate/package.json` — `run.js` imports the migration
 #     runner (which is ESM under its scoped package.json); without
 #     matching the scope here, Kysely's dual-mode export resolves to
@@ -98,6 +106,7 @@ RUN npx tsc \
 #     `Kysely<unknown>` type identity disagrees across the boundary.
 #     At runtime the same mismatch surfaces as ERR_REQUIRE_ESM.
 RUN cp lib/case-store/migrations/package.json /app/build/lib/case-store/migrations/package.json
+RUN cp lib/case-store/postgres/package.json /app/build/lib/case-store/postgres/package.json
 RUN cp scripts/migrate/package.json /app/build/scripts/migrate/package.json
 
 # Compiled output: /app/build/scripts/migrate/run.js +
