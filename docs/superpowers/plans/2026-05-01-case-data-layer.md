@@ -75,30 +75,32 @@ lib/preview/engine/
 
 ## Tasks
 
-### Task 0: Cloud SQL provisioning + connection pool — SHIPPED (infra) / pending (code)
+### Task 0: Cloud SQL provisioning + connection pool — SHIPPED
 
-**Infra side:** SHIPPED 2026-05-03 against project `commcare-nova` per the runbook at `docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md`. Record-of-truth shell script at `scripts/infra/provision-cloud-sql.sh`. The infra deliverable comprises:
+SHIPPED 2026-05-03 against project `commcare-nova`. Two halves: infrastructure (provisioning + Cloud Run wire-up) per the runbook at `docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md` and the record-of-truth script at `scripts/infra/provision-cloud-sql.sh`; code (connection layer) at `lib/case-store/postgres/connection.ts`.
+
+**Infrastructure deliverable:**
 
 - Cloud SQL instance `nova-cases` running Postgres 18 on tier `db-f1-micro` (ENTERPRISE edition — required explicit because the API defaulted to ENTERPRISE_PLUS, which rejects shared-core tiers), private IP `10.9.160.3` from the `/20` `google-managed-services-default` peering range at `10.9.160.0/20`, no public IP, IAM database authentication on, `max_connections=25`, daily backups + point-in-time recovery (4-day WAL retention, 7 retained backups), single-zone HA, US-Central1.
 - Application database `nova_cases`.
 - IAM bindings: `roles/cloudsql.client` + `roles/cloudsql.instanceUser` on the runtime SA `51003905459-compute@developer.gserviceaccount.com` and on `bperry@dimagi.com`.
 - Database users: `51003905459-compute@developer` (CLOUD_IAM_SERVICE_ACCOUNT — Cloud SQL strips the `.gserviceaccount.com` suffix at create time and gcloud appends it internally for IAM token exchange) and `bperry@dimagi.com` (CLOUD_IAM_USER).
 - Extensions installed and verified working via IAM-auth Cloud SQL Studio queries: `pg_trgm` 1.6, `fuzzystrmatch` 1.2, `postgis` (the postgres superuser was opened briefly via `gcloud sql users set-password ... --prompt-for-password` for the install + grants, then closed back with a fresh-random-unknown password the same way; no human knows the postgres password before, during, or after).
-- Cloud Run service `commcare-nova` updated with Direct VPC Egress (`--network=default --subnet=default --vpc-egress=private-ranges-only`), `--max-instances=5`, and connection env vars `NOVA_DB_HOST=10.9.160.3`, `NOVA_DB_NAME=nova_cases`, `NOVA_DB_USER=51003905459-compute@developer`, `NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases`. Revision `commcare-nova-00100-2m9` serves 100% traffic.
+- Cloud Run service `commcare-nova` updated with Direct VPC Egress (`--network=default --subnet=default --vpc-egress=private-ranges-only`), `--max-instances=5`, and connection env vars `NOVA_DB_NAME=nova_cases`, `NOVA_DB_USER=51003905459-compute@developer`, `NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases`. Revision `commcare-nova-00101-jq4` serves 100% traffic.
 
 Recurring cost: ~$10/mo (db-f1-micro compute ~$8/mo + 10GB SSD ~$1.70/mo + daily backups in us-central1, list price 2026).
 
-**Code side (still pending):** `lib/case-store/postgres/connection.ts` exports a Kysely instance backed by `pg.Pool` with `max: 4` (NOT `max: 10` as the original draft of this task said — see "Pool sizing" below). The pool reads `NOVA_DB_HOST`, `NOVA_DB_NAME`, `NOVA_DB_USER`, and `NOVA_DB_INSTANCE_CONNECTION_NAME` from env (all set by Phase 6 of the runbook). Authentication uses `google-auth-library` to fetch short-lived OAuth tokens for `pg.Pool`'s `password` callback; the embedded auth flow handles refresh. There is NO local-dev mode in `connection.ts` — the testcontainers harness (Plan 1 C7.5) covers tests, and Cloud Run is the only environment that connects to the live Cloud SQL.
+**Code deliverable:** `lib/case-store/postgres/connection.ts` is a Kysely instance backed by `pg.Pool` with `max: 4` and `@google-cloud/cloud-sql-connector` (Google's canonical Node.js connector) wired via the pool's `stream` option. The connector's `getOptions({ instanceConnectionName, ipType: 'PRIVATE', authType: 'IAM' })` resolves the private IP via the SQL Admin API, owns certificate rotation and TLS handshake, and presents the runtime SA's identity via mTLS so Postgres skips password negotiation. Three required env vars (`NOVA_DB_NAME`, `NOVA_DB_USER`, `NOVA_DB_INSTANCE_CONNECTION_NAME`) — strict validation throws at module-init time naming any missing variable. Lazy singleton via `getCaseStoreDatabase()` (Next.js builds import without runtime env, so eager init would crash); SIGTERM-safe teardown via `closeCaseStoreDatabase()`. No local-dev fallback — Cloud Run is the only execution environment that talks to the live Cloud SQL.
 
-**Pool sizing.** `pg.Pool` `max` × `Cloud Run --max-instances` ≤ Cloud SQL `max_connections − 5` (5 reserved for `postgres` / admin / replication). For our shape (`db-f1-micro` `max_connections=25`, Cloud Run `--max-instances=5`): `5 × 4 = 20 ≤ 25 − 5 = 20` exactly. The connection.ts implementer encodes this as a runtime invariant so a future Cloud Run scaling change cannot silently overrun the database's connection cap.
+**Pool sizing.** `pg.Pool` `max` × `Cloud Run --max-instances` ≤ Cloud SQL `max_connections − 5` (5 reserved for `postgres` / admin / replication). For our shape (`db-f1-micro` `max_connections=25`, Cloud Run `--max-instances=5`): `5 × 4 = 20 ≤ 25 − 5 = 20` exactly. The four numbers (`CLOUD_SQL_MAX_CONNECTIONS`, `CLOUD_SQL_RESERVED_CONNECTIONS`, `CLOUD_RUN_MAX_INSTANCES`, `POOL_MAX_PER_INSTANCE`) live as named exports; `enforceConnectionBudget()` runs eagerly at module load and throws if the math ever drifts inconsistent.
 
 **Tier-up path.** `db-f1-micro` (~$10/mo, 25 conns) → `db-g1-small` (~$25/mo, 50 conns) → `db-custom-1-3840` (~$50/mo, 100 conns) → larger custom tiers. Each hop is one `gcloud sql instances patch --tier=...` command with brief downtime; no schema migration, no app code change. The pool/maxScale numbers re-tune at the same time.
 
 **Why no local-dev DB connection.** `cloud-sql-proxy --private-ip` from a developer laptop does not work for `--no-assign-ip` instances (the proxy uses the Admin API for *auth* but makes a direct TCP connection to the IP, which from outside the VPC is unreachable). Ad-hoc DB inspection runs through Cloud SQL Studio in the Google Cloud Console, which routes queries via the Admin API plane and reaches private-IP-only instances without any local network setup. The runbook §P5-0 verified Studio works for our configuration.
 
-Remaining steps (code):
-- [ ] Implement `lib/case-store/postgres/connection.ts` (Kysely + pg.Pool with IAM-token password callback)
-- [ ] Verify connection from a fresh Cloud Run revision (the deployed env is wired; this is the round-trip-via-app step that confirms `connection.ts` actually picks up the env vars correctly)
+**Connector pattern reconciliation (post-implementation cleanup).** The original draft of this SHIPPED block described a `google-auth-library` + manual-token-exchange pattern; the implementer correctly read the canonical Cloud SQL connector docs and adopted `@google-cloud/cloud-sql-connector` instead. The connector handles certificate rotation and IAM token refresh internally, eliminating the need for direct `google-auth-library` use in this file. As a second-order consequence, `NOVA_DB_HOST` (originally wired in Phase 6 to expose the captured private IP) was unused by the connector path and removed from Cloud Run's env in revision `00101-jq4`. The runbook + provision script reflect the reduced env-var set.
+
+Commit chain: `afe6fa9e` (initial) → `65014221` (spec-review forward-projection strip) → `84c3b5dc` (CR fix-pass: untautological budget test + JSDoc accuracy) → `5431cf15` (NOVA_DB_HOST paragraph removal after env-var cleanup).
 
 ### Task 1: Migration tooling + initial schema
 

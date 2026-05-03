@@ -132,7 +132,7 @@ Every decision below is grounded in either a live Google docs read (cited URL) o
 ### 2.5 Authentication → IAM database authentication (no passwords)
 
 - Cloud SQL flag: `cloudsql.iam_authentication=on` enables IAM-authenticated database users alongside the built-in `postgres` superuser.
-- Cloud Run runtime SA (`51003905459-compute@developer.gserviceaccount.com`) becomes a database user; the app authenticates by exchanging its ADC token for a short-lived database password automatically (the `pg` driver fetches the token via `google-auth-library` in connection.ts).
+- Cloud Run runtime SA (`51003905459-compute@developer.gserviceaccount.com`) becomes a database user; the app authenticates via `@google-cloud/cloud-sql-connector` (Google's canonical Node.js connector), which presents the runtime SA's identity through mTLS and lets Postgres skip password negotiation entirely. The connector handles certificate rotation and IAM token refresh internally.
 - bperry@dimagi.com also becomes a database user for local dev / admin queries.
 - Rejected: password auth + Secret Manager. The IAM path eliminates an entire class of secret-rotation drift; tokens auto-rotate with the SA's IAM credentials.
 
@@ -186,7 +186,7 @@ Three layers cover the access patterns:
 - **Migrations** → Plan 2 Task 1's migration runner runs as a Cloud Run job, not as a local script. The job inherits the Cloud Run network attachment and reaches the private IP via Direct VPC Egress. This is a small Plan 2 Task 1 design change from the original "local Cloud SQL Auth Proxy" framing — the runbook flags it in §5 so the implementer picks the right pattern.
 - **Test runs** → Vitest testcontainers harness (Plan 1 C7.5) unchanged. It spins up its own Postgres per Vitest run and never touches the Cloud SQL instance.
 
-`connection.ts` reads `NOVA_DB_HOST` (private IP) / `NOVA_DB_NAME` / `NOVA_DB_USER` from env in Cloud Run. There is no local dev mode for `connection.ts` — testcontainers covers tests, and Cloud Run is the only execution environment that talks to the live Cloud SQL.
+`connection.ts` reads `NOVA_DB_NAME` / `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` from env in Cloud Run. The connector resolves the private IP from `NOVA_DB_INSTANCE_CONNECTION_NAME` via the SQL Admin API at connection time, so a separate `NOVA_DB_HOST` is not needed. There is no local dev mode — testcontainers covers tests, and Cloud Run is the only execution environment that talks to the live Cloud SQL.
 
 ### 2.13 Database name → `nova_cases`; database role naming → IAM identity strings
 
@@ -260,13 +260,7 @@ The `--no-assign-ip` flag forces private-IP-only — no public IP is ever assign
 
 `--root-password` is intentionally omitted. gcloud's help marks it optional (`[--root-password=ROOT_PASSWORD]`); when omitted, Cloud SQL creates the instance with the `postgres` superuser having a random initial password we never see. Since this runbook authenticates everything through IAM (P4-5/P4-6 onward), the `postgres` user stays unused. If we ever need superuser access for an operation IAM users can't perform (`ALTER SYSTEM`, certain extensions outside IAM grants — rare), rotate via `gcloud sql users set-password postgres --instance=nova-cases --prompt-for-password` to set a fresh password on demand.
 
-After P2-1 (~5 min wait for instance to come up), capture the private IP for Phase 6:
-
-```bash
-NOVA_DB_HOST=$(gcloud sql instances describe nova-cases \
-  --format='value(ipAddresses[?type=PRIVATE].ipAddress)')
-echo "Private IP: $NOVA_DB_HOST"
-```
+After P2-1 (~5 min wait for instance to come up). The connector resolves the private IP from `instanceConnectionName` at connection time, so no separate IP capture is required for Phase 6.
 
 ### Phase 3 — Create the application database ($0)
 
@@ -385,17 +379,17 @@ If all three return values, Phase 5 is complete and the live runtime path is exe
 
 ### Phase 6 — Wire Cloud Run to Cloud SQL via Direct VPC Egress ($0; deploys a new revision)
 
-This is the single command that flips the Cloud Run service onto the VPC and tells it where the database lives. Uses the `$NOVA_DB_HOST` captured at the end of Phase 2.
+This is the single command that flips the Cloud Run service onto the VPC and tells it where the database lives. The Cloud SQL connector resolves the private IP from `NOVA_DB_INSTANCE_CONNECTION_NAME` itself.
 
 | # | Command | Cost |
 |---|---|---|
-| P6-1 | `gcloud run services update commcare-nova --region=us-central1 --network=default --subnet=default --vpc-egress=private-ranges-only --max-instances=5 --update-env-vars=NOVA_DB_HOST=$NOVA_DB_HOST,NOVA_DB_NAME=nova_cases,NOVA_DB_USER=51003905459-compute@developer,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases` | $0 (deploys a new revision; Cloud Run pricing unchanged) |
+| P6-1 | `gcloud run services update commcare-nova --region=us-central1 --network=default --subnet=default --vpc-egress=private-ranges-only --max-instances=5 --update-env-vars=NOVA_DB_NAME=nova_cases,NOVA_DB_USER=51003905459-compute@developer,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases` | $0 (deploys a new revision; Cloud Run pricing unchanged) |
 
 Flag breakdown:
 - `--network=default --subnet=default` — Cloud Run instances bind into the default VPC's us-central1 subnet (10.128.0.0/20, verified §1.5).
 - `--vpc-egress=private-ranges-only` — only RFC1918 outbound traffic flows over the VPC; everything else (LLM API, NPM registry, etc.) keeps the default Cloud Run egress for performance and cost.
 - `--max-instances=5` — drops the current 20 down to 5, fitting the pool-sizing math in §2.7.
-- Env vars wire connection.ts to the instance: `NOVA_DB_HOST` is the captured private IP; `NOVA_DB_INSTANCE_CONNECTION_NAME` is included for any future tooling that needs the canonical instance reference.
+- Env vars wire `connection.ts` to the instance. `NOVA_DB_INSTANCE_CONNECTION_NAME` drives the `@google-cloud/cloud-sql-connector` resolution + IAM auth path; `NOVA_DB_NAME` and `NOVA_DB_USER` populate the `pg.Pool` config.
 
 ### Phase 7 — Final verification ($0)
 
@@ -433,7 +427,7 @@ If billing exceeds $20/mo at any point on this instance, halt and re-evaluate �
 
 After Phase 7 verifies clean, the implementer's CODE-side scope per Plan 2 Task 0:
 
-1. `lib/case-store/postgres/connection.ts` — Kysely instance + `pg.Pool` (`max: 4`); reads `NOVA_DB_HOST` / `NOVA_DB_NAME` / `NOVA_DB_USER` from env (set by Phase 6's `gcloud run services update`). Uses `google-auth-library` to fetch IAM tokens on demand for `pg.Pool`'s `password` callback (returns short-lived OAuth token; the embedded auth flow handles refresh). There is no local-dev mode for `connection.ts` — testcontainers (Plan 1 C7.5) covers tests, and Cloud Run is the only environment that talks to the live Cloud SQL.
+1. `lib/case-store/postgres/connection.ts` — Kysely instance + `pg.Pool` (`max: 4`); reads `NOVA_DB_NAME` / `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` from env (set by Phase 6's `gcloud run services update`). Wires `@google-cloud/cloud-sql-connector` (Google's canonical Node.js connector for IAM-authenticated private-IP Cloud SQL Postgres) into the pool's `stream` option; the connector resolves the private IP, owns certificate rotation, and presents the runtime SA's identity via mTLS so Postgres skips password negotiation. There is no local-dev mode for `connection.ts` — testcontainers (Plan 1 C7.5) covers tests, and Cloud Run is the only environment that talks to the live Cloud SQL.
 
 2. `scripts/infra/provision-cloud-sql.sh` — record-of-truth shell script transcribing every Phase 0–7 gcloud command. Lives alongside the runbook so a future supervisor can re-execute from script rather than re-reading the runbook.
 
@@ -455,7 +449,7 @@ Should provisioning fail mid-flight or the design need to back out:
 
 | To undo | Command | Notes |
 |---|---|---|
-| Phase 6 (Cloud Run wire-up) | `gcloud run services update commcare-nova --region=us-central1 --clear-network --remove-env-vars=NOVA_DB_HOST,NOVA_DB_NAME,NOVA_DB_USER,NOVA_DB_INSTANCE_CONNECTION_NAME --max-instances=20` | $0; deploys a clean revision restoring prior maxScale |
+| Phase 6 (Cloud Run wire-up) | `gcloud run services update commcare-nova --region=us-central1 --clear-network --remove-env-vars=NOVA_DB_NAME,NOVA_DB_USER,NOVA_DB_INSTANCE_CONNECTION_NAME --max-instances=20` | $0; deploys a clean revision restoring prior maxScale |
 | Phase 5 (extensions) | `DROP EXTENSION ...` for each | $0; idempotent |
 | Phase 4 (IAM) | `gcloud projects remove-iam-policy-binding ...` for each P4-1..P4-4; `gcloud sql users delete ...` for P4-5..P4-6 | $0 |
 | Phase 3 (database) | `gcloud sql databases delete nova_cases --instance=nova-cases` | $0; data lost |
@@ -497,7 +491,7 @@ Captured here for the SHIPPED record; the shell script at `scripts/infra/provisi
 | IAM bindings (4) | runtime SA + bperry × (cloudsql.client + cloudsql.instanceUser) | All `--condition=None` |
 | Database users (2) | `51003905459-compute@developer` (CLOUD_IAM_SERVICE_ACCOUNT), `bperry@dimagi.com` (CLOUD_IAM_USER) | postgres exists with fresh-random-unknown password |
 | Extensions installed | pg_trgm 1.6, fuzzystrmatch 1.2, postgis (default version) | Verified via IAM-auth Studio queries |
-| Cloud Run revision | `commcare-nova-00100-2m9` | maxScale=5, vpc-access-egress=private-ranges-only, env vars wired |
+| Cloud Run revision | `commcare-nova-00101-jq4` | maxScale=5, vpc-access-egress=private-ranges-only, env vars wired (`NOVA_DB_NAME` / `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME`) |
 
 ### Phase 5 P5-D smoke verification (Cloud SQL Studio, IAM auth as bperry)
 
@@ -520,6 +514,7 @@ All three extensions live and reachable end-to-end via IAM auth. The runtime pat
 - P4-5: Cloud SQL strips `.gserviceaccount.com` from IAM service-account database usernames at create time (`Database username for Cloud IAM service account should be created without ".gserviceaccount.com" suffix`). The truncated form `51003905459-compute@developer` is the database user identity used by SQL GRANT statements (Phase 5) and by the `NOVA_DB_USER` env var (Phase 6); the full `.gserviceaccount.com` form is what the project IAM policy bindings reference.
 - §2.12 + Phase 5: `cloud-sql-proxy --private-ip` from a developer laptop does not work for `--no-assign-ip` instances. Phase 5 runs through Cloud SQL Studio in the Console; ad-hoc DB inspection going forward also runs through Studio. Plan 2 Task 1's migration runner is consequently a Cloud Run job (the runbook flagged this; Plan 2 picks it up).
 - Plan 2 Task 0's "pg.Pool max: 10" was off by ~5×. The correct math (Cloud Run `--max-instances=5` × pool `max=4` ≤ Cloud SQL `max_connections=25 − 5` reserved = 20) lives in §2.7 and is folded into Plan 2 SHIPPED.
+- Connector pattern reconciliation: the original draft of this runbook described a `google-auth-library` + manual-token-exchange flow, and Phase 6 wired a separate `NOVA_DB_HOST` env var to expose the captured private IP. The implementer correctly read the canonical Cloud SQL docs and adopted `@google-cloud/cloud-sql-connector` instead — the connector resolves the private IP from `NOVA_DB_INSTANCE_CONNECTION_NAME` itself, so `NOVA_DB_HOST` was dead. Removed via `gcloud run services update --remove-env-vars=NOVA_DB_HOST` (revision `00101-jq4`); Phase 6 + §5 + §6 above now reflect the three-variable env contract.
 
 ### Plan 2 sync
 

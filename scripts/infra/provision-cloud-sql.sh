@@ -149,11 +149,6 @@ else
 		--quiet
 fi
 
-# Capture the private IP for the Phase 6 Cloud Run wire-up.
-NOVA_DB_HOST="$(gcloud sql instances describe "$INSTANCE_ID" \
-	--format='value(ipAddresses[0].ipAddress)')"
-echo "Captured NOVA_DB_HOST: $NOVA_DB_HOST"
-
 # ---------------------------------------------------------------------------
 # Phase 3 — Create the application database.
 # ---------------------------------------------------------------------------
@@ -231,10 +226,13 @@ echo "=== Phase 5: SKIPPED (interactive — see runbook) ==="
 #
 # `private-ranges-only` keeps non-RFC1918 traffic on Cloud Run's default
 # egress; only the database connection routes through the VPC. NOVA_DB_USER is
-# the truncated form (no .gserviceaccount.com); the full form is what the
-# project IAM policy grants and what google-auth-library exchanges for an OAuth
-# token, but the database user identity that pg authenticates against is
-# truncated.
+# the truncated form (no .gserviceaccount.com) — Cloud SQL strips the suffix
+# at create time and the connector appends it internally for IAM token
+# exchange. The full form is what the project IAM policy grants reference.
+#
+# `connection.ts` uses @google-cloud/cloud-sql-connector, which resolves the
+# private IP from NOVA_DB_INSTANCE_CONNECTION_NAME via the SQL Admin API at
+# connection time. No NOVA_DB_HOST env var is needed.
 # ---------------------------------------------------------------------------
 echo "=== Phase 6: Wire Cloud Run to Cloud SQL ==="
 run gcloud run services update "$CLOUD_RUN_SERVICE" \
@@ -243,7 +241,7 @@ run gcloud run services update "$CLOUD_RUN_SERVICE" \
 	--subnet="$NETWORK" \
 	--vpc-egress=private-ranges-only \
 	--max-instances="$CLOUD_RUN_MAX_INSTANCES" \
-	--update-env-vars="NOVA_DB_HOST=${NOVA_DB_HOST},NOVA_DB_NAME=${DATABASE_NAME},NOVA_DB_USER=${RUNTIME_SA_DBUSER},NOVA_DB_INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${INSTANCE_ID}"
+	--update-env-vars="NOVA_DB_NAME=${DATABASE_NAME},NOVA_DB_USER=${RUNTIME_SA_DBUSER},NOVA_DB_INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${INSTANCE_ID}"
 
 # ---------------------------------------------------------------------------
 # Phase 7 — Final verification.
