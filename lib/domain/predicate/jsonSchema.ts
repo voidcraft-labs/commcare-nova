@@ -22,7 +22,12 @@
 // mapping here keeps every consumer of `data_type` reasoning about
 // the same bridge between blueprint and runtime.
 
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CaseType,
+	casePropertyDataTypes,
+} from "@/lib/domain";
+import { unhandledKindMessage } from "./errors";
 
 // CommCare's geopoint wire format from XForm GPS submissions: four
 // space-separated decimal numbers — `latitude longitude altitude
@@ -179,10 +184,15 @@ function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
 			// to `never` becomes a compile-time error here, forcing the new
 			// case to be wired through this generator before the project
 			// compiles. The runtime throw guards the same invariant for any
-			// payload that reaches us via untyped boundaries.
+			// payload that reaches via untyped boundaries.
 			const _exhaustive: never = prop.data_type;
 			throw new Error(
-				`caseTypeToJsonSchema: unhandled data_type ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "caseTypeToJsonSchema",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: casePropertyDataTypes,
+				}),
 			);
 		}
 	}

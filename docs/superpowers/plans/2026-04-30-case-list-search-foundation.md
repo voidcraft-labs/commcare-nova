@@ -1221,9 +1221,31 @@ Shipped across commits `1b35db8e` → `72baaba6` → `52e04036`. The first commi
 - Strengthened eternal-present sweep on touched files: 0 hits.
 - Coverage matrix at `docs/superpowers/coverage/2026-05-02-foundation-coverage-matrix.md` documents every V1-IN operator across four compilation surfaces with file:line citations.
 
----
+#### Post-shipped amendment 2026-05-03 — Elm-style error-message rewrite
 
-## Final verification
+The original `throw new Error(...)` sites across the foundation used terse one-line strings that named the failing function and the AST kind but offered no diagnostic structure, no actionable next step, and no consistency of voice. Audit and rewrite of all 34 error sites against the published patterns from Elm's "Compiler Errors for Humans" (Czaplicki, 2015), Rust's diagnostics guide, and Roc's friendly-diagnostics design. Three shape categories drive the rewrite (with a small helper module owning the formatting):
+
+- **Internal bug — exhaustive switch (16 sites).** Header names the function, family, and offending kind; body lists every valid kind so the reader can spot the missing one without cross-referencing the AST type definitions; closing paragraph names the typical bypass paths (`as any`, runtime AST construction, partial discriminated-union widening) and prescribes the fix ("add the missing case to the switch in `<where>`"). Helper: `unhandledKindMessage`.
+- **Internal bug — invariant violated (4 sites).** Header names the function and the negation that triggered the throw; body explains the contract that was supposed to hold and which upstream callers were supposed to enforce it. Helper: `compilerBugMessage`.
+- **Type-checker bypass (10 sites).** Header names the function and the rule that was violated; body shows `expected:` / `got:` for the diagnostic facts; narrative explains that the type checker (`checkPredicate` / `checkExpression`) is the upstream gate; site-specific hint prescribes the concrete fix (register the property, route the AST through `checkPredicate`, etc.). Helper: `typeCheckerBypassMessage`.
+
+The remaining 4 sites (between-with-no-bounds, the two caller-setup `ctx.compilePredicate` checks, the two domain-semantic fuzzy-date errors) inline with the same voice the helpers establish — each is one-of-a-kind so the helper would be over-engineered.
+
+**Files:**
+- `lib/domain/predicate/errors.ts` (new) — three formatter functions plus voice/structure documentation in the file header. Re-exported through `lib/domain/predicate/index.ts` so both the type checker (same package) and the SQL compilers (cross-package) consume one source.
+- `lib/domain/predicate/__tests__/errors.test.ts` (new, 7 tests) — pin the canonical multi-section shape of each helper. The expected-text strings double as the example a future contributor reads to copy the voice for a new call site.
+- `lib/case-store/sql/{compileTerm,compilePredicate,compileExpression,compileRelationPath}.ts` — every `throw new Error(...)` site rewritten to use a helper or to inline with the same voice; redundant JSDoc paragraphs above each throw trimmed once the message itself names the contract.
+- `lib/domain/predicate/{typeChecker,jsonSchema}.ts` — exhaustive-switch ICEs migrated to `unhandledKindMessage`; `checkRelationPath`'s `self`-unreachable throw rewritten as a multi-section message naming the upstream short-circuit chain (`checkRelationalQuantifier`, `resolveTermType`).
+- `lib/domain/predicate/CLAUDE.md` — file-map entry added for `errors.ts`.
+- `lib/case-store/sql/compilePredicate.ts` — pre-existing `Plan 2`-forward-reference comment block above the fuzzy-date dynamic-value throw trimmed (per `feedback_forward_projected_in_docs_not_code` — that obligation lives in Plan 2's task list, not in foundation code).
+
+**Verification gates:**
+- 2784 full-project tests pass / 14 skipped (vs 2777 baseline; +7 net = 7 new `errors.test.ts` tests).
+- All four pre-existing tests that match on error substrings (`compilePredicate.test.ts:436` `/string-typed token literals/`, `compilePredicate.test.ts:503` `/YYYY-MM-DD/`, `compileTerm.test.ts:380,386,471,491,511`, `compileExpression.test.ts:410,553,566,703`) still pass — substrings preserved across the rewrites.
+- `npx tsc --noEmit` clean.
+- `npm run lint` clean.
+
+
 
 - [ ] `npm run test` — all tests green including pre-existing
 - [ ] `npm run lint` — no errors, no warnings

@@ -130,6 +130,11 @@ import type {
 	SqlBool,
 } from "kysely";
 import { expressionBuilder } from "kysely";
+import {
+	compilerBugMessage,
+	typeCheckerBypassMessage,
+	unhandledKindMessage,
+} from "@/lib/domain/predicate/errors";
 import type {
 	ComparisonKind,
 	DistanceUnit,
@@ -356,7 +361,34 @@ export function compilePredicate(
 		default: {
 			const _exhaustive: never = pred;
 			throw new Error(
-				`compilePredicate: unhandled Predicate kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compilePredicate",
+					family: "Predicate",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"match-all",
+						"match-none",
+						"and",
+						"or",
+						"not",
+						"eq",
+						"neq",
+						"gt",
+						"gte",
+						"lt",
+						"lte",
+						"in",
+						"between",
+						"multi-select-contains",
+						"match",
+						"within-distance",
+						"exists",
+						"missing",
+						"when-input-present",
+						"is-null",
+						"is-blank",
+					],
+				}),
 			);
 		}
 	}
@@ -611,7 +643,13 @@ function compileBetween(
 	// Schema's `.refine(...)` rejects this shape at parse; the
 	// runtime branch defends against a directly-constructed bypass.
 	throw new Error(
-		"compilePredicate: 'between' predicate has neither lower nor upper bound — the schema's .refine() should have caught this before reaching the SQL compiler",
+		compilerBugMessage({
+			where: "compilePredicate.compileBetween",
+			invariant:
+				"`between` predicate has neither `lower` nor `upper` bound, but at least one is required",
+			detail:
+				"`predicateSchema.between`'s `.refine(...)` is supposed to reject this shape at parse time. Reaching this throw means the AST was constructed without going through `predicateSchema.parse(...)`, or was mutated after parse to drop both bounds. Use the typed `between(...)` builder, or restore at least one bound on the predicate.",
+		}),
 	);
 }
 
@@ -684,7 +722,15 @@ function compileMultiSelectContains(
 		}
 		if (typeof v.value !== "string") {
 			throw new Error(
-				`compilePredicate: multi-select-contains accepts only string-typed token literals; received ${typeof v.value} (${String(v.value)}). Multi-select tokens are wire-form strings, and the JSONB key-existence operators (?| / ?&) match by string equality only.`,
+				typeCheckerBypassMessage({
+					where: "compilePredicate.compileMultiSelectContains",
+					summary:
+						"`multi-select-contains` accepts only string-typed token literals",
+					expected:
+						"every token literal in `values` to have `typeof value === 'string'`",
+					received: `a token literal whose runtime type is \`${typeof v.value}\` (value: \`${String(v.value)}\`)`,
+					hint: "multi-select tokens are wire-form strings; the JSONB key-existence operators `?|` / `?&` match by string equality only. Cast the literal to a string at the AST authoring site, or correct the AST to use the right token type.",
+				}),
 			);
 		}
 		stringValues.push(v.value);
@@ -721,7 +767,12 @@ function quantifierToOperator(
 		default: {
 			const _exhaustive: never = quantifier;
 			throw new Error(
-				`compilePredicate: unhandled multi-select quantifier ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compilePredicate.quantifierToOperator",
+					family: "MultiSelectQuantifier",
+					received: _exhaustive,
+					knownKinds: ["any", "all"],
+				}),
 			);
 		}
 	}
@@ -774,7 +825,15 @@ function compileMatch(
 	// type-check time; reaching this throw indicates a bypass.
 	if (pred.value.kind !== "term") {
 		throw new Error(
-			`compilePredicate: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${pred.value.kind}'.`,
+			typeCheckerBypassMessage({
+				where: "compilePredicate.compileMatch",
+				summary:
+					"`match` requires a term-arm `ValueExpression` for `value`, but received a non-term arm",
+				expected:
+					"`pred.value.kind === 'term'` (a `Term` lifted via `term(...)`, or a literal / property / input / session reference)",
+				received: `\`pred.value.kind === '${pred.value.kind}'\``,
+				hint: "see `checkMatch` in `lib/domain/predicate/typeChecker.ts` for the term-arm rule. Wrap the value in `term(...)` if it is a `Term`, or replace the `match` predicate with a different operator that accepts the wider expression family.",
+			}),
 		);
 	}
 	// Compile the value term as text. Literal values bind through
@@ -817,34 +876,49 @@ function compileMatch(
 				eb.fn<string>("dmetaphone", [valueRead]),
 			);
 		case "fuzzy-date":
-			// fuzzy-date generates digit-permutation candidates from
-			// the input value at compile time when the value is a
-			// literal text constant. Non-literal values (search-input
+			// fuzzy-date generates the digit-permutation set from the
+			// input value at compile time, which requires the value to
+			// be a literal text constant. Dynamic values (search-input
 			// refs, session refs, property refs) cannot pre-compute
-			// the permutation set; they require a runtime permutation
-			// helper that Plan 2 owns (the `fuzzy_date_permutations`
-			// Postgres function would mirror CCHQ's
-			// `date_permutations` algorithm at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:101-140`).
-			// Until that helper lands, the Postgres compiler accepts
-			// only literal-value fuzzy-date matches; the wire
-			// emitters accept dynamic values via CCHQ's
-			// `_xpath_query` wrapper concat. The harness preserves
-			// behavior for the literal path; the dynamic path throws
-			// here with a clear pointer at the missing infrastructure.
+			// the set and throw with a clear error at the boundary.
+			// CCHQ's `date_permutations` algorithm is the reference at
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:101-140`.
 			if (
 				pred.value.term.kind !== "literal" ||
 				typeof pred.value.term.value !== "string"
 			) {
 				throw new Error(
-					"compilePredicate: 'match' mode='fuzzy-date' with a non-literal value requires the fuzzy_date_permutations Postgres function (Plan 2 case-data-layer). The wire emitters accept the dynamic value; only the Postgres runtime path is constrained.",
+					[
+						"`compilePredicate` — `match` (mode `fuzzy-date`) requires a literal text value on the Postgres runtime path.",
+						"",
+						`    expected: a \`literal\` term whose \`value\` is a string`,
+						`    got:      a \`${pred.value.term.kind}\` term`,
+						"",
+						"`fuzzy-date` generates the digit-permutation set at compile time, which",
+						"requires the input value to be known at compile time. Dynamic values",
+						"(search-input refs, session refs, property refs) cannot pre-compute the",
+						"set and need a Postgres-side permutation function the runtime does not",
+						"yet provide.",
+						"",
+						"The CSQL and on-device wire emitters accept the dynamic value; only",
+						"the Postgres runtime path is constrained.",
+						"",
+						"Hint: pass a literal `YYYY-MM-DD` string for the value, or use a",
+						"different `match` mode (`fuzzy` / `phonetic` / `starts-with`) that",
+						"accepts dynamic values.",
+					].join("\n"),
 				);
 			}
 			return compileFuzzyDate(propRead, pred.value.term.value);
 		default: {
 			const _exhaustive: never = pred.mode;
 			throw new Error(
-				`compilePredicate: unhandled match mode ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compilePredicate.compileMatch",
+					family: "MatchMode",
+					received: _exhaustive,
+					knownKinds: ["fuzzy", "phonetic", "fuzzy-date", "starts-with"],
+				}),
 			);
 		}
 	}
@@ -902,7 +976,20 @@ function compileFuzzyDate(
 		// failed the YYYY-MM-DD shape. Throw a clear error rather
 		// than emit `<prop> IN ()` (a Postgres syntax error).
 		throw new Error(
-			`compilePredicate: fuzzy-date mode requires a YYYY-MM-DD value, got '${value}'`,
+			[
+				"`compilePredicate` — `match` (mode `fuzzy-date`) requires a `YYYY-MM-DD` value.",
+				"",
+				`    expected: a string of the form 'YYYY-MM-DD' (zero-padded month and day)`,
+				`    got:      '${value}'`,
+				"",
+				"`fuzzy-date` splits the input on `-` and reads three numeric segments to",
+				"generate the digit-permutation set; values that do not match the",
+				"`YYYY-MM-DD` shape produce an empty permutation set, which would emit a",
+				"Postgres-syntax-invalid `<prop> IN ()`.",
+				"",
+				"Hint: pass a date string with year-month-day order and zero-padded",
+				"segments (e.g. `2024-03-05`), or coerce the input upstream of the AST.",
+			].join("\n"),
 		);
 	}
 	// `eb(left, 'in', [...exprs])` — each permutation binds as a
@@ -1201,7 +1288,12 @@ function unitToMeters(unit: DistanceUnit): number {
 		default: {
 			const _exhaustive: never = unit;
 			throw new Error(
-				`compilePredicate: unhandled distance unit ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compilePredicate.unitToMeters",
+					family: "DistanceUnit",
+					received: _exhaustive,
+					knownKinds: ["miles", "kilometers"],
+				}),
 			);
 		}
 	}
@@ -1263,7 +1355,13 @@ function compileExistsOrMissing(
 		// case — which this function branched out of. The narrowing
 		// here is for the type system; the runtime branch is dead.
 		throw new Error(
-			"compilePredicate: unreachable — non-self relation path produced a 'self' compiled result",
+			compilerBugMessage({
+				where: "compilePredicate.compileExistsOrMissing",
+				invariant:
+					"a non-`self` `RelationPath` produced a `self` compiled result",
+				detail:
+					"The upstream branch routes every `pred.via.kind === 'self'` away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self` — a contract violation between the two helpers.",
+			}),
 		);
 	}
 

@@ -130,6 +130,7 @@
 // this module's subquery, once per hop, every time.
 
 import type { AliasedExpression, Kysely, Selectable } from "kysely";
+import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import type { RelationPath, RelationStep } from "@/lib/domain/predicate/types";
 import type { Database } from "./database";
 
@@ -406,7 +407,12 @@ export function compileRelationPath(
 		default: {
 			const _exhaustive: never = path;
 			throw new Error(
-				`compileRelationPath: unhandled RelationPath kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compileRelationPath",
+					family: "RelationPath",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: ["self", "ancestor", "subcase", "any-relation"],
+				}),
 			);
 		}
 	}

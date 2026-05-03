@@ -53,6 +53,7 @@
 // clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import { unhandledKindMessage } from "./errors";
 import type {
 	ArithOp,
 	ComparisonKind,
@@ -469,7 +470,34 @@ function walk(
 			// this branch via untyped boundaries.
 			const _exhaustive: never = p;
 			throw new Error(
-				`checkPredicate: unhandled predicate kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "checkPredicate",
+					family: "Predicate",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"match-all",
+						"match-none",
+						"and",
+						"or",
+						"not",
+						"eq",
+						"neq",
+						"gt",
+						"gte",
+						"lt",
+						"lte",
+						"in",
+						"between",
+						"multi-select-contains",
+						"match",
+						"within-distance",
+						"exists",
+						"missing",
+						"when-input-present",
+						"is-null",
+						"is-blank",
+					],
+				}),
 			);
 		}
 	}
@@ -1132,24 +1160,28 @@ export function checkRelationPath(
 ): string | undefined {
 	switch (relationPath.kind) {
 		case "self":
-			// Structurally unreachable from any caller in this module:
-			// `checkRelationalQuantifier` rejects standalone
-			// `via.kind === "self"` before invoking this helper, and
-			// `resolveTermType`'s `prop` arm short-circuits absent /
-			// `self` `via` to the originating-scope branch without
-			// touching `checkRelationPath`. The arm is retained for
-			// `RelationPath` discriminated-union exhaustiveness so a
-			// future addition of a relation-path kind is a compile
-			// error here rather than a silent fall-through; throwing
-			// surfaces the invariant violation if any future caller
-			// reaches this branch via an untyped boundary. The
-			// uniform top-level rejection of `exists(via: self)` is
-			// defensible because the shape (`exists(self, w)` reduces
-			// to `w(currentScope)`) is degenerate at every position,
-			// not only the top one — collapsing degenerate shapes is
-			// the reductions module's concern, not the type-checker's.
+			// Upstream callers short-circuit `self` before recursing:
+			// `checkRelationalQuantifier` rejects `via.kind === "self"`
+			// at the operator boundary, and `resolveTermType`'s `prop`
+			// arm routes self / absent vias through the originating-
+			// scope branch. The arm is retained here for `RelationPath`
+			// discriminated-union exhaustiveness; the uniform top-level
+			// rejection of `exists(via: self)` is defensible because
+			// the shape (`exists(self, w)` reduces to `w(currentScope)`)
+			// is degenerate at every position, not only the top one —
+			// collapsing degenerate shapes is the reductions module's
+			// concern, not the type-checker's.
 			throw new Error(
-				"checkRelationPath: 'self' is unreachable here — callers route 'self' through the originating-scope branch before invoking this helper.",
+				[
+					"`checkRelationPath` — `self` reached the relation-path checker, but every caller short-circuits `self` upstream.",
+					"",
+					"`self` walks have no destination distinct from the originating scope, so",
+					"the relation-path-bearing arms (`exists(self)` / `missing(self)` /",
+					"`count(self)` / `prop(via: self)`) are reduced or rejected at the",
+					"operator-level checker before recursing into `checkRelationPath`. Reaching",
+					"this throw means a new caller bypassed that short-circuit — either fix",
+					"the caller, or document why `self` should now be a recursive case here.",
+				].join("\n"),
 			);
 
 		case "ancestor": {
@@ -1272,7 +1304,12 @@ export function checkRelationPath(
 			// without a parallel arm here is a compile-time error.
 			const _exhaustive: never = relationPath;
 			throw new Error(
-				`checkRelationPath: unhandled relation-path kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "checkRelationPath",
+					family: "RelationPath",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: ["self", "ancestor", "subcase", "any-relation"],
+				}),
 			);
 		}
 	}
@@ -1537,7 +1574,18 @@ export function resolveTermType(
 			// the type system.
 			const _exhaustive: never = term;
 			throw new Error(
-				`resolveTermType: unhandled term kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "resolveTermType",
+					family: "Term",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"prop",
+						"literal",
+						"input",
+						"session-user",
+						"session-context",
+					],
+				}),
 			);
 		}
 	}
@@ -1996,7 +2044,28 @@ export function checkExpression(
 			// boundaries that bypass the type system.
 			const _exhaustive: never = expr;
 			throw new Error(
-				`checkExpression: unhandled expression kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "checkExpression",
+					family: "ValueExpression",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"term",
+						"today",
+						"now",
+						"date-add",
+						"date-coerce",
+						"datetime-coerce",
+						"double",
+						"arith",
+						"concat",
+						"coalesce",
+						"if",
+						"switch",
+						"count",
+						"unwrap-list",
+						"format-date",
+					],
+				}),
 			);
 		}
 	}
@@ -2130,7 +2199,12 @@ export function literalType(lit: Literal): ResolvedType {
 			// parallel arm here.
 			const _exhaustive: never = lit.value;
 			throw new Error(
-				`literalType: unhandled literal value type ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "literalType",
+					family: "literal value type (`typeof`)",
+					received: typeof _exhaustive,
+					knownKinds: ["string", "number", "boolean", "null"],
+				}),
 			);
 		}
 	}

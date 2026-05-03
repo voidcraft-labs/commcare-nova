@@ -99,6 +99,11 @@
 import type { AliasableExpression, Kysely } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import {
+	compilerBugMessage,
+	typeCheckerBypassMessage,
+	unhandledKindMessage,
+} from "@/lib/domain/predicate/errors";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
 import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
@@ -386,7 +391,18 @@ export function compileTerm(
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(
-				`compileTerm: unhandled Term kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compileTerm",
+					family: "Term",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"prop",
+						"literal",
+						"input",
+						"session-user",
+						"session-context",
+					],
+				}),
 			);
 		}
 	}
@@ -525,7 +541,13 @@ function compileNonSelfViaPropertyRef(args: {
 	});
 	if (compiledPath.kind !== "joined") {
 		throw new Error(
-			"compileTerm.compilePropertyRef: unreachable — non-self relation path produced a 'self' compiled result",
+			compilerBugMessage({
+				where: "compileTerm.compilePropertyRef",
+				invariant:
+					"a non-`self` `RelationPath` produced a `self` compiled result",
+				detail:
+					"The upstream `isSelfVia` branch is supposed to route every `self` walk away from this helper before it reaches `compileRelationPath`. Reaching this throw means `compileRelationPath` returned the degenerate `self` marker for a `RelationPath` whose `kind` is not `self` — a contract violation between the two helpers.",
+			}),
 		);
 	}
 
@@ -625,12 +647,8 @@ function scalarColumnRef(
 /**
  * Resolve the destination case-type name a `RelationPath` reaches.
  *
- * The four AST kinds map to three resolution shapes:
+ * The three non-`self` AST kinds map to two resolution shapes:
  *
- *   - `self` — the path doesn't change scope. Callers branch off
- *     this kind before invoking the helper; the runtime body throws
- *     to surface any future caller routing `self` here through an
- *     untyped boundary.
  *   - `ancestor` — walk the `parent_type` chain, one hop per
  *     `RelationStep`. Each hop's destination is the previous origin's
  *     `parent_type`; the first hop's origin is `originCaseType`.
@@ -639,12 +657,11 @@ function scalarColumnRef(
  *     present; with no qualifier and exactly one candidate the
  *     unique candidate wins.
  *
- * Mirrors `checkRelationPath` in
- * `lib/domain/predicate/typeChecker.ts:1080-1232`. The type checker
- * accumulates errors for user-facing reporting; the SQL compiler
- * throws because a resolution failure here is a bug at the type-
- * checker layer (the type checker validates every term against the
- * same schema before the SQL compiler runs).
+ * The `self` kind is handled by upstream callers (which short-circuit
+ * before invoking this helper) — the body's `case "self"` arm throws
+ * a compiler-bug message to surface any caller that routes `self`
+ * through an untyped boundary. Mirrors `checkRelationPath` in
+ * `lib/domain/predicate/typeChecker.ts:1080-1232`.
  */
 function resolveDestinationCaseType(
 	via: RelationPath,
@@ -654,7 +671,12 @@ function resolveDestinationCaseType(
 	switch (via.kind) {
 		case "self":
 			throw new Error(
-				"compileTerm.resolveDestinationCaseType: 'self' is unreachable here — callers route 'self' through the originating-scope branch before invoking this helper.",
+				compilerBugMessage({
+					where: "compileTerm.resolveDestinationCaseType",
+					invariant: "a `self` `RelationPath` reached the destination resolver",
+					detail:
+						"`self` walks have no destination distinct from the originating scope, so callers branch on `kind === 'self'` upstream and use `originCaseType` directly. Reaching this throw means the upstream branch was skipped — the resolver was called with a `self` input it cannot resolve.",
+				}),
 			);
 
 		case "ancestor": {
@@ -664,12 +686,25 @@ function resolveDestinationCaseType(
 				const ct = schemas.get(current);
 				if (ct === undefined) {
 					throw new Error(
-						`compileTerm: unknown case type '${current}' at ancestor hop ${i} — the type checker should have caught this before reaching the SQL compiler`,
+						typeCheckerBypassMessage({
+							where: "compileTerm.resolveDestinationCaseType",
+							summary: `ancestor walk references unknown case type \`${current}\` at hop ${i}`,
+							expected:
+								"a case type registered in the schema set passed to the compiler",
+							received: `\`${current}\``,
+							hint: "verify the case type exists in `case_type_schemas` for this app, or correct the AST so the walk reads through declared case types only.",
+						}),
 					);
 				}
 				if (!ct.parent_type) {
 					throw new Error(
-						`compileTerm: ancestor walk failed: case type '${current}' has no parent_type — the type checker should have caught this before reaching the SQL compiler`,
+						typeCheckerBypassMessage({
+							where: "compileTerm.resolveDestinationCaseType",
+							summary: `ancestor walk reached case type \`${current}\` at hop ${i}, but \`${current}\` declares no \`parent_type\``,
+							expected: `\`${current}.parent_type\` set to the case type one hop up the ancestor chain`,
+							received: `\`${current}.parent_type\` is unset (the chain dead-ends here)`,
+							hint: `add a \`parent_type\` to case type \`${current}\` to make the walk well-formed, or shorten the ancestor chain so it terminates at \`${current}\`.`,
+						}),
 					);
 				}
 				if (
@@ -677,7 +712,13 @@ function resolveDestinationCaseType(
 					step.throughCaseType !== ct.parent_type
 				) {
 					throw new Error(
-						`compileTerm: throughCaseType '${step.throughCaseType}' on ancestor step does not match the actual parent_type '${ct.parent_type}' of '${current}'`,
+						typeCheckerBypassMessage({
+							where: "compileTerm.resolveDestinationCaseType",
+							summary: `\`throughCaseType\` qualifier on ancestor step ${i} disagrees with \`${current}.parent_type\``,
+							expected: `\`throughCaseType: '${ct.parent_type}'\` (the declared \`parent_type\` of \`${current}\`)`,
+							received: `\`throughCaseType: '${step.throughCaseType}'\``,
+							hint: "remove the qualifier (the chain is unambiguous without it) or correct it to match the declared `parent_type`.",
+						}),
 					);
 				}
 				current = ct.parent_type;
@@ -705,14 +746,34 @@ function resolveDestinationCaseType(
 				return candidates[0];
 			}
 			throw new Error(
-				`compileTerm: '${via.kind}' walk needs an explicit ofCaseType — found ${candidates.length} candidate case types (${candidates.map((c) => `'${c}'`).join(", ")}) for origin '${originCaseType}'. The type checker should have caught this before reaching the SQL compiler.`,
+				typeCheckerBypassMessage({
+					where: "compileTerm.resolveDestinationCaseType",
+					summary: `\`${via.kind}\` walk from origin \`${originCaseType}\` is under-qualified — \`ofCaseType\` is required to disambiguate the destination`,
+					expected:
+						candidates.length === 0
+							? `at least one case type whose \`parent_type\` is \`${originCaseType}\`, or an explicit \`ofCaseType\` qualifier on the walk`
+							: `an explicit \`ofCaseType\` qualifier naming one of the candidate case types`,
+					received:
+						candidates.length === 0
+							? `no case type declares \`parent_type: '${originCaseType}'\``
+							: `${candidates.length} candidate case types: ${candidates.map((c) => `\`${c}\``).join(", ")}`,
+					hint:
+						candidates.length === 0
+							? `add a child case type whose \`parent_type\` is \`${originCaseType}\`, or replace the walk with a different \`RelationPath\` shape.`
+							: "set `ofCaseType` on the walk to select the intended destination case type.",
+				}),
 			);
 		}
 
 		default: {
 			const _exhaustive: never = via;
 			throw new Error(
-				`compileTerm.resolveDestinationCaseType: unhandled RelationPath kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compileTerm.resolveDestinationCaseType",
+					family: "RelationPath",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: ["self", "ancestor", "subcase", "any-relation"],
+				}),
 			);
 		}
 	}
@@ -722,17 +783,15 @@ function resolveDestinationCaseType(
  * Resolve the declared `data_type` for a `(caseType, property)`
  * pair from the schema map.
  *
- * A missing case type or a property absent from the looked-up case
- * type's schema is a bug at the type-checker layer (the type
- * checker validates every term against the same schema before the
- * SQL compiler runs), so the compiler throws rather than fall back
- * to a default.
- *
  * `data_type` is `.optional()` on `CaseProperty` (per
  * `lib/domain/blueprint.ts:54`); when absent, the schema generator
  * treats it as `text` (per `lib/domain/predicate/jsonSchema.ts:144-148`)
  * and the term compiler does the same here so the cast mapping
  * stays consistent across both consumers.
+ *
+ * Missing case types and undeclared properties are type-checker-
+ * bypass conditions — the body throws via `typeCheckerBypassMessage`
+ * rather than falling back to a default.
  */
 function lookupDataType(
 	caseType: string,
@@ -742,13 +801,29 @@ function lookupDataType(
 	const ct = schemas.get(caseType);
 	if (ct === undefined) {
 		throw new Error(
-			`compileTerm: no schema registered for case type '${caseType}' — the type checker should have caught this before reaching the SQL compiler`,
+			typeCheckerBypassMessage({
+				where: "compileTerm.lookupDataType",
+				summary: `no schema registered for case type \`${caseType}\``,
+				expected: "a `CaseType` entry in the schema map for this case type",
+				received: `\`${caseType}\` is not present in the schema map`,
+				hint: `register \`${caseType}\` in \`case_type_schemas\` for this app, or correct the AST to read from a declared case type.`,
+			}),
 		);
 	}
 	const propDef = ct.properties.find((p) => p.name === property);
 	if (propDef === undefined) {
 		throw new Error(
-			`compileTerm: property '${property}' is not declared on case type '${caseType}' — the type checker should have caught this before reaching the SQL compiler`,
+			typeCheckerBypassMessage({
+				where: "compileTerm.lookupDataType",
+				summary: `property \`${property}\` is not declared on case type \`${caseType}\``,
+				expected: `\`${property}\` listed in \`case_type_schemas[appId, '${caseType}'].properties\``,
+				received: `case type \`${caseType}\` declares: ${
+					ct.properties.length === 0
+						? "no properties"
+						: ct.properties.map((p) => `\`${p.name}\``).join(", ")
+				}`,
+				hint: `add \`${property}\` to the case type's property list, or correct the AST to read a declared property.`,
+			}),
 		);
 	}
 	// Absent `data_type` defaults to `text`, matching the JSON
@@ -769,14 +844,13 @@ function lookupDataType(
  * map, and a "missing key" failure mode. The shared helper
  * collapses them into one parameter-bound emission with a
  * descriptive error message; the per-arm caller passes the field
- * name into the message so the failure cites the actual AST shape
- * the author wrote.
+ * name into the `descriptor` so the failure cites the actual AST
+ * shape the author wrote.
  *
- * When the bindings map is undefined OR the key is absent from
- * the map, the helper throws. Runtime bindings are required-by-
- * position; the wider pipeline must thread the values through
- * before calling the term compiler. A missing binding at compile
- * time is a misuse, not a runtime null.
+ * Missing bindings (undefined map OR absent key) are caller-setup
+ * errors — runtime values must reach the term compiler through the
+ * bindings map; an absent key cannot fall back to `NULL` without
+ * silently flipping the predicate's truth value.
  */
 function compileBoundRef(
 	key: string,
@@ -784,8 +858,26 @@ function compileBoundRef(
 	descriptor: string,
 ): AliasableExpression<unknown> {
 	if (bindings === undefined || !bindings.has(key)) {
+		// Caller-setup error: the integrating pipeline omitted a
+		// runtime binding the AST references. Voiced as a direct
+		// "what to fix" message because the caller is the only
+		// audience — these arms cannot be type-checked into existence
+		// at the term layer; the binding map is the runtime-resolution
+		// surface the caller owns.
 		throw new Error(
-			`compileTerm: missing binding for ${descriptor} — the wider pipeline must thread runtime values through ctx.bindings before calling compileTerm`,
+			[
+				`\`compileTerm\` — missing binding for ${descriptor}.`,
+				``,
+				`The AST references a runtime value (\`${key}\`) the wider pipeline did not`,
+				`thread through \`ctx.bindings\` before calling \`compileTerm\`. Runtime-`,
+				`binding terms (\`input\` / \`session-user\` / \`session-context\`) resolve from`,
+				`the bindings map at compile time; an absent key cannot fall back to \`NULL\``,
+				`without silently changing the predicate's truth value.`,
+				``,
+				`Hint: populate \`ctx.bindings.searchInputs\` / \`ctx.bindings.sessionUser\` /`,
+				`\`ctx.bindings.sessionContext\` with the runtime values for every key the AST`,
+				`references before calling the term compiler.`,
+			].join("\n"),
 		);
 	}
 	const value = bindings.get(key);

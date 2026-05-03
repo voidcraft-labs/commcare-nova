@@ -115,6 +115,10 @@ import type {
 	Expression,
 } from "kysely";
 import { expressionBuilder } from "kysely";
+import {
+	typeCheckerBypassMessage,
+	unhandledKindMessage,
+} from "@/lib/domain/predicate/errors";
 import type {
 	ArithOp,
 	DateAddInterval,
@@ -304,14 +308,43 @@ export function compileExpression(
 			return compileCount(expr.via, expr.where, ctx);
 		case "unwrap-list":
 			throw new Error(
-				"compileExpression: 'unwrap-list' has no AST consumer on the SQL side — the type checker resolves it to the `_sequence` sentinel and no Predicate or Expression operator on the runtime side accepts a sequence. The CSQL wire emitter handles the arm at the wire-emission boundary; SQL-side authoring surfaces must reject sequence-typed expressions before they reach the compiler.",
+				typeCheckerBypassMessage({
+					where: "compileExpression",
+					summary:
+						"`unwrap-list` reached the SQL compiler, but no Postgres-side AST consumer accepts a sequence value",
+					expected:
+						"the type checker rejects `unwrap-list` outside the CSQL wire emitter (the AST resolves it to the `_sequence` sentinel and every Predicate / Expression arm requires a non-sequence operand)",
+					received: "an `unwrap-list` expression as a value-bearing operand",
+					hint: "the CSQL wire emitter is the only consumer of `unwrap-list` (via the `selected-any(prop, unwrap-list(...))` pattern). SQL-side authoring surfaces must reject sequence-typed expressions before they reach `compileExpression`.",
+				}),
 			);
 		case "format-date":
 			return compileFormatDate(expr.date, expr.pattern, ctx);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
-				`compileExpression: unhandled ValueExpression kind ${String(_exhaustive)}`,
+				unhandledKindMessage({
+					where: "compileExpression",
+					family: "ValueExpression",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"term",
+						"today",
+						"now",
+						"date-add",
+						"date-coerce",
+						"datetime-coerce",
+						"double",
+						"arith",
+						"concat",
+						"coalesce",
+						"if",
+						"switch",
+						"count",
+						"unwrap-list",
+						"format-date",
+					],
+				}),
 			);
 		}
 	}
@@ -594,12 +627,10 @@ function compileCoalesce(
  * ELSE <else> END`.
  *
  * The `cond` slot carries a `Predicate`; the compiler routes it
- * through the `compilePredicate` thunk on the context. If the
- * thunk is absent at the call site, the compiler throws a clear
- * error rather than emit a degenerate `(true)` / `(false)`
- * placeholder — the predicate-bearing arm reaching the SQL
- * compiler without a wired predicate compiler is a misuse, not a
- * silent fall-through.
+ * through the `compilePredicate` thunk on the context. The thunk
+ * is the cycle break that lets the expression compiler reach the
+ * predicate compiler without producing an import cycle; an absent
+ * thunk is a caller-setup error and the body throws.
  *
  * `CASE WHEN ... END` syntax is documented at
  * `https://www.postgresql.org/docs/18/functions-conditional.html#FUNCTIONS-CASE`.
@@ -613,7 +644,18 @@ function compileIf(
 	const compilePredicate = ctx.compilePredicate;
 	if (compilePredicate === undefined) {
 		throw new Error(
-			"compileExpression: 'if' arm reached but ctx.compilePredicate is not wired. The integrating caller must supply a predicate-compilation callback before the expression compiler is invoked. See `ExpressionCompileContext.compilePredicate` in compileExpression.ts.",
+			[
+				"`compileExpression` — `if` reached the expression compiler without a wired predicate compiler.",
+				"",
+				"The `if` arm carries a `Predicate` condition, but `ctx.compilePredicate`",
+				"is `undefined`. The expression compiler does not import",
+				"`compilePredicate` directly (the cycle would close on itself); the",
+				"integrating caller is responsible for supplying the callback.",
+				"",
+				"Hint: pass `compilePredicate` (from `lib/case-store/sql`) on",
+				"`ExpressionCompileContext.compilePredicate` before invoking",
+				"`compileExpression` on any AST that may contain `if` or `count(via, where)`.",
+			].join("\n"),
 		);
 	}
 	const condExpr = compilePredicate(cond, ctx);
@@ -736,12 +778,11 @@ function compileSwitch(
  * leaf rows before counting and routes through the
  * `compilePredicate` thunk on the context.
  *
- * `count(self)` is rejected — the type checker rules it out at
- * the operator boundary (per
- * `lib/domain/predicate/typeChecker.ts:1015-1030`), so reaching
- * the SQL compiler with a self via is an invariant violation. The
- * compiler throws a clear error rather than emit a degenerate
- * "count anchor row" subquery.
+ * `count(self)` is rejected at the operator boundary (per
+ * `checkRelationalQuantifier` in
+ * `lib/domain/predicate/typeChecker.ts:1015-1030`); the body throws
+ * a type-checker-bypass message if it reaches `self` here, rather
+ * than emitting a degenerate "count anchor row" subquery.
  *
  * Tenant filtering inside the leaf subquery is handled by
  * `compileRelationPath` — the relation path's own `cases` joins
@@ -763,7 +804,15 @@ function compileCount(
 	});
 	if (compiledPath.kind === "self") {
 		throw new Error(
-			"compileExpression: 'count' with a `self` via is rejected by the type checker (see lib/domain/predicate/typeChecker.ts checkRelationalQuantifier). Reaching the SQL compiler with `count(self)` indicates a missing or bypassed type-check pass.",
+			typeCheckerBypassMessage({
+				where: "compileExpression.compileCount",
+				summary:
+					"`count(self)` reached the SQL compiler, but the type checker rejects `self` as the via of a relational quantifier",
+				expected:
+					"a `RelationPath` whose `kind` is `ancestor`, `subcase`, or `any-relation` (see `checkRelationalQuantifier` in `lib/domain/predicate/typeChecker.ts`)",
+				received: '`{ kind: "self" }`',
+				hint: "the relational quantifiers (`exists` / `missing` / `count`) only make sense over a non-trivial relation walk. If you intended to count something on the anchor row, use a different aggregation surface; otherwise, replace the via with the relation walk you intend to count.",
+			}),
 		);
 	}
 	// The leaf subquery is an `AliasedExpression` carrying the
@@ -792,7 +841,18 @@ function compileCount(
 	const compilePredicate = ctx.compilePredicate;
 	if (compilePredicate === undefined) {
 		throw new Error(
-			"compileExpression: 'count(via, where)' arm reached with a where clause but ctx.compilePredicate is not wired. The integrating caller must supply a predicate-compilation callback before the expression compiler is invoked. See `ExpressionCompileContext.compilePredicate` in compileExpression.ts.",
+			[
+				"`compileExpression` — `count(via, where)` reached the expression compiler without a wired predicate compiler.",
+				"",
+				"The `where` clause is a `Predicate`, but `ctx.compilePredicate` is",
+				"`undefined`. The expression compiler does not import `compilePredicate`",
+				"directly (the cycle would close on itself); the integrating caller is",
+				"responsible for supplying the callback.",
+				"",
+				"Hint: pass `compilePredicate` (from `lib/case-store/sql`) on",
+				"`ExpressionCompileContext.compilePredicate` before invoking",
+				"`compileExpression` on any AST that may contain `if` or `count(via, where)`.",
+			].join("\n"),
 		);
 	}
 	// Compile the inner where with the leaf alias as the new

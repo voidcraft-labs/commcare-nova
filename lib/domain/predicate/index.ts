@@ -120,6 +120,7 @@
 // curation.
 
 export * from "./builders";
+export * from "./errors";
 export * from "./jsonSchema";
 export * from "./reduction";
 export * from "./typeChecker";

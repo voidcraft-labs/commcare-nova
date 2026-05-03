@@ -36,6 +36,9 @@ jsonSchema.ts   — caseTypeToJsonSchema for the case-store write-time
                   validator
 reduction.ts    — reduceAnd / reduceOr / reduceNot invariants the
                   builders apply at construction time
+errors.ts       — unhandledKindMessage / compilerBugMessage /
+                  typeCheckerBypassMessage formatters; voice + structure
+                  shared by every compiler-stack throw
 __tests__/      — per-module test suite; reduction tests exercise the
                   builder-applied invariants end-to-end
 ```
