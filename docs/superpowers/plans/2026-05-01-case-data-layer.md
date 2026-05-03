@@ -102,29 +102,31 @@ Recurring cost: ~$10/mo (db-f1-micro compute ~$8/mo + 10GB SSD ~$1.70/mo + daily
 
 Commit chain: `afe6fa9e` (initial) → `65014221` (spec-review forward-projection strip) → `84c3b5dc` (CR fix-pass: untautological budget test + JSDoc accuracy) → `5431cf15` (NOVA_DB_HOST paragraph removal after env-var cleanup).
 
-### Task 1: Migration tooling + initial schema
+### Task 1: Migration tooling + initial schema — SHIPPED (code) / pending (Cloud Run job deploy)
 
-**Files:** `lib/case-store/migrations/0001_init.sql`, `0002_indices.sql`, migration runner script.
+SHIPPED 2026-05-03 in code; the Cloud Run job is built but not yet deployed (supervisor's `gcloud run jobs deploy db-migrate` invocation is parallel to Task 0's runbook).
 
-Adopt `kysely-migration-cli` (or equivalent) for schema migrations — runs migration SQL files in order, tracks applied migrations in a `kysely_migrations` table.
+**Migration format:** `.ts` modules with Kysely's canonical `Migration` interface (`up()` / `down()` async exports), per `https://kysely.dev/docs/migrations`. The typed schema builder catches column-name typos at compile time that raw `.sql` files cannot. The same modules run in production (compiled to JS by `Dockerfile.migrate`) and in tests (loaded via Vitest's transform + Kysely's `FileMigrationProvider`).
 
-Initial migration (`0001_init.sql`) creates the four tables from the spec's "Storage layer for cases" section:
-- `cases` with `(case_id UUID PRIMARY KEY DEFAULT uuidv7(), app_id, owner_id, case_type, status, opened_on, modified_on, closed_on, parent_case_id, properties JSONB)` plus per-spec indices. PG 18's native `uuidv7()` (added 2025-09-25 with PG 18.0) generates timestamp-prefixed UUIDs; case_ids issued in temporal order cluster on B-tree pages, so INSERTs touch fewer cold pages than `gen_random_uuid()` (uuidv4) would. Pagination by `(opened_on, case_id)` is naturally close-to-sorted because uuidv7's first 48 bits are the millisecond Unix timestamp. Cite: `https://www.postgresql.org/docs/18/functions-uuid.html`.
-- `case_type_schemas` with `(app_id, case_type, schema JSONB)` PK `(app_id, case_type)`.
-- `case_indices` with `(case_id, ancestor_id, identifier, relationship, depth)` plus `(ancestor_id, identifier)` and `(case_id, identifier)` indices.
-- `cases_quarantine` with the same shape as `cases` plus `quarantine_reason TEXT`, `quarantined_at TIMESTAMPTZ`.
+**Files shipped:**
+- `lib/case-store/migrations/0001_init.ts` — creates `cases`, `case_type_schemas`, `case_indices`, `cases_quarantine` per spec lines 254-284 + spec § "Schema migration policy".
+- `lib/case-store/migrations/0002_indices.ts` — static `case_indices` indexes per spec lines 282-283. Per-property expression indexes are dynamic and owned by Task 8's `applySchemaChange`, NOT here.
+- `lib/case-store/migrations/runner.ts` — single shared core function `runMigration(db, action)` consumed by both production and tests.
+- `lib/case-store/migrations/__tests__/runner.test.ts` — 8 tests covering migrate-from-empty / rollback / idempotency / status / `uuidv7()` v7-version-nibble probe. Each test creates an isolated database via `CREATE DATABASE runner_test_<rand>` against the testcontainer's superuser URI; cleanup via `DROP DATABASE ... WITH (FORCE)` in `afterEach`.
+- `scripts/migrate/{run.ts, deploy-job.sh, execute-job.sh}` + `Dockerfile.migrate` — Cloud Run job image and deployment scripts. Connects via `@google-cloud/cloud-sql-connector` (same pattern as `connection.ts`) with `pg.Pool` `max: 1` (one transaction per migration; one connection suffices because `pg_advisory_xact_lock` is transaction-scoped on the checked-out connection).
+- npm scripts: `db:migrate`, `db:rollback`, `db:status` invoke the deployed job; `db:migrate:deploy` builds + deploys the image.
+- `lib/case-store/sql/database.ts` — adds `CasesQuarantineTable` and widens `case_id` to `ColumnType<string, string | undefined, string>` so Kysely accepts inserts that omit `case_id` and rely on the `DEFAULT uuidv7()`. This is the type Task 4's `PostgresCaseStore.insert` consumes.
+- `lib/case-store/sql/index.ts` — re-exports `CasesQuarantineTable`.
+- `lib/case-store/sql/__tests__/globalSetup.ts` — replaces hardcoded `SCHEMA_DDL` with a call to the migration runner. Migrations are now the single source of truth for the schema; the harness installs only the three Postgres extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`), which require superuser and are installed in production via Cloud SQL Studio (runbook Phase 5), not via migrations.
+- `lib/case-store/CLAUDE.md` — documents the migrations directory, the dual runner (production via Cloud Run job; tests via the in-process runner), the npm scripts, and the harness restructure.
 
-`owner_id` is the spec's per-user isolation key — every read filters by `owner_id = <session.user.id>` via a middleware layer in the `PostgresCaseStore` query path. Defense-in-depth via Postgres Row-Level Security policies in a later migration once the application-layer pattern is exercised.
+**`uuidv7()` adoption:** PG 18's native `uuidv7()` (added 2025-09-25 with PG 18.0) generates timestamp-prefixed UUIDs that cluster on B-tree pages and naturally sort by creation time. The migration probes the function name against the live PG 18 docs at `https://www.postgresql.org/docs/18/functions-uuid.html`; the runner test pins runtime availability by inserting without `case_id` and asserting the returned value matches the RFC 9562 v7 regex (version nibble = 7, variant nibble = `[89ab]`).
 
-**Migration runner runs as a Cloud Run job, not locally.** The original framing was "run migrations against local Cloud SQL Auth Proxy + against testcontainers Postgres in CI." The local-Auth-Proxy half does not work for our `--no-assign-ip` instance (see Task 0 § "Why no local-dev DB connection"). The migration runner is instead packaged as a Cloud Run job: a containerized command (Kysely migration runner + `0001_init.sql` + `0002_indices.sql`) deployed via `gcloud run jobs deploy db-migrate`, attached to the same `default` network/subnet as the main service with `--vpc-egress=private-ranges-only`. `npm run db:migrate` becomes "execute the deployed Cloud Run job." Authentication uses the same IAM token flow as `connection.ts`. CI runs the same migration code against the testcontainers Postgres harness directly (no Cloud Run job in CI — testcontainers runs in-process).
+**`cases_quarantine` shape:** same columns as `cases` plus `quarantine_reason TEXT NOT NULL` and `quarantined_at TIMESTAMPTZ NOT NULL DEFAULT now()`. Composite primary key `(case_id, quarantined_at)` admits multi-version quarantine history without conflict — a row that survives multiple migration cycles can be re-quarantined on a later cycle without the migrator having to choose between overwriting or aborting. No indexes beyond the PK; quarantine rows are read by author UI for review, not on the case-list hot path.
 
-Steps:
-- [ ] Add migration runner to `package.json` scripts (`db:migrate` invokes the deployed Cloud Run job; `db:rollback` and `db:status` invoke equivalent jobs)
-- [ ] Write `0001_init.sql` per the spec schema
-- [ ] Write `0002_indices.sql` for the per-spec indices
-- [ ] Build a Cloud Run job image that runs the migration runner, deploy with Direct VPC Egress to `default`/`default`, IAM-auth as `51003905459-compute@developer` (the runtime SA database user)
-- [ ] Run migrations against the deployed instance via the Cloud Run job; against testcontainers Postgres in CI directly
-- [ ] Document the migration workflow in `lib/case-store/CLAUDE.md` (the Cloud Run job pattern + the testcontainers parallel)
+**Cloud Run job deployment (pending):** the supervisor invokes `npm run db:migrate:deploy` to build the image (`Dockerfile.migrate`) and run `gcloud run jobs deploy db-migrate ... --network=default --subnet=default --vpc-egress=private-ranges-only --service-account=51003905459-compute@developer.gserviceaccount.com --set-env-vars=NOVA_DB_NAME=nova_cases,NOVA_DB_USER=51003905459-compute@developer,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases`. After deployment, `npm run db:migrate` invokes `gcloud run jobs execute db-migrate --wait` against the live instance. CI runs migrations against testcontainers Postgres directly (no Cloud Run job in CI).
+
+Commit chain: `1e554960` (initial) → `664faae8` (production tsc fix-pass — scoped ESM + .js suffixes) → `6fafe247` (spec-review fix-pass — `case_id` ColumnType + JSDoc) → `33b211bc` (CR fix-pass — `max: 1` for production parity).
 
 ### Task 2: Cloud SQL extension allowlist gate
 
