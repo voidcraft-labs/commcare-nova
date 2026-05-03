@@ -799,11 +799,10 @@ describe("compilePredicate — tenant scope contract", () => {
 // .right, in.left, between.left / .lower / .upper, is-null.left,
 // is-blank.left, and within-distance.center. Each test below
 // builds a non-term expression at the corresponding slot and
-// verifies the dispatch routes through the expression compiler —
-// the SQL contains the expression's signature shape (e.g. an
-// arithmetic operator, a `case when ... end`, a counting
-// subquery) without throwing the legacy "non-term operand"
-// rejection error.
+// verifies the dispatch routes through the expression compiler,
+// emitting the expression's signature SQL shape (an arithmetic
+// operator, a `case when ... end`, a counting subquery) at the
+// operand position.
 
 describe("compilePredicate — non-term ValueExpression operand dispatch", () => {
 	it("dispatches arith on compare.left through the expression compiler", () => {

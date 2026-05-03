@@ -419,8 +419,9 @@ function compileValueExprOperand(
  *
  * Implemented as a separate function (rather than inlined at the
  * one call site above) so the callback wiring is explicit at the
- * boundary between the two compilers and so tests that inspect
- * the cycle-break shape have a named target to point at.
+ * boundary between the two compilers — the cycle break and its
+ * direction are visible at one named site instead of buried in a
+ * spread-and-property literal inside a dispatch helper.
  */
 function expressionContextFor(
 	ctx: PredicateCompileContext,
@@ -1070,11 +1071,15 @@ function isValidDate(year: string, month: string, day: string): boolean {
  * `ST_DWithin` consumes meters directly.
  *
  * Center handling: `pred.center` is a `ValueExpression`. The
- * `compileValueExprAsTerm` helper admits the `term` arm (a `prop` /
- * `input` / `session-user` / `session-context` / `literal` reading
- * the same wire-form geopoint string) and throws on every non-term
- * arm so the expression-compiler integration boundary surfaces at
- * the call site.
+ * `compileValueExprOperand` helper dispatches the operand — `term`
+ * arms route through `compileTerm` (a `prop` / `input` /
+ * `session-user` / `session-context` / `literal` reading the same
+ * wire-form geopoint string), and every other arm routes through
+ * `compileExpression` (an `if` selecting between two literal
+ * geopoints, a `coalesce` chain, a `concat` building the wire
+ * string from parts). The result composes the same `(centerLat,
+ * centerLon)` split shape downstream regardless of which arm
+ * supplied the wire-form text.
  */
 function compileWithinDistance(
 	pred: Extract<Predicate, { kind: "within-distance" }>,
