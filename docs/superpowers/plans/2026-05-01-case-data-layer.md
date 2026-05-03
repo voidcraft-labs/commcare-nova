@@ -12,6 +12,30 @@
 
 ---
 
+## Per-property expression indexes — the perf discipline the foundation surfaces
+
+Plan 1's compiler emits semantically correct SQL for every operator (verified by harness round-trips on the foundation), but Postgres performance for several operators depends on dedicated expression indexes per searchable property:
+
+| Search operator (Plan 1 emission) | Required Postgres index DDL shape |
+|---|---|
+| `match(prop, "...", mode: "fuzzy")` → `(properties->>'<key>')::text % '...'` | `CREATE INDEX <name> ON cases USING GIN ((properties->>'<key>') gin_trgm_ops) WHERE case_type = '<type>'` |
+| `match(prop, "...", mode: "starts-with")` → `(properties->>'<key>')::text LIKE '...%'` | Same GIN trgm index covers prefix search via planner-recognised LIKE patterns |
+| `match(prop, "...", mode: "fuzzy-date")` → permutation IN-list | Same GIN trgm index covers the IN-list candidate lookup |
+| `match(prop, "...", mode: "phonetic")` → `dmetaphone((properties->>'<key>')) = dmetaphone('...')` | No useful index — phonetic match is genuinely O(n). Document the perf characteristic; recommend authors avoid phonetic on large case-types |
+| `compare`/`between` on `int`/`decimal` props → `((properties->>'<key>')::int) <op> <value>` | `CREATE INDEX <name> ON cases USING BTREE (((properties->>'<key>')::int)) WHERE case_type = '<type>'` (cast type matches `POSTGRES_CAST_FOR_DATA_TYPE`) |
+| `compare`/`between` on `date`/`datetime`/`time` props → typed cast comparison | `CREATE INDEX <name> ON cases USING BTREE (((properties->>'<key>')::date)) WHERE case_type = '<type>'` (or `::timestamptz` / `::time`) |
+| `multi-select-contains(prop, ...)` quantifier=any/all → JSONB `?\|` / `?&` / `@>` | `CREATE INDEX <name> ON cases USING GIN ((properties->'<key>') jsonb_path_ops) WHERE case_type = '<type>'` (`->` not `->>` because the operators consume JSONB, not text) |
+| `within-distance(prop, ...)` → `ST_DWithin(ST_GeogFromText(properties->>'<key>'), ...)` | `CREATE INDEX <name> ON cases USING GIST (ST_GeogFromText(properties->>'<key>')) WHERE case_type = '<type>'` |
+| `is-null(prop)` / `is-blank(prop)` → JSONB `?` key existence | Covered by an explicit JSONB-keys GIN index per case-type if absence checks dominate; otherwise the seq-scan cost is acceptable |
+
+The foundation does NOT and CANNOT provision these — the property name is dynamic per blueprint, and the searched mode is dynamic per Plan 4 search-input config. Plan 2's `applySchemaChange` (Task 8) is the structural owner: it reads the union of (case-type properties × search inputs that target them × modes from Plan 4 + sort keys + filter operators) from the blueprint and emits the matching expression-index DDL alongside the JSON Schema regen, in the same transaction.
+
+Without the matching index, the operator still emits correct SQL — just as a sequential scan. At 100 cases per case-type: imperceptible. At 10,000: visible lag. At 1,000,000: broken UX. The discipline is structural: every searchable property + searched mode pair gets its expression index automatically, no author opt-in required, no "tune indexes later" deferral.
+
+**Migration discipline:** when the blueprint mutates in a way that affects the index surface (property rename, retype, removal, search-input-mode change, search-input-target-property change), `applySchemaChange` runs the index DDL changes in the SAME transaction as the JSON Schema regen and per-row migration. Old expression indexes get dropped, new ones get created. The transaction commits when all halves succeed or rolls back atomically. The database never holds a state where a search input references an unindexed property.
+
+---
+
 ## File Structure
 
 ```
@@ -100,6 +124,15 @@ Steps:
 
 Run `gcloud sql instances describe ... --format='value(databaseFlags)'` and `SELECT * FROM pg_available_extensions WHERE name IN ('pg_jsonschema', 'pg_trgm', 'fuzzystrmatch', 'postgis')` against the provisioned instance. Record availability in a generated TypeScript constant.
 
+**Extensions Plan 1's compiler depends on (NON-OPTIONAL on the production Cloud SQL instance):**
+- `pg_trgm` — `match` mode "fuzzy" / "starts-with" / "fuzzy-date" all emit `%` similarity; without `pg_trgm`, these queries fail at execution time. The harness installs it (verified at `lib/case-store/sql/__tests__/globalSetup.ts`); production parity is non-negotiable.
+- `fuzzystrmatch` — `match` mode "phonetic" emits `dmetaphone(...)` calls; without it, the function does not exist.
+- `postgis` — `within-distance` emits `ST_GeogFromText` and `ST_DWithin`; without `postgis`, neither function exists.
+
+If any of the three is unavailable on the provisioned Cloud SQL instance, the corresponding search modes / operators are unauthorable — Plan 4's search-input UI must reject those mode selections at construction time, OR the Cloud SQL instance must be re-provisioned with the extension enabled. Cloud SQL's documented allowlist (per `https://cloud.google.com/sql/docs/postgres/extensions`) includes all three at the time of writing.
+
+`pg_jsonschema` is the one extension that's allowlist-gated and may genuinely be unavailable; the trigger has a documented PL/pgSQL fallback.
+
 If `pg_jsonschema` is available: deploy `triggers/jsonSchemaValidator.sql` as the BEFORE INSERT/UPDATE trigger on `cases`.
 If not: deploy `triggers/plpgsqlValidator.sql` (a PL/pgSQL implementation that walks the JSON Schema row from `case_type_schemas` against the candidate `properties` value). Architecture identical from the application's perspective; performance differs.
 
@@ -138,12 +171,12 @@ The interface is one shape; `PostgresCaseStore` is the only implementation. No "
 **Files:** `lib/case-store/postgres/store.ts`, `queryCompile.ts`, `caseIndices.ts`, tests.
 
 Implements `CaseStore` against the Kysely instance from Task 0:
-- `query` invokes Plan 1's Kysely predicate/expression compiler to build the SELECT, applies sort / limit / offset, executes against the `cases` table filtered by `(app_id, owner_id)`.
+- `query` invokes Plan 1's Kysely predicate/expression compiler to build the SELECT, applies sort / limit / offset, executes against the `cases` table filtered by `(app_id, owner_id)`. **Compiler invocation contract:** the outer query owns the `(app_id, owner_id)` filter on `cases as c` (the foundation's `compileRelationPath` only enforces the filter on JOIN-ed `cases` rows inside relation walks, NOT on the outer scan — `withOwnerContext` is the structural anchor for the outer filter). When invoking `compileExpression` for calculated columns / sort expressions, supply `compilePredicate: (pred, ctx) => compilePredicate(pred, ctx)` on the `ExpressionCompileContext` so the cycle-break callback wires the `if` / `switch` / `count(via, where)` arms back through the predicate compiler. The outermost call site uses `relationPathDepth: 0` (or omits the field; the default is 0); the foundation's compiler increments it automatically when recursing into nested relation walks.
 - `insert` validates against `case_type_schemas[appId, caseType].schema` (TS-side via Plan 1's JSON Schema generator), then INSERTs the row, then derives `case_indices` direct edges from `parent_case_id` + property-level relations.
 - `update` does a JSONB merge on `properties` (full-row replacement per the spec's JSONB-write-bloat mitigation), updates `modified_on`, re-derives `case_indices` if the relation surface changed.
 - `close` updates `closed_on`, `status`, no row deletion.
 - `traverse` compiles the RelationPath via Plan 1's relation-path compiler (Task C5) into a recursive CTE; runs against `case_indices`.
-- `applySchemaChange` opens a Postgres transaction, regenerates the JSON Schema via Plan 1's generator + UPSERTs `case_type_schemas`, then (when `property` + `change` are present) runs the rename / retype / narrow-options migration in the same transaction. Rows that fail the new schema move to `cases_quarantine`. The transaction commits when both halves succeed or rolls back atomically.
+- `applySchemaChange` opens a Postgres transaction, regenerates the JSON Schema via Plan 1's generator + UPSERTs `case_type_schemas`, drops/creates per-property expression indexes per the index-DDL discipline section above, then (when `property` + `change` are present) runs the rename / retype / narrow-options migration in the same transaction. Rows that fail the new schema move to `cases_quarantine`. The transaction commits when ALL halves succeed or rolls back atomically.
 
 `case_indices` materialization: Option B (direct edges only, recursive CTE on read) per the spec's verification gate. Switch to Option A if profiling shows the CTE dominates query cost.
 
@@ -200,17 +233,18 @@ Tests: every former-`dummyData.ts` consumer renders correctly through the new bi
 
 **Files:** `lib/case-store/postgres/applySchemaChange.ts`, tests.
 
-Implements `CaseStore.applySchemaChange`. Single Postgres transaction wraps both halves:
+Implements `CaseStore.applySchemaChange`. Single Postgres transaction wraps THREE halves:
 
 1. **Schema sync** (always runs): regenerate the JSON Schema via Plan 1's generator from the current blueprint state for `(appId, caseType)`; UPSERT into `case_type_schemas`.
-2. **Per-row migration** (runs when `property` + `change` are present): for each row in the case-type, apply the change shape:
+2. **Per-property expression-index DDL emission** (always runs): read the union of (case-type properties × search inputs that target them × modes × sort keys × filter operators) from the current blueprint state. Compute the desired index set per the discipline table at the top of this plan. Compare against `pg_indexes` for the case-type's existing per-property indexes; emit `DROP INDEX` / `CREATE INDEX` statements for the diff. The index naming convention pins each index to its `(case_type, property, mode)` tuple so the diff is mechanical (e.g. `cases_<case_type>_<property>_<mode>`). Property rename: drops the index on the old extraction path, creates the index on the new one. Property removal: drops the index. Search-input mode change: drops the old-mode index, creates the new-mode index. The DDL runs INSIDE the transaction so the index state matches the schema state atomically.
+3. **Per-row migration** (runs when `property` + `change` are present): for each row in the case-type, apply the change shape:
    - `rename(from, to)` — `UPDATE cases SET properties = jsonb_set(properties #- '{from}', '{to}', properties->'from')` for every row.
    - `retype(fromType, toType)` — for each row, attempt to cast the value per the spec's "Schema migration policy" table. On success: `UPDATE cases SET properties = jsonb_set(...)`. On failure: move to `cases_quarantine` with `quarantine_reason` set to the cast-failure detail.
    - `narrow-options(removedOptions)` — for each row whose property value is in `removedOptions`, move to `cases_quarantine`.
 
-The transaction commits when both halves succeed, rolls back atomically on failure. The database never holds a new schema with rows that fail validation against it. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
+The transaction commits when ALL THREE halves succeed, rolls back atomically on failure. The database never holds a new schema with rows that fail validation against it, AND it never holds a search input that references an unindexed property. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
 
-Tests: each change shape against fixtures; rollback verified by simulating a mid-migration failure (the schema row should not be present after rollback); quarantine surfacing; no-property-no-change call runs schema sync only.
+Tests: each change shape against fixtures; index DDL diff produces the right `CREATE` / `DROP` set for representative blueprint mutations (property add / remove / rename / retype / search-input mode change); rollback verified by simulating a mid-migration failure (the schema row + the new indexes should not be present after rollback); quarantine surfacing; no-property-no-change call runs schema sync + index DDL sync (without per-row migration).
 
 ### Task 9: Barrel exports + CLAUDE.md
 

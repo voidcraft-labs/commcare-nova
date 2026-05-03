@@ -6,7 +6,7 @@
 
 **Goal:** Ship the full case-list authoring experience end-to-end. Module schema migration to typed columns + always-on filter + calculated columns. Case-list-config builder UI: Display section (columns + sort + calculated columns) + Filters section (typed Predicate AST cards) + Search Inputs section. SA tools accept typed AST. Validator rules including field-kind-vs-property-type. Wire emission for case-list short detail + long detail. After Plan 3 ships, users can author typed case lists end-to-end including preview rendering against Plan 2's `CaseStore`.
 
-**Architecture summary:** Module schema gains a structured `caseListConfig` shape replacing the legacy `caseListColumns: { field, header }[]`. The card-based UI is registry-driven (mirrors the existing `fieldEditorSchemas.ts` pattern at `components/builder/editor/`). SA tools accept Predicate / ValueExpression AST shapes via Zod. Validator runs the Plan 1 type checker plus new rules for column field references, field-kind-vs-property-type writers, and representability per platform. Wire emission generates suite XML `<detail>` blocks using Plan 1's case-list-filter emitter for filters and the expression emitter for calculated columns.
+**Architecture summary:** Module schema gains a structured `caseListConfig` shape replacing the legacy `caseListColumns: { field, header }[]`. The card-based UI is registry-driven (mirrors the existing `fieldEditorSchemas.ts` pattern at `components/builder/editor/`). SA tools accept Predicate / ValueExpression AST shapes via Zod. Validator runs the Plan 1 type checker plus new rules for column field references, field-kind-vs-property-type writers, and search-input-mode-matches-property-type. Wire emission generates suite XML `<detail>` blocks using Plan 1's case-list-filter emitter for filters and the expression emitter for calculated columns. Per the foundation lock (`feedback_max_subset_no_dimagi_litter.md`), there is no representability checker — wire emission is faithful and per-runtime-player capability gaps are Dimagi's structural concern, not Nova's authoring rejection layer.
 
 **Tech Stack:** Plan 1's AST + emitters + type checker, Plan 2's CaseStore (for preview integration), existing `@base-ui/react` UI primitives, `motion/react` for animations, the existing field-editor patterns.
 
@@ -45,7 +45,7 @@ lib/commcare/validator/rules/case-list/
 ├── sortTypeCheck.ts
 ├── calculatedColumnTypeCheck.ts
 ├── fieldKindMatchesPropertyType.ts
-├── representability.ts
+├── searchInputModeMatchesPropertyType.ts
 └── __tests__/
 
 lib/commcare/suite/case-list/
@@ -86,7 +86,24 @@ type CalculatedColumn = { id: string; header: string; expression: ValueExpressio
 type SortKey = { source: { kind: "property"; property: string } | { kind: "calculated"; columnId: string }; type: SortType; direction: "asc" | "desc" };
 type SortType = "plain" | "date" | "integer" | "decimal";
 
-type SearchInputDef = { name: string; label: string; type: "text" | "select" | "date" | "date-range" | "barcode"; default?: ValueExpression; xpath?: Predicate };
+type SearchInputMode =
+  | { kind: "exact" }                                  // text/select/date/barcode default — equality
+  | { kind: "fuzzy" }                                  // text only — pg_trgm match
+  | { kind: "starts-with" }                            // text only — pg_trgm-backed prefix
+  | { kind: "phonetic" }                               // text only — fuzzystrmatch dmetaphone (no useful index; document perf)
+  | { kind: "fuzzy-date" }                             // text only — date permutation match
+  | { kind: "range" }                                  // numeric/date/datetime/time — between with optional bounds
+  | { kind: "multi-select-contains"; quantifier: "any" | "all" }; // multi_select only
+
+type SearchInputDef = {
+  name: string;
+  label: string;
+  type: "text" | "select" | "date" | "date-range" | "barcode";
+  property?: string;                                   // case property the input targets; absent for inputs that drive an `xpath`-bound advanced predicate
+  mode?: SearchInputMode;                              // explicit search mode; defaults per `type` (text → exact, date → exact, date-range → range, etc.)
+  default?: ValueExpression;
+  xpath?: Predicate;                                   // advanced shape; when present, replaces the (property, mode)-derived predicate
+};
 
 interface CaseListConfig {
   columns: Column[];
@@ -216,7 +233,7 @@ Five new rules:
 - `sortTypeCheck` — every `SortKey` source resolves; the declared sort type is compatible with the source's data type.
 - `calculatedColumnTypeCheck` — every CalculatedColumn's expression type-checks; the resulting type is appropriate for the column's display kind.
 - `fieldKindMatchesPropertyType` — for every form field with `case_property_on` set: the field's kind matches the property's declared `data_type`. Multiple writers must agree. The mapping table lives in this rule (text↔text, single_select↔single_select, geopoint↔geopoint, etc.; explicit reject list for incompatible coercions).
-- `representability` — runs Plan 1's representability checker against case-list-filter and search-filter dialects, surfacing per-platform warnings.
+- `searchInputModeMatchesPropertyType` — for every `SearchInputDef.mode`: the mode is valid for the targeted property's `data_type`. `fuzzy` / `starts-with` / `phonetic` / `fuzzy-date` are text-only; `range` requires numeric/date/datetime/time; `multi-select-contains` requires `multi_select`. The Plan 2 index-DDL emission depends on this rule passing — an unindexed `range` mode on a text property would be undefined behavior.
 
 Tests: each rule fires on bad input, doesn't fire on good input. Cross-rule integration: a multi-writer property with conflicting kinds surfaces one error per writer.
 

@@ -36,7 +36,6 @@ lib/commcare/validator/rules/case-search/
 ├── defaultFilterTypeCheck.ts
 ├── claimConditionTypeCheck.ts
 ├── inputDefaultFilterConflict.ts                        # the cache-file-line-180 footgun
-├── representability.ts                                  # per-platform divergence
 └── __tests__/
 
 lib/commcare/suite/case-search/
@@ -123,9 +122,9 @@ Tests: round-trip; markdown rendering preview.
 
 **Files:** `components/builder/case-search-config/PlatformDivergencePanel.tsx`, tests.
 
-Renders, side-by-side, what the search experience will look like on Android (always case-list-first with inline filter) vs Web Apps (split-screen if available, fallback per inference rule). Uses Plan 1's representability checker to surface per-platform issues. The author sees, at authoring time, the exact UX divergence their config produces — which is the materialization of the "lossy at CCHQ boundary as a feature" spec promise.
+Renders, side-by-side, what the search experience will look like on Android (always case-list-first with inline filter) vs Web Apps (split-screen if available, fallback per inference rule). The panel runs Plan 4 Task 8's `compileForPlatform` decision tree against the live config + each platform context and renders the resulting `WireShape` as a UX preview (filter bar layout, button placement, default-results behavior). Plan 1's wire emitters are faithful — every AST shape produces a wire string for every dialect — so the panel doesn't need a "representability checker"; it just renders what each platform's wire emission produces. Per-platform UX divergence is a CCHQ-runtime structural concern, not a Nova authoring-layer rejection (per `feedback_max_subset_no_dimagi_litter.md` + `feedback_dont_inherit_cchq_ux_at_authoring_layer.md`).
 
-Tests: each per-platform scenario shows the right UX preview; representability issues surface in the right panel.
+Tests: each per-platform scenario shows the right UX preview; the panel updates live as the config changes.
 
 
 ### Task 6: Search Inputs — cross-section binding
@@ -229,7 +228,6 @@ Tests: golden-file comparisons; toggling `dontClaimAlreadyOwned` modifies `relev
 - `defaultFilterTypeCheck` — the default filter Predicate type-checks via Plan 1.
 - `claimConditionTypeCheck` — the claim condition Predicate type-checks.
 - `inputDefaultFilterConflict` — a property cannot appear in both Default Search Filters and a Search Input (cache file line 180; HQ raises a config error here, so we should match).
-- `representability` — runs Plan 1's representability checker per platform target.
 
 Tests: each rule fires on bad input.
 
@@ -247,7 +245,7 @@ End-to-end: build a fixture blueprint with case-search-config; run the validator
 
 - 1 standalone
 - 2, 3, 4 depend on 1 + Plan 3 editor primitives + Plan 2 CaseStore (live-preview)
-- 5 depends on 1 + Plan 1 representability
+- 5 depends on 1 + Plan 4 Task 8 (compileForPlatform decision tree)
 - 6 depends on Plan 3 Task 8 + Task 1
 - 7 depends on 1 + Plan 1
 - 8 depends on 1
