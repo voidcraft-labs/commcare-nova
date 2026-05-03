@@ -56,8 +56,18 @@ sibling test, not a silent leak.
 
 ### Image and extensions
 
-`postgis/postgis:16-3.4` is the harness's pinned image: stock Postgres
-16 (matches Cloud SQL's supported major) plus PostGIS 3.4 preinstalled.
+`imresamu/postgis:18-3.6.1-alpine3.23` is the harness's pinned image
+(referenced by SHA-256 digest, not by floating tag). Postgres 18
+matches Cloud SQL's default major (since 2025-09-25); PostGIS 3.6.1
+matches Cloud SQL's bundled PostGIS 3.6.0 (Cloud SQL release notes,
+2025-10-27) within one patch. The image is built FROM the official
+`postgres:18-alpine3.23` and layers PostGIS on top, so the Postgres
+binary set is upstream-official; only the PostGIS layer is the
+maintainer's contribution. The full rationale (multi-arch parity,
+why-not the official `postgis/postgis` amd64-only image, why-not bare
+`postgres:18-alpine3.23` + apk install) lives in `globalSetup.ts`'s
+`## Image choice` block.
+
 The harness installs three extensions the case-store compilers depend
 on:
 
@@ -65,20 +75,20 @@ on:
 - `fuzzystrmatch` — phonetic match (Soundex / Metaphone)
 - `postgis` — `within-distance` operator (`ST_DWithin`)
 
-A fourth extension — `pg_jsonschema` — is allowlist-gated on Cloud
-SQL (spec § "Cloud SQL extension allowlist for `pg_jsonschema`",
-line 545). The harness installs it when the running image happens to
-ship it (`supabase/postgres` does; `postgis/postgis` does not), and
-logs a single warning otherwise. Write-time validation of
-`cases.properties` is the storage layer's concern; the harness only
-provides the engine surface that validation runs against.
+Validation of `cases.properties` against `case_type_schemas[appId,
+case_type].schema` runs in TypeScript at every API route writing to
+`cases`. The API route is the trust boundary; the database is internal.
+There is no in-database trigger and no `pg_jsonschema` dependency —
+Cloud SQL doesn't allowlist that extension and the validator we already
+have in TypeScript (`lib/domain/predicate/jsonSchema.ts` + `ajv`) lives
+at the right layer for our architecture.
 
 ### `case_type_schemas` seeding lives at the per-test layer
 
 `globalSetup.ts` seeds the three table DDL surfaces but does NOT seed
 any `case_type_schemas` rows. Test bodies that need a typed JSON
-Schema row (e.g. trigger tests, schema-aware compiler tests) insert
-it themselves via the `db` fixture — the row is wrapped in the
+Schema row (schema-aware compiler tests, schema-sync round-trip tests)
+insert it themselves via the `db` fixture — the row is wrapped in the
 test's transaction and rolls back along with everything else. That
 keeps the harness's global state minimal: tests that don't care
 about the schema row don't pay for it; tests that do care construct

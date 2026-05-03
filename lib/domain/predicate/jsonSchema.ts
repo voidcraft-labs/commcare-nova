@@ -10,9 +10,10 @@
 // without any runtime coercion downstream.
 //
 // The output is a draft-2020-12-compatible JSON Schema. The shape is
-// precise enough for tools like ajv / pg_jsonschema; it deliberately
-// omits `$schema` and `$id` since those are added at the persistence
-// boundary (one schema per case type per app, keyed there).
+// precise enough for `ajv` (the validator the case-store uses at every
+// API-route write); it deliberately omits `$schema` and `$id` since
+// those are added at the persistence boundary (one schema per case
+// type per app, keyed there).
 //
 // Why this lives in the predicate package: the predicate type checker
 // consumes the same `data_type` enum to decide which comparison

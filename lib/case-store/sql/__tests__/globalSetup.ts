@@ -30,19 +30,44 @@
 //
 // ## Image choice
 //
-// `postgis/postgis:16-3.4` is the official Postgres-with-PostGIS
-// image: stock Postgres 16 binary set, which means the contrib
-// extensions `pg_trgm` and `fuzzystrmatch` ship in-image, plus
-// PostGIS 3.4 preinstalled. Anything else (vanilla `postgres`
-// image, Supabase image, Crunchy image) loses one of those three
-// without a custom Dockerfile. The fourth extension the case-store
-// cares about — `pg_jsonschema` — is a Cloud SQL allowlist concern,
-// not a harness concern; the harness installs it when the running
-// image happens to ship it (Supabase) and logs a single warning
-// when it doesn't (postgis/postgis). The case-store compilers
-// don't depend on the JSON-schema trigger; they need pg_trgm /
-// fuzzystrmatch / postgis for query operators (fuzzy match,
-// phonetic match, geographic distance).
+// `imresamu/postgis:18-3.6.1-alpine3.23` is a community multi-arch
+// rebuild of the official `postgis/postgis` Dockerfile, maintained
+// by Imre Samu (a member of the @postgis GitHub org). It builds
+// FROM the official `postgres:18-alpine3.23` and layers the
+// PostGIS extension on top, so the Postgres binary set, contrib
+// extensions, and locale handling are upstream-official; only the
+// PostGIS install layer is the rebuild's contribution. The image
+// ships:
+//
+//   - Postgres 18 (Cloud SQL's default major since 2025-09-25;
+//     the `postgres:18-alpine3.23` base floats to the current
+//     stable minor — 18.3 at last rebuild, two minors ahead of
+//     Cloud SQL's 18.1 pin, which is fine because Postgres minor
+//     releases are bug-fix-only by policy)
+//   - PostGIS 3.6.1 (the `postgis` extension required for the
+//     `within-distance` operator)
+//   - `pg_trgm` and `fuzzystrmatch` (stock Postgres contribs)
+//   - `linux/amd64` AND `linux/arm64` manifests
+//
+// Why not the official `postgis/postgis` image: it publishes
+// `linux/amd64` only at every major version (verified against
+// Docker Hub for v16, v17, and v18). Apple Silicon dev machines
+// would run it under amd64 emulation — slow container init and a
+// non-native runtime in tests. The imresamu rebuild publishes
+// native arm64 manifests so the testcontainer runs at full speed
+// on every supported architecture.
+//
+// Why not bare `postgres:18-alpine3.23`: it doesn't ship PostGIS,
+// which the `within-distance` operator needs. Installing PostGIS
+// at container init via `apk add` would re-pay the install cost
+// on every cold start, and the package versions across Alpine
+// repos drift independently of the Postgres minor.
+//
+// Supply-chain note: the image reference is digest-pinned (see
+// `IMAGE_TAG` below). The tag string is mutable upstream; the
+// SHA-256 content digest is not. An upstream account compromise
+// can't push a malicious image into our test runs without a
+// conscious digest bump in this file.
 //
 // ## DDL seeding strategy
 //
@@ -94,19 +119,38 @@ declare module "vitest" {
 // -- Container configuration ----------------------------------------
 
 /**
- * Image tag for the harness container.
+ * Image reference for the harness container — digest-pinned.
  *
- * `postgis/postgis:16-3.4` ships:
- *   - Postgres 16 (matches Cloud SQL's supported major version)
- *   - PostGIS 3.4 (the `postgis` extension required for the
- *     `within-distance` operator)
- *   - `pg_trgm` and `fuzzystrmatch` (stock Postgres 16 contribs)
+ * Format: `<repo>:<tag>@sha256:<digest>`. Docker resolves
+ * `<repo>:<tag>` for human-readable display in `docker ps` and
+ * pull logs but verifies the pulled content against the digest,
+ * so the tag is a navigation aid and the digest is the security
+ * boundary. The "Supply-chain note" in the file-level comment
+ * above explains why we pin by digest rather than by floating tag.
  *
- * Pinned major+minor so test runs are deterministic across
- * developer machines. Patch versions still float — security
- * fixes land transparently.
+ * The tag decomposes as:
+ *   - `18`         — Postgres major (Cloud SQL default since
+ *                    2025-09-25; the `postgres:18-alpine3.23`
+ *                    base floats to the current 18.x minor at
+ *                    rebuild time)
+ *   - `3.6.1`      — PostGIS extension version
+ *   - `alpine3.23` — Alpine Linux base image
+ *
+ * The pinned digest above corresponds to the multi-arch index
+ * for that tag as last pushed 2026-04-27. Both `linux/amd64` and
+ * `linux/arm64` manifests are reachable through the index, so
+ * Docker's manifest negotiation pulls the native variant for the
+ * host architecture without us specifying a per-arch digest.
+ *
+ * Bumping: pull the new tag's manifest index digest from
+ * `https://hub.docker.com/v2/repositories/imresamu/postgis/tags/<tag>`
+ * (the top-level `digest` field — NOT the per-arch
+ * `images[].digest` values, which would lock the harness to one
+ * architecture). Replace both the tag and the digest below in
+ * lockstep so the human-readable navigation aid stays accurate.
  */
-const IMAGE_TAG = "postgis/postgis:16-3.4";
+const IMAGE_TAG =
+	"imresamu/postgis:18-3.6.1-alpine3.23@sha256:8990ecd2e7d5744904830ea8b0e4ee90981ad65f08c331cf060da43c46712bac";
 
 /**
  * Test database name. Single shared database — per-test isolation
@@ -120,19 +164,10 @@ const DATABASE_NAME = "case_store_test";
  * harness installs these into the test database; absence is a
  * fatal failure — the compilers cannot be tested without them
  * (`pg_trgm` for fuzzy match, `fuzzystrmatch` for phonetic match,
- * `postgis` for geographic-distance predicates).
+ * `postgis` for geographic-distance predicates). Cloud SQL
+ * allowlists all three; production parity is non-negotiable.
  */
 const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
-
-/**
- * `pg_jsonschema` is allowlist-gated on Cloud SQL (spec § "Cloud
- * SQL extension allowlist for `pg_jsonschema`", line 545). The
- * harness installs it when the running image happens to ship it
- * and logs a single line otherwise. Absence is NOT a fatal
- * failure — the AST-to-Kysely compiler tests don't exercise the
- * JSON-Schema trigger.
- */
-const OPTIONAL_EXTENSIONS = ["pg_jsonschema"] as const;
 
 // -- Schema DDL -----------------------------------------------------
 //
@@ -226,26 +261,6 @@ export async function setup(project: TestProject): Promise<void> {
 		// in the template database — it's a no-op then.
 		for (const extension of REQUIRED_EXTENSIONS) {
 			await client.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
-		}
-
-		// Optional extensions: install if `pg_available_extensions`
-		// reports them, log a single line otherwise. globalSetup
-		// runs in the orchestrator process before any worker
-		// initializes its `@/lib/logger` mock. Either channel writes
-		// to the orchestrator's stderr identically; `console.warn`
-		// keeps this module free of an internal-package import.
-		for (const extension of OPTIONAL_EXTENSIONS) {
-			const { rows } = await client.query<{ name: string }>(
-				`SELECT name FROM pg_available_extensions WHERE name = $1`,
-				[extension],
-			);
-			if (rows.length > 0) {
-				await client.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
-			} else {
-				console.warn(
-					`[case-store harness] optional extension '${extension}' not available on image '${IMAGE_TAG}'; skipping.`,
-				);
-			}
 		}
 
 		// Seed the schema. Single statement string; pg's protocol

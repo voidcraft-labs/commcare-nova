@@ -239,13 +239,13 @@ checker's coverage is the structural contract, not a hint.
 ## JSON Schema generator
 
 `caseTypeToJsonSchema(caseType)` produces a JSON Schema document
-the case-store's write-time validator runs against. Two consumers:
-
-- **Application layer** — runs the schema in TypeScript via the
-  case-store's pre-write validator before every write.
-- **Postgres trigger** — runs the same schema (via `pg_jsonschema`
-  when allowlist-gated, PL/pgSQL fallback otherwise) as defense-
-  in-depth on the write path.
+the case-store's write-time validator runs against. The validator
+runs in TypeScript (via `ajv`) at every API route writing to
+`cases` — the API route is the trust boundary, and the database is
+internal. There is no in-database trigger and no `pg_jsonschema`
+dependency: Cloud SQL doesn't allowlist the extension, and a
+hand-rolled PL/pgSQL implementation duplicating this generator's
+output would just create a second validator to keep in sync.
 
 The generator maps each `CaseProperty.data_type` to its JSON
 Schema shape (`text` → `{ type: "string" }`, `int` →

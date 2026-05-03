@@ -8,8 +8,7 @@
 //   - Container is reachable; the `inject("postgresTestUrl")` URI
 //     is well-formed.
 //   - Required extensions installed (`pg_trgm`, `fuzzystrmatch`,
-//     `postgis`); optional `pg_jsonschema` either installed or
-//     logged as missing.
+//     `postgis`).
 //   - Schema seeded (three tables with the columns the spec
 //     specifies).
 //   - INSERT + SELECT round-trip succeeds against the live
@@ -73,32 +72,6 @@ describe("case-store harness — extensions", () => {
 		expect(installed).toContain("pg_trgm");
 		expect(installed).toContain("fuzzystrmatch");
 		expect(installed).toContain("postgis");
-	});
-
-	test("either installs pg_jsonschema or recorded availability", async ({
-		pgClient,
-	}) => {
-		// `pg_jsonschema` is allowlist-gated; the harness installs
-		// it when available on the image and logs a warning when
-		// not. This test asserts the binary outcome — either it's
-		// in `pg_extension` or `pg_available_extensions` reports it
-		// missing on the running image. Both are valid harness
-		// states.
-		const installed = await pgClient.query<{ extname: string }>(
-			`SELECT extname FROM pg_extension WHERE extname = 'pg_jsonschema'`,
-		);
-		const available = await pgClient.query<{ name: string }>(
-			`SELECT name FROM pg_available_extensions WHERE name = 'pg_jsonschema'`,
-		);
-		const isInstalled = installed.rows.length > 0;
-		const isAvailable = available.rows.length > 0;
-		// Truth table:
-		//   installed=T → pass (extension is wired up)
-		//   installed=F, available=F → pass (image doesn't ship it,
-		//     trigger code falls back to PL/pgSQL)
-		//   installed=F, available=T → fail (harness should have
-		//     installed it but didn't)
-		expect(isInstalled || !isAvailable).toBe(true);
 	});
 });
 
