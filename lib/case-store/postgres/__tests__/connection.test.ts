@@ -32,6 +32,7 @@ import {
 	buildPoolConfig,
 	type CaseStoreEnvConfig,
 	type ConnectorClientOptions,
+	closeCaseStoreDatabase,
 	type Database,
 	enforceConnectionBudget,
 	getCaseStoreDatabase,
@@ -206,6 +207,25 @@ describe("enforceConnectionBudget", () => {
 // asserts the type at compile time: a regression that widens the
 // resolved type to `Kysely<unknown>` (or narrows it to the wrong
 // table set) fails the build.
+
+// ---------------------------------------------------------------
+// Shutdown idempotency
+// ---------------------------------------------------------------
+
+describe("closeCaseStoreDatabase", () => {
+	it("is a no-op on a never-opened singleton and is safely re-callable", async () => {
+		// Module load doesn't initialize the singleton (the lazy-init
+		// path only runs when `getCaseStoreDatabase` is awaited), so
+		// the first call here exercises the `handles === null`
+		// short-circuit. The second call must take the same path —
+		// pinning the idempotency contract from this side guarantees
+		// a process-shutdown handler that fires twice (re-entrant
+		// SIGTERM, supervisor calling pre-emptively) doesn't blow up
+		// on the second invocation.
+		await expect(closeCaseStoreDatabase()).resolves.toBeUndefined();
+		await expect(closeCaseStoreDatabase()).resolves.toBeUndefined();
+	});
+});
 
 describe("getCaseStoreDatabase type contract", () => {
 	it("resolves to Kysely<Database>", () => {

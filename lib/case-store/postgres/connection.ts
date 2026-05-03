@@ -104,11 +104,13 @@
 // ## SIGTERM cleanup
 //
 // Cloud Run delivers SIGTERM with a ~10 s grace window before
-// killing a container. A graceful shutdown closes the connector
-// and ends the pool so the process exits with no leaked sockets
-// or running cert-refresh timers. The `closeCaseStoreDatabase`
-// export is the supervisor's entry point — call it from any
-// process-shutdown handler that wants the polite exit.
+// killing a container. A graceful shutdown destroys the Kysely
+// instance (which drains the pg.Pool through the dialect) and
+// closes the connector so the process exits with no leaked
+// sockets or running cert-refresh timers. The
+// `closeCaseStoreDatabase` export is the supervisor's entry point
+// — call it from any process-shutdown handler that wants the
+// polite exit.
 
 import {
 	AuthTypes,
@@ -346,13 +348,14 @@ export function buildPoolConfig(
 // torn down by `closeCaseStoreDatabase` on SIGTERM.
 
 /**
- * The composed handles backing the singleton. Held together so
- * `closeCaseStoreDatabase` can tear all three down in the right
- * order (Kysely first, then pool, then connector).
+ * The composed handles backing the singleton. The Kysely instance
+ * owns the pg.Pool through its dialect, so the handles record only
+ * carries Kysely + the connector — `closeCaseStoreDatabase`
+ * destroys the Kysely instance (which drains the pool) and then
+ * closes the connector.
  */
 interface CaseStoreHandles {
 	connector: Connector;
-	pool: Pool;
 	db: Kysely<Database>;
 }
 
@@ -391,7 +394,10 @@ async function initialize(): Promise<CaseStoreHandles> {
 		authType: AuthTypes.IAM,
 	});
 	// `clientOpts.stream` is the connector's TLS socket factory — the
-	// shape pg.Pool accepts via its `stream` option.
+	// shape pg.Pool accepts via its `stream` option. The pool is
+	// passed straight into Kysely's dialect; Kysely's PostgresDriver
+	// owns its lifecycle from this point forward (see
+	// closeCaseStoreDatabase for the teardown contract).
 	const pool = new Pool(buildPoolConfig(clientOpts, env));
 	const dialect = new PostgresDialect({
 		// Kysely's `PostgresPool` interface is a subset of pg.Pool;
@@ -401,7 +407,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 	});
 	const config: KyselyConfig = { dialect };
 	const db = new Kysely<Database>(config);
-	return { connector, pool, db };
+	return { connector, db };
 }
 
 /**
@@ -443,9 +449,15 @@ export async function getCaseStoreDatabase(): Promise<Kysely<Database>> {
 }
 
 /**
- * Tear down the singleton. Destroys the Kysely instance, drains
- * the pool, and closes the connector (which stops the cert-
- * refresh timer and any local proxy sockets).
+ * Tear down the singleton. Destroys the Kysely instance (which
+ * drains the underlying pg.Pool via Kysely's PostgresDriver) and
+ * closes the connector (which stops the cert-refresh timer and any
+ * local proxy sockets).
+ *
+ * Kysely owns the pool's lifecycle once it's wrapped in the
+ * dialect — Kysely's PostgresDriver.destroy() is the path that
+ * calls pool.end(). Calling pool.end() a second time here would
+ * throw "Called end on pool more than once" from pg.
  *
  * Idempotent — calling on an already-closed (or never-opened)
  * singleton is a no-op. Cloud Run's SIGTERM grace window is the
@@ -459,6 +471,5 @@ export async function closeCaseStoreDatabase(): Promise<void> {
 	const captured = handles;
 	handles = null;
 	await captured.db.destroy();
-	await captured.pool.end();
 	captured.connector.close();
 }
