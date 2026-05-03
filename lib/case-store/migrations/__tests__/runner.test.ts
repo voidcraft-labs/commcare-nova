@@ -131,16 +131,22 @@ async function dropIsolatedDatabase(databaseName: string): Promise<void> {
  * database. Returns both so the caller can teardown the pool
  * before dropping the database.
  *
- * `max: 2` matches the harness's setup: the migrator opens a
- * transaction plus a separate connection for the lock probe,
- * and a single-connection pool would deadlock on the second
- * open.
+ * `max: 1` mirrors the production migration CLI at
+ * `scripts/migrate/run.ts`. Every migration runs inside a single
+ * Kysely transaction, and Postgres's migration lock is
+ * `pg_advisory_xact_lock` (verified at
+ * `node_modules/kysely/dist/cjs/dialect/postgres/postgres-adapter.js`)
+ * — a transaction-scoped advisory lock acquired on the
+ * transaction's already-checked-out connection. Kysely's pre-
+ * transaction probes (ensureMigrationTablesExist + lock-row
+ * probe) are sequential awaits that release the connection
+ * between calls, so one connection suffices end-to-end.
  */
 function buildIsolatedDb(uri: string): {
 	db: Kysely<unknown>;
 	pool: Pool;
 } {
-	const pool = new Pool({ connectionString: uri, max: 2 });
+	const pool = new Pool({ connectionString: uri, max: 1 });
 	const db = new Kysely<unknown>({
 		dialect: new PostgresDialect({
 			pool: pool as unknown as PostgresPool,

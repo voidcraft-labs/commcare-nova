@@ -253,16 +253,21 @@ export async function setup(project: TestProject): Promise<void> {
 	// per-test `pg.Pool` (created in `setup.ts`) is a separate pool
 	// that workers own.
 	//
-	// `max: 2` for the migration's internal needs: Kysely's
-	// `Migrator` opens a transaction for the migration run plus a
-	// short-lived connection for the lock probe; one-connection
-	// pool would deadlock on the second open.
+	// `max: 1` mirrors the production migration CLI at
+	// `scripts/migrate/run.ts`. The migration runs inside a single
+	// Kysely transaction, and Postgres's migration lock is
+	// `pg_advisory_xact_lock` — a transaction-scoped advisory lock
+	// acquired on the transaction's already-checked-out connection.
+	// Kysely's pre-transaction probes (ensureMigrationTablesExist +
+	// lock-row probe) are sequential awaits that release the
+	// connection between calls, so one connection suffices.
+	//
 	// `db.destroy()` calls the underlying pool's `end()` exactly
 	// once via Kysely's dialect-destroy contract, so we don't
 	// double-end the pool here. Idempotency is NOT preserved by
 	// pg.Pool (`Called end on pool more than once`), so the cleanup
 	// path closes via `db.destroy()` only.
-	const migrationPool = new Pool({ connectionString, max: 2 });
+	const migrationPool = new Pool({ connectionString, max: 1 });
 	const migrationDb = new Kysely<unknown>({
 		dialect: new PostgresDialect({
 			pool: migrationPool as unknown as PostgresPool,
