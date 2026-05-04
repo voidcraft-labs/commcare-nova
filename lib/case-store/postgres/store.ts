@@ -697,6 +697,21 @@ export class PostgresCaseStore implements CaseStore {
 			to: string;
 		},
 	): Promise<MigrationReport> {
+		// Count the case-type's full row population first so the
+		// `migrated` count from the UPDATE pairs with an accurate
+		// `skipped` count for rows that don't carry the `from` key.
+		// The two queries run inside the caller's transaction so
+		// the counts are consistent with each other (no concurrent
+		// inserter can land between them).
+		const totalRow = await trx
+			.selectFrom("cases as c")
+			.select((eb) => eb.fn.countAll<string>().as("total"))
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.where("c.owner_id", "=", this.ownerId)
+			.executeTakeFirstOrThrow();
+		const totalCount = Number(totalRow.total);
+
 		// Use `sql.lit` for the JSONB key paths so the value flows
 		// as a SQL string literal rather than a parameter — Postgres
 		// `jsonb_set` requires a `text[]` path literal, and the
@@ -717,14 +732,11 @@ export class PostgresCaseStore implements CaseStore {
 			.executeTakeFirst();
 
 		const migrated = Number(updated.numUpdatedRows ?? 0);
-		// Skipped: rows that didn't carry the `from` key. We don't
-		// need to query for them — the count-not-modified is the
-		// answer, and not surfacing the count avoids an extra
-		// scan.
+		const skipped = totalCount - migrated;
 		return {
 			migrated,
 			quarantined: 0,
-			skipped: 0,
+			skipped,
 			failureReasons: [],
 		};
 	}

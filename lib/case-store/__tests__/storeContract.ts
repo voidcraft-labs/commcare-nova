@@ -512,6 +512,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Two rows carried `age`; one didn't.
 			expect(report.migrated).toBe(2);
 			expect(report.quarantined).toBe(0);
+			// Carol's row didn't carry `age`, so it is skipped (not
+			// migrated, not quarantined). Pinning the count rules
+			// out the previous shape that hardcoded `skipped: 0`
+			// regardless of the actual row population.
+			expect(report.skipped).toBe(1);
 			expect(report.failureReasons).toEqual([]);
 
 			const rows = await store.query({
@@ -532,6 +537,81 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(byId.get(PATIENT_CAROL_ID)?.properties).toEqual({
 				name: "Carol",
 			});
+		});
+
+		// -----------------------------------------------------------
+		// applySchemaChange — retype
+		// -----------------------------------------------------------
+
+		it("applySchemaChange (retype) quarantines rows that fail the cast", async () => {
+			const store = await options.factory(OWNER_A);
+			// Initial schema: `age` is text. AJV will accept either
+			// numeric-looking and non-numeric strings on insert.
+			const initialCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const initialBlueprint = buildBlueprint([initialCaseType]);
+			await seedSchema(store, initialBlueprint, "patient");
+
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					status: "open",
+					// Castable to int — survives the retype.
+					properties: makeProperties({ age: "30" }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					status: "open",
+					// Not castable to int — moves to quarantine.
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+
+			// Retype `age` from text to int. The retyped blueprint
+			// must reflect the new type so the schema regen upserts
+			// a schema validating against integers.
+			const retypedCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			const retypedBlueprint = buildBlueprint([retypedCaseType]);
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint: retypedBlueprint,
+				property: "age",
+				change: {
+					kind: "retype",
+					fromType: "text",
+					toType: "int",
+				},
+			});
+			expect(report.migrated).toBe(1);
+			expect(report.quarantined).toBe(1);
+			expect(report.skipped).toBe(0);
+			expect(report.failureReasons).toHaveLength(1);
+			// The reason text names the cast direction + the property.
+			expect(report.failureReasons[0]).toContain("text");
+			expect(report.failureReasons[0]).toContain("int");
+			expect(report.failureReasons[0]).toContain("age");
+
+			// Alice's row stays in `cases` with the value cast to a
+			// JS number; Bob's row is gone (moved to quarantine).
+			const survivors = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(survivors).toHaveLength(1);
+			expect(survivors[0]?.case_id).toBe(PATIENT_ALICE_ID);
+			expect(survivors[0]?.properties).toEqual({ age: 30 });
 		});
 
 		// -----------------------------------------------------------
@@ -646,6 +726,103 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(seenByB).toHaveLength(0);
+		});
+
+		it("update from another owner cannot mutate the row", async () => {
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+
+			await storeA.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			// Owner B's update against owner A's case throws because
+			// the row is invisible under owner B's filter. The
+			// throw shape pins the contract: visibility is the gate,
+			// not "always allow but write nothing".
+			await expect(
+				storeB.update({
+					appId: APP_ID,
+					caseId: PATIENT_ALICE_ID,
+					patch: { properties: makeProperties({ age: 99 }) },
+				}),
+			).rejects.toThrow(/not found/i);
+
+			// The row's data is untouched as seen through owner A.
+			const rows = await storeA.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.properties).toEqual({ name: "Alice", age: 25 });
+		});
+
+		it("close from another owner cannot close the row", async () => {
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+
+			await storeA.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			// `close` is a fire-and-forget UPDATE; the owner filter
+			// reduces the row set to zero so the statement matches
+			// no rows. No throw — but no mutation either.
+			await storeB.close({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				status: "closed",
+			});
+
+			const rows = await storeA.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.closed_on).toBeNull();
+			expect(rows[0]?.status).toBe("open");
+		});
+
+		it("traverse from another owner cannot reach the row", async () => {
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+
+			await storeA.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			// `self` traverse against owner B's view returns empty
+			// because the case's `owner_id` doesn't match owner B.
+			const reached = await storeB.traverse({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				via: { kind: "self" },
+			});
+			expect(reached).toHaveLength(0);
 		});
 
 		// -----------------------------------------------------------
