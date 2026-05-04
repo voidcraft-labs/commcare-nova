@@ -43,11 +43,12 @@ Without the matching index, the operator still emits correct SQL — just as a s
 ```
 lib/case-store/
 ├── store.ts                          # CaseStore interface — the single seam
+├── withOwnerContext.ts               # the only constructor; binds owner_id at the request boundary
 ├── postgres/
-│   ├── store.ts                      # PostgresCaseStore — wraps the Kysely DB
-│   ├── connection.ts                 # Cloud SQL connection pool, Auth Proxy / private IP
-│   ├── queryCompile.ts               # Plan 1 Kysely compiler integration glue
-│   └── caseIndices.ts                # case_indices materialization (Option B: direct edges + recursive CTE)
+│   ├── store.ts                      # PostgresCaseStore — wraps the Kysely DB; owns query / insert / update / close / traverse / applySchemaChange
+│   ├── connection.ts                 # Cloud SQL connection pool via @google-cloud/cloud-sql-connector
+│   └── __tests__/
+│       └── store.test.ts             # concrete runner that wires the contract harness against per-test isolated DBs
 ├── sample/
 │   ├── generator.ts                  # SampleCaseGenerator interface
 │   ├── heuristic.ts                  # HeuristicCaseGenerator
@@ -59,12 +60,9 @@ lib/case-store/
 ├── form-bridge/
 │   ├── writeThrough.ts               # form completion → CaseStore mutation
 │   └── deriveFromForm.ts             # extract case operations from a completed form
-├── migrations/
-│   ├── 0001_init.sql                 # cases, case_type_schemas, case_indices, cases_quarantine
-│   ├── 0002_indices.sql              # the index list from the spec's storage-layer schema
-│   └── ...                           # ongoing schema evolution
+├── migrations/                       # schema migrations — see lib/case-store/CLAUDE.md "Migrations" for the migration workflow
 └── __tests__/
-    └── store.test.ts                 # interface compliance harness against testcontainers Postgres
+    └── storeContract.ts              # implementation-agnostic CaseStore contract harness (14 tests)
 
 lib/preview/engine/
 ├── dummyData.ts                      # DELETED — replaced by case-store/postgres
@@ -160,43 +158,47 @@ Commit chain: `f03b6e72` (initial) → `8f4f952c` (CR fix-pass — shared `perTe
 
 **Dockerfile.migrate latent ESM bug (queued supervisor follow-up):** the same nodenext ESM issue affects `Dockerfile.migrate`. It hasn't surfaced because the migrate job hasn't been deployed yet. The supervisor's follow-up: add `!scripts/migrate` to `.dockerignore` and verify `Dockerfile.migrate` carries the new `lib/case-store/postgres/package.json` forward in its COPY chain. Tracked separately from Task 2's implementer scope per `feedback_no_silent_scope_flips.md`.
 
-### Task 3: `CaseStore` interface + `withOwnerContext` factory
+### Task 3: `CaseStore` interface + `withOwnerContext` factory — SHIPPED
 
-**Files:** `lib/case-store/store.ts`, `lib/case-store/withOwnerContext.ts`, tests via the interface-compliance harness.
+SHIPPED 2026-05-03 with Task 4 in commits `b9a264dc` (feat) → `f740cf9d` (spec-review fix-pass) → `e6751e51` (code-review fix-pass) on branch `feat/case-list-search`. The combined commit pair was structurally necessary because `withOwnerContext` directly references `PostgresCaseStore`; Task 3's factory and Task 4's class share a file-level cycle that cannot be split into two implementer rounds.
 
-Define the single seam used by every consumer. Methods (matching the spec's canonical interface block):
-- `query(args: { appId, caseType, predicate?, sort?, limit?, offset? }): Promise<CaseRow[]>`
-- `insert(args: { appId, row }): Promise<void>`
-- `update(args: { appId, caseId, patch }): Promise<void>`
-- `close(args: { appId, caseId }): Promise<void>`
+**Files:** `lib/case-store/store.ts`, `lib/case-store/withOwnerContext.ts`, `lib/case-store/__tests__/storeContract.ts` (interface-compliance harness — 14 contract tests).
+
+Define the single seam used by every consumer. Methods:
+- `query(args: { appId, caseType, predicate?, sort?, limit?, offset?, blueprint? }): Promise<CaseRow[]>` — `blueprint?: BlueprintDoc` carries the snapshot needed for property-typed predicate compilation; predicate-free queries omit it.
+- `insert(args: { appId, row }): Promise<{ caseId: string }>` — returns the generated `case_id` so callers don't need a follow-up SELECT.
+- `update(args: { appId, caseId, patch }): Promise<void>` — `CaseUpdate` omits `app_id`, `owner_id`, and `case_id` from the patch shape (the row identity columns can't be patched).
+- `close(args: { appId, caseId, status? }): Promise<void>` — optional `status` writes the closure reason alongside `closed_on`.
 - `traverse(args: { appId, caseId, via }): Promise<CaseRow[]>`
-- `applySchemaChange(args: { appId, caseType, blueprint, property?, change? }): Promise<MigrationReport>` — atomic schema sync + per-property index DDL diff + per-row migration in a single Postgres transaction. **The `blueprint: BlueprintDoc` parameter is required** so the function derives the prospective JSON Schema + index set from a caller-supplied snapshot rather than re-fetching from Firestore. This shape is the foundation for the cross-store saga pattern (Plan 3 Task 1): the blueprint mutator passes the prospective state into `applySchemaChange`, commits Firestore on success, and runs a compensating `applySchemaChange(previousBlueprintState)` on Firestore-commit failure. With no `property` / `change`: regenerates the JSON Schema, upserts `case_type_schemas`, and diffs/applies the per-property expression-index DDL set (the additive-blueprint-mutation path). With `property` + `change`: runs schema sync + index DDL diff + the rename / retype / narrow-options migration in the same transaction; rows that fail the new schema move to `cases_quarantine` with the original value + failure reason. The transaction commits when all three halves succeed or rolls back atomically — the database never holds a new schema with rows that fail validation against it AND never holds a search input that references an unindexed property.
-- `generateSampleData(args: { appId, caseType, count, seed }): Promise<{ inserted: number }>` — calls `HeuristicCaseGenerator` and routes the rows through `insert`.
-- `resetSampleData(args: { appId, caseType }): Promise<{ deleted: number; inserted: number }>` — deletes existing rows for the case-type, then re-generates with a fresh seed.
+- `applySchemaChange(args: { appId, caseType, blueprint, property?, change? }): Promise<MigrationReport>` — atomic schema sync + per-row migration in a single Postgres transaction. **The `blueprint: BlueprintDoc` parameter is required** so the function derives the prospective JSON Schema from a caller-supplied snapshot rather than re-fetching from Firestore. The blueprint mutator (Plan 3 Task 1) passes the prospective state into `applySchemaChange`, commits Firestore on success, and runs a compensating call on Firestore-commit failure. With no `property` / `change`: regenerates the JSON Schema, upserts `case_type_schemas`. With `property` + `change`: runs schema sync + the rename / retype / narrow-options migration in the same transaction; rows that fail the new schema move to `cases_quarantine` with the original value + failure reason. Per-property expression-index DDL emission lands inside the same transaction in Task 8.
 
-`MigrationReport` includes counts of migrated / quarantined / skipped rows plus per-row failure reasons.
+`MigrationReport` includes counts of migrated / quarantined / skipped rows plus per-row failure reasons. `runRenameMigration` pre-counts the case-type's full row population inside the transaction to surface the real `skipped` count (rows lacking the `from` key).
 
-**`withOwnerContext` factory** — `lib/case-store/withOwnerContext.ts` exposes `withOwnerContext(userId: string): CaseStore`. There is **no** other constructor. Every `CaseStore` instance carries an owner id resolved at the request boundary; every method internally adds `WHERE owner_id = <bound userId>` to the underlying query. Tenant scoping is structural, not by discipline — it is impossible to construct a `CaseStore` instance that bypasses the owner-id filter, and any new method on the interface inherits the filter automatically.
+**`withOwnerContext` factory** — `lib/case-store/withOwnerContext.ts` exposes `withOwnerContext(userId: string): Promise<CaseStore>`. The factory is async because `getCaseStoreDatabase()` is a lazy singleton (Task 0's connection layer). There is **no** other constructor. Every `CaseStore` instance carries an owner id resolved at the request boundary; every method internally adds `WHERE owner_id = <bound userId>` to the underlying query. Tenant scoping is structural, not by discipline — it is impossible to construct a `CaseStore` instance that bypasses the owner-id filter, and any new method on the interface inherits the filter automatically.
 
-Request-boundary integration: in API routes, the factory is called once per request from `session.user.id` (resolved via Better Auth) and the resulting `CaseStore` is passed down to handlers. Handlers receive a tenant-scoped store, never construct one themselves. The factory pattern is the migration anchor for future stricter-isolation models — switching to schema-per-tenant or database-per-tenant means changing the factory's connection routing logic, with no application-code rewrite.
+Request-boundary integration: in API routes, the factory is awaited once per request from `session.user.id` (resolved via Better Auth) and the resulting `CaseStore` is passed down to handlers. Handlers receive a tenant-scoped store, never construct one themselves. Centralizing connection routing in one file means changes to the routing strategy don't ripple across application code.
 
 The interface is one shape; `PostgresCaseStore` is the only implementation. No "InMemory" variant; no parity tests across implementations.
 
-### Task 4: `PostgresCaseStore` implementation
+**Sample-data methods are not on the interface in this task.** `generateSampleData` and `resetSampleData` ship in Task 5 alongside `HeuristicCaseGenerator` — adding throwing stubs in Task 3 was forward-projection that the code-review caught and removed.
 
-**Files:** `lib/case-store/postgres/store.ts`, `queryCompile.ts`, `caseIndices.ts`, tests.
+### Task 4: `PostgresCaseStore` implementation — SHIPPED
+
+SHIPPED 2026-05-03 with Task 3 in commits `b9a264dc` (feat) → `f740cf9d` (spec-review fix-pass) → `e6751e51` (code-review fix-pass).
+
+**Files:** `lib/case-store/postgres/store.ts`, `lib/case-store/postgres/__tests__/store.test.ts` (concrete runner that wires the contract harness against per-test isolated DBs).
 
 Implements `CaseStore` against the Kysely instance from Task 0:
-- `query` invokes Plan 1's Kysely predicate/expression compiler to build the SELECT, applies sort / limit / offset, executes against the `cases` table filtered by `(app_id, owner_id)`. **Compiler invocation contract:** the outer query owns the `(app_id, owner_id)` filter on `cases as c` (the foundation's `compileRelationPath` only enforces the filter on JOIN-ed `cases` rows inside relation walks, NOT on the outer scan — `withOwnerContext` is the structural anchor for the outer filter). When invoking `compileExpression` for calculated columns / sort expressions, supply `compilePredicate: (pred, ctx) => compilePredicate(pred, ctx)` on the `ExpressionCompileContext` so the cycle-break callback wires the `if` / `switch` / `count(via, where)` arms back through the predicate compiler. The outermost call site uses `relationPathDepth: 0` (or omits the field; the default is 0); the foundation's compiler increments it automatically when recursing into nested relation walks.
-- `insert` validates against `case_type_schemas[appId, caseType].schema` (TS-side via Plan 1's JSON Schema generator), then INSERTs the row (case_id defaulted via Postgres's `uuidv7()` when not supplied — see Task 1's schema for the rationale), captures the generated case_id through `RETURNING case_id`, then derives `case_indices` direct edges from `parent_case_id` + property-level relations against the captured id.
-- `update` does a JSONB merge on `properties` (full-row replacement per the spec's JSONB-write-bloat mitigation), updates `modified_on`, re-derives `case_indices` if the relation surface changed.
-- `close` updates `closed_on`, `status`, no row deletion.
-- `traverse` compiles the RelationPath via Plan 1's relation-path compiler (Task C5) into a recursive CTE; runs against `case_indices`.
-- `applySchemaChange` opens a Postgres transaction, regenerates the JSON Schema via Plan 1's generator + UPSERTs `case_type_schemas`, drops/creates per-property expression indexes per the index-DDL discipline section above, then (when `property` + `change` are present) runs the rename / retype / narrow-options migration in the same transaction. Rows that fail the new schema move to `cases_quarantine`. The transaction commits when ALL halves succeed or rolls back atomically.
+- `query` invokes Plan 1's Kysely predicate/expression compiler to build the SELECT, applies sort / limit / offset, executes against the `cases` table filtered by `(app_id, owner_id)`. **Compiler invocation contract:** the outer query owns the `(app_id, owner_id)` filter on `cases as c` (`compileRelationPath` enforces the filter on JOIN-ed `cases` rows inside relation walks, NOT on the outer scan — `withOwnerContext` is the structural anchor for the outer filter). The query method uses `expressionContextFor(ctx)` from `lib/case-store/sql` to derive the `ExpressionCompileContext` for calculated columns / sort expressions; the helper was promoted from package-internal to barrel-exported in this task (CR finding C8). The outermost call site uses `relationPathDepth: 0` by default; the foundation's compiler increments it automatically when recursing into nested relation walks.
+- `insert` validates `properties` against `case_type_schemas[appId, caseType].schema` via AJV (Plan 1's JSON Schema generator + `ajv` + `ajv-formats`), serializes the parsed object back to a JSONB string before write, INSERTs the row (case_id defaulted via Postgres's `uuidv7()` when not supplied), and captures the generated case_id through `RETURNING case_id` to surface in the return value. `case_indices` derivation is deferred to Plan 3 / Plan 4 (the column shape is in place; downstream tasks own the materialization).
+- `update` does a JSONB merge on `properties` (full-row replacement per the spec's JSONB-write-bloat mitigation), updates `modified_on`, validates the merged shape via the same AJV path. `validateProperties` accepts an `executor` parameter so transaction-internal calls share the trx connection — without this threading, `pg.Pool` with `max: 1` deadlocks during the `update` test.
+- `close` updates `closed_on` and the optional `status`, no row deletion.
+- `traverse` compiles the `RelationPath` via Plan 1's relation-path compiler into a recursive CTE; runs against `case_indices`.
+- `applySchemaChange` opens a Postgres transaction, regenerates the JSON Schema via Plan 1's generator + UPSERTs `case_type_schemas`, then (when `property` + `change` are present) runs the rename / retype / narrow-options migration in the same transaction. Rows that fail the new schema move to `cases_quarantine` with the original value + failure reason. The transaction commits when both halves succeed or rolls back atomically. **Per-property expression-index DDL emission is added by Task 8** inside this same transaction; Task 8 owns both the call site and the body together (no empty hook in this task — the original draft included one, the code-review removed it as forward-projection).
 
 `case_indices` materialization: Option B (direct edges only, recursive CTE on read) per the spec's verification gate. Switch to Option A if profiling shows the CTE dominates query cost.
 
-Tests run the interface-compliance harness from Task 3 against a testcontainers Postgres instance: insert + query roundtrip; relation traversal; schema sync; migration paths.
+Tests run the interface-compliance harness from Task 3 against a testcontainers Postgres instance per-test isolated database. Coverage includes: insert + query roundtrip (string and `JsonObject` inputs both round-trip); relation traversal; schema sync (positive atomicity verified); rename / retype / narrow-options migration paths (each with positive + quarantine cases); cross-tenant negative tests for `update`, `close`, `traverse` (the security invariant that drove the `withOwnerContext` factory pattern).
 
 ### Task 5: `HeuristicCaseGenerator` (sample data writes through `CaseStore`)
 
@@ -212,7 +214,11 @@ Implements `SampleCaseGenerator` from the spec. Schema-driven, deterministic per
 
 Default count 30 per case type. Generates parent linkages from the case-type relationship graph: child case types get a `parent_case_id` pointing at a randomly-selected parent case. The `case_indices` rows derive from those linkages via `PostgresCaseStore.insert` (Task 4) — the generator doesn't write `case_indices` directly; it just writes case rows and the store derives the index structure.
 
-The user invokes generation via `CaseStore.generateSampleData` / `resetSampleData` (Task 3). Backstop CLI / developer script: `scripts/seed-sample-data.ts`.
+This task adds `generateSampleData` and `resetSampleData` to the `CaseStore` interface and to `PostgresCaseStore`:
+- `generateSampleData(args: { appId, caseType, count, seed }): Promise<{ inserted: number }>` — calls `HeuristicCaseGenerator` and routes the rows through `insert`.
+- `resetSampleData(args: { appId, caseType }): Promise<{ deleted: number; inserted: number }>` — deletes existing rows for the case-type, then re-generates with a fresh seed.
+
+These methods were intentionally not on the interface in Task 3 — adding throwing stubs would have been forward-projection. They land here together with the implementation. The user invokes generation via the new methods; backstop CLI / developer script: `scripts/seed-sample-data.ts`.
 
 Tests: deterministic output (same seed → same data); valid against the case-type's JSON schema; parent linkages create the right `case_indices` rows; cross-case-type relational queries work end-to-end.
 
@@ -245,22 +251,24 @@ For empty case-types (no rows yet), the binding surfaces a "Generate sample data
 
 Tests: every former-`dummyData.ts` consumer renders correctly through the new binding; empty-case-type renders the "Generate sample data" affordance; no surviving import of `dummyData.ts`.
 
-### Task 8: `applySchemaChange` implementation
+### Task 8: Per-property expression-index DDL emission inside `applySchemaChange`
 
-**Files:** `lib/case-store/postgres/applySchemaChange.ts`, tests.
+**Files:** `lib/case-store/postgres/store.ts` (the existing `applySchemaChange` method gets a third half added), tests.
 
-Implements `CaseStore.applySchemaChange`. Single Postgres transaction wraps THREE halves:
+Tasks 3+4 shipped two halves of `applySchemaChange`'s transaction: schema sync and per-row migration. Task 8 adds the third — per-property expression-index DDL emission — inside the same Postgres transaction. The DDL emission lives in `postgres/store.ts` directly (not a separate file as an earlier draft of this plan suggested); the method wrapping the transaction is already there, this task adds the emission step alongside the existing sync + migration steps.
 
-1. **Schema sync** (always runs): regenerate the JSON Schema via Plan 1's generator from the current blueprint state for `(appId, caseType)`; UPSERT into `case_type_schemas`.
-2. **Per-property expression-index DDL emission** (always runs): read the union of (case-type properties × search inputs that target them × modes × sort keys × filter operators) from the current blueprint state. Compute the desired index set per the discipline table at the top of this plan. Compare against `pg_indexes` for the case-type's existing per-property indexes; emit `DROP INDEX` / `CREATE INDEX` statements for the diff. The index naming convention pins each index to its `(case_type, property, mode)` tuple so the diff is mechanical (e.g. `cases_<case_type>_<property>_<mode>`). Property rename: drops the index on the old extraction path, creates the index on the new one. Property removal: drops the index. Search-input mode change: drops the old-mode index, creates the new-mode index. The DDL runs INSIDE the transaction so the index state matches the schema state atomically.
-3. **Per-row migration** (runs when `property` + `change` are present): for each row in the case-type, apply the change shape:
+The complete three-halves shape after Task 8:
+
+1. **Schema sync** (always runs, shipped in Task 4): regenerate the JSON Schema via Plan 1's generator from the current blueprint state for `(appId, caseType)`; UPSERT into `case_type_schemas`.
+2. **Per-property expression-index DDL emission** (always runs, this task): read the union of (case-type properties × search inputs that target them × modes × sort keys × filter operators) from the current blueprint state. Compute the desired index set per the discipline table at the top of this plan. Compare against `pg_indexes` for the case-type's existing per-property indexes; emit `DROP INDEX` / `CREATE INDEX` statements for the diff. The index naming convention pins each index to its `(case_type, property, mode)` tuple so the diff is mechanical (e.g. `cases_<case_type>_<property>_<mode>`). Property rename: drops the index on the old extraction path, creates the index on the new one. Property removal: drops the index. Search-input mode change: drops the old-mode index, creates the new-mode index. The DDL runs INSIDE the transaction so the index state matches the schema state atomically.
+3. **Per-row migration** (runs when `property` + `change` are present, shipped in Task 4): for each row in the case-type, apply the change shape:
    - `rename(from, to)` — `UPDATE cases SET properties = jsonb_set(properties #- '{from}', '{to}', properties->'from')` for every row.
    - `retype(fromType, toType)` — for each row, attempt to cast the value per the spec's "Schema migration policy" table. On success: `UPDATE cases SET properties = jsonb_set(...)`. On failure: move to `cases_quarantine` with `quarantine_reason` set to the cast-failure detail.
    - `narrow-options(removedOptions)` — for each row whose property value is in `removedOptions`, move to `cases_quarantine`.
 
-The transaction commits when ALL THREE halves succeed, rolls back atomically on failure. The database never holds a new schema with rows that fail validation against it, AND it never holds a search input that references an unindexed property. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
+The transaction commits when all three halves succeed, rolls back atomically on failure. The database never holds a new schema with rows that fail validation against it, AND it never holds a search input that references an unindexed property. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
 
-Tests: each change shape against fixtures; index DDL diff produces the right `CREATE` / `DROP` set for representative blueprint mutations (property add / remove / rename / retype / search-input mode change); rollback verified by simulating a mid-migration failure (the schema row + the new indexes should not be present after rollback); quarantine surfacing; no-property-no-change call runs schema sync + index DDL sync (without per-row migration).
+Tests: each change shape against fixtures; index DDL diff produces the right `CREATE` / `DROP` set for representative blueprint mutations (property add / remove / rename / retype / search-input mode change); rollback verified by simulating a mid-migration failure inside the index-DDL emission step (which Task 8 makes a real-world reachable failure path — the cast loop in Task 4's migration step doesn't throw, so a sabotage-the-transaction test wasn't possible until DDL emission lands); quarantine surfacing; no-property-no-change call runs schema sync + index DDL sync (without per-row migration).
 
 ### Task 9: Barrel exports + CLAUDE.md
 
