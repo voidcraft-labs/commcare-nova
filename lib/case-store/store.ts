@@ -1,8 +1,7 @@
 // lib/case-store/store.ts
 //
 // The `CaseStore` interface — the single seam every consumer of
-// case data binds against (Plan 3's case-list authoring, Plan 4's
-// search authoring, Plan 5's running-app view). Spec source:
+// case data binds against. Spec source:
 // `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
 // "CaseStore — Cloud SQL Postgres from day-1" section
 // (lines 350-389).
@@ -10,12 +9,12 @@
 // ## One interface, one implementation
 //
 // `PostgresCaseStore` (under `./postgres/store.ts`) is the only
-// implementation. There is no in-memory variant, no preview /
-// production split, no Phase-2 swap. Tests use testcontainers
-// Postgres via `setupPerTestDatabase`; production uses Cloud SQL
-// via `getCaseStoreDatabase()`. Both paths bind the same
-// `Kysely<Database>` shape, so query code written against the test
-// fixture runs unchanged against the live instance.
+// implementation. Case data is the user's real data; the
+// AST→Kysely compiler is the only evaluator. Tests use
+// testcontainers Postgres via `setupPerTestDatabase`; production
+// uses Cloud SQL via `getCaseStoreDatabase()`. Both paths bind the
+// same `Kysely<Database>` shape, so query code written against the
+// test fixture runs unchanged against the live instance.
 //
 // ## Tenant scoping is structural
 //
@@ -47,7 +46,7 @@ import type {
 	RelationPath,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
-import type { CasesTable } from "./sql/database";
+import type { CasesTable, JsonObject } from "./sql/database";
 
 // ---------------------------------------------------------------
 // Row shapes derived from the Kysely Database type
@@ -84,26 +83,48 @@ export type CaseRow = Selectable<CasesTable>;
  * `args.row.app_id` with `args.appId` before the write. Admitting
  * `app_id` on the row would be redundant and let a caller supply
  * a value the store discards.
+ *
+ * `properties` is widened from Kysely's default `JSONColumnType`
+ * insert side (string-only) to `JsonObject | string`. Callers who
+ * already JSON-stringify their payloads keep the string form; a
+ * typed object literal also satisfies the type because the
+ * implementation handles either shape (parses + validates + re-
+ * stringifies before the write).
  */
-export type CaseInsert = Omit<Insertable<CasesTable>, "app_id" | "owner_id">;
+export type CaseInsert = Omit<
+	Insertable<CasesTable>,
+	"app_id" | "owner_id" | "properties"
+> & {
+	properties: JsonObject | string;
+};
 
 /**
  * The shape an `update` accepts. Every column optional. Callers
  * pass the subset of columns they want to change; the
  * implementation merges into the row's current state.
  *
- * `owner_id` is excluded — re-assigning a case to another tenant
- * goes through a separate ownership-transfer flow (not part of
- * this round's surface) so a stray patch can't accidentally cross
- * tenants.
+ * Three columns are excluded so the row's identity + tenant pair
+ * are immutable through this surface:
  *
- * `app_id` is excluded — moving a row across apps is not a patch
- * shape; the row's `(app_id, case_id)` identity is fixed at
- * insert time. The parent `update(args)` shape carries `appId` as
- * a top-level field for the WHERE clause, so admitting it on the
- * patch would be ambiguous.
+ *   - `case_id` — the row's primary key; admitting it would let
+ *     a stray patch try to renumber a row, which the implementation
+ *     would have to defensively strip.
+ *   - `app_id` — moving a row across apps is not a patch shape.
+ *     The parent `update(args)` shape carries `appId` as a
+ *     top-level field for the WHERE clause; admitting it on the
+ *     patch would be ambiguous.
+ *   - `owner_id` — re-assigning a case to another tenant is a
+ *     separate ownership-transfer flow, not a stray patch field.
+ *
+ * `properties` is widened to `JsonObject | string | undefined` so
+ * either form satisfies the type — same shape as `CaseInsert`.
  */
-export type CaseUpdate = Omit<Updateable<CasesTable>, "app_id" | "owner_id">;
+export type CaseUpdate = Omit<
+	Updateable<CasesTable>,
+	"app_id" | "case_id" | "owner_id" | "properties"
+> & {
+	properties?: JsonObject | string;
+};
 
 // ---------------------------------------------------------------
 // Sort + query argument types
@@ -116,9 +137,7 @@ export type CaseUpdate = Omit<Updateable<CasesTable>, "app_id" | "owner_id">;
  * The expression slot is a `ValueExpression` (not a bare property
  * name) so authors can sort by typed reads (`(properties->>'age')::int`)
  * or by computed values (e.g. `today() - opened_on` for a "days
- * since opened" sort). Plan 3's case-list-config schema may refine
- * this shape — for now it carries the minimum the query layer
- * needs.
+ * since opened" sort).
  */
 export interface SortKey {
 	/** Sort direction. `asc` = ascending, `desc` = descending. */
@@ -233,11 +252,12 @@ export type SchemaChangeKind =
  * with rows that fail validation against it.
  *
  * The `blueprint` parameter (rather than re-fetching from
- * Firestore) makes the call self-contained: the blueprint mutator
- * passes the prospective state in, commits Firestore on success,
- * and runs a compensating `applySchemaChange(previousState)` on
- * Firestore-commit failure. Cross-store saga pattern; Plan 3 owns
- * the orchestration.
+ * Firestore) makes the call self-contained: the caller passes the
+ * prospective state in, commits Firestore on success, and runs a
+ * compensating `applySchemaChange(previousState)` on Firestore-
+ * commit failure. The shape is the cross-store saga seam — the
+ * orchestrator that wires Firestore writes to case-store schema
+ * sync owns the saga; this signature pins what each call carries.
  */
 export interface ApplySchemaChangeArgs {
 	/** The owning app. */
@@ -321,21 +341,11 @@ export interface MigrationReport {
  *   - `traverse` — compiles the supplied `RelationPath` via Plan 1's
  *     `compileRelationPath` and returns the leaf rows the walk
  *     reaches.
- *   - `applySchemaChange` — three-halves-in-one-transaction sync:
- *     schema regen + UPSERT, per-property index DDL extension
- *     point (an internal hook the implementation runs inside the
- *     transaction so any emitted DDL commits or rolls back with
- *     the schema), and the rename / retype / narrow-options
- *     per-row migration when a `change` is present.
- *   - `generateSampleData` / `resetSampleData` — sample-data
- *     generation. Both throw a descriptive error in this round
- *     because the case store does not carry a
- *     `SampleCaseGenerator` reference. The throws are the
- *     structural defense — silent no-ops would let the running-
- *     app view's "Generate sample data" affordance render as if
- *     the call worked. The methods stay on the interface so the
- *     affordance binds against a stable shape; switching to a
- *     non-throwing implementation is a downstream concern.
+ *   - `applySchemaChange` — sync: schema regen + UPSERT, plus the
+ *     rename / retype / narrow-options per-row migration when a
+ *     `change` is present. Both halves run in one Postgres
+ *     transaction so the database never holds a new schema with
+ *     rows that fail validation against it.
  */
 export interface CaseStore {
 	/**
@@ -400,35 +410,11 @@ export interface CaseStore {
 	/**
 	 * Sync the case-type's JSON Schema with the prospective
 	 * blueprint state, optionally running a per-row migration when
-	 * a `change` shape is supplied. All halves run in one Postgres
+	 * a `change` shape is supplied. Both halves run in one Postgres
 	 * transaction — the database never holds a new schema with
 	 * rows that fail validation against it.
 	 */
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
-
-	/**
-	 * Populate a case type with deterministic sample data. Throws
-	 * a descriptive error in this round because the store does not
-	 * carry a `SampleCaseGenerator` reference; the throw is the
-	 * structural defense against silent no-ops on the running-
-	 * app view's "Generate sample data" affordance.
-	 */
-	generateSampleData(args: {
-		appId: string;
-		caseType: string;
-		count: number;
-		seed: string;
-	}): Promise<{ inserted: number }>;
-
-	/**
-	 * Reset a case type's sample data: delete every existing row,
-	 * then re-generate with a fresh seed. Throws with the same
-	 * generator-not-wired error as `generateSampleData`.
-	 */
-	resetSampleData(args: {
-		appId: string;
-		caseType: string;
-	}): Promise<{ deleted: number; inserted: number }>;
 }
 
 // ---------------------------------------------------------------

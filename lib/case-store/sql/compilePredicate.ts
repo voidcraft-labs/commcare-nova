@@ -446,12 +446,17 @@ function compileValueExprOperand(
  * back through `compilePredicate`.
  *
  * Implemented as a separate function (rather than inlined at the
- * one call site above) so the callback wiring is explicit at the
+ * one call site below) so the callback wiring is explicit at the
  * boundary between the two compilers — the cycle break and its
  * direction are visible at one named site instead of buried in a
  * spread-and-property literal inside a dispatch helper.
+ *
+ * Exported so external compiler-stack consumers (the case store's
+ * `query` method, which compiles sort expressions through
+ * `compileExpression` against a predicate context) reuse the same
+ * thunk-wired lift rather than reinventing it inline.
  */
-function expressionContextFor(
+export function expressionContextFor(
 	ctx: PredicateCompileContext,
 ): ExpressionCompileContext {
 	const compilePredicateThunk: CompilePredicateThunk = (pred, exprCtx) =>

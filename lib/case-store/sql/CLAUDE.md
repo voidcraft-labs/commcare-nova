@@ -220,9 +220,11 @@ External consumers import from `@/lib/case-store/sql` (the barrel
 at `./index.ts`). The barrel exposes the four compiler entry
 points, their compile-context interfaces, the per-data-type cast
 table, the relation-path leaf alias constants, the relation-path
-leaf row type, and the Database type contract. Internal helpers
-(`compileLiteral`, `compileValueExprOperand`,
-`expressionContextFor`, `DynamicExprBuilder`,
+leaf row type, the Database type contract, and the
+`expressionContextFor` lift (which external compilers — the case
+store's sort-expression compile site — reuse to compose against
+the predicate-context shape). Internal helpers (`compileLiteral`,
+`compileValueExprOperand`, `DynamicExprBuilder`,
 `DynamicCorrelatedQuery`, `DynamicQuery`, etc.) stay package-
 private — their existence is the dispatch shape, not part of the
 public composition contract.

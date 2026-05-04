@@ -100,11 +100,14 @@
 //     Read only by `compileTerm`'s `jsonbColumnRead`; outside callers
 //     route property reads through `compileTerm` rather than
 //     constructing a JSONB read directly.
-//   - `compileValueExprOperand`, `expressionContextFor` — internal
-//     dispatch helpers in `compilePredicate` that route widened
-//     operands and lift the predicate-compile context into an
-//     expression-compile context. Their existence is the dispatch
-//     shape, not part of the public composition contract.
+//   - `compileValueExprOperand` — internal dispatch helper in
+//     `compilePredicate` that routes widened operands through the
+//     term arm or the expression arm. Its existence is the
+//     dispatch shape, not part of the public composition contract.
+//     `expressionContextFor` IS exposed via this barrel because
+//     external compilers (the case store's sort-expression
+//     compile site) reuse the thunk-wired lift to compose against
+//     the same predicate-context shape.
 //   - `DynamicExprBuilder`, `DynamicCorrelatedQuery`,
 //     `DynamicCountQuery`, `DynamicExistsQuery`,
 //     `AliasedExpressionLike`, `DynamicQuery`, `DynamicSelection` —
@@ -141,7 +144,7 @@ export { compileExpression } from "./compileExpression";
 // ----- Predicate compiler -----
 
 export type { PredicateCompileContext } from "./compilePredicate";
-export { compilePredicate } from "./compilePredicate";
+export { compilePredicate, expressionContextFor } from "./compilePredicate";
 
 // ----- Relation-path compiler -----
 
@@ -165,4 +168,7 @@ export type {
 	CasesTable,
 	CaseTypeSchemasTable,
 	Database,
+	JsonObject,
+	JsonPrimitive,
+	JsonValue,
 } from "./database";

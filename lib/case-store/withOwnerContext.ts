@@ -13,11 +13,9 @@
 // production needs the singleton from `connection.ts`. The factory
 // is the seam that picks the production handle without leaking the
 // production-only `getCaseStoreDatabase` import to every API route.
-//
-// The factory is the migration anchor for future stricter-isolation
-// models — switching to schema-per-tenant or database-per-tenant
-// means changing the connection-routing logic in this one file,
-// with no application-code rewrite.
+// Centralizing connection routing here means a change to the
+// routing strategy lands in one file rather than rippling across
+// every call site.
 //
 // ## Tenant scoping is structural
 //

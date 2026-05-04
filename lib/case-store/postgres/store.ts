@@ -28,17 +28,13 @@
 // the API route is the trust boundary; the database is internal.
 // No in-database trigger, no `pg_jsonschema` dependency.
 //
-// ## `applySchemaChange` runs three halves in one transaction
+// ## `applySchemaChange` runs in one transaction
 //
 // The function opens a Kysely transaction and runs:
 //
 //   1. **Schema sync** — regenerate the JSON Schema via
 //      `caseTypeToJsonSchema` and UPSERT into `case_type_schemas`.
-//   2. **Per-property index DDL diff** — runs through the
-//      `applyIndexDdlInTransaction` internal extension point. The
-//      hook executes inside the transaction so the index state and
-//      the schema state commit or roll back atomically.
-//   3. **Per-row migration** — only when `change` is supplied. The
+//   2. **Per-row migration** — only when `change` is supplied. The
 //      three `change` arms are:
 //      - `rename(from, to)` — JSONB key rename in one UPDATE.
 //      - `retype(fromType, toType)` — per-row cast attempt; cast
@@ -46,27 +42,14 @@
 //      - `narrow-options(removedOptions)` — rows with the removed
 //        value move to `cases_quarantine`.
 //
-// The transaction commits when all three halves succeed and rolls
-// back atomically on any failure. The database never holds a new
-// schema with rows that fail validation against it.
-//
-// ## Sample-data methods throw
-//
-// `generateSampleData` and `resetSampleData` throw a descriptive
-// error because the store does not carry a `SampleCaseGenerator`
-// reference. The throw is the structural defense: silent no-ops
-// would let a "Generate sample data" affordance render as if the
-// call worked. The throw text states the cause; the JSDoc on the
-// methods names the consumer.
+// The transaction commits when both halves succeed and rolls back
+// atomically on any failure. The database never holds a new schema
+// with rows that fail validation against it.
 
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
-import type {
-	BlueprintDoc,
-	CasePropertyDataType,
-	CaseType,
-} from "@/lib/domain";
+import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import {
 	type CaseTypeJsonSchema,
 	caseTypeToJsonSchema,
@@ -76,7 +59,7 @@ import {
 	compileExpression,
 	compilePredicate,
 	compileRelationPath,
-	type ExpressionCompileContext,
+	expressionContextFor,
 	type PredicateCompileContext,
 } from "../sql";
 import type {
@@ -165,10 +148,6 @@ interface ValidatorCacheEntry {
  * The Postgres-backed implementation of `CaseStore`. Constructed
  * via `withOwnerContext` in production; tests construct directly
  * with an isolated Kysely instance.
- *
- * The class is exported (not the constructor alone) so subclasses
- * could add per-deployment behavior in the future; in this round
- * the only consumer is the factory.
  */
 export class PostgresCaseStore implements CaseStore {
 	private readonly ownerId: string;
@@ -205,21 +184,20 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType);
-		qb = this.withOwnerFilter(qb, "c.owner_id");
+			.where("c.case_type", "=", args.caseType)
+			.where("c.owner_id", "=", this.ownerId);
 
 		if (args.predicate !== undefined) {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
 		}
 
-		// Sort keys compile through `compileExpression` with the
-		// thunk-wired context so sort expressions can reach
-		// predicate-bearing arms (`if.cond`, `count.where`).
+		// Sort keys compile through `compileExpression` against
+		// the thunk-wired context the predicate compiler exposes
+		// via `expressionContextFor` — that same lift handles the
+		// cycle break for the predicate-bearing arms (`if.cond`,
+		// `count.where`) the expression compiler may recurse into.
 		if (args.sort !== undefined) {
-			const exprCtx: ExpressionCompileContext = {
-				...ctx,
-				compilePredicate: (pred, innerCtx) => compilePredicate(pred, innerCtx),
-			};
+			const exprCtx = expressionContextFor(ctx);
 			for (const key of args.sort) {
 				const expr = compileExpression(key.expression, exprCtx);
 				qb = qb.orderBy(expr, key.direction);
@@ -259,10 +237,22 @@ export class PostgresCaseStore implements CaseStore {
 		// the caller's row with the bound owner + the top-level
 		// `appId` argument. Tenant scoping at the write side is
 		// structurally impossible to bypass.
+		//
+		// `properties` flows through `JSON.stringify` because
+		// `Insertable<CasesTable>`'s `properties` shape (the
+		// `JSONColumnType<JsonObject>` insert side) is a JSON
+		// string for pg's JSONB cast. The caller may pass either
+		// a string or a `JsonObject` to `CaseInsert`; both shapes
+		// converge through `parseJsonbInput` above, and the parsed
+		// object stringifies back to the wire form here. Without
+		// this, a `JsonObject` caller would silently write
+		// `[object Object]` because pg's parameter binder calls
+		// `String(value)` on non-string inputs to a text-cast slot.
 		const insertRow: Insertable<CasesTable> = {
 			...args.row,
 			app_id: args.appId,
 			owner_id: this.ownerId,
+			properties: JSON.stringify(propertiesObject),
 		};
 
 		// All writes (cases + case_indices) run inside a single
@@ -323,7 +313,7 @@ export class PostgresCaseStore implements CaseStore {
 				.select(["c.case_type", "c.parent_case_id", "c.properties"])
 				.where("c.app_id", "=", args.appId)
 				.where("c.case_id", "=", args.caseId)
-				.$call((qb) => this.withOwnerFilter(qb, "c.owner_id"))
+				.where("c.owner_id", "=", this.ownerId)
 				.executeTakeFirst();
 			if (existing === undefined) {
 				throw new Error(
@@ -337,18 +327,19 @@ export class PostgresCaseStore implements CaseStore {
 			// document, then re-validate against the case type's
 			// schema. Patches without a `properties` slot
 			// short-circuit: every other column updates without
-			// touching JSONB.
-			let mergedProperties: Record<string, unknown> | null = null;
-			if (args.patch.properties !== undefined) {
-				const patchProps = parseJsonbInput(args.patch.properties);
-				mergedProperties = {
-					...(existing.properties as Record<string, unknown>),
-					...patchProps,
-				};
-				// Validate inside the transaction by passing `trx`
-				// as the executor. With `max: 1` pools (the per-test
-				// isolation harness's shape), an unscoped read would
-				// wait forever on a connection the transaction owns.
+			// touching JSONB. Validation runs inside the
+			// transaction by passing `trx` as the executor — with
+			// `max: 1` pools (the per-test isolation harness's
+			// shape), an unscoped read would wait forever on a
+			// connection the transaction owns.
+			const mergedProperties =
+				args.patch.properties !== undefined
+					? {
+							...existing.properties,
+							...parseJsonbInput(args.patch.properties),
+						}
+					: undefined;
+			if (mergedProperties !== undefined) {
 				await this.validateProperties({
 					appId: args.appId,
 					caseType: existing.case_type,
@@ -359,33 +350,25 @@ export class PostgresCaseStore implements CaseStore {
 
 			// Compose the UPDATE shape from the patch's other
 			// columns plus the merged properties (when present)
-			// and `modified_on = now()`. The JSON-stringify cast
-			// matches Kysely's JSONB write contract — the dialect
-			// hands the string to pg, which casts to JSONB on
-			// insert.
-			const setShape: Record<string, unknown> = {
-				...(args.patch as Record<string, unknown>),
-				modified_on: sql`now()`,
-			};
-			if (mergedProperties !== null) {
-				setShape.properties = JSON.stringify(mergedProperties);
-			} else {
-				delete setShape.properties;
-			}
-			// `case_id` cannot be updated through this surface; the
-			// type already excludes `owner_id`, so no further filter
-			// is needed beyond the patch's own shape. Strip
-			// `case_id` defensively in case a caller spreads a
-			// `CaseRow` into the patch.
-			delete setShape.case_id;
-
-			let qb = trx
+			// and `modified_on = now()`. Properties is split out so
+			// the merged-and-stringified form replaces the patch's
+			// unmerged value; the rest of the patch passes through.
+			// `CaseUpdate` already excludes `case_id` / `app_id` /
+			// `owner_id` so no defensive stripping is needed.
+			const { properties: _patchProperties, ...patchRest } = args.patch;
+			await trx
 				.updateTable("cases as c")
-				.set(setShape)
+				.set({
+					...patchRest,
+					modified_on: sql<Date>`now()`,
+					...(mergedProperties !== undefined
+						? { properties: JSON.stringify(mergedProperties) }
+						: {}),
+				})
 				.where("c.app_id", "=", args.appId)
-				.where("c.case_id", "=", args.caseId);
-			qb = this.withOwnerFilter(qb, "c.owner_id");
-			await qb.execute();
+				.where("c.case_id", "=", args.caseId)
+				.where("c.owner_id", "=", this.ownerId)
+				.execute();
 
 			// Re-derive `case_indices` if `parent_case_id`
 			// changed. The patch's value is the new edge target;
@@ -415,20 +398,17 @@ export class PostgresCaseStore implements CaseStore {
 		caseId: string;
 		status?: string;
 	}): Promise<void> {
-		const setShape: Record<string, unknown> = {
-			closed_on: sql`now()`,
-			modified_on: sql`now()`,
-		};
-		if (args.status !== undefined) {
-			setShape.status = args.status;
-		}
-		let qb = this.db
+		await this.db
 			.updateTable("cases as c")
-			.set(setShape)
+			.set({
+				closed_on: sql<Date>`now()`,
+				modified_on: sql<Date>`now()`,
+				...(args.status !== undefined ? { status: args.status } : {}),
+			})
 			.where("c.app_id", "=", args.appId)
-			.where("c.case_id", "=", args.caseId);
-		qb = this.withOwnerFilter(qb, "c.owner_id");
-		await qb.execute();
+			.where("c.case_id", "=", args.caseId)
+			.where("c.owner_id", "=", this.ownerId)
+			.execute();
 	}
 
 	// -----------------------------------------------------------
@@ -444,13 +424,13 @@ export class PostgresCaseStore implements CaseStore {
 		// returns `{ kind: "self" }` for this case; we short-circuit
 		// here rather than synthesize a join-on-self.
 		if (args.via.kind === "self") {
-			let qb = this.db
+			return await this.db
 				.selectFrom("cases as c")
 				.selectAll("c")
 				.where("c.app_id", "=", args.appId)
-				.where("c.case_id", "=", args.caseId);
-			qb = this.withOwnerFilter(qb, "c.owner_id");
-			return await qb.execute();
+				.where("c.case_id", "=", args.caseId)
+				.where("c.owner_id", "=", this.ownerId)
+				.execute();
 		}
 
 		// Non-self path: compile the relation-walk subquery, join
@@ -465,12 +445,12 @@ export class PostgresCaseStore implements CaseStore {
 			ownerId: this.ownerId,
 			anchorAlias: "c",
 		});
+		// `compileRelationPath` is exhaustive over `RelationPath`:
+		// `self` short-circuited above, the other three arms all
+		// return `kind: "joined"`. The narrowing is the type
+		// system's structural guarantee.
 		if (compiled.kind !== "joined") {
-			// Defensive: every non-self path returns `joined`. A
-			// future arm extending the union would surface here.
-			throw new Error(
-				`traverse: compileRelationPath returned an unexpected kind '${compiled.kind}' for a non-self path`,
-			);
+			return [];
 		}
 
 		// Build the wider query manually: join the leaf subquery
@@ -487,7 +467,7 @@ export class PostgresCaseStore implements CaseStore {
 			)
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_id", "=", args.caseId)
-			.$call((qb) => this.withOwnerFilter(qb, "c.owner_id"))
+			.where("c.owner_id", "=", this.ownerId)
 			.select([
 				`${leafAlias}.case_id as case_id`,
 				`${leafAlias}.app_id as app_id`,
@@ -510,7 +490,7 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	// -----------------------------------------------------------
-	// `applySchemaChange` — three halves in one transaction
+	// `applySchemaChange` — schema sync + optional migration
 	// -----------------------------------------------------------
 
 	async applySchemaChange(
@@ -539,19 +519,9 @@ export class PostgresCaseStore implements CaseStore {
 				)
 				.execute();
 
-			// Half 2: per-property index DDL diff. The internal
-			// extension point runs inside the transaction so any
-			// emitted DDL commits or rolls back together with the
-			// schema regen above.
-			await this.applyIndexDdlInTransaction(trx, {
-				appId: args.appId,
-				caseType: args.caseType,
-				blueprint: args.blueprint,
-			});
-
-			// Half 3: per-row migration. Only runs when a `change`
+			// Half 2: per-row migration. Only runs when a `change`
 			// is supplied; additive blueprint mutations (the
-			// no-`change` path) commit after halves 1 and 2.
+			// no-`change` path) commit after the schema regen.
 			if (args.change === undefined) {
 				return {
 					migrated: 0,
@@ -576,57 +546,6 @@ export class PostgresCaseStore implements CaseStore {
 				schema,
 			});
 		});
-	}
-
-	// -----------------------------------------------------------
-	// Sample-data methods — throw because no generator is wired
-	// -----------------------------------------------------------
-
-	async generateSampleData(_args: {
-		appId: string;
-		caseType: string;
-		count: number;
-		seed: string;
-	}): Promise<{ inserted: number }> {
-		throw sampleDataNotWiredError();
-	}
-
-	async resetSampleData(_args: {
-		appId: string;
-		caseType: string;
-	}): Promise<{ deleted: number; inserted: number }> {
-		throw sampleDataNotWiredError();
-	}
-
-	// -----------------------------------------------------------
-	// Per-property index DDL extension point
-	// -----------------------------------------------------------
-
-	/**
-	 * Per-property expression-index DDL emission, run inside the
-	 * `applySchemaChange` transaction so the index state and the
-	 * schema state commit or roll back atomically.
-	 *
-	 * The body is empty: the case-store currently emits no
-	 * per-property indexes. The hook exists so the transactional
-	 * structure of `applySchemaChange` already calls into the same
-	 * site any future index-emission logic would extend; a wider
-	 * call signature (the prospective blueprint + the
-	 * `(appId, caseType)` pair) is what such logic needs to compute
-	 * the desired index set from the blueprint and diff against
-	 * `pg_indexes`. Keeping the empty hook here pins the surface
-	 * shape; per-property index emission is owned by a sibling task
-	 * and not in scope for this round.
-	 */
-	private async applyIndexDdlInTransaction(
-		_trx: Transaction<Database>,
-		_args: {
-			appId: string;
-			caseType: string;
-			blueprint: BlueprintDoc;
-		},
-	): Promise<void> {
-		// Intentionally empty.
 	}
 
 	// -----------------------------------------------------------
@@ -728,7 +647,7 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where(sql<boolean>`c.properties ? ${sql.lit(from)}`)
-			.$call((qb) => this.withOwnerFilter(qb, "c.owner_id"))
+			.where("c.owner_id", "=", this.ownerId)
 			.executeTakeFirst();
 
 		const migrated = Number(updated.numUpdatedRows ?? 0);
@@ -771,7 +690,7 @@ export class PostgresCaseStore implements CaseStore {
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.$call((qb) => this.withOwnerFilter(qb, "c.owner_id"))
+			.where("c.owner_id", "=", this.ownerId)
 			.execute();
 
 		let migrated = 0;
@@ -780,7 +699,7 @@ export class PostgresCaseStore implements CaseStore {
 		const failureReasons: string[] = [];
 
 		for (const row of rows) {
-			const propsRecord = row.properties as Record<string, unknown>;
+			const propsRecord = row.properties;
 			const rawValue = propsRecord[args.property];
 			if (rawValue === undefined || rawValue === null) {
 				skipped++;
@@ -798,7 +717,7 @@ export class PostgresCaseStore implements CaseStore {
 					})
 					.where("c.app_id", "=", args.appId)
 					.where("c.case_id", "=", row.case_id)
-					.$call((qb) => this.withOwnerFilter(qb, "c.owner_id"))
+					.where("c.owner_id", "=", this.ownerId)
 					.execute();
 				migrated++;
 			} else {
@@ -839,7 +758,7 @@ export class PostgresCaseStore implements CaseStore {
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.$call((qb) => this.withOwnerFilter(qb, "c.owner_id"))
+			.where("c.owner_id", "=", this.ownerId)
 			.execute();
 
 		let quarantined = 0;
@@ -847,7 +766,7 @@ export class PostgresCaseStore implements CaseStore {
 		const failureReasons: string[] = [];
 
 		for (const row of rows) {
-			const propsRecord = row.properties as Record<string, unknown>;
+			const propsRecord = row.properties;
 			const rawValue = propsRecord[args.property];
 			if (rawValue === undefined || rawValue === null) {
 				skipped++;
@@ -1022,19 +941,18 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Compose a `PredicateCompileContext` against the supplied
-	 * fields. Centralized helper so every method that compiles a
-	 * predicate uses the same shape — the schema map + bindings
-	 * defaults stay aligned across `query` / `applySchemaChange` /
-	 * future per-method needs.
+	 * fields. Centralized helper so the schema map + bindings
+	 * defaults stay aligned across every method that compiles a
+	 * predicate.
 	 */
 	private buildPredicateContext(args: {
-		db: Kysely<Database> | Transaction<Database>;
+		db: Kysely<Database>;
 		appId: string;
 		caseType: string;
 		schemas: ReadonlyMap<string, CaseType>;
 	}): PredicateCompileContext {
 		return {
-			db: args.db as Kysely<Database>,
+			db: args.db,
 			appId: args.appId,
 			ownerId: this.ownerId,
 			anchorAlias: "c",
@@ -1044,29 +962,8 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	// -----------------------------------------------------------
-	// Tenant + edge helpers
+	// Edge helpers
 	// -----------------------------------------------------------
-
-	/**
-	 * Apply the bound owner filter to a Kysely query builder.
-	 * Three-valued-logic safe: a null bound owner uses `IS NULL`
-	 * rather than `= NULL` (which always evaluates to `unknown`).
-	 *
-	 * Owner-id lookups in the type-erased generic shape because
-	 * the call site composes against multiple builder shapes
-	 * (`SelectQueryBuilder`, `UpdateQueryBuilder`,
-	 * `DeleteQueryBuilder`). Each builder type's `where(...)`
-	 * accepts the same `(column, op, value)` shape.
-	 */
-	private withOwnerFilter<Q extends WhereChainable>(qb: Q, column: string): Q {
-		// Owner can never be null on `PostgresCaseStore` (the
-		// constructor pins it to a `string`), but the column type
-		// admits null and SQL's three-valued logic disagrees with
-		// `=` against null on either side. The branch keeps the
-		// helper agnostic to a future null-owner extension without
-		// breaking call sites.
-		return qb.where(column, "=", this.ownerId) as Q;
-	}
 
 	/**
 	 * Re-derive the `(case_id, parent_case_id)` direct edge in
@@ -1108,17 +1005,6 @@ export class PostgresCaseStore implements CaseStore {
 // ---------------------------------------------------------------
 // Helpers — outside the class because they don't read `this`
 // ---------------------------------------------------------------
-
-/**
- * Minimal interface a Kysely query builder satisfies for the
- * tenant-filter helper. Both `SelectQueryBuilder`,
- * `UpdateQueryBuilder`, and `DeleteQueryBuilder` accept the
- * `where(column, op, value)` shape with the same signature; the
- * helper composes against the union without having to discriminate.
- */
-interface WhereChainable {
-	where(column: string, op: "=", value: string): unknown;
-}
 
 /**
  * Parse a JSONB write-side input into a JS object. Kysely's
@@ -1241,8 +1127,9 @@ function tryCastValue(
 			if (Array.isArray(value)) {
 				return { ok: true, value };
 			}
-			// Single-select → multi-select: lift the scalar into a
-			// one-element array.
+			// Non-array → array: lift the value (string-coerced)
+			// into a one-element array. Used when retyping any
+			// scalar data type to multi_select.
 			return { ok: true, value: [stringValue] };
 		default: {
 			const _exhaustive: never = toType;
@@ -1279,18 +1166,4 @@ function findRemovedOptionConflict(
 		return value;
 	}
 	return null;
-}
-
-/**
- * Standard error for the sample-data methods. Centralized so the
- * message stays consistent across `generateSampleData` /
- * `resetSampleData` and so the throw site reads as one named
- * intent at each method.
- */
-function sampleDataNotWiredError(): Error {
-	return new Error(
-		"case_store: sample data generation is not available — this CaseStore " +
-			"does not carry a SampleCaseGenerator reference, so generateSampleData " +
-			"and resetSampleData throw rather than silently no-op.",
-	);
 }

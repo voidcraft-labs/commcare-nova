@@ -46,7 +46,7 @@
 // plays the role of the runtime migration job.
 
 import type { Kysely } from "kysely";
-import { beforeEach, describe } from "vitest";
+import { beforeEach } from "vitest";
 import { runStoreContract } from "../../__tests__/storeContract";
 import { runMigration } from "../../migrations/runner";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -120,14 +120,12 @@ beforeEach(async () => {
 // shape after `runMigration("latest")` matches `Database`
 // exactly.
 
-describe("PostgresCaseStore", () => {
-	runStoreContract({
-		describeName: "PostgresCaseStore — contract",
-		factory: async (ownerId: string) => {
-			return new PostgresCaseStore({
-				ownerId,
-				db: dbHandle.db as unknown as Kysely<Database>,
-			});
-		},
-	});
+runStoreContract({
+	describeName: "PostgresCaseStore",
+	factory: async (ownerId: string) => {
+		return new PostgresCaseStore({
+			ownerId,
+			db: dbHandle.db as unknown as Kysely<Database>,
+		});
+	},
 });

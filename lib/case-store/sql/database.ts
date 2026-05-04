@@ -100,9 +100,12 @@ import type { ColumnType, JSONColumnType } from "kysely";
 // is a JSON document; the dialect's serializer turns this tree into
 // a string for INSERT/UPDATE.
 
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
-type JsonObject = { [key: string]: JsonValue };
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue =
+	| JsonPrimitive
+	| JsonValue[]
+	| { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
 
 // ---------------------------------------------------------------
 // `cases` table — DDL spec lines 254-265

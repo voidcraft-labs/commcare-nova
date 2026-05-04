@@ -167,14 +167,19 @@ const HOUSEHOLD_CASE_TYPE: CaseType = {
  * additive arm of `applySchemaChange`. Subsequent `insert` /
  * `update` calls under the same `(appId, caseType)` then have a
  * schema row to validate against.
+ *
+ * `appId` defaults to the harness's shared `APP_ID` so the common
+ * one-app-per-test pattern reads as a three-argument call; tests
+ * exercising multi-app behavior pass an explicit `appId`.
  */
 async function seedSchema(
 	store: CaseStore,
 	blueprint: BlueprintDoc,
 	caseType: string,
+	appId: string = APP_ID,
 ): Promise<void> {
 	await store.applySchemaChange({
-		appId: APP_ID,
+		appId,
 		caseType,
 		blueprint,
 	});
@@ -235,6 +240,38 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(row?.case_type).toBe("patient");
 			expect(row?.owner_id).toBe(OWNER_A);
 			expect(row?.properties).toEqual({ name: "Alice", age: 30 });
+		});
+
+		it("inserts a JsonObject `properties` payload (not a JSON string)", async () => {
+			// Kysely's `JSONColumnType<JsonObject>` insert side admits
+			// either a plain object or a JSON-stringified value. A
+			// caller passing the object directly must round-trip
+			// through `query` as the same shape — the previous
+			// implementation silently wrote `'[object Object]'` on
+			// this branch because pg's parameter binder coerces
+			// non-string values to text via `String(value)` for
+			// JSONB columns.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					status: "open",
+					// Object literal, NOT a JSON string.
+					properties: { name: "Alice", age: 30 },
+				},
+			});
+
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.properties).toEqual({ name: "Alice", age: 30 });
 		});
 
 		// -----------------------------------------------------------
@@ -823,32 +860,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				via: { kind: "self" },
 			});
 			expect(reached).toHaveLength(0);
-		});
-
-		// -----------------------------------------------------------
-		// Sample-data methods throw — no SampleCaseGenerator wired
-		// -----------------------------------------------------------
-
-		it("generateSampleData throws because no generator is wired", async () => {
-			const store = await options.factory(OWNER_A);
-			await expect(
-				store.generateSampleData({
-					appId: APP_ID,
-					caseType: "patient",
-					count: 10,
-					seed: "test-seed",
-				}),
-			).rejects.toThrow(/sample data/i);
-		});
-
-		it("resetSampleData throws because no generator is wired", async () => {
-			const store = await options.factory(OWNER_A);
-			await expect(
-				store.resetSampleData({
-					appId: APP_ID,
-					caseType: "patient",
-				}),
-			).rejects.toThrow(/sample data/i);
 		});
 	});
 }
