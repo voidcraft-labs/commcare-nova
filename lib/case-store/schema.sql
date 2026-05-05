@@ -235,12 +235,22 @@ CREATE TABLE "case_indices" (
 --     the `compileRelationPath` chain, where the AST specifies an
 --     identifier but the lookup is on the descendant side.
 --
--- Per-property expression indexes (Plan 2's dynamic-index discipline)
--- are NOT in this static schema. Property names are blueprint-
--- specific and search modes are search-input-config-specific; the
--- canonical owner is `applySchemaChange`, which maintains the
--- matching CREATE INDEX / DROP INDEX set in the same transaction
--- as the JSON Schema regen.
+-- Per-property expression indexes (Plan 2's dynamic-index
+-- discipline) are NOT in this static schema. Property names are
+-- blueprint-specific and search modes are search-input-config-
+-- specific; the canonical owner is `applySchemaChange`, which
+-- emits the matching CREATE INDEX / DROP INDEX set against the
+-- live `pg_indexes` after the schema-sync transaction commits.
+-- The DDL emission runs in a second phase outside the transaction
+-- because Postgres's non-CONCURRENT CREATE INDEX heap-scans with
+-- SnapshotAny semantics — dead tuples from same-transaction
+-- DELETEs (a retype that quarantines bad rows) would still be
+-- evaluated by the new index expression and trip the cast. The
+-- two-phase split is documented in the file-level header on
+-- `lib/case-store/postgres/store.ts`. The achievable invariant is
+-- "schema and data are always consistent; indexes converge on the
+-- next idempotent applySchemaChange call". Missing indexes
+-- degrade query performance but never correctness.
 CREATE INDEX "case_indices_ancestor_id_identifier_idx"
   ON "case_indices" ("ancestor_id", "identifier");
 
