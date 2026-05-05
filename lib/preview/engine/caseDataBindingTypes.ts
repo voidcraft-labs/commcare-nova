@@ -26,7 +26,7 @@
 // a typed result rather than throwing, and the consumer surfaces
 // a re-auth nudge instead of the generic error UI.
 
-import type { CaseRow } from "@/lib/case-store/store";
+import type { CaseRow } from "@/lib/case-store";
 
 // ---------------------------------------------------------------
 // Row shapes — re-exported as the binding's public surface

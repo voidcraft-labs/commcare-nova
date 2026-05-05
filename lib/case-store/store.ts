@@ -41,6 +41,7 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 } from "@/lib/domain";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type {
 	Predicate,
 	RelationPath,
@@ -541,9 +542,12 @@ export function findCaseTypeOrThrow(
 	const found = blueprint.caseTypes?.find((c) => c.name === caseType);
 	if (!found) {
 		throw new Error(
-			`applySchemaChange: blueprint does not contain a case type named "${caseType}". ` +
-				`The blueprint must include the case type before its schema can be synced; ` +
-				`a removal is a different lifecycle than a schema change and is not handled here.`,
+			compilerBugMessage({
+				where: "case-store.findCaseTypeOrThrow",
+				invariant: `the supplied blueprint contains no case type named \`${caseType}\``,
+				detail:
+					"`applySchemaChange` consumes the case type from the prospective blueprint state to derive the JSON Schema row. The caller's saga shape — apply the case-store change first, commit Firestore on success, run a compensating `applySchemaChange(previousState)` on failure — assumes both states still contain the case type. A blueprint that omits the case type is a different lifecycle (removal); this function does not handle it.\n\nHint: confirm the caller passes the prospective blueprint with the case type still present; case-type removal flows through a separate cleanup path, not `applySchemaChange`.",
+			}),
 		);
 	}
 	return found;

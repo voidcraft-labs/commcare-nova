@@ -521,14 +521,20 @@ describe("HeuristicCaseGenerator error paths", () => {
 
 	it("throws when the blueprint does not contain the requested case type", () => {
 		const blueprint = buildBlueprint([HOUSEHOLD_CASE_TYPE]);
-		expect(() =>
-			generator.generate({
-				blueprint,
-				appId: "app-1",
-				caseType: "patient",
-				count: 5,
-				seed: "missing-case-type",
-			}),
-		).toThrow(/does not contain a case type named "patient"/);
+		expect(
+			() =>
+				generator.generate({
+					blueprint,
+					appId: "app-1",
+					caseType: "patient",
+					count: 5,
+					seed: "missing-case-type",
+				}),
+			// The Elm-style invariant message names the case type and
+			// points the reader at `findCaseTypeOrThrow`. Pin the
+			// contract on the case-type identifier — the helper's
+			// header / hint structure is voice-tweakable, but the
+			// case-type name is the load-bearing fact.
+		).toThrow(/contains no case type named `patient`/);
 	});
 });

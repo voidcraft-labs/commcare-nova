@@ -53,6 +53,7 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 } from "@/lib/domain";
+import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import type { JsonObject, JsonValue } from "../sql/database";
 import type { CaseInsert } from "../store";
 import { findCaseTypeOrThrow } from "../store";
@@ -209,7 +210,22 @@ function pickValueForProperty(args: {
 		default: {
 			const _exhaustive: never = dataType;
 			throw new Error(
-				`HeuristicCaseGenerator: unhandled data_type '${String(_exhaustive)}'`,
+				unhandledKindMessage({
+					where: "case-store.HeuristicCaseGenerator.pickValueForProperty",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: [
+						"text",
+						"int",
+						"decimal",
+						"date",
+						"datetime",
+						"time",
+						"single_select",
+						"multi_select",
+						"geopoint",
+					],
+				}),
 			);
 		}
 	}

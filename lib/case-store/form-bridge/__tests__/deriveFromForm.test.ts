@@ -562,7 +562,7 @@ describe("deriveFromForm — followup forms", () => {
 				moduleCaseType: "patient",
 				completedForm: completed([["/data/age", "31"]]),
 			}),
-		).toThrow(/requires completedForm\.caseId/);
+		).toThrow(/requires `completedForm\.caseId`/);
 	});
 });
 
@@ -642,6 +642,6 @@ describe("deriveFromForm — close forms", () => {
 				moduleCaseType: "patient",
 				completedForm: completed([]),
 			}),
-		).toThrow(/requires completedForm\.caseId/);
+		).toThrow(/requires `completedForm\.caseId`/);
 	});
 });

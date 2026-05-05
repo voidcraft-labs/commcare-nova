@@ -61,6 +61,10 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { casePropertyDataTypes } from "@/lib/domain";
+import {
+	compilerBugMessage,
+	unhandledKindMessage,
+} from "@/lib/domain/predicate/errors";
 import type { JsonObject, JsonValue } from "../sql/database";
 
 // ---------------------------------------------------------------
@@ -266,10 +270,12 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 		args.completedForm.caseId === undefined
 	) {
 		throw new Error(
-			`deriveFromForm: form type "${args.formType}" requires completedForm.caseId, ` +
-				`but none was supplied. Followup and close forms operate on a bound case ` +
-				`whose id flows from the preview's nav stack; the form-bridge cannot ` +
-				`derive an update / close operation without it.`,
+			compilerBugMessage({
+				where: "case-store.deriveFromForm",
+				invariant: `form type \`${args.formType}\` requires \`completedForm.caseId\`, but none was supplied`,
+				detail:
+					"Followup and close forms operate on a bound case; the running-app view's nav stack carries the bound case id through `PreviewScreen.form.caseId`. Reaching this throw means the consumer wired `completedForm` without threading the bound id from the nav stack.\n\nHint: confirm the form-bridge consumer extracts `caseId` from the running-app preview state before invoking `deriveFromForm` for non-registration / non-survey forms.",
+			}),
 		);
 	}
 
@@ -313,9 +319,12 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 		// surfacing it here turns a misuse into a clear throw.
 		if (args.moduleCaseType === undefined) {
 			throw new Error(
-				`deriveFromForm: registration form ${args.formUuid} requires a ` +
-					`moduleCaseType (the case type the form's module creates). ` +
-					`The form-bridge cannot derive an insert operation without it.`,
+				compilerBugMessage({
+					where: "case-store.deriveFromForm",
+					invariant: `registration form \`${args.formUuid}\` reached the form-bridge without a \`moduleCaseType\``,
+					detail:
+						"A registration form creates a case OF the module's case type, so the case-type slot is required to derive the `insert` operation. The blueprint validator's `NO_CASE_TYPE` rule already rejects modules without a configured case type, so reaching this throw means a registration form was carried through validation without being routed through the validator.\n\nHint: confirm the consumer derives `moduleCaseType` from the form's parent module before invoking the bridge; an unvalidated blueprint that bypassed `NO_CASE_TYPE` is the structural cause.",
+				}),
 			);
 		}
 		return {
@@ -332,10 +341,18 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 	// narrowing here is the structural pin.
 	const caseId = args.completedForm.caseId;
 	if (caseId === undefined) {
-		// Unreachable — guarded above. Defensive throw keeps the
-		// narrowing honest for downstream use.
+		// Unreachable — the followup/close caseId guard at the top of
+		// `deriveFromForm` already filtered this case out. The throw
+		// keeps the narrowing honest for downstream consumers; if it
+		// ever fires, the upstream guard regressed.
 		throw new Error(
-			"deriveFromForm: caseId narrowing failed after form-type guard.",
+			compilerBugMessage({
+				where: "case-store.deriveFromForm",
+				invariant:
+					"`caseId` narrowing failed after the followup/close form-type guard",
+				detail:
+					"The function's top-of-body guard rejects undefined `caseId` for followup/close forms before reaching this branch. Reaching this throw means the upstream guard regressed; restore the early-throw branch.",
+			}),
 		);
 	}
 	const primary: PrimaryUpdateOp = {
@@ -753,8 +770,12 @@ function coerceValueForProperty(args: {
 			// through the coercion layer before the project compiles.
 			const _exhaustive: never = dataType;
 			throw new Error(
-				`coerceValueForProperty: unhandled data_type "${String(_exhaustive)}". ` +
-					`Known types: ${casePropertyDataTypes.join(", ")}.`,
+				unhandledKindMessage({
+					where: "case-store.coerceValueForProperty",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: [...casePropertyDataTypes],
+				}),
 			);
 		}
 	}

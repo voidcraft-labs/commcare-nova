@@ -18,6 +18,8 @@
 // radius (~0.05 degrees, roughly 5 km) so a 30-row cluster spreads
 // visibly across a city map without scattering across continents.
 
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+
 /**
  * Major city centers the generator clusters around. Each entry pairs
  * a name (for documentation; not emitted) with a `(latitude,
@@ -70,7 +72,13 @@ export function pickCityClusteredGeopoint(prng: SeededPrng): string {
 		// arm is unreachable. The throw exists to surface the
 		// invariant if a future edit empties the array.
 		throw new Error(
-			"pickCityClusteredGeopoint: CITY_CENTERS is empty; the static pool must carry at least one center.",
+			compilerBugMessage({
+				where: "case-store.pickCityClusteredGeopoint",
+				invariant:
+					"`CITY_CENTERS` is empty; the static pool must carry at least one center for the perturbation read to land",
+				detail:
+					"The cluster pick reads `CITY_CENTERS[prng.pickIndex(CITY_CENTERS.length)]`. An empty array would make every index out of bounds and `pickIndex(0)` would degenerate. Reaching this throw means a future edit emptied the pool.\n\nHint: restore at least one entry in `CITY_CENTERS`.",
+			}),
 		);
 	}
 	// Perturbation radius: ~0.05 degrees ≈ 5 km at the equator.

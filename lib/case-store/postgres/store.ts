@@ -119,10 +119,15 @@ import type {
 	CaseType,
 } from "@/lib/domain";
 import {
+	compilerBugMessage,
+	unhandledKindMessage,
+} from "@/lib/domain/predicate/errors";
+import {
 	type CaseTypeJsonSchema,
 	caseTypeToJsonSchema,
 } from "@/lib/domain/predicate/jsonSchema";
 import type { RelationPath } from "@/lib/domain/predicate/types";
+import { CaseNotFoundError, CasePropertiesValidationError } from "../errors";
 import type { SampleCaseGenerator } from "../sample/generator";
 import {
 	compileExpression,
@@ -400,11 +405,13 @@ export class PostgresCaseStore implements CaseStore {
 				.where("c.owner_id", "=", this.ownerId)
 				.executeTakeFirst();
 			if (existing === undefined) {
-				throw new Error(
-					`update: case ${args.caseId} not found in app ${args.appId} for the bound owner. ` +
-						`The row does not exist, has been closed-and-deleted out of band, or belongs to ` +
-						`another tenant.`,
-				);
+				// `CaseNotFoundError` covers all three equivalent
+				// causes (row never existed, row removed out of band,
+				// row outside the bound owner's tenant) without
+				// confirming which one tripped — tenant boundaries
+				// stay structural rather than message-leaked. API
+				// routes catch and map to HTTP 404.
+				throw new CaseNotFoundError(args.caseId);
 			}
 
 			// Merge the patch's `properties` into the existing
@@ -634,8 +641,13 @@ export class PostgresCaseStore implements CaseStore {
 			}
 			if (args.property === undefined) {
 				throw new Error(
-					"applySchemaChange: `property` is required when `change` is supplied — " +
-						"the change shape targets a specific property and the migration loop reads from it.",
+					compilerBugMessage({
+						where: "PostgresCaseStore.applySchemaChange",
+						invariant:
+							"`property` is undefined while `change` is defined; the change shape targets a specific property and the migration loop reads from it",
+						detail:
+							"The `ApplySchemaChangeArgs` contract pairs `change` and `property` — `change` describes WHAT shifts (`rename` / `retype` / `narrow-options`); `property` names WHICH property the shift targets. Reaching this throw means the caller passed `change` but omitted `property`. Hint: pass `property` alongside `change` at the call site.",
+					}),
 				);
 			}
 			return await this.runPerRowMigration(trx, {
@@ -1185,12 +1197,21 @@ export class PostgresCaseStore implements CaseStore {
 		// `boolean` because Ajv `ValidateFunction` is generic.
 		const ok = validator(args.properties);
 		if (!ok) {
-			const detail = (validator.errors ?? [])
-				.map((e) => `${e.instancePath || "<root>"}: ${e.message ?? "invalid"}`)
-				.join("; ");
-			throw new Error(
-				`case_store: properties payload failed validation against ` +
-					`case_type_schemas[${args.appId}, ${args.caseType}].schema. Details: ${detail}`,
+			// Project AJV's per-error array onto the typed
+			// `CasePropertyFailure` shape API routes consume — the
+			// `instancePath` is the JSONB pointer (empty string for
+			// the document root) and `message` is AJV's reason text.
+			// `CasePropertiesValidationError` carries the structured
+			// list as a public field; API routes catch and map to
+			// HTTP 400 with the failure array as the response body.
+			const failures = (validator.errors ?? []).map((e) => ({
+				path: e.instancePath || "",
+				message: e.message ?? "invalid",
+			}));
+			throw new CasePropertiesValidationError(
+				args.appId,
+				args.caseType,
+				failures,
 			);
 		}
 	}
@@ -1228,9 +1249,12 @@ export class PostgresCaseStore implements CaseStore {
 			.executeTakeFirst();
 		if (row === undefined) {
 			throw new Error(
-				`case_store: no JSON Schema row found in case_type_schemas for ` +
-					`(${appId}, ${caseType}). The blueprint mutator must call ` +
-					`applySchemaChange() before any write to a case type.`,
+				compilerBugMessage({
+					where: "PostgresCaseStore.getValidator",
+					invariant: `no JSON Schema row found in \`case_type_schemas\` for (\`${appId}\`, \`${caseType}\`)`,
+					detail:
+						'`applySchemaChange` is the only producer of `case_type_schemas` rows; reaching this throw means a write hit `cases` for a case type whose schema was never synced. The spec § "Write-time validation" makes the ordering contract explicit — schema sync is synchronous on the blueprint write path, every blueprint mutation that touches a case type\'s property set runs `applySchemaChange()` before any data write reaches that case type.\n\nHint: confirm the blueprint mutator (Plan 3) routes through `applySchemaChange(args)` for every case type the mutation touches; reaching `cases` writes for an unseeded case type means the ordering contract was bypassed.',
+				}),
 			);
 		}
 
@@ -1327,27 +1351,50 @@ function parseJsonbInput(value: unknown): Record<string, unknown> {
 		return {};
 	}
 	if (typeof value === "string") {
+		let parsed: unknown;
 		try {
-			const parsed = JSON.parse(value);
-			if (
-				parsed !== null &&
-				typeof parsed === "object" &&
-				!Array.isArray(parsed)
-			) {
-				return parsed as Record<string, unknown>;
-			}
-			throw new Error("parsed JSONB value is not an object");
+			parsed = JSON.parse(value);
 		} catch (err) {
+			// JSON.parse failure is an upstream serializer bug —
+			// the form-bridge / CaseStore consumer's stringify path
+			// produced text that doesn't round-trip. The detail
+			// preserves the underlying parser message so the
+			// debugger can locate the malformed substring.
 			throw new Error(
-				`case_store: failed to parse JSONB input as a JSON object: ${err instanceof Error ? err.message : String(err)}`,
+				compilerBugMessage({
+					where: "case-store.parseJsonbInput",
+					invariant:
+						"input string is not parseable JSON, but every CaseStore caller stringifies through `JSON.stringify` before passing the payload here",
+					detail: `Underlying parser message: ${err instanceof Error ? err.message : String(err)}\n\nHint: trace the caller's stringify path — a serializer that produces non-JSON text (a stray sentinel, a non-stringifiable type) is the structural cause.`,
+				}),
 			);
 		}
+		if (
+			parsed !== null &&
+			typeof parsed === "object" &&
+			!Array.isArray(parsed)
+		) {
+			return parsed as Record<string, unknown>;
+		}
+		throw new Error(
+			compilerBugMessage({
+				where: "case-store.parseJsonbInput",
+				invariant:
+					"input string parses as JSON but the parsed value is not a JSON object",
+				detail: `Got: ${JSON.stringify(parsed)}\n\nThe \`cases.properties\` column stores a JSONB object; primitives, arrays, and \`null\` at the document root are not admissible. Hint: confirm the caller's stringify path produces an object literal.`,
+			}),
+		);
 	}
 	if (typeof value === "object" && !Array.isArray(value)) {
 		return value as Record<string, unknown>;
 	}
 	throw new Error(
-		`case_store: unexpected JSONB input shape ${typeof value}; expected a JSON-string or a plain object.`,
+		compilerBugMessage({
+			where: "case-store.parseJsonbInput",
+			invariant: `unexpected JSONB input shape \`${typeof value}\`; the type contract admits only \`JsonObject | string | null | undefined\``,
+			detail:
+				"Hint: the `CaseInsert.properties` / `CaseUpdate.properties` slot widens to `JsonObject | string | undefined`; reaching this throw means a runtime value bypassed the type system (e.g., an array or a primitive at the JSONB document root).",
+		}),
 	);
 }
 
@@ -1441,7 +1488,22 @@ function tryCastValue(
 		default: {
 			const _exhaustive: never = toType;
 			throw new Error(
-				`tryCastValue: unhandled toType '${String(_exhaustive)}'`,
+				unhandledKindMessage({
+					where: "case-store.tryCastValue",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: [
+						"text",
+						"int",
+						"decimal",
+						"date",
+						"datetime",
+						"time",
+						"single_select",
+						"multi_select",
+						"geopoint",
+					],
+				}),
 			);
 		}
 	}
@@ -1592,9 +1654,12 @@ function computeDesiredIndexSet(
 		const existing = sourceProperty.get(entry.name);
 		if (existing !== undefined && existing !== property.name) {
 			throw new Error(
-				`computeDesiredIndexSet: properties ${JSON.stringify(existing)} and ${JSON.stringify(property.name)} ` +
-					`compose into the same index name ${JSON.stringify(entry.name)} after the ` +
-					`hyphen-to-underscore transform. Rename one of them to disambiguate.`,
+				compilerBugMessage({
+					where: "case-store.computeDesiredIndexSet",
+					invariant: `properties \`${existing}\` and \`${property.name}\` compose into the same index name \`${entry.name}\` after the hyphen-to-underscore transform`,
+					detail:
+						"Postgres unquoted identifiers don't admit hyphens, so the indexer maps them to underscores when composing the index name. Two blueprint properties differing only by hyphen-vs-underscore (e.g., `external-id` vs `external_id`) collide post-transform.\n\nHint: the blueprint authoring layer (Plan 3) is responsible for rejecting sibling property names whose identifier-shape projections collide; reaching this throw means the upstream gate didn't catch it. Rename one of the two properties at the blueprint layer.",
+				}),
 			);
 		}
 		sourceProperty.set(entry.name, property.name);
@@ -1711,7 +1776,22 @@ function desiredIndexForProperty(
 		default: {
 			const _exhaustive: never = dataType;
 			throw new Error(
-				`desiredIndexForProperty: unhandled data_type '${String(_exhaustive)}'`,
+				unhandledKindMessage({
+					where: "case-store.desiredIndexForProperty",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: [
+						"text",
+						"int",
+						"decimal",
+						"date",
+						"datetime",
+						"time",
+						"single_select",
+						"multi_select",
+						"geopoint",
+					],
+				}),
 			);
 		}
 	}
@@ -1747,8 +1827,12 @@ function indexName(
 	const composed = `cases_${transformHyphens(caseType)}_${transformHyphens(property)}_${mode}`;
 	if (Buffer.byteLength(composed, "utf8") > 63) {
 		throw new Error(
-			`index name ${JSON.stringify(composed)} exceeds Postgres' 63-byte ` +
-				`identifier cap. Shorten the case-type name or the property name.`,
+			compilerBugMessage({
+				where: "case-store.indexName",
+				invariant: `composed index name \`${composed}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
+				detail:
+					"Postgres silently truncates identifiers at 63 bytes, so a long case-type + long property pair could collide in `pg_indexes` even with distinct pre-truncate names. The blueprint authoring layer (Plan 3) is responsible for keeping case-type + property names short enough to compose; reaching this throw means the upstream gate didn't catch it.\n\nHint: shorten the case-type name or the property name at the blueprint layer.",
+			}),
 		);
 	}
 	return composed;
@@ -1785,10 +1869,12 @@ function assertSafeIdentifierFragment(
 ): void {
 	if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(fragment)) {
 		throw new Error(
-			`${kind} name ${JSON.stringify(fragment)} contains characters other ` +
-				`than letters, digits, underscores, and hyphens, or does not start ` +
-				`with a letter; it cannot compose into a Postgres index name. ` +
-				`Rename the ${kind} in the blueprint.`,
+			compilerBugMessage({
+				where: "case-store.assertSafeIdentifierFragment",
+				invariant: `${kind} name \`${fragment}\` contains characters other than letters, digits, underscores, and hyphens, or does not start with a letter`,
+				detail:
+					"The blueprint AST's `CASE_PROPERTY_PATTERN` (at `lib/domain/predicate/types.ts`) restricts case-type and property names to a leading letter followed by letters / digits / underscores / hyphens; the case-store's identifier-shape contract aligns with that AST pattern. Reaching this throw means a name bypassed the AST gate (e.g., a runtime-constructed blueprint that skipped Zod parsing).\n\nHint: rename the offending case type or property at the blueprint layer; restoring AST-gated construction is the structural fix.",
+			}),
 		);
 	}
 }

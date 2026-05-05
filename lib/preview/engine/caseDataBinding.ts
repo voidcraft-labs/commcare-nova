@@ -51,7 +51,7 @@
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import { withOwnerContext } from "@/lib/case-store/withOwnerContext";
+import { withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	readCaseData,

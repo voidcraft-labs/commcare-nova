@@ -13,6 +13,7 @@
 // `lib/case-store/CLAUDE.md` § Production: Cloud Run startup CMD.
 
 import { spawnSync } from "node:child_process";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
 /**
  * Apply pending migrations via atlas against the supplied
@@ -51,9 +52,13 @@ export function applyMigrationsViaAtlas(
 		const code = (result.error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
 			throw new Error(
-				"atlas: command not found. Install Atlas via " +
-					"`brew install ariga/tap/atlas` or " +
-					"`curl -sSf https://atlasgo.sh | sh` and re-run.",
+				compilerBugMessage({
+					where: "case-store.applyMigrationsViaAtlas",
+					invariant:
+						"`atlas` is not on `PATH`; the testcontainers harness shells out to the atlas binary and cannot proceed without it",
+					detail:
+						"Install Atlas via `brew install ariga/tap/atlas` (macOS) or `curl -sSf https://atlasgo.sh | sh` (Linux). On macOS systems where the brew tap fails on Command Line Tools incompatibility, download the community binary directly from `https://release.ariga.io/atlas/atlas-community-<os>-<arch>-latest` and place it on `PATH`.\n\nHint: re-run the test command once `atlas --version` works in the same shell.",
+				}),
 			);
 		}
 		throw result.error;
@@ -68,7 +73,11 @@ export function applyMigrationsViaAtlas(
 				? `\n${result.stdout ?? ""}\n${result.stderr ?? ""}`
 				: "";
 		throw new Error(
-			`atlas migrate apply failed with exit status ${result.status ?? "(null)"}${captured}`,
+			compilerBugMessage({
+				where: "case-store.applyMigrationsViaAtlas",
+				invariant: `\`atlas migrate apply\` exited with status ${result.status ?? "(null)"}`,
+				detail: `${captured}\n\nHint: inspect the captured output above (or stderr in \`inherit\` mode) for the failing migration's name. The most common causes are an authoring-time SQL syntax error in the new migration file or a destructive change that lint should have rejected upstream.`,
+			}),
 		);
 	}
 }

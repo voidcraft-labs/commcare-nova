@@ -71,11 +71,17 @@ describe("readCaseStoreEnvConfig", () => {
 	)("throws an error naming the missing variable when %s is absent", (missingVar) => {
 		// Build an env with everything except the named variable.
 		// Ensures each variable is exercised in isolation rather
-		// than in combination with other gaps.
+		// than in combination with other gaps. The Elm-style throw
+		// emits a `missing: <names>` line with the named variable
+		// present; pin the contract via two cheap substring checks
+		// rather than a brittle full-message regex.
 		const env: Record<string, string> = { ...completeEnv };
 		delete env[missingVar];
 		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			new RegExp(`missing required environment variables:.*${missingVar}`),
+			/missing required environment variables/,
+		);
+		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
+			new RegExp(`missing:[^\\n]*${missingVar}`),
 		);
 	});
 
@@ -87,7 +93,10 @@ describe("readCaseStoreEnvConfig", () => {
 		// same as absent. This test pins that contract.
 		const env: Record<string, string> = { ...completeEnv, [emptyVar]: "" };
 		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			new RegExp(`missing required environment variables:.*${emptyVar}`),
+			/missing required environment variables/,
+		);
+		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
+			new RegExp(`missing:[^\\n]*${emptyVar}`),
 		);
 	});
 
@@ -95,9 +104,10 @@ describe("readCaseStoreEnvConfig", () => {
 		// All three variables missing — the error names every one in
 		// a single throw rather than failing on the first and forcing
 		// the operator to redeploy three times to discover the rest.
+		// The Elm-style throw lists all three on the `missing:` line.
 		const env: Record<string, string> = {};
 		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			/missing required environment variables:.*NOVA_DB_NAME.*NOVA_DB_USER.*NOVA_DB_INSTANCE_CONNECTION_NAME/,
+			/missing:[^\n]*NOVA_DB_NAME[^\n]*NOVA_DB_USER[^\n]*NOVA_DB_INSTANCE_CONNECTION_NAME/,
 		);
 	});
 

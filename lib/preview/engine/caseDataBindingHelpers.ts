@@ -34,8 +34,7 @@
 // flattening is a presentation concern (the form engine reasons
 // about input strings), not a domain concern.
 
-import type { JsonValue } from "@/lib/case-store/sql/database";
-import type { CaseRow, CaseStore } from "@/lib/case-store/store";
+import type { CaseRow, CaseStore, JsonValue } from "@/lib/case-store";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
 	LoadCaseDataResult,

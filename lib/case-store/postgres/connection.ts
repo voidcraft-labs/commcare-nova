@@ -201,12 +201,27 @@ export function enforceConnectionBudget(): void {
 		CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS;
 	const peakDemand = CLOUD_RUN_MAX_INSTANCES * POOL_MAX_PER_INSTANCE;
 	if (peakDemand > applicationBudget) {
+		// Inline Elm-style throw — header / indented diagnostic / narrative /
+		// Hint. Deploy-time configuration violations don't fit
+		// `compilerBugMessage` (this is operator misconfiguration, not an
+		// internal invariant) but match the same voice for consistency
+		// with the rest of the case-store error surface.
 		throw new Error(
-			`Cloud SQL connection budget exceeded: peak demand ` +
-				`${CLOUD_RUN_MAX_INSTANCES} (instances) * ${POOL_MAX_PER_INSTANCE} (pool max) = ${peakDemand} ` +
-				`> available budget ${CLOUD_SQL_MAX_CONNECTIONS} - ${CLOUD_SQL_RESERVED_CONNECTIONS} = ${applicationBudget}. ` +
-				`Either tier up Cloud SQL (raises CLOUD_SQL_MAX_CONNECTIONS), reduce CLOUD_RUN_MAX_INSTANCES, ` +
-				`or reduce POOL_MAX_PER_INSTANCE so the four constants in lib/case-store/postgres/connection.ts stay consistent.`,
+			[
+				"Cloud SQL connection budget exceeded.",
+				"",
+				`    peak demand:        ${CLOUD_RUN_MAX_INSTANCES} (instances) * ${POOL_MAX_PER_INSTANCE} (pool max) = ${peakDemand}`,
+				`    available budget:   ${CLOUD_SQL_MAX_CONNECTIONS} - ${CLOUD_SQL_RESERVED_CONNECTIONS} = ${applicationBudget}`,
+				"",
+				"`pg.Pool` `max` × Cloud Run `--max-instances` must stay at or below",
+				"Cloud SQL `max_connections` minus the reserved-for-postgres slot count.",
+				"Crossing the budget can stall every Cloud Run instance against the",
+				"shared connection cap.",
+				"",
+				"Hint: tier up Cloud SQL (raises `CLOUD_SQL_MAX_CONNECTIONS`), reduce",
+				"`CLOUD_RUN_MAX_INSTANCES`, or reduce `POOL_MAX_PER_INSTANCE` so the four",
+				"constants in `lib/case-store/postgres/connection.ts` stay consistent.",
+			].join("\n"),
 		);
 	}
 }
@@ -280,12 +295,26 @@ export function readCaseStoreEnvConfig(
 	if (missing.length > 0) {
 		// Aggregate every gap into one error so the operator sees the
 		// full misconfiguration in a single failure instead of
-		// drip-feeding through restart cycles.
+		// drip-feeding through restart cycles. Inline Elm-style throw —
+		// the same voice the case-store error helpers establish, but
+		// inline because deploy-time configuration violations are not
+		// internal invariants.
 		throw new Error(
-			`Cloud SQL case store is missing required environment variables: ${missing.join(", ")}. ` +
-				`Phase 6 of docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md ` +
-				`wires NOVA_DB_NAME, NOVA_DB_USER, and NOVA_DB_INSTANCE_CONNECTION_NAME on Cloud Run; ` +
-				`re-run the gcloud run services update command from Phase 6 if the deployed revision is missing them.`,
+			[
+				"Cloud SQL case store is missing required environment variables.",
+				"",
+				`    missing: ${missing.join(", ")}`,
+				"",
+				"Cloud Run accepts an empty env-var value silently via",
+				"`--update-env-vars`, so a typo or a stale revision can leave the",
+				"deployed pod with one or more variables absent. The connector path",
+				"requires all three: `NOVA_DB_NAME`, `NOVA_DB_USER`,",
+				"`NOVA_DB_INSTANCE_CONNECTION_NAME`.",
+				"",
+				"Hint: re-run the `gcloud run services update` command from Phase 6 of",
+				"`docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md`",
+				"to wire the missing variable on the deployed revision.",
+			].join("\n"),
 		);
 	}
 	// All three are guaranteed populated by the loop above; the

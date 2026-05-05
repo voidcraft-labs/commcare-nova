@@ -35,6 +35,7 @@
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Client, Pool } from "pg";
 import { afterEach, beforeEach, inject } from "vitest";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
 // ---------------------------------------------------------------
 // Public API — the helper test files consume
@@ -162,9 +163,13 @@ export function setupPerTestDatabase(
 	const requireActive = () => {
 		if (active === null) {
 			throw new Error(
-				"PerTestDatabaseHandle accessed outside a Vitest test body. " +
-					"Read handle.db / handle.pool inside an `it(...)` callback or " +
-					"a sibling `beforeEach` registered after `setupPerTestDatabase` runs.",
+				compilerBugMessage({
+					where: "case-store.PerTestDatabaseHandle",
+					invariant:
+						"`PerTestDatabaseHandle` accessed outside a Vitest test body",
+					detail:
+						"The handle's `db` / `pool` / `uri` / `databaseName` fields are populated in `beforeEach` and cleared in `afterEach`. Reading them at module scope or inside a top-level describe block returns `null`.\n\nHint: read the handle inside an `it(...)` callback or a sibling `beforeEach` registered after `setupPerTestDatabase` runs.",
+				}),
 			);
 		}
 		return active;
