@@ -39,6 +39,7 @@
 
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
+import { HeuristicCaseGenerator } from "./sample/heuristic";
 import type { CaseStore } from "./store";
 
 /**
@@ -52,6 +53,12 @@ import type { CaseStore } from "./store";
  * pool lazily on first call (see
  * `lib/case-store/postgres/connection.ts`).
  *
+ * The default `SampleCaseGenerator` is `HeuristicCaseGenerator`
+ * (under `./sample/heuristic.ts`) — a stateless, deterministic
+ * generator. The same `SampleCaseGenerator` interface accepts any
+ * alternative implementation (e.g. an LLM-driven generator); this
+ * factory wires the heuristic by default.
+ *
  * @param userId - The Better Auth user id from the request's
  *   resolved session (`session.user.id`). The store binds this as
  *   its `owner_id` filter for every underlying query; cross-tenant
@@ -62,5 +69,9 @@ import type { CaseStore } from "./store";
  */
 export async function withOwnerContext(userId: string): Promise<CaseStore> {
 	const db = await getCaseStoreDatabase();
-	return new PostgresCaseStore({ ownerId: userId, db });
+	return new PostgresCaseStore({
+		ownerId: userId,
+		db,
+		sampleGenerator: new HeuristicCaseGenerator(),
+	});
 }

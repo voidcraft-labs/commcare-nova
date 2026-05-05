@@ -861,5 +861,205 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(reached).toHaveLength(0);
 		});
+
+		// -----------------------------------------------------------
+		// generateSampleData — heuristic-driven population
+		// -----------------------------------------------------------
+
+		it("generateSampleData inserts the requested count of rows for the case-type", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			const result = await store.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 5,
+				seed: "alpha",
+				blueprint,
+			});
+			expect(result).toEqual({ inserted: 5 });
+
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(5);
+			// Every row carries the bound owner + the requested
+			// case-type — pins that the generator's output flows
+			// through `insert`'s tenant-scoping path.
+			for (const row of rows) {
+				expect(row.owner_id).toBe(OWNER_A);
+				expect(row.case_type).toBe("patient");
+			}
+		});
+
+		it("generateSampleData is deterministic per seed", async () => {
+			// Two stores against separate owners so generated rows
+			// land in distinct tenant scopes; both calls use the same
+			// seed and the produced `properties` documents should
+			// match by-row.
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+			await seedSchema(storeB, blueprint, "patient");
+
+			await storeA.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 3,
+				seed: "deterministic",
+				blueprint,
+			});
+			await storeB.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 3,
+				seed: "deterministic",
+				blueprint,
+			});
+
+			// Sort by `properties.name` so the comparison is index-
+			// independent. UUID v7 ordering would already align the
+			// two runs, but pulling the rows back through `query`
+			// without an explicit sort is implementation-leaky;
+			// sorting here pins the contract.
+			const rowsA = await storeA.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			const rowsB = await storeB.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rowsA).toHaveLength(3);
+			expect(rowsB).toHaveLength(3);
+
+			// Compare the deterministic part of each row: the
+			// `properties` document. The generated `case_id`s differ
+			// (UUID v7 reflects insert time) but the seeded payload
+			// must be identical at every row index.
+			const propsA = rowsA.map((r) => JSON.stringify(r.properties)).sort();
+			const propsB = rowsB.map((r) => JSON.stringify(r.properties)).sort();
+			expect(propsA).toEqual(propsB);
+		});
+
+		it("resetSampleData deletes existing rows and regenerates", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			// Seed an initial population.
+			await store.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 4,
+				seed: "before-reset",
+				blueprint,
+			});
+			const beforeRows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(beforeRows).toHaveLength(4);
+			const beforeIds = new Set(beforeRows.map((r) => r.case_id));
+
+			// Reset to a smaller population — the deletion should
+			// remove all four pre-existing rows; the regeneration
+			// should leave exactly two.
+			const result = await store.resetSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 2,
+				blueprint,
+			});
+			expect(result.deleted).toBe(4);
+			expect(result.inserted).toBe(2);
+
+			const afterRows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(afterRows).toHaveLength(2);
+			// The reset's regeneration uses a fresh seed, so the new
+			// rows' case_ids are distinct from the pre-reset rows.
+			for (const row of afterRows) {
+				expect(beforeIds.has(row.case_id)).toBe(false);
+			}
+		});
+
+		// -----------------------------------------------------------
+		// generateSampleData — parent-child linkage end-to-end
+		// -----------------------------------------------------------
+
+		it("generateSampleData populates case_indices for child case-types and traverse resolves parents", async () => {
+			// End-to-end check: generated child rows pick parents
+			// from already-populated parent rows; the case-store's
+			// `insert` derives `case_indices` from `parent_case_id`;
+			// `traverse` walks the index. The flow exercises every
+			// seam from generator → insert → case_indices → traverse.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([
+				PATIENT_WITH_PARENT_CASE_TYPE,
+				HOUSEHOLD_CASE_TYPE,
+			]);
+			await seedSchema(store, blueprint, "household");
+			await seedSchema(store, blueprint, "patient");
+
+			// Populate parents first so the child generator can
+			// resolve them via `parent_case_id`.
+			await store.generateSampleData({
+				appId: APP_ID,
+				caseType: "household",
+				count: 3,
+				seed: "households",
+				blueprint,
+			});
+			await store.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 5,
+				seed: "patients",
+				blueprint,
+			});
+
+			// Every child row carries a non-null `parent_case_id`
+			// pointing at one of the household rows.
+			const households = await store.query({
+				appId: APP_ID,
+				caseType: "household",
+			});
+			const patients = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(households).toHaveLength(3);
+			expect(patients).toHaveLength(5);
+			const householdIds = new Set(households.map((h) => h.case_id));
+			for (const patient of patients) {
+				expect(patient.parent_case_id).not.toBeNull();
+				if (patient.parent_case_id !== null) {
+					expect(householdIds.has(patient.parent_case_id)).toBe(true);
+				}
+			}
+
+			// `traverse` from a parent through `subcasePath("parent",
+			// "patient")` resolves the children whose `case_indices`
+			// row points back at it. Walking from every household and
+			// summing the children should yield the full patient
+			// population — the `case_indices` rows derive correctly
+			// at insert time.
+			let traversedTotal = 0;
+			for (const household of households) {
+				const children = await store.traverse({
+					appId: APP_ID,
+					caseId: household.case_id,
+					via: subcasePath("parent", "patient"),
+				});
+				traversedTotal += children.length;
+			}
+			expect(traversedTotal).toBe(5);
+		});
 	});
 }

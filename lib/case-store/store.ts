@@ -346,6 +346,15 @@ export interface MigrationReport {
  *     `change` is present. Both halves run in one Postgres
  *     transaction so the database never holds a new schema with
  *     rows that fail validation against it.
+ *   - `generateSampleData` — drives the bound `SampleCaseGenerator`
+ *     to build deterministic per-`(app, caseType, seed)` rows and
+ *     routes them through `insert` so generated rows participate in
+ *     the same JSON Schema validation + `case_indices` derivation
+ *     real inserts use.
+ *   - `resetSampleData` — deletes every row of the case-type for
+ *     the bound tenant + drops their `case_indices` edges, then
+ *     regenerates from a fresh seed. Atomic: deletion + regeneration
+ *     run inside one Postgres transaction.
  */
 export interface CaseStore {
 	/**
@@ -415,6 +424,99 @@ export interface CaseStore {
 	 * rows that fail validation against it.
 	 */
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
+
+	/**
+	 * Generate `count` sample rows for `caseType` against the
+	 * supplied prospective blueprint state and write them through
+	 * `insert`. Deterministic per `(app, caseType, seed)` — the same
+	 * tuple yields the same row sequence on every call.
+	 *
+	 * The implementation queries existing parent rows for any
+	 * declared parent case-type and threads them as candidate
+	 * `parent_case_id` targets so the generator's parent linkage
+	 * resolves to real ids; the case-store derives `case_indices`
+	 * direct edges from those linkages at insert time.
+	 *
+	 * Returns the count of rows actually inserted. Each row's write
+	 * runs through `insert`, which opens its own transaction for the
+	 * row + edge derivation; a mid-loop failure stops the loop and
+	 * propagates the error, leaving rows already inserted in place.
+	 * Callers that need an all-or-nothing population pair this with
+	 * an outer cleanup path.
+	 */
+	generateSampleData(args: GenerateSampleDataArgs): Promise<{
+		inserted: number;
+	}>;
+
+	/**
+	 * Delete every row of `caseType` for the bound tenant + drop
+	 * the matching `case_indices` edges, then regenerate from a
+	 * fresh seed.
+	 *
+	 * The deletion runs in one transaction (cases + edges drop
+	 * atomically); the regeneration runs after the deletion commits
+	 * because each row's `insert` opens its own per-row transaction
+	 * and Postgres rejects a nested BEGIN. A mid-regeneration failure
+	 * leaves the case-type partially populated; callers that need
+	 * stricter consistency pair this with an outer retry path.
+	 *
+	 * Returns the count of rows deleted and inserted; either count
+	 * may be zero on a fresh empty case type or a degenerate-count
+	 * regenerate.
+	 */
+	resetSampleData(args: ResetSampleDataArgs): Promise<{
+		deleted: number;
+		inserted: number;
+	}>;
+}
+
+// ---------------------------------------------------------------
+// Sample-data argument types
+// ---------------------------------------------------------------
+
+/**
+ * Arguments for `CaseStore.generateSampleData`. The `blueprint`
+ * field threads the prospective blueprint state in the same way
+ * `applySchemaChange` does — the generator reads `data_type`,
+ * options, property names off the matching `CaseType`, and the
+ * parent-id resolution path reads the case-type relationship graph
+ * from the same blueprint.
+ *
+ * `count` and `seed` are passed straight through to the bound
+ * `SampleCaseGenerator`.
+ */
+export interface GenerateSampleDataArgs {
+	/** The owning app — written through into every row's `app_id`. */
+	appId: string;
+	/** The case-type to populate. */
+	caseType: string;
+	/** The number of rows to generate. */
+	count: number;
+	/**
+	 * The PRNG seed. Same `(appId, caseType, seed)` tuple yields
+	 * the same row sequence on every call.
+	 */
+	seed: string;
+	/** The prospective blueprint state. Source for case-type definitions. */
+	blueprint: BlueprintDoc;
+}
+
+/**
+ * Arguments for `CaseStore.resetSampleData`. The implementation
+ * picks a fresh seed (driven by `Date.now()` or equivalent) for
+ * the regeneration step — callers reset specifically to randomize
+ * the population, so the seed is implementation-owned. Tests can
+ * call `generateSampleData` directly when they need a fixed seed.
+ */
+export interface ResetSampleDataArgs {
+	/** The owning app. */
+	appId: string;
+	/** The case-type to reset. */
+	caseType: string;
+	/** The number of rows to regenerate. */
+	count: number;
+	/** The prospective blueprint state. Source for case-type definitions. */
+	blueprint: BlueprintDoc;
 }
 
 // ---------------------------------------------------------------

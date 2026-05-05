@@ -48,6 +48,7 @@
 import type { Kysely } from "kysely";
 import { beforeEach } from "vitest";
 import { runStoreContract } from "../../__tests__/storeContract";
+import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { applyMigrationsViaAtlas } from "../../sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -119,6 +120,7 @@ runStoreContract({
 		return new PostgresCaseStore({
 			ownerId,
 			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: new HeuristicCaseGenerator(),
 		});
 	},
 });

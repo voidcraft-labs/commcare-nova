@@ -49,12 +49,17 @@
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
-import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CasePropertyDataType,
+	CaseType,
+} from "@/lib/domain";
 import {
 	type CaseTypeJsonSchema,
 	caseTypeToJsonSchema,
 } from "@/lib/domain/predicate/jsonSchema";
 import type { RelationPath } from "@/lib/domain/predicate/types";
+import type { SampleCaseGenerator } from "../sample/generator";
 import {
 	compileExpression,
 	compilePredicate,
@@ -74,8 +79,10 @@ import type {
 	CaseRow,
 	CaseStore,
 	CaseUpdate,
+	GenerateSampleDataArgs,
 	MigrationReport,
 	QueryArgs,
+	ResetSampleDataArgs,
 	SchemaChangeKind,
 } from "../store";
 import { buildCaseTypeMap, findCaseTypeOrThrow } from "../store";
@@ -85,21 +92,31 @@ import { buildCaseTypeMap, findCaseTypeOrThrow } from "../store";
 // ---------------------------------------------------------------
 
 /**
- * Construction arguments. Both fields are required: the owner id
- * pins tenant scope; the Kysely instance is the connection root
- * the store binds against.
+ * Construction arguments. All three fields are required: the owner
+ * id pins tenant scope; the Kysely instance is the connection root
+ * the store binds against; the sample generator is the seam
+ * `generateSampleData` and `resetSampleData` route through.
  *
  * Production callers go through `withOwnerContext(userId)` which
- * resolves `db` from `getCaseStoreDatabase()`. Tests construct
- * directly with a per-test isolated Kysely instance so the
- * transaction-per-test fixture or the per-test database the
- * harness builds is the runtime context.
+ * resolves `db` from `getCaseStoreDatabase()` and wires the default
+ * `HeuristicCaseGenerator`. Tests construct directly with a per-
+ * test isolated Kysely instance and either the heuristic generator
+ * or a stub.
  */
 export interface PostgresCaseStoreArgs {
 	/** The owner id every method's WHERE clause filters on. */
 	ownerId: string;
 	/** The bound Kysely instance — production singleton or per-test fixture. */
 	db: Kysely<Database>;
+	/**
+	 * The bound `SampleCaseGenerator`. `generateSampleData` and
+	 * `resetSampleData` invoke `generator.generate(...)` to build
+	 * the row population; the store then routes those rows through
+	 * `this.insert(...)` so generated rows participate in the same
+	 * JSON Schema validation + `case_indices` derivation real
+	 * inserts use.
+	 */
+	sampleGenerator: SampleCaseGenerator;
 }
 
 // ---------------------------------------------------------------
@@ -154,12 +171,14 @@ export class PostgresCaseStore implements CaseStore {
 	private readonly db: Kysely<Database>;
 	private readonly ajv: Ajv2020;
 	private readonly validatorCache: Map<string, ValidatorCacheEntry>;
+	private readonly sampleGenerator: SampleCaseGenerator;
 
 	constructor(args: PostgresCaseStoreArgs) {
 		this.ownerId = args.ownerId;
 		this.db = args.db;
 		this.ajv = buildAjv();
 		this.validatorCache = new Map();
+		this.sampleGenerator = args.sampleGenerator;
 	}
 
 	// -----------------------------------------------------------
@@ -546,6 +565,141 @@ export class PostgresCaseStore implements CaseStore {
 				schema,
 			});
 		});
+	}
+
+	// -----------------------------------------------------------
+	// `generateSampleData` — heuristic generator → insert
+	// -----------------------------------------------------------
+
+	async generateSampleData(
+		args: GenerateSampleDataArgs,
+	): Promise<{ inserted: number }> {
+		// Resolve parent ids for the generator's `parentRefs` map.
+		// The generator uses these to populate `parent_case_id` on
+		// child rows so `case_indices` derivation in `insert` produces
+		// real edges. When the case-type declares no parent or no
+		// parents exist yet, the generator emits orphan rows.
+		const parentRefs = await this.resolveParentRefs({
+			appId: args.appId,
+			caseType: args.caseType,
+			blueprint: args.blueprint,
+		});
+
+		const rows = this.sampleGenerator.generate({
+			blueprint: args.blueprint,
+			appId: args.appId,
+			caseType: args.caseType,
+			count: args.count,
+			seed: args.seed,
+			parentRefs,
+		});
+
+		// Route every generated row through `insert`. This is the
+		// architectural seam: generated rows participate in JSON
+		// Schema validation, `case_indices` derivation, and tenant
+		// scoping the same way user-authored rows do. The single-
+		// row `insert` shape iterates here rather than batching
+		// because the validation + edge-derivation contract is the
+		// per-row primitive.
+		let inserted = 0;
+		for (const row of rows) {
+			await this.insert({ appId: args.appId, row });
+			inserted++;
+		}
+		return { inserted };
+	}
+
+	// -----------------------------------------------------------
+	// `resetSampleData` — atomic delete + regenerate
+	// -----------------------------------------------------------
+
+	async resetSampleData(
+		args: ResetSampleDataArgs,
+	): Promise<{ deleted: number; inserted: number }> {
+		// Delete the existing rows + their `case_indices` edges in
+		// one transaction so the deletion half is atomic — no
+		// orphan edges remain if the cases delete fails. The
+		// regeneration runs AFTER the delete commits because each
+		// row's `insert` opens its own per-row transaction and
+		// Postgres rejects a nested BEGIN. A mid-regeneration
+		// failure leaves the case-type partially populated; the
+		// reset's contract reflects that on the interface.
+		const deleted = await this.db.transaction().execute(async (trx) => {
+			// `case_indices` references are caller-managed (no FK
+			// constraint declared) — delete them first so orphan
+			// edges don't accumulate. The `case_id IN (...)`
+			// subquery scopes the edge cleanup to rows the case-type
+			// owns under the bound tenant.
+			await trx
+				.deleteFrom("case_indices")
+				.where("case_id", "in", (eb) =>
+					eb
+						.selectFrom("cases")
+						.select("case_id")
+						.where("app_id", "=", args.appId)
+						.where("case_type", "=", args.caseType)
+						.where("owner_id", "=", this.ownerId),
+				)
+				.execute();
+			const result = await trx
+				.deleteFrom("cases")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.where("owner_id", "=", this.ownerId)
+				.executeTakeFirst();
+			return Number(result.numDeletedRows ?? 0);
+		});
+
+		// Regenerate with a fresh seed. `Date.now()` is the
+		// canonical "fresh" source; callers who need a fixed seed
+		// invoke `generateSampleData` directly.
+		const { inserted } = await this.generateSampleData({
+			appId: args.appId,
+			caseType: args.caseType,
+			count: args.count,
+			seed: Date.now().toString(),
+			blueprint: args.blueprint,
+		});
+
+		return { deleted, inserted };
+	}
+
+	// -----------------------------------------------------------
+	// Sample-data parent-ref resolution
+	// -----------------------------------------------------------
+
+	/**
+	 * Build the `parentRefs` map the generator consumes to populate
+	 * `parent_case_id` on child rows. For each case type the
+	 * blueprint declares as the supplied case type's `parent_type`,
+	 * the helper queries the existing case ids in `cases` for the
+	 * bound tenant + app and packs them into a `Map`. The generator
+	 * picks one id per child row at random.
+	 *
+	 * When the case type has no `parent_type`, the result is an
+	 * empty map — the generator's path produces orphan rows in
+	 * that arm.
+	 */
+	private async resolveParentRefs(args: {
+		appId: string;
+		caseType: string;
+		blueprint: BlueprintDoc;
+	}): Promise<ReadonlyMap<string, ReadonlyArray<string>>> {
+		const matching = args.blueprint.caseTypes?.find(
+			(c) => c.name === args.caseType,
+		);
+		if (matching === undefined || matching.parent_type === undefined) {
+			return new Map();
+		}
+		const parentType = matching.parent_type;
+		const parents = await this.db
+			.selectFrom("cases")
+			.select("case_id")
+			.where("app_id", "=", args.appId)
+			.where("case_type", "=", parentType)
+			.where("owner_id", "=", this.ownerId)
+			.execute();
+		return new Map([[parentType, parents.map((p) => p.case_id)]]);
 	}
 
 	// -----------------------------------------------------------
