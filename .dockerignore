@@ -5,21 +5,10 @@ node_modules
 *.md
 .env*
 .playwright-mcp
-# Exclude the broad scripts directory (Next.js / inspect / dev
-# tooling that the runtime images don't need) but re-include the
-# Cloud Run job CLI subdirectories explicitly. Each !-exception
-# is paired with a Dockerfile that COPYs from that subdirectory:
-#
-#   - `!scripts/check-extensions` → Dockerfile.check-extensions
-#   - `!scripts/migrate`          → Dockerfile.migrate
-#
-# Without the matching exception, the COPY fails with "file not
-# found in build context" because Docker excludes the whole
-# `scripts/` directory before the COPY runs. Listing each Cloud
-# Run job's subdirectory as a separate narrow allowlist (rather
-# than re-including all of `scripts/`) keeps the build context
-# small and pins the failure surface to the directories the
-# Dockerfiles actually consume.
+# The scripts directory holds Next.js / inspect / dev tooling that
+# the runtime image doesn't need. The Dockerfile COPYs `atlas.hcl`
+# and `lib/case-store/{schema.sql,migrations}` at known paths;
+# nothing under `scripts/` gets baked into the image, so excluding
+# the entire directory keeps the build context small without any
+# allowlist exceptions.
 scripts
-!scripts/check-extensions
-!scripts/migrate
