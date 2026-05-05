@@ -423,44 +423,52 @@ The corrections live in the file-header docstring of `lib/case-store/postgres/st
 
 Commit chain: `098c31d8` (initial feat) → `b562dbf3` (CR + spec-review fix-pass).
 
-### Task 9: Barrel exports + CLAUDE.md + full error-message sweep
+### Task 9: Barrel exports + CLAUDE.md + typed error contract — SHIPPED
 
-**Files:** `lib/case-store/index.ts`, `lib/case-store/CLAUDE.md`, `lib/case-store/errors.ts` (new), every existing `throw new Error(...)` site across `lib/case-store/**`.
+SHIPPED 2026-05-05 in commits `0ec0fa2a` (feat) → `d9099886` (CR + spec-review fix-pass) on branch `feat/case-list-search`. Final task in Plan 2.
 
-**Barrel + CLAUDE.md:**
+**Files shipped:**
 
-Document:
-- The interface contract.
-- The single-implementation pattern (no in-memory variant; no parity tests; testcontainers covers test isolation).
-- The "no preview mode" architecture: the running-app view operates on the same rows the editor sees; sample-data generation is a user action.
-- The `(app_id, owner_id)` isolation pattern.
-- The migration workflow: Atlas owns schema-as-code (`schema.sql` source) + autogenerates migrations into `migrations/` via `npm run db:diff`. Production applies via the Cloud Run startup CMD (`atlas migrate apply --env prod --allow-dirty && exec node server.js`); tests apply via the same atlas binary shelled out from `globalSetup.ts`. Local-only npm scripts: `db:diff` (generate from `schema.sql` edit) + `db:lint` (matches the lefthook pre-commit destructive-change check). Production migration state: `gcloud logging read` for the most recent apply log + `atlas_schema_revisions` ledger via Cloud SQL Studio for the full applied set.
-- The required Postgres extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`) — installed at provisioning time per the Task 0 runbook §Phase 5 + by the testcontainer harness via container superuser. No runtime verification gate; missing extensions surface as `function does not exist` failures at the first compiler-emitted query against them.
-- Why validation lives in TypeScript, not in Postgres triggers: `lib/domain/predicate/jsonSchema.ts` + `ajv` at the API-route trust boundary; no `pg_jsonschema` (Cloud SQL doesn't allowlist it) and no PL/pgSQL fallback (would duplicate the TS validator's logic).
-- The typed error contract (see "Full error-message sweep" below).
+- `lib/case-store/index.ts` (new) — public barrel. Curated `export type` / `export` (not wholesale `export *`). Exposes `CaseStore` interface + `withOwnerContext` factory + row/arg/result types (`CaseRow`, `CaseInsert`, `CaseUpdate`, `QueryArgs`, `MigrationReport`, `ApplySchemaChangeArgs`, `GenerateSampleDataArgs`, `ResetSampleDataArgs`, `SchemaChangeKind`, `SortKey`) + typed error classes (`CaseNotFoundError`, `CasePropertiesValidationError`, `CasePropertyFailure`) + form-bridge surfaces (`deriveFromForm`, `writeFormCompletionThrough` + types) + JSONB value types (`JsonObject`, `JsonValue`, `JsonPrimitive`). Package-private surfaces stay subpath-only: `PostgresCaseStore`, the connection layer, `SampleCaseGenerator` / `HeuristicCaseGenerator`, `setupPerTestDatabase`. Production callers go through `withOwnerContext`; tests reach for the package-private surfaces via subpath imports.
 
-**Full error-message sweep:**
+- `lib/case-store/errors.ts` (new) — typed user-domain errors:
+  - `CaseNotFoundError(caseId)` — thrown by `update` only when the bound owner can't see a case. The 404-mapping body acknowledges three equivalent causes (the case may not exist, may have been closed and removed, or may sit outside the bound owner's tenant) without confirming which — keeps the tenant boundary structural rather than message-leaked. The fix-pass narrowed this to `update`-only after the spec reviewer caught that `close` semantics ("ensure this case is closed") want idempotent silent no-op for already-gone-or-missing rows, and `traverse` returning `[]` for a missing anchor is the right empty-list shape. Both are reversible if a future product need surfaces.
+  - `CasePropertiesValidationError(appId, caseType, failures)` — thrown by `update` and `insert` when AJV validation fails. Carries the structured per-field failure list as `ReadonlyArray<{ path: string; message: string }>` so API routes catch + map to 400 with the structured array. The `case_type_schemas[appId, caseType].schema` wrapper jargon stays in `err.message` for server-side logs but does NOT surface in the response body.
+  - Both classes use `readonly name = "<ClassName>"` field initializers for bundler stability across module boundaries.
 
-Every `throw new Error(...)` site across `lib/case-store/**` gets rewritten to match the Elm-style voice already established at `lib/domain/predicate/errors.ts` (header line + indented diagnostic body + narrative + `Hint:` line; third-person impersonal except enumeration lists which use first-person). The predicate package's CLAUDE.md "Design principles (drawing on Elm / Rust / Roc compiler-error work)" section is the canonical voice rationale. The same standard already applies to `lib/commcare/validator/` (app validation) and `lib/domain/predicate/typeChecker.ts` (search AST + compiler errors); the case-store catches up.
+- `lib/case-store/__tests__/errors.test.ts` (new) — 12 tests pinning the public-field shape, the `instanceof Error + instanceof <ErrorClass>` discrimination, the `name` stability, the message-body contract (does NOT confirm "case is in another tenant"), and the structured-failure-list passthrough.
 
-Two error families:
+- `lib/case-store/CLAUDE.md` (full rewrite) — covers every required topic from the brief: interface contract + 8 methods, single-implementation pattern, "no preview mode" architecture, `(app_id, owner_id)` isolation pattern, migration workflow (Atlas + db:diff/db:lint + Cloud Run startup CMD + gcloud-logging + atlas_schema_revisions ledger), required Postgres extensions (provisioning-time, no runtime gate), TypeScript-side validation at the API trust boundary, the typed error contract (with code example showing the API-route catch-translate pattern + the equivalence-class rationale + the body-vs-message split), form-bridge surface (Task 6) + caseDataBinding surface (Task 7) + HeuristicCaseGenerator (Task 5), `applySchemaChange` two-phase shape (Task 8 with all four deviations: SnapshotAny + dead tuples + CONCURRENTLY + autovacuum visibility horizon + STABLE casts + jsonb_ops vs jsonb_path_ops), CommCare boundary, hyphen-to-underscore identifier transform.
 
-1. **Typed user-domain errors** in a new `lib/case-store/errors.ts`:
-   - `CaseNotFoundError(caseId: string)` — replaces the current `update` throw at `postgres/store.ts:337–342` whose message lists "another tenant" as a possible cause. The new message acknowledges tenant boundaries exist as an equivalence statement ("may not exist, may have been closed and removed, or may sit outside the bound owner's tenant — the three are equivalent so the tenant boundary stays structural rather than message-leaked") rather than confirming the case is in another tenant. API routes catch this and map to 404 with no body detail.
-   - `CasePropertiesValidationError(appId, caseType, failures)` — replaces the current `validateProperties` throw at `postgres/store.ts:1036–1039`. Carries the per-field AJV failure list as structured data so API routes catch + map to 400 with the structured array (the user-actionable per-field detail surfaces; the `case_type_schemas[appId, caseType].schema` wrapper jargon does not).
-   - The error classes use `readonly name = "<ClassName>"` so `instanceof` works across the bundler boundary.
+- **Throw sweep across `lib/case-store/**`:** every production throw uses one of four shapes:
+  - **2 typed user-domain throws** — `CaseNotFoundError`, `CasePropertiesValidationError`.
+  - **~26 invariant throws** via `compilerBugMessage` from `lib/domain/predicate/errors.ts` (contract violations, impossible-by-upstream-gate states).
+  - **~12 exhaustive-switch throws** via `unhandledKindMessage` (for `_exhaustive: never` fallthroughs).
+  - **2 deploy-time configuration throws** inline-Elm-style in `connection.ts` (capacity-budget violation, missing env vars). The predicate package's `errors.ts` documents the inline-vs-helper split for one-off shapes that don't fit the helpers' "internal bug" framing — operator misconfiguration is a deploy-time mistake, not an internal contract violation.
+  - Plus pre-existing `typeCheckerBypassMessage` throws across `sql/compileTerm.ts`, `sql/compilePredicate.ts`, `sql/compileExpression.ts` (shipped in Plan 1; reused, not refactored).
+  - The total `throw new Error(...)` count went 48 → 46. The regex still matches helper-wrapped throws (`throw new Error(compilerBugMessage(...))`); only the two typed-class sites moved out of that shape entirely.
 
-2. **Internal-invariant throws** that reuse helpers from `lib/domain/predicate/errors.ts`:
-   - `applySchemaChange` property-required (`postgres/store.ts:553`) — `compilerBugMessage`.
-   - Schema-row-missing (`postgres/store.ts:1074`) — `compilerBugMessage` with a `Hint:` pointing at the blueprint mutator's `applySchemaChange()` ordering contract.
-   - JSONB shape errors (`postgres/store.ts:1184`, `1186`, `1194`) — `compilerBugMessage`.
-   - `tryCastValue` exhaustive switch fallthrough (`postgres/store.ts:1288`) — `unhandledKindMessage`.
-   - The migration-runner shellout helper at `lib/case-store/sql/__tests__/applyMigrationsViaAtlas.ts:53, 70` — `compilerBugMessage` (CI prereq surface).
-   - The per-test-database helper at `lib/case-store/sql/__tests__/perTestDatabase.ts:164` — `compilerBugMessage`.
+- **Plan-doc discipline-table reconciliation** — at the top of this plan, the "Per-property expression indexes" table corrected on 4 entries: `multi_select` opclass `jsonb_path_ops` → `jsonb_ops`; `date` / `datetime` / `time` rows + `geopoint` row added the IMMUTABLE-cast footnote (with the future Nova-owned wrapper-function path documented in plan-doc footnote, not in code); the "atomic across all halves" tail replaced with two-phase atomic-then-convergent + CONCURRENTLY framing.
 
-Tests verify each typed error class throws with the expected `name` + structured fields; the message text is contract-tested only at the front (`expect(err.message).toContain("Case '...' not found")`) so future voice tweaks don't break tests over indentation.
+**Migration-of-consumers:** `lib/preview/engine/caseDataBinding.ts` + `caseDataBindingHelpers.ts` + `caseDataBindingTypes.ts` migrated to import barrel-exposed types from `@/lib/case-store`. The fix-pass also moved `caseDataBinding.test.ts`'s `CaseRow` / `CaseStore` / `JsonObject` imports to the barrel (the initial commit had missed those).
 
-Plan 2 Tasks 6+7 (the first API-route consumers of `CaseStore`) catch the typed errors at their handler boundaries and emit the matching HTTP responses; the typed contract makes the error → status mapping mechanical at every consumer.
+**Tests:** case-store package 375 passed (was 363 pre-Task-9; +12 from `errors.test.ts`). Full repo 2915 passed | 14 skipped.
+
+**Plan 5 handoff obligations** (recorded in Task 7's SHIPPED block; restated here for completeness):
+1. `FormScreen.tsx` must guard `loadCaseDataAction`'s non-`row` arms when Plan 5 adds the URL slot threading caseId into followup/close forms.
+2. Case-selection-to-form URL wiring (`CaseListScreen.handleRowClick` → form with caseId) belongs to Plan 5.
+
+**Deferred design questions** (carry forward to whichever plan addresses them):
+- **Cross-app index sharing** (Task 8): indexes are scoped per `(case_type, property, mode)` but NOT per `app_id`. Two apps sharing a case-type name share their indexes. Resolution deferred until a real cross-app collision surfaces.
+- **`nova_parse_date` / `nova_geopoint_to_geography` IMMUTABLE wrapper functions** (Task 8): unlock per-property expression indexes for temporal types and geopoint. Future migration; out of Plan 2 scope.
+
+Commit chain: `0ec0fa2a` (initial feat) → `d9099886` (CR + spec-review fix-pass).
+
+---
+
+#### Plan 2 status — ALL TASKS SHIPPED
+
+Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework. Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9. The eventual Plan 2 PR opens against `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
 
 ---
 
