@@ -290,26 +290,43 @@ This means form completion produces only 2 of the 3 spec-defined JSONB states (a
 
 Commit chain: `a206a114` (feat) → `053a3a5a` (CR + spec-review fix-pass).
 
-### Task 7: Route running-app screens through `caseDataBinding`; delete `dummyData.ts` + existing preview screens
+### Task 7: caseDataBinding + delete dummyData.ts — SHIPPED
 
-**Files:**
-- New: `lib/preview/engine/caseDataBinding.ts`
-- Delete: `lib/preview/engine/dummyData.ts`
-- Delete or refactor: `components/preview/screens/CaseListScreen.tsx`, `components/preview/screens/FormScreen.tsx` (existing screens that consume `getDummyCases` / `getCaseData`)
-- New: `components/builder/preview/{android,web}/CaseListScreen.tsx` come from Plan 5 — Task 7's job is the binding layer + ensuring no consumer is left referencing `getDummyCases` after `dummyData.ts` is gone.
+SHIPPED 2026-05-05 in commits `c6d2ece1` (feat — single cutover commit per the plan) → `3b79a0b6` (CR + spec-review fix-pass) on branch `feat/case-list-search`.
 
-`caseDataBinding.ts` exposes `getCases(caseTypeName)` / `getCaseData(caseTypeName, caseId)` routed through `PostgresCaseStore` via `withOwnerContext(session.user.id)`. The shape matches what `dummyData.ts` exposed today so the migration is mechanical at every call site.
+**Files shipped:**
 
-Sweep + cutover (single commit):
-1. Implement `caseDataBinding.ts`.
-2. Update every import of `getDummyCases` / `getCaseData` to import from `caseDataBinding` instead. Grep `rg "from .*dummyData|getDummyCases|getCaseData"` to find every site; expected sites are `components/preview/screens/*` and any other consumer.
-3. Decide per existing screen: if Plan 5's new `components/builder/preview/{android,web}/CaseListScreen.tsx` supersedes it, delete the old screen in this commit; if not, refactor the old screen to import from the new binding. The end state is **no surviving import of `dummyData.ts`** anywhere in the tree.
-4. Delete `lib/preview/engine/dummyData.ts`.
-5. Run the full test suite + a smoke render of the case-list screen against testcontainers Postgres.
+- `lib/preview/engine/caseDataBinding.ts` (new) — three Server Actions: `loadCasesAction`, `loadCaseDataAction`, `populateSampleCasesAction`. Each resolves session via `getSession()` server-side per the project's auth rule, then constructs `withOwnerContext(session.user.id)` to obtain a tenant-scoped `CaseStore`. No client-supplied identity ever crosses the server boundary. Tests don't go through these actions — they call the helper layer directly with an injected store.
+- `lib/preview/engine/caseDataBindingHelpers.ts` (new) — pure helpers `readCases`, `readCaseData`, `seedSampleCases` plus presentation utilities (`caseRowToFormPreload`, `caseRowDisplayValue`, `pickBlueprintDoc`, the private `jsonValueToString` coercion). Each helper accepts a `CaseStore` parameter, mirroring `lib/case-store/form-bridge/writeThrough.ts`'s test-injection pattern. `pickBlueprintDoc` is a positive-allowlist projection over `BlueprintDoc`'s 11 fields; the return type is `BlueprintDoc`, so a future field added to the type surfaces as a TypeScript compile error in the projection — function-stripping is exhaustive by construction.
+- `lib/preview/engine/caseDataBindingTypes.ts` (new) — discriminated-union result shapes. `LoadCasesResult` = `rows | empty | unauthenticated | error`; `LoadCaseDataResult` = `row | missing | unauthenticated | error`; `PopulateSampleCasesResult` = `ok | unauthenticated | error`. Plus `LoadingState<T>` adding `idle | loading` arms at the hook layer.
+- `lib/preview/hooks/useCaseDataBinding.ts` (new) — three client hooks: `useCases`, `useCaseData`, `usePopulateSampleCases`. Wire-level rejections (HTTP 500, network unreachable, RSC serialization errors) map to the typed `error` arm via `.catch` chains; the loading-state machine always reaches a terminal state.
+- `lib/preview/engine/__tests__/caseDataBinding.test.ts` (new) — 9 contract tests via per-test isolated Postgres + 2 branch-coverage tests added in fix-pass for `jsonValueToString`'s boolean / null / array / object arms (tested through `caseRowDisplayValue` + `caseRowToFormPreload` consumers).
+- `lib/case-store/__tests__/fixtures/simpleBlueprint.ts` (new) — shared `buildBlueprint(caseTypes)` extracted from the 4-5 sites that had been duplicating the helper. Three consumers migrated: `lib/case-store/__tests__/storeContract.ts`, `lib/case-store/sample/__tests__/heuristic.test.ts`, `lib/preview/engine/__tests__/caseDataBinding.test.ts`. The form-bridge's separate `lib/case-store/form-bridge/__tests__/fixtures.ts` stays distinct (its API has diverged enough that a forced merge would produce a worse abstraction).
+- `components/preview/screens/CaseListScreen.tsx` (refactored) — consumes `useCases` + `usePopulateSampleCases`. Renders all 6 `LoadingState<LoadCasesResult>` arms (idle / loading / unauthenticated / error / empty / rows). Empty arm renders a "Generate sample data" affordance; on populate success, `reload()` re-fires `loadCasesAction` and the result transitions empty → rows.
+- `components/preview/screens/FormScreen.tsx` (refactored) — consumes `useCaseData`. Renders targeted `unauthenticated` and `error` cards before the `!caseId` "no cases available" guard. The `idle` / `loading` / `missing` arms intentionally fall through to the form body with no preload (these are valid mid-load states that a form can render against).
+- `lib/preview/engine/dummyData.ts` (deleted).
+- `lib/preview/engine/types.ts` (modified) — `DummyCaseRow` type removed.
+- `lib/domain/predicate/types.ts` (modified) — comment that referenced the deleted `DummyCaseRow` updated to describe the live Postgres runtime.
 
-For empty case-types (no rows yet), the binding surfaces a "Generate sample data" affordance to the running-app view — clicking it invokes `CaseStore.generateSampleData`. The flipbook is "always in valid state": no error state when the case-type is empty, just a button to populate it.
+**Server / client component split.** The Server Actions in `caseDataBinding.ts` carry `"use server"` and resolve session via the cached `getSession()` from `lib/auth-utils.ts`. The hooks in `useCaseDataBinding.ts` carry `"use client"`. The refactored screens are client components consuming the hooks. Tests construct `PostgresCaseStore` directly and call the pure helpers, never the Server Actions — same shape Tasks 5 + 6 use.
 
-Tests: every former-`dummyData.ts` consumer renders correctly through the new binding; empty-case-type renders the "Generate sample data" affordance; no surviving import of `dummyData.ts`.
+**Discriminated unions exhaustively typed.** `pickBlueprintDoc`'s positive-allowlist + the wide-then-narrow signature `<T extends BlueprintDoc>(state: T): BlueprintDoc` (CR fix-pass tightening) means new `BlueprintDoc` fields force a compile error at the projection site. The hook's `LoadingState<T>` adds `idle | loading` arms beyond the action's union; both screens handle the relevant arms cleanly.
+
+**Continuous validation.** When `populateSampleCasesAction` succeeds, the consumer calls `reload()` (the `useCases` hook's stable callable), which re-fires the load action and re-renders with fresh rows. No router refresh, no `revalidatePath` — purely client-managed state because the data lives entirely in the Cloud SQL row and the read path is local to the action.
+
+**Smoke render not driven through a browser.** The implementer correctly disclosed this in the commit message. The 9 contract tests + 2 branch-coverage tests + the test-suite verification chain (typecheck + lint + per-test Postgres round-trip) cover the helpers and the binding contract. Pixel-level screen render verification against a live dev server is a supervisor or QA action item; if needed, run `npm run dev` against the Cloud SQL instance and exercise the case-list + form screens manually.
+
+**Tests:** preview-engine package 59 passed (was 48 pre-Task-7; +11). Full repo 2879 passed | 14 skipped.
+
+Commit chain: `c6d2ece1` → `3b79a0b6`.
+
+#### Plan 5 handoff obligations
+
+The spec-compliance reviewer caught two structural obligations Plan 5's case-selection-to-form work must honor:
+
+1. **`FormScreen.tsx` must guard `loadCaseDataAction`'s non-`row` arms.** This Task 7 commit guards `unauthenticated` and `error`; `idle` / `loading` / `missing` intentionally fall through to "no preload" because the URL slot for `caseId`-bound followup forms doesn't exist today (`lib/routing/types.ts` puts `caseId` only on `kind: "cases"`, not on `kind: "form"`). When Plan 5 adds the URL slot threading `caseId` into followup/close forms, it MUST also add explicit guards for `missing` and decide what the form should do when the bound case can't be loaded — render a back-to-list affordance, redirect, or surface a "case unavailable" card. The current "no preload + render the form anyway" behavior is fine for forms that don't carry `caseId`; it's wrong for forms that do.
+
+2. **Case-selection-to-form URL wiring belongs to Plan 5.** `CaseListScreen.handleRowClick` currently navigates without `caseId`. The router doesn't have a slot to thread it into `openForm`. Plan 5 designs the URL schema for case-selected followup/close flows; the `caseDataBinding` consumer surface is ready to receive a `caseId` parameter from the route — it just isn't wired today.
 
 ### Task 8: Per-property expression-index DDL emission inside `applySchemaChange`
 
