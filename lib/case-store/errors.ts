@@ -68,14 +68,14 @@
 const INDENT = "    ";
 
 // ---------------------------------------------------------------
-// CaseNotFoundError — `update` / `close` / `traverse` against a
-// case the bound owner cannot see
+// CaseNotFoundError — `update` against a case the bound owner
+// cannot see
 // ---------------------------------------------------------------
 
 /**
- * Thrown when a `CaseStore` operation references a `(case_id,
- * app_id)` pair the bound owner cannot reach. Three causes are
- * equivalent from the caller's perspective:
+ * Thrown by `CaseStore.update` when the patched `(case_id,
+ * app_id)` pair has no matching row visible to the bound owner.
+ * Three causes are equivalent from the caller's perspective:
  *
  *   - the row was never created
  *   - the row was closed and removed out of band
@@ -85,6 +85,14 @@ const INDENT = "    ";
  * boundary stays structural — the message does not confirm
  * "another tenant has this case", which would leak the existence
  * of cases outside the bound owner's scope.
+ *
+ * `close` and `traverse` deliberately do NOT throw this error.
+ * `close`'s "ensure this case is closed" semantic admits a silent
+ * no-op for already-closed-or-missing cases (idempotent
+ * teardown). `traverse` is a graph walk that returns a list, so
+ * an empty result for a missing anchor is the right answer
+ * (composable with downstream walks). Both shapes are
+ * deliberate.
  *
  * API routes catch and map to HTTP 404 with no body detail beyond
  * the case id.

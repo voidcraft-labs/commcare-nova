@@ -642,7 +642,7 @@ export class PostgresCaseStore implements CaseStore {
 			if (args.property === undefined) {
 				throw new Error(
 					compilerBugMessage({
-						where: "PostgresCaseStore.applySchemaChange",
+						where: "case-store.PostgresCaseStore.applySchemaChange",
 						invariant:
 							"`property` is undefined while `change` is defined; the change shape targets a specific property and the migration loop reads from it",
 						detail:
@@ -1250,10 +1250,10 @@ export class PostgresCaseStore implements CaseStore {
 		if (row === undefined) {
 			throw new Error(
 				compilerBugMessage({
-					where: "PostgresCaseStore.getValidator",
+					where: "case-store.PostgresCaseStore.getValidator",
 					invariant: `no JSON Schema row found in \`case_type_schemas\` for (\`${appId}\`, \`${caseType}\`)`,
 					detail:
-						'`applySchemaChange` is the only producer of `case_type_schemas` rows; reaching this throw means a write hit `cases` for a case type whose schema was never synced. The spec § "Write-time validation" makes the ordering contract explicit — schema sync is synchronous on the blueprint write path, every blueprint mutation that touches a case type\'s property set runs `applySchemaChange()` before any data write reaches that case type.\n\nHint: confirm the blueprint mutator (Plan 3) routes through `applySchemaChange(args)` for every case type the mutation touches; reaching `cases` writes for an unseeded case type means the ordering contract was bypassed.',
+						'`applySchemaChange` is the only producer of `case_type_schemas` rows; reaching this throw means a write hit `cases` for a case type whose schema was never synced. The spec § "Write-time validation" makes the ordering contract explicit — schema sync is synchronous on the blueprint write path, every blueprint mutation that touches a case type\'s property set runs `applySchemaChange()` before any data write reaches that case type.\n\nHint: confirm the blueprint mutator routes through `applySchemaChange(args)` for every case type the mutation touches; reaching `cases` writes for an unseeded case type means the ordering contract was bypassed.',
 				}),
 			);
 		}
@@ -1658,7 +1658,7 @@ function computeDesiredIndexSet(
 					where: "case-store.computeDesiredIndexSet",
 					invariant: `properties \`${existing}\` and \`${property.name}\` compose into the same index name \`${entry.name}\` after the hyphen-to-underscore transform`,
 					detail:
-						"Postgres unquoted identifiers don't admit hyphens, so the indexer maps them to underscores when composing the index name. Two blueprint properties differing only by hyphen-vs-underscore (e.g., `external-id` vs `external_id`) collide post-transform.\n\nHint: the blueprint authoring layer (Plan 3) is responsible for rejecting sibling property names whose identifier-shape projections collide; reaching this throw means the upstream gate didn't catch it. Rename one of the two properties at the blueprint layer.",
+						"Postgres unquoted identifiers don't admit hyphens, so the indexer maps them to underscores when composing the index name. Two blueprint properties differing only by hyphen-vs-underscore (e.g., `external-id` vs `external_id`) collide post-transform.\n\nHint: the blueprint authoring layer is responsible for rejecting sibling property names whose identifier-shape projections collide; reaching this throw means the upstream gate didn't catch it. Rename one of the two properties at the blueprint layer.",
 				}),
 			);
 		}
@@ -1831,7 +1831,7 @@ function indexName(
 				where: "case-store.indexName",
 				invariant: `composed index name \`${composed}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
 				detail:
-					"Postgres silently truncates identifiers at 63 bytes, so a long case-type + long property pair could collide in `pg_indexes` even with distinct pre-truncate names. The blueprint authoring layer (Plan 3) is responsible for keeping case-type + property names short enough to compose; reaching this throw means the upstream gate didn't catch it.\n\nHint: shorten the case-type name or the property name at the blueprint layer.",
+					"Postgres silently truncates identifiers at 63 bytes, so a long case-type + long property pair could collide in `pg_indexes` even with distinct pre-truncate names. The blueprint authoring layer is responsible for keeping case-type + property names short enough to compose; reaching this throw means the upstream gate didn't catch it.\n\nHint: shorten the case-type name or the property name at the blueprint layer.",
 			}),
 		);
 	}

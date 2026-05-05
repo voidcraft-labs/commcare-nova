@@ -7,7 +7,7 @@
 // ## Public surface
 //
 //   - **`CaseStore` interface** (`./store`) — the single seam every
-//     consumer of case data binds against. Nine methods: `query` /
+//     consumer of case data binds against. Eight methods: `query` /
 //     `insert` / `update` / `close` / `traverse` / `applySchemaChange`
 //     / `generateSampleData` / `resetSampleData` plus the row-shape
 //     types. The interface is one shape; `PostgresCaseStore` is the

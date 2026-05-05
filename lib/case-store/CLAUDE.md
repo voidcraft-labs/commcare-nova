@@ -66,7 +66,7 @@ The contract harness at `__tests__/storeContract.ts` spans 14
 implementation-agnostic tests; `postgres/__tests__/store.test.ts`
 runs them against a per-test isolated Postgres database. Adding
 a new method to the interface adds a contract test that every
-implementation passes; today there is one.
+implementation passes; the package has one implementation.
 
 ## No preview mode — the running-app view shares the editor's rows
 
@@ -264,6 +264,18 @@ collisions between hyphenated and underscored siblings, and the
 `case_type_schemas` untouched — the database never holds a
 schema row whose properties cannot all be indexed.
 
+Property and case-type names admit hyphens at the blueprint layer
+(CommCare convention — `external-id` is real); the indexer maps
+them to underscores when composing the Postgres-side identifier
+because Postgres unquoted identifiers don't admit hyphens. The
+JSONB key inside the indexed expression preserves the hyphen
+verbatim via `sql.lit`, so the index reads the same property the
+predicate compiler reads. Two properties differing only by
+hyphen-vs-underscore (`external-id` and `external_id`) collide on
+the post-transform composed name; the pre-flight collision check
+surfaces both originating names in the error message so the
+author can disambiguate at the blueprint layer.
+
 ### Per-data-type index coverage
 
 | Property `data_type` | Postgres index | Reasoning |
@@ -272,8 +284,8 @@ schema row whose properties cannot all be indexed.
 | `int` / `decimal` | `BTREE (((properties->>'<key>')::<cast>))` partial on `case_type` | Covers `compare` / `between` against typed numerics |
 | `multi_select` | `GIN ((properties->'<key>')) jsonb_ops` partial on `case_type` | Covers `multi-select-contains` (`?` / `?\|` / `?&` / `@>`); `jsonb_path_ops` only covers `@>` and would force a sequential scan for `?` / `?\|` / `?&` queries |
 | `single_select` | None | Equality on a small option set is fast without an expression index |
-| `date` / `datetime` / `time` | None today | The text-to-typed casts (`::date` / `::timestamptz` / `::time`) and the canonical `to_date(...)` / `to_timestamp(...)` builtins are STABLE in Postgres (DateStyle / TimeZone session dependency); expression indexes require IMMUTABLE expressions. Indexing requires a Nova-owned IMMUTABLE wrapper function plus a matching change on the query side so both surfaces target the same expression |
-| `geopoint` | None today | The predicate compiler's `within-distance` arm builds a WKT string via `concat(...)` over `split_part(...)` reads; `concat(...)` over text args is STABLE so the full expression cannot be indexed. The simpler `ST_GeogFromText(properties->>'<key>')` form would index successfully but the planner cannot bridge it to the compiler's WKT-build form for index match. Indexing requires an IMMUTABLE wrapper function the term compiler also emits against |
+| `date` / `datetime` / `time` | None | The text-to-typed casts (`::date` / `::timestamptz` / `::time`) and the canonical `to_date(...)` / `to_timestamp(...)` builtins are STABLE in Postgres (DateStyle / TimeZone session dependency); expression indexes require IMMUTABLE expressions. Compare / between on these data types runs as a sequential scan over the case-type partition |
+| `geopoint` | None | The predicate compiler's `within-distance` arm builds a WKT string via `concat(...)` over `split_part(...)` reads to bridge the wire shape `"lat lon alt acc"` to PostGIS's WKT input; `concat(...)` over text args is STABLE so the full expression cannot be indexed. The simpler `ST_GeogFromText(properties->>'<key>')` form would index successfully but the planner cannot bridge it to the compiler's WKT-build form for index match. `within-distance` queries run as a sequential scan over the case-type partition |
 
 ## Form-bridge — completed-form to CaseStore operations
 

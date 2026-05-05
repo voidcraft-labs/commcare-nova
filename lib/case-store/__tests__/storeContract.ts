@@ -56,6 +56,7 @@ import {
 	prop,
 	subcasePath,
 } from "@/lib/domain/predicate/builders";
+import { CaseNotFoundError } from "../errors";
 import type { CaseStore } from "../store";
 import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
@@ -768,14 +769,20 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Owner B's update against owner A's case throws because
 			// the row is invisible under owner B's filter. The
 			// throw shape pins the contract: visibility is the gate,
-			// not "always allow but write nothing".
+			// not "always allow but write nothing". The typed
+			// `CaseNotFoundError` instance check spans the module
+			// boundary (constructed inside `PostgresCaseStore`,
+			// caught here) — that's the bundler-edge concern the
+			// `readonly name` field initializer defends against, and
+			// pinning it through a real cross-module call site is
+			// what the contract harness uniquely covers.
 			await expect(
 				storeB.update({
 					appId: APP_ID,
 					caseId: PATIENT_ALICE_ID,
 					patch: { properties: makeProperties({ age: 99 }) },
 				}),
-			).rejects.toThrow(/not found/i);
+			).rejects.toBeInstanceOf(CaseNotFoundError);
 
 			// The row's data is untouched as seen through owner A.
 			const rows = await storeA.query({

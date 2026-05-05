@@ -528,12 +528,16 @@ export interface ResetSampleDataArgs {
 // ---------------------------------------------------------------
 
 /**
- * Locate a case type within a blueprint by name. Used by
- * `applySchemaChange` to derive the JSON Schema from the
- * prospective blueprint state. Throws when the case type is
- * absent — the caller must supply the prospective blueprint with
- * the case type still defined (additive mutations preserve it; a
- * removal is a different lifecycle and not a `change` arm here).
+ * Locate a case type within a blueprint by name. Throws when the
+ * case type is absent.
+ *
+ * Two callers consume the helper today: `PostgresCaseStore.applySchemaChange`
+ * derives the JSON Schema row from the matching `CaseType`, and
+ * `HeuristicCaseGenerator.generate` reads property declarations to
+ * build sample rows. Both callers operate on a prospective blueprint
+ * snapshot the case type must still be present in — case-type
+ * removal is a different lifecycle than the schema-sync / sample-
+ * generation surfaces this function is meant for.
  */
 export function findCaseTypeOrThrow(
 	blueprint: BlueprintDoc,
@@ -546,7 +550,7 @@ export function findCaseTypeOrThrow(
 				where: "case-store.findCaseTypeOrThrow",
 				invariant: `the supplied blueprint contains no case type named \`${caseType}\``,
 				detail:
-					"`applySchemaChange` consumes the case type from the prospective blueprint state to derive the JSON Schema row. The caller's saga shape — apply the case-store change first, commit Firestore on success, run a compensating `applySchemaChange(previousState)` on failure — assumes both states still contain the case type. A blueprint that omits the case type is a different lifecycle (removal); this function does not handle it.\n\nHint: confirm the caller passes the prospective blueprint with the case type still present; case-type removal flows through a separate cleanup path, not `applySchemaChange`.",
+					"This helper is a name lookup over `blueprint.caseTypes`. Callers (the schema-sync path in `applySchemaChange`, the sample-data path in `HeuristicCaseGenerator.generate`) pass a prospective blueprint snapshot the case type must still be present in. A blueprint that omits the case type is a different lifecycle (removal); this function does not handle it.\n\nHint: confirm the caller's blueprint snapshot still contains the case type; case-type removal flows through a separate cleanup path, not the schema-sync or sample-generation surfaces.",
 			}),
 		);
 	}

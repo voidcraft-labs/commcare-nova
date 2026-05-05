@@ -29,13 +29,16 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { CaseRow, CaseStore, JsonObject } from "@/lib/case-store";
 import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import type { Database, JsonObject } from "@/lib/case-store/sql/database";
-import type { CaseRow, CaseStore } from "@/lib/case-store/store";
+// `Database` is the Kysely type contract for the four case-store
+// tables — package-private, so the test reaches in via the
+// internal subpath rather than the curated public barrel.
+import type { Database } from "@/lib/case-store/sql/database";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import {
 	caseRowDisplayValue,

@@ -164,7 +164,7 @@ export function setupPerTestDatabase(
 		if (active === null) {
 			throw new Error(
 				compilerBugMessage({
-					where: "case-store.PerTestDatabaseHandle",
+					where: "case-store.setupPerTestDatabase",
 					invariant:
 						"`PerTestDatabaseHandle` accessed outside a Vitest test body",
 					detail:
