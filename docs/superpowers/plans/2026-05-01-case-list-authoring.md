@@ -1,6 +1,6 @@
 # Case List Authoring Implementation Plan (Plan 3 of 5)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use frontend-design and superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Plan 3 of 5. Depends on Plan 1 (Foundation) and Plan 2 (Case data layer). Independent of Plans 4 and 5 — Plan 4 (search authoring) is ordered after this for review momentum, not architectural dependency.
 
