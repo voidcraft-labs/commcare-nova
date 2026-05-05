@@ -1354,17 +1354,16 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // runtime are not bound by it**.
 // Postgres JSONB distinguishes "key absent" from "key present with
 // empty-string value" (`NOT (properties ? 'X')` versus `properties->>'X'
-// = ''`); the in-memory `DummyCaseRow` does the same via
-// `Map<string, string>` (`lib/preview/engine/types.ts:106-110`,
-// where "key not in map" and "key with empty-string value" are
-// distinguished by construction). The Predicate AST carries the
-// strict semantic family-wide; per-dialect emitters and the
-// representability checker handle the wire constraint.
+// = ''`). Nova's runtime is Postgres natively (no in-memory
+// alternative), so the strict three-state distinction is the
+// runtime contract every read path observes. The Predicate AST
+// carries the strict semantic family-wide; per-dialect emitters
+// handle the CCHQ wire conflation.
 //
 // Two operators encode the family at this layer:
 //
 //   - `is-null` — **strict.** `left` resolves to absent (key not
-//     present in the JSONB / Map). Postgres / in-memory: emits the
+//     present in the JSONB document). Postgres: emits the
 //     presence test (`NOT (properties ? 'X')` for property refs;
 //     equivalent for input / session refs). CCHQ wire:
 //     **unrepresentable** — the wire layer collapses absent /
@@ -1385,7 +1384,7 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //     invalidates every persisted predicate that used it.
 //
 //   - `is-blank` — **portable.** `left` resolves to absent OR
-//     empty-string. Postgres / in-memory: emits the disjunction
+//     empty-string. Postgres: emits the disjunction
 //     (`(NOT (properties ? 'X')) OR properties->>'X' = ''` for
 //     property refs; equivalent for input / session refs). CCHQ
 //     wire: cleanly representable on every target — wire form

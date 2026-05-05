@@ -6,7 +6,6 @@ import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
@@ -14,11 +13,12 @@ import {
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import { defaultPostSubmit } from "@/lib/domain";
-import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
+import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingHelpers";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import { useAppId, useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 
@@ -48,15 +48,21 @@ interface FormScreenProps {
  * but only `caseId` is consumed here. The form's UUID comes from the URL
  * (`useLocation`), and the engine is activated by UUID rather than by the
  * positional screen indices, which are opaque PreviewScreen routing data.
+ *
+ * Case-data preload routes through `useCaseData` (the binding hook in
+ * `lib/preview/hooks/useCaseDataBinding.ts`), which fires
+ * `loadCaseDataAction` against the case-store. The form engine's
+ * `caseData` parameter is `Map<string, string>`; `caseRowToFormPreload`
+ * flattens the JSONB document into that shape.
  */
 export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
-	const caseTypes = useCaseTypes();
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { updateForm } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
+	const appId = useAppId();
 
 	/** Uuids derived from the URL — used for uuid-first mutations and navigation. */
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
@@ -83,15 +89,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  URL is still being parsed. */
 	const hasFields = useHasFieldsInForm(formId as Uuid | undefined);
 
+	/** Subscribe to the bound case row when one is supplied. The hook
+	 *  returns `idle` until all three ids are bound (`appId`,
+	 *  `caseType`, `caseId`); when `caseId` is undefined
+	 *  (registration / survey / followup-without-case), the hook stays
+	 *  in `idle` and the `caseData` map collapses to `undefined`,
+	 *  leaving the form engine to use defaults rather than preload. */
+	const { state: caseDataState } = useCaseData({
+		appId,
+		caseType: mod?.caseType,
+		caseId,
+	});
+
+	/** Flatten the JSONB row into the `Map<string, string>` shape the
+	 *  form engine consumes. `undefined` collapses for every arm
+	 *  except `row` (idle / loading / missing / failure / auth) —
+	 *  the form renders with defaults rather than preload data. */
 	const caseData = useMemo(() => {
-		if (!mod?.caseType) return undefined;
-		if (caseId) return getCaseData(mod.caseType, caseId);
-		if (form?.type === "followup") {
-			const ct = caseTypes.find((c) => c.name === mod.caseType);
-			if (ct) return getDummyCases(ct)[0]?.properties;
-		}
-		return undefined;
-	}, [caseId, mod?.caseType, form?.type, caseTypes]);
+		if (caseDataState.kind !== "row") return undefined;
+		return caseRowToFormPreload(caseDataState.row);
+	}, [caseDataState]);
 
 	const editable = isReady;
 
@@ -131,7 +148,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	if (!form || !formId) return null;
 
-	if (mode === "test" && form.type === "followup" && !caseData) {
+	/** "No cases available" guard for case-loading forms. Fires when the
+	 *  user is in test mode on a followup form that needs a bound case
+	 *  but none was supplied — covers both the "navigated from a case
+	 *  list with no cases" path and the "URL contained no caseId" path.
+	 *  The followup form requires an existing case to operate on; without
+	 *  one, the form's data binding has nothing to load against. */
+	if (mode === "test" && form.type === "followup" && !caseId) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
 				<div className="text-center space-y-2">

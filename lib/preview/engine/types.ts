@@ -101,10 +101,3 @@ export function screenKey(screen: PreviewScreen): string {
 			return `form-${screen.moduleIndex}-${screen.formIndex}`;
 	}
 }
-
-/** A row of dummy case data for case list display. */
-export interface DummyCaseRow {
-	case_id: string;
-	/** Map of property name → display value */
-	properties: Map<string, string>;
-}
