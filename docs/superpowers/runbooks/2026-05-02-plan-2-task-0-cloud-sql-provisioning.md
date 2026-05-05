@@ -212,7 +212,7 @@ Three layers cover the access patterns:
 ### 2.16 Out of scope for this runbook
 
 - Cloud SQL instance create flags for read replicas / regional HA / per-app schema isolation. (`(app_id, owner_id)` columns + `withOwnerContext` factory is the locked isolation model per spec § "Risks and mitigations".)
-- Migration tooling (`db:migrate` / `db:rollback`). Plan 2 Task 1.
+- Migration tooling (Atlas at Cloud Run startup; local `db:diff` / `db:lint` against an Atlas-booted dev container). Plan 2 Task 1.
 - `applySchemaChange` orchestration. Plan 2 Task 8.
 - Private Service Connect (PSC) as an alternative to VPC peering. Mentioned in `https://docs.cloud.google.com/sql/docs/postgres/configure-private-services-access` (verified 2026-05-03) but the page does not gate-keep VPC peering as legacy or recommend PSC for new instances. Sticking with the more thoroughly-documented VPC peering path.
 
@@ -433,13 +433,18 @@ After Phase 7 verifies clean, the implementer's CODE-side scope per Plan 2 Task 
 
 3. Test wiring — none for Task 0 specifically; the testcontainers harness from Plan 1 C7.5 keeps tests off the live Cloud SQL instance.
 
-### Plan 2 Task 1 design flag — migration runner must be a Cloud Run job
+### Plan 2 Tasks 1+2 SHIPPED — Atlas at Cloud Run startup (supersedes the Cloud Run job pattern)
 
-Plan 2 Task 1 currently says: *"Run migrations against local Cloud SQL Auth Proxy + against testcontainers Postgres in CI."* The "local Cloud SQL Auth Proxy" half of that sentence does not work for our private-IP-only instance — the proxy from a developer laptop cannot reach a `--no-assign-ip` instance (verified above; same root cause as §2.12).
+Tasks 1+2 SHIPPED 2026-05-05 with Atlas owning schema-as-code and migration application. The original (2026-05-03) Kysely-runner-via-Cloud-Run-job design was reworked; the Cloud Run job pattern this section originally flagged is gone. The replacement: Atlas runs at Cloud Run startup against the same private-IP Cloud SQL instance the application already talks to, in the same container that serves Next.js. See Plan 2 Tasks 1+2 SHIPPED blocks for the full picture.
 
-Plan 2 Task 1's migration runner must instead be a Cloud Run job: containerized command, deployed as a `gcloud run jobs create` resource attached to the same `default` network and `default` subnet as the main service, with `--vpc-egress=private-ranges-only`. The job runs Kysely migrations against the private IP using the same IAM auth flow as `connection.ts`. `npm run db:migrate` in the dev workflow becomes "deploy and run the job," not "connect locally and run."
+Key shape for future readers:
 
-This is a Plan 2 Task 1 scope adjustment, not a Task 0 deliverable. Captured here for the supervisor's SHIPPED-sync to fold into Plan 2 Task 1's stub before the implementer claims it.
+- The main `commcare-nova` Cloud Run service has Direct VPC Egress (`private-ranges-only` on `default`/`default`); the runtime container reaches `10.9.160.3` natively. Atlas piggybacks on that — it doesn't need its own Cloud Run job, its own Dockerfile, or its own deploy step.
+- The atlas binary lives in the runtime image via a multi-stage `arigaio/atlas` digest pin; the migration files + `atlas.hcl` are COPY'd into the image at the same time as the Next.js standalone build. The Dockerfile CMD chains: `atlas migrate apply --env prod --allow-dirty && exec node server.js`. Postgres advisory lock (`atlas_migrate_execute`) serializes concurrent instance startups.
+- `NOVA_DB_HOST=10.9.160.3` is re-added to the Cloud Run env (revision `commcare-nova-00102-njr`). Atlas is a Go binary and can't use `@google-cloud/cloud-sql-connector` — it requires a real `host:port` URL. The Node app continues to ignore `NOVA_DB_HOST` and resolve via `NOVA_DB_INSTANCE_CONNECTION_NAME`. Both consumers coexist.
+- No npm scripts target prod from the laptop (the private IP isn't reachable). Local flow: `npm run db:diff` and `npm run db:lint` run against an Atlas-booted dev container. Production migration state is observable via `gcloud logging read 'resource.labels.service_name=commcare-nova AND textPayload:"atlas migrate apply"'` for the most recent apply, and via Cloud SQL Studio against the `atlas_schema_revisions` ledger for the full applied set.
+
+This subsection is preserved (rather than deleted) so the supervisor's original "design flag" framing — that the laptop-to-private-IP gap forced a deploy-side migration pattern — stays discoverable. The deploy-side pattern that actually shipped is atlas-at-Cloud-Run-startup, not a separate Cloud Run job.
 
 ---
 

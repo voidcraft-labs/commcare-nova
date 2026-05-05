@@ -100,63 +100,82 @@ Recurring cost: ~$10/mo (db-f1-micro compute ~$8/mo + 10GB SSD ~$1.70/mo + daily
 
 Commit chain: `afe6fa9e` (initial) → `65014221` (spec-review forward-projection strip) → `84c3b5dc` (CR fix-pass: untautological budget test + JSDoc accuracy) → `5431cf15` (NOVA_DB_HOST paragraph removal after env-var cleanup).
 
-### Task 1: Migration tooling + initial schema — SHIPPED (code) / pending (Cloud Run job deploy)
+### Task 1: Migration tooling + initial schema — SHIPPED (Atlas rework)
 
-SHIPPED 2026-05-03 in code; the Cloud Run job is built but not yet deployed (supervisor's `gcloud run jobs deploy db-migrate` invocation is parallel to Task 0's runbook).
-
-**Migration format:** `.ts` modules with Kysely's canonical `Migration` interface (`up()` / `down()` async exports), per `https://kysely.dev/docs/migrations`. The typed schema builder catches column-name typos at compile time that raw `.sql` files cannot. The same modules run in production (compiled to JS by `Dockerfile.migrate`) and in tests (loaded via Vitest's transform + Kysely's `FileMigrationProvider`).
+SHIPPED 2026-05-05 with Atlas owning schema-as-code and migration application. The original (2026-05-03) Kysely-migration-runner-via-Cloud-Run-job design was reworked end-to-end: the runner, the Cloud Run job, the deployment scripts, and the custom Dockerfile all deleted; Atlas runs at Cloud Run startup against the same private-IP Cloud SQL instance the application talks to. Rationale: the Kysely path required two custom Dockerfiles, a deploy-then-execute script pair, a 245-line runner wrapping Kysely's stock `Migrator`, and hand-written TS migrations that didn't autogenerate from a schema source. Atlas autogenerates, ships in the existing Next.js image via a multi-stage `arigaio/atlas` digest pin, and runs at every Cloud Run revision startup. The destructive-change story is gated by Atlas's `diff { skip }` policy (auto-skips DROP statements at diff generation) plus `lint { destructive { error = true } }` (CI/lefthook fails on any manually-authored destructive migration); expand-contract is the only path to drop columns/tables.
 
 **Files shipped:**
-- `lib/case-store/migrations/0001_init.ts` — creates `cases`, `case_type_schemas`, `case_indices`, `cases_quarantine` per spec lines 254-284 + spec § "Schema migration policy".
-- `lib/case-store/migrations/0002_indices.ts` — static `case_indices` indexes per spec lines 282-283. Per-property expression indexes are dynamic and owned by Task 8's `applySchemaChange`, NOT here.
-- `lib/case-store/migrations/runner.ts` — single shared core function `runMigration(db, action)` consumed by both production and tests.
-- `lib/case-store/migrations/__tests__/runner.test.ts` — 8 tests covering migrate-from-empty / rollback / idempotency / status / `uuidv7()` v7-version-nibble probe. Each test creates an isolated database via `CREATE DATABASE runner_test_<rand>` against the testcontainer's superuser URI; cleanup via `DROP DATABASE ... WITH (FORCE)` in `afterEach`.
-- `scripts/migrate/{run.ts, deploy-job.sh, execute-job.sh}` + `Dockerfile.migrate` — Cloud Run job image and deployment scripts. Connects via `@google-cloud/cloud-sql-connector` (same pattern as `connection.ts`) with `pg.Pool` `max: 1` (one transaction per migration; one connection suffices because `pg_advisory_xact_lock` is transaction-scoped on the checked-out connection).
-- npm scripts: `db:migrate`, `db:rollback`, `db:status` invoke the deployed job; `db:migrate:deploy` builds + deploys the image.
-- `lib/case-store/sql/database.ts` — adds `CasesQuarantineTable` and widens `case_id` to `ColumnType<string, string | undefined, string>` so Kysely accepts inserts that omit `case_id` and rely on the `DEFAULT uuidv7()`. This is the type Task 4's `PostgresCaseStore.insert` consumes.
-- `lib/case-store/sql/index.ts` — re-exports `CasesQuarantineTable`.
-- `lib/case-store/sql/__tests__/globalSetup.ts` — replaces hardcoded `SCHEMA_DDL` with a call to the migration runner. Migrations are now the single source of truth for the schema; the harness installs only the three Postgres extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`), which require superuser and are installed in production via Cloud SQL Studio (runbook Phase 5), not via migrations.
-- `lib/case-store/CLAUDE.md` — documents the migrations directory, the dual runner (production via Cloud Run job; tests via the in-process runner), the npm scripts, and the harness restructure.
 
-**`uuidv7()` adoption:** PG 18's native `uuidv7()` (added 2025-09-25 with PG 18.0) generates timestamp-prefixed UUIDs that cluster on B-tree pages and naturally sort by creation time. The migration probes the function name against the live PG 18 docs at `https://www.postgresql.org/docs/18/functions-uuid.html`; the runner test pins runtime availability by inserting without `case_id` and asserting the returned value matches the RFC 9562 v7 regex (version nibble = 7, variant nibble = `[89ab]`).
+- `atlas.hcl` (repo root) — three envs:
+  - `local` for `atlas migrate diff` against an Atlas-booted Postgres dev container.
+  - `testcontainer` for the test harness's `atlas migrate apply --url <uri>` shell-out.
+  - `prod` for the Cloud Run startup CMD; reads `NOVA_DB_USER` / `NOVA_DB_HOST` / `NOVA_DB_NAME` via `getenv()`, IAM-auth via the `gcp_cloudsql_token` data source. `NOVA_DB_USER` and the IAM token are both `urlescape`'d for RFC 3986 compliance.
+  - `locals.dev_url` shared between `local` and `testcontainer` envs: inline `docker+postgres://imresamu/postgis:18-3.6.1-alpine3.23/dev?search_path=public` (matches the testcontainer harness image; community-edition Atlas — the Pro `docker { ... }` block was tested empirically and rejected with `Unsupported attribute`).
+  - Diff policy auto-skips destructive (`drop_schema`, `drop_table`, `drop_column`); lint policy errors on destructive in CI.
+- `lib/case-store/schema.sql` — single raw-DDL source of truth for the four case-store tables (`cases`, `case_type_schemas`, `case_indices`, `cases_quarantine`) plus the two static `case_indices` indexes. Spec citations per column (lines 254-284 + 309-340). `case_id` defaults to `uuidv7()` per PG 18's built-in v7 generator. The deleted Kysely TS migrations' per-column rationale carries forward as SQL comments.
+- `lib/case-store/migrations/20260505152732_baseline.sql` — autogenerated by `atlas migrate diff baseline --env local`. 6 SQL statements (4 CREATE TABLE + 2 CREATE INDEX). Schema-equivalence verified at Checkpoint 1 against `pg_dump` output of the deleted `0001_init.ts` + `0002_indices.ts` migrations applied to a parallel testcontainer.
+- `lib/case-store/migrations/atlas.sum` — autogenerated directory-integrity hash file.
+- `Dockerfile` (root, modified) — adds a multi-stage `FROM arigaio/atlas@sha256:6d34257110be...` (digest-pinned per the supply-chain rationale below). The runner stage `COPY --from=atlas-binary /atlas /usr/local/bin/atlas` plus the migration directory and `atlas.hcl`. CMD swapped to `sh -c "atlas migrate apply --env prod --allow-dirty && exec node server.js"`. The `--allow-dirty` flag suppresses Atlas's empty-DB precondition (production has the postgis-managed `tiger`/`topology` schemas pre-installed); it doesn't affect the `atlas_schema_revisions` ledger as the version source. `exec node` ensures SIGTERM propagates to Node for graceful shutdown.
+- `lib/case-store/sql/__tests__/globalSetup.ts` (modified) — replaces `runMigration(db, "latest")` with a `child_process.spawnSync("atlas", ["migrate", "apply", "--env", "testcontainer", "--url", uri, "--allow-dirty"])` shell-out. The harness still installs the three required Postgres extensions as the container's superuser before atlas runs.
+- `lib/case-store/sql/__tests__/applyMigrations.ts` — extracted helper used by both `globalSetup.ts` and `postgres/__tests__/store.test.ts`'s per-test database setup. Single source for the atlas-shellout error handling (ENOENT surfaces as a CI prereq message; non-zero exit includes captured stdout/stderr).
+- `lib/case-store/CLAUDE.md` (rewritten "Migrations" section) — documents the atlas authoring workflow, the destructive-change expand-contract pattern, the Cloud Run startup CMD, the testcontainers shell-out, the install instructions including the macOS 26 CLT brew-fallback path. Adds a "Checking prod migration state" subsection with two canonical paths: `gcloud logging read` for the most recent apply log + an `atlas_schema_revisions` ledger query via Cloud SQL Studio.
+- `package.json` (modified) — net `-6 / +2`: removes `db:migrate`, `db:migrate:deploy`, `db:rollback`, `db:status`, `db:check-extensions`, `db:check-extensions:deploy` (laptop can't reach private-IP prod, so prod-targeting npm scripts always fail); adds `db:diff` (`atlas migrate diff --env local`) and `db:lint` (`atlas migrate lint --env local --latest 1`).
+- `lefthook.yml` (modified) — adds `atlas-migrate-lint` to pre-commit, scoped to the `lib/case-store/migrations/*.sql` glob. Destructive changes that bypass Atlas's diff-skip (e.g., manually-authored migrations) fail at commit time.
+- `.dockerignore` (modified) — drops the `!scripts/migrate` and `!scripts/check-extensions` allowlist exceptions (no longer needed); adds nothing (atlas.hcl, schema.sql, and the migrations directory aren't blocked by other rules).
+- `~/.claude/skills/atlas/SKILL.md` + `~/.claude/skills/atlas/references/schema-sources.md` — Atlas Claude Code skill (Option 2 from atlasgo.io's published guide). Auto-loads when Claude Code touches atlas-related paths.
 
-**`cases_quarantine` shape:** same columns as `cases` plus `quarantine_reason TEXT NOT NULL` and `quarantined_at TIMESTAMPTZ NOT NULL DEFAULT now()`. Composite primary key `(case_id, quarantined_at)` admits multi-version quarantine history without conflict — a row that survives multiple migration cycles can be re-quarantined on a later cycle without the migrator having to choose between overwriting or aborting. No indexes beyond the PK; quarantine rows are read by author UI for review, not on the case-list hot path.
+**Files deleted (also covered in Task 2 below; listed once here for completeness):**
 
-**Cloud Run job deployment (pending):** the supervisor invokes `npm run db:migrate:deploy` to build the image (`Dockerfile.migrate`) and run `gcloud run jobs deploy db-migrate ... --network=default --subnet=default --vpc-egress=private-ranges-only --service-account=51003905459-compute@developer.gserviceaccount.com --set-env-vars=NOVA_DB_NAME=nova_cases,NOVA_DB_USER=51003905459-compute@developer,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases`. After deployment, `npm run db:migrate` invokes `gcloud run jobs execute db-migrate --wait` against the live instance. CI runs migrations against testcontainers Postgres directly (no Cloud Run job in CI).
+`lib/case-store/migrations/0001_init.ts`, `0002_indices.ts`, `runner.ts`, `__tests__/runner.test.ts`, `package.json`; `Dockerfile.migrate`; `scripts/migrate/run.ts`, `deploy-job.sh`, `execute-job.sh`, `package.json`.
 
-Commit chain: `1e554960` (initial) → `664faae8` (production tsc fix-pass — scoped ESM + .js suffixes) → `6fafe247` (spec-review fix-pass — `case_id` ColumnType + JSDoc) → `33b211bc` (CR fix-pass — `max: 1` for production parity).
+**`uuidv7()` adoption:** unchanged from the original SHIPPED block — PG 18's native `uuidv7()` generates timestamp-prefixed UUIDs that cluster on B-tree pages. `case_id`'s default is `uuidv7()`; verified runtime via per-test inserts that omit `case_id` and assert the returned value matches the RFC 9562 v7 regex.
 
-### Task 2: Cloud SQL extension allowlist gate — SHIPPED
+**Cloud Run runtime adjustments approved for the rework:**
 
-SHIPPED 2026-05-03 against the live `commcare-nova:us-central1:nova-cases` instance via a deployed Cloud Run job (execution `check-postgres-extensions-wwjld`, succeeded 2026-05-03T17:46:47Z). All three extensions confirmed available + installed: `pg_trgm` 1.6, `fuzzystrmatch` 1.2, `postgis` 3.6.0.
+1. **`NOVA_DB_HOST=10.9.160.3` re-added** to the Cloud Run env (revision `commcare-nova-00102-njr`). Atlas (Go binary) doesn't have access to `@google-cloud/cloud-sql-connector` (Node lib) and requires a real `host:port` URL. The Node app continues to ignore `NOVA_DB_HOST` and resolve via `NOVA_DB_INSTANCE_CONNECTION_NAME`; both consumers coexist in the same container.
+2. **`arigaio/atlas` digest-pinned** (`@sha256:6d34257110be...`) for supply-chain integrity. Atlas runs at startup with the runtime SA's IAM credentials; an attacker compromising arigaio's dockerhub account could push a malicious `:latest` tag and our next deploy would pull it. Digest pinning blocks that. Rotation policy: bump the digest when atlas releases a new minor version OR quarterly, whichever comes first. Mirrors the supply-chain framing the testcontainers harness already uses for its postgis image.
+3. **Community-edition Atlas binary** (not Pro). Pro requires `atlas login` + paid account on every invocation; community covers everything we need (`migrate diff`, `migrate apply`, `migrate lint`, `migrate validate`). The Pro-only `docker "postgres" "dev"` block was tested empirically and rejected — the community path uses an inline `docker+postgres://...` URL via `locals.dev_url`.
+4. **No baseline extension installs** in the dev container. `schema.sql` references no extension types/functions today (PostGIS is used only at query time for `ST_DWithin`). If a future schema.sql adds a `geometry`/`tsvector` column, the atlasgo.io `composite_schema` data source is the canonical community-edition path; documented as a present-tense future-need note in atlas.hcl.
 
-**Files shipped:**
-- `lib/case-store/postgres/checkExtensions.ts` — pure verification function. `verifyExtensions(db)` runs the two queries (`pg_available_extensions` for Cloud SQL allowlist + `pg_extension` for installation state), assembles a `VerificationResult` per the three required extensions, returns `passed: boolean` + per-extension status. Pure-data architecture: queries return rows; assembly is side-effect-free; failure aggregation via the helper named `assembleResult`.
-- `lib/case-store/postgres/__tests__/checkExtensions.test.ts` — covers the pass / fail (dropped) / fail (never installed) / aggregation paths against per-test isolated databases (the testcontainer image has all three on its allowlist, so `not-allowlisted` paths use hand-rolled rows against the typed `AvailableExtensionRow` / `InstalledExtensionRow` interfaces — runtime row-shape mismatch surfaces at compile time).
-- `lib/case-store/sql/__tests__/perTestDatabase.ts` — shared `setupPerTestDatabase({ databaseNamePrefix, extensionsToInstall })` extracted from Task 1's runner test pattern. Wires `beforeEach`/`afterEach`, exposes a getter handle that throws if accessed outside a test, bakes `try { db.destroy(); } finally { dropDatabase(); }` into teardown so leaked databases don't survive test failures. Both `runner.test.ts` and `checkExtensions.test.ts` consume it.
-- `scripts/check-extensions/{run.ts, deploy-job.sh, execute-job.sh, package.json}` + `Dockerfile.check-extensions` — the production CLI + Cloud Run job pattern, mirroring `scripts/migrate/`. The CLI dispatches between `NOVA_DATABASE_URL` (developer-override / testcontainer) and the connector + IAM auth path (Cloud Run). The job container runs the same `verifyExtensions` function used in tests.
-- npm scripts: `db:check-extensions` (executes the deployed job) + `db:check-extensions:deploy` (builds + deploys).
-- Side-effect changes (called out by the implementer per `feedback_no_silent_scope_flips.md`):
-  - `lib/case-store/postgres/package.json` (new) — `"type": "module"` scoping for nodenext-mode `tsc` in Dockerfile builds.
-  - `lib/case-store/postgres/connection.ts` — `.js` suffix on the `../sql/database` import for nodenext ESM resolution. Vitest bundler accepts both forms; production tsc requires the suffix.
-  - `.dockerignore` — `!scripts/check-extensions` exception so the COPY can reach the script.
+**Cutover verification:** Checkpoint 2 confirmed `nova_cases` was empty before deploy via two confirming signals: (a) `gcloud run jobs list --region=us-central1` showed only `check-postgres-extensions` (the obsolete `db-migrate` job from the original design was never deployed), (b) zero application call sites for `getCaseStoreDatabase()` across `app/` and `lib/`. Production deploys via the existing Cloud Build trigger `rmgpgab-commcare-nova-us-central1-voidcraft-labs-commcare-nozhs` (fires on push to `^main$`); the new revision's startup CMD applies the baseline migration before serving traffic.
 
-**Plan filename divergence reconciliation:** the original Plan 2 Task 2 file structure listed `scripts/check-postgres-extensions.ts` (single file). The shipped architecture is `lib/case-store/postgres/checkExtensions.ts` (the verification function, colocated with `connection.ts` so it shares the connector + env-var contract) plus `scripts/check-extensions/run.ts` (the CLI wrapper). The split mirrors Task 1's `lib/case-store/migrations/runner.ts` + `scripts/migrate/run.ts` shape and matches the canonical Cloud Run job pattern.
+**Commit chain (rework):**
+- `112ed975` — `feat(case-store): atlas owns schema + migrations; runs at Cloud Run startup`
+- `199a9f7d` — `refactor(case-store): delete obsolete migration runner + check-extensions infrastructure`
+- `135f4702` — `refactor(case-store): code-review fix-pass on Plan 2 Tasks 1+2 rework`
 
-**No generated TypeScript constant:** Plan 2's "Record availability in a generated TypeScript constant" framing is intentionally not implemented. Per `feedback_max_subset_no_dimagi_litter.md`, production parity is non-negotiable — there is no graceful-degradation path that branches on extension availability at runtime. The Plan 1 compilers assume all three extensions are available; the gate's halt-if-missing semantic is the structural enforcement, not a constant downstream code reads.
+Original (superseded) commit chain captured for archeology: `1e554960` → `664faae8` → `6fafe247` → `33b211bc`.
 
-**Extensions Plan 1's compiler depends on (NON-OPTIONAL on the production Cloud SQL instance):**
-- `pg_trgm` — `match` mode "fuzzy" / "starts-with" / "fuzzy-date" all emit `%` similarity; without `pg_trgm`, these queries fail at execution time.
-- `fuzzystrmatch` — `match` mode "phonetic" emits `dmetaphone(...)` calls; without it, the function does not exist.
-- `postgis` — `within-distance` emits `ST_GeogFromText` and `ST_DWithin`; without `postgis`, neither function exists.
+### Task 2: Cleanup of obsolete extension-verification surface — SHIPPED (Atlas rework)
 
-All three are on Cloud SQL's documented allowlist for PG 18 (per `https://docs.cloud.google.com/sql/docs/postgres/extensions` and the Cloud SQL release notes confirming PostGIS 3.6.0 is bundled).
+SHIPPED 2026-05-05 alongside Task 1's rework. The original (2026-05-03) Cloud Run job design — a `verifyExtensions` function plus a `db-check-extensions` Cloud Run job that ran as an explicit pre-flight gate — gets replaced by Atlas's startup-application semantic: the first compiler-emitted query against a missing extension fails fast at runtime with `function does not exist` or `operator does not exist`. Same halt-if-missing structural enforcement, no separate verification surface. Extensions are installed once at provisioning time per the Task 0 runbook §Phase 5; the testcontainer harness installs the same set via its container superuser before atlas runs. The production parity invariant the original Task 2 protected lives in those two places, not in a separate Cloud Run job.
 
-**Validation lives in TypeScript, not in Postgres.** Every `cases` write flows through `PostgresCaseStore.insert` / `.update` (Task 4), which validates the candidate `properties` payload against `case_type_schemas[appId, caseType].schema` via `lib/domain/predicate/jsonSchema.ts` + `ajv` before the row hits the database. The API route is the trust boundary; the database is internal. There is no in-database trigger and no `pg_jsonschema` extension dependency — Cloud SQL doesn't allowlist `pg_jsonschema`, and a hand-rolled PL/pgSQL JSON Schema implementation duplicating the TypeScript validator's behavior would just create a second validator to keep in sync. The single TypeScript validator is the single source of truth.
+**Files deleted (this task + Task 1's deletions land in commit `199a9f7d`):**
 
-Commit chain: `f03b6e72` (initial) → `8f4f952c` (CR fix-pass — shared `perTestDatabase` helper extraction + drift fixes).
+- `lib/case-store/postgres/checkExtensions.ts`
+- `lib/case-store/postgres/__tests__/checkExtensions.test.ts`
+- `lib/case-store/postgres/package.json` (the nodenext ESM scoping shim — no longer needed; `connection.ts` doesn't require it post-cleanup, verified via `npm run typecheck` clean)
+- `scripts/check-extensions/run.ts`, `deploy-job.sh`, `execute-job.sh`, `package.json`
+- `Dockerfile.check-extensions`
 
-**Dockerfile.migrate latent ESM bug (queued supervisor follow-up):** the same nodenext ESM issue affects `Dockerfile.migrate`. It hasn't surfaced because the migrate job hasn't been deployed yet. The supervisor's follow-up: add `!scripts/migrate` to `.dockerignore` and verify `Dockerfile.migrate` carries the new `lib/case-store/postgres/package.json` forward in its COPY chain. Tracked separately from Task 2's implementer scope per `feedback_no_silent_scope_flips.md`.
+**Files retained (explicit retention — original Task 2 listed these for deletion):**
+
+- `lib/case-store/sql/__tests__/perTestDatabase.ts` STAYS. Original consumers (`runner.test.ts` and `checkExtensions.test.ts`) go away with this rework, but Tasks 3+4 (shipped at SHA `b9a264dc`) introduced a third consumer: `lib/case-store/postgres/__tests__/store.test.ts` imports `setupPerTestDatabase` for `db.transaction()`-using methods that nest `BEGIN` (Postgres rejects nested BEGIN inside the harness's outer BEGIN/ROLLBACK). The helper's responsibility — per-test isolated database via `CREATE DATABASE` + `DROP DATABASE` — is independently useful for the case-store contract suite. The `extensionsToInstall` parameterization that existed for the deleted gate test is removed; default extension install is now non-configurable.
+
+**GCP-side artifacts deleted:**
+
+- Cloud Run job `check-postgres-extensions` (was the only deployed job from the original design — `db-migrate` was never deployed): `gcloud run jobs delete check-postgres-extensions --region=us-central1 --quiet`.
+- Artifact Registry image: `gcloud artifacts docker images delete us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/check-postgres-extensions --delete-tags --quiet`.
+
+Verified: `gcloud run jobs list --region=us-central1` returns 0 items; `gcloud artifacts docker images list us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy --include-tags` shows only the main `commcare-nova/commcare-nova` repository.
+
+**Extensions Plan 1's compiler depends on (NON-OPTIONAL on the production Cloud SQL instance):** unchanged from the original SHIPPED block — `pg_trgm` (fuzzy match `%` similarity), `fuzzystrmatch` (phonetic `dmetaphone`), `postgis` (`ST_GeogFromText` + `ST_DWithin`). All three on Cloud SQL's documented allowlist for PG 18; installed at provisioning time per runbook §Phase 5; verified live (Phase 5 P5-D smoke queries returned the expected values from each extension).
+
+**Validation lives in TypeScript, not in Postgres** — unchanged from the original SHIPPED block. AJV at the API trust boundary; no in-database trigger; no `pg_jsonschema` dependency.
+
+**Commit chain:** `199a9f7d` (deletion sweep, shared with Task 1) and `135f4702` (fix-pass that resolved the dead `extensionsToInstall` API on `setupPerTestDatabase`).
+
+Original (superseded) commit chain captured for archeology: `f03b6e72` (initial Task 2) → `8f4f952c` (CR fix-pass extracting shared helper).
 
 ### Task 3: `CaseStore` interface + `withOwnerContext` factory — SHIPPED
 
@@ -279,8 +298,8 @@ Document:
 - The single-implementation pattern (no in-memory variant; no parity tests; testcontainers covers test isolation).
 - The "no preview mode" architecture: the running-app view operates on the same rows the editor sees; sample-data generation is a user action.
 - The `(app_id, owner_id)` isolation pattern.
-- The migration workflow (`db:migrate`, `db:rollback`, `db:status`).
-- The Cloud SQL extension allowlist gate (Task 2) — required extensions, what halts provisioning if any is missing.
+- The migration workflow: Atlas owns schema-as-code (`schema.sql` source) + autogenerates migrations into `migrations/` via `npm run db:diff`. Production applies via the Cloud Run startup CMD (`atlas migrate apply --env prod --allow-dirty && exec node server.js`); tests apply via the same atlas binary shelled out from `globalSetup.ts`. Local-only npm scripts: `db:diff` (generate from `schema.sql` edit) + `db:lint` (matches the lefthook pre-commit destructive-change check). Production migration state: `gcloud logging read` for the most recent apply log + `atlas_schema_revisions` ledger via Cloud SQL Studio for the full applied set.
+- The required Postgres extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`) — installed at provisioning time per the Task 0 runbook §Phase 5 + by the testcontainer harness via container superuser. No runtime verification gate; missing extensions surface as `function does not exist` failures at the first compiler-emitted query against them.
 - Why validation lives in TypeScript, not in Postgres triggers: `lib/domain/predicate/jsonSchema.ts` + `ajv` at the API-route trust boundary; no `pg_jsonschema` (Cloud SQL doesn't allowlist it) and no PL/pgSQL fallback (would duplicate the TS validator's logic).
 
 ---
