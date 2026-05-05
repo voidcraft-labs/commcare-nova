@@ -260,13 +260,35 @@ SHIPPED 2026-05-05 in commits `a2abac6c` (feat) → `a9529fa1` (CR + spec-review
 
 Commit chain: `a2abac6c` (initial feat) → `a9529fa1` (CR + spec-review fix-pass).
 
-### Task 6: Form running-app write-through
+### Task 6: Form running-app write-through — SHIPPED
 
-**Files:** `lib/case-store/form-bridge/writeThrough.ts`, `deriveFromForm.ts`, tests.
+SHIPPED 2026-05-05 in commits `a206a114` (feat) → `053a3a5a` (CR + spec-review fix-pass) on branch `feat/case-list-search`.
 
-Routes form completion in the running-app view through `CaseStore`. `deriveFromForm` extracts the case operations a completed form implies (registration → insert; followup → update; close → close), using the existing `lib/commcare/deriveCaseConfig.ts` logic but at runtime per form-completion rather than build-time per blueprint.
+**Files shipped:**
 
-Tests: completing a registration form inserts the right shape; followup updates the bound case; close marks closed; the running-app view re-queries and sees the changes immediately (continuous validation principle — no "save then refresh").
+- `lib/case-store/form-bridge/deriveFromForm.ts` — pure function. Walks the blueprint field tree; buckets each leaf's value into either the primary case's properties or a child-case bucket per `case_property_on`. Emits a typed `DerivedFormOps` discriminated union for the four form types (registration → `PrimaryRegistrationOp`; followup → `PrimaryUpdateOp` with optional update; close → `PrimaryUpdateOp` + close discriminator; survey → no-op against `cases`). Repeat containers fan out into one `ChildInsertOp` per runtime instance.
+- `lib/case-store/form-bridge/writeThrough.ts` — I/O wrapper. Accepts a `CaseStore` instance, calls `deriveFromForm`, and applies the ops via `insert` / `update` / `close`. For registration, threads the generated primary `case_id` into child cases' `parent_case_id`; for followup / close, the bound `caseId` is the parent. Returns a typed `WriteFormCompletionResult` discriminated union — the survey arm carries only `{ operation: "survey" }`; the three case-touching arms carry `{ operation, caseId, childCaseIds }`.
+- `lib/case-store/form-bridge/__tests__/deriveFromForm.test.ts` — 14 pure-function tests covering all four form types + edge cases (missing module case-type, missing bound caseId, repeat-instance fan-out, full `data_type` coercion).
+- `lib/case-store/form-bridge/__tests__/writeThrough.test.ts` — 8 integration tests against per-test isolated Postgres via `setupPerTestDatabase`. Round-trip through real AJV validation + `case_indices` materialization. Includes the continuous-validation assertion (post-write `query` sees the new state immediately).
+- `lib/case-store/form-bridge/__tests__/fixtures.ts` — shared `buildBlueprint` / `completed` / `DField` helpers extracted in the fix-pass; both test files import from here.
+
+**`CaseStore` is a parameter, not constructed.** The form-bridge never calls `withOwnerContext` — Plan 2 Task 7's `caseDataBinding` constructs the store at the request boundary and passes it in. Tests construct `PostgresCaseStore` directly with the per-test handle, mirroring the contract harness wiring from Tasks 3+4.
+
+**Forked the field walk rather than reusing `lib/commcare/deriveCaseConfig.ts`.** Two reasons:
+1. `biome.json`'s `noRestrictedImports` rule blocks `lib/case-store/**` from importing `@/lib/commcare`. The boundary is structural, not a convention — see the project root CLAUDE.md's "CommCare boundary" section. A shared `lib/domain/` helper could in principle factor the walk skeleton, but the gain is marginal (~25 LOC of shared structure) and the downstream output shapes diverge enough that the visitor pattern would be doing little work.
+2. `deriveCaseConfig` produces a build-time `DerivedCaseConfig` / `DerivedChildCase` (static descriptor with `repeat_context` as a string); the runtime path needs per-(case-type × repeat-instance) fan-out with typed values. Different inputs (blueprint vs blueprint + completed-form values), different invariants (build-time stable vs per-completion variable), different outputs (descriptor vs typed JSON document). The fork is structural, not a duplication waiting to be deduplicated.
+
+**Empty-value omission semantic.** When `getValueSnapshot()` returns a values map missing a path (because `formEngine.ts:644` filters empty values out via `if (state.value) values.set(...)`), the form-bridge omits that property from the JSONB document the case-store writes. The decision was driven by AJV's strict-mode constraints: `null` fails `integer` / `number` types; `""` fails `format: date` / `format: time` / `format: date-time` / the geopoint pattern. The only shape that passes validation AND aligns with Postgres-strict `is-null` semantics ("absent" ≡ "not present in the JSONB document") is omission.
+
+This means form completion produces only 2 of the 3 spec-defined JSONB states (absent / null / present-and-empty) — the "present-and-empty" state is unreachable via any form completion path. Other write paths (sample-data generator, direct API writes) can still produce it. Task 9's CLAUDE.md authoring pass documents this so future consumers of `is-blank` understand the form-completion path collapses to a 2-state model. The behavior survives both the absent-path fallback (`?? ""`) and the defensive-empty branch (`=== ""` short-circuit) converging on omission.
+
+**Parent / child threading (registration).** Primary insert runs first via `caseStore.insert` (Postgres `RETURNING case_id` captures the generated id). Child inserts run sequentially after, with `parent_case_id = primary.case_id` (the derived ops carry no `parentCaseId` for registration; the I/O wrapper threads it via `fallbackParentCaseId`). Followup / close use the bound `caseId` as the primary directly; child ops carry `parentCaseId` set on the derivation side. The integration test at `writeThrough.test.ts` asserts the relationship materializes through `case_indices` end-to-end.
+
+**Survey forms** are a structural no-op against `cases`. The walk still runs (the survey form's tree is traversed for any future analytics consumers), but no `CaseStore` operation fires; the result is `{ operation: "survey" }`. Survey forms collect data without case ownership per the spec's running-app form-types model.
+
+**Tests:** case-store package 339 passed (was 316 pre-Task-6; +23 — the fix-pass split H1's empty-value test into production-path + defensive-belt-and-suspenders shapes, adding one).
+
+Commit chain: `a206a114` (feat) → `053a3a5a` (CR + spec-review fix-pass).
 
 ### Task 7: Route running-app screens through `caseDataBinding`; delete `dummyData.ts` + existing preview screens
 
