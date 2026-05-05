@@ -20,18 +20,19 @@
 // The helpers return `CaseRow` directly — the same type the
 // case-store interface exposes. Consumers (the running-app
 // screens) read property values through `row.properties` (a
-// `JsonObject`) plus the four reserved scalar columns
-// (`case_id` / `case_type` / `owner_id` / `status`) via direct
-// row access. The previous dummy-data layer wrapped properties in
-// a `Map<string, string>`; the binding does NOT — `Map` was a
-// dummy-data accident, and the JSONB read shape is what every
-// other case-store consumer (form-bridge, applySchemaChange's
-// migration loop) already binds against.
+// `JsonObject`, i.e. `Record<string, JsonValue>`) plus the four
+// reserved scalar columns (`case_id` / `case_type` / `owner_id` /
+// `status`) via direct row access. The JSONB read shape is what
+// every case-store consumer (form-bridge, applySchemaChange's
+// migration loop, the predicate compiler) binds against;
+// preserving it here keeps a single shape across every surface
+// that touches case data.
 //
 // One coercion runs at the form-engine boundary only:
 // `caseRowToFormPreload` flattens the JSONB into the
 // `Map<string, string>` shape `useFormEngine` accepts. The
-// flattening is a presentation concern, not a domain concern.
+// flattening is a presentation concern (the form engine reasons
+// about input strings), not a domain concern.
 
 import type { JsonValue } from "@/lib/case-store/sql/database";
 import type { CaseRow, CaseStore } from "@/lib/case-store/store";
@@ -60,10 +61,11 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
 // ---------------------------------------------------------------
 
 /**
- * Project a `BlueprintDocState` (or any superset of `BlueprintDoc`)
- * down to the bare `BlueprintDoc` shape — every field defined on
- * the blueprint schema, no action methods, no zundo / store
- * machinery.
+ * Project any superset of `BlueprintDoc` (including the doc
+ * store's `BlueprintDocState`, which carries action methods
+ * alongside the data fields) down to the bare `BlueprintDoc`
+ * shape: every field defined on the blueprint schema, nothing
+ * else.
  *
  * Server Actions serialize their arguments via React's RSC
  * serializer, which rejects function values. The doc store's
@@ -72,12 +74,22 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * would throw at the serialization boundary. This helper picks
  * just the data fields so the action sees a pure object.
  *
+ * The generic `T extends BlueprintDoc` makes the input-type claim
+ * structural rather than purely doc-level — call sites that pass
+ * `BlueprintDocState` (a superset) are accepted by the type
+ * checker, and call sites that pass plain `BlueprintDoc` work the
+ * same way. The return type stays narrowed to `BlueprintDoc` so
+ * the caller cannot accidentally re-introduce a superset's extras
+ * into the wire payload.
+ *
  * Lives beside the action helpers so adding a new BlueprintDoc
  * field surfaces an exhaustivity error here in the same module
  * that consumes the type — no parallel edit at every consumer
  * site.
  */
-export function pickBlueprintDoc(state: BlueprintDoc): BlueprintDoc {
+export function pickBlueprintDoc<T extends BlueprintDoc>(
+	state: T,
+): BlueprintDoc {
 	return {
 		appId: state.appId,
 		appName: state.appName,
@@ -106,9 +118,8 @@ export function pickBlueprintDoc(state: BlueprintDoc): BlueprintDoc {
  * The case-store's `query` enforces the `(app_id, owner_id)`
  * tenant filter at the SQL layer; a mismatched id produces an
  * empty result set, not a leaked row. No predicate / sort /
- * limit is supplied — the running-app view consumes the entire
- * case-type today; pagination is a downstream concern when the
- * search-input UI lands.
+ * limit is supplied — the helper consumes the entire case-type
+ * for the running-app view's table render.
  */
 export async function readCases(
 	store: CaseStore,
@@ -162,9 +173,10 @@ export async function readCaseData(
  * `CaseStore.generateSampleData` directly with their own fixed
  * seed instead of going through this helper.
  *
- * The count is fixed at `SAMPLE_CASE_DEFAULT_COUNT`. Threading a
- * count parameter from the UI is straightforward when a "generate
- * N cases" picker lands; today's button is a fixed-count action.
+ * The count is fixed at `SAMPLE_CASE_DEFAULT_COUNT`. The button
+ * surface this helper backs is a fixed-count action — generating
+ * an arbitrary count is a separate authoring path that calls the
+ * underlying `CaseStore.generateSampleData` directly.
  */
 export async function seedSampleCases(
 	store: CaseStore,

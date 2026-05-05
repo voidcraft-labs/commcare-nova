@@ -29,12 +29,13 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import type { Database } from "@/lib/case-store/sql/database";
-import type { CaseStore } from "@/lib/case-store/store";
+import type { Database, JsonObject } from "@/lib/case-store/sql/database";
+import type { CaseRow, CaseStore } from "@/lib/case-store/store";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import {
 	caseRowDisplayValue,
@@ -84,27 +85,12 @@ const PATIENT_CASE_TYPE: CaseType = {
 };
 
 /**
- * Build a minimal `BlueprintDoc` carrying just the case types the
- * binding test needs. Mirrors the helper at
- * `lib/case-store/__tests__/storeContract.ts` — duplicated rather
- * than imported because that helper is in a test-only path the
- * preview-engine package can't reach without crossing a
- * build-target boundary.
+ * Local wrapper that pins this suite's `APP_ID`. The shared
+ * `buildSimpleBlueprint` helper takes `(caseTypes, appId)`;
+ * wrapping it here keeps each test body to a one-liner.
  */
-function buildBlueprint(caseTypes: CaseType[]): BlueprintDoc {
-	return {
-		appId: APP_ID,
-		appName: "binding-test-app",
-		connectType: null,
-		caseTypes,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+function buildBlueprint(caseTypes: CaseType[]) {
+	return buildSimpleBlueprint(caseTypes, APP_ID);
 }
 
 /**
@@ -123,8 +109,8 @@ function makeStore(ownerId: string): CaseStore {
 
 /**
  * Seed the case-type's JSON Schema so subsequent inserts pass
- * AJV validation. The contract harness uses the same one-line
- * shape; duplicated for the same reason as `buildBlueprint`.
+ * AJV validation. Mirrors the shape the contract harness uses —
+ * one call per test body before the first `insert`.
  */
 async function seedSchema(
 	store: CaseStore,
@@ -132,6 +118,32 @@ async function seedSchema(
 	caseType: string,
 ): Promise<void> {
 	await store.applySchemaChange({ appId: APP_ID, caseType, blueprint });
+}
+
+/**
+ * Build a synthetic `CaseRow` literal for tests that exercise the
+ * helpers' coercion behavior on JSONB shapes the JSON Schema
+ * validator would reject at write time (boolean / null / array /
+ * object values against typed properties). The helpers are pure
+ * and operate against `CaseRow.properties` directly, so a synthetic
+ * row sidesteps the round-trip through `insert` without losing
+ * coverage — other write paths (sample-data generator, direct
+ * admin writes, future bulk-import flows) can produce these
+ * shapes, so the helper has to handle the full `JsonValue` tree.
+ */
+function buildSyntheticRow(properties: JsonObject): CaseRow {
+	return {
+		case_id: "test-id",
+		app_id: APP_ID,
+		case_type: "patient",
+		owner_id: OWNER_A,
+		status: "open",
+		opened_on: null,
+		modified_on: null,
+		closed_on: null,
+		parent_case_id: null,
+		properties,
+	};
 }
 
 // ---------------------------------------------------------------
@@ -340,6 +352,32 @@ describe("caseRowToFormPreload", () => {
 		// Numbers stringify via String() — `30` becomes `"30"`.
 		expect(preload.get("age")).toBe("30");
 	});
+
+	it("coerces every JsonValue branch to its string form", () => {
+		const row = buildSyntheticRow({
+			str_prop: "hello",
+			num_prop: 42,
+			bool_prop: true,
+			null_prop: null,
+			array_prop: ["a", "b"],
+			object_prop: { nested: "value" },
+		});
+
+		const preload = caseRowToFormPreload(row);
+		expect(preload.get("str_prop")).toBe("hello");
+		expect(preload.get("num_prop")).toBe("42");
+		// Booleans stringify via String() — `true` / `false` become
+		// `"true"` / `"false"`.
+		expect(preload.get("bool_prop")).toBe("true");
+		// `null` collapses to the empty string — the form engine
+		// treats absent and empty as the same domain state.
+		expect(preload.get("null_prop")).toBe("");
+		// Arrays + objects round-trip through JSON.stringify so
+		// downstream inspectors (calculate fields, agent debug
+		// views) can parse them back.
+		expect(preload.get("array_prop")).toBe('["a","b"]');
+		expect(preload.get("object_prop")).toBe('{"nested":"value"}');
+	});
 });
 
 // ---------------------------------------------------------------
@@ -375,5 +413,19 @@ describe("caseRowDisplayValue", () => {
 		// Absent property falls back to the empty string — covers the
 		// case-list-table empty-cell render path.
 		expect(caseRowDisplayValue(row, "does_not_exist")).toBe("");
+	});
+
+	it("coerces every JsonValue branch to its display string", () => {
+		const row = buildSyntheticRow({
+			bool_prop: false,
+			null_prop: null,
+			array_prop: [1, 2, 3],
+			object_prop: { a: 1, b: "two" },
+		});
+
+		expect(caseRowDisplayValue(row, "bool_prop")).toBe("false");
+		expect(caseRowDisplayValue(row, "null_prop")).toBe("");
+		expect(caseRowDisplayValue(row, "array_prop")).toBe("[1,2,3]");
+		expect(caseRowDisplayValue(row, "object_prop")).toBe('{"a":1,"b":"two"}');
 	});
 });

@@ -3,7 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
@@ -98,22 +98,40 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }
 	>({ kind: "idle" });
 
-	const handleGenerate = useCallback(async () => {
+	/* `handleGenerate` is intentionally NOT wrapped in `useCallback`.
+	 * `populate` is a fresh closure every render (see
+	 * `usePopulateSampleCases` for rationale), so a `useCallback` on
+	 * `[populate, reload]` would invalidate on every render —
+	 * memoization would be structurally empty. Closure allocation is
+	 * cheap; pretending to memoize is misleading. */
+	const handleGenerate = async () => {
 		setPopulateStatus({ kind: "running" });
-		const result = await populate();
-		if (result.kind === "ok") {
-			setPopulateStatus({ kind: "idle" });
-			reload();
-			return;
+		try {
+			const result = await populate();
+			if (result.kind === "ok") {
+				setPopulateStatus({ kind: "idle" });
+				reload();
+				return;
+			}
+			setPopulateStatus({
+				kind: "error",
+				message:
+					result.kind === "unauthenticated"
+						? "Sign in to generate sample data."
+						: result.message,
+			});
+		} catch {
+			/* Wire-level failures (the Server Action's promise rejecting
+			 * before its body ran — RSC serialization, transport, etc.)
+			 * bypass the typed `result` arms entirely. The catch maps
+			 * them to the same `error` shape so the button never sticks
+			 * on "Generating..." after a network failure. */
+			setPopulateStatus({
+				kind: "error",
+				message: "Could not generate sample data. Try again.",
+			});
 		}
-		setPopulateStatus({
-			kind: "error",
-			message:
-				result.kind === "unauthenticated"
-					? "Sign in to generate sample data."
-					: result.message,
-		});
-	}, [populate, reload]);
+	};
 
 	if (!mod || !caseType || columns.length === 0) {
 		return (

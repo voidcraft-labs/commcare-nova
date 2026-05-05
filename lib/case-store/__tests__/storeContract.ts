@@ -57,6 +57,7 @@ import {
 	subcasePath,
 } from "@/lib/domain/predicate/builders";
 import type { CaseStore } from "../store";
+import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
 // ---------------------------------------------------------------
 // Public types
@@ -117,29 +118,13 @@ const PATIENT_PROPERTIES: CaseProperty[] = [
 
 /**
  * Build a `BlueprintDoc` carrying just the case types the harness
- * needs. `BlueprintDoc` carries many more fields than the case-
- * store cares about (modules, forms, fields, etc.); the unused
- * ones are filled with empty defaults so the harness focuses on
- * the case-type surface.
- *
- * Caller passes the case types they want for a given test; the
- * helper bakes the rest of the doc shape so each test body reads
- * as one line.
+ * needs, defaulting `appId` to the harness's shared `APP_ID`.
+ * Wraps `buildSimpleBlueprint` so each test body reads as one
+ * line (`buildBlueprint([CASE_TYPE])`) without re-stating the
+ * suite's app id.
  */
 function buildBlueprint(caseTypes: CaseType[]): BlueprintDoc {
-	return {
-		appId: APP_ID,
-		appName: "contract-test-app",
-		connectType: null,
-		caseTypes,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+	return buildSimpleBlueprint(caseTypes, APP_ID);
 }
 
 const PATIENT_CASE_TYPE: CaseType = {

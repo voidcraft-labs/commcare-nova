@@ -148,6 +148,49 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	if (!form || !formId) return null;
 
+	/** Targeted guards for the case-data load's typed failure arms. A
+	 *  caseId-bound followup that lands on `unauthenticated` or `error`
+	 *  must surface the failure to the user instead of silently
+	 *  collapsing to "form with no preload" — the no-preload path
+	 *  hides session expiry and transport failures behind a form
+	 *  rendered against defaults, which the user has no way to
+	 *  diagnose. The `idle` and `loading` arms intentionally fall
+	 *  through (the form renders with defaults during the load
+	 *  window; preload populates once the row arrives). The `missing`
+	 *  arm also falls through here — it shares the "no row to load"
+	 *  semantic with the `!caseId` path the next guard handles. */
+	if (mode === "test" && form.type === "followup") {
+		if (caseDataState.kind === "unauthenticated") {
+			return (
+				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+					<div className="text-center space-y-2">
+						<h3 className="text-sm font-medium text-nova-text">
+							Sign in to load case data
+						</h3>
+						<p className="text-sm text-nova-text-muted max-w-xs">
+							Your session expired while loading this case. Sign in again to
+							continue.
+						</p>
+					</div>
+				</div>
+			);
+		}
+		if (caseDataState.kind === "error") {
+			return (
+				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+					<div className="text-center space-y-2">
+						<h3 className="text-sm font-medium text-nova-text">
+							Could not load case data
+						</h3>
+						<p className="text-sm text-red-300 max-w-xs">
+							{caseDataState.message}
+						</p>
+					</div>
+				</div>
+			);
+		}
+	}
+
 	/** "No cases available" guard for case-loading forms. Fires when the
 	 *  user is in test mode on a followup form that needs a bound case
 	 *  but none was supplied — covers both the "navigated from a case

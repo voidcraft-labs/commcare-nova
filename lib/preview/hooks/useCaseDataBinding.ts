@@ -20,10 +20,11 @@
 //
 // Each hook returns `{ state, reload }`:
 //
-//   - `state` is the discriminated-union result with one extra
-//     arm (`{ kind: "loading" }`) for the in-flight window before
-//     the first action returns. After the first return, `state`
-//     holds whatever the action produced (`rows` / `empty` /
+//   - `state` is the discriminated-union result with two prefatory
+//     arms — `{ kind: "idle" }` (a required argument is undefined,
+//     so the action has not been asked for) and `{ kind: "loading" }`
+//     (the action is in flight). After the first action returns,
+//     `state` holds whatever the action produced (`rows` / `empty` /
 //     `unauthenticated` / `error` for cases; `row` / `missing` /
 //     `unauthenticated` / `error` for case-data).
 //   - `reload` triggers a fresh action call. Used by the
@@ -90,8 +91,8 @@ type LoadingState<T extends { kind: string }> =
  * to refresh the table).
  *
  * Pass `undefined` for either id when the URL is still being
- * parsed — the hook stays in `{ kind: "loading" }` until both
- * are bound. Same shape `useFormEngine` uses for `formUuid`.
+ * parsed — the hook stays in `{ kind: "idle" }` until both are
+ * bound. Same shape `useFormEngine` uses for `formUuid`.
  */
 export function useCases(args: {
 	appId: string | undefined;
@@ -121,10 +122,26 @@ export function useCases(args: {
 		}
 		let cancelled = false;
 		setState({ kind: "loading" });
-		loadCasesAction(appId, caseType).then((result) => {
-			if (cancelled) return;
-			setState(result);
-		});
+		/* The Server Action's body wraps its work in try/catch and
+		 * returns `{ kind: "error" }` for thrown failures, but
+		 * wire-level rejections (HTTP 500, network unreachable, RSC
+		 * serialization failures at the boundary) reject the returned
+		 * promise without entering the action body. The `.catch`
+		 * handler maps those to the same `error` arm so the loading
+		 * machine always reaches a terminal state — without it, a
+		 * wire failure leaves the hook stuck on `loading` forever. */
+		loadCasesAction(appId, caseType)
+			.then((result) => {
+				if (cancelled) return;
+				setState(result);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				setState({
+					kind: "error",
+					message: err instanceof Error ? err.message : "Failed to load cases.",
+				});
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -170,10 +187,21 @@ export function useCaseData(args: {
 		}
 		let cancelled = false;
 		setState({ kind: "loading" });
-		loadCaseDataAction(appId, caseType, caseId).then((result) => {
-			if (cancelled) return;
-			setState(result);
-		});
+		/* See `useCases` for the wire-rejection rationale — same
+		 * pattern; the `.catch` arm guarantees the loading machine
+		 * always reaches a terminal state. */
+		loadCaseDataAction(appId, caseType, caseId)
+			.then((result) => {
+				if (cancelled) return;
+				setState(result);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				setState({
+					kind: "error",
+					message: err instanceof Error ? err.message : "Failed to load case.",
+				});
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -195,9 +223,16 @@ export function useCaseData(args: {
  * The hook does NOT manage its own loading flag — the consuming
  * component owns that UI state because the button's pressed
  * state and any toast/spinner UX is the consumer's responsibility.
- * This hook is a thin curry over the action that closes over the
+ * The hook is a thin curry over the action that closes over the
  * three required arguments without forcing them through the
  * button's onClick prop.
+ *
+ * The closure is intentionally NOT wrapped in `useCallback`. The
+ * typical caller passes a fresh-per-render `blueprint` projection
+ * (`pickBlueprintDoc(docApi.getState())`), so a `useCallback` on
+ * `[appId, caseType, blueprint]` would invalidate on every render
+ * anyway — the memoization would be structurally empty. Closure
+ * allocation is cheap; pretending to memoize is misleading.
  */
 export function usePopulateSampleCases(args: {
 	appId: string | undefined;
@@ -206,7 +241,7 @@ export function usePopulateSampleCases(args: {
 }): () => Promise<PopulateSampleCasesResult> {
 	const { appId, caseType, blueprint } = args;
 
-	return useCallback(async () => {
+	return async () => {
 		if (!appId || !caseType || !blueprint) {
 			return {
 				kind: "error",
@@ -214,5 +249,5 @@ export function usePopulateSampleCases(args: {
 			};
 		}
 		return populateSampleCasesAction(appId, caseType, blueprint);
-	}, [appId, caseType, blueprint]);
+	};
 }

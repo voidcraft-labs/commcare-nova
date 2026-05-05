@@ -26,6 +26,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import type { JsonObject } from "../../sql/database";
 import { HeuristicCaseGenerator } from "../heuristic";
 import { createSeededPrng, hashStringToUint32 } from "../prng";
@@ -34,25 +35,15 @@ import { createSeededPrng, hashStringToUint32 } from "../prng";
 // Test fixtures
 // ---------------------------------------------------------------
 
+const APP_ID = "app-test";
+
 /**
- * Build a `BlueprintDoc` whose `caseTypes` field contains exactly
- * the supplied case types. Other blueprint fields are filled with
- * empty defaults — the generator only reads `caseTypes`.
+ * Local wrapper that pins `APP_ID` so each test body calls
+ * `buildBlueprint([CASE_TYPE])` instead of restating the app id
+ * every time.
  */
 function buildBlueprint(caseTypes: CaseType[]): BlueprintDoc {
-	return {
-		appId: "app-test",
-		appName: "test-app",
-		connectType: null,
-		caseTypes,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+	return buildSimpleBlueprint(caseTypes, APP_ID);
 }
 
 /**
