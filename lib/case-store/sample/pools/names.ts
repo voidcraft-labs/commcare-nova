@@ -21,6 +21,8 @@
 // behavior because deterministic-output tests pin the seeded sequence
 // and a pool change should produce a visible diff.
 
+import type { SeededPrng } from "../prng";
+
 /**
  * Given names pulled from a globally varied set so a 30-row sample
  * exhibits visible variety. The pool intentionally mixes regional
@@ -132,9 +134,9 @@ export const FAMILY_NAMES: readonly string[] = [
  * (47 × 40 = 1880 unique combinations), keeping repetition rare at
  * the default count.
  */
-export function pickFullName(pickIndex: (max: number) => number): string {
-	const given = GIVEN_NAMES[pickIndex(GIVEN_NAMES.length)] ?? "Unknown";
-	const family = FAMILY_NAMES[pickIndex(FAMILY_NAMES.length)] ?? "Unknown";
+export function pickFullName(prng: SeededPrng): string {
+	const given = GIVEN_NAMES[prng.pickIndex(GIVEN_NAMES.length)] ?? "Unknown";
+	const family = FAMILY_NAMES[prng.pickIndex(FAMILY_NAMES.length)] ?? "Unknown";
 	return `${given} ${family}`;
 }
 
@@ -143,6 +145,6 @@ export function pickFullName(pickIndex: (max: number) => number): string {
  * suggests a given name only (e.g. "first_name", "given_name") rather
  * than a full name.
  */
-export function pickGivenName(pickIndex: (max: number) => number): string {
-	return GIVEN_NAMES[pickIndex(GIVEN_NAMES.length)] ?? "Unknown";
+export function pickGivenName(prng: SeededPrng): string {
+	return GIVEN_NAMES[prng.pickIndex(GIVEN_NAMES.length)] ?? "Unknown";
 }

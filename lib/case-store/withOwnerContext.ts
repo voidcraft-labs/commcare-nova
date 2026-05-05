@@ -55,9 +55,9 @@ import type { CaseStore } from "./store";
  *
  * The default `SampleCaseGenerator` is `HeuristicCaseGenerator`
  * (under `./sample/heuristic.ts`) — a stateless, deterministic
- * generator. The same `SampleCaseGenerator` interface accepts any
- * alternative implementation (e.g. an LLM-driven generator); this
- * factory wires the heuristic by default.
+ * generator. The constructor takes the generator as an explicit
+ * argument so tests can pass alternatives without going through
+ * this factory.
  *
  * @param userId - The Better Auth user id from the request's
  *   resolved session (`session.user.id`). The store binds this as

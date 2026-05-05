@@ -56,12 +56,14 @@ export const ADDRESS_LINES: readonly string[] = [
 	"Vía España 45, Panama City",
 ];
 
+import type { SeededPrng } from "../prng";
+
 /**
  * Pick one address line via the seeded PRNG. Returns the full line
  * as a single string — the case-property surface stores addresses
  * under one text key, not as a structured record, so no parts split
  * is needed at this layer.
  */
-export function pickAddressLine(pickIndex: (max: number) => number): string {
-	return ADDRESS_LINES[pickIndex(ADDRESS_LINES.length)] ?? "Unknown";
+export function pickAddressLine(prng: SeededPrng): string {
+	return ADDRESS_LINES[prng.pickIndex(ADDRESS_LINES.length)] ?? "Unknown";
 }

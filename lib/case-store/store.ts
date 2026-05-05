@@ -353,8 +353,11 @@ export interface MigrationReport {
  *     real inserts use.
  *   - `resetSampleData` — deletes every row of the case-type for
  *     the bound tenant + drops their `case_indices` edges, then
- *     regenerates from a fresh seed. Atomic: deletion + regeneration
- *     run inside one Postgres transaction.
+ *     regenerates from a fresh seed. The deletion half is atomic
+ *     (cases + edges drop together in one transaction); the
+ *     regeneration is sequenced after the deletion commits because
+ *     each per-row insert opens its own transaction and Postgres
+ *     rejects a nested BEGIN.
  */
 export interface CaseStore {
 	/**

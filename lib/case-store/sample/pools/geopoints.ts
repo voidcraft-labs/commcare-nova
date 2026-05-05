@@ -41,20 +41,21 @@ export const CITY_CENTERS: readonly {
 	{ name: "London", latitude: 51.5074, longitude: -0.1278 },
 ];
 
+import type { SeededPrng } from "../prng";
+
 /**
  * Pick a city-clustered geopoint and emit it in CCHQ's wire shape.
  *
- * The PRNG drives two independent reads:
+ * The PRNG drives two independent kinds of read:
  *
  *   - one indexed pick over `CITY_CENTERS` to choose the cluster
  *     center
  *   - two `pickFloat` reads to perturb latitude / longitude inside
  *     the cluster radius
  *
- * `pickIndex` and `pickFloat` are passed in (not constructed) so the
- * generator's PRNG is the single source of randomness across pool
- * reads — the determinism contract holds because every pool call
- * threads through the same PRNG instance.
+ * The `prng` argument is the generator's seeded instance, so all
+ * randomness flows through one source — the determinism contract
+ * holds because every pool call threads through the same PRNG.
  *
  * Wire shape: `latitude longitude altitude accuracy` matches the
  * GEOPOINT_PATTERN at `lib/domain/predicate/jsonSchema.ts`. Altitude
@@ -62,12 +63,8 @@ export const CITY_CENTERS: readonly {
  * supplementary metadata the case-property surface stores but
  * neither matters for the search-by-distance demo path.
  */
-export function pickCityClusteredGeopoint(args: {
-	pickIndex: (max: number) => number;
-	pickFloat: () => number;
-}): string {
-	const center =
-		CITY_CENTERS[args.pickIndex(CITY_CENTERS.length)] ?? CITY_CENTERS[0];
+export function pickCityClusteredGeopoint(prng: SeededPrng): string {
+	const center = CITY_CENTERS[prng.pickIndex(CITY_CENTERS.length)];
 	if (center === undefined) {
 		// Defensive: CITY_CENTERS is statically non-empty, so this
 		// arm is unreachable. The throw exists to surface the
@@ -80,8 +77,8 @@ export function pickCityClusteredGeopoint(args: {
 	// `pickFloat()` returns a uniform [0, 1) value; centering at -0.05
 	// produces a [-0.05, 0.05) offset, keeping the cluster tight
 	// around the center.
-	const latitude = center.latitude + (args.pickFloat() - 0.5) * 0.1;
-	const longitude = center.longitude + (args.pickFloat() - 0.5) * 0.1;
+	const latitude = center.latitude + (prng.pickFloat() - 0.5) * 0.1;
+	const longitude = center.longitude + (prng.pickFloat() - 0.5) * 0.1;
 	// Format with fixed decimal precision so the wire shape is
 	// stable across rows. Six decimals ≈ 0.1 m precision, more than
 	// enough for the demo path.

@@ -2,9 +2,8 @@
 //
 // Unit tests for `HeuristicCaseGenerator` and the seeded PRNG
 // helpers it composes against. The generator is pure — no
-// database, no clock reads outside the captured reference date —
-// so these tests run against the in-process generator directly,
-// without any Postgres harness.
+// database, no clock reads — so these tests run against the
+// in-process generator directly, without any Postgres harness.
 //
 // Coverage:
 //
@@ -18,7 +17,7 @@
 //   - Per-`data_type` heuristic dispatch: each `CasePropertyDataType`
 //     produces a value of the expected JS shape.
 //   - Property-name heuristic: name-shape inputs produce the
-//     matching pool variant (e.g. "age" → bounded 0-100).
+//     matching pool variant (e.g. "age" → uniform 15-80).
 //   - Parent linkage: child case types resolve `parent_case_id`
 //     from `parentRefs`; orphan case types produce `null`.
 
@@ -27,11 +26,9 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
-import {
-	createSeededPrng,
-	HeuristicCaseGenerator,
-	hashStringToUint32,
-} from "../heuristic";
+import type { JsonObject } from "../../sql/database";
+import { HeuristicCaseGenerator } from "../heuristic";
+import { createSeededPrng, hashStringToUint32 } from "../prng";
 
 // ---------------------------------------------------------------
 // Test fixtures
@@ -301,14 +298,17 @@ describe("HeuristicCaseGenerator", () => {
 			seed: "shape-check",
 		});
 		for (const row of rows) {
-			const props = row.properties as Record<string, unknown>;
+			// Narrow `CaseInsert.properties` from `JsonObject | string` to
+			// the object arm — the generator always emits an object (the
+			// implementation builds a `JsonObject` accumulator before push).
+			const props = row.properties as JsonObject;
 			// text → non-empty string
 			expect(typeof props.name).toBe("string");
 			expect((props.name as string).length).toBeGreaterThan(0);
-			// int → integer
+			// int → integer in working-age band [15, 80)
 			expect(Number.isInteger(props.age)).toBe(true);
-			expect(props.age as number).toBeGreaterThanOrEqual(0);
-			expect(props.age as number).toBeLessThan(100);
+			expect(props.age as number).toBeGreaterThanOrEqual(15);
+			expect(props.age as number).toBeLessThan(80);
 			// decimal → number
 			expect(typeof props.weight).toBe("number");
 			// date → YYYY-MM-DD
@@ -345,7 +345,7 @@ describe("HeuristicCaseGenerator", () => {
 describe("HeuristicCaseGenerator property-name heuristic", () => {
 	const generator = new HeuristicCaseGenerator();
 
-	it("'age' produces ints in [0, 100)", () => {
+	it("'age' produces ints uniformly in [15, 80)", () => {
 		const caseType: CaseType = {
 			name: "person",
 			properties: [{ name: "age", label: "Age", data_type: "int" }],
@@ -359,10 +359,10 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			seed: "age-pool",
 		});
 		for (const row of rows) {
-			const value = (row.properties as Record<string, unknown>).age;
+			const value = (row.properties as JsonObject).age;
 			expect(Number.isInteger(value)).toBe(true);
-			expect(value as number).toBeGreaterThanOrEqual(0);
-			expect(value as number).toBeLessThan(100);
+			expect(value as number).toBeGreaterThanOrEqual(15);
+			expect(value as number).toBeLessThan(80);
 		}
 	});
 
@@ -383,7 +383,10 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			seed: "count-pool",
 		});
 		for (const row of rows) {
-			const props = row.properties as Record<string, unknown>;
+			// Narrow `CaseInsert.properties` from `JsonObject | string` to
+			// the object arm — the generator always emits an object (the
+			// implementation builds a `JsonObject` accumulator before push).
+			const props = row.properties as JsonObject;
 			expect(props.item_count as number).toBeLessThan(1000);
 			expect(props.total_quantity as number).toBeLessThan(1000);
 		}
@@ -405,7 +408,7 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			seed: "temp-pool",
 		});
 		for (const row of rows) {
-			const value = (row.properties as Record<string, unknown>).temperature;
+			const value = (row.properties as JsonObject).temperature;
 			expect(value as number).toBeGreaterThanOrEqual(35.5);
 			expect(value as number).toBeLessThanOrEqual(40.5);
 		}
@@ -425,7 +428,7 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			seed: "name-pool",
 		});
 		for (const row of rows) {
-			const value = (row.properties as Record<string, unknown>).name as string;
+			const value = (row.properties as JsonObject).name as string;
 			expect(value.split(" ")).toHaveLength(2);
 		}
 	});
@@ -446,8 +449,7 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			seed: "first-name-pool",
 		});
 		for (const row of rows) {
-			const value = (row.properties as Record<string, unknown>)
-				.first_name as string;
+			const value = (row.properties as JsonObject).first_name as string;
 			expect(value).not.toContain(" ");
 			expect(value.length).toBeGreaterThan(0);
 		}

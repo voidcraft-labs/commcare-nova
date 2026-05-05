@@ -244,13 +244,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 		it("inserts a JsonObject `properties` payload (not a JSON string)", async () => {
 			// Kysely's `JSONColumnType<JsonObject>` insert side admits
-			// either a plain object or a JSON-stringified value. A
-			// caller passing the object directly must round-trip
-			// through `query` as the same shape — the previous
-			// implementation silently wrote `'[object Object]'` on
-			// this branch because pg's parameter binder coerces
-			// non-string values to text via `String(value)` for
-			// JSONB columns.
+			// either a plain object or a JSON-stringified value;
+			// object-literal `properties` payloads round-trip through
+			// `query` as the same shape because the case store's
+			// stringification path fires for both string and object
+			// inputs. pg's parameter binder coerces non-string values
+			// to text via `String(value)` for JSONB columns, so the
+			// stringification cannot be skipped on the object arm.
 			const store = await options.factory(OWNER_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
@@ -549,10 +549,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Two rows carried `age`; one didn't.
 			expect(report.migrated).toBe(2);
 			expect(report.quarantined).toBe(0);
-			// Carol's row didn't carry `age`, so it is skipped (not
-			// migrated, not quarantined). Pinning the count rules
-			// out the previous shape that hardcoded `skipped: 0`
-			// regardless of the actual row population.
+			// Carol's row didn't carry `age`; the count reflects the
+			// actual unmatched-row population (one row skipped,
+			// neither migrated nor quarantined).
 			expect(report.skipped).toBe(1);
 			expect(report.failureReasons).toEqual([]);
 

@@ -12,8 +12,9 @@
 // `seed`). The same `(blueprint, caseType, seed)` tuple produces
 // the same row sequence on every call. The pools are static arrays
 // (no clock reads, no external API calls); the date generators
-// capture one reference timestamp per `generate()` call so clock
-// drift between calls does not leak into the output.
+// read from a static module-level reference date threaded in
+// through `composeDateRangeGenerators`, so output is deterministic
+// without any clock read at all.
 //
 // ## Property-name heuristic
 //
@@ -24,7 +25,7 @@
 //     pool when it contains "address" / "street" / "village",
 //     plain text fallback otherwise (a short readable token).
 //   - `int` → bounded integer pool. Names containing "age" produce
-//     ages 0-100 with adult-bias; names containing "count" /
+//     uniform 15-80 (working-age band); names containing "count" /
 //     "quantity" / "number" produce 0-1000; others 0-100.
 //   - `decimal` → bounded float in [0, 100). Names containing
 //     "weight" / "height" / "temperature" produce shape-specific
@@ -64,87 +65,7 @@ import {
 } from "./pools/dates";
 import { pickCityClusteredGeopoint } from "./pools/geopoints";
 import { pickFullName, pickGivenName } from "./pools/names";
-
-// ---------------------------------------------------------------
-// PRNG — mulberry32 + string-hash seed
-// ---------------------------------------------------------------
-//
-// Zero-dependency seeded PRNG. `mulberry32` is the canonical
-// 32-bit-state algorithm with good statistical distribution for
-// non-cryptographic uses; the string-hash function is FNV-1a
-// (32-bit) so the seed string folds deterministically into the
-// algorithm's 32-bit state.
-//
-// Why not `seedrandom` (the npm package): zero npm-overrides churn,
-// no peer-dep concerns, the implementation is ~15 lines and the
-// behavior is identical for the seeded-PRNG use case the generator
-// has. The function below is exported for the unit-test surface to
-// pin the algorithm's deterministic output independently of the
-// generator pipeline.
-
-/**
- * Hash a string into a 32-bit unsigned integer via FNV-1a. The
- * algorithm is canonical and well-distributed for short string
- * inputs — `(appId, caseType, seed)` tuples fold into distinct
- * 32-bit states with high probability.
- */
-export function hashStringToUint32(input: string): number {
-	let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis.
-	for (let i = 0; i < input.length; i++) {
-		hash ^= input.charCodeAt(i);
-		// Multiplication by the FNV-1a 32-bit prime, masked to 32
-		// bits. Bit-twiddling here avoids the precision loss that
-		// would creep in with naive `*` over numbers > 2^32.
-		hash = Math.imul(hash, 0x01000193);
-	}
-	return hash >>> 0;
-}
-
-/**
- * Seeded PRNG handle. The two methods together cover every
- * randomness read the generator needs:
- *
- *   - `pickFloat()` — uniform [0, 1) double. Matches `Math.random`'s
- *     contract.
- *   - `pickIndex(max)` — uniform [0, max) integer. Used for pool
- *     index selection.
- */
-export interface SeededPrng {
-	/** A uniform [0, 1) double. */
-	pickFloat(): number;
-	/** A uniform [0, max) integer. */
-	pickIndex(max: number): number;
-}
-
-/**
- * Build a `SeededPrng` driven by mulberry32. The constructor folds
- * the string seed into a 32-bit state via FNV-1a; subsequent calls
- * to `pickFloat` / `pickIndex` advance the state and return derived
- * values.
- *
- * Exported for the unit-test surface to verify the algorithm's
- * deterministic output independently of the generator pipeline.
- */
-export function createSeededPrng(seed: string): SeededPrng {
-	let state = hashStringToUint32(seed);
-
-	const next = (): number => {
-		// mulberry32 step: state += 0x6D2B79F5; t = state;
-		// t = (t ^ (t >>> 15)) * (t | 1);
-		// t ^= t + ((t ^ (t >>> 7)) * (t | 61));
-		// return ((t ^ (t >>> 14)) >>> 0) / 0x100000000;
-		state = (state + 0x6d2b79f5) >>> 0;
-		let t = state;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 0x100000000;
-	};
-
-	return {
-		pickFloat: () => next(),
-		pickIndex: (max: number) => Math.floor(next() * max),
-	};
-}
+import { createSeededPrng, type SeededPrng } from "./prng";
 
 // ---------------------------------------------------------------
 // `HeuristicCaseGenerator`
@@ -162,10 +83,7 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 		const prng = createSeededPrng(
 			`${args.appId}::${args.caseType}::${args.seed}`,
 		);
-		const dateGenerators = composeDateRangeGenerators({
-			referenceDate: REFERENCE_DATE,
-			pickFloat: () => prng.pickFloat(),
-		});
+		const dateGenerators = composeDateRangeGenerators(prng, REFERENCE_DATE);
 
 		// Resolve the parent id list for this child's parent type, if
 		// the blueprint declares one. Empty list = the child generates
@@ -190,11 +108,13 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 				case_type: args.caseType,
 				status: "open",
 				properties,
-				// `pickIndex` returns a value in `[0, parentIds.length)`,
-				// so the lookup is always defined when the array is
-				// non-empty. The `?? null` satisfies TypeScript's
-				// `noUncheckedIndexedAccess` without changing runtime
-				// behavior.
+				// Pick a parent at random from the resolved list; the
+				// empty-list arm produces an orphan row. The `?? null`
+				// is a defensive coalesce against an out-of-range
+				// index — `pickIndex(N)` returns `[0, N)` so the
+				// lookup is defined whenever `length > 0`, but
+				// surfacing `null` here is safer than `undefined`
+				// reaching the JSONB serializer.
 				parent_case_id:
 					parentIds.length > 0
 						? (parentIds[prng.pickIndex(parentIds.length)] ?? null)
@@ -210,15 +130,14 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 // ---------------------------------------------------------------
 
 /**
- * The reference date the date-range pools anchor against. Captured
- * as a module-level constant so each `generate()` call against the
- * same seed produces the same output regardless of when the call
- * runs. A test that needs to control the anchor stubs the constant
- * via a higher-order generator wrapper; the production path uses
- * the static value below.
+ * The reference date the date-range pools anchor against. Pinned
+ * as a module-level constant so the same `(blueprint, caseType,
+ * seed)` tuple yields the same output on every call without any
+ * clock read.
  *
- * The date is pinned to a recent past so `recent-event` ranges
- * produce dates that read as plausibly recent in any test run.
+ * Bumping this constant shifts every `dob` / `registration` /
+ * `recent-event` value the generator emits; downstream snapshot-
+ * style tests that pin specific dates would re-baseline.
  */
 const REFERENCE_DATE = new Date("2026-05-01T00:00:00.000Z");
 
@@ -286,10 +205,7 @@ function pickValueForProperty(args: {
 		case "multi_select":
 			return pickMultiSelectValue(args.property, args.prng);
 		case "geopoint":
-			return pickCityClusteredGeopoint({
-				pickIndex: (max) => args.prng.pickIndex(max),
-				pickFloat: () => args.prng.pickFloat(),
-			});
+			return pickCityClusteredGeopoint(args.prng);
 		default: {
 			const _exhaustive: never = dataType;
 			throw new Error(
@@ -306,10 +222,10 @@ function pickValueForProperty(args: {
 function pickTextValue(property: CaseProperty, prng: SeededPrng): string {
 	const normalized = property.name.toLowerCase();
 	if (normalized.includes("first_name") || normalized.includes("given")) {
-		return pickGivenName((max) => prng.pickIndex(max));
+		return pickGivenName(prng);
 	}
 	if (normalized.includes("name")) {
-		return pickFullName((max) => prng.pickIndex(max));
+		return pickFullName(prng);
 	}
 	if (
 		normalized.includes("address") ||
@@ -317,7 +233,7 @@ function pickTextValue(property: CaseProperty, prng: SeededPrng): string {
 		normalized.includes("village") ||
 		normalized.includes("location")
 	) {
-		return pickAddressLine((max) => prng.pickIndex(max));
+		return pickAddressLine(prng);
 	}
 	if (normalized.includes("phone")) {
 		return pickPhoneNumber(prng);
@@ -351,7 +267,7 @@ function pickPhoneNumber(prng: SeededPrng): string {
  * does.
  */
 function pickEmail(prng: SeededPrng): string {
-	const given = pickGivenName((max) => prng.pickIndex(max)).toLowerCase();
+	const given = pickGivenName(prng).toLowerCase();
 	const idx = prng.pickIndex(10_000);
 	return `${given}${idx}@example.org`;
 }
@@ -359,18 +275,18 @@ function pickEmail(prng: SeededPrng): string {
 /**
  * `int` arm. Property-name heuristic picks a bounded range:
  *
- *   - name contains `age` → 0-100, biased toward 15-80
+ *   - name contains `age` → uniform 15-80 (working-age band)
  *   - name contains `count` / `quantity` / `number` / `total` /
- *     `qty` → 0-1000
- *   - all others → 0-100
+ *     `qty` → uniform 0-1000
+ *   - all others → uniform 0-100
  */
 function pickIntValue(property: CaseProperty, prng: SeededPrng): number {
 	const normalized = property.name.toLowerCase();
 	if (normalized.includes("age")) {
-		// Adult-biased: square the [0, 1) draw shifts toward 0,
-		// then scale into [0, 100). The bias produces visibly more
-		// adult ages than child ones at the default 30-row count.
-		return Math.floor(prng.pickFloat() ** 0.5 * 100);
+		// Uniform 15-80 — covers the working-age population in
+		// roughly the right band for a case-management demo. Child +
+		// elder ages out of scope for this distribution.
+		return 15 + prng.pickIndex(65);
 	}
 	if (
 		normalized.includes("count") ||
@@ -438,21 +354,20 @@ function pickMultiSelectValue(
 		return [];
 	}
 	// Pick 1 to min(3, options.length) elements without replacement.
-	// Shuffle a copy via Fisher-Yates and slice the prefix.
+	// Shuffle a copy via Fisher-Yates and slice the prefix; the
+	// `slice(0, k)` then takes the first `k` elements.
 	const optionValues = property.options.map((o) => o.value);
 	for (let i = optionValues.length - 1; i > 0; i--) {
 		const j = prng.pickIndex(i + 1);
-		const a = optionValues[i];
-		const b = optionValues[j];
-		// Defensive: array indices i / j are bounded by the loop +
-		// pickIndex contract, so both reads are non-undefined. The
-		// nullish guard satisfies TypeScript's noUncheckedIndexedAccess
-		// without changing runtime behavior.
-		if (a !== undefined && b !== undefined) {
-			optionValues[i] = b;
-			optionValues[j] = a;
-		}
+		const a = optionValues[i] as string;
+		const b = optionValues[j] as string;
+		optionValues[i] = b;
+		optionValues[j] = a;
 	}
-	const sliceCount = Math.min(3, optionValues.length, prng.pickIndex(3) + 1);
+	// `pickIndex(min(3, options.length))` is uniform over [0, k)
+	// where k = min(3, options.length); +1 lifts it to [1, k], giving
+	// uniform "1 to min(3, options.length)" without the clamp bias a
+	// fixed-3 draw would have when the option set is smaller than 3.
+	const sliceCount = prng.pickIndex(Math.min(3, optionValues.length)) + 1;
 	return optionValues.slice(0, sliceCount);
 }

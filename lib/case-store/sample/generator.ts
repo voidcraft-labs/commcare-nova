@@ -7,11 +7,11 @@
 //
 // The interface is the wire between `CaseStore.generateSampleData`
 // and the concrete generator. `PostgresCaseStore` consumes a
-// `SampleCaseGenerator` reference at construction; the factory at
-// `withOwnerContext` wires the default `HeuristicCaseGenerator`. The
-// same interface accepts an LLM-driven implementation (e.g. an
-// `LlmCaseGenerator` against Haiku); the heuristic is the shipped
-// implementation and the seam is in place for any alternative.
+// `SampleCaseGenerator` reference at construction so tests can pass
+// alternative implementations (a stub for unit-level coverage, a
+// fixture-recorder for snapshot tests) without going through the
+// production singleton path. The factory at `withOwnerContext`
+// wires `HeuristicCaseGenerator` for production callers.
 //
 // ## Why the interface lives here, not in `store.ts`
 //

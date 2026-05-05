@@ -24,12 +24,14 @@
 // arms.
 //
 // Determinism: every range generator is driven by the caller's
-// seeded PRNG via `pickFloat`. The fixed reference date below is the
-// anchor every age / range computation reads from; bumping it on a
-// new run would shift every generated value, breaking deterministic
-// output. The reference date is captured inside `composeDateRangeGenerators` once
-// per `generate()` call so the same generator-call pair produces the
-// same output regardless of clock drift between calls.
+// seeded PRNG. The reference date is the caller-supplied anchor
+// every age / range computation reads from;
+// `composeDateRangeGenerators` takes it as an argument rather than
+// reading the clock, so output is deterministic without any clock
+// read at all. The heuristic generator passes a module-level
+// constant pinned at module load.
+
+import type { SeededPrng } from "../prng";
 
 /**
  * The shape ranges we support for the property-name heuristic. The
@@ -40,10 +42,10 @@ export type DateRangeKind = "dob" | "registration" | "recent-event";
 
 /**
  * Generator handle for the three date-shaped ranges. Returned from
- * `composeDateRangeGenerators({ referenceDate, pickFloat })` so each
- * call uses one stable reference date and one PRNG instance — the
- * determinism contract holds because every pool call threads through
- * the same PRNG and the same anchor.
+ * `composeDateRangeGenerators(prng, referenceDate)` so the caller
+ * binds one stable reference date and one PRNG instance — the
+ * determinism contract holds because every pool call threads
+ * through the same PRNG and the same anchor.
  */
 export interface DateRangeGenerators {
 	/** A YYYY-MM-DD ISO date in the supplied range. */
@@ -57,18 +59,16 @@ export interface DateRangeGenerators {
 /**
  * Build the three temporal generators against a stable reference
  * date and a seeded PRNG. The reference date is the anchor every
- * range computation reads from — captured once per `generate()`
- * call so the same seed produces the same output even across
- * clock-drifted runs. The PRNG is the caller's seeded instance,
- * passed in so all randomness flows through one source.
+ * range computation reads from; the caller threads it in so the
+ * function never reads the clock and the output is deterministic
+ * across runs. The PRNG is the caller's seeded instance, passed
+ * in so all randomness flows through one source.
  */
-export function composeDateRangeGenerators(args: {
-	/** The "now" anchor. Captured once at the start of `generate()`. */
-	referenceDate: Date;
-	/** The seeded PRNG's `pickFloat` accessor (uniform [0, 1)). */
-	pickFloat: () => number;
-}): DateRangeGenerators {
-	const reference = args.referenceDate.getTime();
+export function composeDateRangeGenerators(
+	prng: SeededPrng,
+	referenceDate: Date,
+): DateRangeGenerators {
+	const reference = referenceDate.getTime();
 	const oneDay = 24 * 60 * 60 * 1000;
 
 	/**
@@ -80,22 +80,22 @@ export function composeDateRangeGenerators(args: {
 	const pickDateInRange = (kind: DateRangeKind): Date => {
 		switch (kind) {
 			case "dob": {
-				// 0-100 years back. Biased toward adult ages by
-				// squaring the [0, 1) draw — the squaring shifts the
-				// distribution toward 0 but doesn't clamp the tail,
-				// so child + elder ages still appear.
-				const yearsBack = args.pickFloat() ** 0.5 * 100;
+				// Uniform 15-80 years back — covers the working-age
+				// population in roughly the right band for a
+				// case-management demo. Child + elder ages out of
+				// scope for this distribution.
+				const yearsBack = 15 + prng.pickFloat() * 65;
 				const offsetDays = yearsBack * 365.25;
 				return new Date(reference - offsetDays * oneDay);
 			}
 			case "registration": {
 				// 0-2 years back, uniform.
-				const offsetDays = args.pickFloat() * 730;
+				const offsetDays = prng.pickFloat() * 730;
 				return new Date(reference - offsetDays * oneDay);
 			}
 			case "recent-event": {
 				// 0-30 days back, uniform.
-				const offsetDays = args.pickFloat() * 30;
+				const offsetDays = prng.pickFloat() * 30;
 				return new Date(reference - offsetDays * oneDay);
 			}
 		}
@@ -126,10 +126,10 @@ export function composeDateRangeGenerators(args: {
 	 * they're routed through `CaseStore.insert`.
 	 */
 	const pickWorkingHoursTime = (): string => {
-		const minuteOfDay = Math.floor(args.pickFloat() * 600) + 480; // 480 minutes = 08:00; +600 = 18:00
+		const minuteOfDay = Math.floor(prng.pickFloat() * 600) + 480; // 480 minutes = 08:00; +600 = 18:00
 		const hours = Math.floor(minuteOfDay / 60);
 		const minutes = minuteOfDay % 60;
-		const seconds = Math.floor(args.pickFloat() * 60);
+		const seconds = Math.floor(prng.pickFloat() * 60);
 		return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}Z`;
 	};
 
