@@ -28,9 +28,9 @@
 // the API route is the trust boundary; the database is internal.
 // No in-database trigger, no `pg_jsonschema` dependency.
 //
-// ## `applySchemaChange` runs in one transaction
+// ## `applySchemaChange` runs in two phases
 //
-// The function opens a Kysely transaction and runs:
+// **Phase A (one Kysely transaction):**
 //
 //   1. **Schema sync** — regenerate the JSON Schema via
 //      `caseTypeToJsonSchema` and UPSERT into `case_type_schemas`.
@@ -42,15 +42,69 @@
 //      - `narrow-options(removedOptions)` — rows with the removed
 //        value move to `cases_quarantine`.
 //
-// The transaction commits when both halves succeed and rolls back
-// atomically on any failure. The database never holds a new schema
-// with rows that fail validation against it.
+// Phase A commits when both steps succeed and rolls back atomically
+// on failure. The schema row + data are always consistent with each
+// other — the database never holds a new schema with rows that fail
+// validation against it.
+//
+// **Phase B (no transaction, runs after Phase A commits):**
+//
+//   3. **Per-property expression-index DDL emission** — always runs.
+//      Computes the desired index set for the case-type from the
+//      blueprint (per-`data_type` mode derivation), reads the live
+//      index set from `pg_indexes`, emits the matching `DROP INDEX`
+//      / `CREATE INDEX` statements for the diff. Naming convention
+//      `cases_<case_type>_<property>_<mode>` keys each index by its
+//      `(case_type, property, mode)` tuple so the diff is mechanical
+//      across blueprint mutations.
+//
+// ## Why DDL is split out of Phase A's transaction
+//
+// PostgreSQL's `CREATE INDEX` (non-`CONCURRENTLY`) heap-scans with
+// `SnapshotAny` semantics, which includes recently-deleted but
+// not-yet-vacuumed tuples. Inside the same transaction as Phase A's
+// per-row migration, a retype that moves a non-castable row to
+// `cases_quarantine` (DELETE from `cases` + INSERT into
+// `cases_quarantine`) leaves a dead tuple in `cases`'s heap. A
+// subsequent in-transaction `CREATE INDEX` over the new typed
+// expression scans that dead tuple and fails the cast on its
+// pre-migration value — the `text → int` retype's `"abc"`
+// quarantined row trips `((properties->>'X')::integer)`, rolling
+// back the transaction and defeating quarantine.
+//
+// Splitting Phase B out of the transaction lets the in-transaction
+// DELETE commit first, the dead tuple becomes "recently dead"
+// outside any active snapshot, and Phase B's `CREATE INDEX` (in a
+// fresh statement against the post-commit state) skips the dead
+// tuple cleanly.
+//
+// ## Phase B failure semantics
+//
+// Phase B is idempotent against itself: `pg_indexes` reads the
+// current live set, the diff against the desired set drives the
+// drops + creates. A mid-Phase-B failure (a CREATE INDEX that fails
+// due to e.g. a name collision with a manually-pre-created index)
+// throws, leaves Phase A's commit intact, and the next
+// `applySchemaChange` call retries Phase B against whatever state
+// is current. The data + schema stay consistent through the
+// failure window; only the indexes lag, and missing indexes degrade
+// query performance but never correctness.
+//
+// The plan-doc's promise of "the database never holds a state where
+// a search input references an unindexed property" softens here:
+// the achievable invariant is "schema and data are always
+// consistent; indexes converge on the next idempotent call". The
+// architectural alternative — `CREATE INDEX CONCURRENTLY` —
+// requires no enclosing transaction either, so the two-phase split
+// is the only single-binary path that respects the engine's
+// constraints.
 
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
 import type {
 	BlueprintDoc,
+	CaseProperty,
 	CasePropertyDataType,
 	CaseType,
 } from "@/lib/domain";
@@ -65,6 +119,7 @@ import {
 	compilePredicate,
 	compileRelationPath,
 	expressionContextFor,
+	POSTGRES_CAST_FOR_DATA_TYPE,
 	type PredicateCompileContext,
 } from "../sql";
 import type {
@@ -522,8 +577,10 @@ export class PostgresCaseStore implements CaseStore {
 		const caseType = findCaseTypeOrThrow(args.blueprint, args.caseType);
 		const schema = caseTypeToJsonSchema(caseType);
 
-		return await this.db.transaction().execute(async (trx) => {
-			// Half 1: schema regen + UPSERT. Always runs.
+		// Phase A: schema sync + per-row migration in one transaction.
+		// COMMITs when both succeed; rolls back atomically on failure.
+		const report = await this.db.transaction().execute(async (trx) => {
+			// Step 1: schema regen + UPSERT. Always runs.
 			await trx
 				.insertInto("case_type_schemas")
 				.values({
@@ -538,9 +595,11 @@ export class PostgresCaseStore implements CaseStore {
 				)
 				.execute();
 
-			// Half 2: per-row migration. Only runs when a `change`
-			// is supplied; additive blueprint mutations (the
-			// no-`change` path) commit after the schema regen.
+			// Step 2: per-row migration. Only runs when a `change`
+			// is supplied. Additive blueprint mutations (the
+			// no-`change` path) skip this step — adding a property
+			// still emits its expression index in Phase B, but the
+			// row population doesn't need migrating.
 			if (args.change === undefined) {
 				return {
 					migrated: 0,
@@ -549,14 +608,12 @@ export class PostgresCaseStore implements CaseStore {
 					failureReasons: [],
 				};
 			}
-
 			if (args.property === undefined) {
 				throw new Error(
 					"applySchemaChange: `property` is required when `change` is supplied — " +
 						"the change shape targets a specific property and the migration loop reads from it.",
 				);
 			}
-
 			return await this.runPerRowMigration(trx, {
 				appId: args.appId,
 				caseType: args.caseType,
@@ -565,6 +622,66 @@ export class PostgresCaseStore implements CaseStore {
 				schema,
 			});
 		});
+
+		// Phase B: per-property expression-index DDL sync. Runs
+		// against the post-commit state of `cases` so retype's
+		// quarantine deletes have committed and the heap scan
+		// `CREATE INDEX` runs sees clean rows. Failure surfaces as
+		// a thrown error, leaves Phase A's commit intact, and the
+		// next `applySchemaChange` call retries Phase B
+		// idempotently (the diff against `pg_indexes` re-derives
+		// the missing creates / extra drops on every call).
+		await this.syncExpressionIndexes({
+			caseType: args.caseType,
+			definitions: caseType.properties,
+		});
+
+		return report;
+	}
+
+	/**
+	 * Sync the per-property expression indexes for a case type
+	 * against the prospective blueprint state. Computes the desired
+	 * index set from the case type's properties, reads the live
+	 * index set from `pg_indexes`, emits `DROP INDEX` / `CREATE
+	 * INDEX` statements for the diff against `this.db` directly
+	 * (not inside a transaction — see the file-level "Why DDL is
+	 * split out of Phase A's transaction" comment for the
+	 * `SnapshotAny` rationale).
+	 *
+	 * Naming convention `cases_<case_type>_<property>_<mode>` makes
+	 * the diff mechanical: a property rename drops the old-name
+	 * indexes and creates the new-name indexes; a retype drops the
+	 * old type's indexes (text trgm) and creates the new type's
+	 * indexes (int btree); a property removal drops every index
+	 * keyed on it.
+	 *
+	 * The `WHERE case_type = '<destination>'` partial-index predicate
+	 * scopes each index to one case-type's rows, sharing the
+	 * underlying `cases` heap across types but keeping the index
+	 * tree per-type-narrow.
+	 */
+	private async syncExpressionIndexes(args: {
+		caseType: string;
+		definitions: ReadonlyArray<CaseProperty>;
+	}): Promise<void> {
+		const desired = computeDesiredIndexSet(args.caseType, args.definitions);
+		const live = await readLiveIndexSet(this.db, args.caseType);
+		const { creates, drops } = diffIndexSets(desired, live);
+
+		// Drops first so a same-name index that's changing shape
+		// (e.g. a column-level cast change after retype) drops the
+		// old definition before the create attempts to claim the
+		// name. The diff's `creates` and `drops` lists are computed
+		// with set-difference semantics so a name appearing in both
+		// (the changed-shape case) goes through both lists in the
+		// right order.
+		for (const drop of drops) {
+			await sql`DROP INDEX IF EXISTS ${sql.id(drop.name)}`.execute(this.db);
+		}
+		for (const create of creates) {
+			await emitCreateIndex(this.db, create);
+		}
 	}
 
 	// -----------------------------------------------------------
@@ -1320,4 +1437,375 @@ function findRemovedOptionConflict(
 		return value;
 	}
 	return null;
+}
+
+// ---------------------------------------------------------------
+// Per-property expression-index DDL helpers
+// ---------------------------------------------------------------
+//
+// The desired index set for a case type is computed from each
+// property's `data_type`: the type implies which Postgres operator
+// shape the predicate compiler emits at query time (`pg_trgm`
+// similarity for text, btree expression for ordered scalars,
+// jsonb_path_ops GIN for multi_select containment, GiST for
+// geopoint distance), and the matching expression-index DDL is
+// what makes the operator's emitted SQL reach the index instead of
+// a sequential scan.
+//
+// The diff against the live index set is keyed by name. Index
+// names follow `cases_<case_type>_<property>_<mode>` where `<mode>`
+// is the suffix label per `IndexModeSuffix`; a shape change (e.g.
+// retype text → int) picks a different suffix (`_fuzzy` → `_btree`)
+// so the change flows through as a drop + create under distinct
+// names rather than as a same-name shape rewrite.
+//
+// `desiredIndexForProperty` is keyed on `CasePropertyDataType`
+// alone today — one index per searchable property determined by
+// its declared data type. Search-input declarations that demand a
+// different mode than the data-type implies (an explicit fuzzy
+// mode on a select, etc.) extend through the same naming
+// convention: each `(case_type, property, mode)` tuple maps to a
+// distinct index name, so a wider input source naturally widens
+// the desired set without changing the diff machinery.
+
+/**
+ * The index naming-suffix label per `(data_type, mode)` shape. The
+ * suffix is part of the unique index name so a property that
+ * carries multiple modes (e.g. text with both fuzzy similarity and
+ * a starts-with prefix declaration) maps to a distinct index per
+ * mode.
+ *
+ * The label set:
+ *
+ *   - `_fuzzy` — pg_trgm GIN on the property's text read. Covers
+ *     fuzzy similarity, planner-recognised LIKE prefix matching,
+ *     and the fuzzy-date permutation lookup.
+ *   - `_btree` — btree on the typed cast. Covers `compare` /
+ *     `between` for ordered numeric types.
+ *   - `_contains` — jsonb_path_ops GIN on the JSONB read. Covers
+ *     `multi-select-contains` (`?|` / `?&` / `@>`).
+ *   - `_geo` — GiST on the geography point. Covers `within-distance`.
+ */
+type IndexModeSuffix = "fuzzy" | "btree" | "contains" | "geo";
+
+/**
+ * One expression-index entry — name plus the DDL pieces the build
+ * step needs. `using` is the access method (`gin` / `btree` /
+ * `gist`); `expression` is the indexed expression as a Kysely
+ * `RawBuilder` (e.g. `(properties->>'age')::integer`); `caseType`
+ * is the partial-index predicate's right-hand value.
+ */
+interface DesiredIndex {
+	/** `cases_<case_type>_<property>_<mode>`. */
+	name: string;
+	/** Postgres access method — `gin` / `btree` / `gist`. */
+	using: "gin" | "btree" | "gist";
+	/**
+	 * The indexed expression. Built via Kysely's `sql` template
+	 * with `sql.lit` substitutions so the property key flows as a
+	 * SQL string literal — Postgres expression-index expressions
+	 * must be immutable and reject parameter binds, so the typed
+	 * builder's `${param}` shape would be silently rejected.
+	 */
+	expression: ReturnType<typeof sql>;
+	/** Optional opclass token (`gin_trgm_ops` / `jsonb_path_ops`). */
+	opclass?: "gin_trgm_ops" | "jsonb_path_ops";
+	/** The case type's name — feeds the partial-index predicate. */
+	caseType: string;
+}
+
+/**
+ * One live index entry read from `pg_indexes`. Matched by name
+ * against `DesiredIndex.name` to compute the diff.
+ */
+interface LiveIndex {
+	/** The index name as Postgres reports it. */
+	name: string;
+}
+
+/**
+ * Compute the desired index set for a case type given the
+ * blueprint's property declarations. Each property contributes one
+ * index keyed on its `data_type`: text → fuzzy GIN, int / decimal
+ * → btree expression, multi_select → contains GIN, geopoint → geo
+ * GiST. `single_select` and `date` / `datetime` / `time` map to
+ * `undefined` — see `desiredIndexForProperty` for the per-arm
+ * rationale.
+ *
+ * The result is a Map keyed by index name so the diff against the
+ * live set stays a simple key intersection.
+ */
+function computeDesiredIndexSet(
+	caseType: string,
+	properties: ReadonlyArray<CaseProperty>,
+): Map<string, DesiredIndex> {
+	const result = new Map<string, DesiredIndex>();
+	for (const property of properties) {
+		const entry = desiredIndexForProperty(caseType, property);
+		if (entry !== undefined) {
+			result.set(entry.name, entry);
+		}
+	}
+	return result;
+}
+
+/**
+ * Build the desired-index entry for one property, or return
+ * `undefined` when the property's data type carries no per-property
+ * index. Three arms of `CasePropertyDataType` produce no index:
+ *
+ *   - `single_select` — equality on a small option set is fast
+ *     without an expression index, so the equality operator's
+ *     emitted SQL reaches the row population through the
+ *     case-type partial filter alone.
+ *   - `date` / `datetime` / `time` — the text-to-typed casts
+ *     (`::date` / `::timestamptz` / `::time`) are STABLE in
+ *     Postgres (DateStyle / TimeZone session dependency) and
+ *     expression indexes require IMMUTABLE expressions. The
+ *     canonical `to_date('YYYY-MM-DD')` / `to_timestamp(...)`
+ *     functions are also STABLE — no built-in cast satisfies the
+ *     immutability requirement. Compare / between on these data
+ *     types runs as a sequential scan over the case-type partition;
+ *     correct semantically, slower on large case-types. Indexing
+ *     them requires an IMMUTABLE wrapper function plus a matching
+ *     change on the query side so both surfaces target the same
+ *     expression.
+ *
+ * Properties with no declared `data_type` default to `text` — the
+ * same default the JSON Schema generator uses (see
+ * `lib/domain/predicate/jsonSchema.ts`). Treating them differently
+ * here would split the default's source across two surfaces.
+ */
+function desiredIndexForProperty(
+	caseType: string,
+	property: CaseProperty,
+): DesiredIndex | undefined {
+	const dataType: CasePropertyDataType = property.data_type ?? "text";
+	const propertyKey = property.name;
+
+	switch (dataType) {
+		case "text": {
+			const suffix: IndexModeSuffix = "fuzzy";
+			return {
+				name: indexName(caseType, propertyKey, suffix),
+				using: "gin",
+				// `properties->>'<key>'` returns text; `gin_trgm_ops`
+				// is the trigram opclass. Postgres requires the index
+				// expression be parenthesized.
+				expression: sql`((properties->>${sql.lit(propertyKey)}))`,
+				opclass: "gin_trgm_ops",
+				caseType,
+			};
+		}
+		case "int":
+		case "decimal": {
+			const suffix: IndexModeSuffix = "btree";
+			const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
+			return {
+				name: indexName(caseType, propertyKey, suffix),
+				using: "btree",
+				// The btree expression `((properties->>'<key>')::<cast>)`
+				// matches the term compiler's emission shape so the
+				// planner reaches the index for `compare` / `between`
+				// against the typed value. The cast token comes from
+				// the same data-type table the query path reads —
+				// retyping a property automatically retargets the
+				// index because both surfaces share the table.
+				expression: sql`(((properties->>${sql.lit(propertyKey)}))::${sql.raw(cast)})`,
+				caseType,
+			};
+		}
+		case "date":
+		case "datetime":
+		case "time":
+			// Postgres marks the text-to-date / text-to-timestamp /
+			// text-to-time casts as STABLE (DateStyle / TimeZone
+			// session dependency), and expression indexes require
+			// IMMUTABLE expressions. The canonical
+			// `to_date('YYYY-MM-DD')` / `to_timestamp(...)` builtins
+			// are also STABLE for the same reason. Sequential scans
+			// over the case-type partition are the only correct
+			// option until an IMMUTABLE wrapper exists on both the
+			// index side and the term-compiler emission side.
+			return undefined;
+		case "multi_select": {
+			const suffix: IndexModeSuffix = "contains";
+			return {
+				name: indexName(caseType, propertyKey, suffix),
+				using: "gin",
+				// `properties->'<key>'` returns jsonb (NOT `->>`) —
+				// `jsonb_path_ops` operates on jsonb values, and the
+				// `?|` / `?&` / `@>` operators the predicate compiler
+				// emits also consume jsonb on the left.
+				expression: sql`((properties->${sql.lit(propertyKey)}))`,
+				opclass: "jsonb_path_ops",
+				caseType,
+			};
+		}
+		case "geopoint": {
+			const suffix: IndexModeSuffix = "geo";
+			return {
+				name: indexName(caseType, propertyKey, suffix),
+				using: "gist",
+				// `ST_GeogFromText('<wire>')` returns a geography
+				// value the predicate compiler's `within-distance`
+				// arm builds the same way (see
+				// `lib/case-store/sql/CLAUDE.md` § "Zero raw-SQL
+				// emission"). The expression-index expression must
+				// match the query-side expression for the planner to
+				// recognise the index.
+				expression: sql`(ST_GeogFromText(properties->>${sql.lit(propertyKey)}))`,
+				caseType,
+			};
+		}
+		case "single_select":
+			// No expression index. Equality on a small option set
+			// matches efficiently through the case-type partial
+			// filter alone; the trgm GIN shape doesn't pay off for a
+			// closed value space.
+			return undefined;
+		default: {
+			const _exhaustive: never = dataType;
+			throw new Error(
+				`desiredIndexForProperty: unhandled data_type '${String(_exhaustive)}'`,
+			);
+		}
+	}
+}
+
+/**
+ * Postgres identifier-length cap is 63 bytes (`NAMEDATALEN - 1`).
+ * Identifiers longer than that are silently truncated by Postgres,
+ * which means a long property name on a long case type could
+ * collide with another property's index. Detect the overflow at
+ * compile time and throw — the operator surfaces the conflict
+ * before it produces silently-misnamed indexes that survive
+ * `pg_indexes` reads but fail the diff.
+ *
+ * Property names AND case-type names are user-authored; we sanitize
+ * the input shape to alphanumeric + underscore so the index name is
+ * a legal unquoted identifier and stays readable in `pg_indexes`
+ * listings. Non-conforming inputs throw early — the blueprint
+ * validator should have caught them, but the index-DDL emitter is
+ * the last line of defense.
+ */
+function indexName(
+	caseType: string,
+	property: string,
+	mode: IndexModeSuffix,
+): string {
+	assertSafeIdentifierFragment(caseType, "case type");
+	assertSafeIdentifierFragment(property, "property");
+	const composed = `cases_${caseType}_${property}_${mode}`;
+	if (Buffer.byteLength(composed, "utf8") > 63) {
+		throw new Error(
+			`index name ${JSON.stringify(composed)} exceeds Postgres' 63-byte ` +
+				`identifier cap. Shorten the case-type name or the property name.`,
+		);
+	}
+	return composed;
+}
+
+/**
+ * Assert that a fragment intended for use inside a Postgres
+ * identifier is alphanumeric + underscore (lowercase recommended;
+ * uppercase admitted) and starts with a letter or underscore. The
+ * regex matches Postgres's unquoted-identifier rules; conforming
+ * fragments compose into a safe identifier without quoting.
+ *
+ * `kind` is the human-readable label naming what the fragment is
+ * (`"property"` / `"case type"`) so the error message points at the
+ * right blueprint surface for the author to fix.
+ */
+function assertSafeIdentifierFragment(
+	fragment: string,
+	kind: "property" | "case type",
+): void {
+	if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(fragment)) {
+		throw new Error(
+			`${kind} name ${JSON.stringify(fragment)} contains characters other ` +
+				`than alphanumerics and underscores; it cannot compose into a ` +
+				`Postgres index name. Rename the ${kind} in the blueprint.`,
+		);
+	}
+}
+
+/**
+ * Read every live per-property expression index for a case type
+ * from `pg_indexes`. The filter pins to indexes whose name starts
+ * with `cases_<case_type>_` so foreign indexes (manually created
+ * indexes on `cases`, the static `case_indices_*_idx` set) don't
+ * appear in the diff and accidentally get dropped.
+ */
+async function readLiveIndexSet(
+	executor: Kysely<Database> | Transaction<Database>,
+	caseType: string,
+): Promise<Map<string, LiveIndex>> {
+	// `pg_indexes` is the canonical catalog view (per
+	// `https://www.postgresql.org/docs/18/view-pg-indexes.html`).
+	// `tablename = 'cases'` scopes the read; the `LIKE` filter on
+	// `indexname` keys on the convention prefix.
+	assertSafeIdentifierFragment(caseType, "case type");
+	const prefix = `cases_${caseType}_%`;
+	const result = await sql<{
+		indexname: string;
+	}>`SELECT indexname FROM pg_indexes WHERE tablename = 'cases' AND indexname LIKE ${prefix}`.execute(
+		executor,
+	);
+	const live = new Map<string, LiveIndex>();
+	for (const row of result.rows) {
+		live.set(row.indexname, { name: row.indexname });
+	}
+	return live;
+}
+
+/**
+ * The diff between the desired and live index sets. `creates` are
+ * desired entries with no live counterpart; `drops` are live
+ * entries with no desired counterpart. Entries present in both are
+ * skipped — same name implies same shape, because the naming
+ * convention encodes `(case_type, property, mode)` and a shape
+ * change always picks a different mode suffix.
+ */
+function diffIndexSets(
+	desired: ReadonlyMap<string, DesiredIndex>,
+	live: ReadonlyMap<string, LiveIndex>,
+): { creates: DesiredIndex[]; drops: LiveIndex[] } {
+	const creates: DesiredIndex[] = [];
+	const drops: LiveIndex[] = [];
+	for (const [name, entry] of desired) {
+		if (!live.has(name)) {
+			creates.push(entry);
+		}
+	}
+	for (const [name, entry] of live) {
+		if (!desired.has(name)) {
+			drops.push(entry);
+		}
+	}
+	return { creates, drops };
+}
+
+/**
+ * Emit one `CREATE INDEX` statement against the supplied
+ * transaction. The opclass token (`gin_trgm_ops` /
+ * `jsonb_path_ops`) attaches to the indexed expression as a
+ * trailing operator-class declaration when present.
+ *
+ * The `WHERE case_type = '<value>'` partial-index predicate scopes
+ * the index to one case-type's rows. Property keys live inside the
+ * indexed expression itself (already substituted via `sql.lit` at
+ * the call site); the case-type name flows as a `sql.lit` string
+ * literal here for the same expression-index immutability reason.
+ */
+async function emitCreateIndex(
+	executor: Kysely<Database> | Transaction<Database>,
+	entry: DesiredIndex,
+): Promise<void> {
+	const opclass =
+		entry.opclass !== undefined ? sql` ${sql.raw(entry.opclass)}` : sql``;
+	const using = sql.raw(entry.using.toUpperCase());
+	await sql`CREATE INDEX ${sql.id(entry.name)} ON cases USING ${using} (${entry.expression}${opclass}) WHERE case_type = ${sql.lit(entry.caseType)}`.execute(
+		executor,
+	);
 }
