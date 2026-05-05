@@ -21,34 +21,34 @@
 //
 // Per-test databases give every test its own engine state without
 // any outer-transaction wrapping. Each test pays for `CREATE
-// DATABASE` + `CREATE EXTENSION` + `runMigration("latest")` once
+// DATABASE` + `CREATE EXTENSION` + `atlas migrate apply` once
 // (~50 ms on a modern laptop) but the store's transaction-using
 // methods execute as authored.
 //
-// `setupPerTestDatabase` is the same helper Plan 2 Task 1's
-// migration runner test uses (and the same one Task 2's
-// extension-allowlist gate test uses); the contract is canonical
-// in this package.
+// `setupPerTestDatabase` is the canonical fresh-database helper in
+// this package; see `lib/case-store/sql/__tests__/perTestDatabase.ts`
+// for the contract.
 //
 // ## Why migrations run inside `beforeEach`, not the helper
 //
 // `setupPerTestDatabase` provisions the database + installs
 // extensions; it does NOT apply migrations. The store needs every
 // case-store table to exist before any method runs, so this file
-// runs `runMigration(db, "latest")` in a sibling `beforeEach`
+// shells out to `atlas migrate apply --env testcontainer
+// --url <perTestUri> --allow-dirty` in a sibling `beforeEach`
 // after the database handle is provisioned.
 //
 // The split mirrors the production split between Cloud SQL
 // provisioning (Phase 5 of the runbook installs extensions under
-// `postgres` superuser) and migration runs (Cloud Run job under
-// the IAM-auth runtime SA). In tests, the helper plays the role
-// of the superuser provisioning; the explicit migration call
-// plays the role of the runtime migration job.
+// `postgres` superuser) and migration application (Cloud Run
+// startup CMD under the IAM-auth runtime SA). In tests, the
+// helper plays the role of the superuser provisioning; the atlas
+// shell-out plays the role of the Cloud Run startup migration.
 
+import { spawnSync } from "node:child_process";
 import type { Kysely } from "kysely";
 import { beforeEach } from "vitest";
 import { runStoreContract } from "../../__tests__/storeContract";
-import { runMigration } from "../../migrations/runner";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { PostgresCaseStore } from "../store";
@@ -64,11 +64,11 @@ import { PostgresCaseStore } from "../store";
 // expects — production parity.
 //
 // The handle's `db` field is a `Kysely<unknown>` from the helper;
-// the store's constructor wants `Kysely<Database>`. Casting at
-// the construction call site is the established pattern (the
-// migration runner's tests do the same — `Kysely<unknown>` is
-// the migration-time shape; once migrations run, the database
-// matches `Database`'s contract).
+// the store's constructor wants `Kysely<Database>`. The cast at
+// the construction call site is the established pattern —
+// `Kysely<unknown>` is the schema-mid-creation shape; once atlas
+// has applied the migrations, the database matches `Database`'s
+// contract.
 
 const dbHandle = setupPerTestDatabase({
 	databaseNamePrefix: "store_test_",
@@ -81,27 +81,50 @@ const dbHandle = setupPerTestDatabase({
 // The contract harness exercises every method on the live
 // database. All four case-store tables (`cases`,
 // `case_type_schemas`, `case_indices`, `cases_quarantine`) must
-// exist before the first method call — `runMigration("latest")`
-// is the canonical path that creates them.
+// exist before the first method call — `atlas migrate apply` is
+// the canonical path that creates them.
 //
 // The call runs inside `beforeEach` so each test starts with
 // a fresh-migrated database. Vitest fires this `beforeEach`
 // AFTER the helper's own `beforeEach` (Vitest hooks run in
-// registration order); when this body executes, `dbHandle.db`
+// registration order); when this body executes, `dbHandle.uri`
 // is bound to the freshly-created per-test database.
+//
+// `--allow-dirty` matches the production CMD because the
+// per-test database has the postgis-managed `tiger` and
+// `topology` schemas pre-installed by `setupPerTestDatabase`'s
+// extension-install step; atlas's empty-DB precondition check
+// would otherwise reject the apply.
 
-beforeEach(async () => {
-	const outcome = await runMigration(dbHandle.db, "latest");
-	if (!outcome.success) {
-		// A migration failure inside a per-test database is a
-		// harness regression, not a test failure. Surface the
-		// detail explicitly so a future debugger sees the cause
-		// without re-running with extra flags.
-		const detail =
-			outcome.error instanceof Error
-				? outcome.error.message
-				: String(outcome.error);
-		throw new Error(`migration failure inside per-test database: ${detail}`);
+beforeEach(() => {
+	const result = spawnSync(
+		"atlas",
+		[
+			"migrate",
+			"apply",
+			"--env",
+			"testcontainer",
+			"--url",
+			dbHandle.uri,
+			"--allow-dirty",
+		],
+		{ stdio: "pipe", encoding: "utf8" },
+	);
+	if (result.error !== undefined) {
+		const code = (result.error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			throw new Error(
+				"atlas: command not found. Install Atlas via " +
+					"`brew install ariga/tap/atlas` or " +
+					"`curl -sSf https://atlasgo.sh | sh` and re-run.",
+			);
+		}
+		throw result.error;
+	}
+	if (result.status !== 0) {
+		throw new Error(
+			`atlas migrate apply failed inside per-test database (exit ${result.status ?? "(null)"}):\n${result.stdout}\n${result.stderr}`,
+		);
 	}
 });
 
@@ -117,8 +140,7 @@ beforeEach(async () => {
 //
 // `dbHandle.db` is `Kysely<unknown>`; the store constructor
 // wants `Kysely<Database>`. The cast is type-only — the runtime
-// shape after `runMigration("latest")` matches `Database`
-// exactly.
+// shape after `atlas migrate apply` matches `Database` exactly.
 
 runStoreContract({
 	describeName: "PostgresCaseStore",

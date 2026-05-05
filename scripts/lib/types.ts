@@ -6,8 +6,8 @@
  * home — re-exporting them here would drift without a second user to
  * catch the drift.
  *
- * Migration scripts (`scripts/migrate-*.ts`, `scripts/migrate/`) import
- * `ConversationEvent` / `MutationEvent` / `FormLink` / `CaseType`
+ * One-shot data-migration scripts (e.g. `scripts/migrate-event-source.ts`)
+ * import `ConversationEvent` / `MutationEvent` / `FormLink` / `CaseType`
  * directly from `@/lib/log/types` or `@/lib/domain` — not through here.
  */
 

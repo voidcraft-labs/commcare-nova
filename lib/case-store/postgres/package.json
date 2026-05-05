@@ -1,4 +1,0 @@
-{
-	"//": "Local package.json that scopes lib/case-store/postgres to ESM. The Cloud Run job CLIs at scripts/migrate/run.ts and scripts/check-extensions/run.ts both live under their own ESM-scoped package.json files and import Kysely-typed functions from this directory (connection.ts and checkExtensions.ts). Without matching ESM scope here, the Dockerfile's nodenext-mode tsc compilation surfaces a Kysely<unknown> CJS-vs-ESM type identity mismatch at the cross-scope import (each scope resolves Kysely's dual-mode export to a different file path, and TS treats the two Kysely<> signatures as nominally distinct). At runtime the same mismatch manifests as ERR_REQUIRE_ESM. The root project stays CommonJS for Next.js; this scoped declaration only affects files under lib/case-store/postgres/. Same shape and reasoning as lib/case-store/migrations/package.json.",
-	"type": "module"
-}

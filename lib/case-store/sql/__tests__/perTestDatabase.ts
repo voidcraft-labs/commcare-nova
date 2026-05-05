@@ -1,55 +1,36 @@
 // lib/case-store/sql/__tests__/perTestDatabase.ts
 //
-// Per-test database helper. Shared across the migration runner
-// tests and the extension-allowlist gate tests; both need
-// migrate-from-empty / drop-extension paths the harness's
-// BEGIN/ROLLBACK fixture cannot supply.
-//
-// ## Why this exists
-//
-// The harness's `setup.ts` fixture is the primary path for tests
-// in this package: per-test `BEGIN` / `ROLLBACK` against a single
-// shared database keeps the watch loop fast and keeps schema
-// state out of the test surface. Two test classes intentionally
-// don't fit that shape:
-//
-//   1. **Migration runner tests** — exercise migrate-from-empty +
-//      roll-back-to-empty paths. Both require a database where
-//      the migrations have not yet run; `BEGIN/ROLLBACK` against
-//      a database that was already migrated by `globalSetup`
-//      cannot reach those states.
-//   2. **Extension allowlist gate tests** — exercise `DROP
-//      EXTENSION` paths. DDL doesn't roll back through the
-//      harness's transactional fixture (`DROP EXTENSION` is
-//      transactional but its visibility leaks across the shared
-//      database in subtle ways via the system catalog cache;
-//      and tearing it down in the harness's shared DB would
-//      break every other test running against that catalog).
-//
-// Both classes need a fresh Postgres database per test. This
-// module is the single source for that pattern.
+// Per-test database helper. The harness's BEGIN/ROLLBACK fixture
+// cannot host every test shape — the canonical example is
+// `lib/case-store/postgres/__tests__/store.test.ts`, whose
+// `PostgresCaseStore` methods call `db.transaction()`, which
+// Kysely's PostgresDriver lowers to a literal `BEGIN`. Postgres
+// rejects nested BEGIN inside an outer transaction
+// (`WARNING: there is already a transaction in progress`) and the
+// inner SQL leaks into the outer transaction's state, corrupting
+// per-test isolation. The fix: each test creates its own short-
+// lived database, runs against it, drops it on cleanup.
 //
 // ## Contract
 //
 // `setupPerTestDatabase(options)` returns a `beforeEach`-/
-// `afterEach`-managed handle exposing a `Kysely<unknown>` + the
-// underlying `pg.Pool`. The handle's `db` field is reset between
-// tests; teardown drops the per-test database (`WITH (FORCE)`)
-// and closes the Kysely instance whether the test passed or
-// failed.
+// `afterEach`-managed handle exposing a `Kysely<unknown>`, the
+// underlying `pg.Pool`, and the connection URI. The handle's
+// fields are reset between tests; teardown drops the per-test
+// database (`WITH (FORCE)`) and closes the Kysely instance whether
+// the test passed or failed.
 //
 // `databaseNamePrefix` is the operator-facing identifier in
 // `pg_database` while a test runs. Each test file passes its own
 // prefix so a `pg_database` listing during a run distinguishes
-// "stuck migration runner test" from "stuck check-extensions
-// test". Random suffix avoids collisions if multiple workers
-// race to create databases.
+// stuck tests by call site. The random suffix avoids collisions if
+// multiple workers race to create databases.
 //
 // `extensionsToInstall` parameterizes the post-CREATE-DATABASE
-// step. Migration runner tests install all three required
-// extensions (matching production parity); check-extensions
-// failure tests pass a narrower set or `[]` to construct the
-// "available but not installed" failure shape.
+// step. The default is the three required extensions (`pg_trgm`,
+// `fuzzystrmatch`, `postgis`) — production parity. Tests
+// constructing a partial-extension failure shape pass a narrower
+// set.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Client, Pool } from "pg";
@@ -319,12 +300,9 @@ async function dropIsolatedDatabase(databaseName: string): Promise<void> {
  * database. Returns both so the caller can teardown the pool
  * before dropping the database.
  *
- * `max: 1` matches the production migration CLI at
- * `scripts/migrate/run.ts` and the extension-check CLI at
- * `scripts/check-extensions/run.ts`. Both consumers issue
- * sequential reads on a single connection; a larger pool would
- * be wasted. Same pool size keeps the test exercising the same
- * concurrency budget production uses.
+ * `max: 1` keeps the per-test pool minimal — a single test thread
+ * issues sequential reads on one connection; a larger pool would
+ * be wasted overhead.
  */
 function buildIsolatedDb(uri: string): {
 	db: Kysely<unknown>;

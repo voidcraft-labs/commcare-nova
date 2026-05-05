@@ -114,7 +114,7 @@ describe("case-store harness — schema", () => {
 			bucket.add(column_name);
 		}
 
-		// Spec-line citations match the `0001_init.ts` migration.
+		// Spec-line citations match `lib/case-store/schema.sql`.
 		expect(columnsByTable.get("cases")).toEqual(
 			new Set([
 				"case_id",
