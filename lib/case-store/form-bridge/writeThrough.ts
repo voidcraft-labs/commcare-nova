@@ -21,15 +21,15 @@
 // ## Why this is the I/O seam
 //
 // The form-bridge accepts a `CaseStore` as a parameter; it does NOT
-// call `withOwnerContext` itself. Plan 7's `caseDataBinding` (the
-// running-app view's data-fetching layer) constructs the
-// `CaseStore` via `withOwnerContext(session.user.id)` once per
-// request and passes the bound store down — same shape the rest of
-// the case-store consumers use. Keeping `withOwnerContext` out of
-// this file means the form-bridge is testable against any
-// `CaseStore` factory the test harness provides (the
-// `setupPerTestDatabase` + `PostgresCaseStore` direct-construction
-// shape used in the case-store contract harness).
+// call `withOwnerContext` itself. The caller (the running-app
+// view's data-fetching layer) constructs the `CaseStore` via
+// `withOwnerContext(session.user.id)` once per request and passes
+// the bound store down — same shape the rest of the case-store
+// consumers use. Keeping `withOwnerContext` out of this file means
+// the form-bridge is testable against any `CaseStore` factory the
+// test harness provides (the `setupPerTestDatabase` +
+// `PostgresCaseStore` direct-construction shape used in the case-
+// store contract harness).
 //
 // ## Operation ordering
 //
@@ -50,10 +50,9 @@
 // `CaseStore.insert` opens its own transaction (Postgres rejects
 // nested BEGINs), so a mid-loop failure in a multi-child registration
 // form leaves the primary case present and the failed-child set
-// absent. This matches the pattern Task 5's `generateSampleData`
-// already established for batch inserts; the running-app view re-
-// queries after the write completes (continuous validation
-// principle), so the user sees whatever landed.
+// absent. The running-app view re-queries after the write completes
+// (continuous validation principle), so the user sees whatever
+// landed.
 
 import type { BlueprintDoc, FormType, Uuid } from "@/lib/domain";
 import type { CaseInsert, CaseStore, CaseUpdate } from "../store";
@@ -102,12 +101,12 @@ export interface WriteFormCompletionArgs {
  * Result of one form completion write-through.
  *
  * `operation` mirrors the `DerivedFormOps.kind` discriminator so
- * consumers (Plan 7's `caseDataBinding`) can route a redirect or
- * re-query without re-deriving. `caseId` carries the primary case
- * the operations targeted: the generated id for registration, the
- * bound id for followup / close, and absent for survey (no case to
- * route to). `childCaseIds` lists the generated ids of any child
- * cases inserted during the same write.
+ * consumers can route a redirect or re-query without re-deriving.
+ * `caseId` carries the primary case the operations targeted: the
+ * generated id for registration, the bound id for followup / close,
+ * and absent for survey (no case to route to). `childCaseIds` lists
+ * the generated ids of any child cases inserted during the same
+ * write.
  */
 export type WriteFormCompletionResult =
 	| {
@@ -143,9 +142,9 @@ export type WriteFormCompletionResult =
  *   - `survey`       → no operations
  *
  * Returns the operation discriminator, the primary case id (when
- * relevant), and the generated child case ids. Plan 7's
- * `caseDataBinding` consumes the result to navigate the running-app
- * view to the right destination after the write.
+ * relevant), and the generated child case ids. The result shape
+ * gives the caller everything it needs to navigate the running-app
+ * view to the right destination after the write without re-deriving.
  *
  * Throws when the form type implies a primary case write but the
  * derivation surfaces a missing required input (e.g. a registration
@@ -316,9 +315,8 @@ async function applyPrimaryUpdate(args: {
  *     through call inserted.
  *
  * Returns the generated child case ids in the same order the
- * children were applied. Caller-side consumers (Plan 7) use the
- * list to update navigation state if a child case becomes the new
- * focus.
+ * children were applied — the caller can update navigation state
+ * if a child case becomes the new focus.
  */
 async function applyChildInserts(args: {
 	caseStore: CaseStore;

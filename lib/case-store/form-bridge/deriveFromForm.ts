@@ -81,8 +81,9 @@ import type { JsonObject, JsonValue } from "../sql/database";
  * followup and close (the form preview's nav stack carries it through
  * `PreviewScreen.form.caseId`); ignored by registration / survey.
  * The form-bridge surfaces a typed throw when the form type requires
- * a `caseId` and none was supplied — this catches a Plan 7 wiring
- * regression at the boundary rather than at the SQL layer.
+ * a `caseId` and none was supplied — surfacing the absence at the
+ * boundary points the diagnostic at the consumer wiring rather than
+ * at a downstream NULL violation against `cases.case_id`.
  */
 export interface CompletedForm {
 	/** Flat path → value map (the XForm engine's value shape). */
@@ -148,10 +149,17 @@ export interface PrimaryRegistrationOp {
  * setting `closed_on` carries no property writes. The I/O wrapper
  * skips the underlying `update` call when this is empty so an
  * unnecessary round-trip doesn't fire against Postgres.
+ *
+ * `caseType` is OPTIONAL because followup / close already know the
+ * row's case type from the bound `caseId`'s row — the field is
+ * diagnostic-only at the form-bridge surface and not written to
+ * the underlying UPDATE. When the caller doesn't pass
+ * `moduleCaseType` (a module without a configured case type), the
+ * field is `undefined` rather than silently coerced to `""`.
  */
 export interface PrimaryUpdateOp {
 	/** The case type for diagnostic surfacing — not written to the row. */
-	readonly caseType: string;
+	readonly caseType: string | undefined;
 	/** Properties the form mutated. Empty when the form had no primary writes. */
 	readonly properties: DerivedProperties;
 }
@@ -198,10 +206,9 @@ export interface DeriveFromFormArgs {
 	/**
 	 * The owning module's case type (the value of `Module.caseType`
 	 * for the module whose `formOrder` contains `formUuid`). The
-	 * caller resolves this from the blueprint — the form-bridge does
-	 * not scan modules itself, because Plan 7's eventual integration
-	 * surface already has the module in hand. Passing it in keeps
-	 * `deriveFromForm` free of module-scanning logic.
+	 * caller resolves this from the blueprint and passes it in;
+	 * `deriveFromForm` does not scan modules itself, keeping the
+	 * function's input surface single-purpose.
 	 *
 	 * Optional for survey forms (which have no module case type) and
 	 * for forms in modules without a configured case type — the walk
@@ -250,10 +257,10 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 	}
 
 	// Followup / close MUST carry a bound case; registration must NOT
-	// (registration's case is the one being created). Surfacing both
-	// invariants here turns a Plan 7 wiring regression into a clear
-	// throw at the form-bridge boundary instead of a downstream NULL
-	// violation against the cases table.
+	// (registration's case is the one being created). Surfacing the
+	// missing-caseId invariant here turns a consumer wiring slip
+	// into a clear throw at the form-bridge boundary instead of a
+	// downstream NULL violation against the cases table.
 	if (
 		(args.formType === "followup" || args.formType === "close") &&
 		args.completedForm.caseId === undefined
@@ -288,7 +295,6 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 
 	const children = buildChildOps({
 		buckets: walkResult.childBuckets,
-		caseTypeLookup,
 		// For followup / close, the bound `caseId` is the parent of
 		// any newly-inserted child cases. Registration leaves the
 		// parent unset; writeThrough fills it in after the primary
@@ -333,7 +339,7 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 		);
 	}
 	const primary: PrimaryUpdateOp = {
-		caseType: args.moduleCaseType ?? "",
+		caseType: args.moduleCaseType,
 		properties: walkResult.primaryProperties,
 	};
 	if (args.formType === "followup") {
@@ -394,8 +400,7 @@ function walkFormFields(args: {
 	const primaryProperties: JsonObject = {};
 
 	// `childBuckets` is ordered by encounter so derived ops are
-	// deterministic per blueprint × completed-form input pair. Tests
-	// rely on the order; runtime callers don't.
+	// deterministic per blueprint × completed-form input pair.
 	const childBuckets: FieldBucket[] = [];
 
 	// Bucket lookup: composite key `<caseType>::<repeatInstanceKey>`
@@ -452,21 +457,28 @@ function walkFormFields(args: {
 			// calculation-only field. Skip without recording.
 			if (casePropertyOn === undefined) continue;
 
-			// Read the value at the leaf's path. The form engine
-			// seeds every leaf path with the empty string on init,
-			// so a literal empty value either means "the user
-			// cleared / never touched the field" or "the leaf is a
-			// pre-`getValueSnapshot` read." Both shapes converge on
-			// the same wire semantic: omit the property from the
-			// JSONB document entirely. This makes the JSON Schema
-			// validator pass (every property is `optional` so an
-			// absent key is valid), and Postgres-strict null/blank
-			// distinguishes "key absent" (matches `is-null`) from
-			// "key present with empty string" (matches `is-blank` but
-			// NOT `is-null`). Storing empty strings would also fail
-			// ajv-formats validation on `date` / `time` / `datetime`
-			// / `geopoint` properties — the format keywords reject
-			// the empty string.
+			// Read the value at the leaf's path. The production
+			// path is `FormEngine.getValueSnapshot()`, whose
+			// `if (state.value) values.set(path, state.value)` filter
+			// (`lib/preview/engine/formEngine.ts:644`) drops every
+			// empty-string entry — the snapshot map produced in
+			// production never carries an explicit `""` for an
+			// untouched / cleared leaf. The `?? ""` fallback below
+			// handles that absent-key case, and the `=== ""`
+			// short-circuit is defensive belt-and-suspenders for any
+			// future engine variant that surfaces explicit empty
+			// strings.
+			//
+			// Both shapes converge on the same wire semantic: omit
+			// the property from the JSONB document entirely. This
+			// makes the JSON Schema validator pass (every property
+			// is `optional` so an absent key is valid), and Postgres-
+			// strict null/blank distinguishes "key absent" (matches
+			// `is-null`) from "key present with empty string"
+			// (matches `is-blank` but NOT `is-null`). Storing empty
+			// strings would also fail ajv-formats validation on
+			// `date` / `time` / `datetime` / `geopoint` properties
+			// — the format keywords reject the empty string.
 			const rawValue = args.values.get(fieldPath) ?? "";
 			if (rawValue === "") continue;
 
@@ -513,7 +525,6 @@ function walkFormFields(args: {
  */
 function buildChildOps(args: {
 	buckets: ReadonlyArray<FieldBucket>;
-	caseTypeLookup: ReadonlyMap<string, CaseType>;
 	parentCaseIdForChildren: string | undefined;
 }): ReadonlyArray<ChildInsertOp> {
 	const ops: ChildInsertOp[] = [];
@@ -692,8 +703,7 @@ function coerceValueForProperty(args: {
 	raw: string;
 	property: CaseProperty | undefined;
 }): JsonValue {
-	const dataType: CasePropertyDataType =
-		args.property?.data_type ?? ("text" as CasePropertyDataType);
+	const dataType: CasePropertyDataType = args.property?.data_type ?? "text";
 
 	switch (dataType) {
 		case "text":

@@ -21,24 +21,23 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
-import type {
-	BlueprintDoc,
-	CaseType,
-	Field,
-	FieldKind,
-	Form,
-	FormType,
-	Uuid,
-} from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { PostgresCaseStore } from "../../postgres/store";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { applyMigrationsViaAtlas } from "../../sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import type { CaseStore } from "../../store";
-import type { CompletedForm, DerivedProperties } from "../deriveFromForm";
+import type { DerivedProperties } from "../deriveFromForm";
 import { writeFormCompletionThrough } from "../writeThrough";
+import {
+	type BuildBlueprintArgs,
+	type BuiltBlueprint,
+	buildBlueprint as buildBlueprintBase,
+	completed,
+	PATIENT_CASE_TYPE,
+	VISIT_CASE_TYPE,
+} from "./fixtures";
 
 // ---------------------------------------------------------------
 // Per-test database lifecycle
@@ -57,123 +56,23 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------
-// Test fixtures
+// Per-suite parameters
 // ---------------------------------------------------------------
+//
+// `APP_ID` and `OWNER_ID` carry suite-unique values so a
+// per-test-database isolation regression would surface against
+// these recognizable namespaces in `pg_database` / `cases.app_id`
+// rather than against a generic placeholder. The wrapper around
+// the shared `buildBlueprint` injects `APP_ID` so each `it(...)`
+// body reads as one call.
 
 const APP_ID = "app-form-bridge-test";
 const OWNER_ID = "owner-form-bridge-test";
-const FORM_UUID = asUuid("test-form-uuid");
-const MODULE_UUID = asUuid("test-module-uuid");
 
-const PATIENT_CASE_TYPE: CaseType = {
-	name: "patient",
-	properties: [
-		{ name: "case_name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-	],
-};
-
-const VISIT_CASE_TYPE: CaseType = {
-	name: "visit",
-	parent_type: "patient",
-	properties: [
-		{ name: "case_name", label: "Visit", data_type: "text" },
-		{ name: "notes", label: "Notes", data_type: "text" },
-	],
-};
-
-interface DField {
-	id: string;
-	kind: FieldKind;
-	label?: string;
-	case_property_on?: string;
-	children?: DField[];
-}
-
-interface BuildBlueprintArgs {
-	formType: FormType;
-	moduleCaseType?: string;
-	caseTypes: ReadonlyArray<CaseType>;
-	fields: ReadonlyArray<DField>;
-}
-
-interface BuiltBlueprint {
-	blueprint: BlueprintDoc;
-	formUuid: Uuid;
-	formType: FormType;
-}
-
-/**
- * Build a single-form blueprint for the integration tests. Same
- * shape as the deriveFromForm pure-test fixture; replicated here
- * (rather than imported) to keep the integration suite self-
- * contained — the unit-test fixture is a per-call helper, not a
- * stable export, and re-fixturing is cheap.
- */
-function buildBlueprint(args: BuildBlueprintArgs): BuiltBlueprint {
-	const form: Form = {
-		uuid: FORM_UUID,
-		id: "test-form",
-		name: "Test Form",
-		type: args.formType,
-	};
-	const fields: Record<string, Field> = {};
-	const fieldOrder: Record<string, Uuid[]> = {};
-	const fieldParent: Record<string, Uuid | null> = {};
-
-	const walk = (nodes: ReadonlyArray<DField>, parentUuid: Uuid): Uuid[] => {
-		const order: Uuid[] = [];
-		for (const node of nodes) {
-			const uuid = asUuid(`${parentUuid}.${node.id}`);
-			order.push(uuid);
-			fieldParent[uuid] = parentUuid;
-			const { children, ...rest } = node;
-			fields[uuid] = { uuid, ...rest } as Field;
-			if (node.kind === "group" || node.kind === "repeat") {
-				fieldOrder[uuid] = walk(children ?? [], uuid);
-			}
-		}
-		return order;
-	};
-
-	fieldOrder[FORM_UUID] = walk(args.fields, FORM_UUID);
-
-	return {
-		blueprint: {
-			appId: APP_ID,
-			appName: "test-app",
-			connectType: null,
-			caseTypes: [...args.caseTypes],
-			modules: {
-				[MODULE_UUID]: {
-					uuid: MODULE_UUID,
-					id: "test-module",
-					name: "Test Module",
-					...(args.moduleCaseType !== undefined
-						? { caseType: args.moduleCaseType }
-						: {}),
-				},
-			},
-			forms: { [FORM_UUID]: form },
-			fields,
-			moduleOrder: [MODULE_UUID],
-			formOrder: { [MODULE_UUID]: [FORM_UUID] },
-			fieldOrder,
-			fieldParent,
-		},
-		formUuid: FORM_UUID,
-		formType: args.formType,
-	};
-}
-
-function completed(
-	values: ReadonlyArray<[string, string]>,
-	caseId?: string,
-): CompletedForm {
-	return {
-		values: new Map(values),
-		...(caseId !== undefined ? { caseId } : {}),
-	};
+function buildBlueprint(
+	args: Omit<BuildBlueprintArgs, "appId">,
+): BuiltBlueprint {
+	return buildBlueprintBase({ appId: APP_ID, ...args });
 }
 
 /**
@@ -406,17 +305,19 @@ describe("writeFormCompletionThrough — registration forms", () => {
 	});
 
 	it("omits empty optional fields so the JSON Schema validator passes", async () => {
-		// Empty raw values have to translate to absent JSONB keys,
-		// not to `null` or to `""`. ajv with `format: date` (and the
-		// geopoint pattern, and the `integer` / `number` types) all
-		// reject `null` AND empty-string values; the only shape that
-		// validates AND aligns with Postgres-strict `is-null` /
-		// `is-blank` semantics is to omit the property entirely.
-		// This test pins the round-trip end-to-end: a registration
-		// form whose user fills in only `case_name` lands a row whose
-		// JSONB document carries only `case_name` — the validator
-		// accepts it, and the empty optional fields don't crash on
-		// any ajv keyword.
+		// `FormEngine.getValueSnapshot()` drops empty-string entries
+		// at the snapshot boundary (`lib/preview/engine/formEngine.ts:644`),
+		// so a field the user never touched arrives at the form-
+		// bridge as an absent path in the values map. Absent paths
+		// translate to absent JSONB keys; the JSON Schema validator
+		// passes (every property is optional). This test pins the
+		// round-trip end-to-end: a registration form whose user
+		// fills in only `case_name` against a case type with `int`,
+		// `decimal`, `date`, and `geopoint` properties lands a row
+		// whose JSONB document carries only `case_name` — none of
+		// the typed-format ajv keywords (`integer` type, `number`
+		// type, `format: date`, geopoint pattern) crash because no
+		// value is being validated against them.
 		const store = makeStore();
 		const blueprint = buildBlueprint({
 			formType: "registration",
@@ -480,15 +381,9 @@ describe("writeFormCompletionThrough — registration forms", () => {
 			formUuid: blueprint.formUuid,
 			formType: blueprint.formType,
 			moduleCaseType: "patient",
-			completedForm: completed([
-				["/data/case_name", "Alice"],
-				// Every other field left blank — the engine seeds
-				// these with empty strings on form init.
-				["/data/age", ""],
-				["/data/weight", ""],
-				["/data/dob", ""],
-				["/data/home_location", ""],
-			]),
+			// Only the populated path lives in the values map —
+			// matches the production shape after `getValueSnapshot()`.
+			completedForm: completed([["/data/case_name", "Alice"]]),
 		});
 
 		expect(result.operation).toBe("registration");
@@ -497,7 +392,7 @@ describe("writeFormCompletionThrough — registration forms", () => {
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 		expect(rows).toHaveLength(1);
 		// Only the non-empty `case_name` made it into the JSONB
-		// document; the empty optional fields are absent. A
+		// document; the absent optional fields stay absent. A
 		// subsequent followup form CAN write into any of them
 		// without conflict, and the case-list filter compiler's
 		// `is-null` operator matches the absent keys.

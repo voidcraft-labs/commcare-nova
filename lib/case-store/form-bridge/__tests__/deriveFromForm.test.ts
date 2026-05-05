@@ -22,167 +22,33 @@
 //     close without `caseId`.
 
 import { describe, expect, it } from "vitest";
-import type {
-	BlueprintDoc,
-	CaseType,
-	Field,
-	FieldKind,
-	Form,
-	FormType,
-	Uuid,
-} from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
-import { type CompletedForm, deriveFromForm } from "../deriveFromForm";
+import { deriveFromForm } from "../deriveFromForm";
+import {
+	type BuildBlueprintArgs,
+	type BuiltBlueprint,
+	buildBlueprint as buildBlueprintBase,
+	completed,
+	PATIENT_CASE_TYPE,
+	VISIT_CASE_TYPE,
+} from "./fixtures";
 
 // ---------------------------------------------------------------
-// Fixture shape
+// Per-suite parameters
 // ---------------------------------------------------------------
 //
-// The fixture builds a minimal `BlueprintDoc` with one form, its
-// fields, and a `fieldOrder` adjacency. The shape mirrors the
-// pattern in `lib/preview/engine/__tests__/formEngine.test.ts` so
-// future maintainers can cross-reference fixture conventions.
+// The pure tests pin a generic `appId` because the function never
+// reads it (the case-store layer is the only consumer of `appId`,
+// and these tests stop at the derivation surface). A wrapper around
+// the shared `buildBlueprint` injects the constant so each `it(...)`
+// body reads as one call.
 
-interface DField {
-	id: string;
-	kind: FieldKind;
-	label?: string;
-	required?: string;
-	relevant?: string;
-	calculate?: string;
-	default_value?: string;
-	case_property_on?: string;
-	options?: Array<{ value: string; label: string }>;
-	children?: DField[];
-}
-
-interface BuildBlueprintArgs {
-	formType: FormType;
-	moduleCaseType?: string;
-	caseTypes: ReadonlyArray<CaseType>;
-	fields: ReadonlyArray<DField>;
-}
-
-interface BuiltBlueprint {
-	blueprint: BlueprintDoc;
-	formUuid: Uuid;
-	formType: FormType;
-}
-
-const FORM_UUID = asUuid("test-form-uuid");
 const APP_ID = "app-test";
 
-/**
- * Build a single-form `BlueprintDoc` from a nested field-tree
- * fixture. The form, module, and field maps fill from the supplied
- * shape; uuid generation is deterministic per position path so
- * fixture changes produce stable diffs.
- */
-function buildBlueprint(args: BuildBlueprintArgs): BuiltBlueprint {
-	const moduleUuid = asUuid("test-module-uuid");
-	const form: Form = {
-		uuid: FORM_UUID,
-		id: "test-form",
-		name: "Test Form",
-		type: args.formType,
-	};
-	const fields: Record<string, Field> = {};
-	const fieldOrder: Record<string, Uuid[]> = {};
-	const fieldParent: Record<string, Uuid | null> = {};
-
-	const walk = (nodes: ReadonlyArray<DField>, parentUuid: Uuid): Uuid[] => {
-		const order: Uuid[] = [];
-		for (const node of nodes) {
-			// Position-derived uuid: `<parentUuid>.<id>` — stable,
-			// readable in failure messages, no clock dependency.
-			const uuid = asUuid(`${parentUuid}.${node.id}`);
-			order.push(uuid);
-			fieldParent[uuid] = parentUuid;
-			const { children, ...rest } = node;
-			fields[uuid] = { uuid, ...rest } as Field;
-			if (node.kind === "group" || node.kind === "repeat") {
-				fieldOrder[uuid] = walk(children ?? [], uuid);
-			}
-		}
-		return order;
-	};
-
-	fieldOrder[FORM_UUID] = walk(args.fields, FORM_UUID);
-
-	return {
-		blueprint: {
-			appId: APP_ID,
-			appName: "test-app",
-			connectType: null,
-			caseTypes: [...args.caseTypes],
-			modules: {
-				[moduleUuid]: {
-					uuid: moduleUuid,
-					id: "test-module",
-					name: "Test Module",
-					...(args.moduleCaseType !== undefined
-						? { caseType: args.moduleCaseType }
-						: {}),
-				},
-			},
-			forms: { [FORM_UUID]: form },
-			fields,
-			moduleOrder: [moduleUuid],
-			formOrder: { [moduleUuid]: [FORM_UUID] },
-			fieldOrder,
-			fieldParent,
-		},
-		formUuid: FORM_UUID,
-		formType: args.formType,
-	};
+function buildBlueprint(
+	args: Omit<BuildBlueprintArgs, "appId">,
+): BuiltBlueprint {
+	return buildBlueprintBase({ appId: APP_ID, ...args });
 }
-
-/**
- * Convenience: build a `CompletedForm` from path → value pairs.
- * Tests construct the snapshot directly to model the engine's
- * `getValueSnapshot().values` output.
- */
-function completed(
-	values: ReadonlyArray<[string, string]>,
-	caseId?: string,
-): CompletedForm {
-	return {
-		values: new Map(values),
-		...(caseId !== undefined ? { caseId } : {}),
-	};
-}
-
-// ---------------------------------------------------------------
-// Shared case-type fixtures
-// ---------------------------------------------------------------
-
-const PATIENT_CASE_TYPE: CaseType = {
-	name: "patient",
-	properties: [
-		{ name: "case_name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight (kg)", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{
-			name: "tags",
-			label: "Tags",
-			data_type: "multi_select",
-			options: [
-				{ value: "urgent", label: "Urgent" },
-				{ value: "stable", label: "Stable" },
-			],
-		},
-	],
-};
-
-const VISIT_CASE_TYPE: CaseType = {
-	name: "visit",
-	parent_type: "patient",
-	properties: [
-		{ name: "case_name", label: "Visit", data_type: "text" },
-		{ name: "notes", label: "Notes", data_type: "text" },
-	],
-};
 
 // ---------------------------------------------------------------
 // Survey form
@@ -433,7 +299,16 @@ describe("deriveFromForm — registration forms", () => {
 		});
 	});
 
-	it("omits properties whose raw value is empty (Postgres-strict absent semantics)", () => {
+	it("omits properties whose path is absent from the values map (production shape)", () => {
+		// `FormEngine.getValueSnapshot()` filters empty-string
+		// entries out of the returned map (`if (state.value)
+		// values.set(...)` at `lib/preview/engine/formEngine.ts:644`),
+		// so a field the user never touched produces no key in the
+		// snapshot. This test pins the production path: only
+		// `case_name` carries a non-empty value, every other
+		// `case_property_on`-bearing field's path is absent from the
+		// `values` map, and the derived JSONB document carries only
+		// the populated property.
 		const built = buildBlueprint({
 			formType: "registration",
 			moduleCaseType: "patient",
@@ -471,26 +346,65 @@ describe("deriveFromForm — registration forms", () => {
 			formUuid: built.formUuid,
 			formType: built.formType,
 			moduleCaseType: "patient",
+			// Only the populated path lives in the map — the engine
+			// dropped every empty-string entry on snapshot creation.
+			completedForm: completed([["/data/case_name", "Alice"]]),
+		});
+
+		expect(ops.kind).toBe("registration");
+		if (ops.kind !== "registration") return;
+		// Absent paths translate to absent JSONB keys. Postgres-strict
+		// null/blank then distinguishes absent (`is-null` match) from
+		// explicit empty string (`is-blank` match but NOT `is-null`)
+		// at the case-list filter layer.
+		expect(ops.primary.properties).toEqual({ case_name: "Alice" });
+	});
+
+	it("also omits properties whose value is the empty string (defensive belt-and-suspenders)", () => {
+		// The walk's `if (rawValue === "") continue` short-circuit
+		// covers any future engine variant that surfaces explicit
+		// empty strings instead of dropping them — today's
+		// `getValueSnapshot()` filters at line 644, but the same
+		// `omit-empty-from-JSONB` policy must hold regardless of
+		// what the snapshot carries. Storing an empty string under
+		// a `format: date` property would fail ajv-formats outright,
+		// so this branch is structurally important even though no
+		// production caller hits it.
+		const built = buildBlueprint({
+			formType: "registration",
+			moduleCaseType: "patient",
+			caseTypes: [PATIENT_CASE_TYPE],
+			fields: [
+				{
+					id: "case_name",
+					kind: "text",
+					label: "Name",
+					case_property_on: "patient",
+				},
+				{
+					id: "dob",
+					kind: "date",
+					label: "DOB",
+					case_property_on: "patient",
+				},
+			],
+		});
+
+		const ops = deriveFromForm({
+			blueprint: built.blueprint,
+			formUuid: built.formUuid,
+			formType: built.formType,
+			moduleCaseType: "patient",
 			completedForm: completed([
 				["/data/case_name", "Alice"],
-				// The remaining three fields are left blank — the
-				// engine seeds them with the empty string on init.
-				["/data/age", ""],
-				["/data/weight", ""],
+				// Explicit empty-string entry — not what production
+				// produces today, but the policy must hold here too.
 				["/data/dob", ""],
 			]),
 		});
 
 		expect(ops.kind).toBe("registration");
 		if (ops.kind !== "registration") return;
-		// Empty raw inputs translate to absent JSONB keys — the JSON
-		// Schema validator passes (every property is optional), and
-		// Postgres-strict null/blank distinguishes absent (`is-null`
-		// match) from explicit empty string (`is-blank` match but NOT
-		// `is-null`). Storing an empty string under a `format: date`
-		// property would also fail ajv-formats validation outright;
-		// the omission policy keeps the validator happy AND aligns
-		// the wire shape with the intended runtime semantic.
 		expect(ops.primary.properties).toEqual({ case_name: "Alice" });
 	});
 
