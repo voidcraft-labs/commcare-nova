@@ -219,27 +219,46 @@ Implements `CaseStore` against the Kysely instance from Task 0:
 
 Tests run the interface-compliance harness from Task 3 against a testcontainers Postgres instance per-test isolated database. Coverage includes: insert + query roundtrip (string and `JsonObject` inputs both round-trip); relation traversal; schema sync (positive atomicity verified); rename / retype / narrow-options migration paths (each with positive + quarantine cases); cross-tenant negative tests for `update`, `close`, `traverse` (the security invariant that drove the `withOwnerContext` factory pattern).
 
-### Task 5: `HeuristicCaseGenerator` (sample data writes through `CaseStore`)
+### Task 5: `HeuristicCaseGenerator` + sample-data interface — SHIPPED
 
-**Files:** `lib/case-store/sample/generator.ts`, `heuristic.ts`, `pools/*.ts`, tests.
+SHIPPED 2026-05-05 in commits `a2abac6c` (feat) → `a9529fa1` (CR + spec-review fix-pass) on branch `feat/case-list-search`.
 
-Implements `SampleCaseGenerator` from the spec. Schema-driven, deterministic per `(app, case-type, seed)`. Generates realistic-but-fake values per `data_type`:
-- `text` → name pool (regional names if app context hints at locale, otherwise global)
-- `int` → bounded integer pool (age-shaped if property name contains "age", count-shaped otherwise)
-- `date` / `datetime` → plausible ranges (DOB pool, registration-date pool, recent-event pool — selected by property-name heuristic)
-- `single_select` / `multi_select` → uniform sample over the property's option set
-- `geopoint` → cluster around city centers (NYC, Lagos, Mumbai, etc. — varied so search-by-location demos work)
-- `time` → reasonable working-hours range
+**Files shipped:**
 
-Default count 30 per case type. Generates parent linkages from the case-type relationship graph: child case types get a `parent_case_id` pointing at a randomly-selected parent case. The `case_indices` rows derive from those linkages via `PostgresCaseStore.insert` (Task 4) — the generator doesn't write `case_indices` directly; it just writes case rows and the store derives the index structure.
+- `lib/case-store/sample/generator.ts` — `SampleCaseGenerator` interface. One method: `generate(args: { blueprint: BlueprintDoc; appId: string; caseType: string; count: number; seed: string; parentRefs?: ReadonlyMap<string, ReadonlyArray<string>> }): ReadonlyArray<CaseInsert>`. The signature extends the spec's `generate(args: { caseType: CaseType; count: number; seed: string }): CaseRow[]` with three additions documented under "Spec deviations" below.
+- `lib/case-store/sample/heuristic.ts` — `HeuristicCaseGenerator` class. Per-`data_type` dispatch with property-name heuristics (`age` → uniform 15-80; `count` / `quantity` / `total` → uniform 0-1000; `temperature` → clinical decimal range; `name` text → multi-word from the names pool; etc.). Schema-driven; reads `data_type`, `options`, and property names off the supplied blueprint snapshot.
+- `lib/case-store/sample/prng.ts` — `SeededPrng` interface + `createSeededPrng(seed: string)` factory. Implementation uses FNV-1a 32-bit hash to derive an integer state from the string seed, then mulberry32 for the actual PRNG sequence. Extracted from `heuristic.ts` in the fix-pass to break the import cycle that would form once pool modules accept a `SeededPrng` directly. Citations in the file header link to the canonical FNV-1a Wikipedia entry and Tommy Ettinger's mulberry32 gist; the file states the explicit `Math.random` rejection ("not seedable; deterministic per `(blueprint, caseType, seed)` output is the contract").
+- `lib/case-store/sample/pools/{names,addresses,geopoints,dates}.ts` — per-`data_type` value pools. Names pool covers ~1880 globally-varied combinations (Yoruba / Hindi / Arabic / Vietnamese / Mandarin / Spanish / Portuguese / Igbo / Swahili / etc.). Geopoints cover 10 city centers across multiple continents and population densities. Addresses use real public street names with fabricated building numbers (no PII). Dates carry three semantic ranges (DOB / registration / recent-event) keyed off the property-name heuristic. All pool functions take `(prng: SeededPrng, ...specificArgs)` for a uniform contract.
+- `lib/case-store/sample/__tests__/heuristic.test.ts` — 21 generator unit tests across 5 describe blocks covering hash determinism, PRNG range invariants, generator schema-validity (a real `Ajv2020` + `addFormats` compile against `caseTypeToJsonSchema(caseType)` on every generated row across all 9 `data_type` arms), property-name heuristics, parent linkage threading, and error paths.
+- `lib/case-store/__tests__/storeContract.ts` (+200 lines, 4 new contract tests): generate-respects-count, generate-is-deterministic-per-seed, reset-deletes-and-regenerates, parent-child-traverses-end-to-end through `case_indices`.
 
-This task adds `generateSampleData` and `resetSampleData` to the `CaseStore` interface and to `PostgresCaseStore`:
-- `generateSampleData(args: { appId, caseType, count, seed }): Promise<{ inserted: number }>` — calls `HeuristicCaseGenerator` and routes the rows through `insert`.
-- `resetSampleData(args: { appId, caseType }): Promise<{ deleted: number; inserted: number }>` — deletes existing rows for the case-type, then re-generates with a fresh seed.
+**Files modified:**
 
-These methods were intentionally not on the interface in Task 3 — adding throwing stubs would have been forward-projection. They land here together with the implementation. The user invokes generation via the new methods; backstop CLI / developer script: `scripts/seed-sample-data.ts`.
+- `lib/case-store/store.ts` — adds `generateSampleData` + `resetSampleData` to the `CaseStore` interface. The summary bullet for `resetSampleData` mirrors the per-method JSDoc honestly: atomic deletion (cases + edges in one transaction), regeneration runs sequenced after the deletion commits because each per-row insert opens its own transaction.
+- `lib/case-store/postgres/store.ts` — implementations + `sampleGenerator: SampleCaseGenerator` constructor arg (required, not optional) + `resolveParentRefs` helper that queries existing parents via the case-type's `parent_type` declaration and threads them through `parentRefs` so the generator picks parent_case_id from the existing real set.
+- `lib/case-store/withOwnerContext.ts` — wires `new HeuristicCaseGenerator()` as the default `SampleCaseGenerator` in the factory.
+- `lib/case-store/postgres/__tests__/store.test.ts` — passes `sampleGenerator` to the test factory; mirrors the production wiring (uses the same `HeuristicCaseGenerator` rather than a stub).
 
-Tests: deterministic output (same seed → same data); valid against the case-type's JSON schema; parent linkages create the right `case_indices` rows; cross-case-type relational queries work end-to-end.
+**`generateSampleData` routing:** the store iterates the generator's output and calls `this.insert(row)` per row, so `case_indices` derivation runs through the same path real inserts use. The generator never writes `case_indices` directly — it just produces case rows, and the store's existing relation-derivation in Tasks 3+4 fires for each insert.
+
+**`resetSampleData` two-step shape:** the deletion is atomic (cases + edges in one Postgres transaction); regeneration runs sequenced after the deletion commits because each per-row `insert` opens its own transaction (Postgres rejects nested BEGIN). The interface JSDoc at `store.ts:354-357` and the per-method JSDoc at `:451-466` both describe this honestly. A mid-regeneration failure leaves a half-populated case-type — explicitly NOT atomic across the full deletion-plus-regeneration scope.
+
+**Spec deviations (all approved):**
+
+- **`SampleCaseGenerator.generate` signature.** Spec has `generate(args: { caseType: CaseType; count: number; seed: string }): CaseRow[]`. Shipped uses `generate(args: { blueprint: BlueprintDoc; appId: string; caseType: string; count, seed, parentRefs? })`. Three additions: (a) `blueprint` matches `applySchemaChange`'s caller-supplied-snapshot pattern; the generator calls `findCaseTypeOrThrow(blueprint, caseType)` to recover the `CaseType` object — substantively equivalent to the spec's pre-resolved object, with one extra throw path. (b) `appId` enters the PRNG seed composition `${appId}::${caseType}::${seed}` so two apps sharing the same case-type name + seed don't collide. (c) `parentRefs` threads the store layer's parent-id resolution into the generator without coupling them. Return type `ReadonlyArray<CaseInsert>` is more type-correct than the spec's `CaseRow[]` — the generator shouldn't assign `case_id` / `owner_id` / `app_id` (the store does), and `CaseInsert` is the type that omits those.
+- **`count` is required (no `?`)** on both `generateSampleData` and `resetSampleData`. The spec's "Default count 30" framing is a UI affordance (the Generate-Sample-Data button defaults to 30), not a store-API default. Required on the API surface; defaulting in the calling layer.
+
+**Age distribution fix:** the original draft used `Math.floor(Math.sqrt(prng.pickFloat()) * 100)` for age and yearsBack, which produces an elder-skewed distribution (mean ≈ 67) — opposite of the documented "adult-biased" intent. The fix-pass replaced it with uniform `Math.floor(15 + prng.pickFloat() * 65)` (range [15, 80)) for both `pickIntValue("age")` and `pickDateInRange("dob")`. Working-age coverage; child + elder ages out of scope for the demo distribution. Unit test at `heuristic.test.ts` asserts `[15, 80)` after the fix.
+
+**REFERENCE_DATE:** pinned to `2026-05-01T12:00:00Z` as a module-level const. The determinism contract reads from this static anchor — no clock read at any point. The "plausibly recent" framing was dropped from the JSDoc to avoid implying the dates track the present-day clock; the contract is "deterministic per `(blueprint, caseType, seed)`", not "tracks current date." Periodically bumping `REFERENCE_DATE` is a future-supervisor option; not currently scheduled.
+
+**LlmCaseGenerator:** the polymorphism on `SampleCaseGenerator` exists today so tests can pass alternative implementations to `PostgresCaseStore`. An LLM-driven generator (`LlmCaseGenerator` against Haiku or another small model) is one possible alternative implementation, but no such consumer is in flight; the seam is incidentally available, not motivated by an unbuilt LLM consumer.
+
+**Tests:**
+- Case-store package: 316 passed (was 290 pre-Task-5; +26).
+- Full repo: 2845 passed | 14 skipped.
+
+Commit chain: `a2abac6c` (initial feat) → `a9529fa1` (CR + spec-review fix-pass).
 
 ### Task 6: Form running-app write-through
 
