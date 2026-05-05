@@ -328,24 +328,93 @@ The spec-compliance reviewer caught two structural obligations Plan 5's case-sel
 
 2. **Case-selection-to-form URL wiring belongs to Plan 5.** `CaseListScreen.handleRowClick` currently navigates without `caseId`. The router doesn't have a slot to thread it into `openForm`. Plan 5 designs the URL schema for case-selected followup/close flows; the `caseDataBinding` consumer surface is ready to receive a `caseId` parameter from the route — it just isn't wired today.
 
-### Task 8: Per-property expression-index DDL emission inside `applySchemaChange`
+### Task 8: Per-property expression-index DDL emission — SHIPPED (two-phase, four empirical deviations)
 
-**Files:** `lib/case-store/postgres/store.ts` (the existing `applySchemaChange` method gets a third half added), tests.
+SHIPPED 2026-05-05 in commits `098c31d8` (feat) → `b562dbf3` (CR + spec-review fix-pass) on branch `feat/case-list-search`.
 
-Tasks 3+4 shipped two halves of `applySchemaChange`'s transaction: schema sync and per-row migration. Task 8 adds the third — per-property expression-index DDL emission — inside the same Postgres transaction. The DDL emission lives in `postgres/store.ts` directly (not a separate file as an earlier draft of this plan suggested); the method wrapping the transaction is already there, this task adds the emission step alongside the existing sync + migration steps.
+The implementation deviates from this plan's original "all in one transaction with non-CONCURRENT CREATE INDEX" framing on four counts. **All four were empirically forced** by Postgres internals; supervisor accepted each on review. The shipped shape:
 
-The complete three-halves shape after Task 8:
+#### Deviation 1 — Two-phase split (not single transaction)
 
-1. **Schema sync** (always runs, shipped in Task 4): regenerate the JSON Schema via Plan 1's generator from the current blueprint state for `(appId, caseType)`; UPSERT into `case_type_schemas`.
-2. **Per-property expression-index DDL emission** (always runs, this task): read the union of (case-type properties × search inputs that target them × modes × sort keys × filter operators) from the current blueprint state. Compute the desired index set per the discipline table at the top of this plan. Compare against `pg_indexes` for the case-type's existing per-property indexes; emit `DROP INDEX` / `CREATE INDEX` statements for the diff. The index naming convention pins each index to its `(case_type, property, mode)` tuple so the diff is mechanical (e.g. `cases_<case_type>_<property>_<mode>`). Property rename: drops the index on the old extraction path, creates the index on the new one. Property removal: drops the index. Search-input mode change: drops the old-mode index, creates the new-mode index. The DDL runs INSIDE the transaction so the index state matches the schema state atomically.
-3. **Per-row migration** (runs when `property` + `change` are present, shipped in Task 4): for each row in the case-type, apply the change shape:
-   - `rename(from, to)` — `UPDATE cases SET properties = jsonb_set(properties #- '{from}', '{to}', properties->'from')` for every row.
-   - `retype(fromType, toType)` — for each row, attempt to cast the value per the spec's "Schema migration policy" table. On success: `UPDATE cases SET properties = jsonb_set(...)`. On failure: move to `cases_quarantine` with `quarantine_reason` set to the cast-failure detail.
-   - `narrow-options(removedOptions)` — for each row whose property value is in `removedOptions`, move to `cases_quarantine`.
+**Plan said:** schema sync + per-row migration + DDL all inside one transaction.
 
-The transaction commits when all three halves succeed, rolls back atomically on failure. The database never holds a new schema with rows that fail validation against it, AND it never holds a search input that references an unindexed property. This is the structural backstop for the "apps are always in a valid state" principle at the storage layer.
+**Postgres said no:** non-CONCURRENT `CREATE INDEX` uses `SnapshotAny` semantics — it evaluates the new index expression against every heap tuple including dead ones from same-transaction DELETEs. The per-row migration's quarantine path produces dead tuples whose values still get evaluated by the new index. A retype `text → int` against a row carrying `"abc"` fails the new index's `(properties->>'X')::int` cast against the dead tuple even though the row was deleted in the same transaction.
 
-Tests: each change shape against fixtures; index DDL diff produces the right `CREATE` / `DROP` set for representative blueprint mutations (property add / remove / rename / retype / search-input mode change); rollback verified by simulating a mid-migration failure inside the index-DDL emission step (which Task 8 makes a real-world reachable failure path — the cast loop in Task 4's migration step doesn't throw, so a sabotage-the-transaction test wasn't possible until DDL emission lands); quarantine surfacing; no-property-no-change call runs schema sync + index DDL sync (without per-row migration).
+**Shipped:**
+- **Phase A (one Kysely transaction):** schema sync (UPSERT case_type_schemas) → per-row migration → COMMIT.
+- **Phase B (no transaction, against `this.db` directly):** index DDL diff via `CONCURRENTLY` (see Deviation 2). Naturally idempotent — every call diffs against `pg_indexes` and re-derives the missing creates / extra drops.
+
+**Achievable invariant:** schema and data are always consistent; indexes converge on the next idempotent call. Phase B failure leaves schema + data intact; missing indexes degrade query performance but never correctness.
+
+#### Deviation 2 — `CONCURRENTLY` required (not just acceptable)
+
+**Plan said:** plain `CREATE INDEX` (non-CONCURRENT) is fine; the brief table-lock is acceptable per the atomic-blueprint-mutation principle.
+
+**Postgres said no:** even after Phase A commits, non-CONCURRENT `CREATE INDEX` in Phase B can still see dead tuples from the same backend's just-committed DELETE if autovacuum hasn't advanced the visibility horizon. Surfaced as an intermittent flake in the testcontainer harness during the C1+C2 fix-pass (max:1 pool reuses the same backend; horizon doesn't advance synchronously).
+
+**Shipped:** `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` for both directions. CONCURRENTLY uses MVCC snapshot semantics that exclude dead tuples cleanly. CONCURRENTLY's "cannot run inside transaction" constraint aligns naturally with Phase B's already-non-transactional shape; as a side benefit, concurrent reads/writes against `cases` keep working while builds run.
+
+#### Deviation 3 — `multi_select` opclass is `jsonb_ops`, not `jsonb_path_ops`
+
+**Plan's discipline table said:** `CREATE INDEX ... USING GIN ((properties->'key') jsonb_path_ops)` for `multi-select-contains`.
+
+**Postgres said no:** `jsonb_path_ops` only supports `@>` (containment); the predicate compiler emits `?|` / `?&` / `?` for `multi-select-contains` (Plan 1's `match` quantifier `any` / `all`). EXPLAIN against the compiler's emission with `jsonb_path_ops` showed seq-scan fallback; with `jsonb_ops` (the default GIN opclass for jsonb) the planner matches `?|` directly via Index Cond.
+
+**Shipped:** `multi_select` properties use `USING GIN ((properties->'key') jsonb_ops)`. The plan's discipline table (top of this doc) was wrong on this row.
+
+#### Deviation 4 — No per-property expression index for `geopoint` / `date` / `datetime` / `time`
+
+**Plan's discipline table said:** btree expression indexes for temporal types; GIST `ST_GeogFromText(properties->>'X')` for geopoint.
+
+**Postgres said no:**
+- `(text)::date` / `::timestamptz` / `::time` are all `STABLE` (depend on `DateStyle` / `TimeZone` GUCs), not `IMMUTABLE`. Expression indexes require `IMMUTABLE`.
+- Geopoint storage format is `"lat lon alt acc"` (not WKT); the predicate compiler's `within-distance` arm emits `ST_DWithin(ST_GeogFromText(concat('POINT(', split_part(...), ' ', split_part(...), ')')), ...)` to bridge the format. `concat(...)` over text args is `STABLE`; the indexable form `ST_GeogFromText(properties->>'X')` is `IMMUTABLE` but doesn't match the compiler's emission for the planner to bridge.
+
+**Shipped:** temporal types and geopoint return `undefined` from `desiredIndexForProperty`. `compare` / `between` on temporal types and `within-distance` on geopoint run as sequential scans — semantically correct, slower on large case-types.
+
+**Future fix path:** Nova-owned `IMMUTABLE` wrapper functions (`nova_parse_date(text) RETURNS date IMMUTABLE`, `nova_geopoint_to_geography(text) RETURNS geography IMMUTABLE`) plus matching term-compiler emission. Both surfaces move together when that lands; out of Plan 2 scope.
+
+#### What SHIPPED produces
+
+For each of the supported `data_type` arms, Phase B emits the matching expression index inside Phase B (post-Phase-A-commit, no transaction, CONCURRENTLY):
+
+| `data_type` | Index DDL (via `CREATE INDEX CONCURRENTLY`) |
+|---|---|
+| `text` | `... USING GIN ((properties->>'<key>') gin_trgm_ops) WHERE case_type = '<type>'` |
+| `int` | `... USING BTREE (((properties->>'<key>')::integer)) WHERE case_type = '<type>'` |
+| `decimal` | `... USING BTREE (((properties->>'<key>')::numeric)) WHERE case_type = '<type>'` |
+| `multi_select` | `... USING GIN ((properties->'<key>') jsonb_ops) WHERE case_type = '<type>'` |
+| `single_select` | NO INDEX (closed value space; partial-predicate filter alone matches efficiently) |
+| `date` / `datetime` / `time` | NO INDEX (deviation 4) |
+| `geopoint` | NO INDEX (deviation 4) |
+
+**Naming convention:** `cases_<case_type>_<property>_<mode>` with hyphens in property names transformed to underscores for Postgres identifier compatibility (the JSONB key in the indexed expression preserves the hyphen verbatim via `sql.lit`). Collision detection: if two properties in the same case-type produce the same composed name post-transform, applySchemaChange throws preflight before any DB write with a "rename one to disambiguate" error.
+
+**Identifier safety:** `assertSafeIdentifierFragment` runs **preflight** — before Phase A's transaction opens. A property name that fails the index-name composability check throws BEFORE any schema row mutates. This is the C2 fix from the supervisor's CR fix-pass review.
+
+**Tests shipped:** 24 tests in `lib/case-store/postgres/__tests__/store.test.ts` covering: each data_type's emitted DDL shape; each diff verb (additive / remove / rename / retype / retype-with-quarantine); Phase A rollback atomicity; Phase B engine-failure-and-convergence (sabotage via `DROP EXTENSION pg_trgm CASCADE`, verify Phase A intact, verify next call converges); EXPLAIN tests asserting the planner reaches each index for the predicate compiler's emitted SQL; identifier safety (hyphen-aware vocabulary, collision detection); cross-tenant index sharing.
+
+**Tests:** case-store-postgres package 59 passed (was 51 pre-Task-8; +8 net from this fix-pass round). Full repo 2903 passed. Three consecutive clean runs verified the CONCURRENTLY shift resolved the prior intermittent flake.
+
+#### Open design question — cross-app index sharing (deferred)
+
+Indexes are scoped per-`(case_type, property, mode)` but NOT per-`app_id`. If app A and app B both declare a `patient` case-type with `name`, they share `cases_patient_name_fuzzy`. If app A retypes `name` from text to int, app B's text-trgm expectation breaks silently (no migration on app B's data; no app-id scoping in the partial-index WHERE clause).
+
+`case_type_schemas` PK is `(app_id, case_type)`, so the SCHEMA differs across apps; the INDEX doesn't.
+
+**Resolution deferred:** in practice, each Nova app has a unique app_id and apps with identical case-type vocabularies are rare. The data model permits the collision but doesn't surface it on the typical authoring path. Future fix: include app_id in the partial-index WHERE clause and a hash-prefix in the index name (UUIDs don't fit in a 63-byte composed identifier directly). Out of Plan 2 scope; surface when the first cross-app collision is observed in the wild.
+
+#### Plan-doc reconciliation needed at the top of this doc
+
+The "Per-property expression indexes — the perf discipline the foundation surfaces" section at the top of this plan still describes the original (pre-empirical) DDL shapes. The entries that need correction:
+- `multi_select` row: `jsonb_path_ops` → `jsonb_ops` (deviation 3).
+- `date` / `datetime` / `time` rows: add a footnote on the IMMUTABLE-cast constraint and the future-fix-path via Nova-owned wrapper functions (deviation 4).
+- `geopoint` row: same footnote — joins the temporal types' "needs IMMUTABLE wrapper" group (deviation 4).
+- The "atomic across all halves" framing in the section's tail: replace with the two-phase atomic-then-convergent shape (deviation 1) plus the CONCURRENTLY requirement (deviation 2).
+
+The corrections live in the file-header docstring of `lib/case-store/postgres/store.ts` (which is the canonical reference for the implementation's actual behavior). The plan-doc reconciliation lands on Task 9's CLAUDE.md authoring pass; Task 9 owns the reconciliation between the plan's prose and the implementation's documented behavior.
+
+Commit chain: `098c31d8` (initial feat) → `b562dbf3` (CR + spec-review fix-pass).
 
 ### Task 9: Barrel exports + CLAUDE.md + full error-message sweep
 
