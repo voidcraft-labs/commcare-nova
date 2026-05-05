@@ -26,11 +26,11 @@
 // stuck tests by call site. The random suffix avoids collisions if
 // multiple workers race to create databases.
 //
-// `extensionsToInstall` parameterizes the post-CREATE-DATABASE
-// step. The default is the three required extensions (`pg_trgm`,
-// `fuzzystrmatch`, `postgis`) — production parity. Tests
-// constructing a partial-extension failure shape pass a narrower
-// set.
+// The helper installs the three required extensions (`pg_trgm`,
+// `fuzzystrmatch`, `postgis`) into every per-test database before
+// the test body runs — production parity. Extensions are not
+// configurable per call site; the case-store's compiler stack
+// depends on all three.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Client, Pool } from "pg";
@@ -63,10 +63,10 @@ export interface PerTestDatabaseHandle {
 }
 
 /**
- * Configuration for `setupPerTestDatabase`. Each test file passes
- * its own prefix + extension install set; the helper handles the
- * Vitest lifecycle wiring (beforeEach create + afterEach drop)
- * and exposes the per-test handle to the test body.
+ * Configuration for `setupPerTestDatabase`. Test files pass their
+ * own prefix; the helper handles the Vitest lifecycle wiring
+ * (beforeEach create + afterEach drop) and exposes the per-test
+ * handle to the test body.
  */
 export interface PerTestDatabaseOptions {
 	/**
@@ -76,30 +76,17 @@ export interface PerTestDatabaseOptions {
 	 * (alphanumeric + underscore; lowercase; no leading digit).
 	 */
 	databaseNamePrefix: string;
-	/**
-	 * The set of Postgres extensions to install in each per-test
-	 * database immediately after `CREATE DATABASE`. Defaults to the
-	 * three required extensions (`pg_trgm`, `fuzzystrmatch`,
-	 * `postgis`) to match production parity.
-	 *
-	 * Failure-path tests for the extension gate pass narrower sets
-	 * (or `[]`) so the verifier sees a database with a partial
-	 * extension surface.
-	 */
-	extensionsToInstall?: ReadonlyArray<string>;
 }
 
 /**
- * Default extension set installed into each per-test database.
- * Matches the harness's `globalSetup.ts` extension-install set —
- * a per-test database is otherwise blank, so a test that expects
- * production parity needs the same extensions present.
+ * The three Postgres extensions every per-test database carries.
+ * Production parity: these are exactly the extensions production
+ * Cloud SQL has installed (Task 0 runbook §Phase 5) and the same
+ * set the testcontainer harness's `globalSetup.ts` installs into
+ * its shared database. Per-test databases are otherwise blank, so
+ * the helper installs them right after `CREATE DATABASE`.
  */
-export const DEFAULT_EXTENSIONS_TO_INSTALL = [
-	"pg_trgm",
-	"fuzzystrmatch",
-	"postgis",
-] as const;
+const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
 
 /**
  * Wire `beforeEach` / `afterEach` hooks that create + drop a fresh
@@ -121,9 +108,6 @@ export const DEFAULT_EXTENSIONS_TO_INSTALL = [
 export function setupPerTestDatabase(
 	options: PerTestDatabaseOptions,
 ): PerTestDatabaseHandle {
-	const extensionsToInstall =
-		options.extensionsToInstall ?? DEFAULT_EXTENSIONS_TO_INSTALL;
-
 	// The active per-test state. `null` outside a test body — getters
 	// on the returned handle throw if accessed at that point. Without
 	// this guard, accidentally reading the handle outside a Vitest
@@ -137,10 +121,7 @@ export function setupPerTestDatabase(
 	} | null = null;
 
 	beforeEach(async () => {
-		const created = await createIsolatedDatabase(
-			options.databaseNamePrefix,
-			extensionsToInstall,
-		);
+		const created = await createIsolatedDatabase(options.databaseNamePrefix);
 		const built = buildIsolatedDb(created.uri);
 		active = {
 			databaseName: created.databaseName,
@@ -232,7 +213,8 @@ function urlForDatabase(baseUri: string, databaseName: string): string {
 /**
  * Connect to the testcontainer's superuser default database (the
  * one `globalSetup.ts` created), `CREATE DATABASE
- * <prefix><rand>`, install the chosen extensions, return the URI.
+ * <prefix><rand>`, install the three required extensions, return
+ * the URI.
  *
  * Extension install runs here (not in any migration) because
  * `CREATE EXTENSION` requires `cloudsqlsuperuser` on production
@@ -244,7 +226,6 @@ function urlForDatabase(baseUri: string, databaseName: string): string {
  */
 async function createIsolatedDatabase(
 	databaseNamePrefix: string,
-	extensionsToInstall: ReadonlyArray<string>,
 ): Promise<{ databaseName: string; uri: string }> {
 	const baseUri = inject("postgresTestUrl");
 	const databaseName = `${databaseNamePrefix}${Math.random().toString(36).slice(2, 10)}`;
@@ -261,12 +242,10 @@ async function createIsolatedDatabase(
 	const targetClient = new Client({ connectionString: targetUri });
 	await targetClient.connect();
 	try {
-		for (const extension of extensionsToInstall) {
+		for (const extension of REQUIRED_EXTENSIONS) {
 			// Identifier interpolation is safe here: every value comes
-			// from the caller's static-literal extension list (the
-			// runner test passes the three required extensions; the
-			// gate test passes a subset of the same set). No external
-			// input flows into this interpolation point.
+			// from the static-literal `REQUIRED_EXTENSIONS` tuple.
+			// No external input flows into this interpolation point.
 			await targetClient.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
 		}
 	} finally {

@@ -2,8 +2,8 @@
 --
 -- Single source of truth for the case-store relational schema.
 -- Atlas reads this file as the desired state, replays it against
--- the dev container described in the `docker "postgres" "dev"`
--- block in `atlas.hcl`, and diffs the result against the
+-- the inline `docker+postgres://...` dev container described in
+-- `atlas.hcl`'s `local` env, and diffs the result against the
 -- already-applied set under `lib/case-store/migrations/` to
 -- autogenerate the next migration. The file is authored, not
 -- generated; the migrations directory is the generated side.
@@ -24,25 +24,38 @@
 --     lines 254-284.
 --   - `cases_quarantine` shape (PK + columns): same spec, lines 309-340.
 --
--- ## Required Postgres extensions
+-- ## Postgres extensions are not declared here
 --
--- The case-store compilers depend on three extensions: `pg_trgm`
--- (fuzzy match), `fuzzystrmatch` (phonetic match), `postgis`
--- (within-distance). Extensions are NOT created here. Production
--- installs them at provisioning time via Cloud SQL Studio under
--- the briefly-opened postgres superuser (Task 0 runbook §Phase 5);
--- the testcontainers harness installs them via the container's
--- own superuser before atlas runs (`globalSetup.ts`); atlas's dev
--- container installs them via the `docker "postgres" "dev"`
--- block's `baseline` SQL in `atlas.hcl`. All three paths converge
--- on the same extension surface before atlas reads this schema,
--- so the schema can assume their presence.
+-- The DDL below references no extension types or functions —
+-- columns are plain `text`/`uuid`/`jsonb`/`timestamptz` and the
+-- only function reference is PG 18's built-in `uuidv7()`. Atlas's
+-- dev container therefore needs no extensions to compute the
+-- diff against this file.
 --
--- This split exists because `CREATE EXTENSION` requires
--- cloudsqlsuperuser on production Cloud SQL, and the IAM-auth
--- runtime SA atlas authenticates as does not have it. Mirroring
--- that privilege boundary in dev / tests keeps every environment
--- exercising the runtime SA's actual permission set.
+-- The case-store COMPILER STACK depends on three extensions at
+-- query time: `pg_trgm` (fuzzy match), `fuzzystrmatch` (phonetic
+-- match), `postgis` (within-distance). Production installs them
+-- at Cloud SQL provisioning time via Studio under the briefly-
+-- opened postgres superuser (Task 0 runbook §Phase 5); the
+-- testcontainers harness installs them via the container's own
+-- superuser in `globalSetup.ts`. Atlas's dev container installs
+-- nothing — it doesn't need to, because this file references no
+-- extension surface, and the `docker "postgres" "dev" { ... }`
+-- baseline-SQL block that would drive an install is Atlas Pro
+-- only (`atlas.hcl` documents the community-edition fallback).
+--
+-- The extension install is split out of `schema.sql` because
+-- `CREATE EXTENSION` requires cloudsqlsuperuser on production
+-- Cloud SQL, and the IAM-auth runtime SA atlas authenticates as
+-- does not have it. Mirroring that privilege boundary in tests
+-- keeps every environment exercising the runtime SA's actual
+-- permission set.
+--
+-- If a future schema.sql adds a `geometry` column or any other
+-- extension-typed column, the `composite_schema` data source
+-- pattern at `https://atlasgo.io/faq/manage-extension-only` is
+-- the canonical community-edition path for splitting extension
+-- declarations from the application schema.
 --
 -- ## Postgres-strict null semantics
 --
@@ -225,12 +238,17 @@ CREATE TABLE "case_indices" (
 -- Per-property expression indexes (Plan 2's dynamic-index discipline)
 -- are NOT in this static schema. Property names are blueprint-
 -- specific and search modes are search-input-config-specific; the
--- canonical owner is `applySchemaChange` (Plan 2 Task 8), which
--- maintains the matching CREATE INDEX / DROP INDEX set in the same
--- transaction as the JSON Schema regen.
+-- canonical owner is `applySchemaChange`, which maintains the
+-- matching CREATE INDEX / DROP INDEX set in the same transaction
+-- as the JSON Schema regen.
 CREATE INDEX "case_indices_ancestor_id_identifier_idx"
   ON "case_indices" ("ancestor_id", "identifier");
 
+-- Column order `(case_id, identifier)` (NOT the reverse) matters:
+-- the relation-walk composer's leaf join filters on `case_id`
+-- first (the parent-side row) and uses `identifier` to
+-- disambiguate (the relation name). Leading on `case_id` lets the
+-- planner narrow on the parent before checking the relation.
 CREATE INDEX "case_indices_case_id_identifier_idx"
   ON "case_indices" ("case_id", "identifier");
 
@@ -238,12 +256,12 @@ CREATE INDEX "case_indices_case_id_identifier_idx"
 -- `cases_quarantine` — spec § "Schema migration policy" lines 309-340
 -- ===================================================================
 --
--- Failed-migration sink. `applySchemaChange` (Plan 2 Task 8) writes
--- a row here whenever a blueprint mutation produces a value the new
--- schema rejects (a `data_type` change that can't cast, a
--- `single_select` option removal that orphans existing values).
--- The original row stays preserved verbatim alongside the failure
--- reason so the author UI can surface the conflict for review and
+-- Failed-migration sink. `applySchemaChange` writes a row here
+-- whenever a blueprint mutation produces a value the new schema
+-- rejects (a `data_type` change that can't cast, a `single_select`
+-- option removal that orphans existing values). The original row
+-- stays preserved verbatim alongside the failure reason so the
+-- author UI can surface the conflict for review and
 -- resolution.
 --
 -- The shape is `cases`'s columns plus two quarantine-specific

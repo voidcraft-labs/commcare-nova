@@ -90,10 +90,9 @@ describe("case-store harness — schema", () => {
 		// test from running.
 		//
 		// `cases_quarantine` is the failed-migration sink the
-		// `applySchemaChange` orchestration writes to (Plan 2 Task
-		// 8); its shape is `cases` columns plus `quarantine_reason`
-		// + `quarantined_at`. Spec § "Schema migration policy"
-		// lines 309-340.
+		// `applySchemaChange` orchestration writes to; its shape is
+		// `cases` columns plus `quarantine_reason` + `quarantined_at`.
+		// Spec § "Schema migration policy" lines 309-340.
 		const result = await pgClient.query<{
 			table_name: string;
 			column_name: string;

@@ -104,29 +104,11 @@
 // did in production without giving the test harness a non-production
 // privilege shape.
 //
-// `--allow-dirty` is passed on every atlas apply because the
-// container has the postgis-managed `tiger` and `topology`
-// schemas present before atlas runs — those are owned by the
-// `postgis` extension that the harness pre-installs, not user
-// data, and atlas's empty-database precondition check would
-// otherwise reject the apply. Production carries the same
-// pre-installed-extension shape (Phase 5 of the Task 0 runbook
-// installs them at provisioning time), so the production CMD
-// passes the same flag. Atlas's revisions ledger remains the
-// authoritative version source after the first apply; the flag
-// only suppresses the empty-DB precondition check.
-//
-// ## Atlas binary prerequisite
-//
-// `atlas` must be on `PATH` for the harness to run. Install via
-// `brew install ariga/tap/atlas` (macOS) or
-// `curl -sSf https://atlasgo.sh | sh` (Linux); on macOS systems
-// where the brew tap fails on Command Line Tools incompatibility,
-// download the community binary from `https://release.ariga.io/atlas/atlas-community-<os>-<arch>-latest`
-// and place it on `PATH`. CI / contributor laptops without atlas
-// on `PATH` see a clear `atlas: command not found` error here —
-// no fallback to a per-test bundled binary; if you're seeing
-// migration shell-out failures, install atlas first.
+// `--allow-dirty` and the atlas-binary prerequisite are documented
+// in `lib/case-store/CLAUDE.md` § Production: Cloud Run startup
+// CMD and § Tests: testcontainers harness; the atlas shell-out
+// itself lives in the shared helper at
+// `applyMigrationsViaAtlas.ts`.
 //
 // Two surfaces stay in lockstep:
 //
@@ -141,13 +123,13 @@
 // A schema change updates `schema.sql` + `database.ts`, then runs
 // `npm run db:diff` to autogenerate a new migration file.
 
-import { spawnSync } from "node:child_process";
 import {
 	PostgreSqlContainer,
 	type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
 import { Client } from "pg";
 import type { TestProject } from "vitest/node";
+import { applyMigrationsViaAtlas } from "./applyMigrationsViaAtlas";
 
 // -- Provided-context type augmentation -----------------------------
 //
@@ -280,57 +262,13 @@ export async function setup(project: TestProject): Promise<void> {
 		await extClient.end();
 	}
 
-	// -- Apply the production migration set via atlas. ----------------
-	//
-	// Atlas owns schema application. We shell out to `atlas migrate
-	// apply --env testcontainer --url <connectionString>
-	// --allow-dirty`. The `testcontainer` env in `atlas.hcl` points
-	// at `lib/case-store/migrations/`; the `--url` flag overrides
-	// the env's URL (which has no static value because the
-	// testcontainer's port is dynamic per run). `--allow-dirty`
-	// suppresses atlas's empty-DB precondition check — the
-	// container has postgis's `tiger` and `topology` schemas
-	// pre-installed by the extension-install step above, and atlas
-	// would otherwise refuse to apply against a non-empty database.
-	//
 	// `stdio: "inherit"` lets atlas's progress + error output flow
 	// straight into Vitest's orchestrator stderr — a migration
 	// failure surfaces in the test run's first lines without us
-	// proxying the message through a custom format.
-	//
-	// Status code: 0 on success, non-zero on any failure (lint
-	// rejection, lock acquisition failure, network blip on the
-	// container, missing migration file). Throwing here aborts
-	// globalSetup, which Vitest treats as a fatal harness error.
-	const result = spawnSync(
-		"atlas",
-		[
-			"migrate",
-			"apply",
-			"--env",
-			"testcontainer",
-			"--url",
-			connectionString,
-			"--allow-dirty",
-		],
-		{ stdio: "inherit" },
-	);
-	if (result.error !== undefined) {
-		const code = (result.error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			throw new Error(
-				"atlas: command not found. Install Atlas via " +
-					"`brew install ariga/tap/atlas` or " +
-					"`curl -sSf https://atlasgo.sh | sh` and re-run.",
-			);
-		}
-		throw result.error;
-	}
-	if (result.status !== 0) {
-		throw new Error(
-			`atlas migrate apply failed with exit status ${result.status ?? "(null)"}`,
-		);
-	}
+	// proxying the message through a custom format. Throws on any
+	// failure mode; aborts globalSetup, which Vitest treats as a
+	// fatal harness error.
+	applyMigrationsViaAtlas(connectionString);
 
 	// Publish the connection URI for workers. `project.provide` is
 	// the only sanctioned channel for cross-process state in

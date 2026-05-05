@@ -25,9 +25,9 @@
 //   - `cases_quarantine` — failed-migration sink. Every column
 //     `cases` has plus `quarantine_reason TEXT NOT NULL` and
 //     `quarantined_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
-//     `applySchemaChange` (Plan 2 Task 8) writes here when a
-//     blueprint mutation produces values incompatible with the
-//     new schema; author-facing review UI reads from this table.
+//     `applySchemaChange` writes here when a blueprint mutation
+//     produces values incompatible with the new schema; author-
+//     facing review UI reads from this table.
 //     Spec § "Schema migration policy" lines 309-340.
 //
 // The DDL the types mirror is the single source of truth at
@@ -137,10 +137,9 @@ export interface CasesTable {
 	 *     but the type doesn't admit `undefined` here because the
 	 *     row already exists with a non-null value.
 	 *
-	 * Spec line 255 (`case_id UUID PRIMARY KEY`) + Plan 2 Task 1
-	 * lock for the `DEFAULT uuidv7()` clause (PG 18's built-in
-	 * v7 generator, per
-	 * `https://www.postgresql.org/docs/18/functions-uuid.html`).
+	 * Spec line 255 (`case_id UUID PRIMARY KEY`); the
+	 * `DEFAULT uuidv7()` clause uses PG 18's built-in v7 generator
+	 * (`https://www.postgresql.org/docs/18/functions-uuid.html`).
 	 * The `case_id` DDL lives in `lib/case-store/schema.sql`.
 	 */
 	case_id: ColumnType<string, string | undefined, string>;
@@ -371,13 +370,12 @@ export interface CaseIndicesTable {
 // ---------------------------------------------------------------
 
 /**
- * Failed-migration sink. `applySchemaChange` (Plan 2 Task 8)
- * writes a row here whenever a blueprint mutation produces a
- * value the new schema rejects — a `data_type` change that can't
- * cast, a `single_select` option removal that orphans existing
- * values. The original row stays preserved verbatim alongside
- * the failure reason so the author UI can surface the conflict
- * for review and resolution.
+ * Failed-migration sink. `applySchemaChange` writes a row here
+ * whenever a blueprint mutation produces a value the new schema
+ * rejects — a `data_type` change that can't cast, a `single_select`
+ * option removal that orphans existing values. The original row
+ * stays preserved verbatim alongside the failure reason so the
+ * author UI can surface the conflict for review and resolution.
  *
  * The shape is the `cases` columns plus two quarantine-specific
  * additions:

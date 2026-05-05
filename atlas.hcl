@@ -56,24 +56,26 @@
 #
 # ### Extensions and the dev container
 #
-# `schema.sql` does not reference any extension type or function —
-# all columns are plain text/uuid/jsonb/timestamptz, and the only
-# function reference is `uuidv7()` (PG 18 built-in, no extension
-# needed). So the diff calculation runs cleanly against a vanilla
-# PostGIS-enabled image without any baseline extension installs.
+# The dev container needs no extensions to compute the diff:
+# `schema.sql` references no extension types or functions — all
+# columns are plain text/uuid/jsonb/timestamptz and the only
+# function reference is `uuidv7()` (PG 18 built-in). The diff
+# runs cleanly against the vanilla PostGIS-enabled image.
 #
-# If a future schema.sql ever references a `postgis`, `pg_trgm`, or
-# `fuzzystrmatch` type/function (e.g. a `geometry` column for a
-# materialized geo index), this env needs the
-# `data "composite_schema" ... { url = "file://schema-extensions.sql" }`
-# pattern documented at
-# `https://atlasgo.io/faq/manage-extension-only`. Don't add it
-# preemptively — the indirection makes diff debugging harder.
+# Adding an extension-typed column (e.g. a `geometry` column for
+# a materialized geo index) would require the `composite_schema`
+# data source pattern at
+# `https://atlasgo.io/faq/manage-extension-only` to split the
+# extension declarations out of the application schema; the
+# community-edition `docker { baseline = ... }` block that would
+# otherwise install extensions at dev-container boot is Atlas Pro
+# only.
 #
 # Production extensions are installed at Cloud SQL provisioning
 # time (Task 0 runbook §Phase 5); the testcontainers harness
-# installs them via `globalSetup.ts`. Both paths get them in place
-# before atlas runs any application query against the database.
+# installs them via `globalSetup.ts`. Both paths get them in
+# place before atlas runs any application query against the
+# database.
 
 # -----------------------------------------------------------------
 # Local dev URL — shared between `local` and `testcontainer` envs
@@ -136,11 +138,14 @@ env "local" {
 # `testcontainer` env — Vitest globalSetup harness
 # -----------------------------------------------------------------
 #
-# `lib/case-store/sql/__tests__/globalSetup.ts` boots a Postgres
-# testcontainer, installs the three required extensions via the
-# container's superuser, and then shells out to:
-#
-#   atlas migrate apply --env testcontainer --url <testcontainer-uri>
+# `lib/case-store/sql/__tests__/applyMigrationsViaAtlas.ts` shells
+# out to `atlas migrate apply --env testcontainer --url <uri>
+# --allow-dirty` against testcontainers booted by `globalSetup.ts`
+# and per-test databases provisioned by `setupPerTestDatabase`.
+# Both consumers live in this repo; the `--allow-dirty` rationale
+# (postgis pre-installed → non-empty `tiger`/`topology` schemas)
+# is documented at `lib/case-store/CLAUDE.md` § Tests:
+# testcontainers harness.
 #
 # The `--url` flag overrides the env's URL (which has no static
 # value here; the testcontainer's port is dynamic per run). The
@@ -149,9 +154,9 @@ env "local" {
 # directory `prod` applies, so tests exercise the exact migration
 # set production ships.
 #
-# `src` is set so a hypothetical future test that asserts no diff
-# exists between schema.sql and the migration ledger can run from
-# this env. Day-to-day, only `migrate apply` runs here.
+# `src` lets `atlas migrate diff` and `atlas migrate lint` operate
+# from this env against a testcontainer URI; day-to-day only
+# `migrate apply` runs here.
 env "testcontainer" {
   src = "file://lib/case-store/schema.sql"
   dev = local.dev_url
@@ -191,7 +196,7 @@ env "testcontainer" {
 # atlas) and authenticates via `@google-cloud/cloud-sql-connector`.
 # The two paths share the same Cloud SQL instance and the same IAM
 # user; they differ only in how each tool resolves the network
-# endpoint. Hardcoding the private IP for atlas is acceptable
+# endpoint. Pinning the private IP via `NOVA_DB_HOST` is acceptable
 # because the IP is stable for the instance's lifetime — Cloud SQL
 # Postgres reserves the address from the VPC peering range when the
 # instance is created.
@@ -205,9 +210,17 @@ env "testcontainer" {
 # `--type=CLOUD_IAM_SERVICE_ACCOUNT` (Task 0 runbook P4-5) and the
 # instance has `cloudsql.iam_authentication=on` (P2-1).
 #
-# `urlescape()` is required because IAM tokens contain `.` and `-`
-# characters, and the `:` after the token's prefix would otherwise
-# terminate the password field early in some URL parsers.
+# `urlescape()` is required on both userinfo components.
+# `NOVA_DB_USER` is `<account-id>-compute@developer` — the `@`
+# before `developer` is a sub-delim that RFC 3986 requires
+# percent-encoded inside the userinfo component (where the
+# top-level `@` separates userinfo from the host). `gcp_cloudsql_token`
+# emits a JWT-shaped IAM access token whose body and signature
+# segments contain `=` (base64 padding), `+`, and `/` characters
+# — all sub-delims in the userinfo component per RFC 3986. Most
+# parsers tolerate the unescaped form by anchoring on the
+# right-most `@`, but escaping both sides removes the parser-
+# tolerance dependency.
 #
 # `sslmode=require` matches Cloud SQL's enforced TLS posture; the
 # Postgres driver uses the system root store to verify the server
@@ -215,7 +228,7 @@ env "testcontainer" {
 data "gcp_cloudsql_token" "db" {}
 
 env "prod" {
-  url = "postgres://${getenv("NOVA_DB_USER")}:${urlescape(data.gcp_cloudsql_token.db)}@${getenv("NOVA_DB_HOST")}:5432/${getenv("NOVA_DB_NAME")}?sslmode=require"
+  url = "postgres://${urlescape(getenv("NOVA_DB_USER"))}:${urlescape(data.gcp_cloudsql_token.db)}@${getenv("NOVA_DB_HOST")}:5432/${getenv("NOVA_DB_NAME")}?sslmode=require"
   migration {
     dir = "file://lib/case-store/migrations"
   }

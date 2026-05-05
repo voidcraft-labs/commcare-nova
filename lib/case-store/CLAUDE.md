@@ -129,9 +129,28 @@ gcloud logging read 'resource.labels.service_name=commcare-nova AND textPayload:
 ```
 
 The apply runs once per revision startup. A deploy that ships no
-new migrations logs a "no pending migrations" line and exits 0;
+new migrations logs `No migration files to execute` and exits 0;
 a deploy that ships a new migration logs the per-statement
 output then the success summary.
+
+The gcloud-logging one-liner answers "what happened on the last
+apply"; the source of truth for "what migrations are currently
+applied" is Atlas's revisions ledger. Open Cloud SQL Studio at
+`https://console.cloud.google.com/sql/instances/nova-cases/studio?project=commcare-nova`
+and run:
+
+```sql
+SELECT version, description, executed_at, applied, total
+FROM atlas_schema_revisions.atlas_schema_revisions
+ORDER BY executed_at DESC;
+```
+
+Atlas creates a dedicated `atlas_schema_revisions` schema for
+the ledger; the table inside has the same name. The
+`description` column is the slug from the migration filename
+(e.g. `baseline` from `20260505152732_baseline.sql`); `applied`
+/ `total` count statements within a migration; `executed_at` is
+the timestamp the apply began.
 
 ### Tests: testcontainers harness
 
@@ -210,10 +229,16 @@ do not invent variants.
    `sql/__tests__/perTestDatabase.ts`) are the documented
    exception: they create their own database via `CREATE DATABASE`
    against the testcontainer's superuser URI and drop it on
-   cleanup. That pattern is for tests whose paths BEGIN/ROLLBACK
-   can't supply (e.g. extension-install probes that the catalog
-   cache won't surface inside a transaction); every routine test
-   uses the BEGIN/ROLLBACK fixture.
+   cleanup. The motivating use case is `PostgresCaseStore`'s
+   transaction-using methods (`insert` / `update` /
+   `applySchemaChange`) — each method calls `db.transaction()`
+   which Kysely lowers to a literal `BEGIN`. Postgres rejects
+   nested BEGIN inside the harness's outer transaction
+   (`WARNING: there is already a transaction in progress`) and the
+   inner SQL leaks into the outer transaction's state, corrupting
+   per-test isolation. Per-test databases give every test its own
+   engine state without any outer-transaction wrapping. Every
+   other test in the package uses the BEGIN/ROLLBACK fixture.
 
 The `harness-isolation.test.ts` sibling file exists specifically to
 catch a regression that splits one of these two rules: it inserts

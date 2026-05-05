@@ -45,10 +45,10 @@
 // helper plays the role of the superuser provisioning; the atlas
 // shell-out plays the role of the Cloud Run startup migration.
 
-import { spawnSync } from "node:child_process";
 import type { Kysely } from "kysely";
 import { beforeEach } from "vitest";
 import { runStoreContract } from "../../__tests__/storeContract";
+import { applyMigrationsViaAtlas } from "../../sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { PostgresCaseStore } from "../store";
@@ -84,48 +84,19 @@ const dbHandle = setupPerTestDatabase({
 // exist before the first method call — `atlas migrate apply` is
 // the canonical path that creates them.
 //
-// The call runs inside `beforeEach` so each test starts with
-// a fresh-migrated database. Vitest fires this `beforeEach`
-// AFTER the helper's own `beforeEach` (Vitest hooks run in
-// registration order); when this body executes, `dbHandle.uri`
-// is bound to the freshly-created per-test database.
-//
-// `--allow-dirty` matches the production CMD because the
-// per-test database has the postgis-managed `tiger` and
-// `topology` schemas pre-installed by `setupPerTestDatabase`'s
-// extension-install step; atlas's empty-DB precondition check
-// would otherwise reject the apply.
+// The shared `applyMigrationsViaAtlas` helper handles the shell-
+// out; this site uses `stdio: "pipe"` so atlas's per-test output
+// stays out of the test runner's stderr (the dozens of per-test
+// applies would otherwise drown the actual test results) and
+// surfaces only inside any failure message. The call runs inside
+// `beforeEach` so each test starts with a fresh-migrated
+// database. Vitest fires this `beforeEach` AFTER the helper's own
+// `beforeEach` (Vitest hooks run in registration order); when
+// this body executes, `dbHandle.uri` is bound to the freshly-
+// created per-test database.
 
 beforeEach(() => {
-	const result = spawnSync(
-		"atlas",
-		[
-			"migrate",
-			"apply",
-			"--env",
-			"testcontainer",
-			"--url",
-			dbHandle.uri,
-			"--allow-dirty",
-		],
-		{ stdio: "pipe", encoding: "utf8" },
-	);
-	if (result.error !== undefined) {
-		const code = (result.error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			throw new Error(
-				"atlas: command not found. Install Atlas via " +
-					"`brew install ariga/tap/atlas` or " +
-					"`curl -sSf https://atlasgo.sh | sh` and re-run.",
-			);
-		}
-		throw result.error;
-	}
-	if (result.status !== 0) {
-		throw new Error(
-			`atlas migrate apply failed inside per-test database (exit ${result.status ?? "(null)"}):\n${result.stdout}\n${result.stderr}`,
-		);
-	}
+	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
 });
 
 // ---------------------------------------------------------------
