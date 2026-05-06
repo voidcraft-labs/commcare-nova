@@ -80,7 +80,11 @@ import { createSeededPrng, type SeededPrng } from "./prng";
  */
 export class HeuristicCaseGenerator implements SampleCaseGenerator {
 	generate(args: SampleGeneratorArgs): ReadonlyArray<CaseInsert> {
-		const caseType = findCaseTypeOrThrow(args.blueprint, args.caseType);
+		const caseType = findCaseTypeOrThrow(
+			args.blueprint,
+			args.appId,
+			args.caseType,
+		);
 		const prng = createSeededPrng(
 			`${args.appId}::${args.caseType}::${args.seed}`,
 		);

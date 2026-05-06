@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
+import { CaseTypeNotInBlueprintError } from "../../errors";
 import type { JsonObject } from "../../sql/database";
 import { HeuristicCaseGenerator } from "../heuristic";
 import { createSeededPrng, hashStringToUint32 } from "../prng";
@@ -519,22 +520,20 @@ describe("HeuristicCaseGenerator parent linkage", () => {
 describe("HeuristicCaseGenerator error paths", () => {
 	const generator = new HeuristicCaseGenerator();
 
-	it("throws when the blueprint does not contain the requested case type", () => {
+	it("throws CaseTypeNotInBlueprintError when the blueprint does not contain the requested case type", () => {
 		const blueprint = buildBlueprint([HOUSEHOLD_CASE_TYPE]);
-		expect(
-			() =>
-				generator.generate({
-					blueprint,
-					appId: "app-1",
-					caseType: "patient",
-					count: 5,
-					seed: "missing-case-type",
-				}),
-			// The Elm-style invariant message names the case type and
-			// points the reader at `findCaseTypeOrThrow`. Pin the
-			// contract on the case-type identifier — the helper's
-			// header / hint structure is voice-tweakable, but the
-			// case-type name is the load-bearing fact.
-		).toThrow(/contains no case type named `patient`/);
+		// The typed error carries the `(appId, caseType)` pair as
+		// public fields so Server Actions can map to a structured
+		// `missing-case-type` arm. Pin the instanceof + the public
+		// field contract; the prose body is voice-tweakable.
+		expect(() =>
+			generator.generate({
+				blueprint,
+				appId: "app-1",
+				caseType: "patient",
+				count: 5,
+				seed: "missing-case-type",
+			}),
+		).toThrow(CaseTypeNotInBlueprintError);
 	});
 });

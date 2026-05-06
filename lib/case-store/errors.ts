@@ -4,17 +4,20 @@
 //
 // ## Why a dedicated module
 //
-// Two `CaseStore` failure shapes flow back through the API surface
-// to the user: "the case you asked about doesn't exist" and "the
-// payload you submitted doesn't match the case-type's schema".
-// Every other throw across `lib/case-store/**` is an internal
-// invariant violation — the AST / blueprint / connection layer
-// reached a state an upstream gate was supposed to reject — and
-// reuses the formatters at `lib/domain/predicate/errors.ts`
+// Four `CaseStore` failure shapes flow back through the API
+// surface to the user: a case the request points at doesn't exist,
+// the payload submitted fails the schema, the blueprint snapshot
+// the request carries doesn't declare the case type, and the
+// schema row for the case type hasn't been synced yet. Every other
+// throw across `lib/case-store/**` is an internal invariant
+// violation — the AST / blueprint / connection layer reached a
+// state an upstream gate was supposed to reject — and reuses the
+// formatters at `lib/domain/predicate/errors.ts`
 // (`compilerBugMessage` / `unhandledKindMessage` /
-// `typeCheckerBypassMessage`). The two user-domain shapes need
-// `instanceof` discrimination so API routes can map them to HTTP
-// status codes; that discrimination is what this module provides.
+// `typeCheckerBypassMessage`). The four user-domain shapes need
+// `instanceof` discrimination so API routes (and Server Actions)
+// can map them to typed result arms; that discrimination is what
+// this module provides.
 //
 // ## API-route catch-and-translate pattern
 //
@@ -37,6 +40,22 @@
 //     but does NOT surface in the response body — the wrapper
 //     jargon (`case_type_schemas[<app>, <type>].schema`) is
 //     internal vocabulary, not user vocabulary.
+//   - `CaseTypeNotInBlueprintError` — the supplied blueprint
+//     snapshot carries no case type with the requested name.
+//     Reachable from user-driven actions (e.g. populating sample
+//     cases) when the doc-store state mutates between the action's
+//     mount and the user's click. Server Actions catch and emit a
+//     typed `missing-case-type` result arm so the running-app view
+//     re-resolves against fresh state instead of surfacing a 500
+//     with `compilerBugMessage` jargon.
+//   - `SchemaNotSyncedError` — the case type has no row in
+//     `case_type_schemas` yet. Reachable from any write path
+//     (`insert` / `update` / `generateSampleData`) when the
+//     blueprint mutator skipped the `applySchemaChange` ordering
+//     contract. Server Actions catch and emit a typed
+//     `schema-not-synced` result arm so the consumer can surface
+//     the structural fix (run `applySchemaChange` first) rather
+//     than rendering the internal-invariant body.
 //   - Anything else → propagates to the framework's 500 handler
 //     with full server-side logging. The Elm-style helpers in
 //     `lib/domain/predicate/errors.ts` produce verbose
@@ -201,5 +220,125 @@ export class CasePropertiesValidationError extends Error {
 		this.appId = appId;
 		this.caseType = caseType;
 		this.failures = failures;
+	}
+}
+
+// ---------------------------------------------------------------
+// CaseTypeNotInBlueprintError — the supplied blueprint omits the
+// requested case type
+// ---------------------------------------------------------------
+
+/**
+ * Thrown by helpers that resolve a case type from a caller-supplied
+ * blueprint snapshot when the snapshot carries no matching entry.
+ * Surfaces from `findCaseTypeOrThrow`, which is invoked by
+ * `applySchemaChange` (schema regen reads the prospective `CaseType`)
+ * and by `HeuristicCaseGenerator.generate` (sample-data row
+ * construction reads the property declarations).
+ *
+ * The throw is reachable from user-driven actions (the
+ * "Generate sample data" affordance against the running-app view's
+ * empty case-type) when the doc-store state mutates between the
+ * action's mount and the user's click. Three causes are equivalent
+ * from the caller's perspective:
+ *
+ *   - the case type was deleted in the editor between mount and
+ *     click
+ *   - the supplied blueprint snapshot is stale relative to the
+ *     authoritative state
+ *   - the case type was never declared in the first place
+ *
+ * Surfacing the three as equivalent keeps the typed shape narrow:
+ * Server Actions map to a `missing-case-type` arm and re-resolve
+ * against fresh state rather than rendering the
+ * `compilerBugMessage` body with internal vocabulary.
+ */
+export class CaseTypeNotInBlueprintError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "CaseTypeNotInBlueprintError";
+	/** The owning app — paired with `caseType` for log scanning. */
+	readonly appId: string;
+	/** The case type the caller asked for. */
+	readonly caseType: string;
+
+	constructor(appId: string, caseType: string) {
+		super(
+			[
+				`Case type '${caseType}' not found in the supplied blueprint.`,
+				``,
+				`${INDENT}app_id:    '${appId}'`,
+				`${INDENT}case_type: '${caseType}'`,
+				``,
+				"The supplied blueprint snapshot carries no `caseTypes` entry with this",
+				"name. Three causes are equivalent from the caller's perspective: the",
+				"case type was deleted in the editor between mount and click, the",
+				"snapshot is stale relative to the authoritative state, or the case",
+				"type was never declared. Surfacing the three as equivalent keeps the",
+				"typed shape narrow.",
+				``,
+				"Hint: Server Actions map this error to a `missing-case-type` result",
+				"arm so the running-app view re-resolves against fresh blueprint",
+				"state; clients re-fetch the doc and retry.",
+			].join("\n"),
+		);
+		this.appId = appId;
+		this.caseType = caseType;
+	}
+}
+
+// ---------------------------------------------------------------
+// SchemaNotSyncedError — the case type has no schema row yet
+// ---------------------------------------------------------------
+
+/**
+ * Thrown when a write path (`insert` / `update` /
+ * `generateSampleData`) reaches the JSON Schema validator and finds
+ * no row in `case_type_schemas` for the `(appId, caseType)` pair.
+ *
+ * `applySchemaChange` is the only producer of `case_type_schemas`
+ * rows. The spec § "Write-time validation" pins the ordering: every
+ * blueprint mutation that touches a case type's property set runs
+ * `applySchemaChange` before any data write reaches the case type,
+ * so reaching this error means the blueprint mutator skipped the
+ * sync step.
+ *
+ * The throw is reachable from user-driven actions (the
+ * "Generate sample data" affordance) on a freshly-declared case
+ * type whose schema sync hasn't run yet. Server Actions catch and
+ * emit a typed `schema-not-synced` result arm so the consumer can
+ * either retry after the sync lands or surface the structural fix
+ * to the user without rendering internal vocabulary.
+ */
+export class SchemaNotSyncedError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "SchemaNotSyncedError";
+	/** The owning app — first half of the missing schema row's primary key. */
+	readonly appId: string;
+	/** The case type whose schema row is missing. */
+	readonly caseType: string;
+
+	constructor(appId: string, caseType: string) {
+		super(
+			[
+				`No JSON Schema row found for case type '${caseType}'.`,
+				``,
+				`${INDENT}app_id:    '${appId}'`,
+				`${INDENT}case_type: '${caseType}'`,
+				``,
+				"The case-store's write paths validate the candidate `properties`",
+				"payload against the JSON Schema row in `case_type_schemas` for this",
+				"`(app_id, case_type)` pair. `applySchemaChange` is the only producer",
+				"of those rows; reaching this error means the blueprint mutator",
+				"skipped the schema-sync ordering contract for the case type before",
+				"the write hit `cases`.",
+				``,
+				"Hint: the blueprint mutator should call `applySchemaChange` before",
+				"any write to a case type. Server Actions map this error to a",
+				"`schema-not-synced` result arm so the consumer can either retry",
+				"after the sync lands or surface the structural fix to the user.",
+			].join("\n"),
+		);
+		this.appId = appId;
+		this.caseType = caseType;
 	}
 }

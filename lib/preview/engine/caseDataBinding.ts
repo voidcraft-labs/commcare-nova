@@ -54,6 +54,7 @@ import { getSession } from "@/lib/auth-utils";
 import { withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
+	mapPopulateSampleCasesError,
 	readCaseData,
 	readCases,
 	seedSampleCases,
@@ -144,6 +145,26 @@ export async function loadCaseDataAction(
  * contract on the underlying generator is per
  * `(blueprint, caseType, seed)`, so tests that need reproducibility
  * call `CaseStore.generateSampleData` directly with a fixed seed.
+ *
+ * Two stale-state preconditions surface as typed result arms
+ * rather than the generic `error` arm:
+ *
+ *   - `CaseTypeNotInBlueprintError` → `missing-case-type`. The
+ *     blueprint snapshot the action received carries no entry for
+ *     `caseType`; the consumer re-resolves against fresh state and
+ *     retries.
+ *   - `SchemaNotSyncedError` → `schema-not-synced`. The
+ *     `case_type_schemas` row hasn't been written yet; the consumer
+ *     either retries after the blueprint mutator's
+ *     `applySchemaChange` lands or surfaces the structural fix to
+ *     the user.
+ *
+ * Both arms point at user-driven flows: clicking "Generate sample
+ * data" on a freshly-declared case type whose schema sync hasn't
+ * landed, or clicking against a case type that was deleted between
+ * mount and click. The typed arms keep the running-app view's
+ * render branch on a structured surface instead of the
+ * `compilerBugMessage` body the previous wrapper emitted.
  */
 export async function populateSampleCasesAction(
 	appId: string,
@@ -156,9 +177,6 @@ export async function populateSampleCasesAction(
 		const store = await withOwnerContext(session.user.id);
 		return await seedSampleCases(store, { appId, caseType, blueprint });
 	} catch (err) {
-		return {
-			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to seed cases.",
-		};
+		return mapPopulateSampleCasesError(err);
 	}
 }

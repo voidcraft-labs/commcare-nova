@@ -29,7 +29,13 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { CaseRow, CaseStore, JsonObject } from "@/lib/case-store";
+import {
+	type CaseRow,
+	type CaseStore,
+	CaseTypeNotInBlueprintError,
+	type JsonObject,
+	SchemaNotSyncedError,
+} from "@/lib/case-store";
 import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -43,6 +49,8 @@ import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import {
 	caseRowDisplayValue,
 	caseRowToFormPreload,
+	mapPopulateSampleCasesError,
+	pickBlueprintDoc,
 	readCaseData,
 	readCases,
 	SAMPLE_CASE_DEFAULT_COUNT,
@@ -500,5 +508,157 @@ describe("caseRowDisplayValue", () => {
 			properties: {},
 		};
 		expect(caseRowDisplayValue(row, field)).toBe("");
+	});
+});
+
+// ---------------------------------------------------------------
+// `pickBlueprintDoc`
+// ---------------------------------------------------------------
+
+describe("pickBlueprintDoc", () => {
+	it("strips function-typed extras off a doc-store-shaped state", () => {
+		// `BlueprintDocState` (the doc store's shape) carries action
+		// methods alongside the data fields. Server Actions reject
+		// function values during RSC serialization, so the
+		// projection has to drop them. Verify by extending a
+		// `BlueprintDoc` with a function-typed key and checking it's
+		// absent from the result.
+		const blueprint = buildSimpleBlueprint([PATIENT_CASE_TYPE], APP_ID);
+		const stateShaped = {
+			...blueprint,
+			// Synthetic action method the projection must strip.
+			applyMany: () => {
+				/* no-op */
+			},
+		};
+		const projected = pickBlueprintDoc(stateShaped) as Record<string, unknown>;
+		expect(projected.applyMany).toBeUndefined();
+	});
+
+	it("preserves every BlueprintDoc data field including fieldParent", () => {
+		// `BlueprintDoc` extends `PersistableDoc` (the schema-defined
+		// shape) with `fieldParent` (in-memory only, derived from
+		// `fieldOrder`). The Zod parse path strips `fieldParent`
+		// because the schema doesn't declare it; the projection
+		// re-attaches it from the source state. Verify the
+		// reverse-index round-trips.
+		const blueprint = buildSimpleBlueprint([PATIENT_CASE_TYPE], APP_ID);
+		const withFieldParent = {
+			...blueprint,
+			fieldParent: { "child-uuid": "parent-uuid" },
+		};
+		const projected = pickBlueprintDoc(withFieldParent);
+		expect(projected.fieldParent).toEqual({ "child-uuid": "parent-uuid" });
+		expect(projected.appId).toBe(APP_ID);
+		expect(projected.caseTypes).toEqual(blueprint.caseTypes);
+		expect(projected.modules).toEqual(blueprint.modules);
+		expect(projected.forms).toEqual(blueprint.forms);
+		expect(projected.fields).toEqual(blueprint.fields);
+		expect(projected.moduleOrder).toEqual(blueprint.moduleOrder);
+		expect(projected.formOrder).toEqual(blueprint.formOrder);
+		expect(projected.fieldOrder).toEqual(blueprint.fieldOrder);
+	});
+});
+
+// ---------------------------------------------------------------
+// `mapPopulateSampleCasesError`
+// ---------------------------------------------------------------
+
+describe("mapPopulateSampleCasesError", () => {
+	// The Server Action's catch block delegates to this helper so
+	// the typed-error → typed-result-arm mapping is testable
+	// without driving `getSession` + `withOwnerContext`. The
+	// integration tests above already exercise the round-trip
+	// through `seedSampleCases`; these tests pin the discriminator
+	// shape one more layer down.
+
+	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm carrying the case type", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		const result = mapPopulateSampleCasesError(err);
+		expect(result).toEqual({ kind: "missing-case-type", caseType: "patient" });
+	});
+
+	it("maps SchemaNotSyncedError to the schema-not-synced arm carrying the case type", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		const result = mapPopulateSampleCasesError(err);
+		expect(result).toEqual({ kind: "schema-not-synced", caseType: "patient" });
+	});
+
+	it("falls through to the generic error arm for an unrelated Error instance", () => {
+		const err = new Error("connection refused");
+		const result = mapPopulateSampleCasesError(err);
+		expect(result.kind).toBe("error");
+		if (result.kind !== "error") return;
+		expect(result.message).toBe("connection refused");
+	});
+
+	it("falls through to the generic error arm with a default message for non-Error throws", () => {
+		// JS allows `throw "foo"`. The case-store doesn't, but the
+		// catch block has to handle every shape — RSC framework
+		// errors in particular can surface as non-Error objects.
+		const result = mapPopulateSampleCasesError("some string");
+		expect(result.kind).toBe("error");
+		if (result.kind !== "error") return;
+		expect(result.message).toBe("Failed to seed cases.");
+	});
+
+	it("maps a typed CaseTypeNotInBlueprintError thrown by the real seed flow", async () => {
+		// End-to-end: the case-store's `generateSampleData` throws
+		// `CaseTypeNotInBlueprintError` when the blueprint omits the
+		// requested case type; `seedSampleCases` propagates it; the
+		// mapping helper translates to the structured arm. Pins the
+		// catch path through the real error-thrower.
+		const store = makeStore(OWNER_A);
+		// Blueprint declares `household` only; the seed call asks
+		// for `patient`, which trips `findCaseTypeOrThrow`.
+		const blueprint = buildBlueprint([
+			{
+				name: "household",
+				properties: [{ name: "region", label: "Region", data_type: "text" }],
+			},
+		]);
+		// No schema sync at all for any case type — but the throw
+		// is `CaseTypeNotInBlueprintError`, NOT `SchemaNotSyncedError`,
+		// because the blueprint check runs at the top of the
+		// generator's `generate()` (before any schema lookup).
+		try {
+			await seedSampleCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+			});
+			throw new Error("seedSampleCases should have thrown");
+		} catch (err) {
+			const result = mapPopulateSampleCasesError(err);
+			expect(result).toEqual({
+				kind: "missing-case-type",
+				caseType: "patient",
+			});
+		}
+	});
+
+	it("maps a typed SchemaNotSyncedError thrown by the real seed flow", async () => {
+		// End-to-end mapping for the schema-sync-skipped path. The
+		// blueprint declares the case type but `applySchemaChange`
+		// hasn't run, so the case-store's `getValidator` reaches a
+		// missing `case_type_schemas` row and throws.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		// Skip `seedSchema` on purpose — that's the precondition the
+		// error covers.
+		try {
+			await seedSampleCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+			});
+			throw new Error("seedSampleCases should have thrown");
+		} catch (err) {
+			const result = mapPopulateSampleCasesError(err);
+			expect(result).toEqual({
+				kind: "schema-not-synced",
+				caseType: "patient",
+			});
+		}
 	});
 });

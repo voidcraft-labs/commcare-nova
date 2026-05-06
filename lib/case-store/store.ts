@@ -41,12 +41,12 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 } from "@/lib/domain";
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type {
 	Predicate,
 	RelationPath,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import { CaseTypeNotInBlueprintError } from "./errors";
 import type { CasesTable, JsonObject } from "./sql/database";
 
 // ---------------------------------------------------------------
@@ -383,12 +383,20 @@ export interface MigrationReport {
  *     the generated `case_id` via `RETURNING`, derives
  *     `case_indices` direct edges from `parent_case_id` in the
  *     same transaction.
+ *   - `insertWithChildren` — atomic primary + children insert.
+ *     Validates every row, inserts the primary, threads its
+ *     generated id as the children's `parent_case_id`, bulk-inserts
+ *     the children, derives every `case_indices` edge — all in one
+ *     Postgres transaction. The shape registration forms reach for
+ *     when a single submission creates multiple cases.
  *   - `update` — JSONB-merges the patch into `properties`,
  *     re-validates against the schema, updates `modified_on`,
  *     re-derives `case_indices` if `parent_case_id` changed.
- *   - `close` — sets `closed_on = now()` (and optionally `status`).
- *     Does not delete the row — closed cases are still visible to
- *     audit / admin views.
+ *   - `close` — stamps `closed_on = now()` on the first close (and
+ *     optionally `status`). Idempotent on row state: re-closing an
+ *     already-closed case is a no-op (`closed_on IS NULL` is in the
+ *     UPDATE's WHERE clause). Does not delete the row — closed
+ *     cases are still visible to audit / admin views.
  *   - `traverse` — compiles the supplied `RelationPath` via
  *     `compileRelationPath` and returns the leaf rows the walk
  *     reaches.
@@ -399,16 +407,15 @@ export interface MigrationReport {
  *     rows that fail validation against it.
  *   - `generateSampleData` — drives the bound `SampleCaseGenerator`
  *     to build deterministic per-`(app, caseType, seed)` rows and
- *     routes them through `insert` so generated rows participate in
- *     the same JSON Schema validation + `case_indices` derivation
- *     real inserts use.
+ *     routes them through the case-store's bulk-insert path so
+ *     generated rows participate in the same JSON Schema validation
+ *     + `case_indices` derivation real inserts use.
  *   - `resetSampleData` — deletes every row of the case-type for
  *     the bound tenant + drops their `case_indices` edges, then
- *     regenerates from a fresh seed. The deletion half is atomic
- *     (cases + edges drop together in one transaction); the
- *     regeneration is sequenced after the deletion commits because
- *     each per-row insert opens its own transaction and Postgres
- *     rejects a nested BEGIN.
+ *     regenerates from a fresh seed. The whole operation runs in
+ *     one Postgres transaction — a mid-regeneration failure rolls
+ *     back the deletion alongside the partial regeneration, leaving
+ *     the case-type's pre-call population intact.
  */
 export interface CaseStore {
 	/**
@@ -432,6 +439,39 @@ export interface CaseStore {
 	}>;
 
 	/**
+	 * Insert a primary case + zero or more child cases atomically.
+	 * One Postgres transaction across the whole set: every row's
+	 * `properties` payload validates against its case-type's JSON
+	 * Schema, the primary inserts, the children inherit the primary's
+	 * generated `case_id` as their `parent_case_id`, the bulk insert
+	 * lands the children, and the derived `case_indices` rows
+	 * materialize. A failure on any row rolls the entire set back —
+	 * a registration form with three children either lands all four
+	 * rows or none, never the primary plus a partial child set.
+	 *
+	 * Each child can be a different `case_type`; the implementation
+	 * fetches each child's JSON Schema validator on demand (cached
+	 * per `(appId, caseType)`). Children must NOT carry an explicit
+	 * `parent_case_id` — the value is implicit (the primary's
+	 * generated id); passing one is an upstream-bug error.
+	 *
+	 * The empty-`children` case behaves like a single `insert` for
+	 * the primary, still inside one transaction.
+	 *
+	 * Returns the primary's generated case id and the children's
+	 * generated ids in input order so the caller can navigate to
+	 * either after the write completes.
+	 */
+	insertWithChildren(args: {
+		appId: string;
+		primary: CaseInsert;
+		children: ReadonlyArray<CaseInsert>;
+	}): Promise<{
+		primaryCaseId: string;
+		childCaseIds: ReadonlyArray<string>;
+	}>;
+
+	/**
 	 * Update a case row. Merges the patch into the row's
 	 * `properties` JSONB document, re-validates the merged result
 	 * against the schema, updates `modified_on` to `now()`,
@@ -446,9 +486,15 @@ export interface CaseStore {
 	}): Promise<void>;
 
 	/**
-	 * Close a case row. Sets `closed_on = now()`; optionally
-	 * updates `status`. Does not delete — closed cases remain
-	 * queryable for audit / admin views.
+	 * Close a case row. Stamps `closed_on = now()` on the first
+	 * close; idempotent on row state — re-closing an already-closed
+	 * case is a no-op (the underlying UPDATE filters on
+	 * `closed_on IS NULL`), so the original closure timestamp + the
+	 * `modified_on` stamp from that first close are preserved.
+	 * Optionally updates `status` on the same first-close UPDATE; a
+	 * status change on an already-closed row goes through `update`,
+	 * not `close`. Does not delete — closed cases remain queryable
+	 * for audit / admin views.
 	 */
 	close(args: {
 		appId: string;
@@ -482,8 +528,9 @@ export interface CaseStore {
 	/**
 	 * Generate `count` sample rows for `caseType` against the
 	 * supplied prospective blueprint state and write them through
-	 * `insert`. Deterministic per `(app, caseType, seed)` — the same
-	 * tuple yields the same row sequence on every call.
+	 * the case-store's bulk-insert path. Deterministic per
+	 * `(app, caseType, seed)` — the same tuple yields the same row
+	 * sequence on every call.
 	 *
 	 * The implementation queries existing parent rows for any
 	 * declared parent case-type and threads them as candidate
@@ -491,12 +538,10 @@ export interface CaseStore {
 	 * resolves to real ids; the case-store derives `case_indices`
 	 * direct edges from those linkages at insert time.
 	 *
-	 * Returns the count of rows actually inserted. Each row's write
-	 * runs through `insert`, which opens its own transaction for the
-	 * row + edge derivation; a mid-loop failure stops the loop and
-	 * propagates the error, leaving rows already inserted in place.
-	 * Callers that need an all-or-nothing population pair this with
-	 * an outer cleanup path.
+	 * Returns the count of rows actually inserted. The whole batch
+	 * lands in one Postgres transaction — a mid-batch validation
+	 * failure rolls every row back, so the case-type's pre-call
+	 * population is preserved.
 	 */
 	generateSampleData(args: GenerateSampleDataArgs): Promise<{
 		inserted: number;
@@ -507,12 +552,13 @@ export interface CaseStore {
 	 * the matching `case_indices` edges, then regenerate from a
 	 * fresh seed.
 	 *
-	 * The deletion runs in one transaction (cases + edges drop
-	 * atomically); the regeneration runs after the deletion commits
-	 * because each row's `insert` opens its own per-row transaction
-	 * and Postgres rejects a nested BEGIN. A mid-regeneration failure
-	 * leaves the case-type partially populated; callers that need
-	 * stricter consistency pair this with an outer retry path.
+	 * The whole operation — delete edges, delete rows, regenerate
+	 * payload, validate every row against the JSON Schema, bulk
+	 * insert — runs in one Postgres transaction. A mid-operation
+	 * failure (validation rejection on a generated row, engine-side
+	 * fault) rolls back the deletion alongside the partial
+	 * regeneration, so the case-type's pre-call population stays
+	 * intact rather than landing the user on an empty case type.
 	 *
 	 * Returns the count of rows deleted and inserted; either count
 	 * may be zero on a fresh empty case type or a degenerate-count
@@ -578,31 +624,31 @@ export interface ResetSampleDataArgs {
 // ---------------------------------------------------------------
 
 /**
- * Locate a case type within a blueprint by name. Throws when the
- * case type is absent.
+ * Locate a case type within a blueprint by name. Throws
+ * `CaseTypeNotInBlueprintError` when the case type is absent.
  *
  * Two callers consume the helper today: `PostgresCaseStore.applySchemaChange`
  * derives the JSON Schema row from the matching `CaseType`, and
  * `HeuristicCaseGenerator.generate` reads property declarations to
- * build sample rows. Both callers operate on a prospective blueprint
- * snapshot the case type must still be present in — case-type
- * removal is a different lifecycle than the schema-sync / sample-
- * generation surfaces this function is meant for.
+ * build sample rows. Both run inside user-driven action paths
+ * (schema-sync from a blueprint mutator, sample-data generation
+ * from the running-app view's "Generate sample data" affordance);
+ * a stale blueprint snapshot (case type deleted in the editor
+ * between mount and click, snapshot lagging the authoritative
+ * state) is reachable, so the missing-case-type case takes a typed
+ * error rather than the wrapper-jargon shape used for true
+ * invariant violations. Server Actions catch the typed error and
+ * emit a `missing-case-type` result arm so the consumer re-resolves
+ * against fresh state.
  */
 export function findCaseTypeOrThrow(
 	blueprint: BlueprintDoc,
+	appId: string,
 	caseType: string,
 ): CaseType {
 	const found = blueprint.caseTypes?.find((c) => c.name === caseType);
 	if (!found) {
-		throw new Error(
-			compilerBugMessage({
-				where: "case-store.findCaseTypeOrThrow",
-				invariant: `the supplied blueprint contains no case type named \`${caseType}\``,
-				detail:
-					"This helper is a name lookup over `blueprint.caseTypes`. Callers (the schema-sync path in `applySchemaChange`, the sample-data path in `HeuristicCaseGenerator.generate`) pass a prospective blueprint snapshot the case type must still be present in. A blueprint that omits the case type is a different lifecycle (removal); this function does not handle it.\n\nHint: confirm the caller's blueprint snapshot still contains the case type; case-type removal flows through a separate cleanup path, not the schema-sync or sample-generation surfaces.",
-			}),
-		);
+		throw new CaseTypeNotInBlueprintError(appId, caseType);
 	}
 	return found;
 }

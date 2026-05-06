@@ -34,8 +34,15 @@
 // flattening is a presentation concern (the form engine reasons
 // about input strings), not a domain concern.
 
-import type { CaseRow, CaseStore, JsonValue } from "@/lib/case-store";
+import {
+	type CaseRow,
+	type CaseStore,
+	CaseTypeNotInBlueprintError,
+	type JsonValue,
+	SchemaNotSyncedError,
+} from "@/lib/case-store";
 import type { BlueprintDoc } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { eq, literal, prop } from "@/lib/domain/predicate/builders";
 import type {
 	LoadCaseDataResult,
@@ -64,8 +71,8 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * Project any superset of `BlueprintDoc` (including the doc
  * store's `BlueprintDocState`, which carries action methods
  * alongside the data fields) down to the bare `BlueprintDoc`
- * shape: every field defined on the blueprint schema, nothing
- * else.
+ * shape: every field defined on the blueprint schema plus
+ * `fieldParent`, nothing else.
  *
  * Server Actions serialize their arguments via React's RSC
  * serializer, which rejects function values. The doc store's
@@ -74,6 +81,17 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * would throw at the serialization boundary. This helper picks
  * just the data fields so the action sees a pure object.
  *
+ * Mechanism: `blueprintDocSchema.parse(state)` runs Zod's default
+ * `.strip()` mode, which drops every key the schema doesn't
+ * declare — including the action methods and any other doc-store
+ * extras. The schema declares the persistable shape; `BlueprintDoc`
+ * extends it with the in-memory `fieldParent` reverse index
+ * (rebuilt from `fieldOrder` on load, never persisted), so the
+ * helper re-attaches `fieldParent` from the input state after the
+ * parse. A single source of truth on which fields belong: the Zod
+ * schema. Adding a new field to `blueprintDocSchema` surfaces it
+ * in the projection automatically.
+ *
  * The generic `T extends BlueprintDoc` makes the input-type claim
  * structural rather than purely doc-level — call sites that pass
  * `BlueprintDocState` (a superset) are accepted by the type
@@ -81,26 +99,12 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * same way. The return type stays narrowed to `BlueprintDoc` so
  * the caller cannot accidentally re-introduce a superset's extras
  * into the wire payload.
- *
- * Lives beside the action helpers so adding a new BlueprintDoc
- * field surfaces an exhaustivity error here in the same module
- * that consumes the type — no parallel edit at every consumer
- * site.
  */
 export function pickBlueprintDoc<T extends BlueprintDoc>(
 	state: T,
 ): BlueprintDoc {
 	return {
-		appId: state.appId,
-		appName: state.appName,
-		connectType: state.connectType,
-		caseTypes: state.caseTypes,
-		modules: state.modules,
-		forms: state.forms,
-		fields: state.fields,
-		moduleOrder: state.moduleOrder,
-		formOrder: state.formOrder,
-		fieldOrder: state.fieldOrder,
+		...blueprintDocSchema.parse(state),
 		fieldParent: state.fieldParent,
 	};
 }
@@ -216,6 +220,41 @@ export async function seedSampleCases(
 		blueprint: args.blueprint,
 	});
 	return { kind: "ok", inserted: result.inserted };
+}
+
+// ---------------------------------------------------------------
+// `mapPopulateSampleCasesError`
+// ---------------------------------------------------------------
+
+/**
+ * Translate an error thrown by `seedSampleCases` (or its underlying
+ * `CaseStore.generateSampleData`) into the matching
+ * `PopulateSampleCasesResult` arm.
+ *
+ * Two typed errors map to dedicated structured arms — the
+ * preconditions a stale doc-store snapshot or an unsynced schema
+ * surface; consumers handle each with a different retry / re-resolve
+ * path. Anything else falls through to the generic `error` arm.
+ *
+ * Lives here (not inline at the Server Action) so the mapping shape
+ * stays testable against the case-store contract harness without
+ * driving `getSession` / `withOwnerContext`. The action's catch
+ * block delegates to this helper so the wire shape and the test
+ * surface share one source.
+ */
+export function mapPopulateSampleCasesError(
+	err: unknown,
+): PopulateSampleCasesResult {
+	if (err instanceof CaseTypeNotInBlueprintError) {
+		return { kind: "missing-case-type", caseType: err.caseType };
+	}
+	if (err instanceof SchemaNotSyncedError) {
+		return { kind: "schema-not-synced", caseType: err.caseType };
+	}
+	return {
+		kind: "error",
+		message: err instanceof Error ? err.message : "Failed to seed cases.",
+	};
 }
 
 // ---------------------------------------------------------------

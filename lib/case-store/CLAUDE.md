@@ -9,7 +9,9 @@ JS evaluator, no parity tests.
 
 - **`store.ts`** — the `CaseStore` interface and its row / arg /
   result shapes. The single seam every consumer of case data
-  binds against.
+  binds against. Methods: `query`, `insert`, `insertWithChildren`
+  (atomic primary + children), `update`, `close`, `traverse`,
+  `applySchemaChange`, `generateSampleData`, `resetSampleData`.
 - **`withOwnerContext.ts`** — the only production constructor.
   `withOwnerContext(userId)` resolves the bound owner id at the
   request boundary; every method on the returned store internally
@@ -44,11 +46,13 @@ JS evaluator, no parity tests.
 External consumers import from `@/lib/case-store` (the barrel at
 `./index.ts`). The barrel exposes the `CaseStore` interface, the
 row / arg / result types, the `withOwnerContext` factory, the
-typed error classes, the form-bridge surfaces, and the JSONB value
-types (`JsonObject` / `JsonValue` / `JsonPrimitive`). The
-implementation (`PostgresCaseStore`), the connection layer, the
-sample-data generator surface, and the testcontainers harness stay
-package-private — production callers go through
+four typed error classes (`CaseNotFoundError`,
+`CasePropertiesValidationError`, `CaseTypeNotInBlueprintError`,
+`SchemaNotSyncedError`), the form-bridge surfaces, and the
+JSONB value types (`JsonObject` / `JsonValue` / `JsonPrimitive`).
+The implementation (`PostgresCaseStore`), the connection layer,
+the sample-data generator surface, and the testcontainers
+harness stay package-private — production callers go through
 `withOwnerContext`; tests reach for `PostgresCaseStore` /
 `setupPerTestDatabase` via subpath.
 
@@ -62,11 +66,12 @@ uses Cloud SQL via `getCaseStoreDatabase()`. Both paths bind the
 same `Kysely<Database>` shape, so query code written against the
 test fixture runs unchanged against the live instance.
 
-The contract harness at `__tests__/storeContract.ts` spans 14
-implementation-agnostic tests; `postgres/__tests__/store.test.ts`
-runs them against a per-test isolated Postgres database. Adding
-a new method to the interface adds a contract test that every
-implementation passes; the package has one implementation.
+The contract harness at `__tests__/storeContract.ts` spans the
+implementation-agnostic test set;
+`postgres/__tests__/store.test.ts` runs it against a per-test
+isolated Postgres database. Adding a new method to the
+interface adds a contract test that every implementation
+passes; the package has one implementation.
 
 ## No preview mode — the running-app view shares the editor's rows
 
@@ -110,8 +115,35 @@ Two error families surface across the package:
 
 ### User-domain errors (`./errors.ts`)
 
-`CaseNotFoundError(caseId)` and `CasePropertiesValidationError(appId, caseType, failures)` use `instanceof` discrimination so API
-routes can map them to HTTP status codes:
+Four classes carry `instanceof` discrimination so API routes and
+Server Actions can map them to HTTP status codes / typed result
+arms:
+
+- `CaseNotFoundError(caseId)` — 404. Three causes are equivalent
+  (row never created, row removed out of band, row outside the
+  bound owner's tenant); the message acknowledges the equivalence
+  rather than confirming the case is in another tenant, keeping
+  tenant boundaries structural rather than message-leaked.
+- `CasePropertiesValidationError(appId, caseType, failures)` —
+  400. The structured `failures` array surfaces in the response
+  body; each entry's `path` is the JSONB pointer (empty string =
+  document root) and `message` is the AJV-reported reason. The
+  `(appId, caseType)` pair stays in `err.message` for server-side
+  logs but does NOT surface in the response body — wrapper jargon
+  (`case_type_schemas[<app>, <type>].schema`) is internal
+  vocabulary, not user vocabulary.
+- `CaseTypeNotInBlueprintError(appId, caseType)` — surfaces from
+  `findCaseTypeOrThrow` when the supplied blueprint snapshot
+  carries no entry for the case type. Reachable from user-driven
+  actions on a stale doc-store snapshot (case type deleted in the
+  editor between mount and click); Server Actions on the
+  running-app view map it to a `missing-case-type` arm so the
+  consumer re-resolves against fresh state and retries.
+- `SchemaNotSyncedError(appId, caseType)` — surfaces from
+  `getValidator` when no `case_type_schemas` row exists for the
+  pair. Reachable when the blueprint mutator skipped the
+  `applySchemaChange` ordering contract for a freshly-declared
+  case type; Server Actions map to a `schema-not-synced` arm.
 
 ```ts
 try {
@@ -123,27 +155,23 @@ try {
   if (err instanceof CasePropertiesValidationError) {
     return Response.json({ failures: err.failures }, { status: 400 });
   }
+  if (err instanceof CaseTypeNotInBlueprintError) {
+    return Response.json(
+      { kind: "missing-case-type", caseType: err.caseType },
+      { status: 409 },
+    );
+  }
+  if (err instanceof SchemaNotSyncedError) {
+    return Response.json(
+      { kind: "schema-not-synced", caseType: err.caseType },
+      { status: 409 },
+    );
+  }
   throw err;
 }
 ```
 
-The 404 body carries no detail beyond the case id; three causes
-are equivalent from the caller's perspective (the row may not
-exist, may have been closed and removed, or may sit outside the
-bound owner's tenant) so the message wording acknowledges the
-equivalence rather than confirming the case is in another
-tenant — keeps tenant boundaries structural rather than
-message-leaked.
-
-The 400 body emits the structured `failures` array directly. Each
-entry's `path` is the JSONB pointer (empty string = document
-root); each entry's `message` is the AJV-reported reason. The
-`(appId, caseType)` pair stays in `err.message` for server-side
-logs but does NOT surface in the response body — wrapper jargon
-(`case_type_schemas[<app>, <type>].schema`) is internal
-vocabulary, not user vocabulary.
-
-Both classes use `readonly name = "<ClassName>"` field
+All four classes use `readonly name = "<ClassName>"` field
 initializers so the literal class-name stays stable across
 bundler transforms (subclasses of `Error` lose `name` to
 `"Error"` in some minified builds).
@@ -316,19 +344,24 @@ Two halves:
 Four form types (centralized constants, not ad-hoc string
 comparisons):
 
-- **Registration** — creates a case. Insert primary first
-  (RETURNING `case_id`), then insert children with `parent_case_id`
-  set to the primary's id.
+- **Registration** — creates a case. `CaseStore.insertWithChildren`
+  lands the primary + every child in one Postgres transaction,
+  threading the primary's generated id as each child's
+  `parent_case_id`. A mid-batch failure rolls the entire
+  registration back, so a multi-case form's submission is never
+  partially landed.
 - **Followup** — updates the bound case + inserts children with
   `parent_case_id` set to the bound id.
 - **Close** — same as followup, plus a final `close` against the
   primary case once updates + child inserts have landed.
 - **Survey** — no operations; structural no-op.
 
-Operations are NOT atomic across a multi-write form — each
-`CaseStore.insert` opens its own transaction (Postgres rejects
-nested BEGINs). A mid-loop failure leaves the primary case
-present and the failed-child set absent. The running-app view
+Atomicity differs by form type. Registration is atomic via
+`insertWithChildren`. Followup and close are NOT atomic across
+the primary update + per-child inserts + (close-only) the closure
+stamp — each `update` / `insert` / `close` opens its own
+transaction. A mid-sequence failure on followup or close leaves
+the case-store in a partial-write state. The running-app view
 re-queries after the write completes (continuous validation
 principle), so the user sees whatever landed.
 
@@ -368,28 +401,49 @@ through the `PostgresCaseStore` constructor; production calls
 `withOwnerContext` which wires the heuristic generator.
 
 `generateSampleData` and `resetSampleData` route through a
-package-private `insertMany` on `PostgresCaseStore`. Inside one
-transaction it (1) fetches the JSON Schema validator ONCE per
-`(appId, caseType)` (the per-row path pays a `case_type_schemas`
-SELECT round-trip per row even on cache hit; hoisting the fetch
-is the single biggest latency win), (2) pre-processes every row
-in a tight TS loop using the cached validator, (3) bulk-inserts
-into `cases`, and (4) bulk-inserts the derived `case_indices`
-rows. Every row's `case_id` is generated up-front in TS (so the
-derived edges can reference it before the INSERT lands) —
-`uuidv7()` is the same RFC 9562 shape Postgres uses by default,
-so the v7 timestamp-prefix clustering on the B-tree page stays
-the same as the column-default path. The shape collapses ~30
-round-trips to ~4 (well under 50 ms steady-state vs
-~150-300 ms for the per-row loop).
+package-private bulk-insert path on `PostgresCaseStore`. Inside
+one transaction it (1) fetches the JSON Schema validator ONCE
+per `(appId, caseType)` (the per-row path pays a
+`case_type_schemas` SELECT round-trip per row even on cache hit;
+hoisting the fetch is the single biggest latency win), (2)
+pre-processes every row in a tight TS loop using the cached
+validator, (3) bulk-inserts into `cases`, and (4) bulk-inserts
+the derived `case_indices` rows. Every row's `case_id` is
+generated up-front in TS (so the derived edges can reference it
+before the INSERT lands) — `uuidv7()` is the same RFC 9562 shape
+Postgres uses by default, so the v7 timestamp-prefix clustering
+on the B-tree page stays the same as the column-default path.
+The shape collapses ~30 round-trips to ~4 (well under 50 ms
+steady-state vs ~150-300 ms for the per-row loop).
 
-`insertMany` is package-private — the public `CaseStore`
-interface keeps `insert` per-call. A validation failure on any
-row in a batch rolls the whole batch back; sample-data callers
-want all-or-nothing semantics, so the strictness aligns with the
+The bulk path is package-private — the public `CaseStore`
+interface keeps `insert` per-call and `insertWithChildren` for
+the registration shape. A validation failure on any row in a
+batch rolls the whole batch back; sample-data callers want
+all-or-nothing semantics, so the strictness aligns with the
 generator's "produce a clean population or none" contract. Any
 future caller that needs best-effort multi-row writes iterates
 `insert` and decides per-row failure handling itself.
+
+`resetSampleData` runs the whole operation — drop edges, delete
+rows, regenerate the population, validate every generated row,
+bulk-insert — under one Postgres transaction. A mid-operation
+failure (validation rejection on a generated row, engine-side
+fault) rolls back the deletion alongside the partial
+regeneration so the case-type's pre-call population stays intact
+rather than landing the user on an empty case type.
+
+Per-row migrations under `applySchemaChange` (`rename`, `retype`,
+`narrow-options`) bulk their writes too. `rename` runs as one
+JSONB-key UPDATE bounded by `properties ? '<key>'`. `retype` and
+`narrow-options` classify in TS, then emit one bulk UPDATE for
+the migrated rows (joined to a `VALUES` table of `(case_id,
+new_props)` pairs so each row gets its own recomputed JSONB),
+one bulk INSERT to `cases_quarantine` for the failed rows, one
+bulk DELETE from `case_indices` for the failed rows, and one
+bulk DELETE from `cases` for the failed rows. Total: five
+round-trips for `retype`, three for `narrow-options`, regardless
+of row count.
 
 ## Running-app view binding
 

@@ -113,13 +113,29 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				reload();
 				return;
 			}
-			setPopulateStatus({
-				kind: "error",
-				message:
-					result.kind === "unauthenticated"
-						? "Sign in to generate sample data."
-						: result.message,
-			});
+			/* Map the typed result arms to user-facing messages. Each
+			 * arm describes a different precondition the case-store
+			 * surfaces:
+			 *   - `unauthenticated` — session expired mid-render.
+			 *   - `missing-case-type` — the live blueprint snapshot the
+			 *     action received doesn't declare this case type
+			 *     (deleted in the editor since mount, or the snapshot
+			 *     is stale). The user retries against fresh state.
+			 *   - `schema-not-synced` — the case-store's
+			 *     `case_type_schemas` row hasn't been written yet
+			 *     because the blueprint mutator skipped the
+			 *     `applySchemaChange` step. The retry succeeds once the
+			 *     sync lands; surfacing the structural fix verbatim
+			 *     would over-share internal vocabulary. */
+			const message =
+				result.kind === "unauthenticated"
+					? "Sign in to generate sample data."
+					: result.kind === "missing-case-type"
+						? `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`
+						: result.kind === "schema-not-synced"
+							? `Case type '${result.caseType}' isn't ready yet. Try again in a moment.`
+							: result.message;
+			setPopulateStatus({ kind: "error", message });
 		} catch {
 			/* Wire-level failures (the Server Action's promise rejecting
 			 * before its body ran — RSC serialization, transport, etc.)

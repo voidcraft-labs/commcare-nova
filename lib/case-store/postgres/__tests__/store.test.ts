@@ -1301,11 +1301,12 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 });
 
 // ---------------------------------------------------------------
-// `insertMany` — bulk-insert path rollback semantics
+// Bulk-insert path rollback semantics
 // ---------------------------------------------------------------
 //
-// `insertMany` is package-private; tests reach it through the
-// public `generateSampleData` entry point with a stub
+// The bulk-insert path (`insertManyInTransaction`) is
+// package-private; tests reach it through the public
+// `generateSampleData` entry point with a stub
 // `SampleCaseGenerator` that emits a hand-crafted batch with one
 // row violating the case-type's JSON Schema. The stub path
 // exercises the real bulk-insert code without fighting the
@@ -1318,7 +1319,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 // opens an inner transaction or skips the throw would silently
 // allow partial commits, and this test is the regression net.
 
-describe("PostgresCaseStore — insertMany rollback semantics", () => {
+describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 	it("rolls back the entire batch when any row fails JSON Schema validation", async () => {
 		// Schema declares `age` as `int`; the stub generator emits
 		// three rows where the second one's `age` is the string
@@ -1396,5 +1397,110 @@ describe("PostgresCaseStore — insertMany rollback semantics", () => {
 			caseType: "patient",
 		});
 		expect(survivors).toHaveLength(0);
+	});
+});
+
+// ---------------------------------------------------------------
+// `resetSampleData` — atomic delete + regenerate
+// ---------------------------------------------------------------
+//
+// Pin the all-or-nothing contract: a failure mid-regeneration
+// rolls back the deletion alongside the partial regeneration, so
+// the case-type's pre-call population stays intact. Manufactures
+// the failure via a stub generator that emits one schema-violating
+// row (same shape the bulk-insert rollback test uses); the failure
+// surfaces during validation inside the bulk path's transaction.
+// Without `resetSampleData`'s outer transaction, the pre-call rows
+// would already be deleted by the time the regeneration's
+// validation rejects.
+
+describe("PostgresCaseStore — resetSampleData atomicity", () => {
+	it("rolls back the deletion alongside the failed regeneration so the pre-call population is preserved", async () => {
+		// Phase 1: seed the case-type with a clean population using
+		// the heuristic generator.
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+			],
+		};
+		const blueprint = buildBlueprint(caseType);
+
+		const seedingStore = new PostgresCaseStore({
+			ownerId: OWNER_A,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+
+		await seedingStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+		});
+		await seedingStore.generateSampleData({
+			appId: APP_ID,
+			caseType: "patient",
+			count: 4,
+			seed: "pre-reset-population",
+			blueprint,
+		});
+
+		const beforeRows = await seedingStore.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(beforeRows).toHaveLength(4);
+		const beforeIds = new Set(beforeRows.map((r) => r.case_id));
+
+		// Phase 2: swap to a stub generator whose row-N output is
+		// schema-invalid. AJV rejects mid-batch inside the bulk
+		// path's transaction, the throw propagates out of
+		// `generateSampleDataInTransaction`, and `resetSampleData`'s
+		// outer transaction rolls back BOTH the regeneration and
+		// the preceding deletion — so the original 4 rows survive.
+		const failingSampleGenerator = {
+			generate: () => [
+				{
+					case_type: "patient",
+					case_name: "Alice",
+					status: "open",
+					properties: { age: 30 },
+				},
+				{
+					case_type: "patient",
+					case_name: "Bob",
+					status: "open",
+					// `age` as a non-numeric string fails the int
+					// schema; AJV throws and the whole reset rolls back.
+					properties: { age: "not-a-number" },
+				},
+			],
+		};
+		const failingStore = new PostgresCaseStore({
+			ownerId: OWNER_A,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: failingSampleGenerator,
+		});
+
+		await expect(
+			failingStore.resetSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 2,
+				blueprint,
+			}),
+		).rejects.toThrow();
+
+		// Phase 3: verify the pre-reset rows survived. A regression
+		// that committed the deletion separately from the
+		// regeneration would surface here as an empty case-type.
+		const afterRows = await seedingStore.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(afterRows).toHaveLength(4);
+		const afterIds = new Set(afterRows.map((r) => r.case_id));
+		expect(afterIds).toEqual(beforeIds);
 	});
 });

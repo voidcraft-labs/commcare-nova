@@ -393,6 +393,328 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows[0]?.status).toBe("closed");
 		});
 
+		it("close is idempotent on row state — re-closing preserves the original closed_on timestamp", async () => {
+			// `close` filters on `closed_on IS NULL` so an
+			// already-closed row is excluded from the UPDATE; the
+			// original closure timestamp + the `modified_on` from that
+			// first close stay intact under repeated calls. Pins the
+			// idempotent-on-row-state contract: a duplicate close from
+			// a retry path or a re-issued submission doesn't advance
+			// either timestamp.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			// First close stamps `closed_on` + `modified_on` to the
+			// same `now()`.
+			await store.close({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				status: "closed",
+			});
+			const afterFirst = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			const firstClosedOn = afterFirst[0]?.closed_on;
+			const firstModifiedOn = afterFirst[0]?.modified_on;
+			expect(firstClosedOn).not.toBeNull();
+			expect(firstModifiedOn).not.toBeNull();
+
+			// Sleep a small amount so a re-stamp would land at a
+			// distinguishable timestamp. Postgres `now()` returns
+			// microsecond-resolution timestamptz; even a sub-ms gap
+			// between the two close calls would yield a different
+			// value if the second UPDATE actually fired.
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			// Second close on the same case is a no-op. The WHERE
+			// clause filters out the already-closed row; both
+			// timestamps are preserved.
+			await store.close({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				status: "closed",
+			});
+			const afterSecond = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(afterSecond[0]?.closed_on).toEqual(firstClosedOn);
+			expect(afterSecond[0]?.modified_on).toEqual(firstModifiedOn);
+		});
+
+		// -----------------------------------------------------------
+		// insertWithChildren — atomic registration shape
+		// -----------------------------------------------------------
+
+		it("insertWithChildren materializes the primary + every child + their case_indices edges atomically", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([
+				HOUSEHOLD_CASE_TYPE,
+				PATIENT_WITH_PARENT_CASE_TYPE,
+			]);
+			await seedSchema(store, blueprint, "household");
+			await seedSchema(store, blueprint, "patient");
+
+			// Primary household + two children patients. Children
+			// must NOT carry an explicit `parent_case_id` — the
+			// case-store threads the primary's generated id.
+			const result = await store.insertWithChildren({
+				appId: APP_ID,
+				primary: {
+					case_type: "household",
+					case_name: "North household",
+					status: "open",
+					properties: makeProperties({ region: "North" }),
+				},
+				children: [
+					{
+						case_type: "patient",
+						case_name: "Alice",
+						status: "open",
+						properties: makeProperties({ name: "Alice", age: 30 }),
+					},
+					{
+						case_type: "patient",
+						case_name: "Bob",
+						status: "open",
+						properties: makeProperties({ name: "Bob", age: 40 }),
+					},
+				],
+			});
+			expect(result.primaryCaseId).toBeDefined();
+			expect(result.childCaseIds).toHaveLength(2);
+
+			// Primary row landed.
+			const households = await store.query({
+				appId: APP_ID,
+				caseType: "household",
+			});
+			expect(households).toHaveLength(1);
+			expect(households[0]?.case_id).toBe(result.primaryCaseId);
+
+			// Children landed and carry the primary's id as their
+			// `parent_case_id` — the implicit threading the
+			// `insertWithChildren` contract pins.
+			const patients = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(patients).toHaveLength(2);
+			for (const patient of patients) {
+				expect(patient.parent_case_id).toBe(result.primaryCaseId);
+			}
+
+			// `traverse` reaches every child from the primary via
+			// `case_indices` — pins that the derived edges
+			// materialized inside the same transaction.
+			const subcases = await store.traverse({
+				appId: APP_ID,
+				caseId: result.primaryCaseId,
+				via: subcasePath("parent", "patient"),
+			});
+			expect(subcases).toHaveLength(2);
+			const reachedIds = new Set(subcases.map((c) => c.case_id));
+			for (const childId of result.childCaseIds) {
+				expect(reachedIds.has(childId)).toBe(true);
+			}
+		});
+
+		it("insertWithChildren rolls back the whole batch if any child's payload fails JSON Schema validation", async () => {
+			// Atomicity contract: a validation failure on any child
+			// rolls back the primary too. Zero rows visible after
+			// the throw, regardless of which row failed.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([
+				HOUSEHOLD_CASE_TYPE,
+				PATIENT_WITH_PARENT_CASE_TYPE,
+			]);
+			await seedSchema(store, blueprint, "household");
+			await seedSchema(store, blueprint, "patient");
+
+			await expect(
+				store.insertWithChildren({
+					appId: APP_ID,
+					primary: {
+						case_type: "household",
+						case_name: "North household",
+						status: "open",
+						properties: makeProperties({ region: "North" }),
+					},
+					children: [
+						{
+							case_type: "patient",
+							case_name: "Alice",
+							status: "open",
+							// Schema declares `age` as int; the string
+							// "not-a-number" fails AJV's integer check.
+							properties: makeProperties({
+								name: "Alice",
+								age: "not-a-number",
+							}),
+						},
+					],
+				}),
+			).rejects.toThrow();
+
+			// Primary's case-type is empty after rollback — the
+			// transaction undid the household insert too.
+			const households = await store.query({
+				appId: APP_ID,
+				caseType: "household",
+			});
+			expect(households).toHaveLength(0);
+			// Children's case-type is empty too.
+			const patients = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(patients).toHaveLength(0);
+		});
+
+		it("insertWithChildren handles mixed child case types and preserves input order in the returned id list", async () => {
+			// The implementation chunks children by `case_type`
+			// (so the bulk-insert path's hoisted-validator
+			// optimization fetches one validator per chunk) and
+			// reassembles the returned ids back to the caller's
+			// original input order. Pin both the multi-type schema-
+			// fetch contract AND the index-preserving reassembly.
+			const VISIT_CASE_TYPE: CaseType = {
+				name: "visit",
+				parent_type: "household",
+				properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
+			};
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([
+				HOUSEHOLD_CASE_TYPE,
+				PATIENT_WITH_PARENT_CASE_TYPE,
+				VISIT_CASE_TYPE,
+			]);
+			await seedSchema(store, blueprint, "household");
+			await seedSchema(store, blueprint, "patient");
+			await seedSchema(store, blueprint, "visit");
+
+			// Children alternate between two case types so the
+			// chunking logic produces multiple chunks AND the
+			// reassembly has to interleave ids back into the original
+			// order. With three slots — patient, visit, patient — the
+			// chunks-by-type produce two patients in chunk A + one
+			// visit in chunk B; the reassembly must place the patient
+			// from chunk A index 1 at the caller's index 2, NOT 1.
+			const result = await store.insertWithChildren({
+				appId: APP_ID,
+				primary: {
+					case_type: "household",
+					case_name: "North household",
+					status: "open",
+					properties: makeProperties({ region: "North" }),
+				},
+				children: [
+					{
+						case_type: "patient",
+						case_name: "Alice",
+						status: "open",
+						properties: makeProperties({ name: "Alice", age: 30 }),
+					},
+					{
+						case_type: "visit",
+						case_name: "First visit",
+						status: "open",
+						properties: makeProperties({ outcome: "complete" }),
+					},
+					{
+						case_type: "patient",
+						case_name: "Bob",
+						status: "open",
+						properties: makeProperties({ name: "Bob", age: 40 }),
+					},
+				],
+			});
+			expect(result.childCaseIds).toHaveLength(3);
+
+			// All three rows materialize: 1 household, 2 patients,
+			// 1 visit, all under the same primary id.
+			const patients = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(patients).toHaveLength(2);
+			const visits = await store.query({
+				appId: APP_ID,
+				caseType: "visit",
+			});
+			expect(visits).toHaveLength(1);
+
+			// Index-preserving reassembly: position 0 in the returned
+			// list refers to the FIRST input row (Alice the patient);
+			// position 1 to the visit; position 2 to Bob the patient.
+			// Look up each row by its returned id and verify the
+			// case-type lines up with the input.
+			const aliceId = result.childCaseIds[0];
+			const visitId = result.childCaseIds[1];
+			const bobId = result.childCaseIds[2];
+			expect(aliceId).toBeDefined();
+			expect(visitId).toBeDefined();
+			expect(bobId).toBeDefined();
+
+			const aliceRow = patients.find((p) => p.case_id === aliceId);
+			const bobRow = patients.find((p) => p.case_id === bobId);
+			const visitRow = visits.find((v) => v.case_id === visitId);
+			expect(aliceRow).toBeDefined();
+			expect(bobRow).toBeDefined();
+			expect(visitRow).toBeDefined();
+			expect(aliceRow?.case_name).toBe("Alice");
+			expect(bobRow?.case_name).toBe("Bob");
+			expect(visitRow?.case_name).toBe("First visit");
+
+			// Every child carries the primary's id as its
+			// `parent_case_id`, regardless of which chunk it shipped
+			// in.
+			for (const child of [...patients, ...visits]) {
+				expect(child.parent_case_id).toBe(result.primaryCaseId);
+			}
+		});
+
+		it("insertWithChildren behaves like insert when children is empty", async () => {
+			// The empty-children arm short-circuits the bulk path
+			// and lands just the primary inside one transaction.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			const result = await store.insertWithChildren({
+				appId: APP_ID,
+				primary: {
+					case_type: "patient",
+					case_name: "Solo",
+					status: "open",
+					properties: makeProperties({ name: "Solo", age: 50 }),
+				},
+				children: [],
+			});
+			expect(result.primaryCaseId).toBeDefined();
+			expect(result.childCaseIds).toHaveLength(0);
+
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.case_id).toBe(result.primaryCaseId);
+		});
+
 		// -----------------------------------------------------------
 		// traverse — relation-path walk
 		// -----------------------------------------------------------
@@ -896,6 +1218,177 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				via: { kind: "self" },
 			});
 			expect(reached).toHaveLength(0);
+		});
+
+		it("insert binds the calling owner — owner-B cannot see owner-A's freshly inserted row", async () => {
+			// `insert` forces `owner_id = bound owner` at the write
+			// boundary (see `PostgresCaseStore.insert`'s row
+			// composition). Pin the contract: owner-A inserts, owner-B
+			// queries, the row is invisible. Implicit before; explicit
+			// here so a regression that admits caller-supplied
+			// `owner_id` overrides surfaces immediately.
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+
+			await storeA.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			const seenByB = await storeB.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(seenByB).toHaveLength(0);
+		});
+
+		it("applySchemaChange's case_type_schemas row is shared across owners (not per-tenant)", async () => {
+			// `case_type_schemas` is keyed by `(app_id, case_type)`,
+			// NOT `(app_id, case_type, owner_id)` — the schema is an
+			// authoring-layer concern (every tenant under the same
+			// app sees the same case-type definitions), not a
+			// data-layer concern. Pin the contract: owner-A's schema
+			// sync produces a row visible to owner-B's writes
+			// targeting the same `(appId, caseType)`; owner-B's
+			// writes pass AJV validation against the shared row
+			// without owner-B running its own `applySchemaChange`.
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+
+			// Owner A's additive `applySchemaChange` writes the
+			// shared schema row.
+			await storeA.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+			});
+
+			// Owner B writes against the same `(appId, caseType)` —
+			// no separate sync from B. The write succeeds because
+			// `getValidator` reads the shared schema row that A
+			// produced.
+			await storeB.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Bob", age: 40 }),
+				},
+			});
+
+			// B's query confirms the row landed in B's tenant scope;
+			// A's query confirms tenant separation still holds at the
+			// row level even though the schema is shared.
+			const seenByB = await storeB.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(seenByB).toHaveLength(1);
+			expect(seenByB[0]?.case_id).toBe(PATIENT_BOB_ID);
+
+			const seenByA = await storeA.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(seenByA).toHaveLength(0);
+		});
+
+		it("generateSampleData lands rows in the calling owner's tenant scope only", async () => {
+			// Pin the per-row tenant contract for the sample-data
+			// path: A generates, A sees the rows, B sees nothing.
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+
+			await storeA.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 5,
+				seed: "tenant-isolation",
+				blueprint,
+			});
+
+			const seenByA = await storeA.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(seenByA).toHaveLength(5);
+
+			const seenByB = await storeB.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(seenByB).toHaveLength(0);
+		});
+
+		it("resetSampleData scopes deletion + regeneration to the calling owner's rows", async () => {
+			// A and B both populate. A resets. A's rows are deleted
+			// + regenerated; B's rows are UNTOUCHED. Pins the tenant-
+			// scoped DELETE inside `resetSampleData`'s atomic
+			// transaction.
+			const storeA = await options.factory(OWNER_A);
+			const storeB = await options.factory(OWNER_B);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+
+			await storeA.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 3,
+				seed: "owner-a-initial",
+				blueprint,
+			});
+			await storeB.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 4,
+				seed: "owner-b-initial",
+				blueprint,
+			});
+
+			const beforeBRows = await storeB.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			const beforeBIds = new Set(beforeBRows.map((r) => r.case_id));
+
+			const result = await storeA.resetSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 2,
+				blueprint,
+			});
+			expect(result.deleted).toBe(3);
+			expect(result.inserted).toBe(2);
+
+			// B's rows are untouched by A's reset — id set matches
+			// the pre-reset population exactly.
+			const afterBRows = await storeB.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(afterBRows).toHaveLength(4);
+			const afterBIds = new Set(afterBRows.map((r) => r.case_id));
+			expect(afterBIds).toEqual(beforeBIds);
+
+			// A's rows are the freshly-regenerated set: count 2.
+			const afterARows = await storeA.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(afterARows).toHaveLength(2);
 		});
 
 		// -----------------------------------------------------------

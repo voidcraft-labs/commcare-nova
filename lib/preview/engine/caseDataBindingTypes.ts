@@ -94,8 +94,24 @@ export type LoadCaseDataResult =
  * action passes `SAMPLE_CASE_DEFAULT_COUNT` from
  * `caseDataBindingHelpers`, so the surfaced count matches that
  * constant on every successful call.
+ *
+ * Two extra arms cover stale-state preconditions reachable from
+ * the running-app view. `missing-case-type` surfaces when the
+ * blueprint snapshot the action received carries no entry for the
+ * requested case type — three causes are equivalent (the case type
+ * was deleted in the editor between mount and click, the snapshot
+ * is stale, or it was never declared); the consumer re-resolves
+ * against fresh blueprint state and retries. `schema-not-synced`
+ * surfaces when no row exists in `case_type_schemas` yet — the
+ * blueprint mutator skipped the `applySchemaChange` ordering
+ * contract; the consumer either retries after the sync lands or
+ * surfaces the structural fix. Both arms carry `caseType` so the
+ * UI can name the affected case type without re-deriving it from
+ * URL state.
  */
 export type PopulateSampleCasesResult =
 	| { kind: "ok"; inserted: number }
+	| { kind: "missing-case-type"; caseType: string }
+	| { kind: "schema-not-synced"; caseType: string }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };

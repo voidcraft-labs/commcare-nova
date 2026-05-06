@@ -35,9 +35,9 @@
 //
 // Each form type's order is fixed by the underlying semantic:
 //
-//   - **Registration**: `insert` the primary case first (so its
-//     generated `case_id` is available), then `insert` each child
-//     case with `parent_case_id` set to the primary's id.
+//   - **Registration**: `insertWithChildren` lands the primary +
+//     every child in one Postgres transaction, threading the
+//     primary's generated id as each child's `parent_case_id`.
 //   - **Followup**: `update` the primary case (when there are
 //     property writes), then `insert` each child case with
 //     `parent_case_id` set to the bound `caseId`.
@@ -46,13 +46,15 @@
 //   - **Survey**: no operations — return early with the survey
 //     marker.
 //
-// Operations are NOT atomic across the full form's writes — each
-// `CaseStore.insert` opens its own transaction (Postgres rejects
-// nested BEGINs), so a mid-loop failure in a multi-child registration
-// form leaves the primary case present and the failed-child set
-// absent. The running-app view re-queries after the write completes
-// (continuous validation principle), so the user sees whatever
-// landed.
+// Atomicity differs by form type. Registration is atomic — the
+// primary + every child write under one transaction, so a
+// mid-batch failure rolls the whole submission back. Followup and
+// close are NOT atomic across the primary update + child inserts +
+// (close-only) the closure stamp; each `update` / `insert` /
+// `close` opens its own transaction, so a mid-sequence failure
+// leaves the case-store in a partial-write state. The running-app
+// view re-queries after the write completes (continuous validation
+// principle), so the user sees whatever landed.
 
 import type { BlueprintDoc, FormType, Uuid } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -141,7 +143,7 @@ export type WriteFormCompletionResult =
  * and routes each through the matching `CaseStore` method per the
  * form type:
  *
- *   - `registration` → `insert` (primary) + `insert` per child
+ *   - `registration` → `insertWithChildren` (atomic primary + children)
  *   - `followup`     → `update` (when there are property writes) + `insert` per child
  *   - `close`        → `update` (when there are property writes) + `insert` per child + `close`
  *   - `survey`       → no operations
@@ -175,20 +177,16 @@ export async function writeFormCompletionThrough(
 			return { kind: "survey" };
 
 		case "registration": {
-			const caseId = await applyPrimaryRegistration({
+			// Registration writes are atomic: the primary + every
+			// child land in one Postgres transaction. The form-bridge
+			// passes a `CaseInsert` shape per row through to
+			// `insertWithChildren`; the case-store derives every
+			// `case_indices` edge as part of the same atomic write.
+			const { caseId, childCaseIds } = await applyRegistration({
 				caseStore: args.caseStore,
 				appId: args.appId,
 				primary: ops.primary,
-			});
-			const childCaseIds = await applyChildInserts({
-				caseStore: args.caseStore,
-				appId: args.appId,
 				children: ops.children,
-				// Registration's primary id is the parent for any
-				// child case the form derives. The pure derivation
-				// emits children without `parentCaseId`; we thread
-				// the generated id here.
-				fallbackParentCaseId: caseId,
 			});
 			return { kind: "registration", caseId, childCaseIds };
 		}
@@ -230,11 +228,13 @@ export async function writeFormCompletionThrough(
 				fallbackParentCaseId: ops.caseId,
 			});
 			// Close after any property update + child inserts so the
-			// closed-on stamp lands last. The store's `close` method
-			// is idempotent under repeated calls (it always sets
-			// `closed_on = now()`); ordering matters only for the
-			// `modified_on` column, which `update` and `close` both
-			// stamp.
+			// closed-on stamp lands last. `CaseStore.close` is
+			// idempotent on row state — calling close on an already-
+			// closed case is a no-op (the WHERE clause excludes rows
+			// whose `closed_on` is non-null), so a duplicate close
+			// from a retry path or a re-issued submission preserves
+			// the original closure timestamp without re-stamping
+			// `modified_on`.
 			await args.caseStore.close({
 				appId: args.appId,
 				caseId: ops.caseId,
@@ -253,52 +253,102 @@ export async function writeFormCompletionThrough(
 // ---------------------------------------------------------------
 
 /**
- * Insert the primary case for a registration form. Returns the
- * generated `case_id` (Postgres `uuidv7()` default) so the caller
- * can thread it as the parent for any child cases.
+ * Apply a registration form's writes atomically: the primary case
+ * + every child case land in one Postgres transaction via
+ * `insertWithChildren`. Returns the primary's generated case id +
+ * the children's generated case ids in input order. A failure on
+ * any row (JSON Schema rejection, engine-side fault) rolls the
+ * entire registration back, so a multi-case form's submission is
+ * never partially landed.
  *
- * Sets `status: "open"` explicitly. The schema does not default
- * the status column, and the heuristic generator follows the same
- * convention; setting it here keeps registration writes' shape
- * consistent with sample-data writes for any downstream consumer
- * that filters on `status`.
+ * Sets `status: "open"` explicitly on every row. The schema does
+ * not default the status column, and the heuristic generator
+ * follows the same convention; setting it here keeps registration
+ * writes' shape consistent with sample-data writes for any
+ * downstream consumer that filters on `status`.
  *
  * `case_name` is required at the column layer (`cases.case_name`
- * carries a `length > 0` CHECK constraint). The form-bridge surfaces
- * the missing-name invariant with a typed throw so the diagnostic
- * points at the form-shape author wiring rather than a downstream
- * Postgres CHECK violation. The non-empty guarantee on a defined
- * `caseName` lives upstream at `walkFormFields`'s empty-string
- * short-circuit (per `PrimaryRegistrationOp.caseName`'s invariant);
- * the guard here only checks `=== undefined` and trusts the
- * non-empty contract.
+ * carries a `length > 0` CHECK constraint). The form-bridge
+ * surfaces the missing-name invariant with a typed throw so the
+ * diagnostic points at the form-shape author wiring rather than a
+ * downstream Postgres CHECK violation. The non-empty guarantee on
+ * a defined `caseName` lives upstream at `walkFormFields`'s
+ * empty-string short-circuit (per `PrimaryRegistrationOp.caseName`
+ * / `ChildInsertOp.caseName`'s invariant); the guards here check
+ * `=== undefined` and trust the non-empty contract.
+ *
+ * Children must NOT carry an explicit `parentCaseId`. The pure
+ * derivation emits registration children without one (the bound
+ * id isn't known until the primary inserts);
+ * `insertWithChildren` threads the primary's generated id into
+ * every child's `parent_case_id` slot, and a child carrying its
+ * own would be ambiguous. The check below pins that contract.
  */
-async function applyPrimaryRegistration(args: {
+async function applyRegistration(args: {
 	caseStore: CaseStore;
 	appId: string;
 	primary: PrimaryRegistrationOp;
-}): Promise<string> {
+	children: ReadonlyArray<ChildInsertOp>;
+}): Promise<{ caseId: string; childCaseIds: ReadonlyArray<string> }> {
 	if (args.primary.caseName === undefined) {
 		throw new Error(
 			compilerBugMessage({
-				where: "case-store.writeFormCompletionThrough.applyPrimaryRegistration",
+				where: "case-store.writeFormCompletionThrough.applyRegistration",
 				invariant: `registration form for case type \`${args.primary.caseType}\` produced no \`case_name\` value`,
 				detail:
 					"Every registration form must declare a leaf field with `id: \"case_name\"` whose value lands the case's display name in `cases.case_name`. Reaching this throw means the blueprint authoring surface admitted a registration form without one. Hint: confirm the form's field tree includes a `case_name` leaf bound to `case_property_on: <module case type>`; the SA prompt and the blueprint validator both treat the field as required for registration forms.",
 			}),
 		);
 	}
-	const row: CaseInsert = {
-		case_type: args.primary.caseType,
-		case_name: args.primary.caseName,
-		status: "open",
-		properties: args.primary.properties,
-	};
-	const result = await args.caseStore.insert({
-		appId: args.appId,
-		row,
+
+	// Project each child op into a `CaseInsert`. The non-empty
+	// `caseName` invariant (`!== undefined`) matches the per-row
+	// `applyChildInserts` shape. Every child omits
+	// `parent_case_id` — the case-store will thread the primary's
+	// id during the atomic write.
+	const childRows: CaseInsert[] = args.children.map((child) => {
+		if (child.caseName === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.writeFormCompletionThrough.applyRegistration",
+					invariant: `child-case op for case type \`${child.caseType}\` produced no \`case_name\` value`,
+					detail:
+						'Every case row carries a top-level `case_name`. A form that creates a child case must include a leaf field with `id: "case_name"` bound to the destination case type via `case_property_on`. Reaching this throw means the form\'s field tree omits the name field for that child type. Hint: add a `case_name` leaf for every child case type the form constructs, the same way the primary case requires one.',
+				}),
+			);
+		}
+		if (child.parentCaseId !== undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.writeFormCompletionThrough.applyRegistration",
+					invariant: `registration child for case type \`${child.caseType}\` carried an explicit \`parentCaseId\``,
+					detail:
+						"Registration form derivation emits children without `parentCaseId` because the bound parent id (the primary case's generated id) isn't known until the primary inserts. `insertWithChildren` threads that id into every child's `parent_case_id` slot at the case-store layer. Reaching this throw means the derivation supplied a `parentCaseId` for a registration child, which would conflict with the implicit threading.\n\nHint: `deriveFromForm`'s registration arm emits children with `parentCaseId: undefined`; if a derived shape changed, restore the omission and let the case-store thread the primary's id.",
+				}),
+			);
+		}
+		return {
+			case_type: child.caseType,
+			case_name: child.caseName,
+			status: "open",
+			properties: child.properties,
+		};
 	});
-	return result.caseId;
+
+	const result = await args.caseStore.insertWithChildren({
+		appId: args.appId,
+		primary: {
+			case_type: args.primary.caseType,
+			case_name: args.primary.caseName,
+			status: "open",
+			properties: args.primary.properties,
+		},
+		children: childRows,
+	});
+	return {
+		caseId: result.primaryCaseId,
+		childCaseIds: result.childCaseIds,
+	};
 }
 
 /**

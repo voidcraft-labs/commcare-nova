@@ -17,11 +17,16 @@
 //     the owner id at the request boundary; every method internally
 //     applies the bound owner's filter so `(app_id, owner_id)`
 //     tenant scoping is structural rather than caller discipline.
-//   - **Typed user-domain errors** (`./errors`) — `CaseNotFoundError`
-//     and `CasePropertiesValidationError`. API routes catch and map
-//     to HTTP 404 / 400 respectively. Every other throw across
-//     `lib/case-store/**` is an internal-invariant violation that
-//     reuses the helpers from `lib/domain/predicate/errors.ts`.
+//   - **Typed user-domain errors** (`./errors`) —
+//     `CaseNotFoundError`, `CasePropertiesValidationError`,
+//     `CaseTypeNotInBlueprintError`, `SchemaNotSyncedError`. API
+//     routes and Server Actions catch them by `instanceof` and map
+//     to typed result arms (HTTP 404 / 400 for the first two; the
+//     latter two carry contextual `(appId, caseType)` for
+//     missing-case-type / schema-not-synced action arms). Every
+//     other throw across `lib/case-store/**` is an internal-invariant
+//     violation that reuses the helpers from
+//     `lib/domain/predicate/errors.ts`.
 //   - **Form-bridge** (`./form-bridge/deriveFromForm`,
 //     `./form-bridge/writeThrough`) — pure derivation +
 //     `CaseStore`-bound write-through that a completed form's case-
@@ -114,6 +119,8 @@ export type { CasePropertyFailure } from "./errors";
 export {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	CaseTypeNotInBlueprintError,
+	SchemaNotSyncedError,
 } from "./errors";
 
 // ---------------------------------------------------------------

@@ -2,7 +2,7 @@
 //
 // Contract tests for the typed user-domain error classes.
 //
-// Two error classes flow through to API consumers:
+// Four error classes flow through to API + Server Action consumers:
 //
 //   - `CaseNotFoundError(caseId)` — covers row-not-found,
 //     row-removed-out-of-band, and row-outside-bound-tenant as one
@@ -10,9 +10,18 @@
 //   - `CasePropertiesValidationError(appId, caseType, failures)` —
 //     carries the structured per-field AJV failure list as a public
 //     field so API routes catch and re-emit it.
+//   - `CaseTypeNotInBlueprintError(appId, caseType)` — surfaces from
+//     `findCaseTypeOrThrow` when the supplied blueprint snapshot
+//     omits the requested case type. Server Actions on the
+//     running-app view map to a `missing-case-type` result arm.
+//   - `SchemaNotSyncedError(appId, caseType)` — surfaces from
+//     `getValidator` when no `case_type_schemas` row exists for
+//     `(appId, caseType)`. Server Actions map to a
+//     `schema-not-synced` result arm.
 //
-// Both classes use `readonly name = "<ClassName>"` field initializers
-// so the literal class-name stays stable across bundler transforms.
+// All four classes use `readonly name = "<ClassName>"` field
+// initializers so the literal class-name stays stable across bundler
+// transforms.
 //
 // ## Voice contract
 //
@@ -28,6 +37,8 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CasePropertyFailure,
+	CaseTypeNotInBlueprintError,
+	SchemaNotSyncedError,
 } from "../errors";
 
 // ---------------------------------------------------------------
@@ -134,5 +145,81 @@ describe("CasePropertiesValidationError", () => {
 		const err = new CasePropertiesValidationError("app-1", "patient", []);
 		expect(err.failures).toEqual([]);
 		expect(err.message).toContain("'patient'");
+	});
+});
+
+// ---------------------------------------------------------------
+// CaseTypeNotInBlueprintError
+// ---------------------------------------------------------------
+
+describe("CaseTypeNotInBlueprintError", () => {
+	it("populates `appId` + `caseType` as public fields", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		expect(err.appId).toBe("app-1");
+		expect(err.caseType).toBe("patient");
+	});
+
+	it("pins `name` to the class name (stable across bundler transforms)", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		expect(err.name).toBe("CaseTypeNotInBlueprintError");
+	});
+
+	it("is an Error instance for catch-block compatibility", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		expect(err).toBeInstanceOf(Error);
+		expect(err).toBeInstanceOf(CaseTypeNotInBlueprintError);
+	});
+
+	it("carries the case type in the rendered message header", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		expect(err.message).toContain("'patient'");
+	});
+
+	it("acknowledges three equivalent causes in the body without claiming which", () => {
+		// The shape mirrors `CaseNotFoundError`'s equivalence-class
+		// framing. Any one of the three causes (deleted, stale,
+		// never declared) explains the missing case type from the
+		// caller's perspective; surfacing them as equivalent keeps
+		// the typed shape narrow.
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		expect(err.message).toMatch(/deleted/);
+		expect(err.message).toMatch(/stale/);
+	});
+});
+
+// ---------------------------------------------------------------
+// SchemaNotSyncedError
+// ---------------------------------------------------------------
+
+describe("SchemaNotSyncedError", () => {
+	it("populates `appId` + `caseType` as public fields", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		expect(err.appId).toBe("app-1");
+		expect(err.caseType).toBe("patient");
+	});
+
+	it("pins `name` to the class name (stable across bundler transforms)", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		expect(err.name).toBe("SchemaNotSyncedError");
+	});
+
+	it("is an Error instance for catch-block compatibility", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		expect(err).toBeInstanceOf(Error);
+		expect(err).toBeInstanceOf(SchemaNotSyncedError);
+	});
+
+	it("carries the case type in the rendered message header", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		expect(err.message).toContain("'patient'");
+	});
+
+	it("points the reader at applySchemaChange as the structural fix", () => {
+		// The body's `Hint:` directs the consumer to the upstream
+		// ordering contract — every blueprint mutation runs
+		// `applySchemaChange` before any data write reaches the
+		// case type.
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		expect(err.message).toMatch(/applySchemaChange/);
 	});
 });
