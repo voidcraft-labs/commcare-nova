@@ -206,11 +206,13 @@ export function useReorderableExpressionList<T>(
 /** Per-row wiring the host card's row component consumes via the
  *  render-prop child of `<ReorderableRow>`. */
 export interface ReorderableRowWiring {
-	/** Drop-target hit area — install on the row's outer wrapper. The
-	 *  ref callback writes through to the row's internal element ref;
-	 *  no fresh callback is allocated each render so React 19 doesn't
-	 *  detach + re-attach the binding. */
-	readonly wrapperRef: (el: HTMLDivElement | null) => void;
+	/** Drop-target hit area — install on the row's outer wrapper as
+	 *  `<div ref={wrapperRef}>`. Returning the `RefObject` directly
+	 *  (rather than a callback) matches the canonical `useRowDnd`
+	 *  pattern at `components/preview/form/virtual/useRowDnd.ts`:
+	 *  React reads the same object identity every render, so the
+	 *  binding doesn't detach + re-attach across re-renders. */
+	readonly wrapperRef: React.RefObject<HTMLDivElement | null>;
 	/** Ref-callback the row threads into the card's grip handle. The
 	 *  row component installs `draggable()` on this element. */
 	readonly setHandleEl: (el: HTMLElement | null) => void;
@@ -331,12 +333,8 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 			? createPortal(preview, previewState.container)
 			: null;
 
-	const wrapperRef = (el: HTMLDivElement | null) => {
-		wrapperElRef.current = el;
-	};
-
 	return children({
-		wrapperRef,
+		wrapperRef: wrapperElRef,
 		setHandleEl,
 		closestEdge,
 		previewPortal,

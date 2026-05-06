@@ -139,17 +139,22 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 					 *  full ValueExpression family is reachable at the
 					 *  slot. The picker's own `CardShell` footer surfaces
 					 *  inline errors at the slot path, so no parallel
-					 *  `<InlineError>` is needed here. The Term-arm card
-					 *  inside the picker also reads errors at the same
-					 *  slot path (per `checkExpression`'s `case "term":`
-					 *  branch — `resolveTermType` is called with `path`
-					 *  unchanged) and surfaces them via the picker shell's
-					 *  footer alone. */}
+					 *  `<InlineError>` is needed here.
+					 *
+					 *  `expectedType` mirrors the type checker's per-mode
+					 *  allow-list (`MATCH_PROPERTY_TYPES_BY_MODE`) — three
+					 *  modes accept text-shaped values; `fuzzy-date` widens
+					 *  to date as well. The hint is a primitive type, so
+					 *  it can't capture the multi-arm disjunction
+					 *  precisely; passing `text` for the three text-shaped
+					 *  modes and `date` for `fuzzy-date` is the closest
+					 *  primitive narrowing the picker's kind menu can
+					 *  surface. */}
 					<ExpressionPicker
 						value={value.value}
 						onChange={setValue}
 						path={appendSlot(path, "value")}
-						expectedType="text"
+						expectedType={value.mode === "fuzzy-date" ? "date" : "text"}
 						variant="nested"
 					/>
 				</div>

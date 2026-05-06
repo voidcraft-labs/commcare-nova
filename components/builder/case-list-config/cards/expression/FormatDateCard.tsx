@@ -146,11 +146,15 @@ function PresetRow({ pattern, setPattern }: PresetRowProps) {
 			<button
 				type="button"
 				onClick={() => {
-					// Switching from preset → custom seeds a non-empty
-					// placeholder so the schema's `z.string().min(1)` branch
-					// admits the value; authors flip the input to a real
-					// CCHQ pattern string.
-					if (isPreset) setPattern("custom-pattern");
+					// Switching from preset → custom seeds with a real
+					// CCHQ pattern (`%Y-%m-%d` — ISO date) so the schema's
+					// `z.string().min(1)` branch admits the value AND the
+					// wire emitter renders a meaningful formatted date if
+					// the author saves without further editing. Seeding
+					// with a placeholder string like "custom-pattern"
+					// would leak that literal into the wire output —
+					// nothing in the wire stack treats it as a sentinel.
+					if (isPreset) setPattern("%Y-%m-%d");
 				}}
 				className={`${baseCls} ${!isPreset ? activeCls : idleCls} ml-auto`}
 				aria-pressed={!isPreset}

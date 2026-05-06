@@ -6,10 +6,11 @@
 // The card's drag surface targets `cases` (one per row); the `on`
 // and `fallback` slots stay structurally fixed.
 
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
+	dateLiteral,
 	literal,
 	prop,
 	switchCase,
@@ -81,5 +82,90 @@ describe("SwitchCard — case removal contract", () => {
 			term(literal(0)),
 		);
 		expect(value.cases.length).toBe(1);
+	});
+});
+
+describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
+	// Regression test for the data-loss class Task 2 paid 8 CR rounds
+	// to lock down: an uncontrolled blur-commit input that
+	// unconditionally rebuilds via the bare `literal(...)` builder
+	// drops any `data_type` qualifier on the source AST. Mounting a
+	// switch whose `when` carries `dateLiteral(...)`, focusing then
+	// blurring without typing, MUST leave the AST reference-stable
+	// — no spurious `onChange` and no qualifier loss.
+
+	it("focus + blur without typing leaves the dateLiteral when AST untouched", () => {
+		// `dateLiteral("2024-01-01")` carries `data_type: "date"`.
+		// The naïve rebuild (uncontrolled `defaultValue` + bare
+		// `literal(text)` on every blur) silently turns this into a
+		// number literal because `Number("2024")` parses as a number,
+		// AND drops the `data_type` qualifier. The fix is the
+		// `text === initial` no-op gate.
+		const value = switchExpr(
+			term(prop("patient", "risk")),
+			[switchCase(dateLiteral("2024-01-01"), term(literal("y2024")))],
+			term(literal("other")),
+		);
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={[
+					{
+						name: "patient",
+						properties: [{ name: "risk", label: "Risk", data_type: "date" }],
+					},
+				]}
+				currentCaseType="patient"
+			/>,
+		);
+		// Find the case-when input. The aria-label is "Case when value".
+		const whenInput = screen.getByLabelText(
+			"Case when value",
+		) as HTMLInputElement;
+		expect(whenInput.value).toBe("2024-01-01");
+		// Focus then blur without typing — the no-op gate must
+		// short-circuit the commit.
+		whenInput.focus();
+		fireEvent.blur(whenInput);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("typing a new date value preserves data_type: 'date' on the rebuilt literal", () => {
+		// User edits the text; the parser must route through
+		// `dateLiteral(...)` (or the equivalent qualifier-preserving
+		// rebuild) so the qualifier survives the edit.
+		const value = switchExpr(
+			term(prop("patient", "risk")),
+			[switchCase(dateLiteral("2024-01-01"), term(literal("y2024")))],
+			term(literal("other")),
+		);
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={[
+					{
+						name: "patient",
+						properties: [{ name: "risk", label: "Risk", data_type: "date" }],
+					},
+				]}
+				currentCaseType="patient"
+			/>,
+		);
+		const whenInput = screen.getByLabelText(
+			"Case when value",
+		) as HTMLInputElement;
+		// Edit the input, then blur to commit.
+		fireEvent.change(whenInput, { target: { value: "2025-06-15" } });
+		fireEvent.blur(whenInput);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		const next = onChange.mock.calls[0][0] as {
+			cases: { when: { value: unknown; data_type?: string } }[];
+		};
+		expect(next.cases[0].when.value).toBe("2025-06-15");
+		expect(next.cases[0].when.data_type).toBe("date");
 	});
 });

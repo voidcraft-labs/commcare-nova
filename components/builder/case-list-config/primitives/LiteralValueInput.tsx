@@ -42,6 +42,7 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 import { usePredicateEditContext } from "../editorContext";
+import { rebuildLiteralPreservingDataType } from "../literalRebuild";
 
 interface LiteralValueInputProps {
 	/** Current literal value, or undefined for "unset". */
@@ -216,9 +217,25 @@ function TextInput({ value, onChange, invalid, ariaLabel }: ScalarInputProps) {
 			setDraft(initial);
 		}
 	}, [initial, draft]);
+	// Commit gating + qualifier preservation:
+	//   - The no-op `draft === initial` short-circuit keeps a focus
+	//     pulse on an untouched input from re-emitting the AST.
+	//   - On a real edit, `rebuildLiteralPreservingDataType` carries
+	//     the source's `data_type` qualifier through. A literal
+	//     declared `data_type: "date"` (or any other qualifier) at a
+	//     text-typed property slot stays declared after the edit;
+	//     the bare `literal(draft)` rebuild would drop it.
+	//   - When the source is undefined (no prior literal), commit
+	//     emits a bare `literal(draft)` — there's no qualifier to
+	//     preserve.
 	const commit = useCallback(() => {
-		onChange(literal(draft));
-	}, [onChange, draft]);
+		if (draft === initial) return;
+		onChange(
+			value === undefined
+				? literal(draft)
+				: rebuildLiteralPreservingDataType(value, draft),
+		);
+	}, [draft, initial, onChange, value]);
 
 	return (
 		<input
@@ -264,17 +281,27 @@ function NumericInput({
 			setDraft(initial);
 		}
 	}, [initial, draft]);
+	// Commit gating + qualifier preservation: same shape as
+	// `TextInput`'s commit. Empty-input emits a `literal(null)`
+	// preserving the source's qualifier (the type checker treats
+	// null as universally compatible); a real numeric edit emits
+	// the parsed number through the qualifier-preserving rebuilder.
 	const commit = useCallback(() => {
+		if (draft === initial) return;
+		const next = (nextValue: string | number | boolean | null) =>
+			value === undefined
+				? literal(nextValue)
+				: rebuildLiteralPreservingDataType(value, nextValue);
 		if (draft.trim() === "") {
-			onChange(literal(null));
+			onChange(next(null));
 			return;
 		}
 		const parsed = integerOnly
 			? Number.parseInt(draft, 10)
 			: Number.parseFloat(draft);
 		if (Number.isNaN(parsed)) return;
-		onChange(literal(parsed));
-	}, [draft, integerOnly, onChange]);
+		onChange(next(parsed));
+	}, [draft, initial, integerOnly, onChange, value]);
 
 	return (
 		<input
@@ -434,7 +461,18 @@ function SelectOptionInput({
 							return (
 								<Menu.Item
 									key={opt.value}
-									onClick={() => onChange(literal(opt.value))}
+									onClick={() => {
+										// Qualifier-preserving rebuild on selection.
+										// A select-typed literal carries its own
+										// `data_type` (`single_select` /
+										// `multi_select`) which a fresh `literal(opt.value)`
+										// rebuild would silently drop on every click.
+										onChange(
+											value === undefined
+												? literal(opt.value)
+												: rebuildLiteralPreservingDataType(value, opt.value),
+										);
+									}}
 									className={`${corners} ${
 										isActive
 											? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`

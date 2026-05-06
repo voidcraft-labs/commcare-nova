@@ -209,10 +209,13 @@ function applicableForText(
 }
 
 /**
- * Result-type-depends-on-inputs kinds — Term, If, Switch, Count,
- * Coalesce. Always applicable; the type checker validates the full
- * tree against `expectedType` once authored. Hiding these would
- * make whole authoring patterns unreachable from a typed slot.
+ * Result-type-depends-on-inputs kinds — Term, If, Switch, Coalesce.
+ * Always applicable; the type checker validates the full tree
+ * against `expectedType` once authored. Hiding these would make
+ * whole authoring patterns unreachable from a typed slot. `Count`
+ * is NOT in this set — its result type is always `int`, so its
+ * registry entry uses a custom predicate that gates on numeric
+ * `expectedType` plus the case-type-availability check.
  */
 function applicableAlways(): boolean {
 	return true;

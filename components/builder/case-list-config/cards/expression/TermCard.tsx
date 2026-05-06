@@ -64,6 +64,7 @@ import {
 	usePredicateEditContext,
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
+import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
@@ -894,9 +895,20 @@ function LiteralTextInput({
 			setDraft(initial);
 		}
 	}, [initial, draft]);
+	// Commit gating + qualifier preservation:
+	//   - The no-op `draft === initial` short-circuit keeps a focus
+	//     pulse on an untouched input from re-emitting the AST. The
+	//     parent receives nothing, so the source reference flows
+	//     through untouched.
+	//   - On a real edit, `rebuildLiteralPreservingDataType` carries
+	//     the source's `data_type` qualifier through. A literal
+	//     declared `data_type: "single_select"` (or any non-temporal
+	//     qualifier) stays declared after the edit; the bare
+	//     `literal(draft)` rebuild would silently drop it.
 	const commit = useCallback(() => {
-		onChange(literal(draft));
-	}, [draft, onChange]);
+		if (draft === initial) return;
+		onChange(rebuildLiteralPreservingDataType(value, draft));
+	}, [draft, initial, onChange, value]);
 	return (
 		<input
 			ref={inputRef}
@@ -935,16 +947,24 @@ function LiteralNumberInput({
 			setDraft(initial);
 		}
 	}, [initial, draft]);
+	// Commit gating + qualifier preservation: same shape as
+	// `LiteralTextInput`. The numeric input's no-op gate compares
+	// the draft against the source's serialized form so a focus
+	// pulse on an untouched input doesn't fire. Empty input emits a
+	// `literal(null)` carrying the source's qualifier — the type
+	// checker treats null as universally compatible per
+	// `typesCompatible`'s `_any` rule.
 	const commit = useCallback(() => {
+		if (draft === initial) return;
 		const trimmed = draft.trim();
 		if (trimmed === "") {
-			onChange(literal(null));
+			onChange(rebuildLiteralPreservingDataType(value, null));
 			return;
 		}
 		const parsed = Number.parseFloat(trimmed);
 		if (Number.isNaN(parsed)) return;
-		onChange(literal(parsed));
-	}, [draft, onChange]);
+		onChange(rebuildLiteralPreservingDataType(value, parsed));
+	}, [draft, initial, onChange, value]);
 	return (
 		<input
 			ref={inputRef}
@@ -990,11 +1010,20 @@ function LiteralBooleanToggle({
 	// `<legend>` because the surrounding card already carries a
 	// "Term source: Literal" label and a redundant legend would
 	// add a structural heading the screen reader doesn't need.
+	// Qualifier-preserving toggle: each button rebuilds via
+	// `rebuildLiteralPreservingDataType` so a literal carrying a
+	// `data_type` qualifier doesn't silently drop it on click. The
+	// no-op gate (don't fire when the user clicks the already-active
+	// state) matches the text / numeric inputs' commit-on-change
+	// contract.
 	return (
 		<fieldset className={wrapCls} aria-label="Literal boolean value">
 			<button
 				type="button"
-				onClick={() => onChange(literal(true))}
+				onClick={() => {
+					if (current) return;
+					onChange(rebuildLiteralPreservingDataType(value, true));
+				}}
 				className={`${baseCls} ${current ? activeCls : idleCls}`}
 				aria-pressed={current}
 			>
@@ -1002,7 +1031,10 @@ function LiteralBooleanToggle({
 			</button>
 			<button
 				type="button"
-				onClick={() => onChange(literal(false))}
+				onClick={() => {
+					if (!current) return;
+					onChange(rebuildLiteralPreservingDataType(value, false));
+				}}
 				className={`${baseCls} ${!current ? activeCls : idleCls}`}
 				aria-pressed={!current}
 			>

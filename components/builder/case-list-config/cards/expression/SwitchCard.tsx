@@ -41,6 +41,10 @@ import {
 import { useEditorErrorsAt } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { expressionCardSchemas } from "../../expressionEditorSchemas";
+import {
+	literalToInputText,
+	parseInputTextToLiteral,
+} from "../../literalRebuild";
 import { nodeId } from "../../nodeIdentity";
 import {
 	appendKindIndexSlot,
@@ -313,14 +317,16 @@ function CaseRow({
 
 /** Switch-case `when` literal input. Each case's `when` is a typed
  *  `Literal` (not an arbitrary value expression) — the wire form
- *  demands a static value at each comparison site. The input
- *  branches on the existing literal's `data_type` qualifier or its
- *  JS-runtime type to pick the input variant; commits through the
- *  matching `literal()` builder. The simplified subset here covers
- *  the common authoring cases (text + number + boolean + null);
- *  authors who want a typed-date `when` flip the literal's source
- *  through the SA tool surface or compose via the on-prop typed
- *  input one level up. */
+ *  demands a static value at each comparison site.
+ *
+ *  Rebuild contract: commits route through `parseInputTextToLiteral`
+ *  so the source's `data_type` qualifier (load-bearing for
+ *  `dateLiteral` / `datetimeLiteral` / `timeLiteral` `when` values)
+ *  survives every blur. The blur handler compares the input's
+ *  current text to the source's serialized form and short-circuits
+ *  on equality — focus / no-typing / blur leaves the AST reference-
+ *  identical, eliminating the data-loss class where a focus pulse
+ *  on an untouched input destroyed a typed-temporal `when`. */
 function SwitchWhenLiteralInput({
 	value,
 	onChange,
@@ -330,14 +336,7 @@ function SwitchWhenLiteralInput({
 	readonly onChange: (next: Literal) => void;
 	readonly invalid: boolean;
 }) {
-	const initial =
-		value.value === null
-			? ""
-			: typeof value.value === "boolean"
-				? value.value
-					? "true"
-					: "false"
-				: String(value.value);
+	const initial = literalToInputText(value);
 	const inputCls = [
 		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
@@ -350,30 +349,15 @@ function SwitchWhenLiteralInput({
 			defaultValue={initial}
 			onBlur={(e) => {
 				const text = e.target.value;
-				// Coerce common shapes: empty → empty string literal;
-				// pure numeric → number literal; "true" / "false" →
-				// boolean literal; everything else → string literal.
-				// The type checker's literal-to-on-type compatibility
-				// check surfaces a mismatch error inline if the typed
-				// shape doesn't match `switch.on`'s resolved type.
-				if (text === "") {
-					onChange(literal(""));
-					return;
-				}
-				if (text === "true") {
-					onChange(literal(true));
-					return;
-				}
-				if (text === "false") {
-					onChange(literal(false));
-					return;
-				}
-				const asNumber = Number(text);
-				if (!Number.isNaN(asNumber) && text.trim() === text) {
-					onChange(literal(asNumber));
-					return;
-				}
-				onChange(literal(text));
+				// No-op gate: the input is uncontrolled, so the only
+				// signal carrying user intent is "the text actually
+				// changed." A focus / blur pulse without typing leaves
+				// the source AST reference-identical, which is critical
+				// for typed-temporal `when` literals — `dateLiteral` /
+				// `datetimeLiteral` / `timeLiteral` carry a `data_type`
+				// qualifier that any naïve rebuild would strip.
+				if (text === initial) return;
+				onChange(parseInputTextToLiteral(text, value));
 			}}
 			autoComplete="off"
 			data-1p-ignore

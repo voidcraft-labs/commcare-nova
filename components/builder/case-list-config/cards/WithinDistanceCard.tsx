@@ -103,18 +103,20 @@ export function WithinDistanceCard({
 					{/* Center coordinate routes through `ExpressionPicker`
 					 *  so the full ValueExpression family is reachable.
 					 *  CCHQ accepts a typed-geopoint search input as the
-					 *  natural shape and a wire-form coordinate string
-					 *  as a fallback (per `query_functions.py:60`); both
-					 *  are admitted by the `geopoint`-or-`text` allow-
-					 *  list in the type checker. The picker's own
-					 *  `CardShell` footer surfaces inline errors at the
-					 *  slot path, so no parallel `<InlineError>` is needed
-					 *  here. */}
+					 *  natural shape AND a wire-form coordinate string
+					 *  (per `query_functions.py:60` — `GeoPoint.from_string`
+					 *  parses the text fallback). Both `geopoint` and
+					 *  `text` are admitted at the type checker, so no
+					 *  single `expectedType` hint captures the disjunction
+					 *  — passing `undefined` lets the kind picker surface
+					 *  every authoring path the type checker accepts, and
+					 *  the inline error guides authors who pick a non-
+					 *  matching shape. The picker's own `CardShell`
+					 *  footer surfaces those errors at the slot path. */}
 					<ExpressionPicker
 						value={value.center}
 						onChange={setCenter}
 						path={appendSlot(path, "center")}
-						expectedType="geopoint"
 						variant="nested"
 					/>
 				</div>

@@ -306,9 +306,24 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 									// Current kind is not a valid replacement
 									// target — clicking it would re-render and
 									// recompute the validity index for a
-									// structurally identical predicate. Inapplicable
-									// kinds also disable.
-									disabled={isCurrent || !isApplicable}
+									// structurally identical predicate.
+									// Inapplicable kinds (per the schema's
+									// `applicable` predicate) render with
+									// reduced opacity (the `opacity-40`
+									// className above) but stay clickable —
+									// the type checker's inline error is the
+									// structural gate, and de-emphasis surfaces
+									// the suggestion without locking the author
+									// out of authoring a kind whose semantics
+									// don't fit the current scope (e.g.
+									// `multi-select-contains` on a case type
+									// without a multi_select property). The
+									// editor lets invalid edits flow through so
+									// the user can keep authoring; the parent's
+									// save affordance gates on the validity
+									// verdict. Symmetric with the kind-replace
+									// menu in `primitives/ExpressionPicker.tsx`.
+									disabled={isCurrent}
 									className={cls}
 								>
 									<Icon
