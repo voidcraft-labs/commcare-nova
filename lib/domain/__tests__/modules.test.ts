@@ -42,11 +42,18 @@ describe("moduleSchema — caseListConfig presence", () => {
 		expect(parsed.success).toBe(true);
 	});
 
-	it("rejects the legacy caseListColumns field name (schema removed)", () => {
-		// The legacy shape is intentionally not part of the schema.
-		// `caseListColumns` should fail loudly so any stale fixture or
-		// older persisted doc is detected at parse time rather than
-		// silently dropped.
+	it("silently drops the legacy caseListColumns / caseDetailColumns keys — typed result omits them", () => {
+		// Zod's default unknown-key handling strips on parse, so the
+		// schema accepts a legacy-shaped input (`safeParse` returns
+		// success) but the typed result never carries the dropped
+		// keys. The migration script
+		// (`scripts/migrate-case-list-config.ts`) is the single
+		// producer that reads the legacy shape, and it does so against
+		// the raw Firestore document BEFORE Zod parsing — silent
+		// stripping doesn't lose data because the legacy values are
+		// already extracted upstream. What this test enforces is that
+		// any consumer code parsing through `moduleSchema` cannot
+		// accidentally reach the removed fields on the typed surface.
 		const parsed = moduleSchema.safeParse({
 			uuid: sampleUuid,
 			id: "patients",
@@ -54,14 +61,8 @@ describe("moduleSchema — caseListConfig presence", () => {
 			caseType: "patient",
 			caseListColumns: [{ field: "name", header: "Name" }],
 		});
-		// Zod's default mode allows unknown keys; the assertion that
-		// matters is "the legacy field is NOT typed onto the parsed
-		// shape". Round-trip the parsed result and confirm
-		// `caseListColumns` is absent on the output.
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
-			// Legacy field is dropped during parse — the schema doesn't
-			// include it, so it surfaces nowhere on the typed result.
 			const data = parsed.data as Record<string, unknown>;
 			expect(data.caseListColumns).toBeUndefined();
 			expect(data.caseDetailColumns).toBeUndefined();
