@@ -1,12 +1,30 @@
 // components/builder/case-list-config/primitives/ValueExpressionPicker.tsx
 //
-// Term-only picker for a `ValueExpression` slot. Drives the
-// "value" half of every comparison / membership / range operator,
-// plus the `match` value slot and the `within-distance` center
-// slot. Accepts only Term-shaped operands (literal, property ref,
-// search-input ref, session-context ref, session-user ref);
-// higher-order ValueExpression arms (arith / if / count / etc.)
-// are not exposed at this surface.
+// Picker for a `ValueExpression` slot. Drives the "value" half of
+// every comparison / membership / range operator, plus the `match`
+// value slot and the `within-distance` center slot.
+//
+// Authoring vocabulary: the picker EDITS Term-shaped operands
+// (literal, property ref, search-input ref, session-context ref,
+// session-user ref). Higher-order ValueExpression arms (`arith` /
+// `if` / `count` / `format-date` / `concat` / `today` / `now` /
+// `date-add` / `date-coerce` / `datetime-coerce` / `double` /
+// `coalesce` / `switch` / `unwrap-list`) are not editable at this
+// surface — but the schema accepts them at every slot the picker
+// is mounted in, so the picker MUST round-trip them without
+// destruction.
+//
+// Round-trip contract: when the incoming `value` is a non-Term
+// arm, the picker renders a read-only badge ("Expression: <kind>")
+// alongside an explicit "Replace with simple value" affordance.
+// Editing controls are suppressed; no `onChange` fires until the
+// user clicks Replace, at which point the picker resets to a
+// `literal("")` Term default. Any caller producing a higher-order
+// expression at this slot — every other consumer of the predicate
+// AST that emits at value-bearing positions — can therefore mount
+// the editor over its output and save without silent destruction;
+// the only path to lose the existing expression is the explicit
+// Replace click.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -43,6 +61,31 @@ type TermMode =
 	| "session-context"
 	| "session-user";
 
+/** Human-readable labels for the higher-order ValueExpression arms
+ *  the read-only badge shows when the picker receives a non-Term
+ *  shape. The keys cover every non-`term` arm in
+ *  `valueExpressionSchema`; an exhaustive `Record<...>` over the
+ *  closed kind set guarantees a label for every case. */
+const HIGHER_ORDER_LABELS: Record<
+	Exclude<ValueExpression["kind"], "term">,
+	string
+> = {
+	today: "Today",
+	now: "Now",
+	"date-add": "Date arithmetic",
+	"date-coerce": "Date coerce",
+	"datetime-coerce": "Datetime coerce",
+	double: "Numeric coerce",
+	arith: "Arithmetic",
+	concat: "Concatenation",
+	coalesce: "Coalesce",
+	if: "Conditional",
+	switch: "Switch",
+	count: "Relational count",
+	"unwrap-list": "Unwrap list",
+	"format-date": "Format date",
+};
+
 interface ValueExpressionPickerProps {
 	readonly value: ValueExpression;
 	readonly onChange: (next: ValueExpression) => void;
@@ -60,10 +103,18 @@ interface ValueExpressionPickerProps {
 }
 
 /**
- * Pick a Term-arm `ValueExpression`. Mode toggle in the trigger;
- * mode-specific input below. Higher-order arms (arith / if /
- * count / format-date) are not exposed here — this picker is
- * scoped to Term-shaped operands.
+ * Pick a `ValueExpression`. Two modes:
+ *
+ *   1. **Term-arm value** — renders the mode-toggle + per-mode
+ *      input below. Editing flows through `wrapTerm(...)` to
+ *      preserve the canonical `term` envelope.
+ *   2. **Higher-order arm** (every non-`term` ValueExpression) —
+ *      renders a read-only badge plus an explicit "Replace"
+ *      button. No edit controls; no `onChange` fires until the
+ *      user clicks Replace, which resets the slot to a fresh
+ *      `literal("")` Term. Preserves authored higher-order
+ *      expressions across the editor's load → render → save
+ *      cycle.
  */
 export function ValueExpressionPicker({
 	value,
@@ -74,7 +125,28 @@ export function ValueExpressionPicker({
 	ariaLabel = "Value",
 }: ValueExpressionPickerProps) {
 	const ctx = usePredicateEditContext();
-	const term = unwrapTerm(value);
+
+	if (value.kind !== "term") {
+		// Non-Term arm — author originally constructed an `arith` /
+		// `if` / `count` / etc. The picker renders read-only and
+		// requires explicit user intent to overwrite.
+		return (
+			<HigherOrderBadge
+				kind={value.kind}
+				onReplace={() =>
+					onChange(
+						wrapTerm(
+							buildTermDefault("literal", caseTypeName, ctx.knownInputs),
+						),
+					)
+				}
+				ariaLabel={ariaLabel}
+			/>
+		);
+	}
+
+	// Term-arm — full editing surface.
+	const term = value.term;
 	const mode = termMode(term);
 
 	const setMode = (next: TermMode) => {
@@ -96,8 +168,47 @@ export function ValueExpressionPicker({
 	);
 }
 
-function termMode(term: Term | undefined): TermMode {
-	if (term === undefined) return "literal";
+/**
+ * Read-only badge rendered when the picker receives a non-Term
+ * `ValueExpression` arm. Surfaces the kind label (from
+ * `HIGHER_ORDER_LABELS`) and a Replace affordance. The badge does
+ * not call `onChange` on mount or render — only the user's
+ * Replace click overwrites the underlying expression.
+ */
+function HigherOrderBadge({
+	kind,
+	onReplace,
+	ariaLabel,
+}: {
+	readonly kind: Exclude<ValueExpression["kind"], "term">;
+	readonly onReplace: () => void;
+	readonly ariaLabel: string;
+}) {
+	const label = HIGHER_ORDER_LABELS[kind];
+	return (
+		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.10] bg-nova-deep/30">
+			<span className="text-nova-text-muted shrink-0">Expression:</span>
+			<span className="font-mono text-nova-violet-bright/80 truncate">
+				{label}
+			</span>
+			<div className="flex-1" />
+			{/* Slot disambiguation lives on the Replace button's
+			 *  aria-label — the only interactive element in the
+			 *  badge — so a screen reader announces which slot's
+			 *  expression the click would overwrite. */}
+			<button
+				type="button"
+				aria-label={`Replace ${ariaLabel} expression (${label}) with a simple value`}
+				onClick={onReplace}
+				className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+			>
+				Replace
+			</button>
+		</div>
+	);
+}
+
+function termMode(term: Term): TermMode {
 	switch (term.kind) {
 		case "literal":
 			return "literal";
@@ -110,10 +221,6 @@ function termMode(term: Term | undefined): TermMode {
 		case "session-user":
 			return "session-user";
 	}
-}
-
-function unwrapTerm(value: ValueExpression): Term | undefined {
-	return value.kind === "term" ? value.term : undefined;
 }
 
 function buildTermDefault(
@@ -269,7 +376,7 @@ function ModeMenu({ mode, setMode, ariaLabel }: ModeMenuProps) {
 }
 
 interface TermBodyInputProps {
-	readonly term: Term | undefined;
+	readonly term: Term;
 	readonly onChange: (next: Term) => void;
 	readonly caseTypeName: string;
 	readonly anchorPropertyName: string | undefined;
@@ -285,13 +392,11 @@ function TermBodyInput({
 	invalid,
 	ariaLabel,
 }: TermBodyInputProps) {
-	const mode = termMode(term);
-
-	switch (mode) {
+	switch (term.kind) {
 		case "literal":
 			return (
 				<LiteralValueInput
-					value={term?.kind === "literal" ? term : undefined}
+					value={term}
 					onChange={(lit) => onChange(lit)}
 					caseTypeName={caseTypeName}
 					propertyName={anchorPropertyName}
@@ -299,10 +404,10 @@ function TermBodyInput({
 					ariaLabel={ariaLabel}
 				/>
 			);
-		case "property":
+		case "prop":
 			return (
 				<PropertyPicker
-					value={term?.kind === "prop" ? term.property : undefined}
+					value={term.property}
 					onChange={(name) => {
 						onChange(prop(caseTypeName, name));
 					}}
@@ -314,7 +419,7 @@ function TermBodyInput({
 		case "input":
 			return (
 				<InputRefMenu
-					value={term?.kind === "input" ? term.name : undefined}
+					value={term.name}
 					onChange={(name) => onChange(input(name))}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
@@ -323,7 +428,7 @@ function TermBodyInput({
 		case "session-context":
 			return (
 				<SessionContextMenu
-					value={term?.kind === "session-context" ? term.field : "userid"}
+					value={term.field}
 					onChange={(field) => onChange(sessionContext(field))}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
@@ -332,7 +437,7 @@ function TermBodyInput({
 		case "session-user":
 			return (
 				<UserFieldInput
-					value={term?.kind === "session-user" ? term.field : ""}
+					value={term.field}
 					onChange={(field) => onChange({ kind: "session-user", field })}
 					invalid={invalid}
 					ariaLabel={ariaLabel}

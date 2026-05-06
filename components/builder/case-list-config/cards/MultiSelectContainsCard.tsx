@@ -92,10 +92,10 @@ export function MultiSelectContainsCard({
 		// On property switch, reset values to the new property's first
 		// option (keeping the schema's non-empty invariant) — the
 		// previous property's options have no semantic continuity with
-		// the new property's tokens.
-		const next = ctx.caseTypes
-			.find((c) => c.name === ctx.currentCaseType)
-			?.properties.find((p) => p.name === propertyName);
+		// the new property's tokens. Reads the new property from the
+		// closed-over `ct` (the current case type's properties list)
+		// rather than re-resolving via `ctx.caseTypes`.
+		const next = ct?.properties.find((p) => p.name === propertyName);
 		const seed = next?.options?.[0]?.value ?? "";
 		const builder =
 			value.quantifier === "all" ? multiSelectAll : multiSelectAny;

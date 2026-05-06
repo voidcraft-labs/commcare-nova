@@ -11,13 +11,25 @@ import tablerSlash from "@iconify-icons/tabler/slash";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { EditorPath } from "../path";
 
-interface SentinelCardProps {
-	readonly value: Predicate;
+/** Props for `MatchAllCard`. The `kind: "match-all"` arm is
+ *  discriminator-only at the AST layer, so the props carry the
+ *  precisely-narrowed shape rather than the wider `Predicate`
+ *  union — matches the per-arm typing convention every other
+ *  card uses. */
+interface MatchAllCardProps {
+	readonly value: Extract<Predicate, { kind: "match-all" }>;
 	readonly onChange: (next: Predicate) => void;
 	readonly path: EditorPath;
 }
 
-export function MatchAllCard(_props: SentinelCardProps) {
+/** Props for `MatchNoneCard`. Mirrors `MatchAllCardProps`. */
+interface MatchNoneCardProps {
+	readonly value: Extract<Predicate, { kind: "match-none" }>;
+	readonly onChange: (next: Predicate) => void;
+	readonly path: EditorPath;
+}
+
+export function MatchAllCard(_props: MatchAllCardProps) {
 	return (
 		<div className="flex items-center gap-2 px-2 py-2 rounded-md border border-dashed border-white/[0.06] bg-nova-surface/20">
 			<Icon
@@ -37,7 +49,7 @@ export function MatchAllCard(_props: SentinelCardProps) {
 	);
 }
 
-export function MatchNoneCard(_props: SentinelCardProps) {
+export function MatchNoneCard(_props: MatchNoneCardProps) {
 	return (
 		<div className="flex items-center gap-2 px-2 py-2 rounded-md border border-dashed border-white/[0.06] bg-nova-surface/20">
 			<Icon

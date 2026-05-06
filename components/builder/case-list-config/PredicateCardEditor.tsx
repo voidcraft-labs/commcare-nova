@@ -30,7 +30,7 @@
 // just the inner card.
 
 "use client";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -113,12 +113,19 @@ export function PredicateCardEditor({
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
 	// Propagate the validity verdict to the parent. The effect
-	// fires only when the verdict transitions; downstream consumers
-	// (the Filter-section save button) gate on this.
+	// fires only when `isValid` transitions; downstream consumers
+	// (the Filter-section save button) gate on this. The
+	// `onValidityChange` callback is stashed in a ref so a fresh-
+	// each-render parent callback identity doesn't trip the effect
+	// — same pattern `AndOrBody` uses for the monitor's
+	// `onChange` ref. Render-time write keeps the ref current
+	// before the effect phase runs.
+	const onValidityChangeRef = useRef(onValidityChange);
+	onValidityChangeRef.current = onValidityChange;
 	const isValid = errors.length === 0;
 	useEffect(() => {
-		onValidityChange?.(isValid);
-	}, [isValid, onValidityChange]);
+		onValidityChangeRef.current?.(isValid);
+	}, [isValid]);
 
 	return (
 		<PredicateEditProvider

@@ -89,9 +89,7 @@ export function ChildPredicateEditor({
 			onRemove={onRemove}
 			dragHandleRef={dragHandleRef}
 			errors={operatorErrors}
-			kindAccent={
-				<KindReplaceMenu currentKind={value.kind} onChange={onChange} />
-			}
+			kindAccent={<KindReplaceMenu currentValue={value} onChange={onChange} />}
 		>
 			<Component value={value} onChange={onChange} path={path} />
 		</CardShell>
@@ -99,23 +97,92 @@ export function ChildPredicateEditor({
 }
 
 interface KindReplaceMenuProps {
-	readonly currentKind: Predicate["kind"];
+	readonly currentValue: Predicate;
 	readonly onChange: (next: Predicate) => void;
 }
 
 /**
- * Menu that replaces the current card's predicate with a different
- * kind. The replacement uses the target schema's `defaultValue(...)`
- * factory so the new predicate is well-typed and visible — the
- * author edits from there.
+ * Map a kind to the structural-twin set it shares — pairs of
+ * kinds with identical operand shapes that the editor preserves
+ * verbatim across replacement. Concretely:
  *
- * The menu lists every kind, marking the current one with a violet
- * dot. Authors switching from `eq` to `between` keep the property
- * picker they already chose only when the underlying card preserves
- * it; the simple "swap to default" semantic is the structural
- * canonical case for a kind change.
+ *   - `exists` ↔ `missing` carry identical `{ via, where? }`
+ *     operand shapes — the in-card `KindMenu` already swaps
+ *     between them while preserving operands. Routing the outer
+ *     replace menu through the same operand-preserving swap
+ *     guarantees the two affordances produce the same result for
+ *     the same author intent.
+ *   - The six comparison kinds (`eq` / `neq` / `gt` / `gte` /
+ *     `lt` / `lte`) carry identical `{ left, right }` shapes —
+ *     swapping between them preserves the picked property and
+ *     value rather than resetting to the schema's default.
+ *
+ * Returns `null` when no twin shape applies; the caller falls
+ * through to `defaultValue(ctx)`.
  */
-function KindReplaceMenu({ currentKind, onChange }: KindReplaceMenuProps) {
+function preservedOperandSwap(
+	currentValue: Predicate,
+	targetKind: Predicate["kind"],
+): Predicate | null {
+	// exists ↔ missing — same `{ via, where? }`.
+	if (
+		(currentValue.kind === "exists" || currentValue.kind === "missing") &&
+		(targetKind === "exists" || targetKind === "missing")
+	) {
+		return currentValue.where === undefined
+			? { kind: targetKind, via: currentValue.via }
+			: { kind: targetKind, via: currentValue.via, where: currentValue.where };
+	}
+	// Comparison ↔ comparison — same `{ left, right }`.
+	const COMPARISON_KINDS = new Set<Predicate["kind"]>([
+		"eq",
+		"neq",
+		"gt",
+		"gte",
+		"lt",
+		"lte",
+	]);
+	if (
+		COMPARISON_KINDS.has(currentValue.kind) &&
+		COMPARISON_KINDS.has(targetKind)
+	) {
+		// Narrowing — `currentValue.kind` is a comparison kind so the
+		// arm carries `left` / `right`. The discriminated-union type
+		// requires the `kind` literal be in the closed set; the cast
+		// reads through the runtime guarantee the Set check provides.
+		const comparison = currentValue as Extract<
+			Predicate,
+			{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
+		>;
+		return {
+			kind: targetKind as typeof comparison.kind,
+			left: comparison.left,
+			right: comparison.right,
+		};
+	}
+	return null;
+}
+
+/**
+ * Menu that replaces the current card's predicate with a
+ * different kind. Two replacement strategies:
+ *
+ *   1. **Operand-preserving swap** — when the source and target
+ *      kinds share an identical operand shape (`exists` ↔
+ *      `missing`, comparison ↔ comparison), the existing
+ *      operands carry over to the new kind verbatim. Same
+ *      result the in-card `KindMenu` produces for `exists` ↔
+ *      `missing`, so the two affordances are interchangeable.
+ *   2. **Default-value reset** — for every other kind transition
+ *      (e.g. `eq` → `between`), the target schema's
+ *      `defaultValue(...)` factory builds a fresh predicate.
+ *      Operand semantics differ enough that no carry-over is
+ *      principled.
+ *
+ * The menu lists every kind, marking the current one with a
+ * violet dot.
+ */
+function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const ctx = usePredicateEditContext();
 	const editCtx: PredicateEditContext = {
@@ -123,11 +190,13 @@ function KindReplaceMenu({ currentKind, onChange }: KindReplaceMenuProps) {
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
 	};
+	const currentKind = currentValue.kind;
 
 	const replaceWith = <K extends Predicate["kind"]>(
 		schema: PredicateCardSchema<K>,
 	) => {
-		onChange(schema.defaultValue(editCtx));
+		const preserved = preservedOperandSwap(currentValue, schema.kind);
+		onChange(preserved ?? schema.defaultValue(editCtx));
 	};
 
 	return (

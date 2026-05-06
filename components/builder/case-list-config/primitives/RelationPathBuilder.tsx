@@ -1,15 +1,25 @@
 // components/builder/case-list-config/primitives/RelationPathBuilder.tsx
 //
-// Typed `RelationPath` composer. The data model carries the full
-// AST shape (single-step + multi-hop ancestor walks, single-step
-// subcase walks, direction-agnostic walks); this composer exposes
-// the three load-bearing forms (`self`, single-step `ancestor`,
-// single-step `subcase`) so authors compose the common case in one
-// click. Multi-hop ancestor walks ride on the SA tool surface.
+// Typed `RelationPath` composer.
 //
-// The "kind" segment of the path is always picked first; the
-// identifier slot reveals only when the kind expects one
-// (`subcase` / `any-relation` / `ancestor`'s first step).
+// Authoring vocabulary: this composer EDITS the three canonical
+// shapes — `selfPath()`, single-step `ancestorPath(relationStep(id))`,
+// and `subcasePath(id)` (with no `ofCaseType` qualifier). Authors
+// compose the common case in one click.
+//
+// Round-trip contract: the `RelationPath` schema admits more
+// shapes than the composer produces — multi-hop ancestor walks
+// (`ancestorPath(stepA, stepB, ...)`), `any-relation` (the
+// direction-agnostic discriminator), and `subcase` /
+// `any-relation` walks with an `ofCaseType` qualifier. When the
+// composer receives a non-canonical shape, it renders a read-only
+// badge ("Multi-hop ancestor", "Direction-agnostic", "Qualified
+// subcase") plus an explicit "Replace" affordance. No `onChange`
+// fires until the user clicks Replace, at which point the path
+// resets to a canonical `ancestorPath(relationStep("parent"))`.
+// Any caller producing a higher-fidelity walk at this slot — every
+// other consumer that emits relation paths into the AST — mounts
+// the editor over its output and saves without silent destruction.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -37,21 +47,11 @@ interface RelationPathBuilderProps {
 	readonly invalid?: boolean;
 }
 
-/** Picker state — collapses both `ancestor` and `any-relation` into
- *  one "ancestor" mode; the subcase mode covers reverse walks. */
+/** Picker state — only the three canonical shapes the composer
+ *  produces. Non-canonical input shapes (multi-hop ancestor,
+ *  any-relation, subcase-with-ofCaseType) route through the
+ *  read-only badge instead of this enum. */
 type RelationKind = "self" | "ancestor" | "subcase";
-
-function kindOf(path: RelationPath): RelationKind {
-	switch (path.kind) {
-		case "self":
-			return "self";
-		case "ancestor":
-			return "ancestor";
-		case "subcase":
-		case "any-relation":
-			return "subcase";
-	}
-}
 
 /** CCHQ's most common index name is `parent` for both ancestor
  *  and subcase walks; pre-fill so the editor doesn't surface an
@@ -63,40 +63,108 @@ function buildRelation(kind: RelationKind, identifier: string): RelationPath {
 		case "self":
 			return selfPath();
 		case "ancestor":
-			// Single-step ancestor walk — the structural common case
-			// (most case-list filters reach `parent` via one hop).
-			// Multi-hop walks live at the AST level for the SA tool
-			// surface.
+			// Single-step ancestor walk — the canonical authoring
+			// shape. Multi-hop walks live at the AST level and route
+			// through the read-only badge.
 			return ancestorPath(relationStep(identifier));
 		case "subcase":
 			return subcasePath(identifier);
 	}
 }
 
-function currentIdentifier(path: RelationPath): string {
+/** Categorize the incoming `RelationPath` against the composer's
+ *  edit-vs-read-only contract. Returns either the matching
+ *  canonical kind (the composer renders the picker + identifier
+ *  input) or the badge label that names the non-canonical shape
+ *  (the composer renders read-only with a Replace affordance). */
+type PathClassification =
+	| { readonly kind: "canonical"; readonly canonical: RelationKind }
+	| { readonly kind: "badge"; readonly label: string };
+
+function classify(path: RelationPath): PathClassification {
+	switch (path.kind) {
+		case "self":
+			return { kind: "canonical", canonical: "self" };
+		case "ancestor":
+			// Multi-hop ancestor walks (>1 step) and steps carrying a
+			// `throughCaseType` qualifier are non-canonical for this
+			// composer.
+			if (path.via.length === 1 && path.via[0].throughCaseType === undefined) {
+				return { kind: "canonical", canonical: "ancestor" };
+			}
+			return {
+				kind: "badge",
+				label:
+					path.via.length > 1
+						? "Multi-hop ancestor walk"
+						: "Qualified ancestor walk",
+			};
+		case "subcase":
+			// `subcase` with an `ofCaseType` qualifier is non-canonical
+			// — the composer's identifier input doesn't surface the
+			// qualifier slot, so editing in place would silently drop
+			// it.
+			if (path.ofCaseType === undefined) {
+				return { kind: "canonical", canonical: "subcase" };
+			}
+			return { kind: "badge", label: "Qualified subcase walk" };
+		case "any-relation":
+			// `any-relation` is structurally distinct from `subcase` at
+			// the wire-emission boundary — collapsing it onto the
+			// composer's `subcase` mode would flip the discriminator.
+			return { kind: "badge", label: "Direction-agnostic walk" };
+	}
+}
+
+function canonicalIdentifier(path: RelationPath): string {
 	switch (path.kind) {
 		case "self":
 			return "";
 		case "ancestor":
-			return path.via[0]?.identifier ?? "parent";
+			// Only reached for canonical (single-step) ancestor walks;
+			// the badge branch handles multi-hop.
+			return path.via[0].identifier;
 		case "subcase":
+			return path.identifier;
 		case "any-relation":
+			// Unreachable — the badge branch handles `any-relation`.
 			return path.identifier;
 	}
 }
 
 /**
- * Inline `RelationPath` composer. Two segments — kind picker
- * (Self / Ancestor / Subcase) and (when applicable) an identifier
- * input — laid out as a tight horizontal row.
+ * Inline `RelationPath` composer. Renders one of two surfaces:
+ *
+ *   1. **Canonical** — kind picker (Self / Ancestor / Subcase) +
+ *      (when applicable) an identifier input. Tight horizontal
+ *      row.
+ *   2. **Non-canonical** — read-only badge with a Replace
+ *      affordance. Surfaced when the incoming path carries
+ *      structure the composer can't faithfully edit (multi-hop
+ *      ancestor walks, qualified ancestor / subcase, `any-relation`).
+ *      Replace overwrites the slot with a canonical
+ *      `ancestorPath(relationStep("parent"))`.
  */
 export function RelationPathBuilder({
 	value,
 	onChange,
 	invalid = false,
 }: RelationPathBuilderProps) {
-	const kind = kindOf(value);
-	const identifier = currentIdentifier(value);
+	const classification = classify(value);
+
+	if (classification.kind === "badge") {
+		return (
+			<NonCanonicalBadge
+				label={classification.label}
+				onReplace={() =>
+					onChange(ancestorPath(relationStep(DEFAULT_IDENTIFIER)))
+				}
+			/>
+		);
+	}
+
+	const canonical = classification.canonical;
+	const identifier = canonicalIdentifier(value);
 
 	const setKind = (next: RelationKind) => {
 		const ident = identifier === "" ? DEFAULT_IDENTIFIER : identifier;
@@ -104,16 +172,16 @@ export function RelationPathBuilder({
 	};
 
 	const setIdentifier = (next: string) => {
-		onChange(buildRelation(kind, next));
+		onChange(buildRelation(canonical, next));
 	};
 
 	return (
 		<div className="flex items-center gap-2">
-			<KindMenu kind={kind} setKind={setKind} />
-			{kind !== "self" && (
+			<KindMenu kind={canonical} setKind={setKind} />
+			{canonical !== "self" && (
 				<>
 					<Icon
-						icon={kind === "subcase" ? tablerLink : tablerArrowsRight}
+						icon={canonical === "subcase" ? tablerLink : tablerArrowsRight}
 						width="14"
 						height="14"
 						className="text-nova-text-muted/60 shrink-0"
@@ -125,6 +193,39 @@ export function RelationPathBuilder({
 					/>
 				</>
 			)}
+		</div>
+	);
+}
+
+/**
+ * Read-only badge rendered when the composer receives a non-
+ * canonical `RelationPath` shape (multi-hop ancestor walks,
+ * qualified ancestor / subcase, `any-relation`). The label names
+ * the shape so authors know what they have; Replace overwrites
+ * the slot only on explicit click. The badge does not call
+ * `onChange` on mount or render.
+ */
+function NonCanonicalBadge({
+	label,
+	onReplace,
+}: {
+	readonly label: string;
+	readonly onReplace: () => void;
+}) {
+	return (
+		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.10] bg-nova-deep/30">
+			<span className="text-nova-text-muted shrink-0">Relation:</span>
+			<span className="font-mono text-nova-violet-bright/80 truncate">
+				{label}
+			</span>
+			<div className="flex-1" />
+			<button
+				type="button"
+				onClick={onReplace}
+				className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+			>
+				Replace
+			</button>
 		</div>
 	);
 }
