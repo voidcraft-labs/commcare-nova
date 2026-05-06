@@ -23,6 +23,7 @@ import {
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
@@ -90,13 +91,7 @@ export function WithinDistanceCard({
 					invalid={propertyErrors.length > 0}
 					ariaLabel="Geopoint property"
 				/>
-				{propertyErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-						{propertyErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={propertyErrors} />
 			</div>
 
 			<div className="grid grid-cols-[1.6fr_auto_auto] gap-2 items-start">
@@ -112,13 +107,7 @@ export function WithinDistanceCard({
 						invalid={centerErrors.length > 0}
 						ariaLabel="Center coordinate"
 					/>
-					{centerErrors.length > 0 && (
-						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-							{centerErrors.map((m) => (
-								<div key={m}>{m}</div>
-							))}
-						</div>
-					)}
+					<InlineError errors={centerErrors} />
 				</div>
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">

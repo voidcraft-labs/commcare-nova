@@ -34,6 +34,7 @@ import {
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
@@ -175,13 +176,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 					invalid={leftErrors.length > 0}
 					ariaLabel="Left operand"
 				/>
-				{leftErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90 space-y-0.5">
-						{leftErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={leftErrors} />
 			</div>
 
 			<OperatorMenu kind={value.kind} setKind={setKind} />
@@ -195,13 +190,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 					invalid={rightErrors.length > 0}
 					ariaLabel="Right operand"
 				/>
-				{rightErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90 space-y-0.5">
-						{rightErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={rightErrors} />
 			</div>
 		</div>
 	);

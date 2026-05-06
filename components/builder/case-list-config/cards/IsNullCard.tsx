@@ -14,6 +14,7 @@ import { isNull, type Predicate, prop } from "@/lib/domain/predicate";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 
 export function isNullDefault(
@@ -53,13 +54,7 @@ export function IsNullCard({ value, onChange, path }: IsNullCardProps) {
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>
-				{leftErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-						{leftErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={leftErrors} />
 			</div>
 			<div className="text-[11px] text-nova-text-muted/70 leading-snug">
 				Matches only when the property has never been written. The empty string

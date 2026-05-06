@@ -19,6 +19,7 @@ import {
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
@@ -108,13 +109,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>
-				{leftErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-						{leftErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={leftErrors} />
 			</div>
 
 			<div className="grid grid-cols-2 gap-2">
@@ -231,13 +226,7 @@ function BoundEditor({
 						invalid={errors.length > 0}
 						ariaLabel={`${label} bound`}
 					/>
-					{errors.length > 0 && (
-						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-							{errors.map((m) => (
-								<div key={m}>{m}</div>
-							))}
-						</div>
-					)}
+					<InlineError errors={errors} />
 				</div>
 			) : (
 				<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">

@@ -35,6 +35,7 @@ import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 
 /**
@@ -137,13 +138,7 @@ export function MultiSelectContainsCard({
 						invalid={propertyErrors.length > 0}
 						ariaLabel="Multi-select property"
 					/>
-					{propertyErrors.length > 0 && (
-						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-							{propertyErrors.map((m) => (
-								<div key={m}>{m}</div>
-							))}
-						</div>
-					)}
+					<InlineError errors={propertyErrors} />
 				</div>
 				<QuantifierMenu
 					quantifier={value.quantifier}

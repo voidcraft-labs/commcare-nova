@@ -159,24 +159,73 @@ export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
 }
 
 /**
+ * Read every error attached to a slot OR any descendant of it.
+ * Used by cards whose type-checker emits per-slot errors at deeper
+ * paths than the operator-level slot — e.g. `match` emits term-
+ * resolution failures (Unknown property, Unknown search input) at
+ * `[..., "value", "term"]` while emitting operator-level mode-
+ * mismatch errors at `[..., "value"]`. Both must reach the same
+ * inline UI, so the lookup widens to a path-prefix capture.
+ *
+ * The merged list is deduplicated — multiple checker passes can
+ * leave duplicate messages at adjacent paths, and React's key
+ * uniqueness contract on the rendered diagnostic rows demands a
+ * unique identifier per row. Stable-order (insertion-order) dedup
+ * preserves the message ordering authors see.
+ */
+export function useEditorErrorsAtOrBelow(path: EditorPath): EditorPathErrors {
+	const { validityIndex } = usePredicateEditContextRaw();
+	const prefix = serializePath(path);
+	// Two prefix forms match: the slot itself (exact-key match) and
+	// any descendant (the segment-separator '\0' in `serializePath`
+	// makes the prefix-with-separator check structurally distinct
+	// from a same-named sibling slot).
+	const prefixWithSep = prefix === "" ? "" : `${prefix}\0`;
+	const seen = new Set<string>();
+	const merged: string[] = [];
+	for (const [key, list] of validityIndex) {
+		const matches =
+			key === prefix ||
+			(prefixWithSep !== "" && key.startsWith(prefixWithSep)) ||
+			// Root path captures every error.
+			prefix === "";
+		if (!matches) continue;
+		for (const message of list) {
+			if (seen.has(message)) continue;
+			seen.add(message);
+			merged.push(message);
+		}
+	}
+	return merged;
+}
+
+/**
  * Build a `ValidityIndex` from a flat list of `CheckError`s. The
  * top-level editor calls this on every onChange to convert the
  * checker's verdict into a render-time lookup table. Same-path
- * errors collapse into a single list so cards can render every
- * diagnostic that landed on a slot.
+ * errors collapse into a single list with duplicates removed so
+ * the rendered diagnostic rows don't collide on identical message
+ * strings — React keys derived from message content stay unique
+ * per slot.
  */
 export function buildValidityIndex(
 	errors: readonly { path: readonly (string | number)[]; message: string }[],
 ): ValidityIndex {
 	const map = new Map<string, string[]>();
+	const seen = new Map<string, Set<string>>();
 	for (const error of errors) {
 		const key = serializePath(error.path);
-		const list = map.get(key);
-		if (list === undefined) {
-			map.set(key, [error.message]);
-		} else {
-			list.push(error.message);
+		let list = map.get(key);
+		let dedup = seen.get(key);
+		if (list === undefined || dedup === undefined) {
+			list = [];
+			dedup = new Set<string>();
+			map.set(key, list);
+			seen.set(key, dedup);
 		}
+		if (dedup.has(error.message)) continue;
+		dedup.add(error.message);
+		list.push(error.message);
 	}
 	return map;
 }

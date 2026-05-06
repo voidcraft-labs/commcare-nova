@@ -9,6 +9,7 @@ import { isBlank, type Predicate, prop } from "@/lib/domain/predicate";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 
 export function isBlankDefault(
@@ -48,13 +49,7 @@ export function IsBlankCard({ value, onChange, path }: IsBlankCardProps) {
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>
-				{leftErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-						{leftErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={leftErrors} />
 			</div>
 			<div className="text-[11px] text-nova-text-muted/70 leading-snug">
 				Matches when the property is missing or set to the empty string.

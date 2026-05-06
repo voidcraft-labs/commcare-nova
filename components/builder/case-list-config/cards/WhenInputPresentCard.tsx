@@ -24,6 +24,7 @@ import {
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendKindSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
 
 export function whenInputPresentDefault(
@@ -68,13 +69,7 @@ export function WhenInputPresentCard({
 					onChange={setInput}
 					invalid={inputErrors.length > 0}
 				/>
-				{inputErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-						{inputErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={inputErrors} />
 			</div>
 			<div>
 				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
@@ -84,6 +79,7 @@ export function WhenInputPresentCard({
 					value={value.clause}
 					onChange={setClause}
 					path={appendKindSlot(path, "when-input-present", "clause")}
+					variant="nested"
 				/>
 			</div>
 		</div>

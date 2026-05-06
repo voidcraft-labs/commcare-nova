@@ -20,9 +20,14 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import {
+	useEditorErrorsAt,
+	useEditorErrorsAtOrBelow,
+	usePredicateEditContext,
+} from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
@@ -74,7 +79,16 @@ interface MatchCardProps {
 export function MatchCard({ value, onChange, path }: MatchCardProps) {
 	const ctx = usePredicateEditContext();
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
-	const valueErrors = useEditorErrorsAt(appendSlot(path, "value"));
+	// `match` is the only predicate whose type checker emits errors at
+	// a path *deeper* than the operator's value slot — term-resolution
+	// failures on `match.value.term` land at `[..., "value", "term"]`,
+	// while operator-level mode-mismatch errors land at
+	// `[..., "value"]`. Capture both with the prefix lookup so an
+	// Unknown-property / Unknown-input failure on the value picker
+	// surfaces inline next to the input rather than only flipping the
+	// parent's save gate. See `checkMatch` in
+	// `lib/domain/predicate/typeChecker.ts` for the path emission.
+	const valueErrors = useEditorErrorsAtOrBelow(appendSlot(path, "value"));
 
 	const setProperty = (propertyName: string) => {
 		onChange(
@@ -115,13 +129,7 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 						invalid={propertyErrors.length > 0}
 						ariaLabel="Property"
 					/>
-					{propertyErrors.length > 0 && (
-						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-							{propertyErrors.map((m) => (
-								<div key={m}>{m}</div>
-							))}
-						</div>
-					)}
+					<InlineError errors={propertyErrors} />
 				</div>
 
 				<ModeMenu mode={value.mode} setMode={setMode} />
@@ -135,13 +143,7 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 						invalid={valueErrors.length > 0}
 						ariaLabel="Match value"
 					/>
-					{valueErrors.length > 0 && (
-						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-							{valueErrors.map((m) => (
-								<div key={m}>{m}</div>
-							))}
-						</div>
-					)}
+					<InlineError errors={valueErrors} />
 				</div>
 			</div>
 		</div>

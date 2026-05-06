@@ -45,6 +45,13 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import {
+	asDragPayload,
+	type ClauseDragData,
+	type ClauseDropData,
+	readClauseDragData,
+	readClauseDropData,
+} from "../dragData";
 import { usePredicateEditContext } from "../editorContext";
 import {
 	type PredicateCardSchema,
@@ -169,20 +176,6 @@ function applyLogical(
 	return (builder as (...args: Predicate[]) => Predicate)(...clauses);
 }
 
-interface ClauseDragData {
-	readonly kind: "predicate-clause-drag";
-	readonly groupKind: "and" | "or";
-	readonly clauseIndex: number;
-	readonly nodeKey: string;
-}
-
-interface ClauseDropData {
-	readonly kind: "predicate-clause-drop";
-	readonly groupKind: "and" | "or";
-	readonly clauseIndex: number;
-	readonly nodeKey: string;
-}
-
 function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	const ctx = usePredicateEditContext();
 	// Memoize the editor-context view so the addClause callback's
@@ -212,29 +205,19 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	useEffect(() => {
 		const cleanup = monitorForElements({
 			canMonitor: ({ source }) => {
-				const data = source.data as Partial<ClauseDragData>;
-				return (
-					data.kind === "predicate-clause-drag" && data.nodeKey === containerKey
-				);
+				const data = readClauseDragData(source.data);
+				return data !== undefined && data.nodeKey === containerKey;
 			},
 			onDrop: ({ source, location }) => {
 				setPendingDrop(null);
-				const sourceData = source.data as Partial<ClauseDragData>;
-				if (
-					sourceData.kind !== "predicate-clause-drag" ||
-					sourceData.nodeKey !== containerKey ||
-					sourceData.clauseIndex === undefined
-				) {
+				const sourceData = readClauseDragData(source.data);
+				if (sourceData === undefined || sourceData.nodeKey !== containerKey) {
 					return;
 				}
 				const target = location.current.dropTargets[0];
 				if (target === undefined) return;
-				const targetData = target.data as Partial<ClauseDropData>;
-				if (
-					targetData.kind !== "predicate-clause-drop" ||
-					targetData.nodeKey !== containerKey ||
-					targetData.clauseIndex === undefined
-				) {
+				const targetData = readClauseDropData(target.data);
+				if (targetData === undefined || targetData.nodeKey !== containerKey) {
 					return;
 				}
 				const fromIndex = sourceData.clauseIndex;
@@ -253,12 +236,8 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				onChange(applyLogical(value.kind, reordered));
 			},
 			onDrag: ({ source, location }) => {
-				const sourceData = source.data as Partial<ClauseDragData>;
-				if (
-					sourceData.kind !== "predicate-clause-drag" ||
-					sourceData.nodeKey !== containerKey ||
-					sourceData.clauseIndex === undefined
-				) {
+				const sourceData = readClauseDragData(source.data);
+				if (sourceData === undefined || sourceData.nodeKey !== containerKey) {
 					return;
 				}
 				const target = location.current.dropTargets[0];
@@ -266,12 +245,8 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 					setPendingDrop(null);
 					return;
 				}
-				const targetData = target.data as Partial<ClauseDropData>;
-				if (
-					targetData.kind !== "predicate-clause-drop" ||
-					targetData.nodeKey !== containerKey ||
-					targetData.clauseIndex === undefined
-				) {
+				const targetData = readClauseDropData(target.data);
+				if (targetData === undefined || targetData.nodeKey !== containerKey) {
 					setPendingDrop(null);
 					return;
 				}
@@ -403,24 +378,21 @@ function ClauseRow({
 			handleEl !== null
 				? draggable({
 						element: handleEl,
-						getInitialData: () =>
-							dragData as unknown as Record<string, unknown>,
+						getInitialData: () => asDragPayload(dragData),
 					})
 				: () => {},
 			dropTargetForElements({
 				element: wrapper,
 				canDrop: ({ source }) => {
-					const d = source.data as Partial<ClauseDragData>;
-					return (
-						d.kind === "predicate-clause-drag" && d.nodeKey === containerKey
-					);
+					const d = readClauseDragData(source.data);
+					return d !== undefined && d.nodeKey === containerKey;
 				},
 				getData: ({ input, element }) =>
-					attachClosestEdge(dropData as unknown as Record<string, unknown>, {
+					attachClosestEdge(asDragPayload(dropData), {
 						input,
 						element,
 						allowedEdges: ["top", "bottom"],
-					}) as Record<string | symbol, unknown>,
+					}),
 				onDrag: ({ self }) => {
 					setClosestEdge(extractClosestEdge(self.data));
 				},

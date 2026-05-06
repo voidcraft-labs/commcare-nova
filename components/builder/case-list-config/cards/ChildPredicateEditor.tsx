@@ -29,8 +29,7 @@ import {
 	predicateCardSchemaList,
 	predicateCardSchemas,
 } from "../editorSchemas";
-import { nodeId } from "../nodeIdentity";
-import { type EditorPath, ROOT_PATH } from "../path";
+import type { EditorPath } from "../path";
 import { CardShell } from "../primitives/CardShell";
 
 interface ChildPredicateEditorProps {
@@ -224,17 +223,3 @@ function KindReplaceMenu({ currentKind, onChange }: KindReplaceMenuProps) {
 		</Menu.Root>
 	);
 }
-
-/**
- * React-key helper. The AST has no built-in uuids; per-node ids
- * come from a module-scoped WeakMap. Mirrors the contract in
- * `nodeIdentity.ts`. Defensive against primitive AST values (never
- * actually reached because `Predicate` is always an object).
- */
-export function predicateKey(value: Predicate): string {
-	return nodeId(value as object);
-}
-
-/** Convenience — re-exports for tests / call sites that use the
- *  serialized root path against the editor entry. */
-export { ROOT_PATH };

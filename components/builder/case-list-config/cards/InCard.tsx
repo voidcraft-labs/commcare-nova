@@ -20,6 +20,7 @@ import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
 import { PropertyPicker } from "../primitives/PropertyPicker";
 
@@ -80,13 +81,7 @@ export function InCard({ value, onChange, path }: InCardProps) {
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>
-				{leftErrors.length > 0 && (
-					<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
-						{leftErrors.map((m) => (
-							<div key={m}>{m}</div>
-						))}
-					</div>
-				)}
+				<InlineError errors={leftErrors} />
 			</div>
 
 			<div className="space-y-1.5">
@@ -162,13 +157,7 @@ function ValueRow({
 					</button>
 				)}
 			</div>
-			{errors.length > 0 && (
-				<div className="text-[11px] leading-snug text-nova-error/90">
-					{errors.map((m) => (
-						<div key={m}>{m}</div>
-					))}
-				</div>
-			)}
+			<InlineError errors={errors} />
 		</div>
 	);
 }
