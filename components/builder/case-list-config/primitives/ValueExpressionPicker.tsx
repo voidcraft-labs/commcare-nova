@@ -40,6 +40,7 @@ import {
 	literal,
 	prop,
 	sessionContext,
+	sessionUser,
 	type Term,
 	type ValueExpression,
 	term as wrapTerm,
@@ -61,15 +62,23 @@ type TermMode =
 	| "session-context"
 	| "session-user";
 
-/** Human-readable labels for the higher-order ValueExpression arms
- *  the read-only badge shows when the picker receives a non-Term
- *  shape. The keys cover every non-`term` arm in
- *  `valueExpressionSchema`; an exhaustive `Record<...>` over the
- *  closed kind set guarantees a label for every case. */
-const HIGHER_ORDER_LABELS: Record<
-	Exclude<ValueExpression["kind"], "term">,
-	string
-> = {
+/**
+ * Synthetic kind used by `LeftPropertyPicker` when the LEFT-slot
+ * value is a Term-arm Term that isn't a property reference
+ * (literal / search-input / session-context / session-user). The
+ * surrounding `LeftPropertyPicker` only edits the
+ * `term(prop(...))` shape; every other Term shape routes through
+ * the same read-only badge as the higher-order arms so the
+ * authored value can't be silently overwritten.
+ */
+type BadgeKind = Exclude<ValueExpression["kind"], "term"> | "term-non-prop";
+
+/** Human-readable labels for the badge kinds. The non-`term` arm
+ *  keys cover every higher-order arm in `valueExpressionSchema`;
+ *  the synthetic `term-non-prop` row labels Term-arm shapes the
+ *  LEFT-slot picker can't edit. An exhaustive `Record<...>` over
+ *  the closed kind set guarantees a label for every case. */
+const HIGHER_ORDER_LABELS: Record<BadgeKind, string> = {
 	today: "Today",
 	now: "Now",
 	"date-add": "Date arithmetic",
@@ -84,6 +93,7 @@ const HIGHER_ORDER_LABELS: Record<
 	count: "Relational count",
 	"unwrap-list": "Unwrap list",
 	"format-date": "Format date",
+	"term-non-prop": "Non-property reference",
 };
 
 interface ValueExpressionPickerProps {
@@ -169,18 +179,22 @@ export function ValueExpressionPicker({
 }
 
 /**
- * Read-only badge rendered when the picker receives a non-Term
- * `ValueExpression` arm. Surfaces the kind label (from
- * `HIGHER_ORDER_LABELS`) and a Replace affordance. The badge does
- * not call `onChange` on mount or render — only the user's
- * Replace click overwrites the underlying expression.
+ * Read-only badge rendered when the picker (or the LEFT-slot
+ * `LeftPropertyPicker`) receives a value shape it can't edit.
+ * Surfaces the kind label (from `HIGHER_ORDER_LABELS`) and a
+ * Replace affordance. The badge does not call `onChange` on mount
+ * or render — only the user's Replace click overwrites the
+ * underlying value.
+ *
+ * Exported so `LeftPropertyPicker` reuses the same chrome when a
+ * LEFT-slot value isn't a property reference.
  */
-function HigherOrderBadge({
+export function HigherOrderBadge({
 	kind,
 	onReplace,
 	ariaLabel,
 }: {
-	readonly kind: Exclude<ValueExpression["kind"], "term">;
+	readonly kind: BadgeKind;
 	readonly onReplace: () => void;
 	readonly ariaLabel: string;
 }) {
@@ -251,7 +265,7 @@ function buildTermDefault(
 			// Open-namespace user-data field — defaults to a
 			// placeholder; the editor card surfaces a per-slot error
 			// until the author fills in a real field name.
-			return { kind: "session-user", field: "" };
+			return sessionUser("");
 	}
 }
 
@@ -438,7 +452,7 @@ function TermBodyInput({
 			return (
 				<UserFieldInput
 					value={term.field}
-					onChange={(field) => onChange({ kind: "session-user", field })}
+					onChange={(field) => onChange(sessionUser(field))}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>

@@ -11,11 +11,11 @@
 
 "use client";
 import { isNull, type Predicate, prop } from "@/lib/domain/predicate";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { PropertyPicker } from "../primitives/PropertyPicker";
+import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
 
 export function isNullDefault(
 	ctx: PredicateEditContext,
@@ -33,24 +33,14 @@ interface IsNullCardProps {
 }
 
 export function IsNullCard({ value, onChange, path }: IsNullCardProps) {
-	const ctx = usePredicateEditContext();
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
-
-	const propertyName =
-		value.left.kind === "term" && value.left.term.kind === "prop"
-			? value.left.term.property
-			: undefined;
-
-	const setProperty = (next: string) => {
-		onChange(isNull(prop(ctx.currentCaseType, next)));
-	};
 
 	return (
 		<div className="space-y-2">
 			<div>
-				<PropertyPicker
-					value={propertyName}
-					onChange={setProperty}
+				<LeftPropertyPicker
+					value={value.left}
+					onChange={(left) => onChange(isNull(left))}
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>

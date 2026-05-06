@@ -15,12 +15,13 @@ import {
 	type Predicate,
 	prop,
 	type ValueExpression,
+	term as wrapTerm,
 } from "@/lib/domain/predicate";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { PropertyPicker } from "../primitives/PropertyPicker";
+import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const ORDERED_PROPERTY_TYPES = new Set<string>([
@@ -86,25 +87,24 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	const lowerErrors = useEditorErrorsAt(appendSlot(path, "lower"));
 	const upperErrors = useEditorErrorsAt(appendSlot(path, "upper"));
 
+	// Anchor property name for typed-input switching in each
+	// bound editor. Pulled from the LEFT-slot AST shape; only
+	// meaningful when the left is a property reference.
 	const propertyName =
 		value.left.kind === "term" && value.left.term.kind === "prop"
 			? value.left.term.property
 			: undefined;
 
-	const setProperty = (next: string) => {
-		onChange(
-			buildBetween(value, {
-				left: { kind: "term", term: prop(ctx.currentCaseType, next) },
-			}),
-		);
+	const setLeft = (left: ValueExpression) => {
+		onChange(buildBetween(value, { left }));
 	};
 
 	return (
 		<div className="space-y-2">
 			<div>
-				<PropertyPicker
-					value={propertyName}
-					onChange={setProperty}
+				<LeftPropertyPicker
+					value={value.left}
+					onChange={setLeft}
 					filter={(p) => ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text")}
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
@@ -191,7 +191,7 @@ function BoundEditor({
 							if (toggleDisabled) return;
 							onChange(undefined);
 						} else {
-							onChange({ kind: "term", term: literal("") });
+							onChange(wrapTerm(literal("")));
 						}
 					}}
 					disabled={toggleDisabled}

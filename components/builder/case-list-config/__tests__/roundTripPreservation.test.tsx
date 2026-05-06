@@ -26,9 +26,14 @@ import {
 	ancestorPath,
 	anyRelationPath,
 	arith,
+	between,
 	count,
 	eq,
 	exists,
+	gt,
+	isBlank,
+	isIn,
+	isNull,
 	literal,
 	prop,
 	relationStep,
@@ -155,6 +160,25 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
+	it("renders read-only badge for a qualified ancestor walk", () => {
+		// Single-hop ancestor with a `throughCaseType` qualifier on
+		// the step — the composer's canonical edit shape doesn't
+		// surface the qualifier, so editing in place would silently
+		// drop it.
+		const value = exists(ancestorPath(relationStep("parent", "household")));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Qualified ancestor walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("renders read-only badge for an `any-relation` walk", () => {
 		const value = exists(anyRelationPath("parent"));
 		const onChange = vi.fn();
@@ -203,6 +227,103 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 		expect(container.textContent).not.toMatch(
 			/Multi-hop|Direction-agnostic|Qualified/i,
 		);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+});
+
+describe("LeftPropertyPicker — non-Term LEFT-slot round-trip preservation", () => {
+	// Every Predicate operator with a `left: ValueExpression` slot
+	// must round-trip non-Term values without destruction. The
+	// schema admits any ValueExpression at those slots; the
+	// editor's LEFT-slot picker must NOT silently overwrite a
+	// higher-order expression on first interaction.
+	//
+	// The five surfaces: `compare` (ComparisonCard) / `in` (InCard) /
+	// `between` (BetweenCard) / `is-null` (IsNullCard) / `is-blank`
+	// (IsBlankCard).
+
+	const NON_TERM_LEFT = arith("+", term(literal(1)), term(literal(2)));
+
+	it("ComparisonCard preserves a non-Term left", () => {
+		// Construct via parse rather than the typed builders because
+		// `gt` requires ordered operands at type-check time and the
+		// builder type narrowing rejects `left: arith(...)` shapes
+		// directly. The runtime builder accepts the wider shape; we
+		// reach it via the typed builder with a cast for the test.
+		const value = gt(NON_TERM_LEFT, term(literal(18)));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Arithmetic/i);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("InCard preserves a non-Term left", () => {
+		const value = isIn(NON_TERM_LEFT, literal(1), literal(2), literal(3));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Arithmetic/i);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("BetweenCard preserves a non-Term left", () => {
+		const value = between(NON_TERM_LEFT, {
+			lower: literal(0),
+			upper: literal(100),
+		});
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Arithmetic/i);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("IsNullCard preserves a non-Term left", () => {
+		const value = isNull(NON_TERM_LEFT);
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Arithmetic/i);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("IsBlankCard preserves a non-Term left", () => {
+		const value = isBlank(NON_TERM_LEFT);
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Arithmetic/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });

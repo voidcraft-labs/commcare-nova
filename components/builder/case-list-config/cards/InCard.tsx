@@ -15,14 +15,15 @@ import {
 	literal,
 	type Predicate,
 	prop,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
-import { PropertyPicker } from "../primitives/PropertyPicker";
 
 export function inDefault(
 	ctx: PredicateEditContext,
@@ -43,14 +44,17 @@ export function InCard({ value, onChange, path }: InCardProps) {
 	const ctx = usePredicateEditContext();
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
 
+	// Anchor property name for typed-input switching in each value
+	// row. Pulled from the LEFT-slot AST shape; only meaningful
+	// when the left is a property reference.
 	const propertyName =
 		value.left.kind === "term" && value.left.term.kind === "prop"
 			? value.left.term.property
 			: undefined;
 
-	const setProperty = (next: string) => {
+	const setLeft = (left: ValueExpression) => {
 		const [first, ...rest] = value.values;
-		onChange(isIn(prop(ctx.currentCaseType, next), first, ...rest));
+		onChange(isIn(left, first, ...rest));
 	};
 
 	const setValueAt = (index: number, next: Literal) => {
@@ -75,9 +79,9 @@ export function InCard({ value, onChange, path }: InCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<PropertyPicker
-					value={propertyName}
-					onChange={setProperty}
+				<LeftPropertyPicker
+					value={value.left}
+					onChange={setLeft}
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>

@@ -16,7 +16,17 @@
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useRef } from "react";
-import type { Predicate } from "@/lib/domain/predicate";
+import {
+	and,
+	COMPARISON_KINDS,
+	type ComparisonKind,
+	exists,
+	isBlank,
+	isNull,
+	missing,
+	or,
+	type Predicate,
+} from "@/lib/domain/predicate";
 import {
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
@@ -31,6 +41,7 @@ import {
 } from "../editorSchemas";
 import type { EditorPath } from "../path";
 import { CardShell } from "../primitives/CardShell";
+import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
 
 interface ChildPredicateEditorProps {
 	readonly value: Predicate;
@@ -101,21 +112,39 @@ interface KindReplaceMenuProps {
 	readonly onChange: (next: Predicate) => void;
 }
 
+/** Comparison-kind membership Set, sourced from the canonical
+ *  `COMPARISON_KINDS` constant in `lib/domain/predicate/types.ts`.
+ *  Single source of truth — adding a comparison kind to the
+ *  predicate package widens this Set without a parallel edit
+ *  here. */
+const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
+	COMPARISON_KINDS,
+);
+
 /**
  * Map a kind to the structural-twin set it shares — pairs of
  * kinds with identical operand shapes that the editor preserves
- * verbatim across replacement. Concretely:
+ * verbatim across replacement. Four twin groups, one per operand
+ * shape:
  *
- *   - `exists` ↔ `missing` carry identical `{ via, where? }`
- *     operand shapes — the in-card `KindMenu` already swaps
- *     between them while preserving operands. Routing the outer
- *     replace menu through the same operand-preserving swap
- *     guarantees the two affordances produce the same result for
- *     the same author intent.
- *   - The six comparison kinds (`eq` / `neq` / `gt` / `gte` /
- *     `lt` / `lte`) carry identical `{ left, right }` shapes —
- *     swapping between them preserves the picked property and
- *     value rather than resetting to the schema's default.
+ *   - `{ clauses: [Predicate, ...Predicate[]] }` — `and` ↔ `or`.
+ *     Switching the discriminator preserves the author's clause
+ *     list verbatim. Routes through the matching `and` / `or`
+ *     builder so the construction-time reductions apply.
+ *   - `{ left: ValueExpression }` — `is-null` ↔ `is-blank`.
+ *     Same `left` shape; the two operators differ only in the
+ *     strict-vs-portable absence semantic. Routes through the
+ *     matching `isNull` / `isBlank` builder.
+ *   - `{ left, right: ValueExpression }` — the six comparison
+ *     kinds (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`). Routes
+ *     through `COMPARISON_BUILDERS` (the table exported by
+ *     `ComparisonCard`).
+ *   - `{ via: RelationPath, where?: Predicate }` — `exists` ↔
+ *     `missing`. Same shape; the in-card `KindMenu` toggles
+ *     between them and the outer "Change" menu now produces the
+ *     same result. Routes through the `exists` / `missing`
+ *     builder, preserving the absent-not-undefined contract on
+ *     `where`.
  *
  * Returns `null` when no twin shape applies; the caller falls
  * through to `defaultValue(ctx)`.
@@ -124,41 +153,54 @@ function preservedOperandSwap(
 	currentValue: Predicate,
 	targetKind: Predicate["kind"],
 ): Predicate | null {
-	// exists ↔ missing — same `{ via, where? }`.
+	// and ↔ or — same `{ clauses }`.
+	if (
+		(currentValue.kind === "and" || currentValue.kind === "or") &&
+		(targetKind === "and" || targetKind === "or")
+	) {
+		const builder = targetKind === "or" ? or : and;
+		// Spread through the builder's variadic signature — at least
+		// two clauses guaranteed by the schema (and / or both reject
+		// empty + single-clause envelopes via reduction). The cast
+		// widens to the implementation signature; the runtime
+		// non-empty guarantee comes from the source AST's schema.
+		return (builder as (...args: Predicate[]) => Predicate)(
+			...currentValue.clauses,
+		);
+	}
+	// is-null ↔ is-blank — same `{ left }`.
+	if (
+		(currentValue.kind === "is-null" || currentValue.kind === "is-blank") &&
+		(targetKind === "is-null" || targetKind === "is-blank")
+	) {
+		const builder = targetKind === "is-null" ? isNull : isBlank;
+		return builder(currentValue.left);
+	}
+	// Comparison ↔ comparison — same `{ left, right }`.
+	if (
+		COMPARISON_KIND_SET.has(currentValue.kind) &&
+		COMPARISON_KIND_SET.has(targetKind)
+	) {
+		const comparison = currentValue as Extract<
+			Predicate,
+			{ kind: ComparisonKind }
+		>;
+		const builder = COMPARISON_BUILDERS[targetKind as ComparisonKind];
+		return builder(comparison.left, comparison.right);
+	}
+	// exists ↔ missing — same `{ via, where? }`. The builders'
+	// absent-not-undefined contract handles the optional `where`
+	// slot — calling `exists(via)` produces a result with no
+	// `where` key (rather than `where: undefined`), matching the
+	// schema's `.optional()` strip behavior on parse.
 	if (
 		(currentValue.kind === "exists" || currentValue.kind === "missing") &&
 		(targetKind === "exists" || targetKind === "missing")
 	) {
+		const builder = targetKind === "missing" ? missing : exists;
 		return currentValue.where === undefined
-			? { kind: targetKind, via: currentValue.via }
-			: { kind: targetKind, via: currentValue.via, where: currentValue.where };
-	}
-	// Comparison ↔ comparison — same `{ left, right }`.
-	const COMPARISON_KINDS = new Set<Predicate["kind"]>([
-		"eq",
-		"neq",
-		"gt",
-		"gte",
-		"lt",
-		"lte",
-	]);
-	if (
-		COMPARISON_KINDS.has(currentValue.kind) &&
-		COMPARISON_KINDS.has(targetKind)
-	) {
-		// Narrowing — `currentValue.kind` is a comparison kind so the
-		// arm carries `left` / `right`. The discriminated-union type
-		// requires the `kind` literal be in the closed set; the cast
-		// reads through the runtime guarantee the Set check provides.
-		const comparison = currentValue as Extract<
-			Predicate,
-			{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
-		>;
-		return {
-			kind: targetKind as typeof comparison.kind,
-			left: comparison.left,
-			right: comparison.right,
-		};
+			? builder(currentValue.via)
+			: builder(currentValue.via, currentValue.where);
 	}
 	return null;
 }
@@ -258,7 +300,12 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 								<Menu.Item
 									key={s.kind}
 									onClick={() => replaceWith(s)}
-									disabled={!isApplicable && !isCurrent}
+									// Current kind is not a valid replacement
+									// target — clicking it would re-render and
+									// recompute the validity index for a
+									// structurally identical predicate. Inapplicable
+									// kinds also disable.
+									disabled={isCurrent || !isApplicable}
 									className={cls}
 								>
 									<Icon

@@ -988,7 +988,14 @@ const formatDateSchema = z.object({
  * ValueExpression-of-Term wrapper without any author-visible
  * ceremony.
  */
-const COMPARISON_KINDS = ["eq", "neq", "gt", "gte", "lt", "lte"] as const;
+export const COMPARISON_KINDS = [
+	"eq",
+	"neq",
+	"gt",
+	"gte",
+	"lt",
+	"lte",
+] as const;
 export type ComparisonKind = (typeof COMPARISON_KINDS)[number];
 
 const comparisonSchema = z.object({

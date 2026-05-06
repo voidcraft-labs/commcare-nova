@@ -35,13 +35,15 @@ import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { PropertyPicker } from "../primitives/PropertyPicker";
+import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 /** Per-kind builder dispatch. Keeps the card body's onChange paths
  *  precise — each kind constructs through the matching builder so
- *  the AST stays canonical. */
-const KIND_BUILDERS: Record<
+ *  the AST stays canonical. Exported so `preservedOperandSwap` in
+ *  `ChildPredicateEditor` can route comparison ↔ comparison
+ *  replacements through the same builders. */
+export const KIND_BUILDERS: Record<
 	ComparisonKind,
 	(left: Parameters<typeof eq>[0], right: Parameters<typeof eq>[1]) => Predicate
 > = {
@@ -127,34 +129,35 @@ interface ComparisonCardProps {
 
 /**
  * Comparison card body. The slots:
- *   - `left.term.kind === "prop"` — the property being compared.
- *     The card constrains the LHS to a property reference for
- *     authoring readability; non-prop left operands (e.g. an
- *     arithmetic-derived left side) construct through the SA tool
- *     surface and round-trip through this card unchanged at the
- *     AST layer.
+ *   - `left` — `ValueExpression`. The card EDITS the canonical
+ *     `term(prop(...))` shape via `LeftPropertyPicker`; non-Term
+ *     and non-prop-Term shapes route through that picker's
+ *     read-only badge with an explicit Replace affordance, so the
+ *     authored expression round-trips without destruction.
  *   - operator — kind discriminator (eq / neq / gt / lt / lte / gte).
  *   - `right` — typed value via `LiteralValueInput` keyed off the
  *     left's property data type, OR a Term-shaped ValueExpression
- *     via the picker mode toggle.
+ *     via the picker mode toggle. Higher-order arms route through
+ *     `ValueExpressionPicker`'s read-only badge.
  */
 export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	const ctx = usePredicateEditContext();
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
 	const rightErrors = useEditorErrorsAt(appendSlot(path, "right"));
 
-	// Left slot reads a property reference. Non-prop left operands
-	// (an arithmetic expression, a conditional, a count) construct
-	// through the SA tool surface and round-trip through this card
-	// without an editing UI for the wider shapes.
+	// Anchor property name for the value picker's typed-input
+	// switch. Read directly from the LEFT-slot AST shape (only
+	// meaningful when the left is a property reference; the
+	// `LeftPropertyPicker` keeps the left shape pinned to that or
+	// the read-only badge).
 	const leftPropertyName =
 		value.left.kind === "term" && value.left.term.kind === "prop"
 			? value.left.term.property
 			: undefined;
 
-	const setLeftProperty = (propertyName: string) => {
+	const setLeft = (left: Parameters<typeof eq>[0]) => {
 		const builder = KIND_BUILDERS[value.kind];
-		onChange(builder(prop(ctx.currentCaseType, propertyName), value.right));
+		onChange(builder(left, value.right));
 	};
 
 	const setKind = (nextKind: ComparisonKind) => {
@@ -170,9 +173,9 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	return (
 		<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 			<div>
-				<PropertyPicker
-					value={leftPropertyName}
-					onChange={setLeftProperty}
+				<LeftPropertyPicker
+					value={value.left}
+					onChange={setLeft}
 					invalid={leftErrors.length > 0}
 					ariaLabel="Left operand"
 				/>
