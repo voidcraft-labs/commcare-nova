@@ -416,13 +416,17 @@ The Predicate and Expression ASTs are persisted in Firestore alongside the bluep
 
 ## Authoring surfaces
 
-### One surface, no mode picker — locked
+### One surface, no mode picker, no platform toggle — locked
 
 CommCare exposes four workflow modes (Normal / Search First / See More / Skip to Default Results) controlled by two orthogonal booleans on the wire (`auto_launch`, `default_search`). The booleans only meaningfully affect Web Apps; Android always shows the case list first regardless. The four modes are CCHQ's compromise between two backends and 25 years of accumulated UX choices; they are not a primitive Nova authoring should reproduce.
 
 Nova does not expose workflow modes to the author. There is no mode picker, no escape hatch, no toggle. The author configures one coherent surface (case list with optional filters, sorts, columns, search inputs, and default filters); the export adapter compiles per-platform from the configured content.
 
 **The principle:** Nova owns the authoring layer; the export layer translates to CCHQ's wire shape. CCHQ's mode picker is a CCHQ authoring-UX problem — solving it correctly there is CCHQ's job. Importing the picker into Nova replicates the underlying confusion. If a Nova-authored app produces a different (sometimes worse) UX on Web Apps than a hand-authored CCHQ app would, that's a CCHQ-side UX cost we accept rather than degrade Nova's authoring experience to match.
+
+**Authoring is web-apps-shaped.** The principle generalizes beyond the workflow-mode picker to every author-facing surface. Nova's primary export target is CCHQ web apps; the live-preview (running-app view) renders the web-apps split-screen experience exclusively. There is no Android-vs-Web toggle, no platform simulator, no "see what this looks like on Android" panel. The wire emitter still produces a complete `<remote-request>` valid for both runtimes — that's the export contract — but the authoring layer doesn't expose CCHQ's runtime fragmentation as an authoring concern. Authors see one canonical rendering; the export adapter compiles to both runtimes silently.
+
+**The deeper principle:** every per-platform UI affordance the author would otherwise be asked to think about (markdown-supported-on-web-only annotations, per-runtime preview panels, platform-shape pickers) is a leak from CCHQ's runtime fragmentation into Nova's authoring layer. Nova rejects each leak. Per-platform validation rules (the operator-allowlist gates that exist because Android can't dispatch certain operators in certain slots) are removed too — Nova emits the maximum CCHQ feature subset for web apps; runtime player capability gaps are Dimagi's structural concern.
 
 **Compilation by platform:**
 - **Mobile** — always emits as a normal case-list module with inline list filtering. Mobile always shows the case list first regardless of any wire flag.

@@ -22,7 +22,6 @@ components/builder/case-search-config/
 ├── DefaultFiltersSection.tsx                            # default filters (typed Predicate)
 ├── ClaimSection.tsx                                     # claim condition + don't-claim-already-owned
 ├── DisplaySection.tsx                                   # title, subtitle, empty-list text, search button label
-├── PlatformDivergencePanel.tsx                          # surfaces what each platform will do
 └── __tests__/
 
 lib/agent/tools/case-search-config/
@@ -69,7 +68,7 @@ interface CaseSearchConfig {
 
   // Display
   searchScreenTitle?: string;
-  searchScreenSubtitle?: string;              // markdown; web-only
+  searchScreenSubtitle?: string;              // markdown
   emptyListText?: string;
   searchButtonLabel?: string;
   searchAgainButtonLabel?: string;
@@ -113,21 +112,12 @@ Tests: round-trip; preview accuracy.
 
 **Files:** `components/builder/case-search-config/DisplaySection.tsx`, tests.
 
-Plain text inputs for title, subtitle (with markdown preview), empty-list text, button labels. The subtitle accepts markdown but only renders on Web Apps — surface that constraint in the UI.
+Plain text inputs for title, subtitle (with markdown preview), empty-list text, button labels.
 
 Tests: round-trip; markdown rendering preview.
 
 
-### Task 5: Platform divergence panel UI
-
-**Files:** `components/builder/case-search-config/PlatformDivergencePanel.tsx`, tests.
-
-Renders, side-by-side, what the search experience will look like on Android (always case-list-first with inline filter) vs Web Apps (split-screen if available, fallback per inference rule). The panel runs Plan 4 Task 8's `compileForPlatform` decision tree against the live config + each platform context and renders the resulting `WireShape` as a UX preview (filter bar layout, button placement, default-results behavior). Plan 1's wire emitters are faithful — every AST shape produces a wire string for every dialect — so the panel doesn't need a "representability checker"; it just renders what each platform's wire emission produces. Per-platform UX divergence is a CCHQ-runtime structural concern, not a Nova authoring-layer rejection (per `feedback_max_subset_no_dimagi_litter.md` + `feedback_dont_inherit_cchq_ux_at_authoring_layer.md`).
-
-Tests: each per-platform scenario shows the right UX preview; the panel updates live as the config changes.
-
-
-### Task 6: Search Inputs — cross-section binding
+### Task 5: Search Inputs — cross-section binding
 
 **Files:** No new file; `components/builder/case-search-config/CaseSearchConfigPanel.tsx` integrates Plan 3's SearchInputsSection.
 
@@ -136,7 +126,7 @@ Plan 3's SearchInputsSection lives at the case-list config level (because it's s
 Tests: editing inputs from either surface updates the same module data.
 
 
-### Task 7: SA tools
+### Task 6: SA tools
 
 **Files:** `lib/agent/tools/case-search-config/*.ts`, tests.
 
@@ -145,7 +135,7 @@ Tests: editing inputs from either surface updates the same module data.
 Tests: schema parse via `scripts/test-schema.ts`; tool effects on fixture blueprints.
 
 
-### Task 8: Platform-aware compilation decision tree
+### Task 7: Platform-aware compilation decision tree
 
 **Files:** `lib/commcare/suite/case-search/compileForPlatform.ts`, tests.
 
@@ -171,7 +161,7 @@ Decision tree (no author override; pure inference from content + platform):
 Tests: each branch hit with a fixture; output asserted; absence of `workflowMode` confirmed (the field doesn't exist on the schema).
 
 
-### Task 9: `<remote-request>` emission
+### Task 8: `<remote-request>` emission
 
 **Files:** `lib/commcare/suite/case-search/remoteRequest.ts`, tests.
 
@@ -200,7 +190,7 @@ Default filters compile via Plan 1's CSQL emitter (with `concat()` wrapping). Cl
 Tests: golden-file comparisons against fixture suite XML, one per platform × content combination.
 
 
-### Task 10: Search prompts emission
+### Task 9: Search prompts emission
 
 **Files:** `lib/commcare/suite/case-search/searchPrompts.ts`, tests.
 
@@ -209,7 +199,7 @@ Each `SearchInputDef` becomes a `<prompt key=... input=...>`  element with optio
 Tests: each input type (text / select / date / date-range / barcode) emits the right XML.
 
 
-### Task 11: Claim emission
+### Task 10: Claim emission
 
 **Files:** `lib/commcare/suite/case-search/claim.ts`, tests.
 
@@ -220,7 +210,7 @@ If `dontClaimAlreadyOwned` is true, AND the standard claim-only-if-not-owned gua
 Tests: golden-file comparisons; toggling `dontClaimAlreadyOwned` modifies `relevant` correctly.
 
 
-### Task 12: Validator rules
+### Task 11: Validator rules
 
 **Files:** `lib/commcare/validator/rules/case-search/*.ts`, tests.
 
@@ -232,7 +222,7 @@ Tests: golden-file comparisons; toggling `dontClaimAlreadyOwned` modifies `relev
 Tests: each rule fires on bad input.
 
 
-### Task 13: Plan 4 integration test
+### Task 12: Plan 4 integration test
 
 **Files:** `__tests__/integration/`.
 
@@ -245,24 +235,22 @@ End-to-end: build a fixture blueprint with case-search-config; run the validator
 
 - 1 standalone
 - 2, 3, 4 depend on 1 + Plan 3 editor primitives + Plan 2 CaseStore (live-preview)
-- 5 depends on 1 + Plan 4 Task 8 (compileForPlatform decision tree)
-- 6 depends on Plan 3 Task 8 + Task 1
-- 7 depends on 1 + Plan 1
-- 8 depends on 1
-- 9 depends on 1, 8 + Plan 1 CSQL emitter
-- 10 depends on Plan 3 Task 1 + Plan 1 expression emitter
+- 5 depends on Plan 3 Task 8 + Task 1
+- 6 depends on 1 + Plan 1
+- 7 depends on 1
+- 8 depends on 1, 7 + Plan 1 CSQL emitter
+- 9 depends on Plan 3 Task 1 + Plan 1 expression emitter
+- 10 depends on 1 + Plan 1
 - 11 depends on 1 + Plan 1
-- 12 depends on 1 + Plan 1
-- 13 depends on all prior
+- 12 depends on all prior
 
 ## Final verification
 
 - [ ] `npm run test` green
 - [ ] `npm run lint` clean
-- [ ] Integration test (Task 13) passes
+- [ ] Integration test (Task 12) passes
 - [ ] Cross-check `<remote-request>` emission against `commcare-hq/.../tests/data/suite/remote_request.xml`
-- [ ] Platform divergence panel correctly previews both Android and Web
 
 ## Plan shape
 
-Plan 4 is similar weight to Plan 3 in shape — most work is in the wire emitter (Task 9, `<remote-request>` emission) and the platform-divergence preview (Task 5), both differentiating features. Tasks 1-6 build the schema + UI surfaces; 7 ships SA tools; 8 implements the platform-aware compilation decision tree; 9-11 emit suite XML; 12 runs validators; 13 is the integration test.
+Plan 4's weight is dominated by the wire emitter (Task 8, `<remote-request>` emission) and the platform-aware compilation decision tree (Task 7) the export adapter uses to translate one author-side config into the right wire shape per CCHQ runtime. Tasks 1-5 build the schema + UI surfaces; 6 ships SA tools; 7 implements the decision tree (export-side, no author UI); 8-10 emit suite XML; 11 runs validators; 12 is the integration test. The author-facing live preview is web-apps-shaped per the spec's "One surface, no mode picker, no platform toggle" rule — there is no per-platform divergence panel; per-runtime UX differences are CCHQ-side concerns the export adapter handles silently.

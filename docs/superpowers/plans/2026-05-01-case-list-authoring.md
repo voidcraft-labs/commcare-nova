@@ -62,15 +62,6 @@ scripts/migrate-case-list-config.ts                      # one-shot operator-run
 
 ## Tasks
 
-### Task 0: Platform toggle (moved here from Plan 5)
-
-**Files:** `lib/preview/engine/platformSimulator.ts`, `components/builder/preview/PlatformToggle.tsx`, tests.
-
-Move what was Plan 5 Task 1 here. Plans 3 and 4 both have live-preview surfaces that need to render against a chosen platform; without the toggle present from Plan 3 onward, the live preview defaults to one platform's rendering and the author can't see lossy on-Android expansions or web-vs-mobile divergence at edit time. Default to "Web with split-screen" (the most-permissive target). Plan 4's PlatformDivergencePanel reuses this toggle. Plan 5's preview surface composition reuses it again.
-
-Tests: toggling re-derives the WireShape from Plan 4 Task 8's `compileForPlatform` (note: Task 8 is a Plan 4 task; Plan 3 imports the function once Plan 4 ships, but the toggle UI itself can ship in Plan 3 with a stub `compileForPlatform` that returns Web/split-screen by default).
-
-
 ### Task 1: Extend `Module` schema with typed `caseListConfig`
 
 **Files:** `lib/domain/modules.ts`, `lib/domain/migrations/2026-list-config.ts`, `__tests__/`.
