@@ -144,6 +144,7 @@ function buildSyntheticRow(properties: JsonObject): CaseRow {
 		opened_on: null,
 		modified_on: null,
 		closed_on: null,
+		case_name: "Synthetic Case",
 		parent_case_id: null,
 		properties,
 	};
@@ -176,6 +177,7 @@ describe("readCases", () => {
 			row: {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Alice", age: 30 },
 			},
@@ -185,6 +187,7 @@ describe("readCases", () => {
 			row: {
 				case_id: BOB_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Bob", age: 45 },
 			},
@@ -210,6 +213,7 @@ describe("readCases", () => {
 			row: {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Alice", age: 30 },
 			},
@@ -238,6 +242,7 @@ describe("readCaseData", () => {
 			row: {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Alice", age: 30 },
 			},
@@ -276,6 +281,7 @@ describe("readCaseData", () => {
 			row: {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Alice", age: 30 },
 			},
@@ -338,6 +344,7 @@ describe("caseRowToFormPreload", () => {
 			row: {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Alice", age: 30 },
 			},
@@ -397,6 +404,7 @@ describe("caseRowDisplayValue", () => {
 			row: {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
+				case_name: "test-case",
 				status: "open",
 				properties: { name: "Alice", age: 30 },
 			},

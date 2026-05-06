@@ -112,10 +112,26 @@ export type CaseTypePropertyJsonSchema =
  * Stable property iteration order matches the blueprint's declaration
  * order (object insertion order), which downstream snapshot tests can
  * rely on.
+ *
+ * `case_name` is filtered out of the property output. The blueprint
+ * surface admits `case_name` on a case type's `properties[]` (the SA
+ * + author UI treat it as a regular declaration so the field-editor
+ * can carry its label, default value, etc.), but the case-store
+ * stores `case_name` as a top-level scalar column on `cases` —
+ * `properties` JSONB never carries it. The JSON Schema validator
+ * runs against the JSONB document only, so emitting `case_name` here
+ * would force every write to land an unwanted JSONB key.
+ * `additionalProperties: false` would then reject any write that
+ * routes `case_name` to its column rather than the document. The
+ * column's non-empty CHECK constraint is the structural guarantee
+ * for the field; the AJV schema covers user-defined properties only.
  */
+const RESERVED_NON_PROPERTY_NAMES: ReadonlySet<string> = new Set(["case_name"]);
+
 export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
 	const properties: Record<string, CaseTypePropertyJsonSchema> = {};
 	for (const prop of caseType.properties) {
+		if (RESERVED_NON_PROPERTY_NAMES.has(prop.name)) continue;
 		properties[prop.name] = propertyToSchema(prop);
 	}
 	return {

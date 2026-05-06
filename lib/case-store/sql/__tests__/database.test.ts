@@ -173,15 +173,19 @@ describe("Database.cases", () => {
 				opened_on: new Date("2026-05-02T00:00:00Z"),
 				modified_on: new Date("2026-05-02T00:00:00Z"),
 				closed_on: null,
+				case_name: "Alice",
 				parent_case_id: null,
-				properties: JSON.stringify({ name: "Alice", age: 30 }),
+				properties: JSON.stringify({ age: 30 }),
 			}),
 		);
 
 		expect(compiled.sql).toContain('insert into "cases"');
 		expect(compiled.sql).toContain('"properties"');
-		// 10 columns, 10 placeholders.
-		expect(compiled.parameters).toHaveLength(10);
+		// 11 columns, 11 placeholders. (`case_name` is a top-level
+		// scalar column in addition to the ten pre-Plan-2-fix-pass
+		// columns; see `lib/case-store/sql/database.ts` for the
+		// full per-column rationale.)
+		expect(compiled.parameters).toHaveLength(11);
 	});
 
 	it("exposes the spec's column shape via Selectable<CasesTable>", () => {
@@ -199,6 +203,7 @@ describe("Database.cases", () => {
 			opened_on: new Date(),
 			modified_on: new Date(),
 			closed_on: null,
+			case_name: "Alice",
 			parent_case_id: null,
 			properties: { name: "Alice" },
 		};
@@ -374,6 +379,7 @@ describe("Database.cases_quarantine", () => {
 				opened_on: new Date("2026-05-02T00:00:00Z"),
 				modified_on: new Date("2026-05-02T00:00:00Z"),
 				closed_on: null,
+				case_name: "Alice",
 				parent_case_id: null,
 				properties: JSON.stringify({ age: "abc" }),
 				quarantine_reason:
@@ -384,8 +390,8 @@ describe("Database.cases_quarantine", () => {
 
 		expect(compiled.sql).toContain('insert into "cases_quarantine"');
 		expect(compiled.sql).toContain('"quarantine_reason"');
-		// 11 explicit columns set; `quarantined_at` is defaulted.
-		expect(compiled.parameters).toHaveLength(11);
+		// 12 explicit columns set; `quarantined_at` is defaulted.
+		expect(compiled.parameters).toHaveLength(12);
 	});
 
 	it("exposes the spec's column shape via Selectable<CasesQuarantineTable>", () => {
@@ -402,6 +408,7 @@ describe("Database.cases_quarantine", () => {
 			opened_on: new Date(),
 			modified_on: new Date(),
 			closed_on: null,
+			case_name: "Alice",
 			parent_case_id: null,
 			properties: { age: "abc" },
 			quarantine_reason: "cast failed",

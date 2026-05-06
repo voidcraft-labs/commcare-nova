@@ -26,7 +26,7 @@ import { deriveFromForm } from "../deriveFromForm";
 import {
 	type BuildBlueprintArgs,
 	type BuiltBlueprint,
-	buildBlueprint as buildBlueprintBase,
+	buildFormBlueprint,
 	completed,
 	PATIENT_CASE_TYPE,
 	VISIT_CASE_TYPE,
@@ -47,7 +47,7 @@ const APP_ID = "app-test";
 function buildBlueprint(
 	args: Omit<BuildBlueprintArgs, "appId">,
 ): BuiltBlueprint {
-	return buildBlueprintBase({ appId: APP_ID, ...args });
+	return buildFormBlueprint({ appId: APP_ID, ...args });
 }
 
 // ---------------------------------------------------------------
@@ -123,8 +123,10 @@ describe("deriveFromForm — registration forms", () => {
 		expect(ops.kind).toBe("registration");
 		if (ops.kind !== "registration") return;
 		expect(ops.primary.caseType).toBe("patient");
+		// `case_name` routes to the column slot; the JSONB document
+		// carries only the user-defined properties.
+		expect(ops.primary.caseName).toBe("Alice");
 		expect(ops.primary.properties).toEqual({
-			case_name: "Alice",
 			// `int` data_type → numeric coercion.
 			age: 30,
 		});
@@ -165,7 +167,11 @@ describe("deriveFromForm — registration forms", () => {
 
 		expect(ops.kind).toBe("registration");
 		if (ops.kind !== "registration") return;
-		expect(ops.primary.properties).toEqual({ case_name: "Alice" });
+		// Patient `case_name` routes to the column slot; the JSONB
+		// document is empty because the only patient field was
+		// `case_name`.
+		expect(ops.primary.caseName).toBe("Alice");
+		expect(ops.primary.properties).toEqual({});
 		expect(ops.children).toEqual([
 			{
 				caseType: "visit",
@@ -290,8 +296,10 @@ describe("deriveFromForm — registration forms", () => {
 
 		expect(ops.kind).toBe("registration");
 		if (ops.kind !== "registration") return;
+		// `case_name` lands on the column; every other typed property
+		// flows through the JSONB document.
+		expect(ops.primary.caseName).toBe("Alice");
 		expect(ops.primary.properties).toEqual({
-			case_name: "Alice",
 			age: 30,
 			weight: 55.5,
 			dob: "1995-03-12",
@@ -356,8 +364,10 @@ describe("deriveFromForm — registration forms", () => {
 		// Absent paths translate to absent JSONB keys. Postgres-strict
 		// null/blank then distinguishes absent (`is-null` match) from
 		// explicit empty string (`is-blank` match but NOT `is-null`)
-		// at the case-list filter layer.
-		expect(ops.primary.properties).toEqual({ case_name: "Alice" });
+		// at the case-list filter layer. `case_name` routes to the
+		// column slot regardless of the JSONB document's shape.
+		expect(ops.primary.caseName).toBe("Alice");
+		expect(ops.primary.properties).toEqual({});
 	});
 
 	it("also omits properties whose value is the empty string (defensive belt-and-suspenders)", () => {
@@ -405,7 +415,10 @@ describe("deriveFromForm — registration forms", () => {
 
 		expect(ops.kind).toBe("registration");
 		if (ops.kind !== "registration") return;
-		expect(ops.primary.properties).toEqual({ case_name: "Alice" });
+		// Same shape as the "absent path" test above — `case_name` on
+		// the column, no JSONB writes from the empty-string `dob`.
+		expect(ops.primary.caseName).toBe("Alice");
+		expect(ops.primary.properties).toEqual({});
 	});
 
 	it("throws when moduleCaseType is missing", () => {

@@ -280,6 +280,11 @@ export function makeCaseRow(
 		opened_on: now,
 		modified_on: now,
 		closed_on: null,
+		// `case_name` is `text NOT NULL` with a `length > 0` CHECK
+		// constraint. Pin a non-empty default here so every test's
+		// row construction passes the constraint without each call
+		// site having to spell it out.
+		case_name: "test-case",
 		parent_case_id: null,
 		// `JSONColumnType` accepts a JSON string on insert — Kysely
 		// hands the string straight to pg, which casts to JSONB.

@@ -222,6 +222,24 @@ export interface CasesTable {
 	>;
 
 	/**
+	 * The case's display name. Top-level scalar column (NOT a
+	 * JSONB key) because `case_name` is a CCHQ-platform-required
+	 * field present on every case regardless of case-type — same
+	 * shape every other platform field on this row carries.
+	 * Columns are reserved for fixed-shape data every case has;
+	 * JSONB carries the variable-shape user-defined property set
+	 * per case-type.
+	 *
+	 * Non-empty by DB CHECK constraint (`length(case_name) > 0`);
+	 * the AJV validator at the API trust boundary stays the
+	 * primary defense — `caseTypeToJsonSchema` excludes
+	 * `case_name` from its property output so the JSONB document
+	 * never carries it, leaving the column as the single source
+	 * of truth.
+	 */
+	case_name: string;
+
+	/**
 	 * Denormalized first-parent identifier. Convenience column
 	 * for the common single-parent case — full ancestor walks go
 	 * through `case_indices`. Nullable for orphan cases.
@@ -445,6 +463,15 @@ export interface CasesQuarantineTable {
 		Date | string | null,
 		Date | string | null
 	>;
+
+	/**
+	 * Mirrors `cases.case_name` — the pre-migration display name.
+	 * No CHECK constraint at the audit layer (a row in quarantine
+	 * is by definition one whose live shape failed validation),
+	 * so the column is nullable here even though it is non-null
+	 * on `cases`.
+	 */
+	case_name: string | null;
 
 	/** Mirrors `cases.parent_case_id`. */
 	parent_case_id: string | null;

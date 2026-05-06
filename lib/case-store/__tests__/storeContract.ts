@@ -181,6 +181,14 @@ function makeProperties(payload: Record<string, unknown>): string {
 	return JSON.stringify(payload);
 }
 
+/**
+ * Default `case_name` for a fixture insert. The column is
+ * `text NOT NULL` with a `length > 0` CHECK constraint, so every
+ * test insert has to carry a value; pinning the constant here
+ * keeps the per-test row definitions one line shorter.
+ */
+const DEFAULT_CASE_NAME = "fixture-case-name";
+
 // ---------------------------------------------------------------
 // The harness — one describe block, one set of tests
 // ---------------------------------------------------------------
@@ -210,6 +218,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 30 }),
 				},
@@ -246,6 +255,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					// Object literal, NOT a JSON string.
 					properties: { name: "Alice", age: 30 },
@@ -274,6 +284,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -283,6 +294,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_BOB_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Bob", age: 40 }),
 				},
@@ -317,6 +329,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -358,6 +371,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -398,6 +412,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: HOUSEHOLD_ID,
 					case_type: "household",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ region: "North" }),
 				},
@@ -410,6 +425,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: CHILD_PATIENT_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					parent_case_id: HOUSEHOLD_ID,
 					properties: makeProperties({ name: "Child", age: 5 }),
@@ -489,6 +505,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -498,6 +515,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_BOB_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Bob", age: 40 }),
 				},
@@ -509,6 +527,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_CAROL_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Carol" }),
 				},
@@ -581,6 +600,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					// Castable to int — survives the retype.
 					properties: makeProperties({ age: "30" }),
@@ -591,6 +611,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_BOB_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					// Not castable to int — moves to quarantine.
 					properties: makeProperties({ age: "abc" }),
@@ -664,6 +685,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ color: "red" }),
 				},
@@ -673,6 +695,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_BOB_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ color: "blue" }),
 				},
@@ -732,6 +755,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -761,6 +785,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -804,6 +829,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
@@ -838,6 +864,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
 					status: "open",
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},

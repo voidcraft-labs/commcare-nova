@@ -35,7 +35,7 @@
 // `./postgres/store.ts`; the factory lives in `./withOwnerContext.ts`.
 // Both depend on this module; this module imports from neither.
 
-import type { Insertable, Selectable, Updateable } from "kysely";
+import type { Insertable, Selectable } from "kysely";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -100,32 +100,82 @@ export type CaseInsert = Omit<
 };
 
 /**
- * The shape an `update` accepts. Every column optional. Callers
- * pass the subset of columns they want to change; the
- * implementation merges into the row's current state.
+ * Patch shape accepted by `CaseStore.update`. Deny-by-default,
+ * authored as an explicit allowlist rather than derived via `Omit`
+ * so a future column addition to `CasesTable` does NOT silently
+ * widen the patch surface — every caller-updateable column has to
+ * be added here on purpose.
  *
- * Three columns are excluded so the row's identity + tenant pair
- * are immutable through this surface:
+ * Excluded by design (and the rationale for keeping the surface
+ * narrow):
  *
- *   - `case_id` — the row's primary key; admitting it would let
- *     a stray patch try to renumber a row, which the implementation
+ *   - `case_id` — the row's primary key; admitting it would let a
+ *     stray patch try to renumber a row, which the implementation
  *     would have to defensively strip.
  *   - `app_id` — moving a row across apps is not a patch shape.
- *     The parent `update(args)` shape carries `appId` as a
- *     top-level field for the WHERE clause; admitting it on the
- *     patch would be ambiguous.
+ *     The parent `update(args)` shape carries `appId` as a top-
+ *     level field for the WHERE clause; admitting it on the patch
+ *     would be ambiguous.
  *   - `owner_id` — re-assigning a case to another tenant is a
  *     separate ownership-transfer flow, not a stray patch field.
+ *   - `modified_on` — the implementation always overwrites this
+ *     column with `now()` on every successful update; admitting
+ *     the field on the patch would let a caller stamp a different
+ *     timestamp, breaking the monotonic write-order contract every
+ *     consumer of the column relies on.
+ *   - `case_type` — the row's case type is fixed at insert time;
+ *     retyping a row is the schema-migration flow (`applySchemaChange`
+ *     with a `retype` change), not a freestanding patch.
  *
- * `properties` is widened to `JsonObject | string | undefined` so
- * either form satisfies the type — same shape as `CaseInsert`.
+ * `properties` is widened to `JsonObject | string | undefined`
+ * (the same shape `CaseInsert.properties` carries) so callers can
+ * pass either a typed JS object or a JSON-stringified payload; the
+ * implementation parses + revalidates either shape before the write.
  */
-export type CaseUpdate = Omit<
-	Updateable<CasesTable>,
-	"app_id" | "case_id" | "owner_id" | "properties"
-> & {
-	properties?: JsonObject | string;
-};
+export interface CaseUpdate {
+	/**
+	 * The case's display name. Routed to the top-level `case_name`
+	 * column (NOT into the JSONB document); see
+	 * `CasesTable.case_name`'s JSDoc. Optional so patches that
+	 * touch only properties / parent leave the column unchanged.
+	 */
+	readonly case_name?: string;
+	/**
+	 * Open / closed status string. `null` admits "transition back
+	 * to indeterminate" for the rare admin / data-recovery flow.
+	 */
+	readonly status?: string | null;
+	/**
+	 * Domain timestamp: when the case was opened. Patchable for
+	 * historical-import flows that reconstruct `opened_on` from an
+	 * external source (HQ-imported case, audit replay). Accepts a
+	 * native `Date`, an ISO string, or `null` — same write shape
+	 * Kysely's `JSONColumnType`-unwrapped update side admits.
+	 */
+	readonly opened_on?: Date | string | null;
+	/**
+	 * Domain timestamp: when the case was closed. The dedicated
+	 * `close()` method stamps this column to `now()`; admitting it
+	 * on `update` covers the inverse "reopen" flow (set `null` to
+	 * lift the closure) without inventing a parallel `reopen()`
+	 * method. Same triple-shape as `opened_on`.
+	 */
+	readonly closed_on?: Date | string | null;
+	/**
+	 * Denormalized first-parent identifier. Patching this column
+	 * triggers a `case_indices` re-derivation in the same
+	 * transaction (see `PostgresCaseStore.rebuildParentEdge`).
+	 * `null` clears the parent edge entirely.
+	 */
+	readonly parent_case_id?: string | null;
+	/**
+	 * The user-defined case-property document. The implementation
+	 * JSONB-merges the patch into the existing document and re-
+	 * validates against the case-type's JSON Schema before the
+	 * write lands.
+	 */
+	readonly properties?: JsonObject | string;
+}
 
 // ---------------------------------------------------------------
 // Sort + query argument types
@@ -144,16 +194,16 @@ export interface SortKey {
 	/** Sort direction. `asc` = ascending, `desc` = descending. */
 	direction: "asc" | "desc";
 	/**
-	 * The expression to sort by. Compiled via Plan 1's
-	 * `compileExpression`; the runtime evaluates the expression once
-	 * per row and orders the result set by the values.
+	 * The expression to sort by. Compiled via `compileExpression`;
+	 * the runtime evaluates the expression once per row and orders
+	 * the result set by the values.
 	 */
 	expression: ValueExpression;
 }
 
 /**
  * Arguments for `CaseStore.query`. The predicate compiles through
- * Plan 1's `compilePredicate`; the sort keys compile through
+ * `compilePredicate`; the sort keys compile through
  * `compileExpression`. `limit` and `offset` translate to Postgres
  * `LIMIT` / `OFFSET` clauses when supplied.
  *
@@ -339,7 +389,7 @@ export interface MigrationReport {
  *   - `close` — sets `closed_on = now()` (and optionally `status`).
  *     Does not delete the row — closed cases are still visible to
  *     audit / admin views.
- *   - `traverse` — compiles the supplied `RelationPath` via Plan 1's
+ *   - `traverse` — compiles the supplied `RelationPath` via
  *     `compileRelationPath` and returns the leaf rows the walk
  *     reaches.
  *   - `applySchemaChange` — sync: schema regen + UPSERT, plus the
@@ -363,10 +413,10 @@ export interface MigrationReport {
 export interface CaseStore {
 	/**
 	 * Run a predicate-driven SELECT against `cases`. Compiles the
-	 * predicate + sort keys via Plan 1's compiler stack and executes
-	 * against the bound tenant. Returns the matching rows in the
-	 * sort order specified (or insertion order when no sort is
-	 * supplied — driven by `case_id`'s UUID v7 timestamp prefix).
+	 * predicate + sort keys via the AST→Kysely compiler stack and
+	 * executes against the bound tenant. Returns the matching rows
+	 * in the sort order specified (or insertion order when no sort
+	 * is supplied — driven by `case_id`'s UUID v7 timestamp prefix).
 	 */
 	query(args: QueryArgs): Promise<CaseRow[]>;
 
@@ -408,11 +458,11 @@ export interface CaseStore {
 
 	/**
 	 * Traverse a `RelationPath` from a starting case to its
-	 * destination(s). Compiles the path via Plan 1's
-	 * `compileRelationPath`; returns the leaf cases the walk
-	 * reaches. Self-paths return the starting case itself; ancestor
-	 * walks return the chain's destination; subcase / any-relation
-	 * walks return every matching child / both directions.
+	 * destination(s). Compiles the path via `compileRelationPath`;
+	 * returns the leaf cases the walk reaches. Self-paths return
+	 * the starting case itself; ancestor walks return the chain's
+	 * destination; subcase / any-relation walks return every
+	 * matching child / both directions.
 	 */
 	traverse(args: {
 		appId: string;
@@ -558,12 +608,12 @@ export function findCaseTypeOrThrow(
 }
 
 /**
- * Build the `name → CaseType` map every Plan 1 compiler reads
- * from `TermCompileContext.caseTypeSchemas`. The map is populated
- * from the blueprint's `caseTypes` array; a `null` `caseTypes`
- * yields an empty map. The map is `ReadonlyMap` because the
- * compiler stack is read-only against it — it never mutates the
- * lookup surface.
+ * Build the `name → CaseType` map every compiler in the stack
+ * reads from `TermCompileContext.caseTypeSchemas`. The map is
+ * populated from the blueprint's `caseTypes` array; a `null`
+ * `caseTypes` yields an empty map. The map is `ReadonlyMap`
+ * because the compiler stack is read-only against it — it never
+ * mutates the lookup surface.
  *
  * Used by `query` to resolve property data types when the
  * predicate / sort touches case properties; relation-walk

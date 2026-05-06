@@ -117,11 +117,24 @@ export type DerivedProperties = JsonObject;
  * the primary insert returns. A `parent_case_id` of `undefined` here
  * means "writeThrough fills this in with the primary case's
  * generated id"; an explicit value means "use this id directly."
+ *
+ * `caseName` is the destination case's display name. Walked off the
+ * blueprint's `case_name`-id field (CCHQ-platform-required scalar
+ * routed to the `cases.case_name` column rather than the JSONB
+ * document). Absent when the form's child-case fields don't carry
+ * a `case_name` field; the I/O wrapper rejects such inserts because
+ * the column is non-null at the database layer.
  */
 export interface ChildInsertOp {
 	/** The destination case type (the field's `case_property_on`). */
 	readonly caseType: string;
-	/** The typed property document for the child case. */
+	/**
+	 * The case's display name, routed to the `case_name` column.
+	 * Optional at the derivation surface; the I/O wrapper requires
+	 * a value at write time because the column is non-null.
+	 */
+	readonly caseName?: string;
+	/** The typed JSONB property document for the child case. */
 	readonly properties: DerivedProperties;
 	/**
 	 * The child's parent case id. Absent for registration-driven
@@ -134,25 +147,36 @@ export interface ChildInsertOp {
 /**
  * The primary case write a registration form implies.
  *
- * `properties` is the typed JSONB document. Registration ALWAYS
+ * `properties` is the typed JSONB document — user-defined case
+ * properties only. `caseName` carries the display-name value
+ * routed to the `cases.case_name` column. Registration ALWAYS
  * creates a case row, so an empty `properties` is still a valid op
- * shape (the resulting case has only the auto-stamped columns) —
- * unlike followup, which short-circuits when `properties` is empty.
+ * shape (the resulting case has only the auto-stamped columns +
+ * its `case_name`) — unlike followup, which short-circuits the
+ * UPDATE when both the property patch AND the name slot are
+ * empty.
  */
 export interface PrimaryRegistrationOp {
 	/** The case type the form's module owns. */
 	readonly caseType: string;
-	/** The typed property document for the new case. */
+	/**
+	 * The case's display name. Optional at the derivation surface;
+	 * the I/O wrapper rejects inserts without a value because the
+	 * `case_name` column is non-null at the database layer.
+	 */
+	readonly caseName?: string;
+	/** The typed JSONB property document for the new case. */
 	readonly properties: DerivedProperties;
 }
 
 /**
  * The primary case write a followup or close form implies.
  *
- * `properties` MAY be empty: a close form whose only action is
- * setting `closed_on` carries no property writes. The I/O wrapper
- * skips the underlying `update` call when this is empty so an
- * unnecessary round-trip doesn't fire against Postgres.
+ * `properties` MAY be empty AND `caseName` MAY be absent: a close
+ * form whose only action is setting `closed_on` carries no scalar
+ * writes. The I/O wrapper skips the underlying `update` call when
+ * BOTH slots are empty so an unnecessary round-trip doesn't fire
+ * against Postgres.
  *
  * `caseType` is OPTIONAL because followup / close already know the
  * row's case type from the bound `caseId`'s row — the field is
@@ -164,7 +188,12 @@ export interface PrimaryRegistrationOp {
 export interface PrimaryUpdateOp {
 	/** The case type for diagnostic surfacing — not written to the row. */
 	readonly caseType: string | undefined;
-	/** Properties the form mutated. Empty when the form had no primary writes. */
+	/**
+	 * The case's display name. Absent means "leave the column
+	 * unchanged"; a string value patches the column.
+	 */
+	readonly caseName?: string;
+	/** Properties the form mutated. Empty when the form had no JSONB writes. */
 	readonly properties: DerivedProperties;
 }
 
@@ -327,11 +356,18 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 				}),
 			);
 		}
+		// Spread `caseName` only when defined so consumers iterating
+		// the op's keys via `Object.keys` see no slot for an absent
+		// name — same shape every other "absent vs explicit" boundary
+		// in the bridge follows.
 		return {
 			kind: "registration",
 			primary: {
 				caseType: args.moduleCaseType,
 				properties: walkResult.primaryProperties,
+				...(walkResult.primaryCaseName !== undefined
+					? { caseName: walkResult.primaryCaseName }
+					: {}),
 			},
 			children,
 		};
@@ -358,6 +394,9 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
 	const primary: PrimaryUpdateOp = {
 		caseType: args.moduleCaseType,
 		properties: walkResult.primaryProperties,
+		...(walkResult.primaryCaseName !== undefined
+			? { caseName: walkResult.primaryCaseName }
+			: {}),
 	};
 	if (args.formType === "followup") {
 		return { kind: "followup", caseId, primary, children };
@@ -379,16 +418,29 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
  * (e.g. `/data/visits[0]`, `/data/visits[1]`); the empty string keys
  * the bucket for fields outside any repeat. Field walks within a
  * repeat thread the current instance path and bucket on it.
+ *
+ * `caseName` is mutable on the bucket because the walk encounters
+ * the `case_name`-id field at most once per bucket — set on first
+ * encounter, never overwritten. The slot stays separate from
+ * `properties` because `case_name` routes to the top-level
+ * `cases.case_name` column, not to the JSONB document.
  */
 interface FieldBucket {
 	readonly caseType: string;
 	readonly repeatInstanceKey: string;
 	readonly properties: JsonObject;
+	caseName?: string;
 }
 
 interface WalkResult {
-	/** The primary case's accumulated property writes. */
+	/** The primary case's accumulated JSONB property writes. */
 	readonly primaryProperties: JsonObject;
+	/**
+	 * The primary case's display name, walked off the field whose
+	 * `id === "case_name"` and `case_property_on === moduleCaseType`.
+	 * Absent when no such field exists or its value is empty.
+	 */
+	readonly primaryCaseName: string | undefined;
 	/** Per-(child-type, repeat-instance) buckets, deterministic order. */
 	readonly childBuckets: ReadonlyArray<FieldBucket>;
 }
@@ -415,6 +467,7 @@ function walkFormFields(args: {
 	caseTypeLookup: ReadonlyMap<string, CaseType>;
 }): WalkResult {
 	const primaryProperties: JsonObject = {};
+	let primaryCaseName: string | undefined;
 
 	// `childBuckets` is ordered by encounter so derived ops are
 	// deterministic per blueprint × completed-form input pair.
@@ -428,11 +481,11 @@ function walkFormFields(args: {
 	const requireBucket = (
 		caseType: string,
 		repeatInstanceKey: string,
-	): JsonObject => {
+	): FieldBucket => {
 		const key = `${caseType}::${repeatInstanceKey}`;
 		const existing = childBucketIndex.get(key);
 		if (existing !== undefined) {
-			return existing.properties;
+			return existing;
 		}
 		const created: FieldBucket = {
 			caseType,
@@ -441,7 +494,7 @@ function walkFormFields(args: {
 		};
 		childBucketIndex.set(key, created);
 		childBuckets.push(created);
-		return created.properties;
+		return created;
 	};
 
 	const walk = (parentUuid: Uuid, pathPrefix: string): void => {
@@ -499,6 +552,31 @@ function walkFormFields(args: {
 			const rawValue = args.values.get(fieldPath) ?? "";
 			if (rawValue === "") continue;
 
+			const isPrimaryBucket =
+				args.moduleCaseType !== undefined &&
+				casePropertyOn === args.moduleCaseType;
+
+			// `case_name` is the CCHQ-platform-required display name
+			// every case carries — routed to the top-level
+			// `cases.case_name` column rather than the JSONB
+			// document. The routing keys on `field.id` (the project-
+			// wide convention "field id IS the case property name")
+			// rather than on `case_property_on`, which names the
+			// destination case TYPE. The string passes through as-is
+			// (no `coerceValueForProperty` call) because the column
+			// is `text NOT NULL` and the property's `data_type`
+			// declaration is irrelevant to the column write.
+			if (field.id === "case_name") {
+				if (isPrimaryBucket) {
+					primaryCaseName = rawValue;
+				} else {
+					const repeatInstanceKey = nearestRepeatInstanceKey(pathPrefix);
+					const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
+					bucket.caseName = rawValue;
+				}
+				continue;
+			}
+
 			const property = lookupCaseProperty({
 				caseTypeLookup: args.caseTypeLookup,
 				caseType: casePropertyOn,
@@ -509,10 +587,7 @@ function walkFormFields(args: {
 				property,
 			});
 
-			if (
-				args.moduleCaseType !== undefined &&
-				casePropertyOn === args.moduleCaseType
-			) {
+			if (isPrimaryBucket) {
 				// Primary case bucket. The field's `id` IS the case
 				// property name (project-wide convention; see top-level
 				// CLAUDE.md § Data model).
@@ -526,19 +601,25 @@ function walkFormFields(args: {
 			// repeat the empty key collapses to one bucket per type.
 			const repeatInstanceKey = nearestRepeatInstanceKey(pathPrefix);
 			const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
-			bucket[field.id] = coerced;
+			bucket.properties[field.id] = coerced;
 		}
 	};
 
 	walk(args.formUuid, "/data");
 
-	return { primaryProperties, childBuckets };
+	return { primaryProperties, primaryCaseName, childBuckets };
 }
 
 /**
  * Build the typed `ChildInsertOp[]` from accumulated buckets.
  * Bucket order (per `walkFormFields`) is deterministic by encounter;
  * the resulting op list preserves it.
+ *
+ * A bucket containing only a `caseName` (no JSONB properties) is a
+ * legitimate child-case insert — the resulting child case has a
+ * display name and otherwise derives its column values from the
+ * platform defaults. The "empty bucket" skip therefore tests both
+ * the property document and the name slot.
  */
 function buildChildOps(args: {
 	buckets: ReadonlyArray<FieldBucket>;
@@ -546,15 +627,20 @@ function buildChildOps(args: {
 }): ReadonlyArray<ChildInsertOp> {
 	const ops: ChildInsertOp[] = [];
 	for (const bucket of args.buckets) {
-		// Skip empty buckets defensively — a bucket without
-		// properties still produces a valid (if odd) insert, but the
-		// pure walk only creates buckets when at least one property
-		// landed in them, so an empty bucket is a corruption signal
-		// rather than a normal path.
-		if (Object.keys(bucket.properties).length === 0) continue;
+		// Skip buckets with neither a JSONB property nor a case-name
+		// slot — `walkFormFields` only creates buckets when at least
+		// one contributing field lands in them, so reaching the skip
+		// branch indicates a bug upstream rather than a normal path.
+		if (
+			Object.keys(bucket.properties).length === 0 &&
+			bucket.caseName === undefined
+		) {
+			continue;
+		}
 		ops.push({
 			caseType: bucket.caseType,
 			properties: bucket.properties,
+			...(bucket.caseName !== undefined ? { caseName: bucket.caseName } : {}),
 			...(args.parentCaseIdForChildren !== undefined
 				? { parentCaseId: args.parentCaseIdForChildren }
 				: {}),

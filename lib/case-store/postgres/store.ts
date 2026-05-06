@@ -1,8 +1,8 @@
 // lib/case-store/postgres/store.ts
 //
 // `PostgresCaseStore` — the only implementation of the `CaseStore`
-// interface. Wraps the `Kysely<Database>` instance, threading
-// Plan 1's predicate / expression / relation-path compilers into
+// interface. Wraps the `Kysely<Database>` instance, threading the
+// AST→Kysely predicate / expression / relation-path compilers into
 // the live runtime. Spec source:
 // `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
 // "CaseStore — Cloud SQL Postgres from day-1" section
@@ -112,6 +112,7 @@
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
+import { v7 as uuidv7 } from "uuid";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -384,6 +385,204 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	// -----------------------------------------------------------
+	// `insertMany` — bulk-insert path for sample-data population
+	// -----------------------------------------------------------
+	//
+	// Package-private; not on the `CaseStore` interface. The
+	// per-call surface stays `insert` for every external consumer
+	// (form-bridge, direct API writes); `insertMany` is reserved
+	// for the sample-data generators where the per-row latency of
+	// 30+ sequential `insert` calls is perceptible to a user
+	// clicking "Generate sample data".
+	//
+	// One transaction across the whole batch. Inside it:
+	//
+	//   1. Fetch the JSON Schema validator ONCE per `(appId,
+	//      caseType)` (the per-row path pays a SELECT round-trip
+	//      per row even on cache hit; hoisting the fetch is the
+	//      single biggest latency win).
+	//   2. Pre-process every row in a pure TS loop: parse the
+	//      properties shape, run AJV against the cached validator,
+	//      reject on the first failure.
+	//   3. Bulk INSERT into `cases`.
+	//   4. Bulk INSERT derived edges into `case_indices`.
+	//
+	// Total: ~4 round-trips per batch (one schema fetch on cold
+	// cache, one cases insert, one optional indices insert, one
+	// transaction commit) vs ~30 round-trips for the per-row path.
+	//
+	// `case_id` is generated up-front in TS via `uuidv7()` rather
+	// than relying on Postgres's `DEFAULT uuidv7()` clause. The
+	// reason: the bulk shape needs every row's id BEFORE the INSERT
+	// runs so the parallel `case_indices` insert can reference each
+	// row's `case_id` without depending on `RETURNING`'s ordering
+	// guarantees. UUID v7 in TS uses the same RFC 9562 shape as
+	// Postgres's built-in (millisecond Unix timestamp prefix), so
+	// the B-tree clustering on the primary-key page stays the same.
+	//
+	// **All-or-nothing failure semantics.** A validation failure on
+	// any row aborts the entire batch — the transaction rolls back,
+	// zero rows inserted. This is stricter than the per-row `insert`
+	// path, which commits earlier rows before hitting a bad one.
+	// For sample-data the strictness is the correct shape (the
+	// generator either produces clean output for every row or
+	// produces nothing); for any future caller with a multi-row
+	// "best-effort" requirement, that caller should iterate `insert`
+	// and decide per-row failure handling itself.
+
+	/**
+	 * Insert a batch of rows in one transaction. Hoists the JSON
+	 * Schema validator fetch out of the per-row loop, generates
+	 * `case_id`s up-front (so the derived `case_indices` rows can
+	 * reference them), bulk-inserts into `cases`, then bulk-inserts
+	 * derived edges into `case_indices`.
+	 *
+	 * Returns the generated case_ids in row-input order.
+	 *
+	 * Throws `CasePropertiesValidationError` on the first validation
+	 * failure; the transaction rolls back so no partial-batch row
+	 * lands. All rows must share the same `case_type` (sample-data's
+	 * shape; the bulk path's single validator-fetch optimization
+	 * depends on it).
+	 */
+	private async insertMany(args: {
+		appId: string;
+		rows: ReadonlyArray<CaseInsert>;
+	}): Promise<{ caseIds: ReadonlyArray<string> }> {
+		// Empty-input arm: skip the transaction entirely. The bulk
+		// INSERT statements would otherwise need a non-empty values
+		// list, and an empty transaction is a wasted round-trip.
+		if (args.rows.length === 0) {
+			return { caseIds: [] };
+		}
+
+		// All rows in a batch must share one `case_type`. The
+		// hoisted-validator optimization is the architectural reason:
+		// one validator-fetch per `(appId, caseType)` pair only works
+		// when the batch is single-typed. Sample-data generation
+		// always operates on one case-type per call (the public
+		// `generateSampleData` arg pins `caseType`); future callers
+		// with mixed-type batches would need to chunk by case-type
+		// at the call site or extend `insertMany` to fetch a per-type
+		// validator map.
+		const caseTypes = new Set(args.rows.map((row) => row.case_type));
+		if (caseTypes.size !== 1) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.insertMany",
+					invariant: `every row in an \`insertMany\` batch must share the same \`case_type\`; received ${caseTypes.size} distinct types`,
+					detail:
+						"The hoisted-validator optimization fetches the JSON Schema validator ONCE per `(appId, caseType)` at the top of the transaction. A mixed-type batch would defeat that optimization or quietly validate every row against the wrong schema. The current callers (`generateSampleData`, `resetSampleData`'s regeneration step) always operate on one case-type at a time, so the constraint is structurally satisfied at every call site.\n\nHint: chunk the batch by `case_type` at the call site, or call `insert` per row if mixed-type ordering matters.",
+				}),
+			);
+		}
+		const caseType = args.rows[0]?.case_type;
+		if (caseType === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.insertMany",
+					invariant:
+						"first row's `case_type` is undefined while the input array is non-empty",
+					detail:
+						"The early-return at the top of the function rejects empty inputs; reaching this throw means an entry in the array was undefined, which would be an upstream lifecycle bug.",
+				}),
+			);
+		}
+
+		// Generate every `case_id` up-front. UUID v7's millisecond
+		// timestamp prefix means the ids stay close-to-sorted on the
+		// B-tree primary-key page even though every row carries an
+		// explicit value (rather than relying on the column default).
+		// The runtime narrowing `case_id ?? uuidv7()` lets a caller
+		// supply an explicit id (the form-bridge path doesn't, but
+		// future callers might) while defaulting to the generator
+		// otherwise.
+		const caseIds: string[] = args.rows.map((row) => row.case_id ?? uuidv7());
+
+		// One transaction across schema fetch + bulk inserts so the
+		// schema-row read participates in the same connection the
+		// inserts use. Same atomicity contract the per-row `insert`
+		// provides, scaled to the full batch.
+		await this.db.transaction().execute(async (trx) => {
+			// Hoist the validator fetch out of the per-row loop. One
+			// SELECT against `case_type_schemas` (cold cache) or one
+			// cache hit (warm cache); validates every row in a tight
+			// pure-TS loop afterward.
+			const validator = await this.getValidator(args.appId, caseType, trx);
+
+			const insertRows: Insertable<CasesTable>[] = args.rows.map(
+				(row, index) => {
+					const propertiesObject = parseJsonbInput(row.properties);
+					const ok = validator(propertiesObject);
+					if (!ok) {
+						// Project AJV's failures the same way `insert`
+						// does so callers see one consistent error
+						// shape across the per-row and bulk paths.
+						const failures = (validator.errors ?? []).map((e) => ({
+							path: e.instancePath || "",
+							message: e.message ?? "invalid",
+						}));
+						throw new CasePropertiesValidationError(
+							args.appId,
+							caseType,
+							failures,
+						);
+					}
+					return {
+						...row,
+						case_id: caseIds[index],
+						app_id: args.appId,
+						owner_id: this.ownerId,
+						properties: JSON.stringify(propertiesObject),
+					};
+				},
+			);
+
+			// Bulk INSERT cases first. The derived `case_indices`
+			// edges reference `cases.case_id`, but no FK constraint is
+			// declared so the order is functional rather than
+			// structural — the cases insert must land first because
+			// the edges' `ancestor_id` references existing parent rows
+			// (not part of THIS batch in the sample-data path, but
+			// the constraint shape stays the same). Bulk inserts
+			// execute as one statement, so all-or-nothing semantics
+			// hold per-statement.
+			await trx.insertInto("cases").values(insertRows).execute();
+
+			// Build the parallel `case_indices` insert payload. A row
+			// with `parent_case_id` set contributes one direct edge;
+			// rows without a parent contribute none. The shape mirrors
+			// the per-row `insert` body's edge derivation (Option B
+			// materialization: depth=1 direct edges only; recursive
+			// walks compose at read time via the relation-path
+			// compiler).
+			const indexRows: Insertable<CaseIndicesTable>[] = [];
+			for (let i = 0; i < args.rows.length; i++) {
+				const row = args.rows[i];
+				const caseId = caseIds[i];
+				if (row === undefined || caseId === undefined) {
+					continue;
+				}
+				if (row.parent_case_id === null || row.parent_case_id === undefined) {
+					continue;
+				}
+				indexRows.push({
+					case_id: caseId,
+					ancestor_id: row.parent_case_id,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				});
+			}
+			if (indexRows.length > 0) {
+				await trx.insertInto("case_indices").values(indexRows).execute();
+			}
+		});
+
+		return { caseIds };
+	}
+
+	// -----------------------------------------------------------
 	// `update` — JSONB merge with re-validation
 	// -----------------------------------------------------------
 
@@ -443,9 +642,13 @@ export class PostgresCaseStore implements CaseStore {
 			// columns plus the merged properties (when present)
 			// and `modified_on = now()`. Properties is split out so
 			// the merged-and-stringified form replaces the patch's
-			// unmerged value; the rest of the patch passes through.
-			// `CaseUpdate` already excludes `case_id` / `app_id` /
-			// `owner_id` so no defensive stripping is needed.
+			// unmerged value; the rest of the patch (`case_name`,
+			// `status`, `opened_on`, `closed_on`, `parent_case_id`)
+			// passes through as column writes. `CaseUpdate` is an
+			// explicit allowlist that excludes the immutable identity
+			// columns (`case_id` / `app_id` / `owner_id` / `case_type`)
+			// and the auto-stamped `modified_on`, so no defensive
+			// stripping is needed.
 			const { properties: _patchProperties, ...patchRest } = args.patch;
 			await trx
 				.updateTable("cases as c")
@@ -733,7 +936,7 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	// -----------------------------------------------------------
-	// `generateSampleData` — heuristic generator → insert
+	// `generateSampleData` — heuristic generator → bulk insert
 	// -----------------------------------------------------------
 
 	async generateSampleData(
@@ -741,9 +944,9 @@ export class PostgresCaseStore implements CaseStore {
 	): Promise<{ inserted: number }> {
 		// Resolve parent ids for the generator's `parentRefs` map.
 		// The generator uses these to populate `parent_case_id` on
-		// child rows so `case_indices` derivation in `insert` produces
-		// real edges. When the case-type declares no parent or no
-		// parents exist yet, the generator emits orphan rows.
+		// child rows so `case_indices` derivation in `insertMany`
+		// produces real edges. When the case-type declares no parent
+		// or no parents exist yet, the generator emits orphan rows.
 		const parentRefs = await this.resolveParentRefs({
 			appId: args.appId,
 			caseType: args.caseType,
@@ -759,19 +962,16 @@ export class PostgresCaseStore implements CaseStore {
 			parentRefs,
 		});
 
-		// Route every generated row through `insert`. This is the
-		// architectural seam: generated rows participate in JSON
-		// Schema validation, `case_indices` derivation, and tenant
-		// scoping the same way user-authored rows do. The single-
-		// row `insert` shape iterates here rather than batching
-		// because the validation + edge-derivation contract is the
-		// per-row primitive.
-		let inserted = 0;
-		for (const row of rows) {
-			await this.insert({ appId: args.appId, row });
-			inserted++;
-		}
-		return { inserted };
+		// Route the full row population through `insertMany`. The
+		// architectural seam stays intact: generated rows participate
+		// in JSON Schema validation, `case_indices` derivation, and
+		// tenant scoping the same way user-authored rows do; the bulk
+		// path collapses 30 round-trips to one transaction.
+		const { caseIds } = await this.insertMany({
+			appId: args.appId,
+			rows,
+		});
+		return { inserted: caseIds.length };
 	}
 
 	// -----------------------------------------------------------
@@ -1131,6 +1331,7 @@ export class PostgresCaseStore implements CaseStore {
 			opened_on: row.opened_on,
 			modified_on: row.modified_on,
 			closed_on: row.closed_on,
+			case_name: row.case_name,
 			parent_case_id: row.parent_case_id,
 			properties: JSON.stringify(row.properties),
 			quarantine_reason: reason,

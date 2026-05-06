@@ -616,6 +616,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			row: {
 				case_id: "30000000-0000-0000-0000-000000000001",
 				case_type: "patient",
+				case_name: "test-case",
 				properties: { age: "30" },
 			},
 		});
@@ -624,6 +625,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			row: {
 				case_id: "30000000-0000-0000-0000-000000000002",
 				case_type: "patient",
+				case_name: "test-case",
 				properties: { age: "abc" },
 			},
 		});
@@ -674,6 +676,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			row: {
 				case_id: "30000000-0000-0000-0000-000000000001",
 				case_type: "patient",
+				case_name: "test-case",
 				properties: { age: "abc" },
 			},
 		});
@@ -963,10 +966,15 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		for (let i = 0; i < count; i++) {
 			const tags = i % 7 === 0 ? ["red", "blue"] : ["green"];
 			valueRows.push(
-				`($${p++}::uuid, 'app-explain', 'patient', 'owner-a', $${p++}::jsonb)`,
+				`($${p++}::uuid, 'app-explain', 'patient', 'owner-a', $${p++}, $${p++}::jsonb)`,
 			);
+			// `case_name` is `text NOT NULL` with a `length > 0` CHECK
+			// — a synthetic per-row value satisfies the constraint
+			// without affecting the EXPLAIN output, which probes
+			// JSONB-property indexes only.
 			params.push(
 				`00000000-0000-0000-0000-${i.toString(16).padStart(12, "0")}`,
+				`Person${i}`,
 				JSON.stringify({
 					name: `Person${i}`,
 					age: i % 100,
@@ -976,7 +984,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			);
 		}
 		await dbHandle.pool.query(
-			`INSERT INTO cases (case_id, app_id, case_type, owner_id, properties) VALUES ${valueRows.join(", ")}`,
+			`INSERT INTO cases (case_id, app_id, case_type, owner_id, case_name, properties) VALUES ${valueRows.join(", ")}`,
 			params,
 		);
 		await dbHandle.pool.query("ANALYZE cases");

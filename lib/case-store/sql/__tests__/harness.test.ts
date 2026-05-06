@@ -114,6 +114,10 @@ describe("case-store harness — schema", () => {
 		}
 
 		// Spec-line citations match `lib/case-store/schema.sql`.
+		// `case_name` is a top-level scalar column on `cases` (the
+		// CCHQ-platform-required display name that lives outside the
+		// JSONB property document); `cases_quarantine` mirrors it
+		// nullably to preserve the pre-migration value at audit time.
 		expect(columnsByTable.get("cases")).toEqual(
 			new Set([
 				"case_id",
@@ -124,6 +128,7 @@ describe("case-store harness — schema", () => {
 				"opened_on",
 				"modified_on",
 				"closed_on",
+				"case_name",
 				"parent_case_id",
 				"properties",
 			]),
@@ -150,6 +155,7 @@ describe("case-store harness — schema", () => {
 				"opened_on",
 				"modified_on",
 				"closed_on",
+				"case_name",
 				"parent_case_id",
 				"properties",
 				"quarantine_reason",

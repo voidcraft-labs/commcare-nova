@@ -12,6 +12,15 @@
 // pure tests use a generic placeholder; the integration tests use
 // a per-suite-unique value so leaked rows surface against the right
 // app namespace if the per-test database isolation ever regresses).
+//
+// The form-tree-aware builder composes the case-types-only
+// `buildSimpleBlueprint` from `lib/case-store/__tests__/fixtures/`
+// for the empty-default field block (`fields` / `moduleOrder` /
+// `formOrder` / `fieldOrder` / `fieldParent` / `modules` / `forms`),
+// then layers the form / module / field tree on top. The two
+// builders distinguish along their input axis: case-types-only vs
+// field-tree-aware; reusing the simpler builder for the
+// boilerplate keeps a single source for the empty-default shape.
 
 import type {
 	BlueprintDoc,
@@ -23,6 +32,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
+import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import type { CompletedForm } from "../deriveFromForm";
 
 // ---------------------------------------------------------------
@@ -60,8 +70,8 @@ export interface DField {
 }
 
 /**
- * Configuration for `buildBlueprint`. `appId` is parameterized so
- * test files (unit vs integration) can pin their own value;
+ * Configuration for `buildFormBlueprint`. `appId` is parameterized
+ * so test files (unit vs integration) can pin their own value;
  * everything else flows from the field tree.
  */
 export interface BuildBlueprintArgs {
@@ -91,8 +101,15 @@ export interface BuiltBlueprint {
  * fixture. The form, module, and field maps fill from the supplied
  * shape; uuid generation is deterministic per position path so
  * fixture changes produce stable diffs in failure messages.
+ *
+ * The "case-types-only" base layer (every blueprint field at empty
+ * defaults plus the supplied `caseTypes`) comes from
+ * `buildSimpleBlueprint`; this builder spreads that base and
+ * overrides the surfaces it actually populates (the form / module /
+ * field tree). One source for the empty-default shape across both
+ * fixture builders.
  */
-export function buildBlueprint(args: BuildBlueprintArgs): BuiltBlueprint {
+export function buildFormBlueprint(args: BuildBlueprintArgs): BuiltBlueprint {
 	const form: Form = {
 		uuid: FORM_UUID,
 		id: "test-form",
@@ -122,12 +139,10 @@ export function buildBlueprint(args: BuildBlueprintArgs): BuiltBlueprint {
 
 	fieldOrder[FORM_UUID] = walk(args.fields, FORM_UUID);
 
+	const base = buildSimpleBlueprint([...args.caseTypes], args.appId);
 	return {
 		blueprint: {
-			appId: args.appId,
-			appName: "test-app",
-			connectType: null,
-			caseTypes: [...args.caseTypes],
+			...base,
 			modules: {
 				[MODULE_UUID]: {
 					uuid: MODULE_UUID,

@@ -201,6 +201,7 @@ const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
 	"case_type",
 	"owner_id",
 	"status",
+	"case_name",
 ]);
 
 // ---------------------------------------------------------------

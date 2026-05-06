@@ -99,6 +99,16 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 		for (let i = 0; i < args.count; i++) {
 			const properties: JsonObject = {};
 			for (const property of caseType.properties) {
+				// `case_name` is a top-level scalar column on `cases`,
+				// not a JSONB property. Skip the JSONB write here; the
+				// generator emits the scalar directly in the row
+				// constructor below from the names pool. The blueprint
+				// surface still admits `case_name` on the property
+				// declaration (the SA + author UI carry the field's
+				// label / default-value config there), so the loop
+				// encounters it and routes around it rather than
+				// fighting the upstream shape.
+				if (property.name === "case_name") continue;
 				properties[property.name] = pickValueForProperty({
 					property,
 					prng,
@@ -107,6 +117,10 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 			}
 			rows.push({
 				case_type: args.caseType,
+				// Generated case_name is a full name from the names
+				// pool. Guaranteed non-empty by the pool's contract,
+				// satisfying the column's `length > 0` CHECK.
+				case_name: pickFullName(prng),
 				status: "open",
 				properties,
 				// Pick a parent at random from the resolved list; the

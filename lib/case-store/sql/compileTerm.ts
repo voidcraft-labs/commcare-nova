@@ -118,7 +118,7 @@ import {
 // ---------------------------------------------------------------
 
 /**
- * The four columns on `cases` that surface as first-class scalar
+ * The five columns on `cases` that surface as first-class scalar
  * columns rather than as JSONB-document keys. A `prop` term whose
  * `property` matches one of these names reads from the scalar
  * column directly via `eb.ref(...)`, both because the column is
@@ -139,21 +139,22 @@ import {
  * `propertyRefSchema.property` admits any
  * `[a-zA-Z][a-zA-Z0-9_-]*` shape). A blueprint that declares a
  * property literally named `case_id` / `case_type` / `owner_id` /
- * `status` will be silently shadowed by the scalar-column read
- * here — the term compiler reads from the scalar column instead
- * of the JSONB document the blueprint author intended. The
+ * `status` / `case_name` will be silently shadowed by the scalar-
+ * column read here — the term compiler reads from the scalar column
+ * instead of the JSONB document the blueprint author intended. The
  * blueprint validator is responsible for rejecting these names
  * (CommCare's wire layer also reserves them, so the blueprint
  * validator's rejection is independently load-bearing); the term
  * compiler trusts that rejection upstream and routes uniformly.
  * If the blueprint validator gains a per-property reservation
- * check, this set is the source of truth for the four names.
+ * check, this set is the source of truth for the five names.
  */
 const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
 	"case_id",
 	"case_type",
 	"owner_id",
 	"status",
+	"case_name",
 ]);
 
 // ---------------------------------------------------------------

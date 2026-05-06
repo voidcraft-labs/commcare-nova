@@ -55,6 +55,7 @@
 // landed.
 
 import type { BlueprintDoc, FormType, Uuid } from "@/lib/domain";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { CaseInsert, CaseStore, CaseUpdate } from "../store";
 import {
 	type ChildInsertOp,
@@ -256,14 +257,31 @@ export async function writeFormCompletionThrough(
  * convention; setting it here keeps registration writes' shape
  * consistent with sample-data writes for any downstream consumer
  * that filters on `status`.
+ *
+ * `case_name` is required at the column layer (`cases.case_name`
+ * carries a `length > 0` CHECK constraint). The form-bridge surfaces
+ * the missing-name invariant with a typed throw so the diagnostic
+ * points at the form-shape author wiring rather than a downstream
+ * Postgres CHECK violation.
  */
 async function applyPrimaryRegistration(args: {
 	caseStore: CaseStore;
 	appId: string;
 	primary: PrimaryRegistrationOp;
 }): Promise<string> {
+	if (args.primary.caseName === undefined || args.primary.caseName === "") {
+		throw new Error(
+			compilerBugMessage({
+				where: "case-store.writeFormCompletionThrough.applyPrimaryRegistration",
+				invariant: `registration form for case type \`${args.primary.caseType}\` produced no \`case_name\` value`,
+				detail:
+					"Every registration form must declare a leaf field with `id: \"case_name\"` whose value lands the case's display name in `cases.case_name`. Reaching this throw means the blueprint authoring surface admitted a registration form without one. Hint: confirm the form's field tree includes a `case_name` leaf bound to `case_property_on: <module case type>`; the SA prompt and the blueprint validator both treat the field as required for registration forms.",
+			}),
+		);
+	}
 	const row: CaseInsert = {
 		case_type: args.primary.caseType,
+		case_name: args.primary.caseName,
 		status: "open",
 		properties: args.primary.properties,
 	};
@@ -276,13 +294,18 @@ async function applyPrimaryRegistration(args: {
 
 /**
  * Apply the primary case's property updates for a followup or close
- * form. Short-circuits when the derived `properties` patch is empty
- * — close forms whose only action is the closure itself, or
- * followup forms whose every leaf field is read-only / preload-
- * only, carry no property writes. Calling `CaseStore.update` with
- * an empty patch would still bump `modified_on` and run the JSON
- * Schema validator against the merged document for no benefit; the
- * short-circuit avoids the round-trip.
+ * form. Short-circuits when the derived patch carries NEITHER a
+ * `properties` write NOR a `caseName` change — close forms whose
+ * only action is the closure itself, or followup forms whose every
+ * leaf field is read-only / preload-only, carry no scalar writes.
+ * Calling `CaseStore.update` with an empty patch would still bump
+ * `modified_on` and run the JSON Schema validator against the
+ * merged document for no benefit; the short-circuit avoids the
+ * round-trip.
+ *
+ * The early-return preserves the original form-bridge contract for
+ * truly empty updates while admitting `case_name`-only patches the
+ * column write requires.
  */
 async function applyPrimaryUpdate(args: {
 	caseStore: CaseStore;
@@ -290,11 +313,14 @@ async function applyPrimaryUpdate(args: {
 	caseId: string;
 	primary: PrimaryUpdateOp;
 }): Promise<void> {
-	if (Object.keys(args.primary.properties).length === 0) {
+	const hasPropertyWrites = Object.keys(args.primary.properties).length > 0;
+	const hasCaseNameWrite = args.primary.caseName !== undefined;
+	if (!hasPropertyWrites && !hasCaseNameWrite) {
 		return;
 	}
 	const patch: CaseUpdate = {
-		properties: args.primary.properties,
+		...(hasPropertyWrites ? { properties: args.primary.properties } : {}),
+		...(hasCaseNameWrite ? { case_name: args.primary.caseName } : {}),
 	};
 	await args.caseStore.update({
 		appId: args.appId,
@@ -317,6 +343,12 @@ async function applyPrimaryUpdate(args: {
  * Returns the generated child case ids in the same order the
  * children were applied — the caller can update navigation state
  * if a child case becomes the new focus.
+ *
+ * Each child carries a non-empty `caseName` for the same reason
+ * the primary case does (the column is `text NOT NULL` with a
+ * `length > 0` CHECK); the form-bridge surfaces the missing-name
+ * invariant with a typed throw so the diagnostic points at the
+ * form-shape author wiring.
  */
 async function applyChildInserts(args: {
 	caseStore: CaseStore;
@@ -326,9 +358,20 @@ async function applyChildInserts(args: {
 }): Promise<ReadonlyArray<string>> {
 	const ids: string[] = [];
 	for (const child of args.children) {
+		if (child.caseName === undefined || child.caseName === "") {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.writeFormCompletionThrough.applyChildInserts",
+					invariant: `child-case op for case type \`${child.caseType}\` produced no \`case_name\` value`,
+					detail:
+						'Every case row carries a top-level `case_name`. A form that creates a child case must include a leaf field with `id: "case_name"` bound to the destination case type via `case_property_on`. Reaching this throw means the form\'s field tree omits the name field for that child type. Hint: add a `case_name` leaf for every child case type the form constructs, the same way the primary case requires one.',
+				}),
+			);
+		}
 		const parentCaseId = child.parentCaseId ?? args.fallbackParentCaseId;
 		const row: CaseInsert = {
 			case_type: child.caseType,
+			case_name: child.caseName,
 			status: "open",
 			parent_case_id: parentCaseId,
 			properties: child.properties,

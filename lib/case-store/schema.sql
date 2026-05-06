@@ -81,7 +81,7 @@
 -- engine.
 
 -- ===================================================================
--- `cases` — spec lines 254-265 + Plan 2's `uuidv7()` default lock
+-- `cases` — spec lines 254-265 with the `uuidv7()` default lock
 -- ===================================================================
 --
 -- One row per case across every app and tenant. Tenant isolation
@@ -141,6 +141,17 @@ CREATE TABLE "cases" (
   -- The standard "list open cases" query is
   -- `WHERE closed_on IS NULL`.
   "closed_on" timestamptz,
+  -- The case's display name. Top-level column (NOT a JSONB key)
+  -- because `case_name` is a CCHQ-platform-required field present
+  -- on every case regardless of case-type — same shape every other
+  -- platform field on this row carries. Columns are reserved for
+  -- fixed-shape data every case has; JSONB carries the variable-
+  -- shape user-defined property set per case-type. The
+  -- `length > 0` CHECK enforces non-empty at the DB layer; the AJV
+  -- validator at the API trust boundary stays the primary defense
+  -- (the JSON Schema for `properties` excludes `case_name`, so the
+  -- check is the residual structural guarantee on direct writes).
+  "case_name" text NOT NULL CHECK (length("case_name") > 0),
   -- Denormalized first-parent identifier. Convenience column for
   -- the common single-parent case — full ancestor walks go through
   -- `case_indices`. Nullable for orphan cases.
@@ -235,12 +246,13 @@ CREATE TABLE "case_indices" (
 --     the `compileRelationPath` chain, where the AST specifies an
 --     identifier but the lookup is on the descendant side.
 --
--- Per-property expression indexes (Plan 2's dynamic-index
--- discipline) are NOT in this static schema. Property names are
--- blueprint-specific and search modes are search-input-config-
--- specific; the canonical owner is `applySchemaChange`, which
--- emits the matching CREATE INDEX / DROP INDEX set against the
--- live `pg_indexes` after the schema-sync transaction commits.
+-- Per-property expression indexes (the per-property expression-
+-- index discipline owned by `applySchemaChange`) are NOT in this
+-- static schema. Property names are blueprint-specific and search
+-- modes are search-input-config-specific; the canonical owner is
+-- `applySchemaChange`, which emits the matching CREATE INDEX /
+-- DROP INDEX set against the live `pg_indexes` after the schema-
+-- sync transaction commits.
 -- The DDL emission runs in a second phase outside the transaction
 -- because Postgres's non-CONCURRENT CREATE INDEX heap-scans with
 -- SnapshotAny semantics — dead tuples from same-transaction
@@ -320,6 +332,13 @@ CREATE TABLE "cases_quarantine" (
   "modified_on" timestamptz,
   -- Mirrors `cases.closed_on`.
   "closed_on" timestamptz,
+  -- Mirrors `cases.case_name`. Quarantine rows preserve the
+  -- pre-migration display name verbatim alongside the JSONB
+  -- document and the failure reason. No CHECK constraint here:
+  -- a row in quarantine is by definition a row whose live shape
+  -- failed validation, so the live-side non-empty invariant
+  -- doesn't apply at the audit layer.
+  "case_name" text,
   -- Mirrors `cases.parent_case_id`.
   "parent_case_id" uuid,
   -- The `cases.properties` JSONB document captured verbatim at

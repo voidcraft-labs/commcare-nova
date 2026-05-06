@@ -28,12 +28,11 @@ import { applyMigrationsViaAtlas } from "../../sql/__tests__/applyMigrationsViaA
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import type { CaseStore } from "../../store";
-import type { DerivedProperties } from "../deriveFromForm";
 import { writeFormCompletionThrough } from "../writeThrough";
 import {
 	type BuildBlueprintArgs,
 	type BuiltBlueprint,
-	buildBlueprint as buildBlueprintBase,
+	buildFormBlueprint,
 	completed,
 	PATIENT_CASE_TYPE,
 	VISIT_CASE_TYPE,
@@ -72,7 +71,7 @@ const OWNER_ID = "owner-form-bridge-test";
 function buildBlueprint(
 	args: Omit<BuildBlueprintArgs, "appId">,
 ): BuiltBlueprint {
-	return buildBlueprintBase({ appId: APP_ID, ...args });
+	return buildFormBlueprint({ appId: APP_ID, ...args });
 }
 
 /**
@@ -106,20 +105,6 @@ async function seedSchema(
 		caseType,
 		blueprint,
 	});
-}
-
-/**
- * Read the typed `properties` JSONB document for one case row,
- * widened to `DerivedProperties` for assertions.
- */
-async function readProperties(
-	store: CaseStore,
-	caseType: string,
-	caseId: string,
-): Promise<DerivedProperties | undefined> {
-	const rows = await store.query({ appId: APP_ID, caseType });
-	const row = rows.find((r) => r.case_id === caseId);
-	return row?.properties as DerivedProperties | undefined;
 }
 
 // ---------------------------------------------------------------
@@ -184,82 +169,25 @@ describe("writeFormCompletionThrough — registration forms", () => {
 					label: "Age",
 					case_property_on: "patient",
 				},
+				// Visit fields nest inside a group so the visit's
+				// `case_name` field has a unique path
+				// (`/data/visit/case_name`) that doesn't collide with
+				// the patient's `/data/case_name`. Real apps wrap
+				// child-case property sets in a group / repeat for the
+				// same reason — siblings under the same parent need
+				// unique paths, and `case_name` is reserved at every
+				// case-type's top level.
 				{
-					id: "notes",
-					kind: "text",
-					label: "Notes",
-					case_property_on: "visit",
-				},
-			],
-		});
-
-		await seedSchema(store, blueprint.blueprint, "patient");
-		await seedSchema(store, blueprint.blueprint, "visit");
-
-		const result = await writeFormCompletionThrough({
-			caseStore: store,
-			appId: APP_ID,
-			blueprint: blueprint.blueprint,
-			formUuid: blueprint.formUuid,
-			formType: blueprint.formType,
-			moduleCaseType: "patient",
-			completedForm: completed([
-				["/data/case_name", "Alice"],
-				["/data/age", "30"],
-				["/data/notes", "First visit"],
-			]),
-		});
-
-		expect(result.operation).toBe("registration");
-		if (result.operation !== "registration") return;
-		expect(result.caseId).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-		);
-		expect(result.childCaseIds).toHaveLength(1);
-
-		// Continuous validation principle: the running-app view
-		// re-queries after the write completes; this test plays
-		// the same role to verify the write landed.
-		const patientRows = await store.query({
-			appId: APP_ID,
-			caseType: "patient",
-		});
-		expect(patientRows).toHaveLength(1);
-		expect(patientRows[0]?.case_id).toBe(result.caseId);
-		expect(patientRows[0]?.properties).toEqual({
-			case_name: "Alice",
-			age: 30,
-		});
-
-		// The child case row exists under the visit case-type, and
-		// its `parent_case_id` is the primary's generated id.
-		const visitRows = await store.query({
-			appId: APP_ID,
-			caseType: "visit",
-		});
-		expect(visitRows).toHaveLength(1);
-		expect(visitRows[0]?.parent_case_id).toBe(result.caseId);
-		expect(visitRows[0]?.properties).toEqual({ notes: "First visit" });
-	});
-
-	it("inserts one child case per repeat instance", async () => {
-		const store = makeStore();
-		const blueprint = buildBlueprint({
-			formType: "registration",
-			moduleCaseType: "patient",
-			caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
-			fields: [
-				{
-					id: "case_name",
-					kind: "text",
-					label: "Name",
-					case_property_on: "patient",
-				},
-				{
-					id: "visits",
-					kind: "repeat",
-					label: "Visits",
+					id: "visit",
+					kind: "group",
+					label: "Visit",
 					children: [
+						{
+							id: "case_name",
+							kind: "text",
+							label: "Visit name",
+							case_property_on: "visit",
+						},
 						{
 							id: "notes",
 							kind: "text",
@@ -283,7 +211,100 @@ describe("writeFormCompletionThrough — registration forms", () => {
 			moduleCaseType: "patient",
 			completedForm: completed([
 				["/data/case_name", "Alice"],
+				["/data/age", "30"],
+				["/data/visit/case_name", "Visit 1"],
+				["/data/visit/notes", "First visit"],
+			]),
+		});
+
+		expect(result.operation).toBe("registration");
+		if (result.operation !== "registration") return;
+		expect(result.caseId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+		expect(result.childCaseIds).toHaveLength(1);
+
+		// Continuous validation principle: the running-app view
+		// re-queries after the write completes; this test plays
+		// the same role to verify the write landed.
+		const patientRows = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(patientRows).toHaveLength(1);
+		expect(patientRows[0]?.case_id).toBe(result.caseId);
+		// `case_name` lands on the column, not in the JSONB document.
+		expect(patientRows[0]?.case_name).toBe("Alice");
+		expect(patientRows[0]?.properties).toEqual({ age: 30 });
+
+		// The child case row exists under the visit case-type, and
+		// its `parent_case_id` is the primary's generated id. The
+		// visit's `case_name` lands on the column; only `notes` lives
+		// in the JSONB document.
+		const visitRows = await store.query({
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		expect(visitRows).toHaveLength(1);
+		expect(visitRows[0]?.parent_case_id).toBe(result.caseId);
+		expect(visitRows[0]?.case_name).toBe("Visit 1");
+		expect(visitRows[0]?.properties).toEqual({ notes: "First visit" });
+	});
+
+	it("inserts one child case per repeat instance", async () => {
+		const store = makeStore();
+		const blueprint = buildBlueprint({
+			formType: "registration",
+			moduleCaseType: "patient",
+			caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
+			fields: [
+				{
+					id: "case_name",
+					kind: "text",
+					label: "Name",
+					case_property_on: "patient",
+				},
+				{
+					id: "visits",
+					kind: "repeat",
+					label: "Visits",
+					children: [
+						// Each visit instance carries its own
+						// `case_name` (the column is non-null at the DB
+						// layer); the path-prefix `/data/visits[N]/`
+						// keeps every iteration's name unique.
+						{
+							id: "case_name",
+							kind: "text",
+							label: "Visit name",
+							case_property_on: "visit",
+						},
+						{
+							id: "notes",
+							kind: "text",
+							label: "Notes",
+							case_property_on: "visit",
+						},
+					],
+				},
+			],
+		});
+
+		await seedSchema(store, blueprint.blueprint, "patient");
+		await seedSchema(store, blueprint.blueprint, "visit");
+
+		const result = await writeFormCompletionThrough({
+			caseStore: store,
+			appId: APP_ID,
+			blueprint: blueprint.blueprint,
+			formUuid: blueprint.formUuid,
+			formType: blueprint.formType,
+			moduleCaseType: "patient",
+			completedForm: completed([
+				["/data/case_name", "Alice"],
+				["/data/visits[0]/case_name", "Visit 1"],
 				["/data/visits[0]/notes", "First note"],
+				["/data/visits[1]/case_name", "Visit 2"],
 				["/data/visits[1]/notes", "Second note"],
 			]),
 		});
@@ -391,12 +412,14 @@ describe("writeFormCompletionThrough — registration forms", () => {
 
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 		expect(rows).toHaveLength(1);
-		// Only the non-empty `case_name` made it into the JSONB
-		// document; the absent optional fields stay absent. A
-		// subsequent followup form CAN write into any of them
-		// without conflict, and the case-list filter compiler's
-		// `is-null` operator matches the absent keys.
-		expect(rows[0]?.properties).toEqual({ case_name: "Alice" });
+		// `case_name` lands on the column; the JSONB document is
+		// empty because the only populated field is `case_name`. The
+		// absent optional fields stay absent. A subsequent followup
+		// form CAN write into any of them without conflict, and the
+		// case-list filter compiler's `is-null` operator matches the
+		// absent keys.
+		expect(rows[0]?.case_name).toBe("Alice");
+		expect(rows[0]?.properties).toEqual({});
 	});
 });
 
@@ -478,14 +501,13 @@ describe("writeFormCompletionThrough — followup forms", () => {
 		if (result.operation !== "followup") return;
 		expect(result.caseId).toBe(registration.caseId);
 
-		// The bound case now carries the merged properties: case_name
-		// retained from registration, age bumped by the followup.
-		const properties = await readProperties(
-			store,
-			"patient",
-			registration.caseId,
-		);
-		expect(properties).toEqual({ case_name: "Alice", age: 31 });
+		// The bound case carries the merged JSONB properties (only
+		// `age` lives in the document; `case_name` is on the column
+		// and the followup didn't touch it).
+		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const row = rows.find((r) => r.case_id === registration.caseId);
+		expect(row?.case_name).toBe("Alice");
+		expect(row?.properties).toEqual({ age: 31 });
 	});
 
 	it("inserts child cases pointed at the bound caseId", async () => {
@@ -520,13 +542,19 @@ describe("writeFormCompletionThrough — followup forms", () => {
 		}
 
 		// A followup form on the patient module that emits a visit
-		// child case. The form has only the visit-bound field — no
+		// child case. The form has only visit-bound fields — no
 		// primary writes — so the writeThrough's update short-circuits.
 		const followupBlueprint = buildBlueprint({
 			formType: "followup",
 			moduleCaseType: "patient",
 			caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
 			fields: [
+				{
+					id: "case_name",
+					kind: "text",
+					label: "Visit name",
+					case_property_on: "visit",
+				},
 				{
 					id: "notes",
 					kind: "text",
@@ -544,7 +572,10 @@ describe("writeFormCompletionThrough — followup forms", () => {
 			formType: "followup",
 			moduleCaseType: "patient",
 			completedForm: completed(
-				[["/data/notes", "Follow-up note"]],
+				[
+					["/data/case_name", "Visit 1"],
+					["/data/notes", "Follow-up note"],
+				],
 				registration.caseId,
 			),
 		});
@@ -559,6 +590,7 @@ describe("writeFormCompletionThrough — followup forms", () => {
 		});
 		expect(visitRows).toHaveLength(1);
 		expect(visitRows[0]?.parent_case_id).toBe(registration.caseId);
+		expect(visitRows[0]?.case_name).toBe("Visit 1");
 		expect(visitRows[0]?.properties).toEqual({ notes: "Follow-up note" });
 	});
 });
@@ -627,11 +659,13 @@ describe("writeFormCompletionThrough — close forms", () => {
 		expect(result.operation).toBe("close");
 		if (result.operation !== "close") return;
 
-		// The row carries the merged properties + a closed_on stamp.
+		// The row carries the merged JSONB properties (`age` only)
+		// plus the column-level `case_name` and a closed_on stamp.
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 		const row = rows.find((r) => r.case_id === registration.caseId);
 		expect(row).toBeDefined();
-		expect(row?.properties).toEqual({ case_name: "Alice", age: 45 });
+		expect(row?.case_name).toBe("Alice");
+		expect(row?.properties).toEqual({ age: 45 });
 		expect(row?.closed_on).toBeInstanceOf(Date);
 	});
 
@@ -687,8 +721,9 @@ describe("writeFormCompletionThrough — close forms", () => {
 
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 		const row = rows.find((r) => r.case_id === registration.caseId);
-		// Properties unchanged; closed_on stamped.
-		expect(row?.properties).toEqual({ case_name: "Alice" });
+		// Properties + case_name unchanged; closed_on stamped.
+		expect(row?.case_name).toBe("Alice");
+		expect(row?.properties).toEqual({});
 		expect(row?.closed_on).toBeInstanceOf(Date);
 	});
 });

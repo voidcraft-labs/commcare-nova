@@ -349,11 +349,36 @@ pools live under `./sample/pools/` (names, addresses, geopoints,
 dates).
 
 The generator does NOT write to Postgres. `CaseStore.generateSampleData` routes the generated rows through
-`CaseStore.insert` so generated rows participate in the same JSON
-Schema validation + `case_indices` derivation real inserts use.
+the case-store's bulk-insert path so generated rows participate in
+the same JSON Schema validation + `case_indices` derivation real
+inserts use.
 Tests inject alternative `SampleCaseGenerator` implementations
 through the `PostgresCaseStore` constructor; production calls
 `withOwnerContext` which wires the heuristic generator.
+
+`generateSampleData` and `resetSampleData` route through a
+package-private `insertMany` on `PostgresCaseStore`. Inside one
+transaction it (1) fetches the JSON Schema validator ONCE per
+`(appId, caseType)` (the per-row path pays a `case_type_schemas`
+SELECT round-trip per row even on cache hit; hoisting the fetch
+is the single biggest latency win), (2) pre-processes every row
+in a tight TS loop using the cached validator, (3) bulk-inserts
+into `cases`, and (4) bulk-inserts the derived `case_indices`
+rows. Every row's `case_id` is generated up-front in TS (so the
+derived edges can reference it before the INSERT lands) —
+`uuidv7()` is the same RFC 9562 shape Postgres uses by default,
+so the v7 timestamp-prefix clustering on the B-tree page stays
+the same as the column-default path. The shape collapses ~30
+round-trips to ~4 (well under 50 ms steady-state vs
+~150-300 ms for the per-row loop).
+
+`insertMany` is package-private — the public `CaseStore`
+interface keeps `insert` per-call. A validation failure on any
+row in a batch rolls the whole batch back; sample-data callers
+want all-or-nothing semantics, so the strictness aligns with the
+generator's "produce a clean population or none" contract. Any
+future caller that needs best-effort multi-row writes iterates
+`insert` and decides per-row failure handling itself.
 
 ## Running-app view binding
 
