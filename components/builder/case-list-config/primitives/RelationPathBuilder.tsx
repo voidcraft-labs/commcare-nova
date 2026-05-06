@@ -53,12 +53,10 @@ function kindOf(path: RelationPath): RelationKind {
 	}
 }
 
-function defaultIdentifier(kind: RelationKind): string {
-	// CCHQ's most common index name is `parent`; pre-fill so the
-	// editor doesn't surface an empty-identifier error on initial
-	// kind switch.
-	return kind === "ancestor" ? "parent" : "parent";
-}
+/** CCHQ's most common index name is `parent` for both ancestor
+ *  and subcase walks; pre-fill so the editor doesn't surface an
+ *  empty-identifier error on initial kind switch. */
+const DEFAULT_IDENTIFIER = "parent";
 
 function buildRelation(kind: RelationKind, identifier: string): RelationPath {
 	switch (kind) {
@@ -101,7 +99,7 @@ export function RelationPathBuilder({
 	const identifier = currentIdentifier(value);
 
 	const setKind = (next: RelationKind) => {
-		const ident = identifier === "" ? defaultIdentifier(next) : identifier;
+		const ident = identifier === "" ? DEFAULT_IDENTIFIER : identifier;
 		onChange(buildRelation(next, ident));
 	};
 

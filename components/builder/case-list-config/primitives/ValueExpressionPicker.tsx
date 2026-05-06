@@ -285,7 +285,6 @@ function TermBodyInput({
 	invalid,
 	ariaLabel,
 }: TermBodyInputProps) {
-	const ctx = usePredicateEditContext();
 	const mode = termMode(term);
 
 	switch (mode) {
@@ -340,11 +339,6 @@ function TermBodyInput({
 				/>
 			);
 	}
-	// Exhaustive guard — silenced by the switch above. The unused
-	// `ctx` reference defeats unused-import lint; ctx is consumed
-	// indirectly through the underlying primitives.
-	void ctx;
-	return null;
 }
 
 function InputRefMenu({

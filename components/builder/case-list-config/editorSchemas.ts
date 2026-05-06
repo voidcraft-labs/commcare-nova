@@ -34,7 +34,6 @@ import tablerLogicAnd from "@iconify-icons/tabler/logic-and";
 import tablerLogicNot from "@iconify-icons/tabler/logic-not";
 import tablerLogicOr from "@iconify-icons/tabler/logic-or";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
-import tablerMath from "@iconify-icons/tabler/math";
 import tablerMathGreater from "@iconify-icons/tabler/math-greater";
 import tablerMathLower from "@iconify-icons/tabler/math-lower";
 import tablerSlash from "@iconify-icons/tabler/slash";
@@ -393,7 +392,7 @@ export const predicateCardSchemas: {
 		icon: tablerLink,
 		description: "At least one related case satisfies a condition",
 		component: ExistsCard,
-		defaultValue: existsDefault,
+		defaultValue: () => existsDefault(),
 		applicable: () => true,
 	},
 	missing: {
@@ -402,14 +401,10 @@ export const predicateCardSchemas: {
 		icon: tablerUnlink,
 		description: "No related case satisfies a condition",
 		component: ExistsCard,
-		defaultValue: missingDefault,
+		defaultValue: () => missingDefault(),
 		applicable: () => true,
 	},
 };
-
-// `tablerMath` is unused after switching to per-direction icons —
-// drop the import so biome's unused-import lint stays clean.
-void tablerMath;
 
 /**
  * Convenience array — every schema in declaration order, used by the

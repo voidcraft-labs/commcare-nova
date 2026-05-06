@@ -37,25 +37,18 @@ import {
 	usePredicateEditContext,
 	WithCurrentCaseType,
 } from "../editorContext";
-import type { PredicateEditContext } from "../editorSchemas";
 import { appendKindSlot, type EditorPath } from "../path";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
 
-export function existsDefault(
-	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "exists" }> {
-	void ctx;
+export function existsDefault(): Extract<Predicate, { kind: "exists" }> {
 	// Default to a single-step ancestor walk via `parent` — the
 	// CommCare-canonical relation. Authors who need a different
 	// shape pivot via the relation-path picker.
 	return exists(ancestorPath(relationStep("parent")));
 }
 
-export function missingDefault(
-	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "missing" }> {
-	void ctx;
+export function missingDefault(): Extract<Predicate, { kind: "missing" }> {
 	return missing(ancestorPath(relationStep("parent")));
 }
 
@@ -166,20 +159,16 @@ function resolveDestination(
 			// blank.
 			return originCaseType;
 		case "ancestor": {
+			// throughCaseType disagreement — the type checker reports the
+			// structural mismatch; the editor falls back to the resolved
+			// parent so the where clause stays renderable. The qualifier
+			// is therefore not consulted here.
 			let current: string | undefined = originCaseType;
-			for (const step of via.via) {
+			for (const _step of via.via) {
 				if (current === undefined) return undefined;
 				const ct = caseTypes.find((c) => c.name === current);
 				if (ct === undefined) return undefined;
 				current = ct.parent_type;
-				if (
-					step.throughCaseType !== undefined &&
-					current !== step.throughCaseType
-				) {
-					// throughCaseType disagreement — the type checker reports
-					// the structural mismatch; the editor falls back to the
-					// resolved parent so the where clause stays renderable.
-				}
 			}
 			return current;
 		}

@@ -7,7 +7,7 @@
 // pickers (rendered as native inputs of the appropriate type so
 // the system date / time picker drives the UX); single_select /
 // multi_select → option-list dropdown sourced from the property's
-// `options`; boolean → toggle.
+// `options`.
 //
 // The input emits a fully-typed `Literal` (carrying `data_type`
 // where applicable) so the type checker validates the round-trip
