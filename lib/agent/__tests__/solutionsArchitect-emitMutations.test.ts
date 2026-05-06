@@ -605,6 +605,17 @@ vi.mock("@/lib/db/apps", () => ({
 	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
+/* `validateApp`'s success arm awaits `materializeCaseStoreSchemas` to
+ * close the chat-completion → case-store-schema gap (the SA's chat-
+ * side `saveBlueprint` is fire-and-forget by design, so
+ * `case_type_schemas` carries no row until this call lands). The test
+ * doesn't reach Postgres; mocking the helper to a resolved no-op
+ * lets the success arm complete without standing up a per-test
+ * database. */
+vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
+	materializeCaseStoreSchemas: vi.fn(() => Promise.resolve()),
+}));
+
 describe("solutionsArchitect — validateApp", () => {
 	it("emits data-done with the final doc on success", async () => {
 		const { validateAndFix } = await import("../validationLoop");

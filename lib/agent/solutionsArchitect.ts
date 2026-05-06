@@ -21,6 +21,7 @@
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { completeApp } from "@/lib/db/apps";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -302,13 +303,42 @@ export function createSolutionsArchitect(
 
 		// ── Validation ────────────────────────────────────────────────
 
-		/* `validateApp` stays bespoke because its wrapper layers two
-		 * chat-only side effects on top of the flat shared result: the
-		 * final `data-done` SSE part carrying the full doc + HQ JSON, and
-		 * the `completeApp` Firestore update that flips the app record to
-		 * its final state. Both side effects depend on `ctx.usage.runId`
-		 * and `ctx.emit`, which only exist on `GenerationContext` — so
-		 * they can't live inside the shared tool module. */
+		/* `validateApp` stays bespoke because its wrapper layers three
+		 * chat-only side effects on top of the flat shared result, in
+		 * this order:
+		 *
+		 *   1. `data-done` SSE emit — UX signal carrying the full doc +
+		 *      HQ JSON; the client uses this to disable its progress
+		 *      affordance.
+		 *   2. Awaited `materializeCaseStoreSchemas` — UPSERTs the
+		 *      `case_type_schemas` rows + per-property expression
+		 *      indexes for every case type the SA just generated. The
+		 *      chat-side intermediate save (`saveBlueprint`) is
+		 *      fire-and-forget by design (`lib/agent/CLAUDE.md`
+		 *      documents the SA fix-retry discipline), so the case-
+		 *      store schema never materialized during streaming. Any
+		 *      awaited downstream operation (sample-data populate,
+		 *      form submit, live preview) reading `app.status ===
+		 *      "complete"` would otherwise fire `SchemaNotSyncedError`
+		 *      until the user's first auto-save.
+		 *   3. `completeApp` Firestore update — flips the app record's
+		 *      lifecycle status to `complete`. Stays fire-and-forget
+		 *      so the SA's stream return doesn't block on Firestore
+		 *      latency; the staleness reaper inside `listApps` is the
+		 *      backstop if this ever fails to land.
+		 *
+		 * The materialization sits between (1) and (3) intentionally:
+		 * the SSE tells the client "SA done" without promising
+		 * Postgres readiness; the await ensures any code path that
+		 * next reads `app.status === "complete"` sees a synced
+		 * schema. Materialization throws propagate — silently
+		 * swallowing them just relocates the gap this step exists to
+		 * close.
+		 *
+		 * All three side effects depend on `ctx.usage.runId`,
+		 * `ctx.appId`, `ctx.userId`, or `ctx.emit`, which only exist
+		 * on `GenerationContext` — so they can't live inside the
+		 * shared tool module. */
 		validateApp: tool({
 			description: validateAppTool.description,
 			inputSchema: validateAppTool.inputSchema,
@@ -327,6 +357,20 @@ export function createSolutionsArchitect(
 							doc: persistable,
 							hqJson: result.hqJson ?? {},
 							success: true,
+						});
+						/* Materialize the case-store schema rows + indexes
+						 * BEFORE flipping `completeApp`'s status. Awaited:
+						 * a Postgres failure here propagates as a stream
+						 * error; the operator sees exactly which case type
+						 * failed. The chat-side intermediate save was
+						 * fire-and-forget per `lib/agent/CLAUDE.md`, so
+						 * `case_type_schemas` carries no row for the SA's
+						 * freshly-generated case types until this call
+						 * lands. */
+						await materializeCaseStoreSchemas({
+							appId: ctx.appId,
+							userId: ctx.userId,
+							blueprint: persistable,
 						});
 						/* Flip the app record to its final state (fire-and-forget).
 						 * The app doc was created at the start of the request by
