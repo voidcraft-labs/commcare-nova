@@ -23,7 +23,7 @@
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import type { Field, Form, Uuid } from "@/lib/domain";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
@@ -79,7 +79,6 @@ export class FormEngine {
 
 	constructor(
 		input: FormEngineInput,
-		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
 	) {
@@ -544,7 +543,6 @@ export class FormEngine {
 	 */
 	updateSchema(
 		input: FormEngineInput,
-		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
 	): void {

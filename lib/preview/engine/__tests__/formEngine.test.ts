@@ -6,14 +6,7 @@
  * build fixtures directly in that shape via the `dTree` helper.
  */
 import { describe, expect, it } from "vitest";
-import type {
-	CaseType,
-	Field,
-	FieldKind,
-	Form,
-	FormType,
-	Uuid,
-} from "@/lib/domain";
+import type { Field, FieldKind, Form, FormType, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
@@ -85,32 +78,13 @@ function dTree(
 	return { form, formUuid, fields: fieldMap, fieldOrder };
 }
 
-const sampleCaseTypes: CaseType[] = [
-	{
-		name: "patient",
-		properties: [
-			{ name: "case_name", label: "Full Name" },
-			{ name: "age", label: "Age", data_type: "int" },
-			{
-				name: "risk_level",
-				label: "Risk Level",
-				data_type: "single_select",
-				options: [
-					{ value: "low", label: "Low" },
-					{ value: "high", label: "High" },
-				],
-			},
-		],
-	},
-];
-
 describe("FormEngine", () => {
 	it("initializes with field states", () => {
 		const input = dTree([
 			{ id: "name", kind: "text", label: "Name" },
 			{ id: "age", kind: "int", label: "Age" },
 		]);
-		const engine = new FormEngine(input, null);
+		const engine = new FormEngine(input);
 
 		expect(engine.getState("/data/name").visible).toBe(true);
 		expect(engine.getState("/data/name").value).toBe("");
@@ -119,7 +93,7 @@ describe("FormEngine", () => {
 
 	it("sets and gets values", () => {
 		const input = dTree([{ id: "name", kind: "text", label: "Name" }]);
-		const engine = new FormEngine(input, null);
+		const engine = new FormEngine(input);
 
 		engine.setValue("/data/name", "Alice");
 		expect(engine.getState("/data/name").value).toBe("Alice");
@@ -144,7 +118,7 @@ describe("FormEngine", () => {
 					relevant: '/data/has_children = "yes"',
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			// Initially visible (relevant evaluates with empty value → false for comparison)
 			expect(engine.getState("/data/num_children").visible).toBe(false);
@@ -168,7 +142,7 @@ describe("FormEngine", () => {
 					calculate: "/data/weight div (/data/height * /data/height)",
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/weight", "70");
 			engine.setValue("/data/height", "1.75");
@@ -189,7 +163,7 @@ describe("FormEngine", () => {
 					validate_msg: "Must be 1-149",
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/age", "25");
 			expect(engine.getState("/data/age").valid).toBe(true);
@@ -206,7 +180,7 @@ describe("FormEngine", () => {
 				{ id: "name", kind: "text", label: "Name", required: "true()" },
 				{ id: "notes", kind: "text", label: "Notes" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/name").required).toBe(true);
 			expect(engine.getState("/data/notes").required).toBe(false);
@@ -227,12 +201,7 @@ describe("FormEngine", () => {
 				["case_name", "Alice"],
 				["age", "30"],
 			]);
-			const engine = new FormEngine(
-				input,
-				sampleCaseTypes,
-				"patient",
-				caseData,
-			);
+			const engine = new FormEngine(input, "patient", caseData);
 
 			expect(engine.getState("/data/case_name").value).toBe("Alice");
 			expect(engine.getState("/data/age").value).toBe("30");
@@ -249,7 +218,7 @@ describe("FormEngine", () => {
 					default_value: "today()",
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/visit_date").value).toMatch(
 				/^\d{4}-\d{2}-\d{2}$/,
@@ -273,12 +242,7 @@ describe("FormEngine", () => {
 				["case_name", "Alice"],
 				["age", "30"],
 			]);
-			const engine = new FormEngine(
-				input,
-				sampleCaseTypes,
-				"patient",
-				caseData,
-			);
+			const engine = new FormEngine(input, "patient", caseData);
 
 			// default_value should win over case preload
 			expect(engine.getState("/data/case_name").value).toBe("30 - Alice");
@@ -301,12 +265,7 @@ describe("FormEngine", () => {
 				["case_name", "Alice"],
 				["age", "30"],
 			]);
-			const engine = new FormEngine(
-				input,
-				sampleCaseTypes,
-				"patient",
-				caseData,
-			);
+			const engine = new FormEngine(input, "patient", caseData);
 
 			engine.setValue("/data/case_name", "user typed this");
 			engine.reset();
@@ -326,7 +285,7 @@ describe("FormEngine", () => {
 				},
 				{ id: "name", kind: "text", label: "Name" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 			expect(engine.getState("/data/greeting").value).toBe("hello");
 
 			// User types in the name field (touched), doesn't touch greeting
@@ -344,7 +303,7 @@ describe("FormEngine", () => {
 				},
 				{ id: "name", kind: "text", label: "Name" },
 			]);
-			const newEngine = new FormEngine(updatedInput, null);
+			const newEngine = new FormEngine(updatedInput);
 			expect(newEngine.getState("/data/greeting").value).toBe("goodbye");
 
 			// Restore snapshot — only touched values restored, new default kept
@@ -362,7 +321,7 @@ describe("FormEngine", () => {
 					default_value: "'active'",
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 			expect(engine.getState("/data/status").value).toBe("active");
 
 			// Snapshot includes the default-computed value but field was never touched
@@ -379,7 +338,7 @@ describe("FormEngine", () => {
 					default_value: "'archived'",
 				},
 			]);
-			const newEngine = new FormEngine(updatedInput, null);
+			const newEngine = new FormEngine(updatedInput);
 			newEngine.restoreValues(snapshot);
 
 			// New default should win — stale 'active' should not overwrite 'archived'
@@ -400,7 +359,7 @@ describe("FormEngine", () => {
 					],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/demographics/name", "Bob");
 			expect(engine.getState("/data/demographics/name").value).toBe("Bob");
@@ -421,7 +380,7 @@ describe("FormEngine", () => {
 					children: [{ id: "name", kind: "text", label: "Name" }],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/members").repeatCount).toBe(1);
 		});
@@ -435,7 +394,7 @@ describe("FormEngine", () => {
 					children: [{ id: "name", kind: "text", label: "Name" }],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			const before = engine.store.getState()["/data/members"];
 			expect(before?.repeatCount).toBe(1);
@@ -458,7 +417,7 @@ describe("FormEngine", () => {
 					children: [{ id: "name", kind: "text", label: "Name" }],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
@@ -489,7 +448,7 @@ describe("FormEngine", () => {
 					children: [{ id: "name", kind: "text", label: "Name" }],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.addRepeat("/data/members");
 			engine.setValue("/data/members[0]/name", "Alice");
@@ -530,7 +489,7 @@ describe("FormEngine", () => {
 					children: [{ id: "name", kind: "text", label: "Name" }],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/show", "yes");
 			engine.addRepeat("/data/members");
@@ -554,7 +513,7 @@ describe("FormEngine", () => {
 					children: [{ id: "name", kind: "text", label: "Name" }],
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			const before = engine.store.getState()["/data/members"];
 			engine.removeRepeat("/data/members", 0);
@@ -571,7 +530,7 @@ describe("FormEngine", () => {
 			const input = dTree([
 				{ id: "name", kind: "text", label: "Name", required: "true()" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			// Not touched yet — valid despite being empty
 			expect(engine.getState("/data/name").touched).toBe(false);
@@ -605,7 +564,7 @@ describe("FormEngine", () => {
 					validate_msg: "Must be positive",
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/age", "-5");
 			// setValue runs validation, so it's already invalid
@@ -628,7 +587,7 @@ describe("FormEngine", () => {
 				{ id: "email", kind: "text", label: "Email", required: "true()" },
 				{ id: "notes", kind: "text", label: "Notes" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			const valid = engine.validateAll();
 			expect(valid).toBe(false);
@@ -642,7 +601,7 @@ describe("FormEngine", () => {
 			const input = dTree([
 				{ id: "name", kind: "text", label: "Name", required: "true()" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/name", "Alice");
 			expect(engine.validateAll()).toBe(true);
@@ -667,7 +626,7 @@ describe("FormEngine", () => {
 					relevant: '/data/toggle = "yes"',
 				},
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			// conditional is not visible (toggle is empty) so it should not cause validation failure
 			engine.setValue("/data/toggle", "no");
@@ -678,7 +637,7 @@ describe("FormEngine", () => {
 	describe("Zustand store reactivity", () => {
 		it("updates store state on value change", () => {
 			const input = dTree([{ id: "name", kind: "text", label: "Name" }]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			let called = false;
 			engine.store.subscribe(() => {
@@ -692,7 +651,7 @@ describe("FormEngine", () => {
 
 		it("allows unsubscribing from store", () => {
 			const input = dTree([{ id: "name", kind: "text", label: "Name" }]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			let callCount = 0;
 			const unsub = engine.store.subscribe(() => {
@@ -712,7 +671,7 @@ describe("FormEngine", () => {
 				{ id: "age", kind: "text", label: "Age" },
 				{ id: "name", kind: "text", label: "Name" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			/* Capture state references before the change */
 			const nameBefore = engine.store.getState()["/data/name"];
@@ -751,12 +710,7 @@ describe("FormEngine", () => {
 				"followup",
 			);
 			const caseData = new Map([["case_name", "John Smith"]]);
-			const engine = new FormEngine(
-				input,
-				sampleCaseTypes,
-				"patient",
-				caseData,
-			);
+			const engine = new FormEngine(input, "patient", caseData);
 
 			expect(engine.getState("/data/greeting").resolvedLabel).toBe(
 				"Hello, John Smith!",
@@ -768,7 +722,7 @@ describe("FormEngine", () => {
 				{ id: "name", kind: "text", label: "Name" },
 				{ id: "summary", kind: "label", label: "You entered: #form/name" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			// Initially empty
 			expect(engine.getState("/data/summary").resolvedLabel).toBe(
@@ -788,7 +742,7 @@ describe("FormEngine", () => {
 				{ id: "last", kind: "text", label: "Last" },
 				{ id: "display", kind: "label", label: "#form/first #form/last" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/first", "Jane");
 			engine.setValue("/data/last", "Doe");
@@ -800,7 +754,7 @@ describe("FormEngine", () => {
 				{ id: "name", kind: "text", label: "Name" },
 				{ id: "age", kind: "int", label: "Age", hint: "Age for #form/name" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/name", "Bob");
 			expect(engine.getState("/data/age").resolvedHint).toBe("Age for Bob");
@@ -816,7 +770,7 @@ describe("FormEngine", () => {
 				},
 				{ id: "info", kind: "label", label: "Status: #form/status" },
 			]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			engine.setValue("/data/age", "25");
 			expect(engine.getState("/data/info").resolvedLabel).toBe("Status: Adult");
@@ -827,7 +781,7 @@ describe("FormEngine", () => {
 
 		it("does not set resolvedLabel when no hashtag refs present", () => {
 			const input = dTree([{ id: "name", kind: "text", label: "Plain label" }]);
-			const engine = new FormEngine(input, null);
+			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/name").resolvedLabel).toBeUndefined();
 		});

@@ -294,7 +294,7 @@ export class EngineController {
 		if (!input) return;
 
 		const mod = s.modules[moduleUuid];
-		this.engine = new FormEngine(input, s.caseTypes, mod?.caseType, caseData);
+		this.engine = new FormEngine(input, mod?.caseType, caseData);
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
 		const tree = this.engine.getFieldTree();
