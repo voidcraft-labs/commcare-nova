@@ -25,18 +25,6 @@
 // orchestration and fixture construction. A dedicated file lets
 // every consumer import the fixture without dragging the
 // contract harness into their test file.
-//
-// ## Why the form-bridge has its own `buildFormBlueprint`
-//
-// `lib/case-store/form-bridge/__tests__/fixtures.ts` exports a
-// `buildFormBlueprint` whose API is field-tree-aware — it takes a
-// nested field-tree shape and emits a blueprint with modules +
-// forms + fields populated, not just case-types. That helper
-// composes `buildSimpleBlueprint` (this file's export) for the
-// case-types-only base layer and overlays the form / module /
-// field tree on top, so the empty-default boilerplate stays
-// single-source even though the two builders distinguish along
-// their input axis.
 
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 

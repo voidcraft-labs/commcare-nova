@@ -25,8 +25,6 @@ JS evaluator, no parity tests.
 - **`sample/`** — the `SampleCaseGenerator` interface and
   `HeuristicCaseGenerator` (the shipped implementation; stateless,
   deterministic per `(blueprint, caseType, seed)`).
-- **`form-bridge/`** — pure derivation (`deriveFromForm`) plus
-  `CaseStore`-bound write-through (`writeFormCompletionThrough`).
 - **`sql/`** — the AST → Kysely compiler stack. Contract +
   composition shape documented in `sql/CLAUDE.md`.
 - **`schema.sql`** + **`migrations/`** — the source-of-truth case-
@@ -37,12 +35,12 @@ JS evaluator, no parity tests.
 External consumers import from `@/lib/case-store` (the barrel at
 `./index.ts`). The barrel exposes the `CaseStore` interface, the
 row / arg / result types, the `withOwnerContext` factory, the
-four typed error classes, the form-bridge surfaces, and the
-JSONB value types. The implementation (`PostgresCaseStore`), the
-connection layer, the sample-data generator surface, and the
-testcontainers harness stay package-private — production callers
-go through `withOwnerContext`; tests reach for `PostgresCaseStore`
-/ `setupPerTestDatabase` via subpath.
+four typed error classes, and the JSONB value types. The
+implementation (`PostgresCaseStore`), the connection layer, the
+sample-data generator surface, and the testcontainers harness
+stay package-private — production callers go through
+`withOwnerContext`; tests reach for `PostgresCaseStore` /
+`setupPerTestDatabase` via subpath.
 
 ## No preview mode — the running-app view shares the editor's rows
 
@@ -247,61 +245,6 @@ at the blueprint layer.
 | `single_select` | None | Equality on a small option set is fast without an expression index |
 | `date` / `datetime` / `time` | None | The text-to-typed casts and the canonical `to_date(...)` / `to_timestamp(...)` builtins are STABLE in Postgres (DateStyle / TimeZone session dependency); expression indexes require IMMUTABLE expressions |
 | `geopoint` | None | The `within-distance` arm builds a WKT string via `concat(...)` over `split_part(...)` reads to bridge the wire shape `"lat lon alt acc"` to PostGIS's WKT input; `concat(...)` over text args is STABLE so the full expression cannot be indexed |
-
-## Form-bridge — completed-form to CaseStore operations
-
-Two halves:
-
-- **`deriveFromForm`** (pure) — walks the blueprint's field tree
-  for one form, reads runtime values out of a `CompletedForm`
-  snapshot, buckets fields by destination case type, and emits a
-  typed `DerivedFormOps` discriminated union per form type. No
-  I/O, no `CaseStore` access.
-- **`writeFormCompletionThrough`** (I/O) — accepts a `CaseStore`
-  + the derivation inputs, calls `deriveFromForm`, and applies the
-  derived ops via `CaseStore.insert` / `update` / `close`. Threads
-  a registration form's generated `case_id` to its child cases'
-  `parent_case_id` slot.
-
-Four form types:
-
-- **Registration** — creates a case. `CaseStore.insertWithChildren`
-  lands the primary + every child in one Postgres transaction,
-  threading the primary's generated id as each child's
-  `parent_case_id`. A mid-batch failure rolls the entire
-  registration back.
-- **Followup** — updates the bound case + inserts children with
-  `parent_case_id` set to the bound id.
-- **Close** — same as followup, plus a final `close` against the
-  primary case once updates + child inserts have landed.
-- **Survey** — no operations; structural no-op.
-
-Atomicity differs by form type. Registration is atomic via
-`insertWithChildren`. Followup and close are NOT atomic across
-the primary update + per-child inserts + (close-only) the closure
-stamp — each operation opens its own transaction. The running-app
-view re-queries after the write completes (continuous validation
-principle), so the user sees whatever landed.
-
-### Two-state JSONB collapse for form completion
-
-`getValueSnapshot()` filters empty values out via
-`if (state.value) values.set(...)`, so the form-bridge omits
-properties without a value from the JSONB document the case-store
-writes. AJV's strict-mode constraints rule out the alternatives:
-`null` fails `integer` / `number` types; `""` fails `format: date`
-/ `format: time` / `format: date-time` / the geopoint pattern.
-Omission is the only shape that passes validation AND aligns with
-Postgres-strict `is-null` semantics ("absent" ≡ "not present in
-the JSONB document").
-
-Form completion produces only 2 of the 3 spec-defined JSONB
-states (absent / null / present-and-empty) — the
-"present-and-empty" state is unreachable via any form completion
-path. Other write paths (sample-data generator, direct API
-writes) can still produce it. Consumers of `is-blank` should
-read `lib/domain/predicate/CLAUDE.md` § "Null vs blank semantics
-— locked invariant".
 
 ## Sample-data — `HeuristicCaseGenerator`
 

@@ -133,8 +133,7 @@ const PATIENT_CASE_TYPE: CaseType = {
  * Child case-type with `parent_type: "patient"` so the submission-
  * mutation tests exercise the child-insert + parent-threading path
  * without re-deriving the schema. Two simple text properties keep
- * the assertion targets stable; matching the shape the form-bridge
- * fixture uses for its `VISIT_CASE_TYPE`.
+ * the assertion targets stable across child-related tests.
  */
 const VISIT_CASE_TYPE: CaseType = {
 	name: "visit",
@@ -1182,8 +1181,8 @@ describe("mapSubmitFormError", () => {
 		// End-to-end mapping: `CaseStore.update` against an unknown id
 		// throws `CaseNotFoundError`; the helper translates to the
 		// structured arm. Pins the catch path through the real
-		// error-thrower (the form-bridge equivalent of the existing
-		// `seedSampleCases` end-to-end mapping tests above).
+		// error-thrower, paralleling the `seedSampleCases` end-to-end
+		// mapping tests above.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");

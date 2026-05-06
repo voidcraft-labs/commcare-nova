@@ -22,21 +22,6 @@ export {
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
 } from "./errors";
-// Form-bridge — completed-form → CaseStore operations.
-export type {
-	ChildInsertOp,
-	CompletedForm,
-	DerivedFormOps,
-	DeriveFromFormArgs,
-	PrimaryRegistrationOp,
-	PrimaryUpdateOp,
-} from "./form-bridge/deriveFromForm";
-export { deriveFromForm } from "./form-bridge/deriveFromForm";
-export type {
-	WriteFormCompletionArgs,
-	WriteFormCompletionResult,
-} from "./form-bridge/writeThrough";
-export { writeFormCompletionThrough } from "./form-bridge/writeThrough";
 // JSONB value types — consumed by callers reading `CaseRow.properties`.
 export type {
 	JsonObject,

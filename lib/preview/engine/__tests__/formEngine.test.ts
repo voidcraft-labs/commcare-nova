@@ -1408,8 +1408,7 @@ describe("FormEngine", () => {
 			// The walker's contract: filter on emptiness only. Missing
 			// paths and `""` reads both drop. `state.visible` is NOT
 			// consulted — hidden fields with non-empty values land in
-			// the mutation. This matches the deleted form-bridge's
-			// `if (rawValue === "") continue` guard verbatim.
+			// the mutation.
 			it("excludes empty fields from the mutation", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
