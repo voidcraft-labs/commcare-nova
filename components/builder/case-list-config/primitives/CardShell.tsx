@@ -99,11 +99,15 @@ export function CardShell({
 			 *  nothing (the native drag binding intercepts the press). */}
 			<div className="flex items-center gap-2 mb-2">
 				{dragHandleRef !== undefined && (
+					// `dragHandleRef` is a stable ref-callback (the
+					// caller's `setHandleEl` from useState — identity
+					// preserved across renders), so it's passed through
+					// directly. Wrapping in a fresh-each-render arrow
+					// would force React 19 to detach + re-attach the
+					// ref every render.
 					<button
 						type="button"
-						ref={(el) => {
-							dragHandleRef(el);
-						}}
+						ref={dragHandleRef}
 						aria-label="Reorder card"
 						className="cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors -ml-1"
 					>

@@ -114,7 +114,7 @@ export function WithCurrentCaseType({
 	caseType,
 	children,
 }: WithCurrentCaseTypeProps) {
-	const outer = usePredicateEditContextRaw();
+	const outer = usePredicateEditContext();
 	const value = useMemo<PredicateEditContextValue>(
 		() => ({ ...outer, currentCaseType: caseType }),
 		[outer, caseType],
@@ -126,7 +126,17 @@ export function WithCurrentCaseType({
 	);
 }
 
-function usePredicateEditContextRaw(): PredicateEditContextValue {
+/**
+ * Read the editor context. Use this when a card needs the full
+ * trio (case types + current scope + known inputs) — typical for
+ * property pickers and value pickers that resolve dropdown content
+ * from the schema. Throws if called outside a
+ * `<PredicateEditProvider>` — every card mounts beneath the
+ * top-level editor's provider, so the throw indicates a structural
+ * authoring bug rather than a runtime branch the editor can recover
+ * from.
+ */
+export function usePredicateEditContext(): PredicateEditContextValue {
 	const ctx = useContext(PredicateEditContext);
 	if (ctx === null) {
 		throw new Error(
@@ -137,23 +147,13 @@ function usePredicateEditContextRaw(): PredicateEditContextValue {
 }
 
 /**
- * Read the editor context. Use this when a card needs the full
- * trio (case types + current scope + known inputs) — typical for
- * property pickers and value pickers that resolve dropdown content
- * from the schema.
- */
-export function usePredicateEditContext(): PredicateEditContextValue {
-	return usePredicateEditContextRaw();
-}
-
-/**
  * Read errors attached to a specific path. Returns an empty array
  * when no errors landed on the path. Cards call this with their
  * own path or with a slot-level path to surface inline diagnostics
  * next to the offending input.
  */
 export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
-	const { validityIndex } = usePredicateEditContextRaw();
+	const { validityIndex } = usePredicateEditContext();
 	const key = serializePath(path);
 	return validityIndex.get(key) ?? [];
 }
@@ -174,7 +174,7 @@ export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
  * preserves the message ordering authors see.
  */
 export function useEditorErrorsAtOrBelow(path: EditorPath): EditorPathErrors {
-	const { validityIndex } = usePredicateEditContextRaw();
+	const { validityIndex } = usePredicateEditContext();
 	const prefix = serializePath(path);
 	// Two prefix forms match: the slot itself (exact-key match) and
 	// any descendant (the segment-separator '\0' in `serializePath`

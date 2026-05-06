@@ -23,6 +23,8 @@ import {
 	dropTargetForElements,
 	monitorForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { pointerOutsideOfPreview } from "@atlaskit/pragmatic-drag-and-drop/element/pointer-outside-of-preview";
+import { setCustomNativeDragPreview } from "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview";
 import {
 	attachClosestEdge,
 	type Edge,
@@ -30,8 +32,17 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
+import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { createPortal } from "react-dom";
 import {
 	and,
 	matchAll,
@@ -159,14 +170,13 @@ interface AndOrBodyProps {
 
 /**
  * Apply the and/or builder against a non-empty clause array. The
- * variadic-with-required-first builder signature can't accept a
- * direct rest-spread of a `Predicate[]` (TS doesn't know whether
- * the rest is empty at the call site, and the two-or-more overload
- * requires at least one rest member). Routing the array through
- * `Reflect.apply` against the builder bypasses the overload
- * resolution and trusts the runtime guarantee that the builder
- * accepts any non-empty Predicate list — the schema layer rejects
- * the empty case.
+ * builders' two-or-more overload requires at least one rest member,
+ * which TS can't prove from a spread of an arbitrary
+ * `readonly Predicate[]`. The cast widens `and` / `or` to a single
+ * accepting signature; callers guarantee the array is non-empty by
+ * construction (the surrounding card collapses an empty clauses
+ * list to a sentinel before reaching this helper, and the schema
+ * layer rejects an empty list at parse time).
  */
 function applyLogical(
 	kind: "and" | "or",
@@ -202,6 +212,22 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 		toIndex: number;
 	} | null>(null);
 
+	// Stash the latest `value.clauses` / `value.kind` / `onChange` in
+	// refs so the monitor effect doesn't reinstall on every parent
+	// render that produces a new clauses array. The monitor's
+	// callbacks read the current ref values at drag-event time. Same
+	// pattern `useRowDnd` uses for `renderPreview`. Effect deps shrink
+	// to `[containerKey]` — the only value that genuinely identifies
+	// a new monitor scope.
+	const clausesRef = useRef(value.clauses);
+	const kindRef = useRef(value.kind);
+	const onChangeRef = useRef(onChange);
+	useEffect(() => {
+		clausesRef.current = value.clauses;
+		kindRef.current = value.kind;
+		onChangeRef.current = onChange;
+	});
+
 	useEffect(() => {
 		const cleanup = monitorForElements({
 			canMonitor: ({ source }) => {
@@ -230,10 +256,10 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				// insert — matches Trello-style insertion semantics.
 				if (fromIndex < toIndex) toIndex -= 1;
 				if (fromIndex === toIndex) return;
-				const reordered = [...value.clauses];
+				const reordered = [...clausesRef.current];
 				const [moved] = reordered.splice(fromIndex, 1);
 				reordered.splice(toIndex, 0, moved);
-				onChange(applyLogical(value.kind, reordered));
+				onChangeRef.current(applyLogical(kindRef.current, reordered));
 			},
 			onDrag: ({ source, location }) => {
 				const sourceData = readClauseDragData(source.data);
@@ -262,7 +288,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			},
 		});
 		return () => cleanup();
-	}, [containerKey, onChange, value.clauses, value.kind]);
+	}, [containerKey]);
 
 	const removeClause = useCallback(
 		(index: number) => {
@@ -333,6 +359,41 @@ interface ClauseRowProps {
 	readonly pendingDrop: { fromIndex: number; toIndex: number } | null;
 }
 
+/** Custom drag preview rendered in place of the browser's default
+ *  source snapshot — without it, the browser would snapshot the
+ *  14×14 grip icon (the draggable element) and the user couldn't
+ *  see what's being moved. The preview shows the matching kind
+ *  icon + label so the dragged identity is unambiguous. Mirrors
+ *  `DragPreviewPill` in the form-list pattern. */
+function ClauseDragPreview({ kind }: { readonly kind: Predicate["kind"] }) {
+	const schema = predicateCardSchemas[kind];
+	return (
+		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
+			<Icon
+				icon={tablerGripVertical}
+				width="14"
+				height="14"
+				className="text-nova-text-muted"
+			/>
+			<Icon
+				icon={schema.icon}
+				width="14"
+				height="14"
+				className="text-nova-violet-bright/80"
+			/>
+			<span className="max-w-[240px] truncate">{schema.label}</span>
+		</div>
+	);
+}
+
+/** The preview portal's lifecycle, stored in local state. The card
+ *  swaps between `idle` (no drag in flight) and `active` (the
+ *  library has created a container the React preview should fill).
+ *  Same shape `useRowDnd`'s `PreviewState` uses. */
+type PreviewState =
+	| { readonly type: "idle" }
+	| { readonly type: "active"; readonly container: HTMLElement };
+
 function ClauseRow({
 	clause,
 	clauseIndex,
@@ -351,6 +412,9 @@ function ClauseRow({
 	// state changes trigger the effect, refs do not.
 	const [handleEl, setHandleEl] = useState<HTMLElement | null>(null);
 	const [closestEdge, setClosestEdge] = useState<Edge | null>(null);
+	const [previewState, setPreviewState] = useState<PreviewState>({
+		type: "idle",
+	});
 
 	useEffect(() => {
 		const wrapper = wrapperRef.current;
@@ -379,6 +443,25 @@ function ClauseRow({
 				? draggable({
 						element: handleEl,
 						getInitialData: () => asDragPayload(dragData),
+						// Hand the browser an offscreen container to
+						// snapshot in place of the 14×14 grip element.
+						// React fills the container via the
+						// `createPortal` in the JSX returned below; the
+						// cleanup callback resets the portal back to
+						// idle when the drag ends.
+						onGenerateDragPreview: ({ nativeSetDragImage }) => {
+							setCustomNativeDragPreview({
+								nativeSetDragImage,
+								getOffset: pointerOutsideOfPreview({
+									x: "16px",
+									y: "8px",
+								}),
+								render: ({ container }) => {
+									setPreviewState({ type: "active", container });
+									return () => setPreviewState({ type: "idle" });
+								},
+							});
+						},
 					})
 				: () => {},
 			dropTargetForElements({
@@ -426,6 +509,18 @@ function ClauseRow({
 	const beingMoved =
 		pendingDrop !== null && pendingDrop.fromIndex === clauseIndex;
 
+	// Portal the custom preview into the library-owned container
+	// while a drag is in flight. The container lives outside this
+	// row's DOM (it sits at document.body via the library), so it
+	// never affects layout.
+	const previewPortal: ReactNode =
+		previewState.type === "active"
+			? createPortal(
+					<ClauseDragPreview kind={clause.kind} />,
+					previewState.container,
+				)
+			: null;
+
 	return (
 		<div
 			ref={wrapperRef}
@@ -440,6 +535,7 @@ function ClauseRow({
 				variant="nested"
 				dragHandleRef={setHandleEl}
 			/>
+			{previewPortal}
 		</div>
 	);
 }
