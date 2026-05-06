@@ -274,7 +274,7 @@ SHIPPED 2026-05-05 in commits `a206a114` (feat) → `053a3a5a` (CR + spec-review
 **Files shipped:**
 
 - `lib/case-store/form-bridge/deriveFromForm.ts` — pure function. Walks the blueprint field tree; buckets each leaf's value into either the primary case's properties or a child-case bucket per `case_property_on`. Emits a typed `DerivedFormOps` discriminated union for the four form types (registration → `PrimaryRegistrationOp`; followup → `PrimaryUpdateOp` with optional update; close → `PrimaryUpdateOp` + close discriminator; survey → no-op against `cases`). Repeat containers fan out into one `ChildInsertOp` per runtime instance.
-- `lib/case-store/form-bridge/writeThrough.ts` — I/O wrapper. Accepts a `CaseStore` instance, calls `deriveFromForm`, and applies the ops via `insert` / `update` / `close`. For registration, threads the generated primary `case_id` into child cases' `parent_case_id`; for followup / close, the bound `caseId` is the parent. Returns a typed `WriteFormCompletionResult` discriminated union — the survey arm carries only `{ operation: "survey" }`; the three case-touching arms carry `{ operation, caseId, childCaseIds }`.
+- `lib/case-store/form-bridge/writeThrough.ts` — I/O wrapper. Accepts a `CaseStore` instance, calls `deriveFromForm`, and applies the ops via `insert` / `update` / `close`. For registration, threads the generated primary `case_id` into child cases' `parent_case_id`; for followup / close, the bound `caseId` is the parent. Returns a typed `WriteFormCompletionResult` discriminated union — the survey arm carries only `{ kind: "survey" }`; the three case-touching arms carry `{ kind, caseId, childCaseIds }`.
 - `lib/case-store/form-bridge/__tests__/deriveFromForm.test.ts` — 14 pure-function tests covering all four form types + edge cases (missing module case-type, missing bound caseId, repeat-instance fan-out, full `data_type` coercion).
 - `lib/case-store/form-bridge/__tests__/writeThrough.test.ts` — 8 integration tests against per-test isolated Postgres via `setupPerTestDatabase`. Round-trip through real AJV validation + `case_indices` materialization. Includes the continuous-validation assertion (post-write `query` sees the new state immediately).
 - `lib/case-store/form-bridge/__tests__/fixtures.ts` — shared `buildBlueprint` / `completed` / `DField` helpers extracted in the fix-pass; both test files import from here.
@@ -291,7 +291,7 @@ This means form completion produces only 2 of the 3 spec-defined JSONB states (a
 
 **Parent / child threading (registration).** Primary insert runs first via `caseStore.insert` (Postgres `RETURNING case_id` captures the generated id). Child inserts run sequentially after, with `parent_case_id = primary.case_id` (the derived ops carry no `parentCaseId` for registration; the I/O wrapper threads it via `fallbackParentCaseId`). Followup / close use the bound `caseId` as the primary directly; child ops carry `parentCaseId` set on the derivation side. The integration test at `writeThrough.test.ts` asserts the relationship materializes through `case_indices` end-to-end.
 
-**Survey forms** are a structural no-op against `cases`. The walk still runs (the survey form's tree is traversed for any future analytics consumers), but no `CaseStore` operation fires; the result is `{ operation: "survey" }`. Survey forms collect data without case ownership per the spec's running-app form-types model.
+**Survey forms** are a structural no-op against `cases`. The walk still runs (the survey form's tree is traversed for any future analytics consumers), but no `CaseStore` operation fires; the result is `{ kind: "survey" }`. Survey forms collect data without case ownership per the spec's running-app form-types model.
 
 **Tests:** case-store package 339 passed (was 316 pre-Task-6; +23 — the fix-pass split H1's empty-value test into production-path + defensive-belt-and-suspenders shapes, adding one).
 
@@ -466,9 +466,21 @@ Commit chain: `0ec0fa2a` (initial feat) → `d9099886` (CR + spec-review fix-pas
 
 ---
 
+#### Plan 2 follow-up — holistic-review cleanups SHIPPED
+
+After Plan 2's nine tasks shipped, a holistic review of the case-store package surfaced nine actionable items spanning correctness, schema cleanliness, voice, and operational recovery. Two implementer rounds + supporting CR rounds addressed all nine in three commits:
+
+- `4892e5fd feat(case-store): denormalize case_name + holistic-review cleanups` — case_name became a top-level column on `cases` (matching the data-model rule that platform-fixed-shape fields are columns and per-blueprint-variable-shape fields stay in JSONB); `CaseUpdate` rewritten as an explicit allowlist; `Plan [0-9]'s` cross-plan references swept from code; `readCaseData` rewritten as a predicate-based read; form-bridge's `buildBlueprint` renamed `buildFormBlueprint` and composes `buildSimpleBlueprint`; sample-data generation routes through a new `insertMany` private method (one validator fetch + one bulk insert + one bulk `case_indices` insert per batch instead of N round-trips per row).
+- `df2c9436 refactor(case-store): code-review fix-pass on case_name denormalization` — `traverse` projection now includes `case_name` (a CRITICAL bug the CR caught: the `as unknown as CaseRow[]` cast hid the missing column at compile time, returning `undefined` at runtime); `caseTypeToJsonSchema` filter for `case_name` test-pinned; "four reserved" → "the reserved scalar columns" stale-comment sweep across 7+ sites; `RESERVED_SCALAR_COLUMNS` extracted to a single source in `dataTypeTokens.ts`; empty-`caseName` invariant pushed into `deriveFromForm` (the structurally-correct boundary); `insertMany` rollback test added.
+- `33d225bc refactor(case-store): INVALID-index recovery + discriminator rename + lazy budget check` — `readLiveIndexSet` JOINs `pg_index` + `pg_class` + `pg_namespace` to capture `indisvalid`; `diffIndexSets` recreates INVALID indexes (drop + create) so failed `CREATE INDEX CONCURRENTLY` builds converge on the next call; `WriteFormCompletionResult.operation` renamed to `kind` for consistency with every other discriminated-union surface in Plan 2; `enforceConnectionBudget()` moved from module top-level into the `getCaseStoreDatabase()` lazy init so importing the barrel from a test file no longer triggers the deploy-time check.
+
+**Deferred to Plan 3 prerequisite.** A `CaseStore.get(args)` interface arm was suggested as a cleaner shape for single-row reads (replacing the `query()` + JS filter pattern). The plan-2-internal `readCaseData` rewrite uses a predicate-based read and doesn't need the interface arm; whether to widen the public surface is a Plan 3 design call when its consumer story is concrete.
+
+Final case-store package: 379 tests across 18 files. Full repo: 2927 passed, 14 skipped.
+
 #### Plan 2 status — ALL TASKS SHIPPED
 
-Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework. Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9. The eventual Plan 2 PR opens against `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
+Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework plus the post-review cleanup pass above. Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9 → holistic-review fix-pass. The eventual Plan 2 PR opens against `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
 
 ---
 
