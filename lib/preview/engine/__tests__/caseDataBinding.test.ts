@@ -1399,6 +1399,7 @@ describe("submitFormAction", () => {
 			close: vi.fn(),
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -1432,6 +1433,7 @@ describe("submitFormAction", () => {
 			close: vi.fn(),
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;

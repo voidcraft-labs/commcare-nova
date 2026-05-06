@@ -3,9 +3,13 @@
 // Schema-parse coverage for the `caseListConfig` shape introduced
 // alongside the case-list authoring surface. The structured slot
 // replaces the legacy flat `caseListColumns` / `caseDetailColumns`
-// fields wholesale: the legacy field names are no longer in the
-// schema, so a `safeParse` against a legacy-shape input rejects
-// them at the schema boundary.
+// fields wholesale: the legacy field names are no longer declared
+// on the schema, so Zod's default strip-mode drops them on parse.
+// The legacy values never reach the typed result, which is what
+// downstream consumers bind against — the migration script
+// (`scripts/migrate-case-list-config.ts`) is the single producer
+// allowed to read the legacy shape, and it does so against the
+// raw Firestore document before Zod parsing.
 //
 // The tests below pin the four contracts the schema enforces:
 //
@@ -18,10 +22,10 @@
 //      `threshold` / `unit`, a calculated column missing
 //      `expression`, a search input with `multi-select-contains`
 //      missing the quantifier).
-//   4. The legacy `{caseListColumns, caseDetailColumns}` shape no
-//      longer parses — the schema rejects the old field names so
-//      stale fixtures fail loudly rather than silently land as
-//      "unknown property" passthroughs.
+//   4. The legacy `{caseListColumns, caseDetailColumns}` keys
+//      strip silently — `safeParse` succeeds, but the typed
+//      result never carries them, so legacy values can't
+//      accidentally flow through to consumer code.
 
 import { describe, expect, it } from "vitest";
 import { caseListConfigSchema, columnSchema, moduleSchema } from "../modules";

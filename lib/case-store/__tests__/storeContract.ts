@@ -56,7 +56,7 @@ import {
 	prop,
 	subcasePath,
 } from "@/lib/domain/predicate/builders";
-import { CaseNotFoundError } from "../errors";
+import { CaseNotFoundError, SchemaNotSyncedError } from "../errors";
 import type { CaseStore } from "../store";
 import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
@@ -1076,6 +1076,76 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(survivors).toHaveLength(1);
 			expect(survivors[0]?.case_id).toBe(PATIENT_BOB_ID);
+		});
+
+		// -----------------------------------------------------------
+		// dropSchema — remove the schema row + per-property indexes
+		// -----------------------------------------------------------
+
+		it("dropSchema removes the case_type_schemas row and indexes after applySchemaChange seeded them", async () => {
+			// Seed via `applySchemaChange`: materializes the schema
+			// row + the trgm GIN index for the `text`-typed `name`
+			// property (per `lib/case-store/CLAUDE.md` § Per-data-type
+			// index coverage).
+			const store = await options.factory(OWNER_A);
+			await seedSchema(store, buildBlueprint([PATIENT_CASE_TYPE]), "patient");
+
+			// Sanity: an insert against the seeded schema lands.
+			// Without this, a test that asserts "schema row gone"
+			// after `dropSchema` would pass against a regression that
+			// silently no-ops `applySchemaChange` itself.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+			const beforeDrop = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(beforeDrop).toHaveLength(1);
+
+			await store.dropSchema({ appId: APP_ID, caseType: "patient" });
+
+			// After `dropSchema`, an insert against `(appId, "patient")`
+			// fails the schema lookup with `SchemaNotSyncedError` — the
+			// schema row is gone. This is the interface-level proof
+			// that the row was deleted; probing `case_type_schemas`
+			// directly would couple the contract test to the Postgres
+			// row shape rather than the `CaseStore` surface.
+			await expect(
+				store.insert({
+					appId: APP_ID,
+					row: {
+						case_id: PATIENT_BOB_ID,
+						case_type: "patient",
+						case_name: DEFAULT_CASE_NAME,
+						status: "open",
+						properties: makeProperties({ name: "Bob", age: 30 }),
+					},
+				}),
+			).rejects.toBeInstanceOf(SchemaNotSyncedError);
+		});
+
+		it("dropSchema is idempotent — calling against an absent case type is a no-op", async () => {
+			const store = await options.factory(OWNER_A);
+			// No `applySchemaChange` first — the schema row genuinely
+			// doesn't exist. The contract is "drop is safe to call
+			// after a partial-failure recovery flow", so this absence
+			// path must not throw.
+			await expect(
+				store.dropSchema({ appId: APP_ID, caseType: "patient" }),
+			).resolves.toBeUndefined();
+			// Second call is also a no-op — establishes idempotence
+			// rather than first-call-only luck.
+			await expect(
+				store.dropSchema({ appId: APP_ID, caseType: "patient" }),
+			).resolves.toBeUndefined();
 		});
 
 		// -----------------------------------------------------------

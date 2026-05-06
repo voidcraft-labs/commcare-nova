@@ -11,7 +11,7 @@
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import { loadApp, loadAppOwner } from "@/lib/db/apps";
+import { loadApp } from "@/lib/db/apps";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
@@ -53,10 +53,14 @@ export async function PUT(
 		const session = await requireSession(req);
 		const { id } = await params;
 
-		/* Verify ownership before accepting the write. Returns 404 (not 403) to
-		 * avoid leaking the existence of other users' apps. */
-		const owner = await loadAppOwner(id);
-		if (!owner || owner !== session.user.id) {
+		/* Single Firestore read up front — the loaded `AppDoc` carries
+		 * both the `owner` field (for the ownership gate) and the
+		 * `blueprint` (threaded into the saga as `priorBlueprint` so
+		 * the diff doesn't pay a second `loadApp` round trip). Returns
+		 * 404 (not 403) to avoid leaking the existence of other users'
+		 * apps. */
+		const app = await loadApp(id);
+		if (!app || app.owner !== session.user.id) {
 			throw new ApiError("App not found", 404);
 		}
 
@@ -85,11 +89,14 @@ export async function PUT(
 		 * Pure non-case-type edits (module / form / field tweaks)
 		 * fast-path through the saga without touching the case
 		 * store. See `lib/db/applyBlueprintChange.ts` for the
-		 * compensation contract. */
+		 * compensation contract. The pre-loaded `app.blueprint`
+		 * threads through as `priorBlueprint` so the saga doesn't
+		 * re-read the document. */
 		await applyBlueprintChange({
 			appId: id,
 			userId: session.user.id,
 			prospective: parsed.data,
+			priorBlueprint: app.blueprint,
 		});
 		return Response.json({ ok: true });
 	} catch (err) {

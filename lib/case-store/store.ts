@@ -253,6 +253,30 @@ export interface CaseStore {
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
 
 	/**
+	 * Drop the `case_type_schemas` row + every per-property
+	 * expression index for `(appId, caseType)`. Used by the cross-
+	 * store saga's compensation path to revert a case-type-addition
+	 * Phase 1 commit when the Firestore commit fails: the prior
+	 * blueprint has no `caseTypes` entry for this case type, so
+	 * `applySchemaChange(prior)` cannot run (it would throw
+	 * `CaseTypeNotInBlueprintError`); a direct DROP is the only
+	 * way to honor the saga's "exactly the prior state" contract.
+	 *
+	 * Idempotent on every absence path — the schema row DELETE is
+	 * a no-op when missing, and the per-property index drops use
+	 * `IF EXISTS`. Calling against a non-existent case type is
+	 * safe.
+	 *
+	 * Mirrors `applySchemaChange`'s two-phase shape: the schema-
+	 * row DELETE runs in Phase A; the index drops run in Phase B
+	 * via `DROP INDEX CONCURRENTLY IF EXISTS` so the index drops
+	 * cannot run inside an outer transaction (per Postgres's
+	 * `CREATE/DROP INDEX CONCURRENTLY` semantics — see
+	 * `lib/case-store/CLAUDE.md` § "Why two phases").
+	 */
+	dropSchema(args: { appId: string; caseType: string }): Promise<void>;
+
+	/**
 	 * Generate `count` sample rows for `caseType` and bulk-insert
 	 * them. Deterministic per `(app, caseType, seed)`. The
 	 * implementation queries existing parent rows for any declared

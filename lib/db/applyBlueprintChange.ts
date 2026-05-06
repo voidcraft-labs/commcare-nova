@@ -53,17 +53,18 @@
  *
  * ## Loading the prior state
  *
- * The saga reads the prior blueprint from Firestore via `loadApp`
- * before computing the diff. Callers don't thread it through —
- * keeping the prior load inside the saga centralizes the read
- * and matches the single-mutation-per-call contract. The cost is
- * one extra Firestore document read per save; auto-save is
- * client-debounced and MCP tool calls are sequential per
- * conversation, so the latency floor matches what the existing
- * `loadApp` callers (the chat-side `loadAppForRun`, the MCP
- * adapter's ownership gate's parent fetch) already pay.
+ * Callers that already loaded the app document (the auto-save
+ * PUT route does so for its ownership check) pass the prior
+ * blueprint via `args.priorBlueprint` — the saga uses it
+ * directly, no second Firestore read. Callers without a
+ * pre-loaded snapshot (the MCP path's `McpContext.saveBlueprint`)
+ * omit the field, and the saga loads the doc itself. The auto-
+ * save PUT path costs one Firestore read end-to-end (the
+ * ownership-check load that's then threaded through); the MCP
+ * path costs the saga's internal load.
  */
 
+import type { CaseStore } from "@/lib/case-store";
 import { withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -88,6 +89,13 @@ import {
  * matching `change` shape on the `applySchemaChange` call so the
  * schema sync + per-row migration run in one Postgres
  * transaction.
+ *
+ * `priorBlueprint` lets a caller that already loaded the app
+ * document (the auto-save PUT route does so for ownership) skip
+ * the saga's internal `loadApp` round trip. Absent: the saga
+ * loads the prior blueprint itself. Supplying it on every awaited
+ * blueprint write that already paid the load cost halves the
+ * Firestore-read budget on hot edit paths.
  */
 export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
@@ -95,6 +103,7 @@ export interface ApplyBlueprintChangeArgs {
 	readonly prospective: PersistableDoc;
 	readonly runId?: string;
 	readonly hint?: SchemaChangeHint;
+	readonly priorBlueprint?: PersistableDoc;
 }
 
 /**
@@ -112,21 +121,7 @@ export interface ApplyBlueprintChangeArgs {
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<void> {
-	const priorDoc = await loadApp(args.appId);
-	if (priorDoc === null) {
-		throw new Error(
-			`[applyBlueprintChange] prior app document missing for appId=${args.appId}`,
-		);
-	}
-
-	// `loadApp` returns `AppDoc`, whose `blueprint` is `PersistableDoc`
-	// — same shape as the `prospective` argument. The diff and the
-	// `applySchemaChange` call both consume the in-memory `BlueprintDoc`
-	// shape (which is `PersistableDoc & { fieldParent: ... }`); the
-	// case-store reads `caseTypes` only and never touches `fieldParent`,
-	// so passing the persisted shape directly is sound. The cast at the
-	// type boundary is the single seam.
-	const priorBlueprint = priorDoc.blueprint as BlueprintDoc;
+	const priorBlueprint = await resolvePriorBlueprint(args);
 	const prospectiveBlueprint = args.prospective as BlueprintDoc;
 
 	const entries = classifyCaseTypeChanges({
@@ -160,7 +155,7 @@ export async function applyBlueprintChange(
 			applied.push(entry);
 		}
 	} catch (forwardErr) {
-		await compensate(args.appId, args.userId, applied, priorBlueprint);
+		await compensate(args.appId, store, applied, priorBlueprint);
 		throw forwardErr;
 	}
 
@@ -169,9 +164,38 @@ export async function applyBlueprintChange(
 	try {
 		await persistBlueprint(args);
 	} catch (commitErr) {
-		await compensate(args.appId, args.userId, applied, priorBlueprint);
+		await compensate(args.appId, store, applied, priorBlueprint);
 		throw commitErr;
 	}
+}
+
+/**
+ * Resolve the prior blueprint snapshot the diff runs against.
+ * When the caller supplies `priorBlueprint` (the auto-save PUT
+ * route already loaded the doc for the ownership check), use it
+ * directly — saves a Firestore round trip on every save. Without
+ * it (the MCP path's `McpContext.saveBlueprint`), the saga loads
+ * the doc itself.
+ *
+ * The `as BlueprintDoc` cast at the type boundary widens
+ * `PersistableDoc` (Zod-inferred, no `fieldParent`) to the
+ * in-memory shape (`PersistableDoc & { fieldParent: ... }`). The
+ * `case-store` reads `caseTypes` only, so the missing
+ * `fieldParent` is sound — the cast is the single seam.
+ */
+async function resolvePriorBlueprint(
+	args: ApplyBlueprintChangeArgs,
+): Promise<BlueprintDoc> {
+	if (args.priorBlueprint !== undefined) {
+		return args.priorBlueprint as BlueprintDoc;
+	}
+	const priorDoc = await loadApp(args.appId);
+	if (priorDoc === null) {
+		throw new Error(
+			`[applyBlueprintChange] prior app document missing for appId=${args.appId}`,
+		);
+	}
+	return priorDoc.blueprint as BlueprintDoc;
 }
 
 /**
@@ -188,12 +212,27 @@ async function persistBlueprint(args: ApplyBlueprintChangeArgs): Promise<void> {
 }
 
 /**
- * Run compensating `applySchemaChange` calls against the prior
- * blueprint state for every already-applied entry.
+ * Run compensating case-store calls against the prior blueprint
+ * state for every already-applied entry.
  *
- * The compensation re-derives the schema + index DDL from the
- * prior snapshot, so the `case_type_schemas` row + the per-
- * property indexes return to their pre-mutation shape. Per-row
+ * Two compensation arms based on whether the case type existed
+ * in the prior blueprint:
+ *
+ *   - **Case-type already existed in prior** — call
+ *     `applySchemaChange(prior)` to regenerate the prior schema
+ *     + emit the prior index DDL diff. Re-derives Postgres
+ *     state from the prior snapshot.
+ *   - **Case-type was added in prospective** (absent from prior)
+ *     — call `dropSchema` to DELETE the `case_type_schemas` row
+ *     + drop every per-property index. Routing through
+ *     `applySchemaChange(prior)` here would throw
+ *     `CaseTypeNotInBlueprintError` because the prior blueprint
+ *     has no `caseTypes` entry to derive a schema from; the
+ *     direct DROP is the only path that honors the saga's
+ *     "exactly the prior state" contract.
+ *
+ * The compensation re-derives the `case_type_schemas` row + the
+ * per-property indexes from the prior snapshot. Per-row
  * migrations are NOT inverted: rows already retyped stay in their
  * new JSONB shape, and rows already moved to `cases_quarantine`
  * stay quarantined. The eventual-consistency model is acceptable
@@ -212,26 +251,37 @@ async function persistBlueprint(args: ApplyBlueprintChangeArgs): Promise<void> {
  */
 async function compensate(
 	appId: string,
-	userId: string,
+	store: CaseStore,
 	applied: readonly CaseTypeChangeEntry[],
 	priorBlueprint: BlueprintDoc,
 ): Promise<void> {
 	if (applied.length === 0) return;
-	const store = await withOwnerContext(userId);
+	const priorByName = indexCaseTypesByName(priorBlueprint);
 	for (const entry of applied) {
 		try {
-			// Compensation always re-syncs the schema for the prior
-			// state — the per-row migration happened in Phase 1, so
-			// passing `change` again would attempt a second migration
-			// against rows that already migrated. Schema-sync-only
-			// against the prior blueprint is the inverse: it
-			// regenerates the prior JSON Schema + emits the prior
-			// index DDL diff.
-			await store.applySchemaChange({
-				appId,
-				caseType: entry.caseType,
-				blueprint: priorBlueprint,
-			});
+			if (priorByName.has(entry.caseType)) {
+				// Case type existed in prior — re-sync the schema for
+				// the prior state. The per-row migration ran in Phase
+				// 1, so passing `change` again would attempt a second
+				// migration against rows that already migrated.
+				// Schema-sync-only against the prior blueprint is the
+				// inverse: it regenerates the prior JSON Schema + emits
+				// the prior index DDL diff.
+				await store.applySchemaChange({
+					appId,
+					caseType: entry.caseType,
+					blueprint: priorBlueprint,
+				});
+			} else {
+				// Case type was added in prospective — drop the schema
+				// row + per-property indexes directly. Routing through
+				// `applySchemaChange(prior)` here would throw
+				// `CaseTypeNotInBlueprintError` (prior blueprint has no
+				// matching `caseTypes` entry to derive a schema from);
+				// `dropSchema` is the structural inverse for the case-
+				// type-addition arm.
+				await store.dropSchema({ appId, caseType: entry.caseType });
+			}
 		} catch (compensateErr) {
 			log.error(
 				`[applyBlueprintChange] compensation failed for caseType=${entry.caseType}`,
@@ -240,4 +290,19 @@ async function compensate(
 			);
 		}
 	}
+}
+
+/**
+ * Build a `name → present` set for the supplied blueprint's
+ * `caseTypes`. Used by `compensate` to discriminate the
+ * already-existed-in-prior arm (compensate via
+ * `applySchemaChange`) from the case-type-addition arm
+ * (compensate via `dropSchema`).
+ */
+function indexCaseTypesByName(blueprint: BlueprintDoc): ReadonlySet<string> {
+	const set = new Set<string>();
+	for (const ct of blueprint.caseTypes ?? []) {
+		set.add(ct.name);
+	}
+	return set;
 }

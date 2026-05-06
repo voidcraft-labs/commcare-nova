@@ -730,6 +730,34 @@ export class PostgresCaseStore implements CaseStore {
 		return report;
 	}
 
+	async dropSchema(args: { appId: string; caseType: string }): Promise<void> {
+		// Phase A: DELETE the `case_type_schemas` row. A single
+		// statement is atomic on its own — no transaction needed
+		// for one DELETE — but the structural shape mirrors
+		// `applySchemaChange`'s Phase A so the file's two-phase
+		// pattern stays uniform. Idempotent on every absence path:
+		// DELETE matching zero rows is a no-op.
+		await this.db
+			.deleteFrom("case_type_schemas")
+			.where("app_id", "=", args.appId)
+			.where("case_type", "=", args.caseType)
+			.execute();
+
+		// Phase B: drop every per-property expression index. The
+		// "desired set" for a dropped case type is empty, so
+		// `diffIndexSets` would emit drops for every live index.
+		// Calling `syncExpressionIndexes` with an empty desired map
+		// is the established way to express "drop everything for
+		// this case type" — keeping the index-DDL plumbing in one
+		// place. `DROP INDEX CONCURRENTLY IF EXISTS` survives a
+		// missing-index path (Phase B already committed in a prior
+		// run, the schema-row DELETE is the only outstanding work).
+		await this.syncExpressionIndexes({
+			caseType: args.caseType,
+			desired: new Map(),
+		});
+	}
+
 	/**
 	 * Sync per-property expression indexes against the pre-flighted
 	 * desired set. Naming convention

@@ -235,6 +235,40 @@ describe("applyBlueprintChange — additive mutations", () => {
 		expect(updateAppMock).not.toHaveBeenCalled();
 	});
 
+	it("skips loadApp when the caller supplies priorBlueprint", async () => {
+		// The auto-save PUT route already loaded the doc for its
+		// ownership check; threading the result through as
+		// `priorBlueprint` halves the Firestore-read cost on every
+		// save. The saga must use the supplied snapshot directly
+		// rather than re-reading.
+		const prior = makeBlueprint(null);
+		const prospective = makeBlueprint([PATIENT]);
+		updateAppMock.mockResolvedValueOnce(undefined);
+
+		await applyBlueprintChange({
+			appId: APP_ID,
+			userId: OWNER_ID,
+			prospective,
+			priorBlueprint: prior,
+		});
+
+		// Firestore committed; `loadApp` was NOT called because the
+		// caller supplied the prior snapshot. This is the perf
+		// invariant the call-site change in
+		// `app/api/apps/[id]/route.ts` depends on.
+		expect(updateAppMock).toHaveBeenCalledTimes(1);
+		expect(loadAppMock).not.toHaveBeenCalled();
+
+		// Schema row materialized — proves the caller-supplied prior
+		// flowed through the diff correctly (the classifier saw
+		// "case-type addition" and emitted a schema-sync entry).
+		const schemaRow = await dbHandle.pool.query<{ schema: unknown }>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(schemaRow.rows).toHaveLength(1);
+	});
+
 	it("skips Postgres entirely for a non-case-type mutation", async () => {
 		// The saga's fast path: classifier returns no entries, the
 		// saga commits Firestore directly without touching the
@@ -547,5 +581,82 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		);
 		expect(postRows.rows).toHaveLength(1);
 		expect(postRows.rows[0]?.schema).toEqual(priorSchema);
+	});
+
+	// Parallel shape to the test above, but starting from a prior
+	// blueprint that has NO `patient` case type. Phase 1's
+	// `applySchemaChange(prospective)` materializes the schema row
+	// + index DDL; the Firestore commit then fails, and the
+	// compensation arm must DELETE the schema row + drop the
+	// indexes — the prior blueprint can't produce a schema for a
+	// case type it doesn't declare, so a naive
+	// `applySchemaChange(prior)` would orphan the row. This test
+	// pins the case-type-addition compensation arm specifically.
+	it("compensates a case-type addition by dropping the schema row + indexes when updateApp throws", async () => {
+		// Prior: empty case_types — no `patient` exists yet.
+		const priorBlueprint = makeBlueprint(null);
+
+		// Confirm the schema row really doesn't exist before the
+		// saga runs. Without this baseline, a leaked row from a
+		// prior test could let the post-failure assertion pass
+		// trivially.
+		const beforeRows = await dbHandle.pool.query<{ schema: unknown }>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(beforeRows.rows).toHaveLength(0);
+
+		// Prospective: add `patient` with a `name` property. The
+		// `text` `data_type` materializes one trgm GIN expression
+		// index — Phase 2 of the existing `applySchemaChange` —
+		// which the compensation must also drop.
+		const added: CaseType = {
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		};
+		const addedBlueprint = makeBlueprint([added]);
+
+		loadAppMock.mockResolvedValueOnce(makeAppDoc(priorBlueprint));
+		// Firestore commit fails — the saga must compensate by
+		// dropping the schema row + indexes (NOT by routing
+		// through `applySchemaChange(prior)`, which would throw
+		// `CaseTypeNotInBlueprintError`).
+		const commitErr = new Error("simulated firestore failure");
+		updateAppMock.mockRejectedValueOnce(commitErr);
+
+		await expect(
+			applyBlueprintChange({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				prospective: addedBlueprint,
+			}),
+		).rejects.toThrow("simulated firestore failure");
+
+		// `case_type_schemas` carries no row for `(appId, "patient")`
+		// — the compensation's DELETE returned the table to its
+		// pre-call shape.
+		const postSchemaRows = await dbHandle.pool.query<{ schema: unknown }>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(postSchemaRows.rows).toHaveLength(0);
+
+		// Per-property expression indexes are dropped. The Phase 1
+		// trgm GIN landed `cases_patient_name_fuzzy`; the
+		// compensation's `DROP INDEX CONCURRENTLY IF EXISTS` removes
+		// it. Probe `pg_indexes` directly — Kysely's typed builder
+		// doesn't compile against the catalog views.
+		const postIndexes = await dbHandle.pool.query<{ indexname: string }>(
+			`SELECT indexname FROM pg_indexes
+			 WHERE tablename = 'cases'
+			 AND indexname LIKE 'cases\\_patient\\_%' ESCAPE '\\'`,
+		);
+		expect(postIndexes.rows).toHaveLength(0);
+
+		// `updateApp` was called once (the failing call); the saga
+		// did not retry it after compensation. The thrown
+		// `commitErr` propagates out as the rejection above.
+		expect(updateAppMock).toHaveBeenCalledTimes(1);
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
 	});
 });
