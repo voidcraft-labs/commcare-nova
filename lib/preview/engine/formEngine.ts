@@ -340,6 +340,12 @@ export class FormEngine {
 		}
 
 		const primaryProperties: JsonObject = {};
+		// `case_name` is plucked into a separate slot rather than included
+		// in `properties` because the case-store routes the case display
+		// name to the top-level `cases.case_name` column (see
+		// `lib/case-store/store.ts` — `CaseInsert.case_name` is a top-level
+		// field, not extracted from the JSONB document).
+		let primaryCaseName: string | undefined;
 		// Encounter-ordered child buckets so the emitted mutation is
 		// deterministic per (engine state, caseTypes) pair.
 		const childBuckets: ChildBucket[] = [];
@@ -357,7 +363,6 @@ export class FormEngine {
 			if (existing !== undefined) return existing;
 			const created: ChildBucket = {
 				caseType,
-				repeatInstanceKey,
 				properties: {},
 			};
 			childBucketIndex.set(key, created);
@@ -396,14 +401,31 @@ export class FormEngine {
 				const raw = this.instance.get(fieldPath);
 				if (raw === undefined || raw === "") continue;
 
+				const isPrimary =
+					this.moduleCaseType !== undefined &&
+					casePropertyOn === this.moduleCaseType;
+
+				// `case_name` routes to the top-level `cases.case_name`
+				// column, not the JSONB document. Field id is the case
+				// property name (project convention), so the discriminator
+				// is `f.id === "case_name"`. The string passes through
+				// verbatim — `text NOT NULL` at the column means the
+				// property's `data_type` is irrelevant for the column write.
+				if (f.id === "case_name") {
+					if (isPrimary) {
+						primaryCaseName = raw;
+					} else {
+						const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
+						bucket.caseName = raw;
+					}
+					continue;
+				}
+
 				const property = caseTypeLookup
 					.get(casePropertyOn)
 					?.properties.find((p) => p.name === f.id);
 				const coerced = coerceValueForProperty(raw, property);
 
-				const isPrimary =
-					this.moduleCaseType !== undefined &&
-					casePropertyOn === this.moduleCaseType;
 				if (isPrimary) {
 					primaryProperties[f.id] = coerced;
 					continue;
@@ -415,6 +437,16 @@ export class FormEngine {
 		};
 
 		walk(this.tree, "/data", "");
+
+		// A bucket that received only a `caseName` write (no scalar
+		// properties) is still a legitimate child — the child has a
+		// display name and platform defaults for everything else.
+		// Buckets with neither a `caseName` nor any property write are
+		// dropped; the walker only creates buckets when a contributing
+		// field lands in them, so the predicate is defensive against an
+		// upstream change to bucket creation.
+		const isContentfulBucket = (b: ChildBucket): boolean =>
+			b.caseName !== undefined || Object.keys(b.properties).length > 0;
 
 		switch (this.formType) {
 			case "registration": {
@@ -429,16 +461,18 @@ export class FormEngine {
 						}),
 					);
 				}
-				const children = childBuckets
-					.filter((b) => Object.keys(b.properties).length > 0)
-					.map((b) => ({
-						caseType: b.caseType,
-						properties: b.properties,
-					}));
+				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
+					caseType: b.caseType,
+					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
+					properties: b.properties,
+				}));
 				return {
 					kind: "registration",
 					primary: {
 						caseType: this.moduleCaseType,
+						...(primaryCaseName !== undefined
+							? { caseName: primaryCaseName }
+							: {}),
 						properties: primaryProperties,
 					},
 					children,
@@ -459,27 +493,22 @@ export class FormEngine {
 						}),
 					);
 				}
-				const children = childBuckets
-					.filter((b) => Object.keys(b.properties).length > 0)
-					.map((b) => ({
-						caseType: b.caseType,
-						properties: b.properties,
-						parentCaseId: caseId,
-					}));
-				if (this.formType === "followup") {
-					return {
-						kind: "followup",
-						caseId,
-						patch: { properties: primaryProperties },
-						children,
-					};
-				}
-				return {
-					kind: "close",
-					caseId,
-					patch: { properties: primaryProperties },
-					children,
+				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
+					caseType: b.caseType,
+					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
+					properties: b.properties,
+					parentCaseId: caseId,
+				}));
+				const patch = {
+					...(primaryCaseName !== undefined
+						? { caseName: primaryCaseName }
+						: {}),
+					properties: primaryProperties,
 				};
+				if (this.formType === "followup") {
+					return { kind: "followup", caseId, patch, children };
+				}
+				return { kind: "close", caseId, patch, children };
 			}
 			default:
 				// `survey` is handled at the top of the method; the form type
@@ -1209,16 +1238,21 @@ export class FormEngine {
 // ── Submission-mutation helpers ──────────────────────────────────────
 
 /**
- * Per-destination-bucket of field reads. One bucket per
- * `(caseType, repeatInstanceKey)` pair so a registration form whose
- * `child_visit` repeat carries three iterations produces three
- * separate child-case ops, not one merged op. The empty-string key
- * collapses fields outside any repeat into a single bucket per case
- * type.
+ * Per-destination-bucket of field reads. The walker indexes one
+ * bucket per `(caseType, repeatInstanceKey)` pair so a registration
+ * form whose `child_visit` repeat carries three iterations produces
+ * three separate child-case ops, not one merged op. The empty-string
+ * `repeatInstanceKey` collapses fields outside any repeat into a
+ * single bucket per case type.
+ *
+ * `caseName` is mutable because the walker encounters the
+ * `case_name`-id field at most once per bucket. The slot stays
+ * separate from `properties` because `case_name` routes to the
+ * top-level `cases.case_name` column, not the JSONB document.
  */
 interface ChildBucket {
 	caseType: string;
-	repeatInstanceKey: string;
+	caseName?: string;
 	properties: JsonObject;
 }
 

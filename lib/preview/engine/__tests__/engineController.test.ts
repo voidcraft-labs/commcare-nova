@@ -323,7 +323,8 @@ describe("EngineController", () => {
 				kind: "registration",
 				primary: {
 					caseType: "patient",
-					properties: { case_name: "Alice", age: 30 },
+					caseName: "Alice",
+					properties: { age: 30 },
 				},
 				children: [],
 			});

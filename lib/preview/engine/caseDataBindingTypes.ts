@@ -91,22 +91,36 @@ export type PopulateSampleCasesResult =
  *   the bound case after the updates land.
  * - `survey` — structural no-op; the form owns no case rows.
  *
- * `case_name` is a regular property keyed inside `properties` — it
- * routes to the `cases.case_name` column at the case-store boundary
- * but the mutation shape does not separate it from the JSONB document.
+ * `caseName` is a separate slot from `properties` because the
+ * case-store routes the case display name to the top-level
+ * `cases.case_name` column; the JSONB document carries only the
+ * user-defined property bag (see `lib/case-store/store.ts` —
+ * `CaseInsert.case_name` and `CaseUpdate.case_name` are top-level
+ * fields, not extracted from `properties`). The walker plucks the
+ * field whose `id === "case_name"` into the slot and never
+ * includes it in `properties`.
  */
 export type SubmissionMutation =
 	| {
 			kind: "registration";
-			primary: { caseType: string; properties: JsonObject };
-			children: ReadonlyArray<{ caseType: string; properties: JsonObject }>;
+			primary: {
+				caseType: string;
+				caseName?: string;
+				properties: JsonObject;
+			};
+			children: ReadonlyArray<{
+				caseType: string;
+				caseName?: string;
+				properties: JsonObject;
+			}>;
 	  }
 	| {
 			kind: "followup";
 			caseId: string;
-			patch: { properties: JsonObject };
+			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
 				caseType: string;
+				caseName?: string;
 				properties: JsonObject;
 				parentCaseId: string;
 			}>;
@@ -114,9 +128,10 @@ export type SubmissionMutation =
 	| {
 			kind: "close";
 			caseId: string;
-			patch: { properties: JsonObject };
+			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
 				caseType: string;
+				caseName?: string;
 				properties: JsonObject;
 				parentCaseId: string;
 			}>;

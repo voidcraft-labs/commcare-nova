@@ -829,10 +829,6 @@ describe("FormEngine", () => {
 
 		describe("registration", () => {
 			it("emits primary properties for fields bound to the module's case type", () => {
-				// `case_name` flows through as a regular property keyed
-				// inside the JSONB document, NOT a separate slot. The
-				// case-store boundary plucks it for the `cases.case_name`
-				// column at write time; the engine emits one shape.
 				const input = dTree([
 					{
 						id: "case_name",
@@ -851,7 +847,8 @@ describe("FormEngine", () => {
 					kind: "registration",
 					primary: {
 						caseType: "patient",
-						properties: { case_name: "Alice", age: 30 },
+						caseName: "Alice",
+						properties: { age: 30 },
 					},
 					children: [],
 				});
@@ -878,7 +875,8 @@ describe("FormEngine", () => {
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary).toEqual({
 					caseType: "patient",
-					properties: { case_name: "Alice", age: 30 },
+					caseName: "Alice",
+					properties: { age: 30 },
 				});
 				expect(mutation.children).toEqual([
 					{
@@ -972,6 +970,99 @@ describe("FormEngine", () => {
 				});
 			});
 
+			it("plucks a child-case `case_name` field into the child's caseName slot", () => {
+				// A child-bound `case_name` field routes to the child's
+				// top-level column, parallel to the primary's behaviour.
+				// Distinct child case-types each get their own caseName.
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "visits",
+						kind: "repeat",
+						children: [
+							{
+								id: "case_name",
+								kind: "text",
+								case_property_on: "visit",
+							},
+							{
+								id: "visit_date",
+								kind: "date",
+								case_property_on: "visit",
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/visits[0]/case_name", "First visit");
+				engine.setValue("/data/visits[0]/visit_date", "2026-05-01");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.caseName).toBe("Alice");
+				expect(mutation.primary.properties).toEqual({});
+				expect(mutation.children).toEqual([
+					{
+						caseType: "visit",
+						caseName: "First visit",
+						properties: { visit_date: "2026-05-01" },
+					},
+				]);
+			});
+
+			it("emits a child case with only a caseName when no other child fields contribute", () => {
+				// A registration form whose only contribution to a child
+				// case is the display name still emits the child — the
+				// platform defaults handle the rest.
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "visits",
+						kind: "repeat",
+						children: [
+							{
+								id: "case_name",
+								kind: "text",
+								case_property_on: "visit",
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/visits[0]/case_name", "First visit");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.children).toEqual([
+					{ caseType: "visit", caseName: "First visit", properties: {} },
+				]);
+			});
+
+			it("omits the primary caseName slot when no `case_name` field has a value", () => {
+				// When no `case_name` field contributes a value, the primary
+				// emits without the `caseName` slot — distinguishable from
+				// `caseName: ""` which would be a contract violation
+				// (`cases.case_name` carries `length(case_name) > 0`).
+				const input = dTree([
+					{ id: "age", kind: "int", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/age", "30");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect("caseName" in mutation.primary).toBe(false);
+				expect(mutation.primary.properties).toEqual({ age: 30 });
+			});
+
 			it("throws when registration reaches the engine without a moduleCaseType", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
@@ -1013,7 +1104,8 @@ describe("FormEngine", () => {
 					kind: "followup",
 					caseId: "case-id-123",
 					patch: {
-						properties: { case_name: "Alice", notes: "follow-up note" },
+						caseName: "Alice",
+						properties: { notes: "follow-up note" },
 					},
 					children: [
 						{
@@ -1190,10 +1282,8 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({ caseTypes });
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
-				expect(mutation.primary.properties).toEqual({
-					case_name: "Alice",
-					notes: "hello",
-				});
+				expect(mutation.primary.caseName).toBe("Alice");
+				expect(mutation.primary.properties).toEqual({ notes: "hello" });
 			});
 
 			it("coerces int to integer", () => {
@@ -1286,14 +1376,14 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "42");
 
-				// Empty caseTypes — both case_name and age fall through as text.
+				// Empty caseTypes — `age` falls through as text. `case_name`
+				// is plucked into the column slot regardless of lookup state
+				// because the field-id discriminator runs first.
 				const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
-				expect(mutation.primary.properties).toEqual({
-					case_name: "Alice",
-					age: "42",
-				});
+				expect(mutation.primary.caseName).toBe("Alice");
+				expect(mutation.primary.properties).toEqual({ age: "42" });
 			});
 
 			it("passes unknown-property values through as text when the case type is matched but the property isn't declared", () => {
@@ -1333,7 +1423,8 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({ caseTypes });
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
-				expect(mutation.primary.properties).toEqual({ case_name: "Alice" });
+				expect(mutation.primary.caseName).toBe("Alice");
+				expect(mutation.primary.properties).toEqual({});
 				expect("notes" in mutation.primary.properties).toBe(false);
 			});
 
