@@ -21,12 +21,12 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
-import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const UNIT_LABELS: Record<DistanceUnit, string> = {
 	miles: "miles",
@@ -60,9 +60,10 @@ export function WithinDistanceCard({
 	onChange,
 	path,
 }: WithinDistanceCardProps) {
-	const ctx = usePredicateEditContext();
+	// Center errors render via the `ExpressionPicker` shell's
+	// `CardShell` footer at the matching slot path — rendering them
+	// here too would double the diagnostic row count.
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
-	const centerErrors = useEditorErrorsAt(appendSlot(path, "center"));
 
 	const setProperty = (next: PropertyRef) => {
 		onChange(within(next, value.center, value.distance, value.unit));
@@ -79,8 +80,6 @@ export function WithinDistanceCard({
 	const setUnit = (unit: DistanceUnit) => {
 		onChange(within(value.property, value.center, value.distance, unit));
 	};
-
-	const propertyName = value.property.property || undefined;
 
 	return (
 		<div className="space-y-2">
@@ -101,15 +100,23 @@ export function WithinDistanceCard({
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Center
 					</div>
-					<ValueExpressionPicker
+					{/* Center coordinate routes through `ExpressionPicker`
+					 *  so the full ValueExpression family is reachable.
+					 *  CCHQ accepts a typed-geopoint search input as the
+					 *  natural shape and a wire-form coordinate string
+					 *  as a fallback (per `query_functions.py:60`); both
+					 *  are admitted by the `geopoint`-or-`text` allow-
+					 *  list in the type checker. The picker's own
+					 *  `CardShell` footer surfaces inline errors at the
+					 *  slot path, so no parallel `<InlineError>` is needed
+					 *  here. */}
+					<ExpressionPicker
 						value={value.center}
 						onChange={setCenter}
-						caseTypeName={ctx.currentCaseType}
-						anchorPropertyName={propertyName}
-						invalid={centerErrors.length > 0}
-						ariaLabel="Center coordinate"
+						path={appendSlot(path, "center")}
+						expectedType="geopoint"
+						variant="nested"
 					/>
-					<InlineError errors={centerErrors} />
 				</div>
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">

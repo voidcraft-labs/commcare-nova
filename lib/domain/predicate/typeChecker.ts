@@ -2071,6 +2071,59 @@ export function checkExpression(
 	}
 }
 
+/**
+ * Top-level validation entry point for a `ValueExpression` AST.
+ * Symmetric with `checkPredicate` on the boolean side: pure (no I/O,
+ * no AST mutation), accumulates every error in one pass so the
+ * editor can render the full diagnostic set without forcing a
+ * one-error-at-a-time fix-and-retry cycle.
+ *
+ * `expectedType` is an optional caller-side hint naming the type the
+ * surrounding consumer expects this expression to resolve to (a
+ * `CasePropertyDataType` for a calculated-column slot, an enum
+ * literal for a sort-key calculation, etc.). When supplied AND the
+ * recursive walker resolves a concrete type that is incompatible per
+ * `typesCompatible(...)`, an extra root-path error fires naming the
+ * mismatch. Omit `expectedType` for slots where any value type is
+ * admissible — the editor's per-arm type rules still catch every
+ * structural violation regardless of the caller's expectation.
+ *
+ * Why a separate top-level function (vs. routing through
+ * `checkExpression` directly): the recursive walker's signature
+ * accumulates onto a shared `errors` list and threads the path
+ * segment, which matches the internal mutual recursion with `walk`
+ * (the Predicate dispatcher). External callers want a clean
+ * `(expr, ctx, expectedType?) => CheckResult` shape instead — the
+ * thin wrapper here provides it without leaking the walker's
+ * accumulator into the public API.
+ */
+export function checkValueExpression(
+	expression: ValueExpression,
+	ctx: TypeContext,
+	expectedType?: ResolvedType,
+): CheckResult {
+	const errors: CheckError[] = [];
+	const resolvedType = checkExpression(expression, ctx, errors, []);
+	// expectedType compatibility check: only fires when the walker
+	// resolved a concrete type AND it disagrees with the caller's
+	// expectation. A walker-side resolution failure (returns
+	// `undefined`) already pushed its own error onto the operand path
+	// — adding a top-level "expected X" message would be redundant
+	// noise. The `_any` sentinel (null literal) bypasses every
+	// compatibility check, mirroring the comparison-operator behavior.
+	if (
+		expectedType !== undefined &&
+		resolvedType !== undefined &&
+		!typesCompatible(resolvedType, expectedType)
+	) {
+		errors.push({
+			path: [],
+			message: `Expected '${describe(expectedType)}'; expression resolves to '${describe(resolvedType)}'.`,
+		});
+	}
+	return errors.length === 0 ? { ok: true } : { ok: false, errors };
+}
+
 // ---------- ValueExpression rule helpers ----------
 
 /**

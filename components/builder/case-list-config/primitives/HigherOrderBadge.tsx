@@ -1,14 +1,15 @@
 // components/builder/case-list-config/primitives/HigherOrderBadge.tsx
 //
-// Read-only badge surfaced by the value / property pickers when the
-// authored AST shape carries content the picker can't edit in
-// place. Exists in its own file to break the import cycle between
-// `ValueExpressionPicker` (the value-slot picker) and
-// `PropertyRefPicker` (the property-slot picker) — both consume
-// the badge, both produce non-Term shapes that route through it.
+// Read-only badge surfaced by the property pickers when the authored
+// AST shape carries content the picker can't edit in place. Used by
+// `PropertyRefPicker` for non-Term LEFT-slot shapes and Term-arm
+// shapes that aren't canonical property references (multi-hop walks,
+// non-prop Terms). The full ValueExpression editor (`ExpressionPicker`)
+// no longer routes through this badge — its registry-driven dispatch
+// edits every kind directly via the per-arm cards.
 //
-// Round-trip preservation principle: any time a picker can't
-// edit the authored shape directly, it renders this badge plus an
+// Round-trip preservation principle: any time a picker can't edit
+// the authored shape directly, it renders this badge plus an
 // explicit Replace button. No `onChange` fires until the user
 // clicks Replace; the original AST round-trips through the editor
 // untouched.

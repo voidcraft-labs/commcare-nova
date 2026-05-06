@@ -7,7 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	appendKind,
 	appendKindIndex,
+	appendKindIndexSlot,
 	appendKindSlot,
 	appendSlot,
 	appendSlotIndex,
@@ -31,6 +33,31 @@ describe("path helpers — append shapes", () => {
 
 	it("appendSlotIndex pushes slot + array index for leaf operators", () => {
 		expect(appendSlotIndex([], "values", 2)).toEqual(["values", 2]);
+	});
+
+	it("appendKind pushes only the operator-kind segment (no slot)", () => {
+		// Used for operator-level errors emitted by the checker at
+		// the kind boundary itself — `[..., "if"]` (branch type-
+		// mismatch on `if`), `[..., "count"]` (count's "no current
+		// case-type scope" error). Matches the checker's emission
+		// path exactly without forcing a slot suffix.
+		expect(appendKind([], "if")).toEqual(["if"]);
+		expect(appendKind(["and", 0], "count")).toEqual(["and", 0, "count"]);
+	});
+
+	it("appendKindIndexSlot pushes kind + collection + index + slot", () => {
+		// Mirrors the walker's `[...path, "switch", "cases", i, "then"]`
+		// emission shape — used by `SwitchCard` for per-case sub-slot
+		// paths.
+		expect(appendKindIndexSlot([], "switch", "cases", 0, "when")).toEqual([
+			"switch",
+			"cases",
+			0,
+			"when",
+		]);
+		expect(
+			appendKindIndexSlot(["and", 0], "switch", "cases", 2, "then"),
+		).toEqual(["and", 0, "switch", "cases", 2, "then"]);
 	});
 
 	it("nested compositions reproduce the walker's path shape", () => {

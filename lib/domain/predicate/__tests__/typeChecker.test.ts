@@ -65,7 +65,11 @@ import {
 	whenInput,
 	within,
 } from "../builders";
-import { checkExpression, checkPredicate } from "../typeChecker";
+import {
+	checkExpression,
+	checkPredicate,
+	checkValueExpression,
+} from "../typeChecker";
 import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 
 // Single fixture reused across every test. Includes one property of
@@ -2128,6 +2132,85 @@ describe("checkExpression — sequence type incompatibility", () => {
 		if (!result.ok) {
 			expect(
 				result.errors.some((e) => /'sequence'.*not comparable/.test(e.message)),
+			).toBe(true);
+		}
+	});
+});
+
+// ---------- checkValueExpression top-level entry tests ----------
+
+// `checkValueExpression(expr, ctx, expectedType?)` is the public-API
+// counterpart to `checkPredicate` for the value-expression family.
+// Tests pin: (1) the wrapper produces the same `CheckResult` shape
+// `checkPredicate` does; (2) `expectedType` adds a root-path error
+// when the resolved type is incompatible; (3) the `_any` sentinel
+// short-circuits the expectedType check to mirror comparison-side
+// null-as-universal behavior; (4) walker-side resolution failures
+// suppress the redundant top-level mismatch error.
+
+describe("checkValueExpression — top-level entry", () => {
+	it("returns ok for a well-typed expression with no expectedType", () => {
+		const result = checkValueExpression(term(prop("patient", "age")), ctx);
+		expect(result.ok).toBe(true);
+	});
+
+	it("propagates a walker-side error onto the result", () => {
+		const result = checkValueExpression(term(prop("patient", "phantom")), ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].message).toMatch(/Unknown property/);
+		}
+	});
+
+	it("adds a root-path error when expectedType disagrees with the resolved type", () => {
+		// `today()` resolves to `date`; expectedType `int` disagrees.
+		const result = checkValueExpression(today(), ctx, "int");
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			const rootErr = result.errors.find((e) => e.path.length === 0);
+			expect(rootErr).toBeDefined();
+			expect(rootErr?.message).toMatch(/Expected 'int'.*resolves to 'date'/);
+		}
+	});
+
+	it("accepts a compatible expectedType — int property with expectedType decimal (numeric promotion)", () => {
+		// int / decimal cross-compatibility flows through `typesCompatible`.
+		const result = checkValueExpression(
+			term(prop("patient", "age")),
+			ctx,
+			"decimal",
+		);
+		expect(result.ok).toBe(true);
+	});
+
+	it("accepts the null-as-universal sentinel against any expectedType", () => {
+		// `term(literal(null))` resolves to `_any`; the sentinel widens
+		// against every concrete type via `typesCompatible`.
+		const result = checkValueExpression(term(literal(null)), ctx, "date");
+		expect(result.ok).toBe(true);
+	});
+
+	it("does not add a redundant 'Expected X' root error when the walker failed to resolve", () => {
+		// Unknown property → walker returns undefined and pushes its
+		// own resolution error onto the root path. The expectedType
+		// post-check is suppressed so the user sees only the real
+		// failure ("Unknown property") rather than a confusing
+		// "Expected X" companion. Both errors landing at the same path
+		// is fine; the suppression prevents the *additional* mismatch
+		// message from being added.
+		const result = checkValueExpression(
+			term(prop("patient", "phantom")),
+			ctx,
+			"int",
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			// No "Expected" message — only the resolution error.
+			expect(result.errors.some((e) => /^Expected /.test(e.message))).toBe(
+				false,
+			);
+			expect(
+				result.errors.some((e) => /Unknown property/.test(e.message)),
 			).toBe(true);
 		}
 	});

@@ -105,3 +105,86 @@ export function readClauseDropData(
 		nodeKey: partial.nodeKey,
 	};
 }
+
+// ── Expression-side reorder payloads ───────────────────────────────────
+//
+// Three drag surfaces inside the ValueExpression editor — `concat.parts`
+// (variadic text concatenation), `coalesce.values` (variadic fallback
+// chain), `switch.cases` (multi-case dispatch). Each surface reorders
+// inside ONE container; cross-container drops never apply (a `concat`
+// part can't move into a `coalesce` slot at the AST layer). Same
+// nodeKey-scoped pattern as the predicate-clause drag/drop above —
+// the monitor pairs source + target by exact match and rejects
+// cross-container drops.
+//
+// One discriminated union per surface (drag vs drop) so the source
+// `kind` discriminator stays the single dispatch key inside any
+// monitor that owns multiple drag surfaces.
+
+/** Source-side payload — identifies which item is being dragged in
+ *  which container. The container kind ("concat" / "coalesce" /
+ *  "switch") plus the container's stable nodeKey scopes the drop to
+ *  the matching container's item list. */
+export interface ExpressionItemDragData {
+	readonly kind: "expression-item-drag";
+	readonly containerKind: "concat" | "coalesce" | "switch";
+	readonly itemIndex: number;
+	readonly nodeKey: string;
+}
+
+/** Drop-target payload — symmetric with the source; identifies a
+ *  target slot in the same container's item list. */
+export interface ExpressionItemDropData {
+	readonly kind: "expression-item-drop";
+	readonly containerKind: "concat" | "coalesce" | "switch";
+	readonly itemIndex: number;
+	readonly nodeKey: string;
+}
+
+/** Narrow a source data bag back into the typed
+ *  `ExpressionItemDragData`. Defensive against an unrelated drag
+ *  source landing in the same monitor's `source.data`. */
+export function readExpressionItemDragData(
+	data: Record<string | symbol, unknown>,
+): ExpressionItemDragData | undefined {
+	const partial = data as Partial<ExpressionItemDragData>;
+	if (partial.kind !== "expression-item-drag") return undefined;
+	if (partial.itemIndex === undefined) return undefined;
+	if (partial.nodeKey === undefined) return undefined;
+	if (
+		partial.containerKind !== "concat" &&
+		partial.containerKind !== "coalesce" &&
+		partial.containerKind !== "switch"
+	) {
+		return undefined;
+	}
+	return {
+		kind: "expression-item-drag",
+		containerKind: partial.containerKind,
+		itemIndex: partial.itemIndex,
+		nodeKey: partial.nodeKey,
+	};
+}
+
+/** Symmetric reader for the drop-target side. */
+export function readExpressionItemDropData(
+	data: Record<string | symbol, unknown>,
+): ExpressionItemDropData | undefined {
+	const partial = data as Partial<ExpressionItemDropData>;
+	if (partial.kind !== "expression-item-drop") return undefined;
+	if (partial.itemIndex === undefined) return undefined;
+	if (partial.nodeKey === undefined) return undefined;
+	if (
+		partial.containerKind !== "concat" &&
+		partial.containerKind !== "coalesce" &&
+		partial.containerKind !== "switch"
+	) {
+		return undefined;
+	}
+	return {
+		kind: "expression-item-drop",
+		containerKind: partial.containerKind,
+		itemIndex: partial.itemIndex,
+		nodeKey: partial.nodeKey,
+	};
+}

@@ -21,16 +21,12 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import {
-	useEditorErrorsAt,
-	useEditorErrorsAtOrBelow,
-	usePredicateEditContext,
-} from "../editorContext";
+import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
-import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
 
@@ -96,18 +92,7 @@ interface MatchCardProps {
 }
 
 export function MatchCard({ value, onChange, path }: MatchCardProps) {
-	const ctx = usePredicateEditContext();
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
-	// `match` is the only predicate whose type checker emits errors at
-	// a path *deeper* than the operator's value slot — term-resolution
-	// failures on `match.value.term` land at `[..., "value", "term"]`,
-	// while operator-level mode-mismatch errors land at
-	// `[..., "value"]`. Capture both with the prefix lookup so an
-	// Unknown-property / Unknown-input failure on the value picker
-	// surfaces inline next to the input rather than only flipping the
-	// parent's save gate. See `checkMatch` in
-	// `lib/domain/predicate/typeChecker.ts` for the path emission.
-	const valueErrors = useEditorErrorsAtOrBelow(appendSlot(path, "value"));
 
 	const setProperty = (next: PropertyRef) => {
 		onChange(match(next, value.value, value.mode));
@@ -120,8 +105,6 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 	const setValue = (next: Parameters<typeof match>[1]) => {
 		onChange(match(value.property, next, value.mode));
 	};
-
-	const propertyName = value.property.property || undefined;
 
 	// Filter the property picker to the mode's allow-list. The
 	// type checker enforces the same rule; gating the picker in the
@@ -152,15 +135,23 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 				<ModeMenu mode={value.mode} setMode={setMode} />
 
 				<div>
-					<ValueExpressionPicker
+					{/* Match value routes through `ExpressionPicker` so the
+					 *  full ValueExpression family is reachable at the
+					 *  slot. The picker's own `CardShell` footer surfaces
+					 *  inline errors at the slot path, so no parallel
+					 *  `<InlineError>` is needed here. The Term-arm card
+					 *  inside the picker also reads errors at the same
+					 *  slot path (per `checkExpression`'s `case "term":`
+					 *  branch — `resolveTermType` is called with `path`
+					 *  unchanged) and surfaces them via the picker shell's
+					 *  footer alone. */}
+					<ExpressionPicker
 						value={value.value}
 						onChange={setValue}
-						caseTypeName={ctx.currentCaseType}
-						anchorPropertyName={propertyName}
-						invalid={valueErrors.length > 0}
-						ariaLabel="Match value"
+						path={appendSlot(path, "value")}
+						expectedType="text"
+						variant="nested"
 					/>
-					<InlineError errors={valueErrors} />
 				</div>
 			</div>
 		</div>

@@ -32,12 +32,12 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
-import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 /** Per-kind builder dispatch. Keeps the card body's onChange paths
  *  precise — each kind constructs through the matching builder so
@@ -143,19 +143,14 @@ interface ComparisonCardProps {
  *     `ValueExpressionPicker`'s read-only badge.
  */
 export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
-	const ctx = usePredicateEditContext();
+	// Left-side errors render via the picker's `invalid` prop +
+	// the inline `<InlineError>` below — `PropertyRefPicker` doesn't
+	// have a card-shell footer of its own, so the slot's errors
+	// surface here directly. Right-side errors render via the
+	// `ExpressionPicker` shell's `CardShell` footer at the matching
+	// slot path; rendering them again here would double the
+	// diagnostic row count for the same message.
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
-	const rightErrors = useEditorErrorsAt(appendSlot(path, "right"));
-
-	// Anchor property name for the value picker's typed-input
-	// switch. Read directly from the LEFT-slot AST shape (only
-	// meaningful when the left is a property reference; the
-	// `PropertyRefPicker` keeps the left shape pinned to that or
-	// the read-only badge).
-	const leftPropertyName =
-		value.left.kind === "term" && value.left.term.kind === "prop"
-			? value.left.term.property
-			: undefined;
 
 	const setLeft = (left: ValueExpression) => {
 		const builder = KIND_BUILDERS[value.kind];
@@ -188,15 +183,22 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 			<OperatorMenu kind={value.kind} setKind={setKind} />
 
 			<div>
-				<ValueExpressionPicker
+				{/* Right operand routes through `ExpressionPicker` so
+				 *  every ValueExpression kind (term, arith, if, count,
+				 *  etc.) is editable at this slot via the registry-
+				 *  driven dispatch. The picker handles round-trip
+				 *  preservation for non-canonical shapes by mounting
+				 *  the matching kind's card; the kind-replace menu in
+				 *  the picker shell is the path for swapping kinds.
+				 *  The picker's own `CardShell` footer surfaces inline
+				 *  errors at the slot path, so no parallel
+				 *  `<InlineError>` is needed here. */}
+				<ExpressionPicker
 					value={value.right}
 					onChange={setRight}
-					caseTypeName={ctx.currentCaseType}
-					anchorPropertyName={leftPropertyName}
-					invalid={rightErrors.length > 0}
-					ariaLabel="Right operand"
+					path={appendSlot(path, "right")}
+					variant="nested"
 				/>
-				<InlineError errors={rightErrors} />
 			</div>
 		</div>
 	);

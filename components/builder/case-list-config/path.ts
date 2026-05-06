@@ -91,6 +91,42 @@ export function appendSlotIndex(
 }
 
 /**
+ * Append an operator-kind segment plus an array index. Used by
+ * recursive ValueExpression wrappers when descending into an indexed
+ * sub-slot (`switch.cases[i]`):
+ *
+ *   `walk(c.then, ctx, errors, [...path, "switch", "cases", i, "then"])`
+ *
+ * The four-arity helper exists so the editor's path-building stays
+ * a single function call per descent — mirrors the walker's
+ * `[...path, "switch", "cases", i, "then"]` accumulation. Used
+ * specifically for the `switch.cases[i].when` and `.then` slots
+ * inside SwitchCard.
+ */
+export function appendKindIndexSlot(
+	path: EditorPath,
+	kind: string,
+	collection: string,
+	index: number,
+	slot: string,
+): EditorPath {
+	return [...path, kind, collection, index, slot];
+}
+
+/**
+ * Append only an operator-kind segment with no slot suffix. Used for
+ * operator-level errors that the type checker emits at the kind
+ * boundary itself — `[...path, "if"]` (branch type-mismatch on
+ * `if`), `[...path, "switch"]` (operator-level error inside the
+ * `switch.cases[i]` block at the `cases` array level), `[...path,
+ * "count"]` (count's "no current case-type scope" error). Matches
+ * the checker's emission path exactly without forcing a slot suffix.
+ */
+export function appendKind(path: EditorPath, kind: string): EditorPath {
+	return [...path, kind];
+}
+
+/**
  * Serialize a path into a stable string suitable for Map keys. Two
  * paths with identical segments produce identical strings; segments
  * are joined by `\0` (the null byte) which never appears in a CCHQ

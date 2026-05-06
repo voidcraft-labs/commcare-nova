@@ -73,12 +73,23 @@ const VISIT: CaseType = {
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT];
 
-describe("ValueExpressionPicker — non-Term round-trip preservation", () => {
-	it("renders read-only badge for an `arith` value (does not destroy)", () => {
+describe("ExpressionPicker — non-Term round-trip preservation", () => {
+	// Task 3 replaced the Term-only `ValueExpressionPicker` stub with
+	// the full registry-driven `ExpressionPicker` shell. Higher-order
+	// ValueExpression arms (`arith`, `count`, `today`, etc.) mount via
+	// their per-kind cards rather than via the read-only badge the
+	// stub used. The round-trip-preservation principle still holds at
+	// the structural level: rendering the editor with a non-Term value
+	// must NOT trigger a spurious `onChange` on mount, AND the
+	// authored shape must remain reachable from the saved AST without
+	// destruction. The tests below pin the no-spurious-onChange half;
+	// the per-kind cards' shapes are pinned by their own card tests.
+
+	it("`arith` value round-trips without firing onChange on mount", () => {
 		// `eq(prop, arith(literal, literal, "+"))` — the right side
 		// is a higher-order `arith` expression. Mounting the editor
-		// must NOT call onChange on render; the AST must round-trip
-		// verbatim through the picker.
+		// renders the matching ArithCard via the registry; the
+		// round-trip contract is the no-spurious-onChange assertion.
 		const value = eq(
 			prop("patient", "age"),
 			arith("+", term(literal(1)), term(literal(2))),
@@ -92,16 +103,14 @@ describe("ValueExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// The badge surfaces the expression kind — verifies the
-		// picker chose the read-only branch over the editing branch.
+		// Arithmetic card label appears on the right-side expression
+		// — the registry surfaced the arith arm via its dedicated
+		// card rather than through the old badge.
 		expect(container.textContent).toMatch(/Arithmetic/i);
-		// No onChange fired during mount / render — the AST is
-		// preserved verbatim until the user explicitly clicks
-		// Replace.
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it("renders read-only badge for a `count` value", () => {
+	it("`count` value round-trips without firing onChange on mount", () => {
 		const value = eq(prop("patient", "age"), count(subcasePath("parent")));
 		const onChange = vi.fn();
 		const { container } = render(
@@ -112,11 +121,13 @@ describe("ValueExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Relational count/i);
+		// Count card label appears on the right-side expression. The
+		// kind is reachable from the saved AST without rewrite.
+		expect(container.textContent).toMatch(/Count related/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it("renders read-only badge for a `today()` constant value", () => {
+	it("`today()` constant round-trips without firing onChange on mount", () => {
 		const value = eq(prop("patient", "age"), today());
 		const onChange = vi.fn();
 		const { container } = render(
@@ -127,11 +138,13 @@ describe("ValueExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Today/i);
+		// Today card surfaces a "today" or "current date" copy through
+		// the inert status row.
+		expect(container.textContent).toMatch(/today/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it("renders the editing surface for a Term-wrapped value (no badge)", () => {
+	it("Term-wrapped value mounts the TermCard without firing onChange", () => {
 		const value = eq(prop("patient", "age"), literal(5));
 		const onChange = vi.fn();
 		const { container } = render(
@@ -142,9 +155,9 @@ describe("ValueExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// No "Expression:" badge — the picker chose the editing
-		// branch.
-		expect(container.textContent).not.toMatch(/Expression:/i);
+		// The kind picker label "Value" surfaces on the term-arm card
+		// (the registry's user-facing label for the `term` kind).
+		expect(container.textContent).toMatch(/Value/);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });

@@ -17,12 +17,12 @@ import {
 	type ValueExpression,
 	term as wrapTerm,
 } from "@/lib/domain/predicate";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
-import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const ORDERED_PROPERTY_TYPES = new Set<string>([
 	"int",
@@ -89,18 +89,14 @@ function buildBetween(
 }
 
 export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
-	const ctx = usePredicateEditContext();
+	// Left-side errors render via the picker's `invalid` prop +
+	// inline `<InlineError>` below — `PropertyRefPicker` doesn't
+	// have a card-shell footer of its own. Bound-side (`lower` /
+	// `upper`) errors render via the `ExpressionPicker` shell's
+	// `CardShell` footer at the matching slot path; rendering them
+	// again here would double the diagnostic row count for the
+	// same message.
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
-	const lowerErrors = useEditorErrorsAt(appendSlot(path, "lower"));
-	const upperErrors = useEditorErrorsAt(appendSlot(path, "upper"));
-
-	// Anchor property name for typed-input switching in each
-	// bound editor. Pulled from the LEFT-slot AST shape; only
-	// meaningful when the left is a property reference.
-	const propertyName =
-		value.left.kind === "term" && value.left.term.kind === "prop"
-			? value.left.term.property
-			: undefined;
 
 	const setLeft = (left: ValueExpression) => {
 		onChange(buildBetween(value, { left }));
@@ -131,28 +127,26 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 				 *  the half-open shape. */}
 				<BoundEditor
 					label="From"
+					boundSlot="lower"
 					value={value.lower}
 					onChange={(next) => onChange(buildBetween(value, { lower: next }))}
 					inclusive={value.lowerInclusive}
 					setInclusive={(b) =>
 						onChange(buildBetween(value, { lowerInclusive: b }))
 					}
-					caseTypeName={ctx.currentCaseType}
-					anchorPropertyName={propertyName}
-					errors={lowerErrors}
+					path={path}
 					canDisable={value.upper !== undefined}
 				/>
 				<BoundEditor
 					label="To"
+					boundSlot="upper"
 					value={value.upper}
 					onChange={(next) => onChange(buildBetween(value, { upper: next }))}
 					inclusive={value.upperInclusive}
 					setInclusive={(b) =>
 						onChange(buildBetween(value, { upperInclusive: b }))
 					}
-					caseTypeName={ctx.currentCaseType}
-					anchorPropertyName={propertyName}
-					errors={upperErrors}
+					path={path}
 					canDisable={value.lower !== undefined}
 				/>
 			</div>
@@ -162,13 +156,12 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 
 interface BoundEditorProps {
 	readonly label: string;
+	readonly boundSlot: "lower" | "upper";
 	readonly value: ValueExpression | undefined;
 	readonly onChange: (next: ValueExpression | undefined) => void;
 	readonly inclusive: boolean;
 	readonly setInclusive: (next: boolean) => void;
-	readonly caseTypeName: string;
-	readonly anchorPropertyName: string | undefined;
-	readonly errors: readonly string[];
+	readonly path: EditorPath;
 	/** When false, the bound's enable-toggle is locked on — the
 	 *  sibling bound is currently disabled, and clearing this one
 	 *  too would yield a no-bounds shape the schema rejects. */
@@ -177,13 +170,12 @@ interface BoundEditorProps {
 
 function BoundEditor({
 	label,
+	boundSlot,
 	value,
 	onChange,
 	inclusive,
 	setInclusive,
-	caseTypeName,
-	anchorPropertyName,
-	errors,
+	path,
 	canDisable,
 }: BoundEditorProps) {
 	const isEnabled = value !== undefined;
@@ -226,15 +218,17 @@ function BoundEditor({
 			</div>
 			{isEnabled && value !== undefined ? (
 				<div>
-					<ValueExpressionPicker
+					{/* Bound value routes through `ExpressionPicker` so the
+					 *  full ValueExpression family is reachable at the
+					 *  slot. The picker's own `CardShell` footer surfaces
+					 *  inline errors at the slot path, so no parallel
+					 *  `<InlineError>` is needed here. */}
+					<ExpressionPicker
 						value={value}
-						onChange={onChange}
-						caseTypeName={caseTypeName}
-						anchorPropertyName={anchorPropertyName}
-						invalid={errors.length > 0}
-						ariaLabel={`${label} bound`}
+						onChange={(next) => onChange(next)}
+						path={appendSlot(path, boundSlot)}
+						variant="nested"
 					/>
-					<InlineError errors={errors} />
 				</div>
 			) : (
 				<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">

@@ -200,6 +200,48 @@ export function useEditorErrorsAtOrBelow(path: EditorPath): EditorPathErrors {
 }
 
 /**
+ * Read errors attached to a STRICT descendant of `path` — excludes
+ * the slot itself. Used by container cards (e.g. `ExpressionPicker`'s
+ * shell) that need to surface deeper-path errors which no inner card
+ * reads at its own depth, WITHOUT duplicating the slot-level errors
+ * the shell already renders via `useEditorErrorsAt(path)` exact
+ * lookup.
+ *
+ * Concretely: `match.value` emits its term-resolution failure at
+ * `[..., "value", "term"]` (one segment deeper than the slot path).
+ * The ExpressionPicker mounted at `[..., "value"]` renders shell-
+ * footer errors at the slot exactly; this helper captures the
+ * deeper match-side errors for an additional render path WITHOUT
+ * re-reading the slot's own errors.
+ *
+ * Same dedup contract as `useEditorErrorsAtOrBelow`.
+ */
+export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
+	const { validityIndex } = usePredicateEditContext();
+	const prefix = serializePath(path);
+	// Strict-descendant: only the prefix-with-separator form matches.
+	// Exact-key match is excluded by the explicit `key !== prefix`
+	// guard, and the root path's empty serialization gets the same
+	// strict treatment (every non-empty key is a descendant of the
+	// root, so the check reduces to the non-empty-prefix branch).
+	const prefixWithSep = prefix === "" ? "" : `${prefix}\0`;
+	const seen = new Set<string>();
+	const merged: string[] = [];
+	for (const [key, list] of validityIndex) {
+		const matches =
+			(prefixWithSep !== "" && key.startsWith(prefixWithSep)) ||
+			(prefix === "" && key !== "");
+		if (!matches) continue;
+		for (const message of list) {
+			if (seen.has(message)) continue;
+			seen.add(message);
+			merged.push(message);
+		}
+	}
+	return merged;
+}
+
+/**
  * Build a `ValidityIndex` from a flat list of `CheckError`s. The
  * top-level editor calls this on every onChange to convert the
  * checker's verdict into a render-time lookup table. Same-path
