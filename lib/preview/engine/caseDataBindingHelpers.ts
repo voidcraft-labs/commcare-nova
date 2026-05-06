@@ -1,8 +1,7 @@
 // lib/preview/engine/caseDataBindingHelpers.ts
 //
 // Pure I/O helpers the running-app view's data binding wraps in
-// Server Actions. Each helper accepts a `CaseStore` parameter
-// (mirroring `lib/case-store/form-bridge/writeThrough.ts`) so
+// Server Actions. Each helper accepts a `CaseStore` parameter so
 // tests inject a per-test store directly, while production wraps
 // with `withOwnerContext` at the request boundary in
 // `./caseDataBinding.ts`. Splitting from the Server Action module
@@ -10,11 +9,11 @@
 // non-action exports in the same module.
 //
 // Helpers return `CaseRow` directly so consumers read the JSONB
-// `properties` document the same way the form-bridge,
-// `applySchemaChange`, and the predicate compiler do. The only
-// coercion is `caseRowToFormPreload` at the form-engine boundary,
-// which flattens to `Map<string, string>` because the engine
-// reasons about input strings.
+// `properties` document the same way `applySchemaChange` and the
+// predicate compiler do. The only coercion is `caseRowToFormPreload`
+// at the form-engine boundary, which flattens to
+// `Map<string, string>` because the engine reasons about input
+// strings.
 
 import {
 	type CaseInsert,
@@ -240,18 +239,14 @@ export function caseRowDisplayValue(row: CaseRow, field: string): string {
 // to the matching helper; `mapSubmitFormError` translates the
 // case-store's typed errors to typed `SubmissionResult` arms.
 //
-// Atomicity contract mirrors the deleted form-bridge:
-//
-//   - Registration is atomic via `caseStore.insertWithChildren`.
-//     The case-store generates the primary's `case_id` and threads
-//     it into every child's `parent_case_id` slot inside one
-//     Postgres transaction.
-//   - Followup / close run a primary `update` followed by per-child
-//     `insert`s; close additionally calls `caseStore.close` last.
-//     The three writes open separate transactions — partial
-//     success is observable to the running-app view, which
-//     re-queries after submission per the continuous-validation
-//     principle.
+// Atomicity: registration is atomic via
+// `caseStore.insertWithChildren` (primary + every child in one
+// Postgres transaction). Followup/close run a primary `update`
+// followed by per-child `insert`s; close additionally calls
+// `caseStore.close` last. The three writes open separate
+// transactions — partial success is observable to the running-app
+// view, which re-queries after submission per the
+// continuous-validation principle.
 //
 // `case_id` for the primary registration is left to the case-store
 // (its `insertWithChildren` either honors a supplied id or fires
@@ -268,16 +263,14 @@ export function caseRowDisplayValue(row: CaseRow, field: string): string {
  * The case-store generates the primary's `case_id` and threads it
  * as each child's `parent_case_id` — children must not carry an
  * explicit `parent_case_id`. `status: "open"` is set on every row
- * because the column has no default and the form-bridge's
- * registration shape sets the same value (matched verbatim).
+ * because the column has no default.
  *
  * `caseName === undefined` on the primary or any child trips a
  * `compilerBugMessage`: `cases.case_name` is `text NOT NULL` and
  * the engine's walker plucks the field whose `id === "case_name"`
  * into the `caseName` slot for every contentful bucket; reaching
  * the throw means the form's field tree omits the name leaf, an
- * upstream blueprint authoring contract violation. Same shape the
- * deleted `applyRegistration` helper enforced.
+ * upstream blueprint authoring contract violation.
  */
 export async function applyRegistrationMutation(
 	store: CaseStore,
@@ -342,9 +335,7 @@ export async function applyRegistrationMutation(
  * Empty-patch short-circuit: when the patch carries neither a
  * `caseName` change nor any `properties` write, skip
  * `caseStore.update` entirely. AJV revalidation + a `modified_on`
- * bump for a no-op patch is wasted work — the form-bridge's
- * `applyPrimaryUpdate` enforced the same short-circuit and the
- * contract preserves verbatim.
+ * bump for a no-op patch is wasted work.
  *
  * Three transactions land in sequence (one for the primary update,
  * one per child insert). A failure mid-sequence leaves the
@@ -404,11 +395,8 @@ export function applySurveyMutation(): Extract<
 }
 
 /**
- * Shared implementation for the followup / close primary update.
- * Constructs the patch from `mutation.patch` and short-circuits on
- * an empty change set. Lives in one place so the two arms share
- * the exact same skip semantics — a future repeat of this pattern
- * (e.g. a new edit-style form type) inherits the contract verbatim.
+ * Shared implementation for followup/close primary update so both
+ * arms have the same empty-patch skip semantics.
  */
 async function applyPrimaryUpdate(
 	store: CaseStore,

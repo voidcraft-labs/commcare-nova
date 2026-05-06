@@ -100,9 +100,7 @@ export async function populateSampleCasesAction(
  * helpers, matching the shape the other three Server Actions in
  * this file use. The bound `CaseStore` enforces tenant scoping at
  * the SQL layer; the action does not re-check `appId` against
- * `mutation.caseId` for followup / close — a server-side
- * cross-check on bound `app_id` is a candidate future hardening
- * but is not required for tenant correctness.
+ * `mutation.caseId` for followup / close.
  */
 export async function submitFormAction(
 	mutation: SubmissionMutation,
@@ -146,7 +144,7 @@ export async function submitFormAction(
 					unhandledKindMessage({
 						where: "preview.caseDataBinding.submitFormAction",
 						family: "SubmissionMutation",
-						received: (_exhaustive as { kind: unknown }).kind,
+						received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 						knownKinds: ["registration", "followup", "close", "survey"],
 					}),
 				);
