@@ -137,7 +137,7 @@ describe("writeFormCompletionThrough — survey forms", () => {
 			completedForm: completed([["/data/case_name", "Alice"]]),
 		});
 
-		expect(result).toEqual({ operation: "survey" });
+		expect(result).toEqual({ kind: "survey" });
 
 		// No row landed for any case type.
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
@@ -217,8 +217,8 @@ describe("writeFormCompletionThrough — registration forms", () => {
 			]),
 		});
 
-		expect(result.operation).toBe("registration");
-		if (result.operation !== "registration") return;
+		expect(result.kind).toBe("registration");
+		if (result.kind !== "registration") return;
 		expect(result.caseId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		);
@@ -309,8 +309,8 @@ describe("writeFormCompletionThrough — registration forms", () => {
 			]),
 		});
 
-		expect(result.operation).toBe("registration");
-		if (result.operation !== "registration") return;
+		expect(result.kind).toBe("registration");
+		if (result.kind !== "registration") return;
 		expect(result.childCaseIds).toHaveLength(2);
 
 		const visitRows = await store.query({
@@ -407,8 +407,8 @@ describe("writeFormCompletionThrough — registration forms", () => {
 			completedForm: completed([["/data/case_name", "Alice"]]),
 		});
 
-		expect(result.operation).toBe("registration");
-		if (result.operation !== "registration") return;
+		expect(result.kind).toBe("registration");
+		if (result.kind !== "registration") return;
 
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 		expect(rows).toHaveLength(1);
@@ -466,7 +466,7 @@ describe("writeFormCompletionThrough — followup forms", () => {
 				["/data/age", "30"],
 			]),
 		});
-		if (registration.operation !== "registration") {
+		if (registration.kind !== "registration") {
 			throw new Error("registration setup failed");
 		}
 
@@ -497,8 +497,8 @@ describe("writeFormCompletionThrough — followup forms", () => {
 			completedForm: completed([["/data/age", "31"]], registration.caseId),
 		});
 
-		expect(result.operation).toBe("followup");
-		if (result.operation !== "followup") return;
+		expect(result.kind).toBe("followup");
+		if (result.kind !== "followup") return;
 		expect(result.caseId).toBe(registration.caseId);
 
 		// The bound case carries the merged JSONB properties (only
@@ -537,7 +537,7 @@ describe("writeFormCompletionThrough — followup forms", () => {
 			moduleCaseType: "patient",
 			completedForm: completed([["/data/case_name", "Alice"]]),
 		});
-		if (registration.operation !== "registration") {
+		if (registration.kind !== "registration") {
 			throw new Error("registration setup failed");
 		}
 
@@ -580,8 +580,8 @@ describe("writeFormCompletionThrough — followup forms", () => {
 			),
 		});
 
-		expect(result.operation).toBe("followup");
-		if (result.operation !== "followup") return;
+		expect(result.kind).toBe("followup");
+		if (result.kind !== "followup") return;
 		expect(result.childCaseIds).toHaveLength(1);
 
 		const visitRows = await store.query({
@@ -626,7 +626,7 @@ describe("writeFormCompletionThrough — close forms", () => {
 			moduleCaseType: "patient",
 			completedForm: completed([["/data/case_name", "Alice"]]),
 		});
-		if (registration.operation !== "registration") {
+		if (registration.kind !== "registration") {
 			throw new Error("registration setup failed");
 		}
 
@@ -656,8 +656,8 @@ describe("writeFormCompletionThrough — close forms", () => {
 			completedForm: completed([["/data/age", "45"]], registration.caseId),
 		});
 
-		expect(result.operation).toBe("close");
-		if (result.operation !== "close") return;
+		expect(result.kind).toBe("close");
+		if (result.kind !== "close") return;
 
 		// The row carries the merged JSONB properties (`age` only)
 		// plus the column-level `case_name` and a closed_on stamp.
@@ -695,7 +695,7 @@ describe("writeFormCompletionThrough — close forms", () => {
 			moduleCaseType: "patient",
 			completedForm: completed([["/data/case_name", "Alice"]]),
 		});
-		if (registration.operation !== "registration") {
+		if (registration.kind !== "registration") {
 			throw new Error("registration setup failed");
 		}
 
@@ -717,7 +717,7 @@ describe("writeFormCompletionThrough — close forms", () => {
 			completedForm: completed([], registration.caseId),
 		});
 
-		expect(result.operation).toBe("close");
+		expect(result.kind).toBe("close");
 
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 		const row = rows.find((r) => r.case_id === registration.caseId);

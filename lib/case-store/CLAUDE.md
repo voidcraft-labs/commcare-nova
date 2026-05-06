@@ -212,9 +212,12 @@ against it.
 
 3. **Per-property expression-index DDL** — always runs. Computes
    the desired index set from the blueprint's property
-   declarations, reads the live index set from `pg_indexes`, and
-   emits the matching `DROP INDEX CONCURRENTLY` /
-   `CREATE INDEX CONCURRENTLY` statements for the diff.
+   declarations, reads the live index set from `pg_index` +
+   `pg_class` (joined to capture `indisvalid`), and emits the
+   matching `DROP INDEX CONCURRENTLY` / `CREATE INDEX CONCURRENTLY`
+   statements for the diff. An INVALID artifact left by a prior
+   failed CONCURRENTLY build flows through both `drops` and
+   `creates` so a retry rebuilds it from scratch.
 
 ### Why two phases, not one transaction
 
@@ -246,11 +249,19 @@ index builds.
 Schema and data are always consistent. Phase B's CREATE INDEX
 statements run after Phase A's commit; a failure mid-Phase-B
 throws, the schema row + per-row migration are already committed,
-and the next `applySchemaChange` call diffs against `pg_indexes`
-and re-emits whatever drops + creates remain outstanding.
-Missing indexes degrade query performance but never correctness
-— the term compiler's emitted SQL falls back to a sequential
-scan over the case-type partition without one.
+and the next `applySchemaChange` call diffs against the catalog
+and re-emits whatever drops + creates remain outstanding. The
+diff captures `pg_index.indisvalid` — a `CREATE INDEX
+CONCURRENTLY` failure (lock conflict, deadlock, disk full,
+cancelled mid-build) leaves the partially-built index marked
+invalid in the catalog, and the diff treats an INVALID entry as
+"drop and recreate" so the next retry converges. Recovery is
+idempotent: any number of retries on the same `applySchemaChange`
+arguments lands the same final index set, no matter where the
+previous attempt failed. Missing or invalid indexes degrade query
+performance but never correctness — the term compiler's emitted
+SQL falls back to a sequential scan over the case-type partition
+without one.
 
 ### Pre-flight identifier validation runs BEFORE Phase A
 

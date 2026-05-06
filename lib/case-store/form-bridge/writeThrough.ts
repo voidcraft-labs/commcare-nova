@@ -101,31 +101,35 @@ export interface WriteFormCompletionArgs {
 /**
  * Result of one form completion write-through.
  *
- * `operation` mirrors the `DerivedFormOps.kind` discriminator so
+ * `kind` mirrors the `DerivedFormOps.kind` discriminator so
  * consumers can route a redirect or re-query without re-deriving.
- * `caseId` carries the primary case the operations targeted: the
- * generated id for registration, the bound id for followup / close,
- * and absent for survey (no case to route to). `childCaseIds` lists
+ * The discriminator name aligns with every other case-store
+ * discriminated-union surface (`LoadCasesResult`,
+ * `LoadCaseDataResult`, `PopulateSampleCasesResult`,
+ * `DerivedFormOps`) — one vocabulary for the same shape. `caseId`
+ * carries the primary case the operations targeted: the generated
+ * id for registration, the bound id for followup / close, and
+ * absent for survey (no case to route to). `childCaseIds` lists
  * the generated ids of any child cases inserted during the same
  * write.
  */
 export type WriteFormCompletionResult =
 	| {
-			readonly operation: "registration";
+			readonly kind: "registration";
 			readonly caseId: string;
 			readonly childCaseIds: ReadonlyArray<string>;
 	  }
 	| {
-			readonly operation: "followup";
+			readonly kind: "followup";
 			readonly caseId: string;
 			readonly childCaseIds: ReadonlyArray<string>;
 	  }
 	| {
-			readonly operation: "close";
+			readonly kind: "close";
 			readonly caseId: string;
 			readonly childCaseIds: ReadonlyArray<string>;
 	  }
-	| { readonly operation: "survey" };
+	| { readonly kind: "survey" };
 
 // ---------------------------------------------------------------
 // Public API
@@ -142,10 +146,11 @@ export type WriteFormCompletionResult =
  *   - `close`        → `update` (when there are property writes) + `insert` per child + `close`
  *   - `survey`       → no operations
  *
- * Returns the operation discriminator, the primary case id (when
- * relevant), and the generated child case ids. The result shape
- * gives the caller everything it needs to navigate the running-app
- * view to the right destination after the write without re-deriving.
+ * Returns the `kind` discriminator naming the form type, the
+ * primary case id (when relevant), and the generated child case
+ * ids. The result shape gives the caller everything it needs to
+ * navigate the running-app view to the right destination after the
+ * write without re-deriving.
  *
  * Throws when the form type implies a primary case write but the
  * derivation surfaces a missing required input (e.g. a registration
@@ -167,7 +172,7 @@ export async function writeFormCompletionThrough(
 		case "survey":
 			// No-op against `cases`. Survey forms collect data for
 			// out-of-band analytics; they own no case rows.
-			return { operation: "survey" };
+			return { kind: "survey" };
 
 		case "registration": {
 			const caseId = await applyPrimaryRegistration({
@@ -185,7 +190,7 @@ export async function writeFormCompletionThrough(
 				// the generated id here.
 				fallbackParentCaseId: caseId,
 			});
-			return { operation: "registration", caseId, childCaseIds };
+			return { kind: "registration", caseId, childCaseIds };
 		}
 
 		case "followup": {
@@ -205,7 +210,7 @@ export async function writeFormCompletionThrough(
 				fallbackParentCaseId: ops.caseId,
 			});
 			return {
-				operation: "followup",
+				kind: "followup",
 				caseId: ops.caseId,
 				childCaseIds,
 			};
@@ -235,7 +240,7 @@ export async function writeFormCompletionThrough(
 				caseId: ops.caseId,
 			});
 			return {
-				operation: "close",
+				kind: "close",
 				caseId: ops.caseId,
 				childCaseIds,
 			};

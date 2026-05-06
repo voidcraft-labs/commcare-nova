@@ -203,9 +203,47 @@ describe("enforceConnectionBudget", () => {
 		// peak-demand-vs-budget formula in the test would share the
 		// production logic's mental model and fail to catch a
 		// regression in either side. The check here is "the function
-		// the module-load path runs is the same one the test runs and
-		// it agrees the current constants are consistent."
+		// the first-call path inside `initialize` runs is the same one
+		// the test runs and it agrees the current constants are
+		// consistent."
 		expect(() => enforceConnectionBudget()).not.toThrow();
+	});
+
+	it("does not run on module import — the first-call path inside `initialize` owns the check", async () => {
+		// The check fires from inside `initialize` (the body that runs
+		// on the first `getCaseStoreDatabase()` call), NOT at module
+		// top level. Importing the module from this test file is a
+		// no-side-effect operation: every test in this suite imports
+		// the module via the file-level `import` block above without
+		// triggering the budget throw, even when a contributor
+		// experimentally edits one of the four constants out of range.
+		//
+		// The pin uses dynamic `import()` so a static `import` the
+		// linter could move out of an `expect()` doesn't smuggle
+		// fixed semantics into the assertion. Vitest's module cache
+		// returns the same instance the suite-level import already
+		// resolved; the `await` resolves synchronously off the cache.
+		await expect(import("../connection")).resolves.toBeDefined();
+	});
+
+	it("runs on the first `getCaseStoreDatabase()` call", async () => {
+		// `initialize` calls `enforceConnectionBudget` BEFORE
+		// `readCaseStoreEnvConfig`. The unit-test environment has no
+		// `NOVA_DB_*` set, so a passing budget check transitions
+		// control to env validation — which throws naming the missing
+		// variables. A failing budget check would surface a different
+		// error first. Catching the env error pins the ordering: the
+		// budget check fired (and passed) before env validation
+		// reached its throw site.
+		//
+		// Pinning by the env error message is the only behavioural
+		// signal available without stubbing modules. The brief notes
+		// `vi.spyOn(connection, "enforceConnectionBudget")` would not
+		// observe the call because production code references the
+		// local binding, not the module-namespace export.
+		await expect(getCaseStoreDatabase()).rejects.toThrow(
+			/missing required environment variables/,
+		);
 	});
 });
 

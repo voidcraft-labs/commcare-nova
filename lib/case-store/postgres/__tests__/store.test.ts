@@ -795,8 +795,8 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// already committed by the time Phase B runs, so the
 		// schema row is preserved. Re-installing the extension and
 		// re-calling `applySchemaChange` drives Phase B to
-		// convergence — the diff against `pg_indexes` re-derives
-		// the missing CREATE INDEX.
+		// convergence — the catalog diff re-derives the missing
+		// CREATE INDEX.
 		const store = makeStore(OWNER_A);
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -843,9 +843,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// Re-install the extension — simulating an operator's
 		// recovery action — and re-run `applySchemaChange` with
 		// the same blueprint. Phase A's UPSERT is a no-op (schema
-		// unchanged); Phase B's diff against `pg_indexes` finds
-		// the missing trgm-GIN entry and creates it. The retry
-		// converges the index state.
+		// unchanged); Phase B's catalog diff finds the missing
+		// trgm-GIN entry and creates it. The retry converges the
+		// index state.
 		await dbHandle.pool.query("CREATE EXTENSION pg_trgm");
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -857,6 +857,112 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(afterRetry.map((i) => i.name)).toEqual(["cases_patient_name_fuzzy"]);
 		expect(afterRetry[0]?.def).toMatch(/USING gin/);
 		expect(afterRetry[0]?.def).toContain("gin_trgm_ops");
+	});
+
+	// -----------------------------------------------------------
+	// INVALID-index recovery — drop-and-recreate on next retry
+	// -----------------------------------------------------------
+
+	it("drops and recreates an INVALID index left by a failed CONCURRENTLY build on the next retry", async () => {
+		// `CREATE INDEX CONCURRENTLY` failures (lock conflict,
+		// deadlock, disk full, cancelled mid-build) leave the
+		// partially-built index visible in the catalog with
+		// `pg_index.indisvalid = false`. Postgres treats an INVALID
+		// index as "possibly incomplete: it must still be modified by
+		// INSERT/UPDATE operations, but it cannot safely be used for
+		// queries" (per
+		// `https://www.postgresql.org/docs/current/catalog-pg-index.html`).
+		// The diff captures `indisvalid` and emits a drop-and-recreate
+		// pair for any INVALID artifact so the next `applySchemaChange`
+		// call recovers the index without operator intervention.
+		//
+		// Manufacturing an INVALID index in test goes through the
+		// catalog directly: `UPDATE pg_index SET indisvalid = false`
+		// against the index's `indexrelid`. The testcontainer's
+		// superuser has the privilege; production's IAM-auth runtime
+		// SA does not, which is correct (no production code path
+		// writes to `pg_index`). The catalog mutation simulates the
+		// engine state a real CONCURRENTLY failure would leave.
+		const store = makeStore(OWNER_A);
+
+		// Establish a healthy text-fuzzy index for the `name` property.
+		const blueprint = buildBlueprint({
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		});
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+		});
+
+		// Confirm the index is present and valid before the catalog
+		// mutation, otherwise a regression in the create path would
+		// silently masquerade as a recovery success.
+		const beforeMutation = await dbHandle.pool.query<{ indisvalid: boolean }>(
+			`SELECT i.indisvalid
+			   FROM pg_index i
+			   JOIN pg_class c ON c.oid = i.indexrelid
+			  WHERE c.relname = 'cases_patient_name_fuzzy'`,
+		);
+		expect(beforeMutation.rows[0]?.indisvalid).toBe(true);
+
+		// Mark the index INVALID in the catalog. The cast through
+		// `pg_class.oid` resolves the index's catalog id by name.
+		await dbHandle.pool.query(
+			`UPDATE pg_index
+			    SET indisvalid = false
+			  WHERE indexrelid = (
+			    SELECT oid FROM pg_class WHERE relname = 'cases_patient_name_fuzzy'
+			  )`,
+		);
+
+		// Verify the catalog mutation took effect — the test only
+		// proves recovery if the precondition is real.
+		const afterMutation = await dbHandle.pool.query<{ indisvalid: boolean }>(
+			`SELECT i.indisvalid
+			   FROM pg_index i
+			   JOIN pg_class c ON c.oid = i.indexrelid
+			  WHERE c.relname = 'cases_patient_name_fuzzy'`,
+		);
+		expect(afterMutation.rows[0]?.indisvalid).toBe(false);
+
+		// Re-run `applySchemaChange` with the same blueprint. The diff
+		// reads the catalog, sees the INVALID entry, emits a drop +
+		// create pair, and converges the live set with the desired
+		// set.
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+		});
+
+		// The recovered index exists, is valid, and has the same
+		// trgm-GIN shape the create path emits.
+		const recovered = await dbHandle.pool.query<{
+			indisvalid: boolean;
+			indexdef: string;
+		}>(
+			`SELECT i.indisvalid, pg_get_indexdef(i.indexrelid) AS indexdef
+			   FROM pg_index i
+			   JOIN pg_class c ON c.oid = i.indexrelid
+			  WHERE c.relname = 'cases_patient_name_fuzzy'`,
+		);
+		expect(recovered.rows).toHaveLength(1);
+		expect(recovered.rows[0]?.indisvalid).toBe(true);
+		expect(recovered.rows[0]?.indexdef).toMatch(/USING gin/);
+		expect(recovered.rows[0]?.indexdef).toContain("gin_trgm_ops");
+
+		// One index — not two. A regression that emitted a CREATE
+		// without the corresponding DROP would leave both the INVALID
+		// stub and the new index in the catalog with the same name.
+		// `pg_class.relname` is unique within a schema, so the engine
+		// would actually reject the CREATE in that scenario; this
+		// assertion pins that the recovery path takes the
+		// drop-then-create branch rather than relying on engine-side
+		// uniqueness as the safety net.
+		const finalSet = await readPropertyIndexes(dbHandle.pool, "patient");
+		expect(finalSet.map((i) => i.name)).toEqual(["cases_patient_name_fuzzy"]);
 	});
 
 	// -----------------------------------------------------------

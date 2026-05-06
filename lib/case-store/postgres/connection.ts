@@ -62,11 +62,11 @@
 //     connector resolves this to the private IP on demand via the
 //     SQL Admin API.
 //
-// Missing or empty required variables throw at module-init time
-// with a clear error naming which variable is missing. The
-// Postgres-strict null discipline applies here: a missing
-// configuration value is structurally invalid, not a defaultable
-// state.
+// Missing or empty required variables throw on the first
+// `getCaseStoreDatabase()` call with a clear error naming which
+// variable is missing. The Postgres-strict null discipline applies
+// here: a missing configuration value is structurally invalid, not
+// a defaultable state.
 //
 // ## No local-dev mode
 //
@@ -143,13 +143,13 @@ export type { Database } from "../sql/database.js";
 // Pool-sizing invariant — named constants, not magic numbers
 // ---------------------------------------------------------------
 //
-// The three numbers below are the deployment-time guarantee that
+// The three numbers below are the connection-budget guarantee that
 // keeps the application from exhausting Cloud SQL's connection
 // budget. Encoding them as named constants — rather than burying
 // the math in a comment — means a future contributor changing any
 // one number sees the relationship immediately and the
-// `enforceConnectionBudget` runtime check fails loudly if the math
-// breaks.
+// `enforceConnectionBudget` first-call check (see `initialize`
+// below) fails loudly if the math breaks.
 
 /**
  * Cloud SQL `db-f1-micro` `max_connections`. Pinned explicitly on
@@ -186,11 +186,16 @@ export const CLOUD_RUN_MAX_INSTANCES = 5;
 export const POOL_MAX_PER_INSTANCE = 4;
 
 /**
- * Connection-budget invariant. Throws at module load if the four
- * constants above ever drift into a configuration that would let
- * Cloud Run instances collectively overrun Cloud SQL's connection
- * cap. The check runs eagerly because the constants are static —
- * a budget violation is a deploy-time bug, not a runtime one.
+ * Connection-budget invariant. Throws when the four constants above
+ * drift into a configuration that would let Cloud Run instances
+ * collectively overrun Cloud SQL's connection cap. The check fires
+ * once per process on the first `getCaseStoreDatabase()` call (see
+ * `initialize` below) — first-call rather than module-load so a
+ * non-runtime import (a Next.js build, a test that imports the
+ * barrel for type access, a debugging tweak in another part of the
+ * package) never triggers the throw. In production, "first call"
+ * coincides with the Cloud Run cold-start's first request handling,
+ * which is the same moment a module-load check would fire.
  *
  * Exported so the unit test can call this exact function rather
  * than re-deriving the same formula. A regression in either the
@@ -202,10 +207,10 @@ export function enforceConnectionBudget(): void {
 	const peakDemand = CLOUD_RUN_MAX_INSTANCES * POOL_MAX_PER_INSTANCE;
 	if (peakDemand > applicationBudget) {
 		// Inline Elm-style throw — header / indented diagnostic / narrative /
-		// Hint. Deploy-time configuration violations don't fit
-		// `compilerBugMessage` (this is operator misconfiguration, not an
-		// internal invariant) but match the same voice for consistency
-		// with the rest of the case-store error surface.
+		// Hint. Configuration violations don't fit `compilerBugMessage`
+		// (this is operator misconfiguration, not an internal invariant)
+		// but match the same voice for consistency with the rest of the
+		// case-store error surface.
 		throw new Error(
 			[
 				"Cloud SQL connection budget exceeded.",
@@ -225,11 +230,6 @@ export function enforceConnectionBudget(): void {
 		);
 	}
 }
-
-// Eagerly enforce the budget at module load. The constants are
-// static; if the math is broken, the failure should surface at
-// deploy time before any request hits.
-enforceConnectionBudget();
 
 // ---------------------------------------------------------------
 // Environment variable contract
@@ -297,8 +297,8 @@ export function readCaseStoreEnvConfig(
 		// full misconfiguration in a single failure instead of
 		// drip-feeding through restart cycles. Inline Elm-style throw —
 		// the same voice the case-store error helpers establish, but
-		// inline because deploy-time configuration violations are not
-		// internal invariants.
+		// inline because operator-facing configuration violations are
+		// not internal invariants.
 		throw new Error(
 			[
 				"Cloud SQL case store is missing required environment variables.",
@@ -410,8 +410,17 @@ let initInFlight: Promise<CaseStoreHandles> | null = null;
  * Kysely instance. Called at most once per process under normal
  * operation; concurrent first-call requests share the in-flight
  * promise.
+ *
+ * The connection-budget invariant fires here, BEFORE env validation
+ * and connector construction, so a budget misconfiguration surfaces
+ * with the dedicated diagnostic rather than as a downstream pool /
+ * connector failure. Placement inside `initialize` reuses the
+ * lazy-singleton's once-only mutex (the `initInFlight` gate above):
+ * the check fires exactly once per process across concurrent
+ * first-call races.
  */
 async function initialize(): Promise<CaseStoreHandles> {
+	enforceConnectionBudget();
 	const env = readCaseStoreEnvConfig();
 	const connector = new Connector();
 	const clientOpts = await connector.getOptions({

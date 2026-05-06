@@ -52,8 +52,9 @@
 //   3. **Per-property expression-index DDL emission** — always runs.
 //      Computes the desired index set for the case-type from the
 //      blueprint (per-`data_type` mode derivation), reads the live
-//      index set from `pg_indexes`, emits the matching `DROP INDEX`
-//      / `CREATE INDEX` statements for the diff. Naming convention
+//      index set from `pg_index` + `pg_class` (joined to capture
+//      `indisvalid`), emits the matching `DROP INDEX` / `CREATE
+//      INDEX` statements for the diff. Naming convention
 //      `cases_<case_type>_<property>_<mode>` keys each index by its
 //      `(case_type, property, mode)` tuple so the diff is mechanical
 //      across blueprint mutations.
@@ -91,10 +92,18 @@
 // statements run after Phase A's commit; a failure mid-Phase-B
 // throws, the schema row + per-row migration are already
 // committed, and the next `applySchemaChange` call diffs against
-// `pg_indexes` and re-emits whatever drops + creates remain
-// outstanding. Missing indexes degrade query performance but
-// never correctness — the term compiler's emitted SQL falls back
-// to a sequential scan over the case-type partial-predicate
+// the catalog and re-emits whatever drops + creates remain
+// outstanding. The diff captures `pg_index.indisvalid` — a
+// `CREATE INDEX CONCURRENTLY` failure (lock conflict, deadlock,
+// disk full, cancelled mid-build) leaves the partially-built
+// index marked invalid in the catalog, and the diff treats an
+// INVALID entry as "drop and recreate" so the next retry
+// converges. The recovery is therefore idempotent: any number of
+// retries on the same `applySchemaChange` arguments lands the
+// same final index set, no matter where the previous attempt
+// failed. Missing or invalid indexes degrade query performance
+// but never correctness — the term compiler's emitted SQL falls
+// back to a sequential scan over the case-type partial-predicate
 // without one.
 //
 // ## Pre-flight identifier validation runs BEFORE Phase A
@@ -874,8 +883,10 @@ export class PostgresCaseStore implements CaseStore {
 		// `CREATE INDEX` runs sees clean rows. Failure surfaces as
 		// a thrown error, leaves Phase A's commit intact, and the
 		// next `applySchemaChange` call retries Phase B
-		// idempotently (the diff against `pg_indexes` re-derives
-		// the missing creates / extra drops on every call).
+		// idempotently — the catalog diff captures `indisvalid`,
+		// so an INVALID artifact from a failed CONCURRENTLY build
+		// flows through both `drops` and `creates` and the retry
+		// rebuilds it from scratch.
 		await this.syncExpressionIndexes({
 			caseType: args.caseType,
 			desired: desiredIndexes,
@@ -887,10 +898,10 @@ export class PostgresCaseStore implements CaseStore {
 	/**
 	 * Sync the per-property expression indexes for a case type
 	 * against the supplied pre-flighted desired set. Reads the live
-	 * index set from `pg_indexes`, emits `DROP INDEX` / `CREATE
-	 * INDEX` statements for the diff against `this.db` directly
-	 * (not inside a transaction — see the file-level "Why DDL is
-	 * split out of Phase A's transaction" comment for the
+	 * index set from the Postgres catalog, emits `DROP INDEX` /
+	 * `CREATE INDEX` statements for the diff against `this.db`
+	 * directly (not inside a transaction — see the file-level "Why
+	 * DDL is split out of Phase A's transaction" comment for the
 	 * `SnapshotAny` rationale).
 	 *
 	 * Naming convention `cases_<case_type>_<property>_<mode>` makes
@@ -898,7 +909,9 @@ export class PostgresCaseStore implements CaseStore {
 	 * indexes and creates the new-name indexes; a retype drops the
 	 * old type's indexes (text trgm) and creates the new type's
 	 * indexes (int btree); a property removal drops every index
-	 * keyed on it.
+	 * keyed on it. An INVALID artifact (a partially-built index left
+	 * by a prior failed `CREATE INDEX CONCURRENTLY`) flows through
+	 * both `drops` and `creates` so a retry rebuilds it from scratch.
 	 *
 	 * The `WHERE case_type = '<destination>'` partial-index predicate
 	 * scopes each index to one case-type's rows, sharing the
@@ -917,13 +930,13 @@ export class PostgresCaseStore implements CaseStore {
 		const live = await readLiveIndexSet(this.db, args.caseType);
 		const { creates, drops } = diffIndexSets(args.desired, live);
 
-		// Drops first so a same-name index that's changing shape
-		// (e.g. a column-level cast change after retype) drops the
-		// old definition before the create attempts to claim the
-		// name. The diff's `creates` and `drops` lists are computed
-		// with set-difference semantics so a name appearing in both
-		// (the changed-shape case) goes through both lists in the
-		// right order.
+		// Drops first so a same-name entry that needs replacing — an
+		// INVALID artifact left by a prior failed `CREATE INDEX
+		// CONCURRENTLY` — clears the name before the create reuses
+		// it. `diffIndexSets` is the single producer of both lists;
+		// it emits the same name in both `drops` and `creates` only
+		// for the INVALID-recovery case, and the ordered loop here
+		// is what makes that pair atomic at the name level.
 		//
 		// `DROP INDEX CONCURRENTLY` matches `CREATE INDEX
 		// CONCURRENTLY`: avoids holding `ACCESS EXCLUSIVE` on the
@@ -1818,12 +1831,31 @@ interface DesiredIndex {
 }
 
 /**
- * One live index entry read from `pg_indexes`. Matched by name
+ * One live index entry read from the catalog. Matched by name
  * against `DesiredIndex.name` to compute the diff.
+ *
+ * `isValid` mirrors `pg_index.indisvalid`. A failed
+ * `CREATE INDEX CONCURRENTLY` (lock conflict, deadlock, disk full,
+ * cancelled mid-build) leaves the partially-built index visible in
+ * the catalogs marked `indisvalid = false`; per
+ * `https://www.postgresql.org/docs/current/catalog-pg-index.html`
+ * Postgres treats an INVALID index as "possibly incomplete: it
+ * must still be modified by INSERT/UPDATE operations, but it
+ * cannot safely be used for queries." The diff treats INVALID
+ * entries as "drop and recreate" so the next `applySchemaChange`
+ * call recovers from a transient Phase B failure idempotently.
  */
 interface LiveIndex {
 	/** The index name as Postgres reports it. */
 	name: string;
+	/**
+	 * `true` when `pg_index.indisvalid` is `true` (the index is
+	 * complete and queryable); `false` when a CREATE CONCURRENTLY
+	 * failure left it marked invalid. INVALID entries flow through
+	 * both `drops` and `creates` in `diffIndexSets` so the recovery
+	 * pass converges the live set with the desired set.
+	 */
+	isValid: boolean;
 }
 
 /**
@@ -2088,19 +2120,34 @@ function assertSafeIdentifierFragment(
 
 /**
  * Read every live per-property expression index for a case type
- * from `pg_indexes`. The filter pins to indexes whose name starts
- * with `cases_<case_type>_` so foreign indexes (manually created
- * indexes on `cases`, the static `case_indices_*_idx` set) don't
- * appear in the diff and accidentally get dropped.
+ * from the Postgres catalog. The filter pins to indexes whose name
+ * starts with `cases_<case_type>_` so foreign indexes (manually
+ * created indexes on `cases`, the static `case_indices_*_idx`
+ * set) don't appear in the diff and accidentally get dropped.
+ *
+ * The query joins `pg_index` + `pg_class` (twice — once for the
+ * index itself, once for the underlying table) + `pg_namespace`
+ * rather than reading from the simpler `pg_indexes` view because
+ * `pg_indexes` does not expose `indisvalid`. The validity flag
+ * matters: a `CREATE INDEX CONCURRENTLY` failure (lock conflict,
+ * deadlock, disk full, cancelled mid-build) leaves the partially-
+ * built index visible to `pg_indexes` with the same name a healthy
+ * index would have, so a name-only diff would skip recreation and
+ * leave the broken artifact permanently in place. Capturing
+ * `indisvalid` lets `diffIndexSets` emit a drop-and-recreate pair
+ * for the broken entry on the next `applySchemaChange` retry. See
+ * `https://www.postgresql.org/docs/current/catalog-pg-index.html`
+ * for the catalog contract.
  */
 async function readLiveIndexSet(
 	executor: Kysely<Database>,
 	caseType: string,
 ): Promise<Map<string, LiveIndex>> {
-	// `pg_indexes` is the canonical catalog view (per
-	// `https://www.postgresql.org/docs/18/view-pg-indexes.html`).
-	// `tablename = 'cases'` scopes the read; the `LIKE` filter on
-	// `indexname` keys on the convention prefix.
+	// `n.nspname = current_schema()` scopes the read to the
+	// session's default schema (the same schema that holds `cases`),
+	// matching the `pg_indexes` view's implicit scoping. `t.relname
+	// = 'cases'` pins the underlying table; the `c.relname LIKE`
+	// filter keys on the convention prefix.
 	//
 	// The hyphen-to-underscore transform `indexName` applies to
 	// case-type names runs here too — the live filter must match
@@ -2113,23 +2160,47 @@ async function readLiveIndexSet(
 	const prefix = `cases\\_${transformHyphens(caseType)}\\_%`;
 	const result = await sql<{
 		indexname: string;
-	}>`SELECT indexname FROM pg_indexes WHERE tablename = 'cases' AND indexname LIKE ${prefix} ESCAPE '\\'`.execute(
-		executor,
-	);
+		isvalid: boolean;
+	}>`SELECT c.relname AS indexname, i.indisvalid AS isvalid
+		FROM pg_index i
+		JOIN pg_class c ON c.oid = i.indexrelid
+		JOIN pg_class t ON t.oid = i.indrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'cases'
+		  AND c.relname LIKE ${prefix} ESCAPE '\\'`.execute(executor);
 	const live = new Map<string, LiveIndex>();
 	for (const row of result.rows) {
-		live.set(row.indexname, { name: row.indexname });
+		live.set(row.indexname, {
+			name: row.indexname,
+			isValid: row.isvalid,
+		});
 	}
 	return live;
 }
 
 /**
- * The diff between the desired and live index sets. `creates` are
- * desired entries with no live counterpart; `drops` are live
- * entries with no desired counterpart. Entries present in both are
- * skipped — same name implies same shape, because the naming
- * convention encodes `(case_type, property, mode)` and a shape
- * change always picks a different mode suffix.
+ * The diff between the desired and live index sets. Three cases
+ * compose the result:
+ *
+ *   - Name in desired AND live AND `live.isValid === true` — skip.
+ *     Same name implies same shape (the naming convention encodes
+ *     `(case_type, property, mode)`; a shape change always picks
+ *     a different mode suffix), and a valid index needs no work.
+ *   - Name in desired AND live AND `live.isValid === false` — emit
+ *     BOTH a drop and a create. A `CREATE INDEX CONCURRENTLY`
+ *     failure leaves the partially-built index marked
+ *     `indisvalid = false` (per
+ *     `https://www.postgresql.org/docs/current/catalog-pg-index.html`);
+ *     dropping it and recreating it from scratch is the recovery
+ *     path. The drop-then-create execution order in
+ *     `syncExpressionIndexes` ensures the same name is free before
+ *     the create reuses it.
+ *   - Name in live AND not desired — emit a drop. Property removal
+ *     or rename leaves an obsolete entry whose definition no
+ *     blueprint surface still claims; validity does not affect the
+ *     drop decision.
+ *   - Name in desired AND not live — emit a create.
  */
 function diffIndexSets(
 	desired: ReadonlyMap<string, DesiredIndex>,
@@ -2138,11 +2209,25 @@ function diffIndexSets(
 	const creates: DesiredIndex[] = [];
 	const drops: LiveIndex[] = [];
 	for (const [name, entry] of desired) {
-		if (!live.has(name)) {
+		const liveEntry = live.get(name);
+		if (liveEntry === undefined) {
+			creates.push(entry);
+			continue;
+		}
+		if (!liveEntry.isValid) {
+			// INVALID artifact from a prior failed CONCURRENTLY build —
+			// drop and recreate. The drop runs before the create in
+			// `syncExpressionIndexes`'s ordered loop so the name is
+			// free by the time the create lands.
+			drops.push(liveEntry);
 			creates.push(entry);
 		}
 	}
 	for (const [name, entry] of live) {
+		// A live entry the desired set no longer claims is dropped
+		// regardless of validity — invalid + obsolete still yields
+		// "drop"; the create-side iteration above already covered the
+		// invalid-and-still-desired case.
 		if (!desired.has(name)) {
 			drops.push(entry);
 		}

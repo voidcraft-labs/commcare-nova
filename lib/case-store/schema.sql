@@ -251,8 +251,8 @@ CREATE TABLE "case_indices" (
 -- static schema. Property names are blueprint-specific and search
 -- modes are search-input-config-specific; the canonical owner is
 -- `applySchemaChange`, which emits the matching CREATE INDEX /
--- DROP INDEX set against the live `pg_indexes` after the schema-
--- sync transaction commits.
+-- DROP INDEX set against the live catalog after the schema-sync
+-- transaction commits.
 -- The DDL emission runs in a second phase outside the transaction
 -- because Postgres's non-CONCURRENT CREATE INDEX heap-scans with
 -- SnapshotAny semantics — dead tuples from same-transaction
