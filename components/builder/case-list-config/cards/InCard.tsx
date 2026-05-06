@@ -22,8 +22,8 @@ import type { PredicateEditContext } from "../editorSchemas";
 import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 
 export function inDefault(
 	ctx: PredicateEditContext,
@@ -79,7 +79,8 @@ export function InCard({ value, onChange, path }: InCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<LeftPropertyPicker
+				<PropertyRefPicker
+					mode="left"
 					value={value.left}
 					onChange={setLeft}
 					invalid={leftErrors.length > 0}

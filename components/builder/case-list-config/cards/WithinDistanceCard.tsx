@@ -12,6 +12,7 @@ import {
 	type DistanceUnit,
 	literal,
 	type Predicate,
+	type PropertyRef,
 	prop,
 	within,
 } from "@/lib/domain/predicate";
@@ -24,7 +25,7 @@ import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { PropertyPicker } from "../primitives/PropertyPicker";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const UNIT_LABELS: Record<DistanceUnit, string> = {
@@ -56,15 +57,8 @@ export function WithinDistanceCard({
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 	const centerErrors = useEditorErrorsAt(appendSlot(path, "center"));
 
-	const setProperty = (propertyName: string) => {
-		onChange(
-			within(
-				prop(ctx.currentCaseType, propertyName),
-				value.center,
-				value.distance,
-				value.unit,
-			),
-		);
+	const setProperty = (next: PropertyRef) => {
+		onChange(within(next, value.center, value.distance, value.unit));
 	};
 
 	const setCenter = (next: Parameters<typeof within>[1]) => {
@@ -84,8 +78,9 @@ export function WithinDistanceCard({
 	return (
 		<div className="space-y-2">
 			<div>
-				<PropertyPicker
-					value={propertyName}
+				<PropertyRefPicker
+					mode="property-only"
+					value={value.property}
 					onChange={setProperty}
 					filter={(p) => p.data_type === "geopoint"}
 					invalid={propertyErrors.length > 0}

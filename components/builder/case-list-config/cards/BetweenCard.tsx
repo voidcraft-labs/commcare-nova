@@ -21,7 +21,7 @@ import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const ORDERED_PROPERTY_TYPES = new Set<string>([
@@ -102,7 +102,8 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<LeftPropertyPicker
+				<PropertyRefPicker
+					mode="left"
 					value={value.left}
 					onChange={setLeft}
 					filter={(p) => ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text")}

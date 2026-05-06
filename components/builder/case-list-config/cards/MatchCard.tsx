@@ -13,6 +13,7 @@ import {
 	type MatchMode,
 	match,
 	type Predicate,
+	type PropertyRef,
 	prop,
 } from "@/lib/domain/predicate";
 import {
@@ -28,7 +29,7 @@ import {
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { PropertyPicker } from "../primitives/PropertyPicker";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
@@ -90,10 +91,8 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 	// `lib/domain/predicate/typeChecker.ts` for the path emission.
 	const valueErrors = useEditorErrorsAtOrBelow(appendSlot(path, "value"));
 
-	const setProperty = (propertyName: string) => {
-		onChange(
-			match(prop(ctx.currentCaseType, propertyName), value.value, value.mode),
-		);
+	const setProperty = (next: PropertyRef) => {
+		onChange(match(next, value.value, value.mode));
 	};
 
 	const setMode = (mode: MatchMode) => {
@@ -122,8 +121,9 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 		<div className="space-y-2">
 			<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 				<div>
-					<PropertyPicker
-						value={propertyName}
+					<PropertyRefPicker
+						mode="property-only"
+						value={value.property}
 						onChange={setProperty}
 						filter={propertyFilter}
 						invalid={propertyErrors.length > 0}

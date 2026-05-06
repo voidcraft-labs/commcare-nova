@@ -24,6 +24,7 @@ import {
 	multiSelectAll,
 	multiSelectAny,
 	type Predicate,
+	type PropertyRef,
 	prop,
 } from "@/lib/domain/predicate";
 import {
@@ -36,7 +37,7 @@ import type { PredicateEditContext } from "../editorSchemas";
 import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { PropertyPicker } from "../primitives/PropertyPicker";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 
 /**
  * Build the default `multi-select-contains` predicate. Picks the
@@ -88,18 +89,18 @@ export function MultiSelectContainsCard({
 			.filter((v): v is string => typeof v === "string"),
 	);
 
-	const setProperty = (propertyName: string) => {
+	const setProperty = (next: PropertyRef) => {
 		// On property switch, reset values to the new property's first
 		// option (keeping the schema's non-empty invariant) — the
 		// previous property's options have no semantic continuity with
-		// the new property's tokens. Reads the new property from the
-		// closed-over `ct` (the current case type's properties list)
-		// rather than re-resolving via `ctx.caseTypes`.
-		const next = ct?.properties.find((p) => p.name === propertyName);
-		const seed = next?.options?.[0]?.value ?? "";
+		// the new property's tokens. The `next` ref carries the
+		// preserved `via` walk (if any) verbatim — `PropertyRefPicker`'s
+		// canonical-edit branch rebuilds via `prop(caseType, name, via)`.
+		const nextProp = ct?.properties.find((p) => p.name === next.property);
+		const seed = nextProp?.options?.[0]?.value ?? "";
 		const builder =
 			value.quantifier === "all" ? multiSelectAll : multiSelectAny;
-		onChange(builder(prop(ctx.currentCaseType, propertyName), literal(seed)));
+		onChange(builder(next, literal(seed)));
 	};
 
 	const setQuantifier = (q: MultiSelectQuantifier) => {
@@ -131,8 +132,9 @@ export function MultiSelectContainsCard({
 		<div className="space-y-2">
 			<div className="grid grid-cols-[1fr_auto] gap-2 items-start">
 				<div>
-					<PropertyPicker
-						value={value.property.property || undefined}
+					<PropertyRefPicker
+						mode="property-only"
+						value={value.property}
 						onChange={setProperty}
 						filter={(p) => p.data_type === "multi_select"}
 						invalid={propertyErrors.length > 0}

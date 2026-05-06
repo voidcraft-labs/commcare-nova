@@ -210,16 +210,19 @@ function preservedOperandSwap(
  * different kind. Two replacement strategies:
  *
  *   1. **Operand-preserving swap** — when the source and target
- *      kinds share an identical operand shape (`exists` ↔
- *      `missing`, comparison ↔ comparison), the existing
- *      operands carry over to the new kind verbatim. Same
- *      result the in-card `KindMenu` produces for `exists` ↔
- *      `missing`, so the two affordances are interchangeable.
+ *      kinds share an identical operand shape (the four
+ *      structural-twin pairs documented on
+ *      `preservedOperandSwap`), the existing operands carry over
+ *      to the new kind verbatim. Same result the in-card
+ *      `KindMenu` produces for `exists` ↔ `missing`, so the two
+ *      affordances are interchangeable.
  *   2. **Default-value reset** — for every other kind transition
  *      (e.g. `eq` → `between`), the target schema's
- *      `defaultValue(...)` factory builds a fresh predicate.
- *      Operand semantics differ enough that no carry-over is
- *      principled.
+ *      `defaultValue(...)` factory rebuilds from the case-type
+ *      schema. Operand SHAPES differ enough that no structural
+ *      carry-over is sound (e.g. `eq`'s `{ left, right }` doesn't
+ *      map cleanly onto `between`'s `{ left, lower?, upper?,
+ *      lowerInclusive, upperInclusive }`).
  *
  * The menu lists every kind, marking the current one with a
  * violet dot.

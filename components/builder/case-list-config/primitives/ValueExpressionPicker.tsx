@@ -51,8 +51,9 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 import { usePredicateEditContext } from "../editorContext";
+import { HigherOrderBadge } from "./HigherOrderBadge";
 import { LiteralValueInput } from "./LiteralValueInput";
-import { PropertyPicker } from "./PropertyPicker";
+import { PropertyRefPicker } from "./PropertyRefPicker";
 
 /** Term-mode discriminator for the picker's mode toggle. */
 type TermMode =
@@ -61,40 +62,6 @@ type TermMode =
 	| "input"
 	| "session-context"
 	| "session-user";
-
-/**
- * Synthetic kind used by `LeftPropertyPicker` when the LEFT-slot
- * value is a Term-arm Term that isn't a property reference
- * (literal / search-input / session-context / session-user). The
- * surrounding `LeftPropertyPicker` only edits the
- * `term(prop(...))` shape; every other Term shape routes through
- * the same read-only badge as the higher-order arms so the
- * authored value can't be silently overwritten.
- */
-type BadgeKind = Exclude<ValueExpression["kind"], "term"> | "term-non-prop";
-
-/** Human-readable labels for the badge kinds. The non-`term` arm
- *  keys cover every higher-order arm in `valueExpressionSchema`;
- *  the synthetic `term-non-prop` row labels Term-arm shapes the
- *  LEFT-slot picker can't edit. An exhaustive `Record<...>` over
- *  the closed kind set guarantees a label for every case. */
-const HIGHER_ORDER_LABELS: Record<BadgeKind, string> = {
-	today: "Today",
-	now: "Now",
-	"date-add": "Date arithmetic",
-	"date-coerce": "Date coerce",
-	"datetime-coerce": "Datetime coerce",
-	double: "Numeric coerce",
-	arith: "Arithmetic",
-	concat: "Concatenation",
-	coalesce: "Coalesce",
-	if: "Conditional",
-	switch: "Switch",
-	count: "Relational count",
-	"unwrap-list": "Unwrap list",
-	"format-date": "Format date",
-	"term-non-prop": "Non-property reference",
-};
 
 interface ValueExpressionPickerProps {
 	readonly value: ValueExpression;
@@ -174,50 +141,6 @@ export function ValueExpressionPicker({
 				invalid={invalid}
 				ariaLabel={ariaLabel}
 			/>
-		</div>
-	);
-}
-
-/**
- * Read-only badge rendered when the picker (or the LEFT-slot
- * `LeftPropertyPicker`) receives a value shape it can't edit.
- * Surfaces the kind label (from `HIGHER_ORDER_LABELS`) and a
- * Replace affordance. The badge does not call `onChange` on mount
- * or render — only the user's Replace click overwrites the
- * underlying value.
- *
- * Exported so `LeftPropertyPicker` reuses the same chrome when a
- * LEFT-slot value isn't a property reference.
- */
-export function HigherOrderBadge({
-	kind,
-	onReplace,
-	ariaLabel,
-}: {
-	readonly kind: BadgeKind;
-	readonly onReplace: () => void;
-	readonly ariaLabel: string;
-}) {
-	const label = HIGHER_ORDER_LABELS[kind];
-	return (
-		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.10] bg-nova-deep/30">
-			<span className="text-nova-text-muted shrink-0">Expression:</span>
-			<span className="font-mono text-nova-violet-bright/80 truncate">
-				{label}
-			</span>
-			<div className="flex-1" />
-			{/* Slot disambiguation lives on the Replace button's
-			 *  aria-label — the only interactive element in the
-			 *  badge — so a screen reader announces which slot's
-			 *  expression the click would overwrite. */}
-			<button
-				type="button"
-				aria-label={`Replace ${ariaLabel} expression (${label}) with a simple value`}
-				onClick={onReplace}
-				className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
-			>
-				Replace
-			</button>
 		</div>
 	);
 }
@@ -419,13 +342,18 @@ function TermBodyInput({
 				/>
 			);
 		case "prop":
+			// Routes through `PropertyRefPicker` so the prop's
+			// optional `via: RelationPath` walk round-trips on
+			// every property name change. The picker handles the
+			// canonical-vs-non-canonical branch internally and
+			// rebuilds via `prop(caseType, name, via)` (three-arg
+			// form) — bypassing this primitive would silently drop
+			// authored relation walks on first user click.
 			return (
-				<PropertyPicker
-					value={term.property}
-					onChange={(name) => {
-						onChange(prop(caseTypeName, name));
-					}}
-					caseType={caseTypeName}
+				<PropertyRefPicker
+					mode="property-only"
+					value={term}
+					onChange={(next) => onChange(next)}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>

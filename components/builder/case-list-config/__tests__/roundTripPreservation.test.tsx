@@ -19,7 +19,7 @@
 // slots would silently lose its content the moment a user opens
 // the editor.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -35,11 +35,14 @@ import {
 	isIn,
 	isNull,
 	literal,
+	match,
+	multiSelectAny,
 	prop,
 	relationStep,
 	subcasePath,
 	term,
 	today,
+	within,
 } from "@/lib/domain/predicate";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 
@@ -53,6 +56,13 @@ const PATIENT: CaseType = {
 	properties: [
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "name", label: "Name", data_type: "text" },
+		{
+			name: "tags",
+			label: "Tags",
+			data_type: "multi_select",
+			options: [{ value: "vip", label: "VIP" }],
+		},
+		{ name: "location", label: "Home", data_type: "geopoint" },
 	],
 };
 const VISIT: CaseType = {
@@ -231,7 +241,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 	});
 });
 
-describe("LeftPropertyPicker — non-Term LEFT-slot round-trip preservation", () => {
+describe("PropertyRefPicker (mode=left) — non-Term LEFT-slot round-trip preservation", () => {
 	// Every Predicate operator with a `left: ValueExpression` slot
 	// must round-trip non-Term values without destruction. The
 	// schema admits any ValueExpression at those slots; the
@@ -325,5 +335,222 @@ describe("LeftPropertyPicker — non-Term LEFT-slot round-trip preservation", ()
 		);
 		expect(container.textContent).toMatch(/Arithmetic/i);
 		expect(onChange).not.toHaveBeenCalled();
+	});
+});
+
+describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
+	// Every property picker (LEFT-slot + property-only) must
+	// round-trip a `prop` Term carrying a non-self `via:
+	// RelationPath` walk verbatim. The schema admits `via` as
+	// optional on `propertyRefSchema`; rebuilding via two-arg
+	// `prop(caseType, name)` after the user picks a property
+	// would silently drop the walk. The picker routes prop refs
+	// with non-self `via` through the read-only badge; the badge's
+	// Replace button is the only path that overwrites.
+	//
+	// Eight surfaces total — five LEFT-slot cards + three
+	// property-only cards.
+
+	const VIA = ancestorPath(relationStep("parent"));
+
+	/** Click the badge's Replace button and assert the next
+	 *  emitted AST is a canonical `term(prop(...))` with no `via`
+	 *  walk. Verifies the Replace path produces the right shape;
+	 *  paired with the no-onChange-on-render assertion above to
+	 *  pin the full Replace contract. */
+	function clickReplaceAndAssertCanonicalLeft(
+		onChange: ReturnType<typeof vi.fn>,
+		expectedCaseType: string,
+	) {
+		const replaceButton = screen.getByRole("button", {
+			name: /Replace .* expression/i,
+		});
+		fireEvent.click(replaceButton);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		const next = onChange.mock.calls[0][0];
+		// Walk into the predicate's left slot. The structural
+		// assertion holds for every LEFT-slot card; we read through
+		// `(next as any).left` because the precise predicate kind
+		// varies per card.
+		const left = (
+			next as {
+				left?: { kind?: string; term?: { kind?: string; via?: unknown } };
+			}
+		).left;
+		expect(left?.kind).toBe("term");
+		expect(left?.term?.kind).toBe("prop");
+		expect(left?.term?.via).toBeUndefined();
+		// Confirm the case type was preserved on the replaced ref.
+		expect((left?.term as { caseType?: string } | undefined)?.caseType).toBe(
+			expectedCaseType,
+		);
+	}
+
+	/** Property-only counterpart — the predicate's `property` slot
+	 *  carries the PropertyRef directly (no `term` wrapper). */
+	function clickReplaceAndAssertCanonicalProperty(
+		onChange: ReturnType<typeof vi.fn>,
+		expectedCaseType: string,
+	) {
+		const replaceButton = screen.getByRole("button", {
+			name: /Replace .* expression/i,
+		});
+		fireEvent.click(replaceButton);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		const next = onChange.mock.calls[0][0];
+		const property = (
+			next as { property?: { kind?: string; caseType?: string; via?: unknown } }
+		).property;
+		expect(property?.kind).toBe("prop");
+		expect(property?.via).toBeUndefined();
+		expect(property?.caseType).toBe(expectedCaseType);
+	}
+
+	// ── LEFT-slot cards (5) ─────────────────────────────────────────
+
+	it("ComparisonCard preserves prop.via on render; Replace clears it", () => {
+		const value = gt(term(prop("patient", "age", VIA)), term(literal(18)));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalLeft(onChange, "patient");
+	});
+
+	it("InCard preserves prop.via on render; Replace clears it", () => {
+		const value = isIn(
+			term(prop("patient", "age", VIA)),
+			literal(1),
+			literal(2),
+		);
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalLeft(onChange, "patient");
+	});
+
+	it("BetweenCard preserves prop.via on render; Replace clears it", () => {
+		const value = between(term(prop("patient", "age", VIA)), {
+			lower: literal(0),
+			upper: literal(100),
+		});
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalLeft(onChange, "patient");
+	});
+
+	it("IsNullCard preserves prop.via on render; Replace clears it", () => {
+		const value = isNull(term(prop("patient", "age", VIA)));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalLeft(onChange, "patient");
+	});
+
+	it("IsBlankCard preserves prop.via on render; Replace clears it", () => {
+		const value = isBlank(term(prop("patient", "age", VIA)));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalLeft(onChange, "patient");
+	});
+
+	// ── Property-only cards (3) ─────────────────────────────────────
+
+	it("MatchCard preserves prop.via on render; Replace clears it", () => {
+		const value = match(
+			prop("patient", "name", VIA),
+			term(literal("alice")),
+			"fuzzy",
+		);
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalProperty(onChange, "patient");
+	});
+
+	it("MultiSelectContainsCard preserves prop.via on render; Replace clears it", () => {
+		const value = multiSelectAny(prop("patient", "tags", VIA), literal("vip"));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalProperty(onChange, "patient");
+	});
+
+	it("WithinDistanceCard preserves prop.via on render; Replace clears it", () => {
+		const value = within(
+			prop("patient", "location", VIA),
+			term(literal("0 0")),
+			1,
+			"miles",
+		);
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		clickReplaceAndAssertCanonicalProperty(onChange, "patient");
 	});
 });

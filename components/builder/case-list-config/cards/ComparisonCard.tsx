@@ -25,6 +25,7 @@ import {
 	neq,
 	type Predicate,
 	prop,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
 	MENU_ITEM_CLS,
@@ -35,7 +36,7 @@ import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 /** Per-kind builder dispatch. Keeps the card body's onChange paths
@@ -130,10 +131,11 @@ interface ComparisonCardProps {
 /**
  * Comparison card body. The slots:
  *   - `left` — `ValueExpression`. The card EDITS the canonical
- *     `term(prop(...))` shape via `LeftPropertyPicker`; non-Term
- *     and non-prop-Term shapes route through that picker's
- *     read-only badge with an explicit Replace affordance, so the
- *     authored expression round-trips without destruction.
+ *     `term(prop(...))` shape via `PropertyRefPicker`; non-Term,
+ *     non-prop-Term, and prop-with-non-self-`via` shapes route
+ *     through that picker's read-only badge with an explicit
+ *     Replace affordance, so the authored expression round-trips
+ *     without destruction.
  *   - operator — kind discriminator (eq / neq / gt / lt / lte / gte).
  *   - `right` — typed value via `LiteralValueInput` keyed off the
  *     left's property data type, OR a Term-shaped ValueExpression
@@ -148,14 +150,14 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	// Anchor property name for the value picker's typed-input
 	// switch. Read directly from the LEFT-slot AST shape (only
 	// meaningful when the left is a property reference; the
-	// `LeftPropertyPicker` keeps the left shape pinned to that or
+	// `PropertyRefPicker` keeps the left shape pinned to that or
 	// the read-only badge).
 	const leftPropertyName =
 		value.left.kind === "term" && value.left.term.kind === "prop"
 			? value.left.term.property
 			: undefined;
 
-	const setLeft = (left: Parameters<typeof eq>[0]) => {
+	const setLeft = (left: ValueExpression) => {
 		const builder = KIND_BUILDERS[value.kind];
 		onChange(builder(left, value.right));
 	};
@@ -173,7 +175,8 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	return (
 		<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 			<div>
-				<LeftPropertyPicker
+				<PropertyRefPicker
+					mode="left"
 					value={value.left}
 					onChange={setLeft}
 					invalid={leftErrors.length > 0}

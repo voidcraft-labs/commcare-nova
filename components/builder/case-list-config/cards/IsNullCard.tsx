@@ -15,7 +15,7 @@ import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
-import { LeftPropertyPicker } from "../primitives/LeftPropertyPicker";
+import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 
 export function isNullDefault(
 	ctx: PredicateEditContext,
@@ -38,7 +38,8 @@ export function IsNullCard({ value, onChange, path }: IsNullCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<LeftPropertyPicker
+				<PropertyRefPicker
+					mode="left"
 					value={value.left}
 					onChange={(left) => onChange(isNull(left))}
 					invalid={leftErrors.length > 0}
