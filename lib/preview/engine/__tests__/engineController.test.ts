@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { Field, Uuid } from "@/lib/domain";
+import type { CaseType, Field, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
@@ -239,6 +239,94 @@ describe("EngineController", () => {
 
 			expect(ctrl.getPath(Q1_UUID)).toBe("/data/name");
 			expect(ctrl.getPath(Q2_UUID)).toBe("/data/age");
+		});
+	});
+
+	describe("computeSubmissionMutation", () => {
+		const patientCaseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+			],
+		};
+
+		it("returns the survey marker when no engine is active", () => {
+			const ctrl = new EngineController();
+			expect(
+				ctrl.computeSubmissionMutation({ caseTypes: [patientCaseType] }),
+			).toEqual({ kind: "survey" });
+		});
+
+		it("delegates to the engine and returns the typed mutation", () => {
+			// Build a registration-form fixture against a `patient` module.
+			const moduleUuid = asUuid("module-2-uuid");
+			const formUuid = asUuid("form-2-uuid");
+			const nameUuid = asUuid("cccccccc-0001-0001-0001-000000000001");
+			const ageUuid = asUuid("cccccccc-0002-0002-0002-000000000002");
+			const doc: PersistableDoc = {
+				appId: "test-app",
+				appName: "Test App",
+				connectType: null,
+				caseTypes: [patientCaseType],
+				modules: {
+					[moduleUuid]: {
+						uuid: moduleUuid,
+						id: "patients",
+						name: "Patients",
+						caseType: "patient",
+					},
+				},
+				forms: {
+					[formUuid]: {
+						uuid: formUuid,
+						id: "register",
+						name: "Register",
+						type: "registration",
+					},
+				},
+				fields: {
+					[nameUuid]: {
+						uuid: nameUuid,
+						id: "case_name",
+						kind: "text",
+						label: "Name",
+						case_property_on: "patient",
+					},
+					[ageUuid]: {
+						uuid: ageUuid,
+						id: "age",
+						kind: "int",
+						label: "Age",
+						case_property_on: "patient",
+					},
+				},
+				moduleOrder: [moduleUuid],
+				formOrder: { [moduleUuid]: [formUuid] },
+				fieldOrder: { [formUuid]: [nameUuid, ageUuid] },
+			};
+			const store = createBlueprintDocStore();
+			store.getState().load(doc);
+			store.temporal.getState().resume();
+
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(formUuid);
+
+			ctrl.onValueChange(nameUuid, "Alice");
+			ctrl.onValueChange(ageUuid, "30");
+
+			const mutation = ctrl.computeSubmissionMutation({
+				caseTypes: [patientCaseType],
+			});
+			expect(mutation).toEqual({
+				kind: "registration",
+				primary: {
+					caseType: "patient",
+					properties: { case_name: "Alice", age: 30 },
+				},
+				children: [],
+			});
 		});
 	});
 });

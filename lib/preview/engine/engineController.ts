@@ -45,7 +45,8 @@ import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { Field, Form, Uuid } from "@/lib/domain";
+import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import { FormEngine, type FormEngineInput } from "./formEngine";
@@ -437,6 +438,25 @@ export class EngineController {
 	/** Get the XForm path for a UUID. */
 	getPath(uuid: string): string | undefined {
 		return this.uuidToPath.get(uuid);
+	}
+
+	/**
+	 * Walk the engine's template tree and emit one submission's worth
+	 * of case-store mutations. Pass-through to `FormEngine.computeSubmissionMutation`.
+	 * Returns `{ kind: "survey" }` when no engine is active — the
+	 * surveyor arm is structurally a no-op so a deactivated controller
+	 * collapses to the same shape.
+	 *
+	 * Throws when the active form is `followup` or `close` and no
+	 * `caseId` is supplied. Consumers gate on `validateAll()` first;
+	 * the engine assumes a valid form.
+	 */
+	computeSubmissionMutation(args: {
+		caseId?: string;
+		caseTypes: ReadonlyArray<CaseType>;
+	}): SubmissionMutation {
+		if (!this.engine) return { kind: "survey" };
+		return this.engine.computeSubmissionMutation(args);
 	}
 
 	// ── Per-field subscriptions ──────────────────────────────────────

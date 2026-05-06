@@ -6,7 +6,14 @@
  * build fixtures directly in that shape via the `dTree` helper.
  */
 import { describe, expect, it } from "vitest";
-import type { Field, FieldKind, Form, FormType, Uuid } from "@/lib/domain";
+import type {
+	CaseType,
+	Field,
+	FieldKind,
+	Form,
+	FormType,
+	Uuid,
+} from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
@@ -784,6 +791,698 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/name").resolvedLabel).toBeUndefined();
+		});
+	});
+
+	// computeSubmissionMutation walks the engine's template tree, fans
+	// repeats out per instance, buckets fields by destination case type,
+	// and emits a typed `SubmissionMutation` per form type. Each test
+	// constructs a real engine, drives values through the public API,
+	// and asserts the emitted mutation shape directly.
+	describe("computeSubmissionMutation", () => {
+		const patientCaseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "weight", label: "Weight", data_type: "decimal" },
+				{ name: "tags", label: "Tags", data_type: "multi_select" },
+				{ name: "notes", label: "Notes", data_type: "text" },
+			],
+		};
+		const visitCaseType: CaseType = {
+			name: "visit",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "visit_date", label: "Date", data_type: "date" },
+				{ name: "summary", label: "Summary", data_type: "text" },
+			],
+		};
+		const meditationCaseType: CaseType = {
+			name: "medication",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "dosage_mg", label: "Dosage", data_type: "int" },
+			],
+		};
+		const caseTypes = [patientCaseType, visitCaseType, meditationCaseType];
+
+		describe("registration", () => {
+			it("emits primary properties for fields bound to the module's case type", () => {
+				// `case_name` flows through as a regular property keyed
+				// inside the JSONB document, NOT a separate slot. The
+				// case-store boundary plucks it for the `cases.case_name`
+				// column at write time; the engine emits one shape.
+				const input = dTree([
+					{
+						id: "case_name",
+						kind: "text",
+						case_property_on: "patient",
+					},
+					{ id: "age", kind: "int", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/age", "30");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation).toEqual({
+					kind: "registration",
+					primary: {
+						caseType: "patient",
+						properties: { case_name: "Alice", age: 30 },
+					},
+					children: [],
+				});
+			});
+
+			it("buckets fields whose case_property_on names a different case type into a child case", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "age", kind: "int", case_property_on: "patient" },
+					{
+						id: "first_visit_date",
+						kind: "date",
+						case_property_on: "visit",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/age", "30");
+				engine.setValue("/data/first_visit_date", "2026-05-01");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary).toEqual({
+					caseType: "patient",
+					properties: { case_name: "Alice", age: 30 },
+				});
+				expect(mutation.children).toEqual([
+					{
+						caseType: "visit",
+						properties: { first_visit_date: "2026-05-01" },
+					},
+				]);
+				// Registration children carry NO parentCaseId — the case-store
+				// threads the primary's generated id at write time.
+				const child = mutation.children[0];
+				expect(child).toBeDefined();
+				expect("parentCaseId" in (child ?? {})).toBe(false);
+			});
+
+			it("keeps two distinct child case types in separate children buckets", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "first_visit_date",
+						kind: "date",
+						case_property_on: "visit",
+					},
+					{
+						id: "dosage_mg",
+						kind: "int",
+						case_property_on: "medication",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/first_visit_date", "2026-05-01");
+				engine.setValue("/data/dosage_mg", "200");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.children).toEqual([
+					{ caseType: "visit", properties: { first_visit_date: "2026-05-01" } },
+					{ caseType: "medication", properties: { dosage_mg: 200 } },
+				]);
+			});
+
+			it("fans repeats out into one child per instance per destination case type", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "visits",
+						kind: "repeat",
+						children: [
+							{
+								id: "visit_date",
+								kind: "date",
+								case_property_on: "visit",
+							},
+							{
+								id: "summary",
+								kind: "text",
+								case_property_on: "visit",
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/visits[0]/visit_date", "2026-05-01");
+				engine.setValue("/data/visits[0]/summary", "first");
+				engine.addRepeat("/data/visits");
+				engine.setValue("/data/visits[1]/visit_date", "2026-05-02");
+				engine.setValue("/data/visits[1]/summary", "second");
+				engine.addRepeat("/data/visits");
+				engine.setValue("/data/visits[2]/visit_date", "2026-05-03");
+				engine.setValue("/data/visits[2]/summary", "third");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.children).toHaveLength(3);
+				expect(mutation.children[0]).toEqual({
+					caseType: "visit",
+					properties: { visit_date: "2026-05-01", summary: "first" },
+				});
+				expect(mutation.children[1]).toEqual({
+					caseType: "visit",
+					properties: { visit_date: "2026-05-02", summary: "second" },
+				});
+				expect(mutation.children[2]).toEqual({
+					caseType: "visit",
+					properties: { visit_date: "2026-05-03", summary: "third" },
+				});
+			});
+
+			it("throws when registration reaches the engine without a moduleCaseType", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input);
+
+				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
+					/registration form reached the engine method without a `moduleCaseType`/,
+				);
+			});
+		});
+
+		describe("followup", () => {
+			it("emits a primary patch and binds children to the supplied caseId", () => {
+				const input = dTree(
+					[
+						{ id: "case_name", kind: "text", case_property_on: "patient" },
+						{ id: "notes", kind: "text", case_property_on: "patient" },
+						{
+							id: "visit_date",
+							kind: "date",
+							case_property_on: "visit",
+						},
+					],
+					"followup",
+				);
+				const caseData = new Map([["case_name", "Alice"]]);
+				const engine = new FormEngine(input, "patient", caseData);
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/notes", "follow-up note");
+				engine.setValue("/data/visit_date", "2026-05-02");
+
+				const mutation = engine.computeSubmissionMutation({
+					caseId: "case-id-123",
+					caseTypes,
+				});
+				expect(mutation).toEqual({
+					kind: "followup",
+					caseId: "case-id-123",
+					patch: {
+						properties: { case_name: "Alice", notes: "follow-up note" },
+					},
+					children: [
+						{
+							caseType: "visit",
+							properties: { visit_date: "2026-05-02" },
+							parentCaseId: "case-id-123",
+						},
+					],
+				});
+			});
+
+			it("throws when no caseId is supplied", () => {
+				const input = dTree(
+					[{ id: "notes", kind: "text", case_property_on: "patient" }],
+					"followup",
+				);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/notes", "hello");
+				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
+					/form type `followup` requires a bound `caseId`/,
+				);
+			});
+
+			it("emits an empty primary patch when no fields target the module's case type", () => {
+				// Followup forms whose every leaf field targets a child case
+				// type still emit the discriminator + bound caseId so the
+				// consumer can dispatch to the case-store update arm. The
+				// patch's `properties` object is structurally empty.
+				const input = dTree(
+					[
+						{
+							id: "visit_date",
+							kind: "date",
+							case_property_on: "visit",
+						},
+					],
+					"followup",
+				);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/visit_date", "2026-05-02");
+				const mutation = engine.computeSubmissionMutation({
+					caseId: "case-id-1",
+					caseTypes,
+				});
+				expect(mutation).toEqual({
+					kind: "followup",
+					caseId: "case-id-1",
+					patch: { properties: {} },
+					children: [
+						{
+							caseType: "visit",
+							properties: { visit_date: "2026-05-02" },
+							parentCaseId: "case-id-1",
+						},
+					],
+				});
+			});
+		});
+
+		describe("close", () => {
+			it("emits a close-discriminated mutation with the patch + children", () => {
+				const input = dTree(
+					[
+						{ id: "notes", kind: "text", case_property_on: "patient" },
+						{
+							id: "discharge_date",
+							kind: "date",
+							case_property_on: "visit",
+						},
+					],
+					"close",
+				);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/notes", "discharged");
+				engine.setValue("/data/discharge_date", "2026-05-03");
+
+				const mutation = engine.computeSubmissionMutation({
+					caseId: "case-id-456",
+					caseTypes,
+				});
+				expect(mutation).toEqual({
+					kind: "close",
+					caseId: "case-id-456",
+					patch: { properties: { notes: "discharged" } },
+					children: [
+						{
+							caseType: "visit",
+							properties: { discharge_date: "2026-05-03" },
+							parentCaseId: "case-id-456",
+						},
+					],
+				});
+			});
+
+			it("throws when no caseId is supplied", () => {
+				const input = dTree(
+					[{ id: "notes", kind: "text", case_property_on: "patient" }],
+					"close",
+				);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/notes", "hello");
+				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
+					/form type `close` requires a bound `caseId`/,
+				);
+			});
+
+			it("emits empty primary properties for close-only forms", () => {
+				// A close form whose only action is the closure stamp itself
+				// carries no scalar property writes. The patch is structurally
+				// empty; the consumer's close arm runs `caseStore.close` after
+				// the (no-op) update lands.
+				const input = dTree(
+					[{ id: "case_name", kind: "text", case_property_on: "patient" }],
+					"close",
+				);
+				const engine = new FormEngine(input, "patient");
+				// `case_name` left empty — the close form has no writes to
+				// contribute beyond the closure stamp.
+
+				const mutation = engine.computeSubmissionMutation({
+					caseId: "case-id-1",
+					caseTypes,
+				});
+				expect(mutation).toEqual({
+					kind: "close",
+					caseId: "case-id-1",
+					patch: { properties: {} },
+					children: [],
+				});
+			});
+		});
+
+		describe("survey", () => {
+			it("emits the survey marker without walking the tree", () => {
+				const input = dTree([{ id: "name", kind: "text" }], "survey");
+				const engine = new FormEngine(input);
+
+				engine.setValue("/data/name", "Alice");
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation).toEqual({ kind: "survey" });
+			});
+
+			it("emits the survey marker even when caseId is provided", () => {
+				const input = dTree([{ id: "name", kind: "text" }], "survey");
+				const engine = new FormEngine(input);
+
+				const mutation = engine.computeSubmissionMutation({
+					caseId: "case-id-1",
+					caseTypes,
+				});
+				expect(mutation).toEqual({ kind: "survey" });
+			});
+		});
+
+		describe("data_type coercion", () => {
+			// Mirrors the `caseTypeToJsonSchema` mapping the case-store's
+			// AJV validator runs against. A failed numeric parse falls
+			// through as the raw string so AJV surfaces the type
+			// mismatch rather than silently coercing to NaN / 0.
+			it("coerces text to string", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "notes", kind: "text", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/notes", "hello");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties).toEqual({
+					case_name: "Alice",
+					notes: "hello",
+				});
+			});
+
+			it("coerces int to integer", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "age", kind: "int", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/age", "42");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.age).toBe(42);
+			});
+
+			it("coerces decimal to number", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "weight", kind: "decimal", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/weight", "72.5");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.weight).toBe(72.5);
+			});
+
+			it("coerces multi_select to a string array, splitting on whitespace", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "tags",
+						kind: "multi_select",
+						case_property_on: "patient",
+						options: [
+							{ value: "a", label: "A" },
+							{ value: "b", label: "B" },
+							{ value: "c", label: "C" },
+						],
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/tags", "a b c");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.tags).toEqual(["a", "b", "c"]);
+			});
+
+			it("falls through unparseable int values as the raw string", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "age", kind: "int", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/age", "not-a-number");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.age).toBe("not-a-number");
+			});
+		});
+
+		describe("coercion fallthrough", () => {
+			// When the case-types lookup misses (the case type isn't in
+			// the supplied array, or the property isn't declared on the
+			// matched case type), the value passes through as text rather
+			// than being dropped. The coercion layer's contract is
+			// "coerce when you can; pass through when you can't".
+			it("passes unknown-case-type values through as text", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "age", kind: "int", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/age", "42");
+
+				// Empty caseTypes — both case_name and age fall through as text.
+				const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties).toEqual({
+					case_name: "Alice",
+					age: "42",
+				});
+			});
+
+			it("passes unknown-property values through as text when the case type is matched but the property isn't declared", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					// `extra` isn't declared on `patientCaseType`.
+					{ id: "extra", kind: "int", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/extra", "42");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.extra).toBe("42");
+			});
+		});
+
+		describe("empty-value filtering", () => {
+			// The walker's contract: filter on emptiness only. Missing
+			// paths and `""` reads both drop. `state.visible` is NOT
+			// consulted — hidden fields with non-empty values land in
+			// the mutation. This matches the deleted form-bridge's
+			// `if (rawValue === "") continue` guard verbatim.
+			it("excludes empty fields from the mutation", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "notes", kind: "text", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				// `notes` left empty.
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties).toEqual({ case_name: "Alice" });
+				expect("notes" in mutation.primary.properties).toBe(false);
+			});
+
+			it("includes hidden fields with non-empty values (visibility is NOT consulted)", () => {
+				const input = dTree([
+					{
+						id: "show",
+						kind: "single_select",
+						options: [
+							{ value: "yes", label: "Yes" },
+							{ value: "no", label: "No" },
+						],
+					},
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "notes",
+						kind: "text",
+						case_property_on: "patient",
+						relevant: '/data/show = "yes"',
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/show", "yes");
+				engine.setValue("/data/notes", "secret note");
+				// Toggle visibility off — the value stays.
+				engine.setValue("/data/show", "no");
+				expect(engine.getState("/data/notes").visible).toBe(false);
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				// `notes` is hidden but the value is non-empty — it lands.
+				expect(mutation.primary.properties.notes).toBe("secret note");
+			});
+
+			it("excludes child-case fields whose only contributor is empty (no zero-property bucket)", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "first_visit_date",
+						kind: "date",
+						case_property_on: "visit",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				// `first_visit_date` left empty — no `visit` bucket should land.
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.children).toEqual([]);
+			});
+		});
+	});
+
+	// `FieldState.repeatCount` is the load-bearing signal for repeat
+	// sizing — `computeSubmissionMutation` reads instance counts off the
+	// `DataInstance` directly via `getRepeatCount`, but the rendered UI
+	// reads off the FieldState. This invariant pins the two readings in
+	// sync so a future repeat-mutating path (case-data preload that
+	// seeds N instances, replay, etc.) can't silently drift one without
+	// the other and produce wrong child-case counts.
+	describe("repeat-count invariant", () => {
+		it("matches FieldState.repeatCount with DataInstance.getRepeatCount on init", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			expect(engine.getState("/data/members").repeatCount).toBe(
+				engine.getRepeatCount("/data/members"),
+			);
+		});
+
+		it("matches after addRepeat", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.addRepeat("/data/members");
+			expect(engine.getState("/data/members").repeatCount).toBe(
+				engine.getRepeatCount("/data/members"),
+			);
+		});
+
+		it("matches after removeRepeat", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.addRepeat("/data/members");
+			engine.addRepeat("/data/members");
+			engine.removeRepeat("/data/members", 0);
+			expect(engine.getState("/data/members").repeatCount).toBe(
+				engine.getRepeatCount("/data/members"),
+			);
+		});
+
+		it("matches after setValue (a leaf write should not touch repeat count)", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.addRepeat("/data/members");
+			engine.setValue("/data/members[1]/name", "Bob");
+			expect(engine.getState("/data/members").repeatCount).toBe(
+				engine.getRepeatCount("/data/members"),
+			);
+		});
+
+		it("matches after reset", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.addRepeat("/data/members");
+			engine.addRepeat("/data/members");
+			engine.reset();
+			expect(engine.getState("/data/members").repeatCount).toBe(
+				engine.getRepeatCount("/data/members"),
+			);
 		});
 	});
 });
