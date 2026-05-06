@@ -251,11 +251,11 @@ describe("EngineController", () => {
 			],
 		};
 
-		it("returns the survey marker when no engine is active", () => {
+		it("throws when no engine is active", () => {
 			const ctrl = new EngineController();
-			expect(
+			expect(() =>
 				ctrl.computeSubmissionMutation({ caseTypes: [patientCaseType] }),
-			).toEqual({ kind: "survey" });
+			).toThrow(/controller has no active engine/);
 		});
 
 		it("delegates to the engine and returns the typed mutation", () => {

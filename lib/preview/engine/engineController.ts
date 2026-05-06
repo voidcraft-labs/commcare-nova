@@ -46,6 +46,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
@@ -441,21 +442,28 @@ export class EngineController {
 	}
 
 	/**
-	 * Walk the engine's template tree and emit one submission's worth
-	 * of case-store mutations. Pass-through to `FormEngine.computeSubmissionMutation`.
-	 * Returns `{ kind: "survey" }` when no engine is active — the
-	 * surveyor arm is structurally a no-op so a deactivated controller
-	 * collapses to the same shape.
+	 * Walk the active form's template tree and emit one submission's
+	 * worth of case-store mutations. Pass-through to
+	 * `FormEngine.computeSubmissionMutation`.
 	 *
-	 * Throws when the active form is `followup` or `close` and no
-	 * `caseId` is supplied. Consumers gate on `validateAll()` first;
-	 * the engine assumes a valid form.
+	 * Requires an active engine — call `activateForm` first. Throws if
+	 * the controller has no active engine, and if the active form is
+	 * `followup` or `close` and no `caseId` is supplied. Consumers gate
+	 * on `validateAll()` first; the engine assumes a valid form.
 	 */
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
 	}): SubmissionMutation {
-		if (!this.engine) return { kind: "survey" };
+		if (!this.engine) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.engineController.computeSubmissionMutation",
+					invariant:
+						"controller has no active engine; `activateForm` must be called before submission",
+				}),
+			);
+		}
 		return this.engine.computeSubmissionMutation(args);
 	}
 
