@@ -30,7 +30,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { importApp } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
-import { updateAppForRun } from "@/lib/db/apps";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -47,14 +46,11 @@ import { makeFakeServer } from "./fakeServer";
 /* --- Mocks ----------------------------------------------------------- */
 
 /* `vi.mock` hoists above imports so every boundary is stubbed before
- * the handler file resolves its imports. */
-vi.mock("@/lib/db/apps", () => ({
-	/* `updateAppForRun` is touched indirectly through
-	 * `McpContext.recordMutations`'s save path — but only on mutating
-	 * flows. Tests here never invoke `recordMutations`, so this stays
-	 * as a harmless resolved stub. */
-	updateAppForRun: vi.fn().mockResolvedValue(undefined),
-}));
+ * the handler file resolves its imports. The upload-tool flow doesn't
+ * fire any blueprint-write side effects, so the apps module is mocked
+ * to an empty surface — present as a no-op intercept rather than as
+ * a stub for any specific function. */
+vi.mock("@/lib/db/apps", () => ({}));
 vi.mock("@/lib/db/settings", () => ({
 	getDecryptedCredentialsWithDomain: vi.fn(),
 }));
@@ -161,8 +157,6 @@ beforeEach(() => {
 	vi.mocked(getDecryptedCredentialsWithDomain).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(expandDoc).mockReset();
-	vi.mocked(updateAppForRun).mockReset();
-	vi.mocked(updateAppForRun).mockResolvedValue(undefined);
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via

@@ -45,7 +45,6 @@ import { makeFakeServer } from "./fakeServer";
  * `@/lib/db/apps` + `@/lib/log/writer`. */
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: vi.fn(),
-	updateAppForRun: vi.fn().mockResolvedValue(undefined),
 }));
 
 /* `vi.mock` is hoisted above imports, so its factory can't close over

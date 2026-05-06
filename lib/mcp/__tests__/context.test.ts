@@ -9,25 +9,27 @@
  *     covered in `lib/log/__tests__`; here we only verify the in-memory
  *     shape adapters will see).
  *   - `recordMutations` is async specifically because it awaits the
- *     Firestore save; a pending `updateAppForRun` must hold the returned
- *     promise open.
- *   - Empty batches short-circuit without touching the writer or the DB.
+ *     blueprint save; a pending `applyBlueprintChange` (which routes
+ *     the cross-store saga) must hold the returned promise open.
+ *   - Empty batches short-circuit without touching the writer or the
+ *     saga.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { updateAppForRun } from "@/lib/db/apps";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 import type { ProgressEmitter } from "../progress";
 
-/* Mock the apps module wholesale so no Firestore client is ever needed.
- * `vi.mock` hoists above imports, so the mock is installed before
- * `../context` resolves `@/lib/db/apps`. Individual tests tweak the
- * implementation via `mockImplementationOnce` as needed. */
-vi.mock("@/lib/db/apps", () => ({
-	updateAppForRun: vi.fn().mockResolvedValue(undefined),
+/* Mock the saga module wholesale so no Firestore / Postgres client is
+ * ever needed. `vi.mock` hoists above imports, so the mock is installed
+ * before `../context` resolves `@/lib/db/applyBlueprintChange`.
+ * Individual tests tweak the implementation via `mockImplementationOnce`
+ * as needed. */
+vi.mock("@/lib/db/applyBlueprintChange", () => ({
+	applyBlueprintChange: vi.fn().mockResolvedValue(undefined),
 }));
 
 /**
@@ -72,11 +74,12 @@ function mockDoc(): BlueprintDoc {
 	};
 }
 
-/* Reset the hoisted `updateAppForRun` mock between tests so `mockImplementationOnce`
- * chains in one test don't bleed into the next. */
+/* Reset the hoisted `applyBlueprintChange` mock between tests so
+ * `mockImplementationOnce` chains in one test don't bleed into the
+ * next. */
 beforeEach(() => {
-	vi.mocked(updateAppForRun).mockReset();
-	vi.mocked(updateAppForRun).mockResolvedValue(undefined);
+	vi.mocked(applyBlueprintChange).mockReset();
+	vi.mocked(applyBlueprintChange).mockResolvedValue(undefined);
 });
 
 describe("McpContext", () => {
@@ -104,11 +107,12 @@ describe("McpContext", () => {
 		).toHaveLength(2);
 	});
 
-	it("awaits updateAppForRun before resolving", async () => {
-		/* Arrange: stub updateAppForRun with a deferred promise so we can assert
-		 * the caller's await chain blocks until we resolve it ourselves. */
+	it("awaits applyBlueprintChange before resolving", async () => {
+		/* Arrange: stub applyBlueprintChange with a deferred promise so we
+		 * can assert the caller's await chain blocks until we resolve it
+		 * ourselves. */
 		let resolveSave: () => void = () => {};
-		vi.mocked(updateAppForRun).mockImplementationOnce(
+		vi.mocked(applyBlueprintChange).mockImplementationOnce(
 			() =>
 				new Promise<void>((r) => {
 					resolveSave = r;
@@ -138,7 +142,7 @@ describe("McpContext", () => {
 		 * writer isn't short-circuiting on some unrelated branch) AND the
 		 * outer promise is still pending on it. Together these prove the
 		 * fail-closed await is load-bearing. */
-		expect(updateAppForRun).toHaveBeenCalledTimes(1);
+		expect(applyBlueprintChange).toHaveBeenCalledTimes(1);
 		expect(settled).toBe(false);
 		resolveSave();
 		await p;
@@ -158,6 +162,6 @@ describe("McpContext", () => {
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(0);
-		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
+		expect(vi.mocked(applyBlueprintChange)).not.toHaveBeenCalled();
 	});
 });

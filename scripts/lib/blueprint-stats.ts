@@ -73,8 +73,10 @@ export interface ModuleStats {
 	name: string;
 	caseType: string | undefined;
 	caseListOnly: boolean;
-	caseListColumns: number;
-	caseDetailColumns: number;
+	/** Number of case-list display columns (Module.caseListConfig.columns). */
+	caseListColumnCount: number;
+	/** Number of long-detail columns (Module.caseListConfig.detailColumns). */
+	caseDetailColumnCount: number;
 	calculatedColumns: number;
 	searchInputs: number;
 	forms: FormStats[];
@@ -298,8 +300,8 @@ function analyzeModule(doc: BlueprintDoc, mod: Module): ModuleAnalysis {
 		name: mod.name,
 		caseType: mod.caseType,
 		caseListOnly: mod.caseListOnly ?? false,
-		caseListColumns: config?.columns.length ?? 0,
-		caseDetailColumns: config?.detailColumns?.length ?? 0,
+		caseListColumnCount: config?.columns.length ?? 0,
+		caseDetailColumnCount: config?.detailColumns?.length ?? 0,
 		calculatedColumns: config?.calculatedColumns.length ?? 0,
 		searchInputs: config?.searchInputs.length ?? 0,
 		forms: analyses.map((a) => a.stats),
@@ -495,7 +497,7 @@ function walkForLogic(
  *
  * Checks:
  *   - Registration forms without a case_name field (case has no name)
- *   - Modules with caseType but no caseListColumns (invisible columns)
+ *   - Modules with caseType but no displayed columns (invisible columns)
  *   - Hidden fields without calculate/default (orphaned, always blank)
  *   - Forms with zero case_property_on fields (form saves nothing)
  *
@@ -509,11 +511,11 @@ function checkQuality(
 	const flags: QualityFlag[] = [];
 
 	for (const { stats: mod, formFields } of moduleAnalyses) {
-		if (mod.caseType && !mod.caseListOnly && mod.caseListColumns === 0) {
+		if (mod.caseType && !mod.caseListOnly && mod.caseListColumnCount === 0) {
 			flags.push({
 				severity: "warn",
 				module: mod.name,
-				message: `Module has caseType "${mod.caseType}" but no caseListColumns`,
+				message: `Module has caseType "${mod.caseType}" but no case-list columns`,
 			});
 		}
 

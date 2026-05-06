@@ -10,7 +10,8 @@
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { loadApp, loadAppOwner, updateApp } from "@/lib/db/apps";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import { loadApp, loadAppOwner } from "@/lib/db/apps";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
@@ -77,7 +78,19 @@ export async function PUT(
 			throw new ApiError("Invalid blueprint", 400);
 		}
 
-		await updateApp(id, parsed.data);
+		/* Route through the cross-store saga so a property-surface
+		 * mutation in this auto-save (e.g. a renamed case property
+		 * landing via the doc store's mutation pipeline) syncs the
+		 * Postgres `case_type_schemas` row before Firestore commits.
+		 * Pure non-case-type edits (module / form / field tweaks)
+		 * fast-path through the saga without touching the case
+		 * store. See `lib/db/applyBlueprintChange.ts` for the
+		 * compensation contract. */
+		await applyBlueprintChange({
+			appId: id,
+			userId: session.user.id,
+			prospective: parsed.data,
+		});
 		return Response.json({ ok: true });
 	} catch (err) {
 		/* Save failures mean silent data loss — log every rejection so they're
