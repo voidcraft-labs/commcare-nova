@@ -1,0 +1,235 @@
+// components/builder/case-list-config/cards/MatchCard.tsx
+//
+// Renders the `match` predicate. Property dropdown (text-shaped or
+// — for `fuzzy-date` — date / datetime), value input (typed by
+// the property), and mode dropdown (fuzzy / phonetic / fuzzy-date
+// / starts-with).
+
+"use client";
+import { Menu } from "@base-ui/react/menu";
+import { useRef } from "react";
+import {
+	literal,
+	type MatchMode,
+	match,
+	type Predicate,
+	prop,
+} from "@/lib/domain/predicate";
+import {
+	MENU_ITEM_CLS,
+	MENU_POPUP_CLS,
+	MENU_POSITIONER_CLS,
+} from "@/lib/styles";
+import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import type { PredicateEditContext } from "../editorSchemas";
+import { appendSlot, type EditorPath } from "../path";
+import { PropertyPicker } from "../primitives/PropertyPicker";
+import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
+
+const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
+
+const MODE_LABELS: Record<MatchMode, { label: string; description: string }> = {
+	fuzzy: {
+		label: "Fuzzy",
+		description: "Edit-distance match — tolerates typos",
+	},
+	phonetic: {
+		label: "Phonetic",
+		description: "Sounds-like match",
+	},
+	"fuzzy-date": {
+		label: "Fuzzy date",
+		description: "Recovers from transposed YYYY-MM-DD inputs",
+	},
+	"starts-with": {
+		label: "Starts with",
+		description: "Prefix match",
+	},
+};
+
+const ALL_MODES: readonly MatchMode[] = [
+	"fuzzy",
+	"phonetic",
+	"starts-with",
+	"fuzzy-date",
+];
+
+export function matchDefault(
+	ctx: PredicateEditContext,
+): Extract<Predicate, { kind: "match" }> {
+	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
+	const property = ct?.properties.find((p) =>
+		TEXT_SHAPED.has(p.data_type ?? "text"),
+	);
+	const propName = property?.name ?? "";
+	return match(prop(ctx.currentCaseType, propName), literal(""), "fuzzy");
+}
+
+interface MatchCardProps {
+	readonly value: Extract<Predicate, { kind: "match" }>;
+	readonly onChange: (next: Predicate) => void;
+	readonly path: EditorPath;
+}
+
+export function MatchCard({ value, onChange, path }: MatchCardProps) {
+	const ctx = usePredicateEditContext();
+	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
+	const valueErrors = useEditorErrorsAt(appendSlot(path, "value"));
+
+	const setProperty = (propertyName: string) => {
+		onChange(
+			match(prop(ctx.currentCaseType, propertyName), value.value, value.mode),
+		);
+	};
+
+	const setMode = (mode: MatchMode) => {
+		onChange(match(value.property, value.value, mode));
+	};
+
+	const setValue = (next: Parameters<typeof match>[1]) => {
+		onChange(match(value.property, next, value.mode));
+	};
+
+	const propertyName = value.property.property || undefined;
+
+	// Filter the property picker to the mode's allow-list. The
+	// type checker enforces the same rule; gating the picker in the
+	// UI prevents the author from picking a property that would
+	// immediately fail validation.
+	const propertyFilter =
+		value.mode === "fuzzy-date"
+			? (p: { data_type?: string }) =>
+					TEXT_SHAPED.has(p.data_type ?? "text") ||
+					p.data_type === "date" ||
+					p.data_type === "datetime"
+			: (p: { data_type?: string }) => TEXT_SHAPED.has(p.data_type ?? "text");
+
+	return (
+		<div className="space-y-2">
+			<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
+				<div>
+					<PropertyPicker
+						value={propertyName}
+						onChange={setProperty}
+						filter={propertyFilter}
+						invalid={propertyErrors.length > 0}
+						ariaLabel="Property"
+					/>
+					{propertyErrors.length > 0 && (
+						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
+							{propertyErrors.map((m) => (
+								<div key={m}>{m}</div>
+							))}
+						</div>
+					)}
+				</div>
+
+				<ModeMenu mode={value.mode} setMode={setMode} />
+
+				<div>
+					<ValueExpressionPicker
+						value={value.value}
+						onChange={setValue}
+						caseTypeName={ctx.currentCaseType}
+						anchorPropertyName={propertyName}
+						invalid={valueErrors.length > 0}
+						ariaLabel="Match value"
+					/>
+					{valueErrors.length > 0 && (
+						<div className="mt-1 text-[11px] leading-snug text-nova-error/90">
+							{valueErrors.map((m) => (
+								<div key={m}>{m}</div>
+							))}
+						</div>
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ModeMenu({
+	mode,
+	setMode,
+}: {
+	readonly mode: MatchMode;
+	readonly setMode: (mode: MatchMode) => void;
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const current = MODE_LABELS[mode];
+
+	return (
+		<Menu.Root>
+			<Menu.Trigger
+				ref={triggerRef}
+				aria-label={`Match mode: ${current.label}`}
+				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+			>
+				<span>{current.label}</span>
+				<svg
+					aria-hidden="true"
+					width="10"
+					height="10"
+					viewBox="0 0 10 10"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				>
+					<path
+						d="M2 3.5L5 6.5L8 3.5"
+						stroke="currentColor"
+						strokeWidth="1.2"
+						fill="none"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					/>
+				</svg>
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner
+					side="bottom"
+					align="center"
+					sideOffset={4}
+					anchor={triggerRef}
+					className={MENU_POSITIONER_CLS}
+				>
+					<Menu.Popup className={MENU_POPUP_CLS}>
+						{ALL_MODES.map((m, i) => {
+							const isActive = m === mode;
+							const last = ALL_MODES.length - 1;
+							const corners =
+								i === 0 && i === last
+									? "rounded-xl"
+									: i === 0
+										? "rounded-t-xl"
+										: i === last
+											? "rounded-b-xl"
+											: "";
+							const meta = MODE_LABELS[m];
+							return (
+								<Menu.Item
+									key={m}
+									onClick={() => setMode(m)}
+									className={`${corners} ${MENU_ITEM_CLS} ${
+										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+									}`}
+								>
+									<span className="flex-1 text-left">
+										<div>{meta.label}</div>
+										<div
+											className={`text-[10px] ${
+												isActive
+													? "text-nova-violet-bright/60"
+													: "text-nova-text-muted"
+											}`}
+										>
+											{meta.description}
+										</div>
+									</span>
+								</Menu.Item>
+							);
+						})}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	);
+}

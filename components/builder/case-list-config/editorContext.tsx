@@ -1,0 +1,182 @@
+// components/builder/case-list-config/editorContext.tsx
+//
+// React context for the predicate card editor. Carries the schema-
+// driven type-checking inputs (`caseTypes`, `currentCaseType`,
+// `knownInputs`) and the precomputed `validityIndex` mapping from
+// serialized `CheckPath` strings to per-node errors.
+//
+// The context is the spine of the editor: every card looks up its
+// own path in the index to surface inline diagnostics, and the
+// property pickers / value pickers read `caseTypes` / `knownInputs`
+// to drive their dropdown content.
+//
+// Scope flips at relational quantifiers — when a card descends into
+// an `exists.where` or `missing.where`, the context's
+// `currentCaseType` changes to the relation walk's destination so
+// nested property dropdowns show the destination's properties (per
+// the type-checker's `checkInDestinationScope` contract). The
+// `WithCurrentCaseType` helper handles the rebind.
+
+"use client";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
+import type { CaseType } from "@/lib/domain";
+import type { SearchInputDecl } from "@/lib/domain/predicate";
+import type { EditorPath } from "./path";
+import { serializePath } from "./path";
+
+/**
+ * Per-path error list. Mirrors `CheckError.message` from the type
+ * checker; the path itself is the lookup key, not part of the
+ * stored entry.
+ */
+export type EditorPathErrors = readonly string[];
+
+/**
+ * Opaque map type — components consume it through the helpers below
+ * (`useEditorErrorsAt` / `useEditorIsValid`) rather than indexing
+ * directly. Keeps the serialization format private.
+ */
+type ValidityIndex = ReadonlyMap<string, EditorPathErrors>;
+
+interface PredicateEditContextValue {
+	/** Blueprint case-type definitions. Drives property dropdowns. */
+	readonly caseTypes: readonly CaseType[];
+	/**
+	 * The originating case-type scope the predicate runs against.
+	 * Inside an `exists.where` clause this rebinds to the relation
+	 * walk's destination so nested property pickers show the
+	 * destination's properties; the type checker's
+	 * `checkInDestinationScope` enforces the same scope at validation
+	 * time.
+	 */
+	readonly currentCaseType: string;
+	/** Declared search inputs in scope at the editor's mount site. */
+	readonly knownInputs: readonly SearchInputDecl[];
+	/**
+	 * Errors keyed by serialized path. Cards look up their own path
+	 * via `useEditorErrorsAt` to render inline diagnostics; the
+	 * top-level editor uses the index size to gate the parent's save
+	 * affordance (via `onValidityChange`).
+	 */
+	readonly validityIndex: ValidityIndex;
+}
+
+const PredicateEditContext = createContext<PredicateEditContextValue | null>(
+	null,
+);
+
+interface PredicateEditProviderProps {
+	readonly caseTypes: readonly CaseType[];
+	readonly currentCaseType: string;
+	readonly knownInputs: readonly SearchInputDecl[];
+	readonly validityIndex: ValidityIndex;
+	readonly children: ReactNode;
+}
+
+/**
+ * Top-level provider — mounted once by `PredicateCardEditor` per
+ * editor instance. The `validityIndex` is recomputed by the editor
+ * on every onChange (via the type checker) and threaded through
+ * here.
+ */
+export function PredicateEditProvider({
+	caseTypes,
+	currentCaseType,
+	knownInputs,
+	validityIndex,
+	children,
+}: PredicateEditProviderProps) {
+	const value = useMemo<PredicateEditContextValue>(
+		() => ({ caseTypes, currentCaseType, knownInputs, validityIndex }),
+		[caseTypes, currentCaseType, knownInputs, validityIndex],
+	);
+	return (
+		<PredicateEditContext.Provider value={value}>
+			{children}
+		</PredicateEditContext.Provider>
+	);
+}
+
+interface WithCurrentCaseTypeProps {
+	readonly caseType: string;
+	readonly children: ReactNode;
+}
+
+/**
+ * Inner provider that flips `currentCaseType` for nested
+ * property pickers. Mounted by `ExistsCard` (and any other card
+ * walking into a destination scope) so descendants resolve property
+ * references against the new scope. Inherits the rest of the
+ * context unchanged — keeps `caseTypes`, `knownInputs`, and
+ * `validityIndex` consistent across the entire predicate tree.
+ */
+export function WithCurrentCaseType({
+	caseType,
+	children,
+}: WithCurrentCaseTypeProps) {
+	const outer = usePredicateEditContextRaw();
+	const value = useMemo<PredicateEditContextValue>(
+		() => ({ ...outer, currentCaseType: caseType }),
+		[outer, caseType],
+	);
+	return (
+		<PredicateEditContext.Provider value={value}>
+			{children}
+		</PredicateEditContext.Provider>
+	);
+}
+
+function usePredicateEditContextRaw(): PredicateEditContextValue {
+	const ctx = useContext(PredicateEditContext);
+	if (ctx === null) {
+		throw new Error(
+			"usePredicateEditContext must be called inside <PredicateEditProvider>. The provider mounts at the top of `PredicateCardEditor`; nested cards should not be rendered outside that tree.",
+		);
+	}
+	return ctx;
+}
+
+/**
+ * Read the editor context. Use this when a card needs the full
+ * trio (case types + current scope + known inputs) — typical for
+ * property pickers and value pickers that resolve dropdown content
+ * from the schema.
+ */
+export function usePredicateEditContext(): PredicateEditContextValue {
+	return usePredicateEditContextRaw();
+}
+
+/**
+ * Read errors attached to a specific path. Returns an empty array
+ * when no errors landed on the path. Cards call this with their
+ * own path or with a slot-level path to surface inline diagnostics
+ * next to the offending input.
+ */
+export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
+	const { validityIndex } = usePredicateEditContextRaw();
+	const key = serializePath(path);
+	return validityIndex.get(key) ?? [];
+}
+
+/**
+ * Build a `ValidityIndex` from a flat list of `CheckError`s. The
+ * top-level editor calls this on every onChange to convert the
+ * checker's verdict into a render-time lookup table. Same-path
+ * errors collapse into a single list so cards can render every
+ * diagnostic that landed on a slot.
+ */
+export function buildValidityIndex(
+	errors: readonly { path: readonly (string | number)[]; message: string }[],
+): ValidityIndex {
+	const map = new Map<string, string[]>();
+	for (const error of errors) {
+		const key = serializePath(error.path);
+		const list = map.get(key);
+		if (list === undefined) {
+			map.set(key, [error.message]);
+		} else {
+			list.push(error.message);
+		}
+	}
+	return map;
+}
