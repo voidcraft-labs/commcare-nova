@@ -496,6 +496,22 @@ What landed: `FormEngine.computeSubmissionMutation` walks the engine's own templ
 
 Net delta: deleted ~1000 LOC (deriveFromForm.ts + writeThrough.ts + their tests + fixtures); added ~600 LOC (engine method + Server Action + per-arm helpers + their tests). Test count: 2957 → 2992 (+35 net across the amendment phase).
 
+#### Plan 2 follow-up — chat-completion case_type_schemas materialization SHIPPED
+
+SHIPPED 2026-05-06 in commits `73fe1d5d` (initial wiring) → `c5db53f8` (CR fix-pass: order materialize before data-done; classify materialization failures) → `9ee72463` (test-mock guard comments) on branch `feat/case-list-search`.
+
+Trigger: while landing Plan 3 Task 1 (the awaited blueprint-write saga), it surfaced that `case_type_schemas` only materialized when `applySchemaChange` ran — and the chat-side `saveBlueprint` is fire-and-forget by design (per `lib/agent/CLAUDE.md`'s SSE timing model). So between SA generation and the user's first awaited blueprint edit, every case-store insert path threw `SchemaNotSyncedError` (sample-data populate, form submit, live-preview reads). Plan 2's shipped state had this gap from day one; Plan 3's UI consumers (live preview) made it actively user-visible.
+
+What landed: a new `lib/db/materializeCaseStoreSchemas.ts` helper that iterates the freshly-generated blueprint's `caseTypes` and calls `applySchemaChange({ appId, caseType, blueprint })` per case-type with no `property`/`change` (additive-only — case-type rows don't exist yet, so Phase A is straight UPSERT + Phase B is parallel `CREATE INDEX CONCURRENTLY`). The helper runs in `validateApp`'s success arm in `lib/agent/solutionsArchitect.ts` — the unique chat-completion boundary, single caller of `completeApp`, post-validation.
+
+Ordering after the CR fix-pass: `await materialize → emit data-done → fire-and-forget completeApp`. The completion celebration animation never races a user-initiated case-store action because the schema is already synced when the celebration fires.
+
+Failure path: a materialization throw is wrapped in try/catch matching `app/api/chat/route.ts`'s `handleRouteError` shape — `classifyError` + `ctx.emitError(classified, "validateApp:materialize")` + `failApp(appId, classified.type)` + `return { success: false, errors: [classified.message] }`. The SA loop sees a clean failure, app status flips to `error` immediately, no retry storm.
+
+The chat-side `generationContext.saveBlueprint` (the per-emit-mutation save) stays fire-and-forget for SSE timing. The new materialization runs ONCE at completion.
+
+Test count: 2992 → 3144 across this amendment + Plan 3 Task 1 (+152 net; the gap covers Plan 3 Task 1's saga + classifier + this materialization helper + the failure-path tests added in the CR fix-pass).
+
 #### Plan 2 status — ALL TASKS SHIPPED
 
 Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework plus two post-review cleanup passes plus the form-bridge-removal amendment (above). Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9 → first-pass holistic-review fix-pass → second-pass holistic-review fix-pass → form-bridge-removal amendment. The eventual Plan 2 PR (opened at the end of the entire spec, not at the end of Plan 2) merges into `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
