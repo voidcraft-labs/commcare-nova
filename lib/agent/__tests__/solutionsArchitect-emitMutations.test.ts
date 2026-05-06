@@ -665,6 +665,10 @@ describe("solutionsArchitect — validateApp", () => {
 		// `data-done` detection rides the writer spy because the
 		// SSE emit goes through `writer.write`, not a dedicated
 		// helper.
+		//
+		// Mock bodies stay synchronous: an inner `await` would let
+		// the wrapper resolve before the push records, scrambling
+		// `order` and breaking the call-order assertion.
 		const order: string[] = [];
 		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
 			order.push("materialize");
@@ -713,6 +717,13 @@ describe("solutionsArchitect — validateApp", () => {
 			hqJson: {} as never,
 		});
 
+		// Mock bodies stay synchronous: an inner `await` would let
+		// the wrapper resolve before the push records, scrambling
+		// `order` and breaking the call-order assertion. The
+		// `throw` synchronously rejects the mock's returned promise
+		// without scheduling a microtask, so the `materialize-throws`
+		// push records before the wrapper's catch arm sees the
+		// rejection.
 		const order: string[] = [];
 		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
 			order.push("materialize-throws");
