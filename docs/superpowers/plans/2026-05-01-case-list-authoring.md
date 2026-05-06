@@ -62,71 +62,50 @@ scripts/migrate-case-list-config.ts                      # one-shot operator-run
 
 ## Tasks
 
-### Task 1: Extend `Module` schema with typed `caseListConfig`
+### Task 1: Extend `Module` schema with typed `caseListConfig` — SHIPPED
 
-**Files:** `lib/domain/modules.ts`, `lib/domain/migrations/2026-list-config.ts`, `__tests__/`.
+SHIPPED 2026-05-06 in commits `bf44fb42` (schema replacement) → `5597ed36` (saga + classifier) → `5b75219e` (retype mid-migration rollback test) → `84b83b02` (saga compensates case-type addition by direct schema drop + auto-save dual-read collapse + `withOwnerContext` dedup) → `e65692b8` (test name + comment alignment with silent-strip behavior) on branch `feat/case-list-search`.
 
-Replace `caseListColumns: { field, header }[]` and `caseDetailColumns: ...` with a structured shape:
+**Schema replacement (`lib/domain/modules.ts`):** `caseListColumns: { field, header }[]` and `caseDetailColumns: ...` removed from the Zod schema entirely; one structured `caseListConfig?: CaseListConfig` slot replaces both. The shape:
 
-```ts
-type Column = { kind: ColumnKind; field?: string; header: string; ...per-kind config };
-type ColumnKind = "plain" | "date" | "time-since-until" | "phone" | "id-mapping" | "late-flag" | "search-only";
+- `Column` is a Zod `discriminatedUnion("kind")` over the seven format kinds (`plain`, `date`, `time-since-until`, `phone`, `id-mapping`, `late-flag`, `search-only`). Per-kind config arms carry their required fields verbatim from the spec — date `pattern`, time-since-until `threshold`/`unit`/`displayLabel`, id-mapping `mapping: { value: string; label: string }[]`, late-flag `threshold`/`unit`/`flagDisplayValue`. The implementer made `field: string` required across every arm (the plan sketch had `field?: string`); the case-list-config builder UI surfaces in Tasks 6-8 default the property reference at column-add time. Search-only is a "declared searchable, not displayed" column, so `field` is always meaningful.
+- `CalculatedColumn` carries `id`, `header`, `expression: valueExpressionSchema`, optional `sort: sortConfigSchema`.
+- `SortKey.source` is a `discriminatedUnion("kind")` over `{ kind: "property"; property }` and `{ kind: "calculated"; columnId }`.
+- `SearchInputMode` is a `discriminatedUnion("kind")` over the seven mode shapes.
+- `SearchInputDef` carries `name`, `label`, `type`, optional `property`, optional `via: relationPathSchema`, optional `mode: searchInputModeSchema`, optional `default: valueExpressionSchema`, optional `xpath: predicateSchema`.
+- `Predicate` / `ValueExpression` / `RelationPath` schemas import from the predicate package (NOT inlined).
 
-type CalculatedColumn = { id: string; header: string; expression: ValueExpression; sort?: { type: SortType; direction: "asc" | "desc" } };
+When `caseListConfig` is present, `columns` / `sort` / `calculatedColumns` / `searchInputs` are present arrays (possibly empty) — no nullable arms inside the populated shape.
 
-type SortKey = { source: { kind: "property"; property: string } | { kind: "calculated"; columnId: string }; type: SortType; direction: "asc" | "desc" };
-type SortType = "plain" | "date" | "integer" | "decimal";
+**Migration script (`scripts/migrate-case-list-config.ts`):** reads each Firestore app doc, transforms `{ field, header }[]` into `Column[]` with `kind: "plain"`, leaves `filter` / `calculatedColumns` / `searchInputs` empty arrays. Idempotent at both per-module and per-blueprint granularities. `--dry-run` flag prints the diff without writing. Companion test suite at `scripts/__tests__/migrate-case-list-config.test.ts` (9 tests) covers legacy, already-migrated, never-had-columns, mixed shape, blueprint-level idempotency. Operator-run; Task 15 owns the live execution; the script archives after that.
 
-type SearchInputMode =
-  | { kind: "exact" }                                  // text/select/date/barcode default — equality
-  | { kind: "fuzzy" }                                  // text only — pg_trgm match
-  | { kind: "starts-with" }                            // text only — pg_trgm-backed prefix
-  | { kind: "phonetic" }                               // text only — fuzzystrmatch dmetaphone (no useful index; document perf)
-  | { kind: "fuzzy-date" }                             // text only — date permutation match
-  | { kind: "range" }                                  // numeric/date/datetime/time — between with optional bounds
-  | { kind: "multi-select-contains"; quantifier: "any" | "all" }; // multi_select only
+**Saga (`lib/db/applyBlueprintChange.ts` + `lib/db/classifyCaseTypeChanges.ts`):** wraps the Firestore-blueprint-write boundary. The classifier diffs prior vs prospective `caseTypes[].properties[]` and emits one of three entry shapes per case-type:
 
-type SearchInputDef = {
-  name: string;
-  label: string;
-  type: "text" | "select" | "date" | "date-range" | "barcode";
-  property?: string;                                   // case property the input targets; absent for inputs that drive an `xpath`-bound advanced predicate
-  via?: RelationPath;                                  // relation walk to a related case-type; absent ≡ self (the module's case-type). Drives Plan 2's index-DDL emission against the destination case-type rather than the module's case-type — e.g., a patient-module input searching the household's name targets `via=ancestorPath(parent: household)` so the index lands on `household.name`, not `patient.name`
-  mode?: SearchInputMode;                              // explicit search mode; defaults per `type` (text → exact, date → exact, date-range → range, etc.)
-  default?: ValueExpression;
-  xpath?: Predicate;                                   // advanced shape; when present, replaces the (property, mode)-derived predicate
-};
+- **Schema-sync-only entry** (no `property`/`change`) — for additive changes (property add, option add, case-type addition) or removal (Phase A re-derives the schema; Phase B drops the now-orphaned property index).
+- **Discriminated `change` entry** — for caller-supplied per-row migration hints (`rename` / `retype` / `narrow-options`).
+- **No entry** — for non-property-surface mutations (case-type rename without property change, etc.) so the classifier short-circuits the saga.
 
-interface CaseListConfig {
-  columns: Column[];
-  sort: SortKey[];
-  filter?: Predicate;                       // always-on filter
-  calculatedColumns: CalculatedColumn[];
-  searchInputs: SearchInputDef[];
-  detailColumns?: Column[];                 // long-detail (case detail) override; null/absent = mirror short
-}
-```
+The saga's flow:
 
-`module.caseListColumns` and `caseDetailColumns` fields are removed entirely from the Zod schema.
+1. Load prior `AppDoc` (or accept a caller-supplied snapshot via the optional `priorBlueprint` parameter — the auto-save PUT route uses this to collapse the dual Firestore read).
+2. Compute classifier entries from prior vs prospective.
+3. Forward-apply each entry via `store.applySchemaChange({ appId, caseType, blueprint: prospective, ...entry })`.
+4. On success, commit Firestore via `updateApp` / `updateAppForRun`.
+5. On any failure (Postgres mid-loop, Firestore commit), run `compensate(applied, prior)` — which discriminates: a case-type present in the prior blueprint compensates via `applySchemaChange(prior)`; a case-type added in the prospective state compensates via `dropSchema` (the new `CaseStore` interface arm — Phase A deletes the `case_type_schemas` row, Phase B drops per-property indexes via the empty-set diff). The two-arm discrimination delivers genuine "exactly the prior state" — no orphan rows from compensated additions.
 
-The migration script at `scripts/migrate-case-list-config.ts` reads each app doc in Firestore, transforms `{ field, header }[]` into `Column[]` with `kind: "plain"`, leaves `filter` / `calculatedColumns` / `searchInputs` empty, writes back. Idempotent. Operator-run, archived after run (per the spec's migration policy).
+A single `withOwnerContext` allocation covers both forward and compensation paths.
 
-The Module schema mutator wires `CaseStore.applySchemaChange` (Plan 2 Task 3) into every blueprint mutation that affects a case-type's property surface (`data_type` change, property add/remove/rename, option add/remove). The mutator owns the cross-store coordination between Firestore (the blueprint) and Postgres (the case store) per the saga pattern below.
+**`CaseStore.dropSchema`:** new interface arm at `lib/case-store/store.ts`, implemented in `lib/case-store/postgres/store.ts`. Idempotent on absence (Phase A's DELETE is a no-op when the row is gone; Phase B's `DROP INDEX CONCURRENTLY IF EXISTS` is a no-op when the index is gone). The contract test pair at `lib/case-store/__tests__/storeContract.ts` pins remove + idempotency.
 
-**Cross-store coordination — saga pattern with compensation.** Firestore and Postgres are independent commit boundaries; without orchestration, the two stores can drift after a partial failure (Firestore commits a rename then Postgres `applySchemaChange` fails → blueprint says renamed but `case_type_schemas` validates against the old name → exports / writes fail until manual recovery). The mutator owns the orchestration:
+**Auto-save call sites:** `app/api/apps/[id]/route.ts` PUT (loads `AppDoc` once, asserts ownership, threads `app.blueprint` into the saga) and `lib/mcp/context.ts` `saveBlueprint` (loads internally, the saga handles ownership through `withOwnerContext`). Chat-side `generationContext.saveBlueprint` stays fire-and-forget by design (per `lib/agent/CLAUDE.md`); the SA fix-retry loop covers missed saves.
 
-1. Compute the prospective new blueprint state in memory.
-2. Call `applySchemaChange({ appId, caseType, blueprint, property?, change? })` against the prospective blueprint snapshot. Plan 2 Task 8's interface accepts a blueprint snapshot directly (rather than fetching from Firestore) precisely so this orchestration can pass either the current or a hypothetical snapshot — see Plan 2 Task 3's amended interface.
-3. On `applySchemaChange` success, commit the new blueprint to Firestore.
-4. On Firestore commit failure, run a compensating `applySchemaChange({ appId, caseType, blueprint: previousBlueprintState })` call to revert Postgres to the pre-mutation state. The compensation is idempotent because `applySchemaChange` re-derives the schema + index DDL from its input snapshot — calling it with the prior blueprint reconstructs the prior Postgres state.
+**Tests:** schema parse (12 tests covering empty / populated / per-kind invalid combinations / silent-strip of legacy keys), classifier (14 tests covering every diff branch), migration script (9 tests), saga integration (7 tests using `setupPerTestDatabase` against real Postgres testcontainer — happy-path additive, runId routing to `updateAppForRun`, fast-path on non-case-type mutations, retype-with-quarantine via hint, Firestore-commit-failure compensation on additive change, retype mid-migration rollback proof per spec line 129, case-type-addition compensation via `dropSchema`).
 
-The Plan 2 amendment (interface gains `blueprint: BlueprintDoc` parameter) and this Plan 3 orchestration together close the cross-store atomicity gap. The "apps are always in a valid state" lock holds end-to-end across the boundary.
+**Cross-store coordination — saga pattern with compensation.** Firestore and Postgres are independent commit boundaries; without orchestration, the two stores can drift after a partial failure. The shipped saga closes the gap — the "apps are always in a valid state" lock holds end-to-end across the boundary.
 
-For additive changes (property add, option add): the mutator calls `applySchemaChange({ appId, caseType, blueprint: prospective })` with no `property` / `change` — schema sync + index DDL diff only.
+**Plan 2 follow-up gap (out of Plan 3 scope, surfaced for the supervisor):** the chat-side fire-and-forget save path doesn't run the saga. The window between SA generation and the user's first awaited edit produces `SchemaNotSyncedError` on case-store inserts (sample-data populate + form submit). This was already true in Plan 2's shipped state; Plan 3 didn't introduce it. The fix likely lives in either `completeApp` calling `applySchemaChange` (additive-only, no migration concern) or `populateSampleCasesAction` / `submitFormAction` lazily materializing. Decision deferred to post-Plan-3.
 
-For changes requiring per-row migration (retype, narrow-options, rename): the mutator calls `applySchemaChange({ appId, caseType, blueprint: prospective, property, change })` with the discriminated-union change shape. The schema sync, the per-property index DDL diff, and the per-row migration run in a single Postgres transaction (per Plan 2 Task 8); the transaction commits when all three halves succeed or rolls back atomically. The database never holds a new schema with rows that fail validation against it AND never holds a search input that references an unindexed property.
-
-Tests: schema parse, migration script idempotent on fixture docs, additive blueprint mutation triggers schema-sync-only `applySchemaChange`, retype mutation runs schema sync + migration in one transaction (verified by simulating a mid-migration failure and confirming the schema row is not present after rollback).
+Final state: 3039/3039 tests pass, 14 skipped, 0 failed; tsc + biome lint clean.
 
 
 ### Task 2: Predicate card editor
