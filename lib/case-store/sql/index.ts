@@ -4,7 +4,7 @@
 // compiler stack that lowers Predicate / ValueExpression / RelationPath
 // nodes into typed-builder calls Postgres executes natively.
 //
-// ## Three compilers, one composition contract
+// ## Four compilers, one composition contract
 //
 // The package owns four compiler modules whose dispatch surfaces fan
 // out from a single shared compile-context shape:

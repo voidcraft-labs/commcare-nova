@@ -42,8 +42,10 @@
 //
 // The generator does not write to the database, does not derive
 // `case_indices` rows, does not validate against JSON Schema. All
-// of those happen at `CaseStore.insert` — generated rows flow
-// through the same write path user-authored rows do.
+// of those happen at the case-store's bulk-insert path —
+// `CaseStore.generateSampleData` routes the rows through it so
+// generated rows participate in the same JSON Schema validation +
+// `case_indices` derivation real inserts use.
 //
 // Parent linkages are written via `parent_case_id`; the case-store
 // layer derives `case_indices` from that column at insert time.

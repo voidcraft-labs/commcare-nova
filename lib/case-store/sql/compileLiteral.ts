@@ -38,7 +38,7 @@
 //      typed `prop` read. Without `data_type`, the parameter binds bare
 //      and Postgres's implicit type coercion handles the comparison.
 //
-// ## Module placement — three siblings of equal weight, one data module
+// ## Module placement — sibling helpers of equal weight, one data module
 //
 // The `Literal` type lives in `lib/domain/predicate/types.ts:560-565`
 // and carries `{ kind: "literal", value, data_type? }`. Both
@@ -49,13 +49,13 @@
 //
 // The cast-token lookup (`POSTGRES_CAST_FOR_DATA_TYPE`) lives on its
 // own data-only module at `./dataTypeTokens` rather than on
-// `compileTerm`. The two readers (this module and `compileTerm`)
-// import from `./dataTypeTokens` independently — three sibling
-// compiler modules of equal weight, none importing from another
-// compiler's internals, no edges between any pair of compiler
-// modules. Extending the blueprint's `data_type` enum surfaces a
-// `Record<...>` exhaustivity error on the one closed-enum table the
-// data module owns; no parallel table lives on this surface.
+// `compileTerm`. This module and `compileTerm` import from
+// `./dataTypeTokens` independently — the compiler modules are
+// siblings of equal weight, none imports from another compiler's
+// internals, and no edges run between any pair of compiler modules.
+// Extending the blueprint's `data_type` enum surfaces a `Record<...>`
+// exhaustivity error on the one closed-enum table the data module
+// owns; no parallel table lives on this surface.
 
 import type { AliasableExpression } from "kysely";
 import { expressionBuilder } from "kysely";

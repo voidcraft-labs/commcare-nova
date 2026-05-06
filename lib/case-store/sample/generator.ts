@@ -27,9 +27,9 @@ import type { CaseInsert } from "../store";
 /**
  * Arguments for `SampleCaseGenerator.generate`. The generator is
  * pure — it consumes the prospective blueprint state plus a seed and
- * a count, and returns a list of `CaseInsert` rows the caller writes
- * through `CaseStore.insert`. The generator does not write to the
- * database.
+ * a count, and returns a list of `CaseInsert` rows the case-store
+ * writes through its bulk-insert path. The generator does not write
+ * to the database.
  *
  * `parentRefs` is an optional map from parent case-type name to a
  * list of already-generated parent case ids. When the generator
@@ -67,13 +67,15 @@ export interface SampleGeneratorArgs {
 /**
  * The contract every sample-data generator implementation honors.
  * One method: take a blueprint + count + seed, return a typed
- * insert-shape list the caller writes through `CaseStore.insert`.
+ * insert-shape list the case-store writes through its bulk-insert
+ * path.
  *
  * The generator does NOT write to the database. The case-store
  * layer is the single seam writes flow through; routing the
- * generated rows through `insert` ensures `case_indices` derivation
- * + JSON Schema validation + tenant scope all run for sample data
- * the same way they run for user-authored data.
+ * generated rows through the bulk-insert path ensures
+ * `case_indices` derivation + JSON Schema validation + tenant scope
+ * all run for sample data the same way they run for user-authored
+ * data.
  */
 export interface SampleCaseGenerator {
 	/**

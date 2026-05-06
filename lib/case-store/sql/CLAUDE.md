@@ -212,8 +212,8 @@ JOIN-ed `cases` row inside `compileRelationPath`'s subquery body,
 so a relation walk carries its own tenant defense but the outer
 scan does not. The structural enforcement of "every joined cases
 read carries a tenant filter" lives at `compileRelationPath` only;
-the outer-scan responsibility lives at the case-list query layer
-(Plan 2 territory).
+the outer-scan responsibility lives at `PostgresCaseStore`, which
+applies it on every method's underlying SELECT / UPDATE / DELETE.
 
 ## Public surface — barrel-only
 

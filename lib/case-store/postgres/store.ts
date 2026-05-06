@@ -103,8 +103,8 @@
 // same final index set, no matter where the previous attempt
 // failed. Missing or invalid indexes degrade query performance
 // but never correctness — the term compiler's emitted SQL falls
-// back to a sequential scan over the case-type partial-predicate
-// without one.
+// back to a sequential scan over the case-type partition without
+// one.
 //
 // ## Pre-flight identifier validation runs BEFORE Phase A
 //
@@ -2519,9 +2519,9 @@ function diffIndexSets(
 
 /**
  * Emit one `CREATE INDEX` statement against the supplied
- * transaction. The opclass token (`gin_trgm_ops` /
- * `jsonb_path_ops`) attaches to the indexed expression as a
- * trailing operator-class declaration when present.
+ * transaction. The opclass token (`gin_trgm_ops` / `jsonb_ops`)
+ * attaches to the indexed expression as a trailing operator-class
+ * declaration when present.
  *
  * The `WHERE case_type = '<value>'` partial-index predicate scopes
  * the index to one case-type's rows. Property keys live inside the
