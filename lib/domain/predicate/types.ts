@@ -61,7 +61,12 @@
 // declaration explains why.
 
 import { z } from "zod";
-import { casePropertyDataTypeSchema } from "../blueprint";
+// Imported from the leaf at `../casePropertyTypes` (not
+// `../blueprint`) to avoid a cycle: `blueprint.ts` imports
+// `moduleSchema`, which imports `predicateSchema` /
+// `valueExpressionSchema` from this file, which would in turn
+// import back into `blueprint.ts` and break module-load order.
+import { casePropertyDataTypeSchema } from "../casePropertyTypes";
 
 // ---------- Identifier patterns ----------
 //

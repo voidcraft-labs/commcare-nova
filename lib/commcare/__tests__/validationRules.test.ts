@@ -2,7 +2,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { applyMutations } from "@/lib/doc/mutations";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
-import { buildDoc, f } from "../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "../../__tests__/docHelpers";
 import { FIX_REGISTRY } from "../validator/fixes";
 import { runValidation } from "../validator/runner";
 
@@ -21,7 +21,9 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "Mod",
 				caseType: "patient",
-				caseListColumns: [{ field: "case_name", header: "Name" }],
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Form",
@@ -172,7 +174,7 @@ describe("module rules", () => {
 	it("catches missing case list columns", () => {
 		const doc = update(minDoc(), (d) => {
 			const mod = d.modules[d.moduleOrder[0]];
-			mod.caseListColumns = undefined;
+			mod.caseListConfig = undefined;
 		});
 		expect(
 			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
@@ -201,7 +203,9 @@ describe("form rules", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Form",
@@ -240,7 +244,9 @@ describe("form rules", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Form",
@@ -266,7 +272,9 @@ describe("form rules", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Form",
@@ -309,7 +317,9 @@ describe("form rules", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Form",
@@ -764,7 +774,9 @@ describe("post_submit validation", () => {
 					name: "View Only",
 					caseType: "patient",
 					caseListOnly: true,
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",

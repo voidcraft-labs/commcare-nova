@@ -207,8 +207,7 @@ export interface NewModuleInput {
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
-	caseListColumns?: Module["caseListColumns"];
-	caseDetailColumns?: Module["caseDetailColumns"];
+	caseListConfig?: Module["caseListConfig"];
 }
 
 /** Build an `addModule` mutation. Mints a uuid when the caller doesn't
@@ -237,11 +236,8 @@ export function addModuleMutations(
 			caseListOnly: input.caseListOnly,
 		}),
 		...(input.purpose !== undefined && { purpose: input.purpose }),
-		...(input.caseListColumns !== undefined && {
-			caseListColumns: input.caseListColumns,
-		}),
-		...(input.caseDetailColumns !== undefined && {
-			caseDetailColumns: input.caseDetailColumns,
+		...(input.caseListConfig !== undefined && {
+			caseListConfig: input.caseListConfig,
 		}),
 	};
 	return [

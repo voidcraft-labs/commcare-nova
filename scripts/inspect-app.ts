@@ -283,8 +283,9 @@ async function main() {
 	if (showCaseLists) {
 		printSection("Case List Columns");
 		for (const mod of modules) {
-			const cols = mod.caseListColumns ?? [];
-			const detailCols = mod.caseDetailColumns ?? [];
+			const config = mod.caseListConfig;
+			const cols = config?.columns ?? [];
+			const detailCols = config?.detailColumns ?? [];
 			if (cols.length === 0 && detailCols.length === 0) continue;
 
 			console.log(`  ${mod.name} (${mod.caseType ?? "no case type"}):`);

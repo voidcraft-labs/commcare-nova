@@ -75,6 +75,8 @@ export interface ModuleStats {
 	caseListOnly: boolean;
 	caseListColumns: number;
 	caseDetailColumns: number;
+	calculatedColumns: number;
+	searchInputs: number;
 	forms: FormStats[];
 	totalFields: number;
 }
@@ -290,13 +292,16 @@ function analyzeModule(doc: BlueprintDoc, mod: Module): ModuleAnalysis {
 		formFields.set(stats.uuid, fields);
 	}
 
+	const config = mod.caseListConfig;
 	const stats: ModuleStats = {
 		uuid: mod.uuid,
 		name: mod.name,
 		caseType: mod.caseType,
 		caseListOnly: mod.caseListOnly ?? false,
-		caseListColumns: mod.caseListColumns?.length ?? 0,
-		caseDetailColumns: mod.caseDetailColumns?.length ?? 0,
+		caseListColumns: config?.columns.length ?? 0,
+		caseDetailColumns: config?.detailColumns?.length ?? 0,
+		calculatedColumns: config?.calculatedColumns.length ?? 0,
+		searchInputs: config?.searchInputs.length ?? 0,
 		forms: analyses.map((a) => a.stats),
 		totalFields: analyses.reduce((sum, a) => sum + a.stats.fieldCount, 0),
 	};

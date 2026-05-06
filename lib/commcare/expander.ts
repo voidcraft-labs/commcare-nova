@@ -174,12 +174,24 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 		// exist, the long view mirrors the short view — CommCare requires
 		// at least one long column for modules with cases. Without any
 		// short columns either, produce an empty detail pair.
-		const shortColumns = (mod.caseListColumns ?? []).map((col) =>
+		//
+		// Search-only columns are filtered out at emission time: they
+		// declare a property as searchable without rendering a column,
+		// and the suite-XML `<detail>` block has no slot for that —
+		// the wire emission for search-input indices is owned by
+		// downstream tasks in the case-list-authoring plan.
+		const displayedColumns = (mod.caseListConfig?.columns ?? []).filter(
+			(col) => col.kind !== "search-only",
+		);
+		const shortColumns = displayedColumns.map((col) =>
 			detailColumn(col.field, col.header),
 		);
-		const longColumns = mod.caseDetailColumns
-			? mod.caseDetailColumns.map((col) => detailColumn(col.field, col.header))
-			: mod.caseListColumns
+		const longSource = mod.caseListConfig?.detailColumns;
+		const longColumns = longSource
+			? longSource
+					.filter((col) => col.kind !== "search-only")
+					.map((col) => detailColumn(col.field, col.header))
+			: mod.caseListConfig?.columns
 				? shortColumns
 				: undefined;
 		const caseDetails = hasCases

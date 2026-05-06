@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
-import { buildDoc, type FieldSpec, f } from "../../__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	type FieldSpec,
+	f,
+} from "../../__tests__/docHelpers";
 import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
 import { validateBlueprintDeep } from "../validator";
@@ -640,7 +645,9 @@ describe("runValidation with deep validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Reg",

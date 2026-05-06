@@ -76,14 +76,57 @@ export const updateModuleTool = {
 			// Build the helper patch lazily — every omitted key stays
 			// out so the reducer's `undefined`-means-leave-alone semantics
 			// hold. `null` on `case_detail_columns` is a value, not an
-			// absence: it maps to the helper's "clear" signal.
+			// absence: it maps to the helper's "clear" signal (the
+			// `detailColumns` slot inside `caseListConfig` becomes
+			// absent).
+			//
+			// The SA-facing input keeps the legacy `{field, header}[]`
+			// shape. When either columns key is supplied this layer
+			// builds a fresh `caseListConfig` snapshot from the
+			// existing module (preserving any author-side sort /
+			// filter / calculated / search authoring that
+			// downstream tools have written) and replaces the column
+			// arrays in place.
+			const existingConfig = doc.modules[moduleUuid]?.caseListConfig;
+			const baseConfig = existingConfig ?? {
+				columns: [],
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			};
 			const patch: Parameters<typeof updateModuleMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
-			if (case_list_columns !== undefined)
-				patch.caseListColumns = case_list_columns;
-			if (case_detail_columns !== undefined) {
-				patch.caseDetailColumns =
-					case_detail_columns === null ? null : case_detail_columns;
+			if (
+				case_list_columns !== undefined ||
+				case_detail_columns !== undefined
+			) {
+				const nextColumns =
+					case_list_columns !== undefined
+						? case_list_columns.map((col) => ({
+								kind: "plain" as const,
+								field: col.field,
+								header: col.header,
+							}))
+						: baseConfig.columns;
+				let nextDetail: typeof baseConfig.detailColumns;
+				if (case_detail_columns === null) {
+					// `null` clears the long-detail override; absent ≡
+					// "long detail mirrors short detail".
+					nextDetail = undefined;
+				} else if (case_detail_columns !== undefined) {
+					nextDetail = case_detail_columns.map((col) => ({
+						kind: "plain" as const,
+						field: col.field,
+						header: col.header,
+					}));
+				} else {
+					nextDetail = baseConfig.detailColumns;
+				}
+				patch.caseListConfig = {
+					...baseConfig,
+					columns: nextColumns,
+					...(nextDetail !== undefined && { detailColumns: nextDetail }),
+				};
 			}
 
 			const mutations = updateModuleMutations(doc, moduleUuid, patch);
@@ -104,12 +147,14 @@ export const updateModuleTool = {
 			const changes: string[] = [];
 			if (name !== undefined) changes.push(`name → "${mod.name}"`);
 			if (case_list_columns !== undefined)
-				changes.push(`case list columns (${mod.caseListColumns?.length ?? 0})`);
+				changes.push(
+					`case list columns (${mod.caseListConfig?.columns.length ?? 0})`,
+				);
 			if (case_detail_columns !== undefined)
 				changes.push(
 					case_detail_columns === null
 						? "case detail columns removed"
-						: `case detail columns (${mod.caseDetailColumns?.length ?? 0})`,
+						: `case detail columns (${mod.caseListConfig?.detailColumns?.length ?? 0})`,
 				);
 			return {
 				kind: "mutate" as const,

@@ -77,11 +77,15 @@ export function searchBlueprint(
 			});
 		}
 
-		/* Case list + detail columns. These are module-level strings the SA
-		 * may want to search for when looking up a case property reference. */
+		/* Case-list display + long-detail columns. Module-level strings
+		 * the SA searches when looking up a case-property reference.
+		 * Every column kind in `caseListConfig.columns` carries
+		 * `field` + `header`, so the search shape is uniform across
+		 * kinds. */
+		const config = mod.caseListConfig;
 		const allColumns = [
-			...(mod.caseListColumns ?? []),
-			...(mod.caseDetailColumns ?? []),
+			...(config?.columns ?? []),
+			...(config?.detailColumns ?? []),
 		];
 		for (const col of allColumns) {
 			if (

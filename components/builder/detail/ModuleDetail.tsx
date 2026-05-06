@@ -49,7 +49,7 @@ export function ModuleDetail({ moduleUuid }: ModuleDetailProps) {
 					</p>
 				</div>
 			)}
-			{mod.caseListColumns && mod.caseListColumns.length > 0 && (
+			{mod.caseListConfig && mod.caseListConfig.columns.length > 0 && (
 				<div>
 					<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">
 						Case List Columns
@@ -63,7 +63,7 @@ export function ModuleDetail({ moduleUuid }: ModuleDetailProps) {
 								Field
 							</div>
 						</div>
-						{mod.caseListColumns.map((col) => (
+						{mod.caseListConfig.columns.map((col) => (
 							<div
 								key={`${col.header}-${col.field}`}
 								className="grid grid-cols-[1fr_auto] border-t border-nova-border/40"

@@ -215,20 +215,25 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Structure);
 
 		// ── Module-detail mutation → stage = Modules ──
-		const columns = [{ field: "name", header: "Name" }];
+		const config = {
+			columns: [{ kind: "plain" as const, field: "name", header: "Name" }],
+			sort: [],
+			calculatedColumns: [],
+			searchInputs: [],
+		};
 		emitMutations(
 			[
 				{
 					kind: "updateModule",
 					uuid: MOD_UUID,
-					patch: { caseListColumns: columns },
+					patch: { caseListConfig: config },
 				},
 			],
 			"module:0",
 			docStore,
 			sessionStore,
 		);
-		expect(doc().modules[MOD_UUID].caseListColumns).toEqual(columns);
+		expect(doc().modules[MOD_UUID].caseListConfig).toEqual(config);
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Modules);
 
 		// ── Form-content mutations → stage = Forms ──

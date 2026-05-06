@@ -100,11 +100,31 @@ export const addModuleTool = {
 				};
 			}
 
+			// The SA-facing input keeps the legacy `{field, header}[]`
+			// shape; this layer maps each entry to the structured
+			// `caseListConfig.columns` shape stored on the doc. Each
+			// entry becomes a `kind: "plain"` column — the simplest
+			// kind in the discriminated union, equivalent to "render
+			// the property value as a string." Detail columns flow
+			// through the same shape into `detailColumns`.
+			const columns = case_list_columns.map((col) => ({
+				kind: "plain" as const,
+				field: col.field,
+				header: col.header,
+			}));
+			const detailColumns = case_detail_columns?.map((col) => ({
+				kind: "plain" as const,
+				field: col.field,
+				header: col.header,
+			}));
 			const mutations = updateModuleMutations(doc, moduleUuid, {
-				caseListColumns: case_list_columns,
-				...(case_detail_columns && {
-					caseDetailColumns: case_detail_columns,
-				}),
+				caseListConfig: {
+					columns,
+					sort: [],
+					calculatedColumns: [],
+					searchInputs: [],
+					...(detailColumns && { detailColumns }),
+				},
 			});
 			const newDoc = applyToDoc(doc, mutations);
 			// Stage tag encodes which module these mutations belong to —

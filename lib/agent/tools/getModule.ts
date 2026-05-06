@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc, CaseListColumn, FormType } from "@/lib/domain";
+import type { BlueprintDoc, FormType } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -33,6 +33,16 @@ export interface GetModuleFormSummary {
 }
 
 /**
+ * Legacy `{field, header}[]` shape returned to the SA. The doc
+ * stores a structured `Column` discriminated union; this shape
+ * is the projection the SA continues to consume.
+ */
+export interface GetModuleColumn {
+	field: string;
+	header: string;
+}
+
+/**
  * Two legal result shapes:
  *
  *   - `{ error }` when the moduleIndex is out of range.
@@ -44,7 +54,7 @@ export type GetModuleResult =
 			moduleIndex: number;
 			name: string;
 			case_type: string | null;
-			case_list_columns: CaseListColumn[] | null;
+			case_list_columns: GetModuleColumn[] | null;
 			forms: GetModuleFormSummary[];
 	  };
 
@@ -73,13 +83,25 @@ export const getModuleTool = {
 			};
 		}
 		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		// Only project `kind === "plain"` columns to the legacy
+		// `{field, header}[]` shape the SA reads — the structured
+		// `Column` union carries per-kind configuration that doesn't
+		// fit the legacy shape, and the columns the SA's writer
+		// tools (`addModule` / `createModule` / `updateModule`)
+		// produce are always plain-kind. Returning `null` when no
+		// plain-kind columns are present mirrors the prior
+		// "no columns authored" signal the SA already handles.
+		const plainColumns =
+			mod.caseListConfig?.columns
+				.filter((col) => col.kind === "plain")
+				.map((col) => ({ field: col.field, header: col.header })) ?? [];
 		return {
 			kind: "read",
 			data: {
 				moduleIndex,
 				name: mod.name,
 				case_type: mod.caseType ?? null,
-				case_list_columns: mod.caseListColumns ?? null,
+				case_list_columns: plainColumns.length > 0 ? plainColumns : null,
 				forms: formUuids.map((fUuid, i) => {
 					const f = doc.forms[fUuid];
 					return {

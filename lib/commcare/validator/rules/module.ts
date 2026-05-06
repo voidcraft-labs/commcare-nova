@@ -121,52 +121,72 @@ function caseTypeTooLong(
 	];
 }
 
+/**
+ * Modules with cases but no case-list display columns are unusable —
+ * the case list screen has no row content to render. The check
+ * walks `caseListConfig.columns` and counts entries with a `field`
+ * binding (every column kind in the discriminated union carries
+ * `field`, so the property reference is uniform across kinds).
+ *
+ * Search-only columns are not displayed; they don't satisfy the
+ * "at least one displayed column" requirement.
+ */
 function missingCaseListColumns(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
 	const forms = formsOf(doc, moduleUuid);
+	const displayColumns = (mod.caseListConfig?.columns ?? []).filter(
+		(col) => col.kind !== "search-only",
+	);
 	const needsColumns =
 		!!mod.caseType &&
 		!mod.caseListOnly &&
 		forms.length > 0 &&
-		(!mod.caseListColumns || mod.caseListColumns.length === 0);
+		displayColumns.length === 0;
 	if (!needsColumns) return [];
 	return [
 		validationError(
 			"MISSING_CASE_LIST_COLUMNS",
 			"module",
-			`Module "${mod.name}" manages "${mod.caseType}" cases but has no case_list_columns. The case list screen needs at least one column (like "name") so users can identify which case to select. Add case_list_columns with the properties you want displayed.`,
+			`Module "${mod.name}" manages "${mod.caseType}" cases but has no case-list columns. The case list screen needs at least one displayed column (like "name") so users can identify which case to select. Configure caseListConfig.columns with the properties you want displayed.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
 }
 
-/** Case list column fields must reference known case properties or standard properties. */
+/**
+ * Case-list column `field` references must resolve to a known
+ * case property on the module's case type — either a standard
+ * property (`case_name`, `date_opened`, etc.) or a property
+ * declared by a field with `case_property_on === mod.caseType`.
+ *
+ * Walks every column on `caseListConfig.columns` regardless of
+ * kind: every kind in the discriminated union carries a `field`
+ * slot, and every kind's runtime renderer reads the case property
+ * by that name.
+ */
 function invalidColumnField(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (
-		!mod.caseType ||
-		!mod.caseListColumns ||
-		mod.caseListColumns.length === 0
-	) {
+	const columns = mod.caseListConfig?.columns ?? [];
+	if (!mod.caseType || columns.length === 0) {
 		return [];
 	}
 	const errors: ValidationError[] = [];
 	const knownProps = collectCaseProperties(doc, mod.caseType) ?? new Set();
 
-	for (const col of mod.caseListColumns) {
+	for (const col of columns) {
 		if (STANDARD_CASE_LIST_PROPERTIES.has(col.field)) continue;
 		if (knownProps.has(col.field)) continue;
 		errors.push(
 			validationError(
 				"INVALID_COLUMN_FIELD",
 				"module",
-				`Module "${mod.name}" has a case list column with field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. The case list won't be able to display this column. Either add a field with id "${col.field}" and \`case_property_on\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
+				`Module "${mod.name}" has a case-list column with field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. The case list won't be able to display this column. Either add a field with id "${col.field}" and \`case_property_on\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
 				{ moduleUuid, moduleName: mod.name },
 				{ field: col.field },
 			),

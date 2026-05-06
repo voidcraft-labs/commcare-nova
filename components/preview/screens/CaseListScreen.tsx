@@ -47,7 +47,11 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
-	const columns = mod?.caseListColumns ?? [];
+	// Display columns only — search-only columns declare a property
+	// as searchable without rendering a row in the preview table.
+	const columns = (mod?.caseListConfig?.columns ?? []).filter(
+		(col) => col.kind !== "search-only",
+	);
 
 	const { state, reload } = useCases({
 		appId,

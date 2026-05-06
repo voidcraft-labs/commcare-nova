@@ -7,10 +7,28 @@
 // `fieldOrder` on load.
 
 import { z } from "zod";
+import {
+	type CasePropertyDataType,
+	casePropertyDataTypeSchema,
+	casePropertyDataTypes,
+} from "./casePropertyTypes";
 import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { type Uuid, uuidSchema } from "./uuid";
+
+// Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
+// `casePropertyDataTypeSchema` live at the leaf
+// `./casePropertyTypes` so the predicate AST + the structured
+// `Module` schema can pull them without a cycle through the rest
+// of the case-type definitions in this file. Surfaced from the
+// blueprint barrel so existing `@/lib/domain` consumers see the
+// same names without an import-path migration.
+export {
+	type CasePropertyDataType,
+	casePropertyDataTypeSchema,
+	casePropertyDataTypes,
+};
 
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 //
@@ -26,27 +44,6 @@ const casePropertyMappingSchema = z.object({
 	question_id: z.string(), // stays "question_id" — CommCare terminology at the boundary
 });
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>;
-
-// The data types a case property may declare. Exported as a readonly
-// tuple so every consumer that reasons about case-property typing — the
-// predicate AST, the JSON Schema emitter, the SQL compiler — shares
-// one enumeration rather than maintaining parallel copies. The Zod enum
-// is built from the tuple via `z.enum(...)` so the runtime schema and
-// the static union stay in lockstep: adding a variant to the tuple
-// expands both surfaces in one edit.
-export const casePropertyDataTypes = [
-	"text",
-	"int",
-	"decimal",
-	"date",
-	"time",
-	"datetime",
-	"single_select",
-	"multi_select",
-	"geopoint",
-] as const;
-export type CasePropertyDataType = (typeof casePropertyDataTypes)[number];
-export const casePropertyDataTypeSchema = z.enum(casePropertyDataTypes);
 
 const casePropertySchema = z.object({
 	name: z.string(),

@@ -740,18 +740,28 @@ function docWithTwoModulesAndForms(): BlueprintDoc {
 				id: "m_x",
 				name: "ModX",
 				caseType: "patient",
-				caseListColumns: [
-					{ field: "age", header: "Age" },
-					{ field: "name", header: "Name" },
-				],
-				caseDetailColumns: [{ field: "age", header: "Age" }],
+				caseListConfig: {
+					columns: [
+						{ kind: "plain", field: "age", header: "Age" },
+						{ kind: "plain", field: "name", header: "Name" },
+					],
+					sort: [],
+					calculatedColumns: [],
+					searchInputs: [],
+					detailColumns: [{ kind: "plain", field: "age", header: "Age" }],
+				},
 			} as Module,
 			[M("Y")]: {
 				uuid: M("Y"),
 				id: "m_y",
 				name: "ModY",
 				caseType: "household",
-				caseListColumns: [{ field: "age", header: "Age" }],
+				caseListConfig: {
+					columns: [{ kind: "plain", field: "age", header: "Age" }],
+					sort: [],
+					calculatedColumns: [],
+					searchInputs: [],
+				},
 			} as Module,
 		},
 		forms: {
@@ -850,7 +860,7 @@ describe("renameField case-property cascade", () => {
 		expect(asField(next.fields[Q("ref")])?.relevant).toBe("#case/age_1 > 0");
 	});
 
-	it("rewrites caseListColumns and caseDetailColumns on matching modules only", () => {
+	it("rewrites caseListConfig.columns and detailColumns on matching modules only", () => {
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
@@ -870,13 +880,13 @@ describe("renameField case-property cascade", () => {
 
 		// Module X (caseType: patient) columns rewritten.
 		const modX = next.modules[M("X")];
-		expect(modX?.caseListColumns?.[0]?.field).toBe("age_1");
-		expect(modX?.caseListColumns?.[1]?.field).toBe("name");
-		expect(modX?.caseDetailColumns?.[0]?.field).toBe("age_1");
+		expect(modX?.caseListConfig?.columns[0]?.field).toBe("age_1");
+		expect(modX?.caseListConfig?.columns[1]?.field).toBe("name");
+		expect(modX?.caseListConfig?.detailColumns?.[0]?.field).toBe("age_1");
 
 		// Module Y (caseType: household) columns untouched.
 		const modY = next.modules[M("Y")];
-		expect(modY?.caseListColumns?.[0]?.field).toBe("age");
+		expect(modY?.caseListConfig?.columns[0]?.field).toBe("age");
 	});
 
 	it("renames peer fields that declare the same (id, case_property_on) pair", () => {
@@ -937,8 +947,7 @@ describe("renameField case-property cascade", () => {
 				// Strip columns off module X so no column match is possible.
 				[M("X")]: {
 					...base.modules[M("X")],
-					caseListColumns: undefined,
-					caseDetailColumns: undefined,
+					caseListConfig: undefined,
 				} as Module,
 			},
 		};
@@ -1060,8 +1069,7 @@ describe("renameField case-property cascade", () => {
 				// independently trigger the flag.
 				[M("X")]: {
 					...base.modules[M("X")],
-					caseListColumns: undefined,
-					caseDetailColumns: undefined,
+					caseListConfig: undefined,
 				} as Module,
 			},
 		};
@@ -1125,11 +1133,16 @@ describe("renameField case-property cascade", () => {
 					id: "m_host",
 					name: "Host",
 					caseType: "patient",
-					caseListColumns: [
-						// This column belongs to "patient", NOT "visit" — must
-						// remain untouched by a visit.date_of_visit rename.
-						{ field: "date_of_visit", header: "Visit Date" },
-					],
+					caseListConfig: {
+						columns: [
+							// This column belongs to "patient", NOT "visit" — must
+							// remain untouched by a visit.date_of_visit rename.
+							{ kind: "plain", field: "date_of_visit", header: "Visit Date" },
+						],
+						sort: [],
+						calculatedColumns: [],
+						searchInputs: [],
+					},
 				} as Module,
 				// Target module — "visit" caseType. Cascade touches this one.
 				[M("tgt")]: {
@@ -1137,7 +1150,14 @@ describe("renameField case-property cascade", () => {
 					id: "m_tgt",
 					name: "Target",
 					caseType: "visit",
-					caseListColumns: [{ field: "date_of_visit", header: "Visit Date" }],
+					caseListConfig: {
+						columns: [
+							{ kind: "plain", field: "date_of_visit", header: "Visit Date" },
+						],
+						sort: [],
+						calculatedColumns: [],
+						searchInputs: [],
+					},
 				} as Module,
 			},
 			forms: {
@@ -1197,11 +1217,11 @@ describe("renameField case-property cascade", () => {
 			"Host says: #case/date_of_visit",
 		);
 		// Target module's column rewritten.
-		expect(next.modules[M("tgt")]?.caseListColumns?.[0]?.field).toBe(
+		expect(next.modules[M("tgt")]?.caseListConfig?.columns[0]?.field).toBe(
 			"visit_date",
 		);
 		// Host module's column untouched (belongs to "patient" caseType).
-		expect(next.modules[M("host")]?.caseListColumns?.[0]?.field).toBe(
+		expect(next.modules[M("host")]?.caseListConfig?.columns[0]?.field).toBe(
 			"date_of_visit",
 		);
 		expect(result?.cascadedAcrossForms).toBe(true);

@@ -66,8 +66,9 @@ export interface MoveFieldResult {
  *     they represented the same case property (same `id` + same
  *     `case_property_on`) in a different form. Those are authoritative peers
  *     of the renamed field, not references to it.
- *   - `columnsRewritten` — number of `caseListColumns` / `caseDetailColumns`
- *     entries on matching modules whose `field` value was updated.
+ *   - `columnsRewritten` — number of `caseListConfig.columns` /
+ *     `caseListConfig.detailColumns` entries on matching modules
+ *     whose `field` value was updated.
  *   - `catalogEntryRenamed` — `true` iff `doc.caseTypes[caseType].properties[]`
  *     had a matching entry renamed. The catalog is the authoritative list
  *     of known case properties for the XPath linter, `#case/` chip
@@ -796,22 +797,28 @@ function cascadeCasePropertyRename(
 		const mod = doc.modules[moduleUuid];
 		if (!mod || mod.caseType !== caseType) continue;
 
-		// Columns: both lists are optional + nullable; touch each entry in
-		// place on the draft. The count reflects column cells, not modules,
+		// Columns: the structured config carries display columns
+		// (`columns`) and an optional long-detail override
+		// (`detailColumns`); both arrays touch each entry in place on
+		// the draft. The count reflects column cells, not modules,
 		// so a module with two stale column refs contributes two.
-		if (Array.isArray(mod.caseListColumns)) {
-			for (const col of mod.caseListColumns) {
+		// Every column kind in the discriminated union carries the
+		// same `field` slot, so the rename touches every kind
+		// uniformly without per-kind branching.
+		const config = mod.caseListConfig;
+		if (config) {
+			for (const col of config.columns) {
 				if (col.field === oldId) {
 					col.field = newId;
 					columnsRewritten++;
 				}
 			}
-		}
-		if (Array.isArray(mod.caseDetailColumns)) {
-			for (const col of mod.caseDetailColumns) {
-				if (col.field === oldId) {
-					col.field = newId;
-					columnsRewritten++;
+			if (Array.isArray(config.detailColumns)) {
+				for (const col of config.detailColumns) {
+					if (col.field === oldId) {
+						col.field = newId;
+						columnsRewritten++;
+					}
 				}
 			}
 		}

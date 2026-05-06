@@ -1,6 +1,6 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { asUuid } from "@/lib/domain";
@@ -15,7 +15,7 @@ const doc = buildDoc({
 		{
 			name: "Patients",
 			caseType: "patient",
-			caseListColumns: [{ field: "age", header: "Age" }],
+			caseListConfig: caseListConfig([{ field: "age", header: "Age" }]),
 			forms: [
 				{
 					name: "Register",

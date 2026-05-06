@@ -116,7 +116,7 @@ export const ModuleCard = memo(function ModuleCard({
 
 			{!isCollapsed && (
 				<>
-					{mod.caseListColumns && mod.caseListColumns.length > 0 && (
+					{mod.caseListConfig && mod.caseListConfig.columns.length > 0 && (
 						<div className="mx-4 mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
 							<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.04]">
 								<Icon
@@ -130,7 +130,7 @@ export const ModuleCard = memo(function ModuleCard({
 								</span>
 							</div>
 							<div className="flex">
-								{mod.caseListColumns.map((col, colIdx) => (
+								{mod.caseListConfig.columns.map((col, colIdx) => (
 									<div
 										key={`${col.header}-${col.field}`}
 										className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary ${

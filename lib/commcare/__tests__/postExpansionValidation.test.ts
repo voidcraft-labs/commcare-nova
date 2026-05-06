@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
@@ -174,10 +174,10 @@ describe("case list column validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "nonexistent_prop", header: "Ghost" },
-					],
+					]),
 					forms: [
 						{
 							name: "Reg",
@@ -215,10 +215,10 @@ describe("case list column validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "date_opened", header: "Opened" },
-					],
+					]),
 					forms: [
 						{
 							name: "Reg",
@@ -250,10 +250,10 @@ describe("case list column validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "age", header: "Age" },
-					],
+					]),
 					forms: [
 						{
 							name: "Reg",
@@ -301,7 +301,9 @@ describe("expanded XForm validation", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Register",

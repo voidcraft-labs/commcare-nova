@@ -65,11 +65,30 @@ export const createModuleTool = {
 			// yet because the new module's slot only exists after the
 			// mutations apply. Downstream consumers that need the index read
 			// it from the post-mutation `moduleOrder`.
+			//
+			// The SA-facing input keeps the legacy `{field, header}[]`
+			// shape; the helper builder takes the structured
+			// `caseListConfig` shape, so the entries map to
+			// `kind: "plain"` columns inside an otherwise-empty
+			// config (no sort / calculated / search authored from
+			// this entry point).
+			const caseListConfig = case_list_columns
+				? {
+						columns: case_list_columns.map((col) => ({
+							kind: "plain" as const,
+							field: col.field,
+							header: col.header,
+						})),
+						sort: [],
+						calculatedColumns: [],
+						searchInputs: [],
+					}
+				: undefined;
 			const mutations = addModuleMutations(doc, {
 				name,
 				...(case_type && { caseType: case_type }),
 				...(case_list_only && { caseListOnly: case_list_only }),
-				...(case_list_columns && { caseListColumns: case_list_columns }),
+				...(caseListConfig && { caseListConfig }),
 			});
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, "module:create");

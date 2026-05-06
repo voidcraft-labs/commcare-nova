@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { asUuid } from "@/lib/domain";
@@ -13,7 +13,7 @@ const followupDoc = buildDoc({
 		{
 			name: "Visits",
 			caseType: "patient",
-			caseListColumns: [{ field: "full_name", header: "Name" }],
+			caseListConfig: caseListConfig([{ field: "full_name", header: "Name" }]),
 			forms: [
 				{
 					name: "Follow-up Visit",
@@ -61,10 +61,10 @@ const registrationDoc = buildDoc({
 		{
 			name: "Registration",
 			caseType: "patient",
-			caseListColumns: [
+			caseListConfig: caseListConfig([
 				{ field: "case_name", header: "Name" },
 				{ field: "age", header: "Age" },
-			],
+			]),
 			forms: [
 				{
 					name: "Register Patient",
@@ -344,10 +344,10 @@ describe("case_name in case list columns", () => {
 			{
 				name: "M",
 				caseType: "patient",
-				caseListColumns: [
+				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Full Name" },
 					{ field: "age", header: "Age" },
-				],
+				]),
 				forms: [
 					{
 						name: "F",
@@ -421,7 +421,9 @@ describe("runValidation", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -451,7 +453,9 @@ describe("runValidation", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -1565,10 +1569,10 @@ describe("case detail (long) view", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "age", header: "Age" },
-					],
+					]),
 					forms: [
 						{
 							name: "F",
@@ -1602,12 +1606,16 @@ describe("case detail (long) view", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
-					caseDetailColumns: [
-						{ field: "case_name", header: "Full Name" },
-						{ field: "age", header: "Age" },
-						{ field: "dob", header: "Date of Birth" },
-					],
+					caseListConfig: caseListConfig(
+						[{ field: "case_name", header: "Name" }],
+						{
+							detailColumns: [
+								{ field: "case_name", header: "Full Name" },
+								{ field: "age", header: "Age" },
+								{ field: "dob", header: "Date of Birth" },
+							],
+						},
+					),
 					forms: [
 						{
 							name: "F",
@@ -2022,7 +2030,9 @@ describe("child case type module requirement", () => {
 				{
 					name: "Plans",
 					caseType: "plan",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Create Plan",
@@ -2064,7 +2074,9 @@ describe("child case type module requirement", () => {
 				{
 					name: "Plans",
 					caseType: "plan",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Create Plan",
@@ -2085,7 +2097,9 @@ describe("child case type module requirement", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2125,7 +2139,9 @@ describe("case_list_only validation", () => {
 					name: "Bad",
 					caseType: "thing",
 					caseListOnly: true,
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -2207,7 +2223,9 @@ describe("case_list_only expansion", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2237,7 +2255,9 @@ describe("case_list_only expansion", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2275,7 +2295,9 @@ describe("case_list_only expansion", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [

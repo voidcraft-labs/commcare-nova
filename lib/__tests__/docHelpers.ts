@@ -82,9 +82,40 @@ export interface ModuleSpec {
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
-	caseListColumns?: Module["caseListColumns"];
-	caseDetailColumns?: Module["caseDetailColumns"];
+	caseListConfig?: Module["caseListConfig"];
 	forms?: FormSpec[];
+}
+
+/**
+ * Build a `CaseListConfig` snapshot from a flat `{field, header}[]`
+ * column list. Tests construct columns this way overwhelmingly often
+ * (every fixture builds the simplest case-list shape), so the helper
+ * keeps fixtures concise without forcing each test to spell the
+ * empty `sort` / `calculatedColumns` / `searchInputs` arrays itself.
+ *
+ * Each entry becomes a `kind: "plain"` column — the discriminated
+ * union arm equivalent to "render the property value as text",
+ * which mirrors the shipped column shape on every persisted
+ * blueprint today.
+ */
+export function caseListConfig(
+	columns: ReadonlyArray<{ field: string; header: string }>,
+	options: {
+		detailColumns?: ReadonlyArray<{ field: string; header: string }>;
+	} = {},
+): NonNullable<Module["caseListConfig"]> {
+	return {
+		columns: columns.map((c) => ({ kind: "plain" as const, ...c })),
+		sort: [],
+		calculatedColumns: [],
+		searchInputs: [],
+		...(options.detailColumns && {
+			detailColumns: options.detailColumns.map((c) => ({
+				kind: "plain" as const,
+				...c,
+			})),
+		}),
+	};
 }
 
 /** Top-level spec. Mirrors the `BlueprintDoc` shape minus ordering/entity maps. */
@@ -129,11 +160,8 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				caseListOnly: modSpec.caseListOnly,
 			}),
 			...(modSpec.purpose !== undefined && { purpose: modSpec.purpose }),
-			...(modSpec.caseListColumns !== undefined && {
-				caseListColumns: modSpec.caseListColumns,
-			}),
-			...(modSpec.caseDetailColumns !== undefined && {
-				caseDetailColumns: modSpec.caseDetailColumns,
+			...(modSpec.caseListConfig !== undefined && {
+				caseListConfig: modSpec.caseListConfig,
 			}),
 		};
 
