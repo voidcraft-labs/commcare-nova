@@ -34,6 +34,24 @@ import { ValueExpressionPicker } from "../primitives/ValueExpressionPicker";
 
 const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
 
+/** Module-level filters so render-time identity stays stable per
+ *  match mode — `PropertyPicker`'s `useMemo` on
+ *  `[caseType, filter]` invalidates on each fresh-arrow filter
+ *  even when the per-mode selection rule is constant.
+ *
+ *  Three of the four modes (`fuzzy` / `phonetic` / `starts-with`)
+ *  share the text-shaped allow-list; `fuzzy-date` widens to
+ *  additionally accept date / datetime properties. The card picks
+ *  one of the two filters based on the current mode without
+ *  allocating a fresh closure. */
+const MATCH_TEXT_SHAPED_FILTER = (p: { data_type?: string }): boolean =>
+	TEXT_SHAPED.has(p.data_type ?? "text");
+
+const MATCH_FUZZY_DATE_FILTER = (p: { data_type?: string }): boolean =>
+	TEXT_SHAPED.has(p.data_type ?? "text") ||
+	p.data_type === "date" ||
+	p.data_type === "datetime";
+
 const MODE_LABELS: Record<MatchMode, { label: string; description: string }> = {
 	fuzzy: {
 		label: "Fuzzy",
@@ -108,14 +126,13 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 	// Filter the property picker to the mode's allow-list. The
 	// type checker enforces the same rule; gating the picker in the
 	// UI prevents the author from picking a property that would
-	// immediately fail validation.
+	// immediately fail validation. Picks one of the two module-
+	// level filters so render-time identity stays stable for the
+	// downstream `useMemo` in `PropertyPicker`.
 	const propertyFilter =
 		value.mode === "fuzzy-date"
-			? (p: { data_type?: string }) =>
-					TEXT_SHAPED.has(p.data_type ?? "text") ||
-					p.data_type === "date" ||
-					p.data_type === "datetime"
-			: (p: { data_type?: string }) => TEXT_SHAPED.has(p.data_type ?? "text");
+			? MATCH_FUZZY_DATE_FILTER
+			: MATCH_TEXT_SHAPED_FILTER;
 
 	return (
 		<div className="space-y-2">

@@ -32,6 +32,13 @@ const ORDERED_PROPERTY_TYPES = new Set<string>([
 	"time",
 ]);
 
+/** Module-level filter so render-time identity stays stable —
+ *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
+ *  on each fresh-arrow filter, even when the actual selection rule
+ *  is constant. */
+const ORDERED_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
+	ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text");
+
 export function betweenDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "between" }> {
@@ -106,7 +113,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 					mode="left"
 					value={value.left}
 					onChange={setLeft}
-					filter={(p) => ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text")}
+					filter={ORDERED_PROPERTY_FILTER}
 					invalid={leftErrors.length > 0}
 					ariaLabel="Property"
 				/>

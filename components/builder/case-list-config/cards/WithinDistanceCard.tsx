@@ -33,6 +33,13 @@ const UNIT_LABELS: Record<DistanceUnit, string> = {
 	kilometers: "km",
 };
 
+/** Module-level filter so render-time identity stays stable —
+ *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
+ *  on each fresh-arrow filter, even when the actual selection rule
+ *  is constant. */
+const GEOPOINT_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
+	p.data_type === "geopoint";
+
 export function withinDistanceDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "within-distance" }> {
@@ -82,7 +89,7 @@ export function WithinDistanceCard({
 					mode="property-only"
 					value={value.property}
 					onChange={setProperty}
-					filter={(p) => p.data_type === "geopoint"}
+					filter={GEOPOINT_PROPERTY_FILTER}
 					invalid={propertyErrors.length > 0}
 					ariaLabel="Geopoint property"
 				/>

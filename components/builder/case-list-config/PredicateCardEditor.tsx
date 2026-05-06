@@ -113,10 +113,12 @@ export function PredicateCardEditor({
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
 	// Propagate the validity verdict to the parent. The effect
-	// fires only when `isValid` transitions; downstream consumers
-	// (the Filter-section save button) gate on this. The
-	// `onValidityChange` callback is stashed in a ref so a fresh-
-	// each-render parent callback identity doesn't trip the effect
+	// fires on mount and on every subsequent `isValid` transition;
+	// downstream consumers (the Filter-section save button) gate
+	// on this and need the initial-mount fire so the parent's
+	// save state initializes correctly. The `onValidityChange`
+	// callback is stashed in a ref so a fresh-each-render parent
+	// callback identity doesn't trip the effect on non-transitions
 	// — same pattern `AndOrBody` uses for the monitor's
 	// `onChange` ref. Render-time write keeps the ref current
 	// before the effect phase runs.

@@ -39,6 +39,7 @@ import {
 	multiSelectAny,
 	prop,
 	relationStep,
+	selfPath,
 	subcasePath,
 	term,
 	today,
@@ -552,5 +553,93 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 		expect(container.textContent).toMatch(/Property via relation walk/i);
 		expect(onChange).not.toHaveBeenCalled();
 		clickReplaceAndAssertCanonicalProperty(onChange, "patient");
+	});
+});
+
+describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
+	// `selfPath()` is semantically equivalent to "no walk" — the
+	// `isCanonicalPropertyRef` guard accepts both `via === undefined`
+	// AND `via.kind === "self"` as canonical shapes that round-trip
+	// through the editing surface (no badge). One test per mode
+	// pins the symmetry: the editing surface renders, and picking a
+	// different property name preserves `via.kind === "self"` in the
+	// emitted result rather than dropping or rebadging it.
+
+	const SELF_VIA = selfPath();
+
+	it("LEFT-slot mode renders the editing surface for prop with via=self", () => {
+		// IsBlankCard exercises the LEFT-slot mode. The selfPath value
+		// must NOT trigger the badge — it's canonical per the picker's
+		// guard contract.
+		const value = isBlank(term(prop("patient", "name", SELF_VIA)));
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		// No badge — the canonical guard accepted via=self.
+		expect(container.textContent).not.toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		// Picking a different property must preserve via=self verbatim.
+		// The picker rebuilds via `prop(caseType, name, via)` (three-arg
+		// form) so the via slot survives the edit.
+		const propertyTrigger = screen.getByRole("button", {
+			name: /^Property:/i,
+		});
+		fireEvent.click(propertyTrigger);
+		const ageOption = screen.getByRole("menuitem", { name: /^age/i });
+		fireEvent.click(ageOption);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		const next = onChange.mock.calls[0][0] as {
+			left: {
+				term: { kind: string; property: string; via?: { kind: string } };
+			};
+		};
+		expect(next.left.term.kind).toBe("prop");
+		expect(next.left.term.property).toBe("age");
+		expect(next.left.term.via?.kind).toBe("self");
+	});
+
+	it("property-only mode renders the editing surface for prop with via=self", () => {
+		// MatchCard exercises the property-only mode. Same canonical
+		// contract: via=self is editable in place, and the via slot
+		// survives a property name change.
+		const value = match(
+			prop("patient", "name", SELF_VIA),
+			term(literal("alice")),
+			"fuzzy",
+		);
+		const onChange = vi.fn();
+		const { container } = render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(container.textContent).not.toMatch(/Property via relation walk/i);
+		expect(onChange).not.toHaveBeenCalled();
+		// Pick the dropdown trigger by its accessible label
+		// ("Property: <current>"). The match card filters its picker
+		// to text-shaped properties; `name` is text-shaped so the
+		// picker accepts it.
+		const propertyTrigger = screen.getByRole("button", {
+			name: /^Property:/i,
+		});
+		fireEvent.click(propertyTrigger);
+		const tagsOption = screen.getByRole("menuitem", { name: /^tags/i });
+		fireEvent.click(tagsOption);
+		expect(onChange).toHaveBeenCalledTimes(1);
+		const next = onChange.mock.calls[0][0] as {
+			property: { kind: string; property: string; via?: { kind: string } };
+		};
+		expect(next.property.kind).toBe("prop");
+		expect(next.property.property).toBe("tags");
+		expect(next.property.via?.kind).toBe("self");
 	});
 });

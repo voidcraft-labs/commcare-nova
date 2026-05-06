@@ -217,9 +217,19 @@ export function PropertyRefPicker(props: PropertyRefPickerProps) {
  *  matching the caller's filter (or the first property at all when
  *  no filter applies); falls back to an empty name when no
  *  property qualifies, matching the default-value factories'
- *  behavior on a property-less case type. The result has no
- *  `via` — the badge path resets to canonical shape; authors
- *  who want a relation walk re-author through the SA tool
+ *  behavior on a property-less case type.
+ *
+ *  Replace-contract reset: the result rebases BOTH structural
+ *  attributes to canonical scope —
+ *    - `caseType: currentCaseType` (the editor's current scope,
+ *      which can differ from the source ref's `caseType` when the
+ *      source carried a non-self `via` walk; canonical refs
+ *      satisfy `caseType === currentCaseType`).
+ *    - `via: undefined` (no walk; canonical refs either omit `via`
+ *      or carry `via.kind === "self"`, and the picker emits the
+ *      omitted form for replacement).
+ *
+ *  Authors who want a relation walk re-author through the SA tool
  *  surface or the `exists` / `missing` cards' relation builder. */
 function replacementPropRef(
 	caseTypes: ReturnType<typeof usePredicateEditContext>["caseTypes"],

@@ -39,6 +39,13 @@ import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 
+/** Module-level filter so render-time identity stays stable —
+ *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
+ *  on each fresh-arrow filter, even when the actual selection rule
+ *  is constant. */
+const MULTI_SELECT_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
+	p.data_type === "multi_select";
+
 /**
  * Build the default `multi-select-contains` predicate. Picks the
  * first multi_select-typed property (the kind's only valid target
@@ -136,7 +143,7 @@ export function MultiSelectContainsCard({
 						mode="property-only"
 						value={value.property}
 						onChange={setProperty}
-						filter={(p) => p.data_type === "multi_select"}
+						filter={MULTI_SELECT_PROPERTY_FILTER}
 						invalid={propertyErrors.length > 0}
 						ariaLabel="Multi-select property"
 					/>
