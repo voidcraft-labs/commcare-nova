@@ -21,27 +21,15 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useAppId } from "@/lib/session/hooks";
 
 interface CaseListScreenProps {
-	/** This screen's identity — which module the case list belongs to.
-	 *  Passed from PreviewShell so the component remains valid while Activity
-	 *  hides it. */
+	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 }
 
 /**
- * Case list screen — renders the running-app view's case-list table for
- * the active module's case-type.
- *
- * Subscribes to `useCases({appId, caseType})` and renders one of:
- *   - `loading` — spinner while the action is in flight.
- *   - `empty` — "Generate sample data" affordance per the spec's
- *     always-in-valid-state principle (an empty case-type is a button,
- *     not an error).
- *   - `rows` — the standard table; one row per `CaseRow`, columns
- *     supplied by `module.caseListColumns`. Cell values resolve through
- *     `caseRowDisplayValue` so a JSONB property reads as its display
- *     string regardless of underlying JSON shape.
- *   - `unauthenticated` / `error` — typed failure cards with the
- *     action's message.
+ * Case list screen. Subscribes to `useCases({appId, caseType})`
+ * and renders one of `loading` / `empty` / `rows` /
+ * `unauthenticated` / `error` arms. Empty case-type is a button,
+ * not an error.
  */
 export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const loc = useLocation();
@@ -50,15 +38,9 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const appId = useAppId();
 	const docApi = useBlueprintDocApi();
 
-	/** Module and form uuids from the URL — used for uuid-first navigation.
-	 *  The case list screen is reached via `?m=<moduleUuid>&view=cases`. The
-	 *  form that the user will enter after selecting a case is determined at
-	 *  click time by looking up the first case-loading form in the module. */
 	const moduleUuid = loc.kind === "cases" ? loc.moduleUuid : undefined;
 
-	/** First form in this module — the case list always opens into it
-	 *  (the case-loading form). Returns the whole entity so the header
-	 *  row can show the form's display name without a second subscription. */
+	/** The case list always opens into the module's first form (the case-loading form). */
 	const firstForm = useFirstFormForModule(moduleUuid);
 	const firstFormUuid = firstForm?.uuid;
 	const firstFormName = firstForm?.name;
@@ -67,22 +49,12 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const columns = mod?.caseListColumns ?? [];
 
-	/** Subscribe to the case-list rows for this module's case-type.
-	 *  The hook stays in `loading` until both `appId` and `caseType` are
-	 *  bound — the URL parser may resolve the module before the session
-	 *  store has populated `appId`. */
 	const { state, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
 	});
 
-	/** Populate-action callback. The hook closes over the live
-	 *  blueprint snapshot, projected down to the bare `BlueprintDoc`
-	 *  shape via `pickBlueprintDoc` — Server Actions reject function
-	 *  values during serialization, and the store's state carries
-	 *  action methods alongside the data. The `getState()` read does
-	 *  not subscribe, so the component does not re-render on every
-	 *  doc tick. */
+	/** `pickBlueprintDoc` projects the doc-store state to a Server-Action-serializable shape (action methods would reject at the RSC boundary). `getState()` doesn't subscribe. */
 	const populate = usePopulateSampleCases({
 		appId,
 		caseType: caseType?.name,
@@ -90,20 +62,12 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			state.kind === "empty" ? pickBlueprintDoc(docApi.getState()) : undefined,
 	});
 
-	/** Local UI state for the populate button. The hook itself is stateless;
-	 *  this component owns the spinner / error display because the visual
-	 *  treatment is the consumer's responsibility (see the
-	 *  `useCaseDataBinding.ts` hook docs for rationale). */
 	const [populateStatus, setPopulateStatus] = useState<
 		{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }
 	>({ kind: "idle" });
 
-	/* `handleGenerate` is intentionally NOT wrapped in `useCallback`.
-	 * `populate` is a fresh closure every render (see
-	 * `usePopulateSampleCases` for rationale), so a `useCallback` on
-	 * `[populate, reload]` would invalidate on every render —
-	 * memoization would be structurally empty. Closure allocation is
-	 * cheap; pretending to memoize is misleading. */
+	/* NOT wrapped in `useCallback` — `populate` is fresh per render
+	 * (see `usePopulateSampleCases`), so memoization would be empty. */
 	const handleGenerate = async () => {
 		setPopulateStatus({ kind: "running" });
 		try {
@@ -113,25 +77,6 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				reload();
 				return;
 			}
-			/* Map the typed result arms to user-facing messages. Each
-			 * arm describes a different precondition / failure the
-			 * case-store surfaces:
-			 *   - `unauthenticated` — session expired mid-render.
-			 *   - `missing-case-type` — the live blueprint snapshot the
-			 *     action received doesn't declare this case type
-			 *     (deleted in the editor since mount, or the snapshot
-			 *     is stale). The user retries against fresh state.
-			 *   - `schema-not-synced` — the case-store's
-			 *     `case_type_schemas` row hasn't been written yet
-			 *     because the blueprint mutator skipped the
-			 *     `applySchemaChange` step. The retry succeeds once the
-			 *     sync lands; surfacing the structural fix verbatim
-			 *     would over-share internal vocabulary.
-			 *   - `validation-failure` — AJV rejected a generated row
-			 *     against the case-type's JSON Schema. The structured
-			 *     `failures` array carries one entry per offending
-			 *     field; the message lists each as `field: reason` so
-			 *     the author can correct the case-type definition. */
 			let message: string;
 			switch (result.kind) {
 				case "unauthenticated":
@@ -144,12 +89,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					message = `Case type '${result.caseType}' isn't ready yet. Try again in a moment.`;
 					break;
 				case "validation-failure": {
-					/* Format the per-field failure list as
-					 * `field: reason` pairs. AJV's `path` is the JSONB
-					 * pointer (`/age`, `/name`, or empty string for the
-					 * document root); strip the leading slash for
-					 * readability and substitute `<root>` for the
-					 * empty path so the line is never blank. */
+					/* AJV's `path` is the JSONB pointer (`/age`, or
+					 * `""` for the document root); strip the leading
+					 * slash for readability and substitute `<root>`
+					 * for the empty path. */
 					const lines = result.failures.map((f) => {
 						const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
 						return `${field}: ${f.message}`;
@@ -163,11 +106,9 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			}
 			setPopulateStatus({ kind: "error", message });
 		} catch {
-			/* Wire-level failures (the Server Action's promise rejecting
-			 * before its body ran — RSC serialization, transport, etc.)
-			 * bypass the typed `result` arms entirely. The catch maps
-			 * them to the same `error` shape so the button never sticks
-			 * on "Generating..." after a network failure. */
+			/* Wire-level failures (RSC serialization, transport)
+			 * bypass the typed result arms; map to the same shape
+			 * so the button never sticks on "Generating...". */
 			setPopulateStatus({
 				kind: "error",
 				message: "Could not generate sample data. Try again.",
@@ -183,11 +124,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		);
 	}
 
-	/** Navigate to the first form in the module (the case-loading form).
-	 *  The form URL schema has slots for module / form / field UUIDs but
-	 *  not for a case-id; the case-list-to-form transition lands the user
-	 *  on the form without a bound case. `FormScreen`'s "no cases
-	 *  available" empty state handles followup forms reached this way. */
+	/** The form URL schema has no caseId slot today — the case-list-to-form transition lands the user on the form without a bound case. `FormScreen`'s "no cases available" empty state handles followup forms reached this way. */
 	const handleRowClick = () => {
 		if (!moduleUuid || !firstFormUuid) return;
 		navigate.openForm(moduleUuid, firstFormUuid);

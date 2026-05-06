@@ -3,39 +3,18 @@
 // The single production constructor path for `CaseStore` instances.
 // API routes call `withOwnerContext(session.user.id)` once per
 // request; the resulting `CaseStore` carries the owner id at every
-// underlying SELECT / UPDATE / DELETE and cannot be reused across
-// tenants.
+// underlying SELECT / UPDATE / DELETE. The factory routes the
+// `getCaseStoreDatabase()` singleton into `PostgresCaseStore`'s
+// constructor so a change to the connection routing strategy lands
+// here rather than at every API route.
 //
-// ## Why a factory, not a public constructor
+// Tests do NOT call this factory — they construct
+// `PostgresCaseStore` directly with an isolated per-test
+// `Kysely<Database>` instance from
+// `lib/case-store/sql/__tests__/perTestDatabase.ts`.
 //
-// `PostgresCaseStore`'s constructor accepts both an `ownerId` and a
-// `Kysely<Database>` handle. Tests pass an isolated per-test handle;
-// production needs the singleton from `connection.ts`. The factory
-// is the seam that picks the production handle without leaking the
-// production-only `getCaseStoreDatabase` import to every API route.
-// Centralizing connection routing here means a change to the
-// routing strategy lands in one file rather than rippling across
-// every call site.
-//
-// ## Tenant scoping is structural
-//
-// Construction-time enforcement, not caller discipline. Every
-// `CaseStore` method internally adds `WHERE owner_id = <bound
-// userId>` to the underlying query so a new method on the
-// interface inherits the filter automatically. The factory is the
-// single seam that pins `ownerId`; a `CaseStore` instance reused
-// across tenants is structurally impossible because every instance
-// carries one bound owner for life.
-//
-// ## Test path
-//
-// Tests do NOT call this factory. Tests construct `PostgresCaseStore`
-// directly with an isolated `Kysely<Database>` instance (the
-// `setupPerTestDatabase` helper at
-// `lib/case-store/sql/__tests__/perTestDatabase.ts`). The factory is
-// production-only because the singleton it threads is the live Cloud
-// SQL connection — testcontainers runs against its own isolated
-// engine and routes its own handle through the constructor.
+// See `lib/case-store/CLAUDE.md` § "Tenant scoping is structural"
+// for the structural-enforcement contract.
 
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
@@ -44,28 +23,11 @@ import type { CaseStore } from "./store";
 
 /**
  * Construct a `CaseStore` bound to the supplied user's owner-id
- * scope. The returned instance is cheap to discard between
- * requests — it holds the singleton `Kysely<Database>` handle by
- * reference, not by ownership, so closing the request boundary
- * does not destroy the underlying pool.
- *
- * Async because `getCaseStoreDatabase()` resolves the connector +
- * pool lazily on first call (see
- * `lib/case-store/postgres/connection.ts`).
- *
- * The default `SampleCaseGenerator` is `HeuristicCaseGenerator`
- * (under `./sample/heuristic.ts`) — a stateless, deterministic
- * generator. The constructor takes the generator as an explicit
- * argument so tests can pass alternatives without going through
- * this factory.
- *
- * @param userId - The Better Auth user id from the request's
- *   resolved session (`session.user.id`). The store binds this as
- *   its `owner_id` filter for every underlying query; cross-tenant
- *   reads are structurally impossible because the bound user
- *   cannot be reassigned after construction.
- *
- * @returns A `CaseStore` bound to the supplied user id.
+ * scope. The returned instance holds the singleton
+ * `Kysely<Database>` by reference, so discarding it at the request
+ * boundary does not destroy the underlying pool. Async because
+ * `getCaseStoreDatabase()` resolves the connector + pool lazily on
+ * first call.
  */
 export async function withOwnerContext(userId: string): Promise<CaseStore> {
 	const db = await getCaseStoreDatabase();

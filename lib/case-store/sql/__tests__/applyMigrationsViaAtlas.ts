@@ -1,31 +1,19 @@
 // lib/case-store/sql/__tests__/applyMigrationsViaAtlas.ts
 //
-// Shared atlas shell-out helper. Two test surfaces consume it:
-//
-//   - `globalSetup.ts` — applies the migrations once per
-//     `vitest run` against the testcontainer's shared database.
-//   - `postgres/__tests__/store.test.ts` — applies the migrations
-//     into each per-test database (fresh databases that the
-//     `setupPerTestDatabase` helper provisions).
-//
-// Both call `atlas migrate apply --env testcontainer --url <uri>
-// --allow-dirty`. The `--allow-dirty` rationale lives in
-// `lib/case-store/CLAUDE.md` § Production: Cloud Run startup CMD.
+// Shared atlas shell-out for `globalSetup.ts` (shared database)
+// and per-test databases (`setupPerTestDatabase`). The
+// `--allow-dirty` rationale lives in `lib/case-store/CLAUDE.md`
+// § Production: Cloud Run startup CMD.
 
 import { spawnSync } from "node:child_process";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
 /**
- * Apply pending migrations via atlas against the supplied
- * connection URI. Throws on any failure — atlas binary missing
- * (ENOENT), non-zero exit status, or a child-process spawn error.
- *
- * `stdio` defaults to `"inherit"` so atlas's progress + error
- * output flows straight into the test runner's stderr (the
- * `globalSetup.ts` shape). Pass `"pipe"` to capture stdout/stderr
- * inside the failure message instead — useful in `beforeEach` hooks
- * where atlas's per-test output would otherwise drown the test run
- * (`store.test.ts` shape).
+ * Apply pending migrations via atlas. `stdio: "inherit"`
+ * (default) flows progress to the test runner's stderr; `"pipe"`
+ * captures into the failure message instead — useful for
+ * `beforeEach` hooks where per-test atlas output would drown the
+ * run.
  */
 export function applyMigrationsViaAtlas(
 	uri: string,
@@ -65,9 +53,8 @@ export function applyMigrationsViaAtlas(
 	}
 
 	if (result.status !== 0) {
-		// `pipe` mode captured atlas's output strings; surface them in
-		// the error message so the failure is self-contained. `inherit`
-		// mode wrote them straight to stderr already.
+		// `pipe` mode surfaces captured output in the message;
+		// `inherit` mode already wrote it to stderr.
 		const captured =
 			stdio === "pipe"
 				? `\n${result.stdout ?? ""}\n${result.stderr ?? ""}`

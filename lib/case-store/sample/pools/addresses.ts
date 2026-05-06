@@ -1,28 +1,12 @@
 // lib/case-store/sample/pools/addresses.ts
 //
-// Static address pool the heuristic generator picks from for
-// `text`-typed properties whose name shape suggests an address (e.g.
-// "address", "street", "village"). One self-contained address line
-// per entry — the generator returns the line as a single string, not
-// a structured record, because the case-property surface stores
-// addresses as text under a single key.
-//
-// Why static lines, not a synth-from-parts approach: a synthesized
-// shape (`<number> <street>, <city>`) reads as obviously generated;
-// curated lines from real-world places preserve the format quirks
-// (postal-code shape, comma placement, "Apt 3B"-style suffixes) that
-// make a sample-data demo feel like real authoring rather than
-// fixture noise.
+// Static address pool for the heuristic generator's `text`
+// properties matching `address` / `street` / `village` etc.
+// Curated real-world lines (rather than synthesized shapes)
+// preserve format quirks — postal codes, comma placement,
+// "Apt 3B" suffixes — that make sample data feel like real
+// authoring rather than fixture noise.
 
-/**
- * Address line pool. Mixes urban, suburban, and rural shapes across
- * regions so the generator output exhibits visible variety at the
- * default 30-row count. Lines are intentionally inconsistent in
- * format (some carry postal codes, some don't; some carry unit
- * numbers, some don't) — case-property `text` storage carries no
- * format constraint, and the variety reflects what authoring against
- * real data tends to look like.
- */
 export const ADDRESS_LINES: readonly string[] = [
 	"42 Mosi Street, Lagos",
 	"118 Brigade Road, Bangalore 560001",
@@ -58,12 +42,6 @@ export const ADDRESS_LINES: readonly string[] = [
 
 import type { SeededPrng } from "../prng";
 
-/**
- * Pick one address line via the seeded PRNG. Returns the full line
- * as a single string — the case-property surface stores addresses
- * under one text key, not as a structured record, so no parts split
- * is needed at this layer.
- */
 export function pickAddressLine(prng: SeededPrng): string {
 	return ADDRESS_LINES[prng.pickIndex(ADDRESS_LINES.length)] ?? "Unknown";
 }

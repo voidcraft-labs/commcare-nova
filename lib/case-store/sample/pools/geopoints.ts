@@ -1,31 +1,15 @@
 // lib/case-store/sample/pools/geopoints.ts
 //
-// City-cluster geopoint generator. Real-world coordinates clustered
-// near major city centers across continents so search-by-location
-// demos exhibit recognizable geography rather than uniform-random
-// noise across the globe.
-//
-// Wire format: CCHQ's geopoint shape is four space-separated decimals
-// — `latitude longitude altitude accuracy`. The generator emits this
-// exact shape so the JSON Schema validator
-// (`lib/domain/predicate/jsonSchema.ts`'s GEOPOINT_PATTERN) accepts
-// the value at insert time. Altitude and accuracy default to a
-// plausible-low value because the case-property surface treats them
-// as supplementary metadata; a sample-data demo doesn't need varied
-// altitudes.
-//
-// Coordinates are perturbed off the city center within a small
-// radius (~0.05 degrees, roughly 5 km) so a 30-row cluster spreads
-// visibly across a city map without scattering across continents.
+// Geopoints clustered ~5 km around major city centers so a 30-row
+// search-by-distance demo spreads visibly on a city map rather
+// than scattering across continents. Wire shape: CCHQ's
+// space-separated `lat lon alt acc` per `GEOPOINT_PATTERN` at
+// `lib/domain/predicate/jsonSchema.ts`. Altitude / accuracy default
+// to plausible-low values; the demo path doesn't vary them.
 
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
-/**
- * Major city centers the generator clusters around. Each entry pairs
- * a name (for documentation; not emitted) with a `(latitude,
- * longitude)` pair the generator perturbs off of. Mixed across
- * continents so a 30-row sample exhibits global variety.
- */
+/** Mixed across continents for global variety. `name` is for docs only — not emitted. */
 export const CITY_CENTERS: readonly {
 	name: string;
 	latitude: number;
@@ -45,32 +29,11 @@ export const CITY_CENTERS: readonly {
 
 import type { SeededPrng } from "../prng";
 
-/**
- * Pick a city-clustered geopoint and emit it in CCHQ's wire shape.
- *
- * The PRNG drives two independent kinds of read:
- *
- *   - one indexed pick over `CITY_CENTERS` to choose the cluster
- *     center
- *   - two `pickFloat` reads to perturb latitude / longitude inside
- *     the cluster radius
- *
- * The `prng` argument is the generator's seeded instance, so all
- * randomness flows through one source — the determinism contract
- * holds because every pool call threads through the same PRNG.
- *
- * Wire shape: `latitude longitude altitude accuracy` matches the
- * GEOPOINT_PATTERN at `lib/domain/predicate/jsonSchema.ts`. Altitude
- * defaults to 0 and accuracy to a plausible 5 (meters); both are
- * supplementary metadata the case-property surface stores but
- * neither matters for the search-by-distance demo path.
- */
+/** Pick a city-clustered geopoint in CCHQ's wire shape. */
 export function pickCityClusteredGeopoint(prng: SeededPrng): string {
 	const center = CITY_CENTERS[prng.pickIndex(CITY_CENTERS.length)];
 	if (center === undefined) {
-		// Defensive: CITY_CENTERS is statically non-empty, so this
-		// arm is unreachable. The throw exists to surface the
-		// invariant if a future edit empties the array.
+		// Defensive: `CITY_CENTERS` is statically non-empty.
 		throw new Error(
 			compilerBugMessage({
 				where: "case-store.pickCityClusteredGeopoint",
@@ -81,14 +44,10 @@ export function pickCityClusteredGeopoint(prng: SeededPrng): string {
 			}),
 		);
 	}
-	// Perturbation radius: ~0.05 degrees ≈ 5 km at the equator.
-	// `pickFloat()` returns a uniform [0, 1) value; centering at -0.05
-	// produces a [-0.05, 0.05) offset, keeping the cluster tight
-	// around the center.
+	// `(pickFloat - 0.5) * 0.1` → [-0.05, 0.05) offset, ~5 km at
+	// the equator. Six-decimal precision is ~0.1 m, plenty for the
+	// demo path.
 	const latitude = center.latitude + (prng.pickFloat() - 0.5) * 0.1;
 	const longitude = center.longitude + (prng.pickFloat() - 0.5) * 0.1;
-	// Format with fixed decimal precision so the wire shape is
-	// stable across rows. Six decimals ≈ 0.1 m precision, more than
-	// enough for the demo path.
 	return `${latitude.toFixed(6)} ${longitude.toFixed(6)} 0 5`;
 }

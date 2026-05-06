@@ -5,116 +5,18 @@
 // AST→Kysely predicate / expression / relation-path compilers into
 // the live runtime. Spec source:
 // `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "CaseStore — Cloud SQL Postgres from day-1" section
-// (lines 350-389) and "Schema migration policy" (lines 309-340).
+// "CaseStore — Cloud SQL Postgres from day-1" (lines 350-389) and
+// "Schema migration policy" (lines 309-340).
 //
-// ## Tenant scoping is anchored on the bound owner
+// See `lib/case-store/CLAUDE.md` for the architectural contract:
+// structural tenant scoping, the API-trust-boundary validation
+// model, the two-phase shape of `applySchemaChange` (Phase A schema
+// sync + per-row migration in one transaction; Phase B
+// `CREATE INDEX CONCURRENTLY` afterward), and the
+// `SnapshotAny`-vs-`CONCURRENTLY` rationale that forces the split.
 //
-// The constructor takes the owner id at construction; every method
-// internally adds `WHERE owner_id = <bound userId>` to the outer
-// query. The compiler stack handles the JOIN-side filter inside
-// relation walks (see `lib/case-store/sql/compileRelationPath.ts`);
-// this module owns the outer-scan filter on every method's
-// underlying SELECT / UPDATE / DELETE.
-//
-// ## JSON Schema validation runs at the API trust boundary
-//
-// `insert` and `update` validate the candidate `properties` payload
-// against `case_type_schemas[appId, caseType].schema` via `ajv`
-// before any write hits Postgres. The schema row is fetched on
-// demand and the compiled validator is cached per
-// `(appId, caseType, schemaContent)` so repeated writes don't pay
-// the compile cost. Spec § "Write-time validation" (lines 297-301):
-// the API route is the trust boundary; the database is internal.
-// No in-database trigger, no `pg_jsonschema` dependency.
-//
-// ## `applySchemaChange` runs in two phases
-//
-// **Phase A (one Kysely transaction):**
-//
-//   1. **Schema sync** — regenerate the JSON Schema via
-//      `caseTypeToJsonSchema` and UPSERT into `case_type_schemas`.
-//   2. **Per-row migration** — only when `change` is supplied. The
-//      three `change` arms are:
-//      - `rename(from, to)` — JSONB key rename in one UPDATE.
-//      - `retype(fromType, toType)` — per-row cast attempt; cast
-//        failures move to `cases_quarantine`.
-//      - `narrow-options(removedOptions)` — rows with the removed
-//        value move to `cases_quarantine`.
-//
-// Phase A commits when both steps succeed and rolls back atomically
-// on failure. The schema row + data are always consistent with each
-// other — the database never holds a new schema with rows that fail
-// validation against it.
-//
-// **Phase B (no transaction, runs after Phase A commits):**
-//
-//   3. **Per-property expression-index DDL emission** — always runs.
-//      Computes the desired index set for the case-type from the
-//      blueprint (per-`data_type` mode derivation), reads the live
-//      index set from `pg_index` + `pg_class` (joined to capture
-//      `indisvalid`), emits the matching `DROP INDEX` / `CREATE
-//      INDEX` statements for the diff. Naming convention
-//      `cases_<case_type>_<property>_<mode>` keys each index by its
-//      `(case_type, property, mode)` tuple so the diff is mechanical
-//      across blueprint mutations.
-//
-// ## Why DDL is split out of Phase A's transaction
-//
-// PostgreSQL's `CREATE INDEX` (non-`CONCURRENTLY`) heap-scans with
-// `SnapshotAny` semantics, which includes recently-deleted but
-// not-yet-vacuumed tuples. Inside the same transaction as Phase A's
-// per-row migration, a retype that moves a non-castable row to
-// `cases_quarantine` (DELETE from `cases` + INSERT into
-// `cases_quarantine`) leaves a dead tuple in `cases`'s heap. A
-// subsequent in-transaction `CREATE INDEX` over the new typed
-// expression scans that dead tuple and fails the cast on its
-// pre-migration value — the `text → int` retype's `"abc"`
-// quarantined row trips `((properties->>'X')::integer)`, rolling
-// back the transaction and defeating quarantine.
-//
-// Phase B uses `CREATE INDEX CONCURRENTLY`, which carries two
-// design properties Phase B requires: (1) it uses MVCC snapshot
-// semantics strict enough to ignore tuples being modified by
-// concurrent (or recently committed) transactions, so dead tuples
-// from Phase A's quarantine DELETE are excluded from the heap
-// scan; (2) it cannot run inside an outer transaction, which
-// aligns with the non-transactional shape Phase B adopts for the
-// SnapshotAny reason above. As a side benefit, CONCURRENTLY does
-// not hold `ACCESS EXCLUSIVE` on `cases` for the build's
-// duration — concurrent reads and writes against `cases` keep
-// working while the index builds, which matters for production
-// case-types large enough that the build takes seconds.
-//
-// ## Phase B failure semantics
-//
-// Schema and data are always consistent. Phase B's CREATE INDEX
-// statements run after Phase A's commit; a failure mid-Phase-B
-// throws, the schema row + per-row migration are already
-// committed, and the next `applySchemaChange` call diffs against
-// the catalog and re-emits whatever drops + creates remain
-// outstanding. The diff captures `pg_index.indisvalid` — a
-// `CREATE INDEX CONCURRENTLY` failure (lock conflict, deadlock,
-// disk full, cancelled mid-build) leaves the partially-built
-// index marked invalid in the catalog, and the diff treats an
-// INVALID entry as "drop and recreate" so the next retry
-// converges. The recovery is therefore idempotent: any number of
-// retries on the same `applySchemaChange` arguments lands the
-// same final index set, no matter where the previous attempt
-// failed. Missing or invalid indexes degrade query performance
-// but never correctness — the term compiler's emitted SQL falls
-// back to a sequential scan over the case-type partition without
-// one.
-//
-// ## Pre-flight identifier validation runs BEFORE Phase A
-//
-// `computeDesiredIndexSet` runs synchronously at the top of
-// `applySchemaChange`, before the transaction opens. Property
-// names and case-type names compose into the index name through
-// `indexName`, which throws on identifier-shape violations
-// (non-alphanumeric+underscore+hyphen characters, post-transform
-// collisions between hyphenated and underscored siblings, and the
-// 63-byte identifier cap). A throw at this point leaves
+// Identifier validation runs synchronously at the top of
+// `applySchemaChange` before Phase A opens. A throw leaves
 // `case_type_schemas` untouched — the database never holds a
 // schema row whose properties cannot all be indexed.
 
@@ -173,56 +75,26 @@ import type {
 } from "../store";
 import { buildCaseTypeMap, findCaseTypeOrThrow } from "../store";
 
-// ---------------------------------------------------------------
-// Constructor args
-// ---------------------------------------------------------------
-
 /**
- * Construction arguments. All three fields are required: the owner
- * id pins tenant scope; the Kysely instance is the connection root
- * the store binds against; the sample generator is the seam
- * `generateSampleData` and `resetSampleData` route through.
- *
- * Production callers go through `withOwnerContext(userId)` which
- * resolves `db` from `getCaseStoreDatabase()` and wires the default
- * `HeuristicCaseGenerator`. Tests construct directly with a per-
- * test isolated Kysely instance and either the heuristic generator
- * or a stub.
+ * Construction arguments. Production callers go through
+ * `withOwnerContext(userId)`; tests construct directly with a
+ * per-test isolated Kysely instance and either the heuristic
+ * generator or a stub.
  */
 export interface PostgresCaseStoreArgs {
-	/** The owner id every method's WHERE clause filters on. */
 	ownerId: string;
-	/** The bound Kysely instance — production singleton or per-test fixture. */
 	db: Kysely<Database>;
-	/**
-	 * The bound `SampleCaseGenerator`. `generateSampleData` and
-	 * `resetSampleData` invoke `generator.generate(...)` to build
-	 * the row population; the store then routes those rows through
-	 * `this.insert(...)` so generated rows participate in the same
-	 * JSON Schema validation + `case_indices` derivation real
-	 * inserts use.
-	 */
 	sampleGenerator: SampleCaseGenerator;
 }
 
-// ---------------------------------------------------------------
-// Validator cache
-// ---------------------------------------------------------------
-
 /**
- * One ajv instance per `PostgresCaseStore` instance. Reusing one
- * ajv across compilations (rather than per-validator) lets ajv's
- * internal schema cache amortize keyword resolution across
- * different case-type schemas.
- *
- * `Ajv2020` is the draft 2020-12 export — matches the JSON Schema
- * draft level `caseTypeToJsonSchema` produces. `addFormats` wires
- * the `format: date` / `format: time` / `format: date-time`
- * handlers the temporal-property arms of `caseTypeToJsonSchema`
- * emit; without it, the formats are unrecognized and the schema
- * silently passes any string. `strict: false` admits extra ajv
- * keywords (the schema generator is intentionally loose per its
- * file-level comment).
+ * One ajv instance per `PostgresCaseStore`. Reusing one across
+ * compilations lets ajv's internal schema cache amortize keyword
+ * resolution. `Ajv2020` matches `caseTypeToJsonSchema`'s draft
+ * level; `addFormats` wires the temporal `format` handlers (without
+ * it the formats are unrecognized and the schema silently passes
+ * any string); `strict: false` admits the schema generator's loose
+ * extra keywords.
  */
 function buildAjv(): Ajv2020 {
 	const ajv = new Ajv2020({ strict: false });
@@ -231,27 +103,16 @@ function buildAjv(): Ajv2020 {
 }
 
 /**
- * Cached compiled-validator entry. The schema is captured by
- * reference; cache lookups compare against the JSON-stringified
- * schema content so a `case_type_schemas` row update invalidates
- * the cached validator without manual eviction.
+ * Cached compiled-validator entry. Cache lookups compare against
+ * the JSON-stringified schema content so a `case_type_schemas` row
+ * update invalidates the cached validator without manual eviction.
  */
 interface ValidatorCacheEntry {
-	/** JSON-stringified schema — the cache key invariant. */
 	schemaJson: string;
-	/** The ajv-compiled validator. */
 	validate: ValidateFunction<unknown>;
 }
 
-// ---------------------------------------------------------------
-// `PostgresCaseStore`
-// ---------------------------------------------------------------
-
-/**
- * The Postgres-backed implementation of `CaseStore`. Constructed
- * via `withOwnerContext` in production; tests construct directly
- * with an isolated Kysely instance.
- */
+/** The Postgres-backed implementation of `CaseStore`. */
 export class PostgresCaseStore implements CaseStore {
 	private readonly ownerId: string;
 	private readonly db: Kysely<Database>;
@@ -267,10 +128,6 @@ export class PostgresCaseStore implements CaseStore {
 		this.sampleGenerator = args.sampleGenerator;
 	}
 
-	// -----------------------------------------------------------
-	// `query` — predicate-driven SELECT
-	// -----------------------------------------------------------
-
 	async query(args: QueryArgs): Promise<CaseRow[]> {
 		const ctx = this.buildPredicateContext({
 			db: this.db,
@@ -279,12 +136,8 @@ export class PostgresCaseStore implements CaseStore {
 			schemas: buildCaseTypeMap(args.blueprint),
 		});
 
-		// Outer query owns the `(app_id, owner_id)` tenant filter
-		// per the foundation contract — `compileRelationPath` only
-		// enforces the filter on JOIN-ed cases inside relation
-		// walks. The case-type filter pins the SELECT to the
-		// requested type so cross-type reads aren't accidentally
-		// admitted.
+		// Outer query owns the tenant filter — `compileRelationPath`
+		// only enforces it on JOIN-ed cases inside relation walks.
 		let qb = this.db
 			.selectFrom("cases as c")
 			.selectAll("c")
@@ -296,11 +149,10 @@ export class PostgresCaseStore implements CaseStore {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
 		}
 
-		// Sort keys compile through `compileExpression` against
-		// the thunk-wired context the predicate compiler exposes
-		// via `expressionContextFor` — that same lift handles the
+		// Sort keys compile through `compileExpression` against the
+		// thunk-wired context — `expressionContextFor` handles the
 		// cycle break for the predicate-bearing arms (`if.cond`,
-		// `count.where`) the expression compiler may recurse into.
+		// `count.where`).
 		if (args.sort !== undefined) {
 			const exprCtx = expressionContextFor(ctx);
 			for (const key of args.sort) {
@@ -319,17 +171,10 @@ export class PostgresCaseStore implements CaseStore {
 		return await qb.execute();
 	}
 
-	// -----------------------------------------------------------
-	// `insert` — schema-validated row write
-	// -----------------------------------------------------------
-
 	async insert(args: {
 		appId: string;
 		row: CaseInsert;
 	}): Promise<{ caseId: string }> {
-		// Validate the candidate `properties` payload against the
-		// case-type's JSON Schema before any write. The schema row
-		// is read on demand and the compiled validator is cached.
 		const propertiesObject = parseJsonbInput(args.row.properties);
 		await this.validateProperties({
 			appId: args.appId,
@@ -337,22 +182,13 @@ export class PostgresCaseStore implements CaseStore {
 			properties: propertiesObject,
 		});
 
-		// `owner_id` and `app_id` are imposed at the boundary:
-		// `CaseInsert` excludes both, and the WRITE shape merges
-		// the caller's row with the bound owner + the top-level
-		// `appId` argument. Tenant scoping at the write side is
-		// structurally impossible to bypass.
-		//
-		// `properties` flows through `JSON.stringify` because
-		// `Insertable<CasesTable>`'s `properties` shape (the
-		// `JSONColumnType<JsonObject>` insert side) is a JSON
-		// string for pg's JSONB cast. The caller may pass either
-		// a string or a `JsonObject` to `CaseInsert`; both shapes
-		// converge through `parseJsonbInput` above, and the parsed
-		// object stringifies back to the wire form here. Without
-		// this, a `JsonObject` caller would silently write
-		// `[object Object]` because pg's parameter binder calls
-		// `String(value)` on non-string inputs to a text-cast slot.
+		// `properties` re-stringifies because `Insertable<CasesTable>`'s
+		// JSONB insert side is a JSON string for pg's JSONB cast. The
+		// caller may pass either string or `JsonObject`; both converge
+		// through `parseJsonbInput` and stringify back to wire form
+		// here. Without this, a `JsonObject` caller silently writes
+		// `[object Object]` (pg's parameter binder calls `String(value)`
+		// on non-string inputs to a text-cast slot).
 		const insertRow: Insertable<CasesTable> = {
 			...args.row,
 			app_id: args.appId,
@@ -360,9 +196,8 @@ export class PostgresCaseStore implements CaseStore {
 			properties: JSON.stringify(propertiesObject),
 		};
 
-		// All writes (cases + case_indices) run inside a single
-		// transaction so a derived-edge insert can't observe a
-		// partial cases-row commit.
+		// One transaction across cases + case_indices so a derived
+		// edge insert can't observe a partial cases-row commit.
 		return await this.db.transaction().execute(async (trx) => {
 			const inserted = await trx
 				.insertInto("cases")
@@ -371,14 +206,12 @@ export class PostgresCaseStore implements CaseStore {
 				.executeTakeFirstOrThrow();
 			const caseId = inserted.case_id;
 
-			// Derive the direct-edge `case_indices` row from
-			// `parent_case_id` if present. Spec § "case_indices
+			// Direct-edge derivation per spec § "case_indices
 			// materialization policy" Option B (lines 290-295):
-			// direct edges only; recursive walks compose at read
-			// time via the relation-path compiler. Default
-			// `relationship` to `child` — the subcase / extension
-			// distinction is a CCHQ relationship-id concern resolved
-			// at the relation-path compile site, not at write.
+			// depth=1 edges only; recursive walks compose at read
+			// time. `relationship` defaults to `child` — the subcase
+			// vs extension distinction is a CCHQ concern resolved at
+			// the relation-path compile site, not at write.
 			if (
 				args.row.parent_case_id !== null &&
 				args.row.parent_case_id !== undefined
@@ -399,10 +232,6 @@ export class PostgresCaseStore implements CaseStore {
 		});
 	}
 
-	// -----------------------------------------------------------
-	// `insertWithChildren` — atomic primary + children registration
-	// -----------------------------------------------------------
-
 	async insertWithChildren(args: {
 		appId: string;
 		primary: CaseInsert;
@@ -412,12 +241,9 @@ export class PostgresCaseStore implements CaseStore {
 		childCaseIds: ReadonlyArray<string>;
 	}> {
 		// Children must not carry an explicit `parent_case_id` —
-		// the value is implicit (the primary's generated id).
-		// Surfacing this as a typed invariant prevents an upstream
-		// bug (a derivation that pre-computed a parent id) from
-		// silently overriding the parent threading logic below. The
-		// guard runs OUTSIDE the transaction so a malformed call
-		// fails fast without opening a Postgres transaction at all.
+		// the value is the primary's generated id, threaded below.
+		// Guard outside the transaction so a malformed call fails
+		// fast without opening a Postgres transaction at all.
 		for (const child of args.children) {
 			if (child.parent_case_id !== null && child.parent_case_id !== undefined) {
 				throw new Error(
@@ -432,22 +258,15 @@ export class PostgresCaseStore implements CaseStore {
 		}
 
 		// One transaction across primary + every child + every
-		// derived edge. A failure anywhere — JSON Schema rejection on
-		// any row, engine-side fault — rolls the entire registration
-		// back. The form-bridge's registration path reaches for this
-		// shape so a multi-case form's submission is atomic.
+		// derived edge. A failure anywhere rolls the entire
+		// registration back.
 		return await this.db.transaction().execute(async (trx) => {
-			// Generate the primary's id up-front so the children's
-			// `parent_case_id` resolves before the bulk-insert that
-			// lands them runs. UUID v7's millisecond timestamp prefix
-			// matches Postgres's `DEFAULT uuidv7()` shape so the
-			// B-tree clustering stays identical to the column-default
-			// path (see `insertManyInTransaction`'s rationale).
+			// Primary id generated up-front so child `parent_case_id`
+			// resolves before the bulk-insert lands. UUID v7's
+			// timestamp prefix matches `DEFAULT uuidv7()`'s B-tree
+			// clustering shape.
 			const primaryCaseId = args.primary.case_id ?? uuidv7();
 
-			// Validate the primary's properties payload against its
-			// case-type's schema. The same fetch runs for every
-			// `insert` so the cache amortizes across calls.
 			const primaryProperties = parseJsonbInput(args.primary.properties);
 			await this.validateProperties({
 				appId: args.appId,
@@ -456,10 +275,8 @@ export class PostgresCaseStore implements CaseStore {
 				executor: trx,
 			});
 
-			// Insert the primary row. Same shape as `insert`'s body
-			// but with the explicit `case_id` so the children below
-			// can reference it. The `RETURNING case_id` round-trip is
-			// unnecessary — the id is what we just generated.
+			// Insert the primary row. With an explicit `case_id` the
+			// `RETURNING` round-trip is unnecessary.
 			const primaryRow: Insertable<CasesTable> = {
 				...args.primary,
 				case_id: primaryCaseId,
@@ -469,12 +286,10 @@ export class PostgresCaseStore implements CaseStore {
 			};
 			await trx.insertInto("cases").values(primaryRow).execute();
 
-			// Derive the primary's parent edge if it carries one.
-			// (Registration forms typically don't, but the shape
-			// admits a primary that itself points at an existing
-			// parent — the form-bridge's registration path doesn't
-			// emit one today, but the implementation handles it
-			// uniformly with the per-row `insert`.)
+			// Primary parent edge if it carries one. Registration forms
+			// typically don't, but the shape admits a primary that
+			// itself points at an existing parent — handled uniformly
+			// with the per-row `insert`.
 			if (
 				args.primary.parent_case_id !== null &&
 				args.primary.parent_case_id !== undefined
@@ -491,21 +306,17 @@ export class PostgresCaseStore implements CaseStore {
 					.execute();
 			}
 
-			// Empty-children arm: behaves like `insert` for just the
-			// primary. Skip the bulk path entirely.
+			// Empty-children arm behaves like `insert` for just the
+			// primary; skip the bulk path entirely.
 			if (args.children.length === 0) {
 				return { primaryCaseId, childCaseIds: [] };
 			}
 
-			// Thread the primary's id as the implicit parent for
-			// every child, then chunk by `case_type`.
-			// `insertManyInTransaction` insists on a single
-			// `case_type` per batch (the hoisted-validator
-			// optimization fetches one schema per call), so a
-			// registration with mixed child types iterates one chunk
-			// per type. Each chunk entry tracks its origin index in
-			// `args.children` so the returned `childCaseIds` list
-			// reassembles into the caller's input order.
+			// Chunk children by case_type so the bulk path's
+			// hoisted-validator optimization (one schema fetch per
+			// `(appId, caseType)`) holds. Each chunk entry tracks its
+			// origin index so the returned `childCaseIds` reassembles
+			// into the caller's input order.
 			interface ChunkEntry {
 				originalIndex: number;
 				row: CaseInsert;
@@ -528,9 +339,8 @@ export class PostgresCaseStore implements CaseStore {
 					appId: args.appId,
 					rows: chunk.map((entry) => entry.row),
 				});
-				// `insertManyInTransaction` returns ids in the same
-				// order it received rows; map each chunk position
-				// back to the caller's original index.
+				// Map each chunk position back to the caller's
+				// original index.
 				for (let i = 0; i < chunk.length; i++) {
 					const entry = chunk[i];
 					const generated = caseIds[i];
@@ -544,68 +354,33 @@ export class PostgresCaseStore implements CaseStore {
 		});
 	}
 
-	// -----------------------------------------------------------
-	// `insertManyInTransaction` — bulk-insert path
-	// -----------------------------------------------------------
-	//
-	// Package-private; not on the `CaseStore` interface. The
-	// per-call surface stays `insert` for every external consumer
-	// (form-bridge, direct API writes); the bulk path is reserved
-	// for the sample-data generators (`generateSampleData` /
-	// `resetSampleData`) and the atomic registration shape
-	// (`insertWithChildren`) where the per-row latency of N
-	// sequential `insert` calls is perceptible.
-	//
-	// Inside the caller's transaction:
-	//
-	//   1. Fetch the JSON Schema validator ONCE per `(appId,
-	//      caseType)` (the per-row path pays a SELECT round-trip
-	//      per row even on cache hit; hoisting the fetch is the
-	//      single biggest latency win).
-	//   2. Pre-process every row in a pure TS loop: parse the
-	//      properties shape, run AJV against the cached validator,
-	//      reject on the first failure.
-	//   3. Bulk INSERT into `cases`.
-	//   4. Bulk INSERT derived edges into `case_indices`.
-	//
-	// Total: ~3 round-trips per batch (one schema fetch on cold
-	// cache, one cases insert, one optional indices insert) vs N
-	// round-trips for the per-row path.
-	//
-	// `case_id` is generated up-front in TS via `uuidv7()` rather
-	// than relying on Postgres's `DEFAULT uuidv7()` clause. The
-	// reason: the bulk shape needs every row's id BEFORE the INSERT
-	// runs so the parallel `case_indices` insert can reference each
-	// row's `case_id` without depending on `RETURNING`'s ordering
-	// guarantees. UUID v7 in TS uses the same RFC 9562 shape as
-	// Postgres's built-in (millisecond Unix timestamp prefix), so
-	// the B-tree clustering on the primary-key page stays the same.
-	//
-	// **All-or-nothing failure semantics.** A validation failure on
-	// any row aborts the entire batch — the caller's transaction
-	// rolls back, zero rows inserted. This is stricter than the
-	// per-row `insert` path, which commits earlier rows before
-	// hitting a bad one. The strictness aligns with every existing
-	// bulk caller's needs (sample-data generators want a clean
-	// population or none; `insertWithChildren`'s registration
-	// shape is atomic by contract). Any future caller that needs
-	// best-effort multi-row writes iterates `insert` and decides
-	// per-row failure handling itself.
-
 	/**
-	 * Bulk-insert the supplied rows + their derived `case_indices`
-	 * edges against the supplied transaction. The transaction is
-	 * caller-owned so the bulk path participates in whatever wider
-	 * atomic operation the caller is running (a sample-data reset's
-	 * delete + regenerate, an `insertWithChildren` registration's
-	 * primary + children, or a single-purpose
-	 * `generateSampleDataInTransaction` call that opened its own
-	 * transaction).
+	 * Bulk-insert rows + derived `case_indices` edges against the
+	 * caller's transaction. Reserved for the bulk callers
+	 * (`generateSampleData` / `resetSampleData` /
+	 * `insertWithChildren`); per-row latency of N sequential
+	 * `insert` calls is perceptible at sample-data scale.
+	 *
+	 * Shape: hoist the JSON Schema validator out of the per-row loop
+	 * (the per-row path pays a `case_type_schemas` SELECT per row
+	 * even on cache hit; hoisting is the single biggest latency
+	 * win), validate every row against the cached validator, bulk
+	 * INSERT into `cases`, bulk INSERT derived edges into
+	 * `case_indices`. ~3 round-trips per batch vs N for the per-row
+	 * path. All-or-nothing on validation failure — stricter than
+	 * per-row `insert` (which commits earlier rows before hitting a
+	 * bad one); aligns with every existing bulk caller's contract.
+	 *
+	 * `case_id` is generated up-front in TS so the parallel
+	 * `case_indices` insert can reference each row's id without
+	 * depending on `RETURNING` ordering. UUID v7 in TS uses the same
+	 * RFC 9562 shape as Postgres's built-in, so B-tree clustering on
+	 * the primary-key page is identical to the column-default path.
 	 *
 	 * Throws `CasePropertiesValidationError` on the first row that
-	 * fails JSON Schema validation; the caller's transaction rolls
-	 * back so no partial-batch row lands. All rows must share the
-	 * same `case_type`.
+	 * fails validation; the caller's transaction rolls back so no
+	 * partial-batch row lands. All rows must share the same
+	 * `case_type`.
 	 */
 	private async insertManyInTransaction(
 		trx: Transaction<Database>,
@@ -618,15 +393,10 @@ export class PostgresCaseStore implements CaseStore {
 			return { caseIds: [] };
 		}
 
-		// All rows in a batch must share one `case_type`. The
-		// hoisted-validator optimization is the architectural reason:
-		// one validator-fetch per `(appId, caseType)` pair only works
-		// when the batch is single-typed. Sample-data generation
-		// always operates on one case-type per call (the public
-		// `generateSampleData` arg pins `caseType`); future callers
-		// with mixed-type batches would need to chunk by case-type
-		// at the call site or extend the bulk path to fetch a
-		// per-type validator map.
+		// All rows must share one `case_type` so the hoisted-validator
+		// optimization holds (one validator-fetch per `(appId,
+		// caseType)`). Sample-data generation operates on one case-
+		// type per call; `insertWithChildren` chunks at its call site.
 		const caseTypes = new Set(args.rows.map((row) => row.case_type));
 		if (caseTypes.size !== 1) {
 			throw new Error(
@@ -651,29 +421,18 @@ export class PostgresCaseStore implements CaseStore {
 			);
 		}
 
-		// Generate every `case_id` up-front. UUID v7's millisecond
-		// timestamp prefix means the ids stay close-to-sorted on the
-		// B-tree primary-key page even though every row carries an
-		// explicit value (rather than relying on the column default).
-		// The runtime narrowing `case_id ?? uuidv7()` lets a caller
-		// supply an explicit id (the form-bridge path doesn't, but
-		// future callers might) while defaulting to the generator
-		// otherwise.
+		// `case_id ?? uuidv7()` lets a caller supply an explicit id
+		// while defaulting to the generator. Generated up-front so
+		// the parallel `case_indices` insert can reference each row's
+		// id without depending on `RETURNING` ordering.
 		const caseIds: string[] = args.rows.map((row) => row.case_id ?? uuidv7());
 
-		// Hoist the validator fetch out of the per-row loop. One
-		// SELECT against `case_type_schemas` (cold cache) or one
-		// cache hit (warm cache); validates every row in a tight
-		// pure-TS loop afterward.
 		const validator = await this.getValidator(args.appId, caseType, trx);
 
 		const insertRows: Insertable<CasesTable>[] = args.rows.map((row, index) => {
 			const propertiesObject = parseJsonbInput(row.properties);
 			const ok = validator(propertiesObject);
 			if (!ok) {
-				// Project AJV's failures the same way `insert`
-				// does so callers see one consistent error
-				// shape across the per-row and bulk paths.
 				const failures = (validator.errors ?? []).map((e) => ({
 					path: e.instancePath || "",
 					message: e.message ?? "invalid",
@@ -689,24 +448,11 @@ export class PostgresCaseStore implements CaseStore {
 			};
 		});
 
-		// Bulk INSERT cases first. The derived `case_indices`
-		// edges reference `cases.case_id`, but no FK constraint is
-		// declared so the order is functional rather than
-		// structural — the cases insert must land first because
-		// the edges' `ancestor_id` references existing parent rows
-		// (not part of THIS batch in the sample-data path, but
-		// the constraint shape stays the same). Bulk inserts
-		// execute as one statement, so all-or-nothing semantics
-		// hold per-statement.
+		// Cases first so derived edges' `ancestor_id` references can
+		// resolve. No FK constraint declared, so the order is
+		// functional rather than structural.
 		await trx.insertInto("cases").values(insertRows).execute();
 
-		// Build the parallel `case_indices` insert payload. A row
-		// with `parent_case_id` set contributes one direct edge;
-		// rows without a parent contribute none. The shape mirrors
-		// the per-row `insert` body's edge derivation (Option B
-		// materialization: depth=1 direct edges only; recursive
-		// walks compose at read time via the relation-path
-		// compiler).
 		const indexRows: Insertable<CaseIndicesTable>[] = [];
 		for (let i = 0; i < args.rows.length; i++) {
 			const row = args.rows[i];
@@ -732,19 +478,13 @@ export class PostgresCaseStore implements CaseStore {
 		return { caseIds };
 	}
 
-	// -----------------------------------------------------------
-	// `update` — JSONB merge with re-validation
-	// -----------------------------------------------------------
-
 	async update(args: {
 		appId: string;
 		caseId: string;
 		patch: CaseUpdate;
 	}): Promise<void> {
-		// Read the current row inside the transaction so the merge
-		// + validate + write sequence is atomic. A separate read
-		// followed by a write would race against a concurrent
-		// updater of the same row.
+		// Read inside the transaction so merge + validate + write is
+		// atomic against a concurrent updater of the same row.
 		await this.db.transaction().execute(async (trx) => {
 			const existing = await trx
 				.selectFrom("cases as c")
@@ -754,22 +494,13 @@ export class PostgresCaseStore implements CaseStore {
 				.where("c.owner_id", "=", this.ownerId)
 				.executeTakeFirst();
 			if (existing === undefined) {
-				// `CaseNotFoundError` covers all three equivalent
-				// causes (row never existed, row removed out of band,
-				// row outside the bound owner's tenant) without
-				// confirming which one tripped — tenant boundaries
-				// stay structural rather than message-leaked. API
-				// routes catch and map to HTTP 404.
 				throw new CaseNotFoundError(args.caseId);
 			}
 
-			// Merge the patch's `properties` into the existing
-			// document, then re-validate against the case type's
-			// schema. Patches without a `properties` slot
-			// short-circuit: every other column updates without
-			// touching JSONB. Validation runs inside the
-			// transaction by passing `trx` as the executor — with
-			// `max: 1` pools (the per-test isolation harness's
+			// Patches without `properties` short-circuit JSONB
+			// validation; every other column updates without touching
+			// the document. Validation passes `trx` as the executor —
+			// with `max: 1` pools (the per-test isolation harness's
 			// shape), an unscoped read would wait forever on a
 			// connection the transaction owns.
 			const mergedProperties =
@@ -788,17 +519,12 @@ export class PostgresCaseStore implements CaseStore {
 				});
 			}
 
-			// Compose the UPDATE shape from the patch's other
-			// columns plus the merged properties (when present)
-			// and `modified_on = now()`. Properties is split out so
-			// the merged-and-stringified form replaces the patch's
-			// unmerged value; the rest of the patch (`case_name`,
-			// `status`, `opened_on`, `closed_on`, `parent_case_id`)
-			// passes through as column writes. `CaseUpdate` is an
-			// explicit allowlist that excludes the immutable identity
-			// columns (`case_id` / `app_id` / `owner_id` / `case_type`)
-			// and the auto-stamped `modified_on`, so no defensive
-			// stripping is needed.
+			// `properties` is split out because the merged-and-
+			// stringified form replaces the patch's unmerged value;
+			// the rest of the patch passes through as column writes.
+			// `CaseUpdate` is an explicit allowlist that excludes
+			// immutable identity columns and auto-stamped
+			// `modified_on`, so no defensive stripping is needed.
 			const { properties: _patchProperties, ...patchRest } = args.patch;
 			await trx
 				.updateTable("cases as c")
@@ -814,12 +540,8 @@ export class PostgresCaseStore implements CaseStore {
 				.where("c.owner_id", "=", this.ownerId)
 				.execute();
 
-			// Re-derive `case_indices` if `parent_case_id`
-			// changed. The patch's value is the new edge target;
-			// the existing row's value is the old. When both are
-			// the same, the edge is unchanged and no rewrite
-			// happens. Spec lock: direct-edge-only materialization
-			// (Option B); the read path composes recursive walks.
+			// Re-derive `case_indices` only when the parent edge
+			// actually changes — same-value patches are a no-op.
 			if (
 				args.patch.parent_case_id !== undefined &&
 				args.patch.parent_case_id !== existing.parent_case_id
@@ -833,25 +555,16 @@ export class PostgresCaseStore implements CaseStore {
 		});
 	}
 
-	// -----------------------------------------------------------
-	// `close` — sets closed_on
-	// -----------------------------------------------------------
-
 	async close(args: {
 		appId: string;
 		caseId: string;
 		status?: string;
 	}): Promise<void> {
-		// `closed_on IS NULL` makes the close idempotent on row
-		// state: an already-closed row is excluded from the UPDATE,
-		// so its `closed_on` keeps the timestamp from the first
-		// close call and `modified_on` doesn't bump for a re-close.
-		// Re-closing a closed case is a structural no-op, matching
-		// the "ensure this case is closed" semantic the method
-		// documents. The same filter also prevents a stray `status`
-		// patch on an already-closed row from sliding through under
-		// the close shape — a status change on a closed row goes
-		// through `update`, not `close`.
+		// `closed_on IS NULL` makes close idempotent on row state:
+		// an already-closed row is excluded so its `closed_on` keeps
+		// the original timestamp. The same filter also prevents a
+		// stray `status` patch on an already-closed row from sliding
+		// through — status changes on closed rows go through `update`.
 		await this.db
 			.updateTable("cases as c")
 			.set({
@@ -866,18 +579,13 @@ export class PostgresCaseStore implements CaseStore {
 			.execute();
 	}
 
-	// -----------------------------------------------------------
-	// `traverse` — RelationPath compile + execute
-	// -----------------------------------------------------------
-
 	async traverse(args: {
 		appId: string;
 		caseId: string;
 		via: RelationPath;
 	}): Promise<CaseRow[]> {
-		// Self-paths return the anchor row unchanged. The compiler
-		// returns `{ kind: "self" }` for this case; we short-circuit
-		// here rather than synthesize a join-on-self.
+		// Self-paths return the anchor row directly; synthesizing a
+		// join-on-self would just duplicate the read.
 		if (args.via.kind === "self") {
 			return await this.db
 				.selectFrom("cases as c")
@@ -888,37 +596,28 @@ export class PostgresCaseStore implements CaseStore {
 				.execute();
 		}
 
-		// Non-self path: compile the relation-walk subquery, join
-		// it against the anchor `cases` row. The leaf alias is
-		// `RELATION_PATH_LEAF_ALIAS` at depth 0 (the outermost
-		// caller). The compiler enforces tenant scope on every
-		// joined `cases` row inside its own subquery; we add the
-		// anchor's owner filter at the outer scan.
+		// Non-self path: compile the relation-walk subquery, join it
+		// against the anchor row. The compiler enforces tenant scope
+		// on every joined `cases` row inside its subquery; the outer
+		// scan adds the anchor's owner filter.
 		const compiled = compileRelationPath(args.via, {
 			db: this.db,
 			appId: args.appId,
 			ownerId: this.ownerId,
 			anchorAlias: "c",
 		});
-		// `compileRelationPath` is exhaustive over `RelationPath`:
-		// `self` short-circuited above, the other three arms all
-		// return `kind: "joined"`. The narrowing is the type
-		// system's structural guarantee.
+		// `self` short-circuited above; the other three arms return
+		// `kind: "joined"`. The narrowing is structural.
 		if (compiled.kind !== "joined") {
 			return [];
 		}
 
-		// Build the wider query manually: join the leaf subquery
-		// to the anchor row + tenant filter, project the leaf
-		// columns. The leaf alias is a runtime string (depth-
-		// suffixed for nested walks); the leaf row exposes every
-		// `cases` column plus `anchor_case_id`, so the projection
-		// pulls every column that makes up a `CaseRow`. Adding a
-		// new column to `cases` requires extending this list along
-		// with the leaf-builder projections in `compileRelationPath.ts`
-		// — a missed column would fall through to `undefined` at
-		// runtime even though the type-cast at the bottom of this
-		// method narrows to `CaseRow`.
+		// The leaf row exposes every `cases` column plus
+		// `anchor_case_id`. Adding a new column to `cases` requires
+		// extending this list AND the leaf-builder projections in
+		// `compileRelationPath.ts` — a missed column would fall
+		// through to `undefined` at runtime even though the type-cast
+		// below narrows to `CaseRow`.
 		const leafAlias = compiled.leafAlias;
 		const rows = await this.db
 			.selectFrom("cases as c")
@@ -942,27 +641,16 @@ export class PostgresCaseStore implements CaseStore {
 				`${leafAlias}.properties as properties`,
 			])
 			.execute();
-		// Cast through `unknown` because Kysely's typed builder
-		// over runtime-suffixed alias strings widens the leaf's
-		// column type — the projection list above pulls each
-		// matching `CaseRow` field by name and the runtime shape
-		// matches `CaseRow` exactly.
+		// Cast through `unknown` because Kysely's typed builder over
+		// runtime-suffixed alias strings widens the leaf's column
+		// type. The projection above pulls each `CaseRow` field by
+		// name; the runtime shape matches exactly.
 		return rows as unknown as CaseRow[];
 	}
-
-	// -----------------------------------------------------------
-	// `applySchemaChange` — schema sync + optional migration
-	// -----------------------------------------------------------
 
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
-		// Resolve the case type from the prospective blueprint up
-		// front. Throws `CaseTypeNotInBlueprintError` if the blueprint
-		// doesn't carry the case type — the caller is responsible for
-		// passing a coherent blueprint state. Server Actions on the
-		// running-app view catch the typed error and emit a
-		// `missing-case-type` result arm.
 		const caseType = findCaseTypeOrThrow(
 			args.blueprint,
 			args.appId,
@@ -970,22 +658,17 @@ export class PostgresCaseStore implements CaseStore {
 		);
 		const schema = caseTypeToJsonSchema(caseType);
 
-		// Pre-flight: compute the desired index set BEFORE the
-		// Phase A transaction opens. `computeDesiredIndexSet` walks
-		// the prospective property declarations through `indexName`,
-		// which throws on identifier-shape violations (non-conforming
-		// characters, post-transform collisions, 63-byte identifier
-		// cap). A throw here leaves `case_type_schemas` untouched —
-		// the database never holds a schema row whose properties
-		// cannot all compose into safe index names. Pure CPU work,
-		// no I/O.
+		// Pre-flight: compute the desired index set BEFORE Phase A
+		// opens. `indexName` throws on identifier-shape violations
+		// (non-conforming characters, post-transform collisions,
+		// 63-byte identifier cap). A throw here leaves
+		// `case_type_schemas` untouched. Pure CPU, no I/O.
 		const desiredIndexes = computeDesiredIndexSet(
 			args.caseType,
 			caseType.properties,
 		);
 
 		// Phase A: schema sync + per-row migration in one transaction.
-		// COMMITs when both succeed; rolls back atomically on failure.
 		const report = await this.db.transaction().execute(async (trx) => {
 			// Step 1: schema regen + UPSERT. Always runs.
 			await trx
@@ -1002,11 +685,10 @@ export class PostgresCaseStore implements CaseStore {
 				)
 				.execute();
 
-			// Step 2: per-row migration. Only runs when a `change`
-			// is supplied. Additive blueprint mutations (the
-			// no-`change` path) skip this step — adding a property
-			// still emits its expression index in Phase B, but the
-			// row population doesn't need migrating.
+			// Step 2: per-row migration. Additive blueprint mutations
+			// (no `change`) skip this — adding a property still emits
+			// its expression index in Phase B, but the row population
+			// doesn't need migrating.
 			if (args.change === undefined) {
 				return {
 					migrated: 0,
@@ -1035,16 +717,11 @@ export class PostgresCaseStore implements CaseStore {
 			});
 		});
 
-		// Phase B: per-property expression-index DDL sync. Runs
-		// against the post-commit state of `cases` so retype's
-		// quarantine deletes have committed and the heap scan
-		// `CREATE INDEX` runs sees clean rows. Failure surfaces as
-		// a thrown error, leaves Phase A's commit intact, and the
-		// next `applySchemaChange` call retries Phase B
-		// idempotently — the catalog diff captures `indisvalid`,
-		// so an INVALID artifact from a failed CONCURRENTLY build
-		// flows through both `drops` and `creates` and the retry
-		// rebuilds it from scratch.
+		// Phase B: per-property expression-index DDL. Runs against
+		// the post-commit state so quarantine deletes have committed
+		// and the heap scan sees clean rows. Failure leaves Phase A
+		// intact; the next call retries idempotently via the
+		// `indisvalid`-aware catalog diff.
 		await this.syncExpressionIndexes({
 			caseType: args.caseType,
 			desired: desiredIndexes,
@@ -1054,32 +731,14 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Sync the per-property expression indexes for a case type
-	 * against the supplied pre-flighted desired set. Reads the live
-	 * index set from the Postgres catalog, emits `DROP INDEX` /
-	 * `CREATE INDEX` statements for the diff against `this.db`
-	 * directly (not inside a transaction — see the file-level "Why
-	 * DDL is split out of Phase A's transaction" comment for the
-	 * `SnapshotAny` rationale).
-	 *
-	 * Naming convention `cases_<case_type>_<property>_<mode>` makes
-	 * the diff mechanical: a property rename drops the old-name
-	 * indexes and creates the new-name indexes; a retype drops the
-	 * old type's indexes (text trgm) and creates the new type's
-	 * indexes (int btree); a property removal drops every index
-	 * keyed on it. An INVALID artifact (a partially-built index left
-	 * by a prior failed `CREATE INDEX CONCURRENTLY`) flows through
-	 * both `drops` and `creates` so a retry rebuilds it from scratch.
-	 *
-	 * The `WHERE case_type = '<destination>'` partial-index predicate
-	 * scopes each index to one case-type's rows, sharing the
-	 * underlying `cases` heap across types but keeping the index
-	 * tree per-type-narrow.
-	 *
-	 * The `desired` set is built by `computeDesiredIndexSet` at
-	 * the top of `applySchemaChange` — running pre-flight rather
-	 * than inside this method ensures identifier-shape errors
-	 * surface BEFORE any transaction opens.
+	 * Sync per-property expression indexes against the pre-flighted
+	 * desired set. Naming convention
+	 * `cases_<case_type>_<property>_<mode>` makes the diff mechanical
+	 * — a property rename drops old-name indexes and creates new-name
+	 * indexes; a retype drops the old type's indexes (text trgm) and
+	 * creates the new type's (int btree). The
+	 * `WHERE case_type = '<type>'` partial-index predicate scopes
+	 * each index to one case-type's rows.
 	 */
 	private async syncExpressionIndexes(args: {
 		caseType: string;
@@ -1088,20 +747,12 @@ export class PostgresCaseStore implements CaseStore {
 		const live = await readLiveIndexSet(this.db, args.caseType);
 		const { creates, drops } = diffIndexSets(args.desired, live);
 
-		// Drops first so a same-name entry that needs replacing — an
-		// INVALID artifact left by a prior failed `CREATE INDEX
-		// CONCURRENTLY` — clears the name before the create reuses
-		// it. `diffIndexSets` is the single producer of both lists;
-		// it emits the same name in both `drops` and `creates` only
-		// for the INVALID-recovery case, and the ordered loop here
-		// is what makes that pair atomic at the name level.
-		//
-		// `DROP INDEX CONCURRENTLY` matches `CREATE INDEX
-		// CONCURRENTLY`: avoids holding `ACCESS EXCLUSIVE` on the
-		// underlying table for the drop's duration, and cannot run
-		// inside an outer transaction (Phase B is already
-		// non-transactional). `IF EXISTS` makes the drop idempotent
-		// against a half-completed prior run.
+		// Drops first so a same-name INVALID artifact clears before
+		// the create reuses it. The ordered loop is what makes that
+		// pair atomic at the name level. `DROP INDEX CONCURRENTLY`
+		// avoids `ACCESS EXCLUSIVE` for the drop's duration; `IF
+		// EXISTS` makes the drop idempotent against a half-completed
+		// prior run.
 		for (const drop of drops) {
 			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.name)}`.execute(
 				this.db,
@@ -1112,42 +763,32 @@ export class PostgresCaseStore implements CaseStore {
 		}
 	}
 
-	// -----------------------------------------------------------
-	// `generateSampleData` — heuristic generator → bulk insert
-	// -----------------------------------------------------------
-
 	async generateSampleData(
 		args: GenerateSampleDataArgs,
 	): Promise<{ inserted: number }> {
-		// One transaction across parent-ref resolution + bulk insert.
-		// The transactional body lives in
-		// `generateSampleDataInTransaction` so callers already inside
-		// a transaction (`resetSampleData`'s atomic delete +
-		// regenerate) can pass their own `trx` and the whole reset
-		// runs as one Postgres transaction.
+		// Transactional body lives in `generateSampleDataInTransaction`
+		// so `resetSampleData` can pass its own `trx` and the full
+		// delete + regenerate runs as one Postgres transaction.
 		return await this.db.transaction().execute(async (trx) => {
 			return await this.generateSampleDataInTransaction(trx, args);
 		});
 	}
 
 	/**
-	 * Generate sample rows + bulk-insert against the supplied
-	 * transaction. Resolves parent ids inside the same transaction
-	 * so a freshly-deleted case-type's parent population — when the
-	 * caller is `resetSampleData` and the parent rows themselves
-	 * were just deleted — reads the post-delete state instead of
-	 * the pre-delete state.
+	 * Generate sample rows + bulk-insert against the caller's
+	 * transaction. Parent-ref resolution runs inside the same
+	 * transaction so a `resetSampleData` reset reads the post-delete
+	 * row population (the parent type may have been deleted in the
+	 * same operation).
 	 */
 	private async generateSampleDataInTransaction(
 		trx: Transaction<Database>,
 		args: GenerateSampleDataArgs,
 	): Promise<{ inserted: number }> {
-		// Resolve parent ids for the generator's `parentRefs` map.
-		// The generator uses these to populate `parent_case_id` on
-		// child rows so `case_indices` derivation in the bulk-insert
-		// path produces real edges. When the case-type declares no
-		// parent or no parents exist yet, the generator emits orphan
-		// rows.
+		// Parent ids feed the generator's `parentRefs` so generated
+		// children's `parent_case_id` resolves to real edges via the
+		// bulk-insert path. When the case-type declares no parent or
+		// no parents exist, the generator emits orphan rows.
 		const parentRefs = await this.resolveParentRefs(trx, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -1163,12 +804,10 @@ export class PostgresCaseStore implements CaseStore {
 			parentRefs,
 		});
 
-		// Route the full row population through the bulk-insert
-		// helper. The architectural seam stays intact: generated rows
-		// participate in JSON Schema validation, `case_indices`
-		// derivation, and tenant scoping the same way user-authored
-		// rows do; the bulk path collapses ~30 round-trips to ~4 per
-		// batch.
+		// Generated rows participate in JSON Schema validation,
+		// `case_indices` derivation, and tenant scoping the same way
+		// user-authored rows do; the bulk path collapses ~30
+		// round-trips to ~4 per batch.
 		const { caseIds } = await this.insertManyInTransaction(trx, {
 			appId: args.appId,
 			rows,
@@ -1176,30 +815,17 @@ export class PostgresCaseStore implements CaseStore {
 		return { inserted: caseIds.length };
 	}
 
-	// -----------------------------------------------------------
-	// `resetSampleData` — atomic delete + regenerate
-	// -----------------------------------------------------------
-
 	async resetSampleData(
 		args: ResetSampleDataArgs,
 	): Promise<{ deleted: number; inserted: number }> {
-		// One Postgres transaction across the whole operation: drop
-		// `case_indices` edges, delete `cases` rows, regenerate the
-		// fresh population, validate every generated row against the
-		// JSON Schema, bulk-insert. A mid-operation failure
-		// (validation rejection on a generated row, engine-side
-		// fault) rolls back the deletion alongside the partial
-		// regeneration so the case-type's pre-call population stays
-		// intact rather than landing the user on an empty case type.
-		// `Date.now()` is the canonical "fresh" seed source; callers
-		// that need reproducibility invoke `generateSampleData`
-		// directly with a fixed seed.
+		// One Postgres transaction across the whole operation —
+		// edges + rows delete, regenerate, validate, bulk-insert. A
+		// mid-operation failure rolls back deletion alongside partial
+		// regeneration so the user never lands on an empty case type.
 		return await this.db.transaction().execute(async (trx) => {
 			// `case_indices` references are caller-managed (no FK
-			// constraint declared) — delete them first so orphan
-			// edges don't accumulate. The `case_id IN (...)`
-			// subquery scopes the edge cleanup to rows the case-type
-			// owns under the bound tenant.
+			// constraint) — delete first so orphan edges don't
+			// accumulate.
 			await trx
 				.deleteFrom("case_indices")
 				.where("case_id", "in", (eb) =>
@@ -1231,27 +857,14 @@ export class PostgresCaseStore implements CaseStore {
 		});
 	}
 
-	// -----------------------------------------------------------
-	// Sample-data parent-ref resolution
-	// -----------------------------------------------------------
-
 	/**
 	 * Build the `parentRefs` map the generator consumes to populate
-	 * `parent_case_id` on child rows. For each case type the
-	 * blueprint declares as the supplied case type's `parent_type`,
-	 * the helper queries the existing case ids in `cases` for the
-	 * bound tenant + app and packs them into a `Map`. The generator
-	 * picks one id per child row at random.
+	 * `parent_case_id`. The generator picks one id per child row at
+	 * random; an empty map produces orphan rows.
 	 *
-	 * When the case type has no `parent_type`, the result is an
-	 * empty map — the generator's path produces orphan rows in
-	 * that arm.
-	 *
-	 * `executor` is the transaction the parent-row read shares with
-	 * the bulk insert that consumes its output. `resetSampleData`
-	 * passes its outer transaction so the read sees the post-delete
-	 * row population (the parent type may itself have just been
-	 * deleted in the same operation).
+	 * `executor` shares the transaction with the bulk insert that
+	 * consumes its output — `resetSampleData` passes its outer
+	 * transaction so the read sees the post-delete row population.
 	 */
 	private async resolveParentRefs(
 		executor: Transaction<Database>,
@@ -1278,18 +891,9 @@ export class PostgresCaseStore implements CaseStore {
 		return new Map([[parentType, parents.map((p) => p.case_id)]]);
 	}
 
-	// -----------------------------------------------------------
-	// Per-row migration helpers
-	// -----------------------------------------------------------
-
 	/**
-	 * Run the per-row migration matching the supplied `change`
-	 * shape. Spec § "Schema migration policy" (lines 309-340).
-	 *
-	 * Each arm walks the matching rows via a SELECT inside the
-	 * transaction, decides per-row whether to UPDATE in place
-	 * or move to `cases_quarantine`, and aggregates the counts
-	 * + failure reasons into the returned report.
+	 * Dispatch to the per-row migration matching the `change` shape.
+	 * Spec § "Schema migration policy" (lines 309-340).
 	 */
 	private async runPerRowMigration(
 		trx: Transaction<Database>,
@@ -1328,14 +932,12 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Rename a property key in every row's `properties` JSONB
-	 * document. SQL: `properties = jsonb_set(properties #- '{from}',
-	 * '{to}', properties->'from')` — the `#-` operator drops the
-	 * old key and `jsonb_set` adds the new key with the old key's
-	 * value. Rows that don't carry the `from` key are skipped.
-	 *
-	 * The shape runs in a single UPDATE bounded by `properties ?
-	 * 'from'` so rows missing the key don't pay a no-op write.
+	 * Rename a JSONB property key. SQL:
+	 * `properties = jsonb_set(properties #- '{from}', '{to}',
+	 * properties->'from')` — the `#-` operator drops the old key
+	 * and `jsonb_set` adds the new with the old value. One UPDATE
+	 * bounded by `properties ? 'from'` so rows missing the key
+	 * don't pay a no-op write.
 	 */
 	private async runRenameMigration(
 		trx: Transaction<Database>,
@@ -1346,12 +948,10 @@ export class PostgresCaseStore implements CaseStore {
 			to: string;
 		},
 	): Promise<MigrationReport> {
-		// Count the case-type's full row population first so the
-		// `migrated` count from the UPDATE pairs with an accurate
-		// `skipped` count for rows that don't carry the `from` key.
-		// The two queries run inside the caller's transaction so
-		// the counts are consistent with each other (no concurrent
-		// inserter can land between them).
+		// Count the full row population first so `migrated` from the
+		// UPDATE pairs with an accurate `skipped` count. Both queries
+		// share the caller's transaction so no concurrent inserter
+		// can land between them.
 		const totalRow = await trx
 			.selectFrom("cases as c")
 			.select((eb) => eb.fn.countAll<string>().as("total"))
@@ -1361,11 +961,10 @@ export class PostgresCaseStore implements CaseStore {
 			.executeTakeFirstOrThrow();
 		const totalCount = Number(totalRow.total);
 
-		// Use `sql.lit` for the JSONB key paths so the value flows
-		// as a SQL string literal rather than a parameter — Postgres
-		// `jsonb_set` requires a `text[]` path literal, and the
-		// `#-` operator's right operand is a `text[]`. Building the
-		// path as `array['key']` keeps the typed builder happy.
+		// `sql.lit` flows the JSONB key as a SQL string literal —
+		// `jsonb_set`'s path argument and `#-`'s right operand are
+		// both `text[]`, which the typed builder constructs via
+		// `ARRAY['key']`.
 		const from = args.from;
 		const to = args.to;
 		const updated = await trx
@@ -1391,21 +990,13 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Retype a property's stored values per the spec's policy:
-	 * try to cast each row's value to the new type; on success
-	 * UPDATE in place, on failure move to `cases_quarantine`.
-	 *
-	 * Classification runs in TypeScript (the Postgres-side
-	 * `(properties->>'X')::int` cast produces a single
+	 * Retype: cast each row's value; on success UPDATE in place, on
+	 * failure move to `cases_quarantine`. Classification runs in
+	 * TypeScript because the Postgres-side cast produces a
 	 * transaction-fatal exception on the first bad value, and
-	 * quarantine-by-row needs per-row failure observation); the
-	 * resulting writes flow through bulk SQL — one bulk UPDATE for
-	 * the migrated rows (joined to a `VALUES` table that carries
-	 * each row's new `properties` JSONB), one bulk INSERT to
-	 * `cases_quarantine` for the failures, one bulk DELETE from
-	 * `case_indices`, one bulk DELETE from `cases`. Total: five
-	 * round-trips for the whole migration regardless of row count,
-	 * down from `1 + 2 * migrated + 3 * quarantined`.
+	 * per-row quarantine needs per-row failure observation. The
+	 * writes then flow through bulk SQL — five round-trips total
+	 * regardless of row count.
 	 */
 	private async runRetypeMigration(
 		trx: Transaction<Database>,
@@ -1425,10 +1016,6 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.owner_id", "=", this.ownerId)
 			.execute();
 
-		// Classify each row in TS. The migrated set carries the
-		// recomputed `properties` JSONB (the cast's typed value
-		// merged into the row's existing document); the quarantined
-		// set carries the row + a reason string.
 		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
 		const quarantinedRows: { row: CaseRow; reason: string }[] = [];
 		let skipped = 0;
@@ -1458,14 +1045,12 @@ export class PostgresCaseStore implements CaseStore {
 			}
 		}
 
-		// Bulk UPDATE the migrated rows. The shape `UPDATE cases SET
-		// properties = data.new_props ... FROM (VALUES (...)) AS
-		// data(case_id, new_props) WHERE cases.case_id = data.case_id`
-		// rewrites the whole `properties` document per row from a
-		// VALUES table (each row gets its own recomputed JSONB; a
-		// single `jsonb_set` on a fixed key would not work because
-		// the cast value's typed shape varies across rows). The
-		// outer WHERE pins tenant + app scope.
+		// `UPDATE cases SET properties = data.new_props ... FROM
+		// (VALUES ...) AS data(case_id, new_props) WHERE cases.case_id
+		// = data.case_id` — each row gets its own recomputed JSONB
+		// from a VALUES table. A single `jsonb_set` on a fixed key
+		// wouldn't work because the cast value's typed shape varies
+		// across rows.
 		if (migratedRows.length > 0) {
 			await this.bulkUpdateProperties(trx, {
 				appId: args.appId,
@@ -1473,9 +1058,6 @@ export class PostgresCaseStore implements CaseStore {
 			});
 		}
 
-		// Bulk move the failed rows to quarantine. One bulk INSERT
-		// to `cases_quarantine`, one bulk DELETE from `case_indices`,
-		// one bulk DELETE from `cases`.
 		if (quarantinedRows.length > 0) {
 			await this.bulkQuarantine(trx, args.appId, quarantinedRows);
 		}
@@ -1489,22 +1071,11 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Narrow-options migration. For every row whose property value
-	 * (or any element of its multi-select array) is in the removed
-	 * set, move the row to `cases_quarantine` with a reason naming
-	 * the disqualified value.
-	 *
-	 * Single-select rows whose stored value is NOT in `removedOptions`
-	 * are skipped (the row is unchanged). Multi-select rows are
-	 * quarantined if ANY array element is in `removedOptions` —
-	 * partial intersections still represent a row whose stored
-	 * shape contradicts the new schema.
-	 *
-	 * Same bulk shape as `runRetypeMigration`'s quarantine half:
-	 * classify in TS, then one bulk INSERT to `cases_quarantine` +
-	 * one bulk DELETE from `case_indices` + one bulk DELETE from
-	 * `cases`. Three round-trips for the whole migration regardless
-	 * of row count.
+	 * Narrow-options: rows whose property value (or any multi-select
+	 * array element) is in the removed set move to quarantine. Multi-
+	 * select rows quarantine if ANY element is removed — partial
+	 * intersections still represent a row whose stored shape
+	 * contradicts the new schema. Three round-trips total.
 	 */
 	private async runNarrowOptionsMigration(
 		trx: Transaction<Database>,
@@ -1560,15 +1131,10 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Bulk-update `properties` for the supplied row set. Each entry
-	 * carries its own recomputed JSONB document; the SQL joins the
-	 * `cases` table to a `VALUES` table mapping `case_id → new
-	 * properties`, so all rows update in one statement. The outer
-	 * WHERE pins app + owner so cross-tenant rows can't be touched.
-	 *
-	 * `modified_on = now()` stamps every row uniformly — same
-	 * contract the per-row `update` path provides for any successful
-	 * write.
+	 * Bulk-update `properties` for the row set. Joins `cases` to a
+	 * `VALUES` table mapping `case_id → new properties`. The outer
+	 * WHERE pins app + owner. `modified_on = now()` stamps every row
+	 * uniformly.
 	 */
 	private async bulkUpdateProperties(
 		trx: Transaction<Database>,
@@ -1577,11 +1143,9 @@ export class PostgresCaseStore implements CaseStore {
 			rows: ReadonlyArray<{ caseId: string; newProperties: JsonObject }>;
 		},
 	): Promise<void> {
-		// The `VALUES (...)` shape carries `(case_id, new_props)`
-		// pairs. Each pair stringifies the new properties and casts
-		// to JSONB so the join condition flows as a typed JSONB value
-		// on the SET side. `sql.join(...)` composes the comma-
-		// separated entries inside the parenthesized values list.
+		// `VALUES (...)` carries `(case_id, new_props)` pairs; each
+		// pair stringifies + casts to JSONB so the SET side flows as
+		// a typed JSONB value.
 		const entries = args.rows.map(
 			({ caseId, newProperties }) =>
 				sql`(${caseId}::uuid, ${JSON.stringify(newProperties)}::jsonb)`,
@@ -1599,21 +1163,10 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Move a batch of rows to `cases_quarantine` and remove them
-	 * from `cases` + `case_indices`. Three bulk statements: INSERT
-	 * the quarantine payloads, DELETE the matching `case_indices`
-	 * edges (caller-managed cleanup because no FK constraint is
-	 * declared), DELETE the `cases` rows themselves. One statement
-	 * per phase regardless of row count.
-	 *
-	 * The bound `(appId, this.ownerId)` pair is the tenant scope
-	 * every DELETE inside the migration runs under. Passing `appId`
-	 * explicitly keeps the helper independent of the input rows'
-	 * shape — the caller has it from `args.appId` and we don't have
-	 * to read it off `entries[0]`, which is fragile under empty
-	 * inputs.
-	 *
-	 * `quarantined_at` is defaulted server-side via the column's
-	 * `now()` clause; the helper does not pass a value.
+	 * from `cases` + `case_indices`. Three bulk statements regardless
+	 * of row count. `quarantined_at` defaults server-side. `appId` is
+	 * passed explicitly rather than read off `entries[0]` so the
+	 * helper stays well-defined for empty inputs.
 	 */
 	private async bulkQuarantine(
 		trx: Transaction<Database>,
@@ -1639,18 +1192,14 @@ export class PostgresCaseStore implements CaseStore {
 		);
 		const caseIds = entries.map((e) => e.row.case_id);
 
-		// One bulk INSERT to cases_quarantine.
 		await trx.insertInto("cases_quarantine").values(payloads).execute();
 
-		// One bulk DELETE from case_indices for the matching ids
-		// (the caller-managed orphan cleanup).
 		await trx
 			.deleteFrom("case_indices")
 			.where("case_indices.case_id", "in", caseIds)
 			.execute();
 
-		// One bulk DELETE from cases. The tenant-pair filter
-		// (`app_id` + `owner_id`) keeps the statement under the same
+		// The tenant-pair filter keeps the DELETE under the same
 		// scope the migration's outer SELECT used.
 		await trx
 			.deleteFrom("cases as c")
@@ -1660,31 +1209,17 @@ export class PostgresCaseStore implements CaseStore {
 			.execute();
 	}
 
-	// -----------------------------------------------------------
-	// Validator + schema-map helpers
-	// -----------------------------------------------------------
-
 	/**
 	 * Validate a candidate `properties` payload against the case
-	 * type's JSON Schema. Throws on validation failure with a
-	 * descriptive message naming each violation; on success
-	 * returns. Schema rows are read from `case_type_schemas` per
-	 * `(appId, caseType)`; the compiled validator is cached
-	 * keyed by the schema's JSON-stringified content so a schema
-	 * update invalidates the cached validator without manual
-	 * eviction.
+	 * type's JSON Schema. Throws on failure; returns on success.
 	 *
-	 * `executor` selects the connection that issues the schema
-	 * read. Defaults to `this.db` (a fresh connection from the
-	 * pool); call sites already inside a Kysely transaction pass
-	 * the transaction handle so the schema read shares the
-	 * transaction's connection. Without that thread-through, a
-	 * `pg.Pool` with `max: 1` (the per-test isolation harness's
-	 * size) deadlocks on the schema read because the pool's only
-	 * connection is held by the in-flight transaction. Production
-	 * pools are larger but the deadlock-by-construction shape is
-	 * the same regardless of size — sharing the executor is the
-	 * structural fix.
+	 * `executor` selects the connection for the schema read. Call
+	 * sites already inside a Kysely transaction MUST pass the
+	 * transaction handle. Without that thread-through, a `pg.Pool`
+	 * with `max: 1` (the per-test harness's size) deadlocks because
+	 * the pool's only connection is held by the in-flight
+	 * transaction. The shape is structural even at larger pool
+	 * sizes; sharing the executor is the fix.
 	 */
 	private async validateProperties(args: {
 		appId: string;
@@ -1697,18 +1232,11 @@ export class PostgresCaseStore implements CaseStore {
 			args.caseType,
 			args.executor ?? this.db,
 		);
-		// `validator` returns `false` on failure and populates
-		// `validator.errors`; the type signature widens to
-		// `boolean` because Ajv `ValidateFunction` is generic.
 		const ok = validator(args.properties);
 		if (!ok) {
-			// Project AJV's per-error array onto the typed
-			// `CasePropertyFailure` shape API routes consume — the
-			// `instancePath` is the JSONB pointer (empty string for
-			// the document root) and `message` is AJV's reason text.
-			// `CasePropertiesValidationError` carries the structured
-			// list as a public field; API routes catch and map to
-			// HTTP 400 with the failure array as the response body.
+			// Project AJV's errors onto `CasePropertyFailure` so API
+			// routes get one consistent shape across per-row and bulk
+			// paths.
 			const failures = (validator.errors ?? []).map((e) => ({
 				path: e.instancePath || "",
 				message: e.message ?? "invalid",
@@ -1722,28 +1250,15 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Read the case-type JSON Schema from `case_type_schemas` and
-	 * return a compiled ajv validator. Caches per
-	 * `(appId, caseType, schemaJson)`; a schema row update
-	 * automatically invalidates the cache because the
-	 * JSON-stringified content changes.
+	 * Read the case-type JSON Schema and return a compiled ajv
+	 * validator. Caches per `(appId, caseType, schemaJson)` — a
+	 * schema row update automatically invalidates the cache because
+	 * the JSON-stringified content changes.
 	 *
-	 * Throws `SchemaNotSyncedError` when no schema row exists — the
-	 * caller must run `applySchemaChange` (additive, no `change`
-	 * arg) before any write to a case type. The spec § "Write-time
-	 * validation" makes the ordering contract explicit. The typed
-	 * error reaches Server Actions on the running-app view (e.g.
-	 * `populateSampleCasesAction` against a freshly-declared case
-	 * type whose schema sync hasn't run yet); they catch it and
-	 * emit a `schema-not-synced` result arm so the consumer either
-	 * retries after the sync lands or surfaces the structural fix
-	 * to the user.
-	 *
-	 * `executor` is the connection that issues the schema-row
-	 * SELECT — the bound `this.db` for outside-transaction call
-	 * sites or the `Transaction<Database>` handle for in-flight
-	 * transactions. The shared-executor contract is documented on
-	 * `validateProperties` above.
+	 * Throws `SchemaNotSyncedError` when no schema row exists; the
+	 * blueprint mutator must run `applySchemaChange` first per spec
+	 * § "Write-time validation". `executor` shares the transaction
+	 * (see `validateProperties` for the deadlock rationale).
 	 */
 	private async getValidator(
 		appId: string,
@@ -1772,12 +1287,7 @@ export class PostgresCaseStore implements CaseStore {
 		return validate;
 	}
 
-	/**
-	 * Compose a `PredicateCompileContext` against the supplied
-	 * fields. Centralized helper so the schema map + bindings
-	 * defaults stay aligned across every method that compiles a
-	 * predicate.
-	 */
+	/** Centralized factory so schema-map + bindings defaults stay aligned across every predicate-compile site. */
 	private buildPredicateContext(args: {
 		db: Kysely<Database>;
 		appId: string;
@@ -1794,23 +1304,15 @@ export class PostgresCaseStore implements CaseStore {
 		};
 	}
 
-	// -----------------------------------------------------------
-	// Edge helpers
-	// -----------------------------------------------------------
-
 	/**
-	 * Re-derive the `(case_id, parent_case_id)` direct edge in
-	 * `case_indices` after an UPDATE that changed the parent.
-	 * Spec § "case_indices materialization policy" Option B
-	 * (lines 290-295): direct edges only.
+	 * Re-derive the parent edge in `case_indices` after an UPDATE
+	 * that changed `parent_case_id`. Spec § "case_indices
+	 * materialization policy" Option B (lines 290-295): direct edges
+	 * only.
 	 *
-	 * Behavior:
-	 *
-	 *   - DELETE every existing `(case_id, *, 'parent', ...)` row
-	 *     for the given case (multiple parent edges aren't
-	 *     supported under Option B; the delete is broad to keep
-	 *     leftover edges from any prior shape from accumulating).
-	 *   - INSERT the new edge if `newParent` is non-null.
+	 * The DELETE is broad — every `'parent'` edge for the case —
+	 * so leftover edges from any prior shape don't accumulate. The
+	 * INSERT skips when `newParent` is null (clearing the edge).
 	 */
 	private async rebuildParentEdge(
 		trx: Transaction<Database>,
@@ -1835,18 +1337,11 @@ export class PostgresCaseStore implements CaseStore {
 	}
 }
 
-// ---------------------------------------------------------------
-// Helpers — outside the class because they don't read `this`
-// ---------------------------------------------------------------
-
 /**
  * Parse a JSONB write-side input into a JS object. Kysely's
- * `JSONColumnType` accepts a JSON string on insert (the dialect
- * hands it to pg, which casts to JSONB); helpers reading the
- * input into a JS shape need to cope with either form. The case
- * store's typical caller passes a JSON string (from the form
- * boundary's serializer), but tests and the `update` merge path
- * occasionally pass an object — both shapes converge here.
+ * `JSONColumnType` accepts a JSON string on insert; helpers need
+ * to cope with either form. Typical callers pass a string; tests
+ * and the `update` merge path pass an object — both converge here.
  */
 function parseJsonbInput(value: unknown): Record<string, unknown> {
 	if (value === null || value === undefined) {
@@ -1857,11 +1352,6 @@ function parseJsonbInput(value: unknown): Record<string, unknown> {
 		try {
 			parsed = JSON.parse(value);
 		} catch (err) {
-			// JSON.parse failure is an upstream serializer bug —
-			// the form-bridge / CaseStore consumer's stringify path
-			// produced text that doesn't round-trip. The detail
-			// preserves the underlying parser message so the
-			// debugger can locate the malformed substring.
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.parseJsonbInput",
@@ -1900,24 +1390,14 @@ function parseJsonbInput(value: unknown): Record<string, unknown> {
 	);
 }
 
-/**
- * Cast result for a retype migration's per-row attempt. The
- * `value` field is the new typed value when the cast succeeded;
- * `reason` carries the human-readable cast-failure detail when
- * not.
- */
+/** Cast result for a retype migration's per-row attempt. */
 type CastResult = { ok: true; value: unknown } | { ok: false; reason: string };
 
 /**
- * Try to cast a stored value to the new property data type. Each
- * arm encodes the cast policy the spec § "Schema migration policy"
- * implies for `data_type` changes — text↔int / int↔decimal /
- * date-coerce / etc.
- *
- * The function is exhaustive over `CasePropertyDataType` so adding
- * a new variant surfaces a TypeScript error here. Failure cases
- * surface a descriptive `reason` that flows into the
- * `cases_quarantine.quarantine_reason` text.
+ * Try to cast a stored value to the new property data type per
+ * spec § "Schema migration policy". Failure cases surface a
+ * descriptive `reason` that flows into `cases_quarantine.quarantine_reason`.
+ * Exhaustive over `CasePropertyDataType`.
  */
 function tryCastValue(
 	value: unknown,
@@ -1929,10 +1409,8 @@ function tryCastValue(
 		case "text":
 		case "single_select":
 		case "geopoint":
-			// Any value coerces to text via JS `String(...)`. Geopoint
-			// admits any string here; deeper geopoint validation is
-			// the JSON Schema's job (the validator runs on the post-
-			// cast value when the row eventually re-inserts).
+			// Geopoint admits any string here; deeper geopoint
+			// validation is the JSON Schema's job at re-insert.
 			return { ok: true, value: stringValue };
 		case "int": {
 			const trimmed = stringValue.trim();
@@ -1983,9 +1461,8 @@ function tryCastValue(
 			if (Array.isArray(value)) {
 				return { ok: true, value };
 			}
-			// Non-array → array: lift the value (string-coerced)
-			// into a one-element array. Used when retyping any
-			// scalar data type to multi_select.
+			// Scalar → one-element array (the lift used when retyping
+			// any scalar data type to multi_select).
 			return { ok: true, value: [stringValue] };
 		default: {
 			const _exhaustive: never = toType;
@@ -2012,14 +1489,10 @@ function tryCastValue(
 }
 
 /**
- * Walk a stored value and return the first option string in the
- * `removedOptions` set. Multi-select arrays surface the first
- * matching element; scalar values return the value itself when it
- * matches, `null` otherwise.
- *
- * Used by `runNarrowOptionsMigration` to decide whether a row
- * needs to move to quarantine and to format the failure reason
- * naming the offending value.
+ * Return the first option string in `removed` that matches the
+ * stored value. Multi-select arrays surface the first matching
+ * element; scalars return themselves on a match. `null` means no
+ * conflict.
  */
 function findRemovedOptionConflict(
 	value: unknown,
@@ -2039,124 +1512,78 @@ function findRemovedOptionConflict(
 	return null;
 }
 
-// ---------------------------------------------------------------
-// Per-property expression-index DDL helpers
-// ---------------------------------------------------------------
+// Per-property expression-index DDL helpers.
 //
 // The desired index set for a case type is computed from each
-// property's `data_type`. The type implies which Postgres operator
+// property's `data_type` — each type implies the Postgres operator
 // shape the predicate compiler emits at query time, and the
-// matching expression-index DDL is what makes the operator's
-// emitted SQL reach the index instead of a sequential scan. Each
-// shape was empirically verified via `EXPLAIN` against the
-// compiled SQL the term/predicate compilers produce.
-//
-// The diff against the live index set is keyed by name. Index
-// names follow `cases_<case_type>_<property>_<mode>` where
-// `<mode>` is the suffix label per `IndexModeSuffix`; a shape
-// change (e.g. retype text → int) picks a different suffix
-// (`fuzzy` → `btree`) so the change flows through as a drop +
-// create under distinct names rather than as a same-name shape
-// rewrite.
-//
-// Each `(case_type, property, mode)` tuple maps to one distinct
-// index name, so a wider desired-set source — search-input
-// declarations that demand a different mode than the data type
-// implies — naturally extends through the same naming convention
-// without changing the diff machinery.
+// matching expression-index DDL is what makes the emitted SQL hit
+// the index instead of a sequential scan. Index names follow
+// `cases_<case_type>_<property>_<mode>` so a shape change (e.g.
+// retype text → int picks suffix `fuzzy` → `btree`) flows through
+// as drop + create under distinct names rather than a same-name
+// rewrite. Each shape was empirically verified via `EXPLAIN`.
 
 /**
- * The index naming-suffix label per `(data_type, mode)` shape. The
- * suffix is part of the unique index name so a property that
- * carries multiple modes (e.g. text with both fuzzy similarity and
- * a starts-with prefix declaration) maps to a distinct index per
- * mode.
+ * The index naming-suffix label per `(data_type, mode)` shape. A
+ * property carrying multiple modes (e.g. text with both fuzzy and
+ * starts-with) maps to a distinct index per mode.
  *
- * The label set:
- *
- *   - `fuzzy` — pg_trgm GIN on the property's text read. Covers
- *     fuzzy similarity (`%`), planner-recognised LIKE prefix
- *     matching, and the fuzzy-date permutation lookup.
- *   - `btree` — btree on the typed cast. Covers `compare` /
- *     `between` for ordered numeric types (int, decimal).
- *   - `contains` — jsonb_ops GIN on the JSONB read. Covers
- *     `multi-select-contains` (`?|` / `?&` / `@>`); jsonb_ops is
- *     required (NOT jsonb_path_ops) because the latter does not
- *     support the `?|` / `?&` / `?` operators.
+ * - `fuzzy` — pg_trgm GIN. Covers `match` (fuzzy / phonetic /
+ *   starts-with) + fuzzy-date permutation lookup.
+ * - `btree` — btree on the typed cast. Covers `compare` / `between`
+ *   for `int` / `decimal`.
+ * - `contains` — jsonb_ops GIN. Covers `multi-select-contains`
+ *   (`?|` / `?&` / `@>`); jsonb_path_ops is the wrong choice — it
+ *   only supports `@>`.
  */
 type IndexModeSuffix = "fuzzy" | "btree" | "contains";
 
-/**
- * One expression-index entry — name plus the DDL pieces the build
- * step needs. `using` is the access method (`gin` / `btree`);
- * `expression` is the indexed expression as a Kysely
- * `RawBuilder` (e.g. `(properties->>'age')::integer`); `caseType`
- * is the partial-index predicate's right-hand value.
- */
+/** One expression-index entry — name + DDL pieces the build step needs. */
 interface DesiredIndex {
 	/** `cases_<case_type>_<property>_<mode>`. */
 	name: string;
-	/** Postgres access method — `gin` / `btree`. */
+	/** Postgres access method. */
 	using: "gin" | "btree";
 	/**
-	 * The indexed expression. Built via Kysely's `sql` template
-	 * with `sql.lit` substitutions so the property key flows as a
-	 * SQL string literal — Postgres expression-index expressions
-	 * must be immutable and reject parameter binds, so the typed
-	 * builder's `${param}` shape would be silently rejected.
+	 * The indexed expression, built via `sql.lit` substitutions —
+	 * expression-index expressions must be immutable and reject
+	 * parameter binds, so the typed builder's `${param}` shape
+	 * would be silently rejected.
 	 */
 	expression: ReturnType<typeof sql>;
-	/** Optional opclass token (`gin_trgm_ops` / `jsonb_ops`). */
 	opclass?: "gin_trgm_ops" | "jsonb_ops";
-	/** The case type's name — feeds the partial-index predicate. */
+	/** Feeds the partial-index predicate `WHERE case_type = ...`. */
 	caseType: string;
 }
 
 /**
- * One live index entry read from the catalog. Matched by name
- * against `DesiredIndex.name` to compute the diff.
- *
- * `isValid` mirrors `pg_index.indisvalid`. A failed
- * `CREATE INDEX CONCURRENTLY` (lock conflict, deadlock, disk full,
- * cancelled mid-build) leaves the partially-built index visible in
- * the catalogs marked `indisvalid = false`; per
- * `https://www.postgresql.org/docs/current/catalog-pg-index.html`
- * Postgres treats an INVALID index as "possibly incomplete: it
- * must still be modified by INSERT/UPDATE operations, but it
- * cannot safely be used for queries." The diff treats INVALID
- * entries as "drop and recreate" so the next `applySchemaChange`
- * call recovers from a transient Phase B failure idempotently.
+ * One live index entry read from the catalog. `isValid` mirrors
+ * `pg_index.indisvalid` — a failed `CREATE INDEX CONCURRENTLY`
+ * leaves the partially-built index visible with
+ * `indisvalid = false`. Postgres treats INVALID indexes as
+ * "possibly incomplete: must still be modified by INSERT/UPDATE,
+ * but cannot safely be used for queries"
+ * (`https://www.postgresql.org/docs/current/catalog-pg-index.html`).
+ * The diff treats INVALID entries as "drop and recreate" so the
+ * next call converges idempotently.
  */
 interface LiveIndex {
-	/** The index name as Postgres reports it. */
 	name: string;
-	/**
-	 * `true` when `pg_index.indisvalid` is `true` (the index is
-	 * complete and queryable); `false` when a CREATE CONCURRENTLY
-	 * failure left it marked invalid. INVALID entries flow through
-	 * both `drops` and `creates` in `diffIndexSets` so the recovery
-	 * pass converges the live set with the desired set.
-	 */
 	isValid: boolean;
 }
 
 /**
- * Compute the desired index set for a case type given the
- * blueprint's property declarations. Each property contributes one
- * index keyed on its `data_type`: text → fuzzy GIN, int / decimal
- * → btree expression, multi_select → contains GIN. `single_select`,
- * `date` / `datetime` / `time`, and `geopoint` map to `undefined`
- * — see `desiredIndexForProperty` for the per-arm rationale.
+ * Compute the desired index set for a case type. Each property
+ * contributes one index keyed on its `data_type`; `single_select`,
+ * temporal types, and `geopoint` map to `undefined` (see
+ * `desiredIndexForProperty` for per-arm rationale).
  *
- * Two properties whose names differ only by the hyphen-vs-underscore
- * distinction (e.g. `external-id` and `external_id`) compose into
- * the same index name after the hyphen-to-underscore transform
- * `indexName` applies; the function detects the collision and
- * throws with a directive message naming both properties so the
+ * Detects post-transform collisions: two properties differing only
+ * by hyphen-vs-underscore (e.g. `external-id` and `external_id`)
+ * compose to the same index name after `indexName`'s hyphen-to-
+ * underscore transform; throw with both originating names so the
  * author can disambiguate at the blueprint layer.
- *
- * The result is a Map keyed by index name so the diff against the
- * live set stays a simple key intersection.
  */
 function computeDesiredIndexSet(
 	caseType: string,
@@ -2164,8 +1591,8 @@ function computeDesiredIndexSet(
 ): Map<string, DesiredIndex> {
 	const result = new Map<string, DesiredIndex>();
 	// Track which property name produced each index name so a
-	// collision surfaces both originating property names in the
-	// error message rather than the post-transform composed string.
+	// collision error names both originating properties rather than
+	// the post-transform composed string.
 	const sourceProperty = new Map<string, string>();
 	for (const property of properties) {
 		const entry = desiredIndexForProperty(caseType, property);
@@ -2190,46 +1617,27 @@ function computeDesiredIndexSet(
 }
 
 /**
- * Build the desired-index entry for one property, or return
- * `undefined` when the property's data type carries no per-property
- * index. Four arms of `CasePropertyDataType` produce no index:
+ * Build the desired-index entry for one property, or `undefined`
+ * when the data type carries no per-property index.
  *
- *   - `single_select` — equality on a small option set is fast
- *     without an expression index. The equality operator's emitted
- *     SQL reaches the row population through the case-type partial
- *     filter alone.
- *   - `date` / `datetime` / `time` — the text-to-typed casts
- *     (`::date` / `::timestamptz` / `::time`) are STABLE in
- *     Postgres (DateStyle / TimeZone session dependency) and
- *     expression indexes require IMMUTABLE expressions. The
- *     canonical `to_date('YYYY-MM-DD')` / `to_timestamp(...)`
- *     builtins are also STABLE — no built-in cast satisfies the
- *     immutability requirement. Compare / between on these data
- *     types runs as a sequential scan over the case-type partition;
- *     correct semantically, slower on large case-types. Indexing
- *     them requires an IMMUTABLE wrapper function plus a matching
- *     change on the query side so both surfaces target the same
- *     expression.
- *   - `geopoint` — the predicate compiler's `within-distance`
- *     arm emits `ST_DWithin(ST_GeogFromText(concat('POINT(',
- *     split_part(properties->>'<key>', ' ', 2), ' ',
- *     split_part(properties->>'<key>', ' ', 1), ')')), ...)`
- *     because the stored format `"lat lon alt acc"` is not WKT and
- *     the term compiler builds a WKT string at query time. The
- *     full WKT-build expression cannot be indexed: Postgres
- *     `concat(...)` over text args is STABLE, so an index on that
- *     expression fails the IMMUTABLE check. The simpler
- *     `ST_GeogFromText(properties->>'<key>')` form would index
- *     successfully but the planner cannot bridge it to the
- *     compiler's WKT-build form for index match. `within-distance`
- *     queries run as a sequential scan over the case-type
- *     partition; an indexed path requires an IMMUTABLE Postgres
- *     wrapper function the term compiler also emits against.
+ * - `single_select` — equality on a small option set is fast
+ *   without an expression index.
+ * - `date` / `datetime` / `time` — the text-to-typed casts and the
+ *   canonical `to_date(...)` / `to_timestamp(...)` builtins are
+ *   STABLE in Postgres (DateStyle / TimeZone session dependency);
+ *   expression indexes require IMMUTABLE. Compare / between runs
+ *   as a sequential scan; an indexed path requires a Nova-owned
+ *   IMMUTABLE wrapper function the term compiler also emits against.
+ * - `geopoint` — the `within-distance` arm builds a WKT string via
+ *   `concat(...)` over `split_part(...)` to bridge the wire shape
+ *   `"lat lon alt acc"` to PostGIS's WKT input; `concat(...)` over
+ *   text args is STABLE so the expression cannot be indexed. The
+ *   simpler `ST_GeogFromText(properties->>'<key>')` form would
+ *   index but the planner cannot bridge it to the compiler's
+ *   WKT-build form for index match.
  *
- * Properties with no declared `data_type` default to `text` — the
- * same default the JSON Schema generator uses (see
- * `lib/domain/predicate/jsonSchema.ts`). Treating them differently
- * here would split the default's source across two surfaces.
+ * Properties with no declared `data_type` default to `text` (same
+ * default `lib/domain/predicate/jsonSchema.ts` uses).
  */
 function desiredIndexForProperty(
 	caseType: string,
@@ -2244,9 +1652,8 @@ function desiredIndexForProperty(
 			return {
 				name: indexName(caseType, propertyKey, suffix),
 				using: "gin",
-				// `properties->>'<key>'` returns text; `gin_trgm_ops`
-				// is the trigram opclass. Postgres requires the index
-				// expression be parenthesized.
+				// Postgres requires expression-index expressions be
+				// parenthesized.
 				expression: sql`((properties->>${sql.lit(propertyKey)}))`,
 				opclass: "gin_trgm_ops",
 				caseType,
@@ -2259,13 +1666,11 @@ function desiredIndexForProperty(
 			return {
 				name: indexName(caseType, propertyKey, suffix),
 				using: "btree",
-				// The btree expression `((properties->>'<key>')::<cast>)`
-				// matches the term compiler's emission shape so the
-				// planner reaches the index for `compare` / `between`
-				// against the typed value. The cast token comes from
-				// the same data-type table the query path reads —
-				// retyping a property automatically retargets the
-				// index because both surfaces share the table.
+				// `((properties->>'<key>')::<cast>)` matches the term
+				// compiler's emission so the planner reaches the index.
+				// The cast token comes from the same data-type table
+				// the query path reads, so retyping retargets both
+				// surfaces in lockstep.
 				expression: sql`(((properties->>${sql.lit(propertyKey)}))::${sql.raw(cast)})`,
 				caseType,
 			};
@@ -2275,14 +1680,11 @@ function desiredIndexForProperty(
 			return {
 				name: indexName(caseType, propertyKey, suffix),
 				using: "gin",
-				// `properties->'<key>'` returns jsonb (NOT `->>`) —
-				// `jsonb_ops` is the default opclass that supports
-				// the full set of JSONB containment operators (`?` /
-				// `?|` / `?&` / `@>`). `jsonb_path_ops` is a smaller
-				// alternative but supports only `@>`, so a
-				// `multi-select-contains` query that emits `?|` /
-				// `?&` would not reach a `jsonb_path_ops` index — the
-				// planner would fall back to a sequential scan.
+				// `->` (returns jsonb) NOT `->>` — `jsonb_ops` supports
+				// the full `?` / `?|` / `?&` / `@>` set, while
+				// `jsonb_path_ops` only covers `@>` and would force
+				// `multi-select-contains` queries emitting `?|` / `?&`
+				// to a sequential scan.
 				expression: sql`((properties->${sql.lit(propertyKey)}))`,
 				opclass: "jsonb_ops",
 				caseType,
@@ -2319,24 +1721,13 @@ function desiredIndexForProperty(
 }
 
 /**
- * Compose the index name from `(caseType, property, mode)`. The
- * blueprint vocabulary admits hyphens in property names
- * (`CASE_PROPERTY_PATTERN` at `lib/domain/predicate/types.ts:116`;
- * `external-id` is real CommCare convention), but Postgres
- * unquoted identifiers don't. Hyphens transform to underscores in
- * the composed name; the JSONB key inside the indexed expression
- * stays exactly as-is via `sql.lit`.
- *
- * Two properties whose names differ only by hyphen-vs-underscore
- * (e.g. `external-id` and `external_id`) compose to the same index
- * name after the transform; `computeDesiredIndexSet` detects that
- * collision before it reaches the database.
- *
- * Postgres's 63-byte identifier cap (`NAMEDATALEN - 1`) silently
- * truncates longer names, so a long case-type + long property
- * could produce a collision in `pg_indexes` even with distinct
- * pre-truncate names. Throws on overflow so the diff stays
- * mechanical against the live set.
+ * Compose the index name from `(caseType, property, mode)`.
+ * Hyphens transform to underscores because Postgres unquoted
+ * identifiers don't admit them; the JSONB key inside the indexed
+ * expression keeps the hyphen verbatim via `sql.lit`. Throws on
+ * overflow of Postgres's 63-byte identifier cap so the diff stays
+ * mechanical against the live set (Postgres silently truncates
+ * longer names, which would produce false collisions).
  */
 function indexName(
 	caseType: string,
@@ -2359,30 +1750,16 @@ function indexName(
 	return composed;
 }
 
-/**
- * Transform hyphens to underscores so a hyphenated blueprint name
- * composes into a legal unquoted Postgres identifier. The transform
- * runs at the COMPOSED-NAME boundary only; the JSONB key inside
- * the indexed expression stays exactly as the blueprint declares
- * it via `sql.lit`.
- */
+/** Hyphens → underscores for Postgres identifier compatibility. */
 function transformHyphens(fragment: string): string {
 	return fragment.replace(/-/g, "_");
 }
 
 /**
- * Assert that a fragment intended for use inside a Postgres
- * identifier matches the blueprint's case-property vocabulary:
- * leading letter, then letters / digits / underscores / hyphens.
- * The regex matches `CASE_PROPERTY_PATTERN` from
- * `lib/domain/predicate/types.ts` so the case-store's
- * identifier-shape contract aligns with the blueprint AST's. The
- * compose step transforms hyphens to underscores; Postgres only
- * sees the post-transform shape.
- *
- * `kind` is the human-readable label naming what the fragment is
- * (`"property"` / `"case type"`) so the error message points at the
- * right blueprint surface for the author to fix.
+ * Match `CASE_PROPERTY_PATTERN` from
+ * `lib/domain/predicate/types.ts` so the case-store's identifier-
+ * shape contract aligns with the blueprint AST. `kind` names the
+ * fragment role for the error message.
  */
 function assertSafeIdentifierFragment(
 	fragment: string,
@@ -2402,42 +1779,33 @@ function assertSafeIdentifierFragment(
 
 /**
  * Read every live per-property expression index for a case type
- * from the Postgres catalog. The filter pins to indexes whose name
- * starts with `cases_<case_type>_` so foreign indexes (manually
- * created indexes on `cases`, the static `case_indices_*_idx`
- * set) don't appear in the diff and accidentally get dropped.
+ * from the catalog. The name-prefix filter pins to indexes the
+ * helper owns so foreign indexes (manually created, the static
+ * `case_indices_*_idx` set) don't appear in the diff.
  *
  * The query joins `pg_index` + `pg_class` (twice — once for the
- * index itself, once for the underlying table) + `pg_namespace`
- * rather than reading from the simpler `pg_indexes` view because
- * `pg_indexes` does not expose `indisvalid`. The validity flag
- * matters: a `CREATE INDEX CONCURRENTLY` failure (lock conflict,
- * deadlock, disk full, cancelled mid-build) leaves the partially-
- * built index visible to `pg_indexes` with the same name a healthy
- * index would have, so a name-only diff would skip recreation and
- * leave the broken artifact permanently in place. Capturing
- * `indisvalid` lets `diffIndexSets` emit a drop-and-recreate pair
- * for the broken entry on the next `applySchemaChange` retry. See
- * `https://www.postgresql.org/docs/current/catalog-pg-index.html`
- * for the catalog contract.
+ * index, once for the underlying table) + `pg_namespace` rather
+ * than reading the simpler `pg_indexes` view because `pg_indexes`
+ * does not expose `indisvalid`. Capturing the validity flag lets
+ * `diffIndexSets` emit a drop-and-recreate pair for an INVALID
+ * artifact left by a prior failed CONCURRENTLY build — without
+ * `indisvalid`, a name-only diff would skip recreation and leave
+ * the broken artifact permanently in place. Catalog contract:
+ * `https://www.postgresql.org/docs/current/catalog-pg-index.html`.
  */
 async function readLiveIndexSet(
 	executor: Kysely<Database>,
 	caseType: string,
 ): Promise<Map<string, LiveIndex>> {
-	// `n.nspname = current_schema()` scopes the read to the
-	// session's default schema (the same schema that holds `cases`),
-	// matching the `pg_indexes` view's implicit scoping. `t.relname
-	// = 'cases'` pins the underlying table; the `c.relname LIKE`
-	// filter keys on the convention prefix.
+	// `n.nspname = current_schema()` matches `pg_indexes`'s implicit
+	// scoping; `t.relname = 'cases'` pins the underlying table.
 	//
-	// The hyphen-to-underscore transform `indexName` applies to
-	// case-type names runs here too — the live filter must match
-	// the same post-transform prefix as the create path. The
-	// underscore separators in the prefix are LIKE single-char
-	// wildcards on the literal `_`; the `ESCAPE '\\'` form treats
-	// the `\_` sequence as a literal underscore so the prefix
-	// matches only on the convention's structural underscores.
+	// Underscores in the prefix are LIKE single-char wildcards on
+	// `_`; the `ESCAPE '\\'` form treats `\_` as a literal underscore
+	// so the prefix matches only structural underscores (the
+	// `cases_<type>_` convention shape) — the `indexName`
+	// hyphen-to-underscore transform also applies on the case-type
+	// fragment so this filter aligns with the create path.
 	assertSafeIdentifierFragment(caseType, "case type");
 	const prefix = `cases\\_${transformHyphens(caseType)}\\_%`;
 	const result = await sql<{
@@ -2462,27 +1830,12 @@ async function readLiveIndexSet(
 }
 
 /**
- * The diff between the desired and live index sets. Three cases
- * compose the result:
- *
- *   - Name in desired AND live AND `live.isValid === true` — skip.
- *     Same name implies same shape (the naming convention encodes
- *     `(case_type, property, mode)`; a shape change always picks
- *     a different mode suffix), and a valid index needs no work.
- *   - Name in desired AND live AND `live.isValid === false` — emit
- *     BOTH a drop and a create. A `CREATE INDEX CONCURRENTLY`
- *     failure leaves the partially-built index marked
- *     `indisvalid = false` (per
- *     `https://www.postgresql.org/docs/current/catalog-pg-index.html`);
- *     dropping it and recreating it from scratch is the recovery
- *     path. The drop-then-create execution order in
- *     `syncExpressionIndexes` ensures the same name is free before
- *     the create reuses it.
- *   - Name in live AND not desired — emit a drop. Property removal
- *     or rename leaves an obsolete entry whose definition no
- *     blueprint surface still claims; validity does not affect the
- *     drop decision.
- *   - Name in desired AND not live — emit a create.
+ * Diff the desired and live sets. Same name implies same shape (a
+ * shape change always picks a different mode suffix), so a valid
+ * matching name skips. INVALID matches drop-and-recreate (the
+ * `indisvalid = false` recovery path); ordered drop-then-create in
+ * `syncExpressionIndexes` ensures the name is free before reuse.
+ * Live names not in desired drop regardless of validity.
  */
 function diffIndexSets(
 	desired: ReadonlyMap<string, DesiredIndex>,
@@ -2497,19 +1850,13 @@ function diffIndexSets(
 			continue;
 		}
 		if (!liveEntry.isValid) {
-			// INVALID artifact from a prior failed CONCURRENTLY build —
-			// drop and recreate. The drop runs before the create in
-			// `syncExpressionIndexes`'s ordered loop so the name is
-			// free by the time the create lands.
+			// INVALID artifact from a prior failed CONCURRENTLY build:
+			// drop and recreate.
 			drops.push(liveEntry);
 			creates.push(entry);
 		}
 	}
 	for (const [name, entry] of live) {
-		// A live entry the desired set no longer claims is dropped
-		// regardless of validity — invalid + obsolete still yields
-		// "drop"; the create-side iteration above already covered the
-		// invalid-and-still-desired case.
 		if (!desired.has(name)) {
 			drops.push(entry);
 		}
@@ -2518,16 +1865,10 @@ function diffIndexSets(
 }
 
 /**
- * Emit one `CREATE INDEX` statement against the supplied
- * transaction. The opclass token (`gin_trgm_ops` / `jsonb_ops`)
- * attaches to the indexed expression as a trailing operator-class
- * declaration when present.
- *
- * The `WHERE case_type = '<value>'` partial-index predicate scopes
- * the index to one case-type's rows. Property keys live inside the
- * indexed expression itself (already substituted via `sql.lit` at
- * the call site); the case-type name flows as a `sql.lit` string
- * literal here for the same expression-index immutability reason.
+ * Emit one `CREATE INDEX CONCURRENTLY` statement. The case-type
+ * flows as a `sql.lit` string literal because expression-index
+ * predicates require IMMUTABLE; bound parameters would silently
+ * fail the immutability check.
  */
 async function emitCreateIndex(
 	executor: Kysely<Database>,
@@ -2536,19 +1877,6 @@ async function emitCreateIndex(
 	const opclass =
 		entry.opclass !== undefined ? sql` ${sql.raw(entry.opclass)}` : sql``;
 	const using = sql.raw(entry.using.toUpperCase());
-	// `CREATE INDEX CONCURRENTLY` uses MVCC snapshot semantics
-	// strict enough to ignore tuples being modified by concurrent
-	// (or recently committed) transactions, which avoids the
-	// `SnapshotAny` dead-tuple issue plain `CREATE INDEX` hits when
-	// Phase A's quarantine DELETE just committed. CONCURRENTLY also
-	// avoids holding `ACCESS EXCLUSIVE` on the table for the
-	// build's duration — concurrent reads and writes against
-	// `cases` keep working while the build runs. The trade-off is
-	// that CONCURRENTLY internally manages its own transactions
-	// and cannot run inside an outer transaction; Phase B is
-	// already non-transactional by design (see file-level header
-	// "Why DDL is split out of Phase A's transaction"), so the
-	// constraint aligns naturally.
 	await sql`CREATE INDEX CONCURRENTLY ${sql.id(entry.name)} ON cases USING ${using} (${entry.expression}${opclass}) WHERE case_type = ${sql.lit(entry.caseType)}`.execute(
 		executor,
 	);

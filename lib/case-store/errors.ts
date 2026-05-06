@@ -1,120 +1,37 @@
 // lib/case-store/errors.ts
 //
-// Typed user-domain errors for the case-store layer.
+// Typed user-domain errors. Four shapes carry `instanceof`
+// discrimination so API routes and Server Actions can map them to
+// typed result arms; every other throw across `lib/case-store/**`
+// is an internal-invariant violation that reuses the helpers from
+// `lib/domain/predicate/errors.ts`. See `lib/case-store/CLAUDE.md`
+// § "Typed error contract" for the API-route catch-and-translate
+// pattern and the equivalence-class rationale on the not-found
+// shape.
 //
-// ## Why a dedicated module
+// Voice mirrors the `compilerBugMessage` shape: third-person
+// impersonal header, indented diagnostic body, narrative paragraph,
+// `Hint:` line. Backticks wrap code identifiers; single quotes wrap
+// user-supplied values.
 //
-// Four `CaseStore` failure shapes flow back through the API
-// surface to the user: a case the request points at doesn't exist,
-// the payload submitted fails the schema, the blueprint snapshot
-// the request carries doesn't declare the case type, and the
-// schema row for the case type hasn't been synced yet. Every other
-// throw across `lib/case-store/**` is an internal invariant
-// violation — the AST / blueprint / connection layer reached a
-// state an upstream gate was supposed to reject — and reuses the
-// formatters at `lib/domain/predicate/errors.ts`
-// (`compilerBugMessage` / `unhandledKindMessage` /
-// `typeCheckerBypassMessage`). The four user-domain shapes need
-// `instanceof` discrimination so API routes (and Server Actions)
-// can map them to typed result arms; that discrimination is what
-// this module provides.
-//
-// ## API-route catch-and-translate pattern
-//
-// API routes wrap their `CaseStore` calls in try/catch:
-//
-//   - `CaseNotFoundError` → 404. The body carries no detail beyond
-//     the case id; the message acknowledges tenant boundaries
-//     exist as an equivalence statement, not a confirmation that
-//     the case is in another tenant. Three causes are equivalent
-//     from the caller's perspective: the row was never created,
-//     the row was closed and removed out of band, or the row sits
-//     outside the bound owner's tenant. Surfacing the three as
-//     equivalent keeps tenant boundaries structural rather than
-//     message-leaked.
-//   - `CasePropertiesValidationError` → 400. The structured
-//     `failures` array surfaces — the user-actionable per-field
-//     diagnostic the form layer (or whatever submitted the
-//     payload) renders as inline error text. The `(appId,
-//     caseType)` pair stays in the message for server-side logs
-//     but does NOT surface in the response body — the wrapper
-//     jargon (`case_type_schemas[<app>, <type>].schema`) is
-//     internal vocabulary, not user vocabulary.
-//   - `CaseTypeNotInBlueprintError` — the supplied blueprint
-//     snapshot carries no case type with the requested name.
-//     Reachable from user-driven actions (e.g. populating sample
-//     cases) when the doc-store state mutates between the action's
-//     mount and the user's click. Server Actions catch and emit a
-//     typed `missing-case-type` result arm so the running-app view
-//     re-resolves against fresh state instead of surfacing a 500
-//     with `compilerBugMessage` jargon.
-//   - `SchemaNotSyncedError` — the case type has no row in
-//     `case_type_schemas` yet. Reachable from any write path
-//     (`insert` / `update` / `generateSampleData`) when the
-//     blueprint mutator skipped the `applySchemaChange` ordering
-//     contract. Server Actions catch and emit a typed
-//     `schema-not-synced` result arm so the consumer can surface
-//     the structural fix (run `applySchemaChange` first) rather
-//     than rendering the internal-invariant body.
-//   - Anything else → propagates to the framework's 500 handler
-//     with full server-side logging. The Elm-style helpers in
-//     `lib/domain/predicate/errors.ts` produce verbose
-//     diagnostics specifically because invariant violations are
-//     debugged from logs, not from the response body.
-//
-// ## Voice
-//
-// Mirrors the `compilerBugMessage` / `typeCheckerBypassMessage`
-// shape from the predicate package: third-person impersonal
-// header, indented diagnostic body, narrative paragraph, a
-// `Hint:` line stating the actionable next step. Backticks wrap
-// code identifiers; single quotes wrap user-supplied values.
-//
-// ## Why `readonly name = "<ClassName>"`
-//
-// The class declaration writes `name` to the class prototype with
-// the literal class-name string. Subclasses of `Error` lose their
-// `name` to `"Error"` across some bundler boundaries (the
-// inherited `name` field on `Error.prototype` shadows the
-// subclass's name in minified or tree-shaken builds), so an
-// `instanceof CaseNotFoundError` check would still work but a
-// `err.name === "CaseNotFoundError"` check (e.g., a structured
-// log filter) would break silently. Pinning `name` on the
-// instance via the `readonly name = ...` field initializer keeps
-// the literal stable across every transform. The pattern matches
-// Better Auth's typed errors and Vercel's AI SDK's typed errors.
+// `readonly name = "<ClassName>"` keeps the literal class-name
+// stable across bundler transforms — subclasses of `Error` lose
+// `name` to `"Error"` in some minified builds, so a structured-log
+// filter on `err.name === "CaseNotFoundError"` would break without
+// the field initializer. Same pattern Better Auth and Vercel's AI
+// SDK use.
 
 const INDENT = "    ";
-
-// ---------------------------------------------------------------
-// CaseNotFoundError — `update` against a case the bound owner
-// cannot see
-// ---------------------------------------------------------------
 
 /**
  * Thrown by `CaseStore.update` when the patched `(case_id,
  * app_id)` pair has no matching row visible to the bound owner.
- * Three causes are equivalent from the caller's perspective:
- *
- *   - the row was never created
- *   - the row was closed and removed out of band
- *   - the row sits outside the bound owner's tenant
- *
- * The error surfaces all three as equivalent so the tenant
- * boundary stays structural — the message does not confirm
- * "another tenant has this case", which would leak the existence
- * of cases outside the bound owner's scope.
  *
  * `close` and `traverse` deliberately do NOT throw this error.
  * `close`'s "ensure this case is closed" semantic admits a silent
- * no-op for already-closed-or-missing cases (idempotent
- * teardown). `traverse` is a graph walk that returns a list, so
- * an empty result for a missing anchor is the right answer
- * (composable with downstream walks). Both shapes are
- * deliberate.
- *
- * API routes catch and map to HTTP 404 with no body detail beyond
- * the case id.
+ * no-op for already-closed-or-missing cases. `traverse` is a graph
+ * walk that returns a list, so an empty result for a missing
+ * anchor is the right answer.
  */
 export class CaseNotFoundError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
@@ -144,18 +61,11 @@ export class CaseNotFoundError extends Error {
 	}
 }
 
-// ---------------------------------------------------------------
-// CasePropertiesValidationError — write-time JSON Schema mismatch
-// ---------------------------------------------------------------
-
 /**
- * One field-level validation failure. The `path` is the JSONB
- * pointer the AJV validator emits (e.g. `/age`, or the empty
- * string for the document root); the `message` is the AJV-
- * reported reason (`"must be integer"`, `"must match pattern"`,
- * etc.). The pair is what the form layer (or whatever produced
- * the payload) renders as inline error text against the
- * matching field input.
+ * One field-level validation failure. `path` is the JSONB pointer
+ * AJV emits (e.g. `/age`, or the empty string for the document
+ * root); `message` is the AJV-reported reason. Form layers render
+ * the pair as inline error text against the matching field input.
  */
 export interface CasePropertyFailure {
 	/** JSONB pointer to the offending property; empty string = document root. */
@@ -167,15 +77,9 @@ export interface CasePropertyFailure {
 /**
  * Thrown when `CaseStore.insert` or `CaseStore.update` receives a
  * `properties` payload that fails validation against the case
- * type's JSON Schema (the row in `case_type_schemas`). Carries
- * the structured per-field failure list as a public field so API
- * routes catch and re-emit it as an HTTP 400 response body.
- *
- * The `(appId, caseType)` pair stays in the message for server-
- * side logs but does NOT surface in the response body — the
- * wrapper jargon (`case_type_schemas[<app>, <type>].schema`) is
- * internal vocabulary, not user-facing vocabulary. The user-
- * actionable surface is the per-field `failures` array.
+ * type's JSON Schema. The structured per-field failure list
+ * surfaces as a public field so API routes catch and re-emit it
+ * as the HTTP 400 response body.
  */
 export class CasePropertiesValidationError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
@@ -223,35 +127,13 @@ export class CasePropertiesValidationError extends Error {
 	}
 }
 
-// ---------------------------------------------------------------
-// CaseTypeNotInBlueprintError — the supplied blueprint omits the
-// requested case type
-// ---------------------------------------------------------------
-
 /**
- * Thrown by helpers that resolve a case type from a caller-supplied
- * blueprint snapshot when the snapshot carries no matching entry.
- * Surfaces from `findCaseTypeOrThrow`, which is invoked by
- * `applySchemaChange` (schema regen reads the prospective `CaseType`)
- * and by `HeuristicCaseGenerator.generate` (sample-data row
- * construction reads the property declarations).
- *
- * The throw is reachable from user-driven actions (the
- * "Generate sample data" affordance against the running-app view's
- * empty case-type) when the doc-store state mutates between the
- * action's mount and the user's click. Three causes are equivalent
- * from the caller's perspective:
- *
- *   - the case type was deleted in the editor between mount and
- *     click
- *   - the supplied blueprint snapshot is stale relative to the
- *     authoritative state
- *   - the case type was never declared in the first place
- *
- * Surfacing the three as equivalent keeps the typed shape narrow:
- * Server Actions map to a `missing-case-type` arm and re-resolve
- * against fresh state rather than rendering the
- * `compilerBugMessage` body with internal vocabulary.
+ * Thrown by `findCaseTypeOrThrow` when the supplied blueprint
+ * snapshot carries no `caseTypes` entry with the requested name.
+ * Reachable from user-driven actions when the doc-store state
+ * mutates between the action's mount and the user's click. Server
+ * Actions map to a `missing-case-type` arm and re-resolve against
+ * fresh state.
  */
 export class CaseTypeNotInBlueprintError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
@@ -286,28 +168,14 @@ export class CaseTypeNotInBlueprintError extends Error {
 	}
 }
 
-// ---------------------------------------------------------------
-// SchemaNotSyncedError — the case type has no schema row yet
-// ---------------------------------------------------------------
-
 /**
  * Thrown when a write path (`insert` / `update` /
  * `generateSampleData`) reaches the JSON Schema validator and finds
  * no row in `case_type_schemas` for the `(appId, caseType)` pair.
  *
  * `applySchemaChange` is the only producer of `case_type_schemas`
- * rows. The spec § "Write-time validation" pins the ordering: every
- * blueprint mutation that touches a case type's property set runs
- * `applySchemaChange` before any data write reaches the case type,
- * so reaching this error means the blueprint mutator skipped the
- * sync step.
- *
- * The throw is reachable from user-driven actions (the
- * "Generate sample data" affordance) on a freshly-declared case
- * type whose schema sync hasn't run yet. Server Actions catch and
- * emit a typed `schema-not-synced` result arm so the consumer can
- * either retry after the sync lands or surface the structural fix
- * to the user without rendering internal vocabulary.
+ * rows; reaching this error means the blueprint mutator skipped the
+ * sync step. Server Actions map to a `schema-not-synced` arm.
  */
 export class SchemaNotSyncedError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */

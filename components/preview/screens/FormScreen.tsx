@@ -23,37 +23,17 @@ import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 
 interface FormScreenProps {
-	/** This screen's identity — which form is being displayed. Passed from
-	 *  PreviewShell rather than read from the global store: Activity can
-	 *  hide this component, at which point the global "current screen" has
-	 *  moved on, but this component's own identity hasn't. Keeping identity
-	 *  as a prop means the subtree stays valid while hidden (no null render,
-	 *  no destroyed tree) and Activity can do its job of preserving state. */
+	/** Passed from PreviewShell so the subtree stays valid while Activity hides it. Only `caseId` is consumed here. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
-	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
-	 *  Also used as the fallback post-submit destination for `previous` forms. */
+	/** BuilderLayout's back handler — also the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
 }
 
 /**
- * Form screen — renders the form header + body and activates the shared
- * EngineController for the form identified by the URL.
- *
- * Reads the form ENTITY (NForm — no children) for header display.
- * The EngineController manages its own runtime store via selective
- * blueprint store subscriptions that fire outside the React render cycle.
- *
- * Screen identity (moduleIndex, formIndex, caseId) arrives as a prop from
- * PreviewShell so the component remains valid while Activity hides it —
- * but only `caseId` is consumed here. The form's UUID comes from the URL
- * (`useLocation`), and the engine is activated by UUID rather than by the
- * positional screen indices, which are opaque PreviewScreen routing data.
- *
- * Case-data preload routes through `useCaseData` (the binding hook in
- * `lib/preview/hooks/useCaseDataBinding.ts`), which fires
- * `loadCaseDataAction` against the case-store. The form engine's
- * `caseData` parameter is `Map<string, string>`; `caseRowToFormPreload`
- * flattens the JSONB document into that shape.
+ * Form screen. Activates the EngineController by URL-derived form
+ * UUID. Case-data preload routes through `useCaseData`;
+ * `caseRowToFormPreload` flattens the JSONB document into the
+ * `Map<string, string>` the form engine consumes.
  */
 export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
@@ -64,7 +44,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mode = useEditMode();
 	const appId = useAppId();
 
-	/** Uuids derived from the URL — used for uuid-first mutations and navigation. */
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
@@ -78,33 +57,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
 
-	/** The form's uuid doubles as the entity key for FormRenderer, which
-	 *  subscribes to `fieldOrder[formUuid]` for the ordered child list.
-	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
+	/** Doubles as FormRenderer's entity key; FormRenderer subscribes to `fieldOrder[formUuid]`. */
 	const formId = formUuid;
 
-	/** Whether the form has any fields — drives the empty state. The hook
-	 *  accepts `Uuid | undefined`, returning `false` when `formId` is
-	 *  undefined so the preview shell can mount a FormScreen while the
-	 *  URL is still being parsed. */
+	/** Returns `false` for undefined `formId` so FormScreen can mount while the URL is parsing. */
 	const hasFields = useHasFieldsInForm(formId as Uuid | undefined);
 
-	/** Subscribe to the bound case row when one is supplied. The hook
-	 *  returns `idle` until all three ids are bound (`appId`,
-	 *  `caseType`, `caseId`); when `caseId` is undefined
-	 *  (registration / survey / followup-without-case), the hook stays
-	 *  in `idle` and the `caseData` map collapses to `undefined`,
-	 *  leaving the form engine to use defaults rather than preload. */
 	const { state: caseDataState } = useCaseData({
 		appId,
 		caseType: mod?.caseType,
 		caseId,
 	});
 
-	/** Flatten the JSONB row into the `Map<string, string>` shape the
-	 *  form engine consumes. `undefined` collapses for every arm
-	 *  except `row` (idle / loading / missing / failure / auth) —
-	 *  the form renders with defaults rather than preload data. */
+	/** Only `row` produces preload — every other arm leaves the form rendering against defaults. */
 	const caseData = useMemo(() => {
 		if (caseDataState.kind !== "row") return undefined;
 		return caseRowToFormPreload(caseDataState.row);
@@ -112,11 +77,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const editable = isReady;
 
-	/* Activate the engine controller for this form. The controller manages
-	 * its own runtime store via selective blueprint subscriptions — no
-	 * entity-map subscription here, no "setState during render" issues.
-	 * Identified by UUID so the engine no longer depends on positional
-	 * module/form indices. */
 	const controller = useFormEngine(formUuid, caseData);
 
 	const prevModeRef = useRef(mode);
@@ -148,17 +108,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	if (!form || !formId) return null;
 
-	/** Targeted guards for the case-data load's typed failure arms. A
-	 *  caseId-bound followup that lands on `unauthenticated` or `error`
-	 *  must surface the failure to the user instead of silently
-	 *  collapsing to "form with no preload" — the no-preload path
-	 *  hides session expiry and transport failures behind a form
-	 *  rendered against defaults, which the user has no way to
-	 *  diagnose. The `idle` and `loading` arms intentionally fall
-	 *  through (the form renders with defaults during the load
-	 *  window; preload populates once the row arrives). The `missing`
-	 *  arm also falls through here — it shares the "no row to load"
-	 *  semantic with the `!caseId` path the next guard handles. */
+	/** A caseId-bound followup hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). */
 	if (mode === "test" && form.type === "followup") {
 		if (caseDataState.kind === "unauthenticated") {
 			return (
@@ -191,12 +141,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	}
 
-	/** "No cases available" guard for case-loading forms. Fires when the
-	 *  user is in test mode on a followup form that needs a bound case
-	 *  but none was supplied — covers both the "navigated from a case
-	 *  list with no cases" path and the "URL contained no caseId" path.
-	 *  The followup form requires an existing case to operate on; without
-	 *  one, the form's data binding has nothing to load against. */
+	/** Followup forms in test mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". */
 	if (mode === "test" && form.type === "followup" && !caseId) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
@@ -242,9 +187,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const formBody = (
 		<>
-			{/* Form header. The `data-form-header` marker is queried by
-			 *  `InlineTextEditor` as the clamp floor for the floating label
-			 *  toolbar — preserve the attribute if this block is refactored. */}
+			{/* `data-form-header` is queried by `InlineTextEditor` as the clamp floor for the floating label toolbar — preserve the attribute if this block is refactored. */}
 			<div
 				data-form-header
 				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
@@ -276,22 +219,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				</div>
 			</div>
 
-			{/* Form body.
-			 *
-			 *  **Unified padding for flipbook parity.** Both edit and live
-			 *  modes use the same `pt-4` top padding here, and every row
-			 *  (edit or live) applies its own horizontal `depthPadding(depth)`
-			 *  gutter inline. The 24px top gap before the first field is
-			 *  supplied by each branch's own "row zero":
-			 *    - edit mode → `insertion(0)` row (24px, built into the row
-			 *      walker)
-			 *    - live mode → `pt-6` on `InteractiveFormRenderer`
-			 *  Both land the first field at Y = 16 + 24 = 40px so a cursor /
-			 *  mode toggle never shifts the user's reading position.
-			 *
-			 *  The bottom 24px is supplied the same way: `insertion(N+1)` in
-			 *  edit mode, the last field's `mb-6` in live mode. No body
-			 *  `pb-*` on either side so the two modes stay symmetric. */}
+			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div ref={formBodyRef} className="flex-1 pt-4">
 				{hasFields ? (
 					<FormRenderer parentEntityId={formId} />
@@ -302,7 +230,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				)}
 			</div>
 
-			{/* Bottom bar — hidden in design mode where it's non-functional */}
+			{/* Hidden in design mode where it's non-functional. */}
 			{mode === "test" && (
 				<div className="flex items-center justify-between px-6 py-3 border-t border-pv-input-border bg-pv-surface">
 					<button
@@ -328,13 +256,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	return (
 		<div className="h-full">
 			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-				{/* FormLayoutProvider owns per-form layout state (currently
-				 *  group/repeat collapse). The collapse set is shared across
-				 *  edit and live modes so a group folded in one stays folded
-				 *  when the user flips to the other. Preview descendants read
-				 *  the current edit mode from `useEditMode()` directly rather
-				 *  than a dedicated context — there's no per-form positional
-				 *  identity left to carry here. */}
+				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider>{formBody}</FormLayoutProvider>
 			</div>
 		</div>

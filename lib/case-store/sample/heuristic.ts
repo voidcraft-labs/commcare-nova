@@ -1,54 +1,17 @@
 // lib/case-store/sample/heuristic.ts
 //
-// `HeuristicCaseGenerator` — the shipped `SampleCaseGenerator`
-// implementation. Schema-driven, deterministic per `(blueprint,
-// caseType, seed)`. Picks values from the per-`data_type` pools
-// under `./pools/` based on a property-name heuristic.
+// `HeuristicCaseGenerator` — the shipped `SampleCaseGenerator`.
+// Schema-driven, deterministic per `(blueprint, caseType, seed)`.
+// Per-`data_type` dispatch with a property-name heuristic that
+// picks a matching pool variant (e.g. `name` → names pool,
+// `address` → address pool, `age` → uniform 15-80, etc.); pools
+// live under `./pools/`.
 //
-// ## Determinism contract
-//
-// Every randomness read flows through one seeded PRNG instance
-// (`mulberry32`-driven, seeded by a string-hash of the supplied
-// `seed`). The same `(blueprint, caseType, seed)` tuple produces
-// the same row sequence on every call. The pools are static arrays
-// (no clock reads, no external API calls); the date generators
-// read from a static module-level reference date threaded in
-// through `composeDateRangeGenerators`, so output is deterministic
-// without any clock read at all.
-//
-// ## Property-name heuristic
-//
-// For each property, the generator picks a pool variant matching the
-// property's name shape:
-//
-//   - `text` → name pool when the name contains "name", address
-//     pool when it contains "address" / "street" / "village",
-//     plain text fallback otherwise (a short readable token).
-//   - `int` → bounded integer pool. Names containing "age" produce
-//     uniform 15-80 (working-age band); names containing "count" /
-//     "quantity" / "number" produce 0-1000; others 0-100.
-//   - `decimal` → bounded float in [0, 100). Names containing
-//     "weight" / "height" / "temperature" produce shape-specific
-//     ranges.
-//   - `date` / `datetime` → range picked by
-//     `pickDateRangeKindForPropertyName` (`dob` / `registration` /
-//     `recent-event`).
-//   - `time` → working-hours range (08:00-18:00).
-//   - `single_select` / `multi_select` → uniform sample over the
-//     property's option set. Multi-select picks 1-3 elements.
-//   - `geopoint` → city-cluster point in CCHQ wire shape.
-//
-// ## What the generator does NOT do
-//
-// The generator does not write to the database, does not derive
-// `case_indices` rows, does not validate against JSON Schema. All
-// of those happen at the case-store's bulk-insert path —
-// `CaseStore.generateSampleData` routes the rows through it so
-// generated rows participate in the same JSON Schema validation +
-// `case_indices` derivation real inserts use.
-//
-// Parent linkages are written via `parent_case_id`; the case-store
-// layer derives `case_indices` from that column at insert time.
+// The generator does NOT write to the database, derive
+// `case_indices`, or validate against JSON Schema —
+// `CaseStore.generateSampleData` routes generated rows through the
+// same bulk-insert path real inserts use, so all three concerns
+// run uniformly at the case-store layer.
 
 import type {
 	CaseProperty,
@@ -75,10 +38,8 @@ import { createSeededPrng, type SeededPrng } from "./prng";
 // ---------------------------------------------------------------
 
 /**
- * The shipped `SampleCaseGenerator`. Schema-driven, deterministic
- * per `(blueprint, caseType, seed)`. The class holds no state
- * across calls — every `generate()` call constructs a fresh PRNG
- * + fresh date-range generators from the supplied seed.
+ * The shipped `SampleCaseGenerator`. Stateless — every call
+ * constructs a fresh PRNG and date-range generators from the seed.
  */
 export class HeuristicCaseGenerator implements SampleCaseGenerator {
 	generate(args: SampleGeneratorArgs): ReadonlyArray<CaseInsert> {
@@ -92,10 +53,8 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 		);
 		const dateGenerators = composeDateRangeGenerators(prng, REFERENCE_DATE);
 
-		// Resolve the parent id list for this child's parent type, if
-		// the blueprint declares one. Empty list = the child generates
-		// orphan rows (parent_case_id stays null) — still valid case
-		// data.
+		// Empty parent-id list produces orphan rows (parent_case_id
+		// stays null) — still valid case data.
 		const parentIds = resolveParentIds({
 			caseType,
 			parentRefs: args.parentRefs,
@@ -105,15 +64,13 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 		for (let i = 0; i < args.count; i++) {
 			const properties: JsonObject = {};
 			for (const property of caseType.properties) {
-				// `case_name` is a top-level scalar column on `cases`,
-				// not a JSONB property. Skip the JSONB write here; the
-				// generator emits the scalar directly in the row
-				// constructor below from the names pool. The blueprint
-				// surface still admits `case_name` on the property
-				// declaration (the SA + author UI carry the field's
+				// `case_name` routes to the top-level column, not the
+				// JSONB document — emitted directly from the names
+				// pool below. The blueprint surface admits the
+				// property declaration (the SA + author UI carry its
 				// label / default-value config there), so the loop
-				// encounters it and routes around it rather than
-				// fighting the upstream shape.
+				// routes around it rather than fighting the upstream
+				// shape.
 				if (property.name === "case_name") continue;
 				properties[property.name] = pickValueForProperty({
 					property,
@@ -123,19 +80,15 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 			}
 			rows.push({
 				case_type: args.caseType,
-				// Generated case_name is a full name from the names
-				// pool. Guaranteed non-empty by the pool's contract,
-				// satisfying the column's `length > 0` CHECK.
+				// Pool contract guarantees non-empty, satisfying the
+				// column's `length > 0` CHECK.
 				case_name: pickFullName(prng),
 				status: "open",
 				properties,
-				// Pick a parent at random from the resolved list; the
-				// empty-list arm produces an orphan row. The `?? null`
-				// is a defensive coalesce against an out-of-range
-				// index — `pickIndex(N)` returns `[0, N)` so the
-				// lookup is defined whenever `length > 0`, but
-				// surfacing `null` here is safer than `undefined`
-				// reaching the JSONB serializer.
+				// `?? null` is defensive — `pickIndex(N)` returns
+				// `[0, N)` so the lookup is defined whenever
+				// `length > 0`, but surfacing `null` is safer than
+				// `undefined` reaching the JSONB serializer.
 				parent_case_id:
 					parentIds.length > 0
 						? (parentIds[prng.pickIndex(parentIds.length)] ?? null)
@@ -151,22 +104,17 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 // ---------------------------------------------------------------
 
 /**
- * The reference date the date-range pools anchor against. Pinned
- * as a module-level constant so the same `(blueprint, caseType,
- * seed)` tuple yields the same output on every call without any
- * clock read.
- *
- * Bumping this constant shifts every `dob` / `registration` /
- * `recent-event` value the generator emits; downstream snapshot-
- * style tests that pin specific dates would re-baseline.
+ * Module-level reference date for date-range pools. Pinned so the
+ * same `(blueprint, caseType, seed)` yields the same output without
+ * any clock read. Bumping this shifts every `dob` / `registration`
+ * / `recent-event` value; snapshot-style tests would re-baseline.
  */
 const REFERENCE_DATE = new Date("2026-05-01T00:00:00.000Z");
 
 /**
- * Resolve the parent-id list for a case type. When the case type
- * declares a `parent_type` and the caller supplied a matching entry
- * in `parentRefs`, the list is returned. Otherwise the empty list
- * — the generator emits orphan rows in that case.
+ * Resolve the parent-id list for the case type. Empty list when
+ * the case type has no `parent_type` or no matching entry in
+ * `parentRefs` — the generator emits orphan rows.
  */
 function resolveParentIds(args: {
 	caseType: CaseType;
@@ -183,26 +131,15 @@ function resolveParentIds(args: {
 }
 
 /**
- * Per-property dispatch. The `data_type` arms are exhaustive over
- * `CasePropertyDataType`; any future variant of the enum surfaces
- * a compile-time error on the `_exhaustive` `never` assignment in
- * the default arm. Within each arm, the property-name heuristic
- * picks a pool variant or applies a shape constraint.
- *
- * Returns a `JsonValue` so the caller's `properties` accumulator
- * stays typed against the JSONB column shape.
+ * Per-`data_type` dispatch. The explicit `CasePropertyDataType`
+ * annotation pins the switch as exhaustive at compile time; a
+ * future enum variant surfaces as a `never` assignment.
  */
 function pickValueForProperty(args: {
 	property: CaseProperty;
 	prng: SeededPrng;
 	dateGenerators: DateRangeGenerators;
 }): JsonValue {
-	// Explicit `CasePropertyDataType` annotation pins the switch
-	// below as exhaustive at compile time. Any future variant of
-	// the enum at `lib/domain/blueprint.ts` surfaces a TypeScript
-	// error on the `_exhaustive` `never` assignment in the default
-	// arm — the failure mode that keeps every consumer of the data-
-	// type enum in lockstep.
 	const dataType: CasePropertyDataType = args.property.data_type ?? "text";
 	switch (dataType) {
 		case "text":
@@ -251,10 +188,7 @@ function pickValueForProperty(args: {
 	}
 }
 
-/**
- * `text` arm. Property-name heuristic picks a pool variant: name
- * pool, address pool, or a short readable token fallback.
- */
+/** Property-name heuristic: name / address / phone / email / fallback token. */
 function pickTextValue(property: CaseProperty, prng: SeededPrng): string {
 	const normalized = property.name.toLowerCase();
 	if (normalized.includes("first_name") || normalized.includes("given")) {
@@ -277,17 +211,11 @@ function pickTextValue(property: CaseProperty, prng: SeededPrng): string {
 	if (normalized.includes("email")) {
 		return pickEmail(prng);
 	}
-	// Fallback: a short readable token that visibly varies row to
-	// row. Concatenating the property name + a 4-digit seeded
-	// suffix yields stable but distinguishable output.
+	// Fallback: stable but distinguishable token —
+	// `<property-name>_NNNN`.
 	return `${property.name}_${String(prng.pickIndex(10000)).padStart(4, "0")}`;
 }
 
-/**
- * Build a phone number in a CCHQ-typical wire shape. Country code +
- * 10-digit number; format ranges across regions to match the
- * generator's overall global variety.
- */
 function pickPhoneNumber(prng: SeededPrng): string {
 	// Country codes biased toward common CommCare-deployment regions.
 	const countryCodes = ["+1", "+44", "+91", "+234", "+254", "+27", "+880"];
@@ -296,12 +224,6 @@ function pickPhoneNumber(prng: SeededPrng): string {
 	return `${country} ${digits}`;
 }
 
-/**
- * Build a plausible email address. First-name + family-name pool
- * picks fold into a `<given>.<family>@example.org` shape so the
- * generated value carries the same global variety the name pool
- * does.
- */
 function pickEmail(prng: SeededPrng): string {
 	const given = pickGivenName(prng).toLowerCase();
 	const idx = prng.pickIndex(10_000);
@@ -309,19 +231,15 @@ function pickEmail(prng: SeededPrng): string {
 }
 
 /**
- * `int` arm. Property-name heuristic picks a bounded range:
- *
- *   - name contains `age` → uniform 15-80 (working-age band)
- *   - name contains `count` / `quantity` / `number` / `total` /
- *     `qty` → uniform 0-1000
- *   - all others → uniform 0-100
+ * Property-name heuristic: `age` → uniform 15-80;
+ * `count` / `quantity` / `number` / `total` / `qty` → 0-1000;
+ * default 0-100.
  */
 function pickIntValue(property: CaseProperty, prng: SeededPrng): number {
 	const normalized = property.name.toLowerCase();
 	if (normalized.includes("age")) {
-		// Uniform 15-80 — covers the working-age population in
-		// roughly the right band for a case-management demo. Child +
-		// elder ages out of scope for this distribution.
+		// Working-age band for case-management demos; child + elder
+		// out of scope for this distribution.
 		return 15 + prng.pickIndex(65);
 	}
 	if (
@@ -337,33 +255,28 @@ function pickIntValue(property: CaseProperty, prng: SeededPrng): number {
 }
 
 /**
- * `decimal` arm. Property-name heuristic picks shape-specific
- * ranges; default is uniform [0, 100).
+ * Property-name heuristic: `weight` → 2.5-100 kg;
+ * `height` → 40-200 cm; `temperature` → 35.5-40.5 °C;
+ * default `[0, 100)`.
  */
 function pickDecimalValue(property: CaseProperty, prng: SeededPrng): number {
 	const normalized = property.name.toLowerCase();
 	if (normalized.includes("weight")) {
-		// Weight in kg: 2.5-100 kg covers infant through adult.
 		return Math.round((2.5 + prng.pickFloat() * 97.5) * 100) / 100;
 	}
 	if (normalized.includes("height")) {
-		// Height in cm: 40-200 cm covers infant through adult.
 		return Math.round((40 + prng.pickFloat() * 160) * 100) / 100;
 	}
 	if (normalized.includes("temperature")) {
-		// Body temperature in C: 35.5-40.5 spans the clinically
-		// meaningful range.
 		return Math.round((35.5 + prng.pickFloat() * 5) * 100) / 100;
 	}
-	// Fallback: [0, 100) with two decimal places.
 	return Math.round(prng.pickFloat() * 10000) / 100;
 }
 
 /**
- * `single_select` arm. Uniform sample over the property's option
- * set. When options are absent (mid-edit blueprints), returns an
- * empty string — matches the JSON Schema validator's permissive
- * fallback for empty-options select kinds.
+ * Uniform sample over the option set. Empty-options blueprints
+ * (mid-edit) return `""` — matches the JSON Schema validator's
+ * permissive fallback.
  */
 function pickSingleSelectValue(
 	property: CaseProperty,
@@ -377,10 +290,12 @@ function pickSingleSelectValue(
 }
 
 /**
- * `multi_select` arm. Picks 1-3 distinct options uniformly over the
- * property's option set. When options are absent (mid-edit
- * blueprints), returns an empty array — matches the JSON Schema
- * validator's permissive fallback.
+ * 1 to min(3, options.length) distinct options without replacement
+ * via Fisher-Yates. Empty-options returns `[]`.
+ *
+ * `pickIndex(k) + 1` lifts uniform `[0, k)` to uniform `[1, k]`
+ * without the clamp bias a fixed-3 draw would have when the option
+ * set is smaller than 3.
  */
 function pickMultiSelectValue(
 	property: CaseProperty,
@@ -389,9 +304,6 @@ function pickMultiSelectValue(
 	if (property.options === undefined || property.options.length === 0) {
 		return [];
 	}
-	// Pick 1 to min(3, options.length) elements without replacement.
-	// Shuffle a copy via Fisher-Yates and slice the prefix; the
-	// `slice(0, k)` then takes the first `k` elements.
 	const optionValues = property.options.map((o) => o.value);
 	for (let i = optionValues.length - 1; i > 0; i--) {
 		const j = prng.pickIndex(i + 1);
@@ -400,10 +312,6 @@ function pickMultiSelectValue(
 		optionValues[i] = b;
 		optionValues[j] = a;
 	}
-	// `pickIndex(min(3, options.length))` is uniform over [0, k)
-	// where k = min(3, options.length); +1 lifts it to [1, k], giving
-	// uniform "1 to min(3, options.length)" without the clamp bias a
-	// fixed-3 draw would have when the option set is smaller than 3.
 	const sliceCount = prng.pickIndex(Math.min(3, optionValues.length)) + 1;
 	return optionValues.slice(0, sliceCount);
 }
