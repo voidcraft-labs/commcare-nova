@@ -216,17 +216,17 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	// refs so the monitor effect doesn't reinstall on every parent
 	// render that produces a new clauses array. The monitor's
 	// callbacks read the current ref values at drag-event time. Same
-	// pattern `useRowDnd` uses for `renderPreview`. Effect deps shrink
-	// to `[containerKey]` — the only value that genuinely identifies
-	// a new monitor scope.
+	// pattern `useRowDnd` uses for `renderPreview` — write the ref
+	// directly during render so the value is current even before
+	// the commit phase, not deferred into an effect. Effect deps
+	// shrink to `[containerKey]` — the only value that genuinely
+	// identifies a new monitor scope.
 	const clausesRef = useRef(value.clauses);
 	const kindRef = useRef(value.kind);
 	const onChangeRef = useRef(onChange);
-	useEffect(() => {
-		clausesRef.current = value.clauses;
-		kindRef.current = value.kind;
-		onChangeRef.current = onChange;
-	});
+	clausesRef.current = value.clauses;
+	kindRef.current = value.kind;
+	onChangeRef.current = onChange;
 
 	useEffect(() => {
 		const cleanup = monitorForElements({
@@ -295,8 +295,8 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			const filtered = value.clauses.filter((_, i) => i !== index);
 			if (filtered.length === 0) {
 				// All clauses removed — replace the group with the
-				// algebraic identity / absorbing element. AND collapses
-				// to match-all (the conjunction identity); OR collapses
+				// algebraic identity element. AND collapses to
+				// match-all (the conjunction identity); OR collapses
 				// to match-none (the disjunction identity). Authors
 				// then add the first new clause to rebuild.
 				onChange(value.kind === "or" ? matchNone() : matchAll());
