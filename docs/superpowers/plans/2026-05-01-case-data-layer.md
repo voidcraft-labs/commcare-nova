@@ -64,9 +64,6 @@ lib/case-store/
 │       ├── addresses.ts
 │       ├── geopoints.ts
 │       └── dates.ts
-├── form-bridge/
-│   ├── writeThrough.ts               # form completion → CaseStore mutation
-│   └── deriveFromForm.ts             # extract case operations from a completed form
 ├── migrations/                       # schema migrations — see lib/case-store/CLAUDE.md "Migrations" for the migration workflow
 └── __tests__/
     └── storeContract.ts              # implementation-agnostic CaseStore contract harness (14 tests)
@@ -269,13 +266,15 @@ Commit chain: `a2abac6c` (initial feat) → `a9529fa1` (CR + spec-review fix-pas
 
 ### Task 6: Form running-app write-through — SHIPPED
 
+**SUPERSEDED 2026-05-06 — see [form-bridge-removal.md](2026-05-06-form-bridge-removal.md).** The form-bridge package was a CCHQ-mirroring serialization layer between two components that share memory; the engine now emits `SubmissionMutation` directly to a Server Action with no translation layer. The original SHIPPED block stays intact below for archeology.
+
 SHIPPED 2026-05-05 in commits `a206a114` (feat) → `053a3a5a` (CR + spec-review fix-pass) on branch `feat/case-list-search`.
 
 **Files shipped:**
 
 - `lib/case-store/form-bridge/deriveFromForm.ts` — pure function. Walks the blueprint field tree; buckets each leaf's value into either the primary case's properties or a child-case bucket per `case_property_on`. Emits a typed `DerivedFormOps` discriminated union for the four form types (registration → `PrimaryRegistrationOp`; followup → `PrimaryUpdateOp` with optional update; close → `PrimaryUpdateOp` + close discriminator; survey → no-op against `cases`). Repeat containers fan out into one `ChildInsertOp` per runtime instance.
 - `lib/case-store/form-bridge/writeThrough.ts` — I/O wrapper. Accepts a `CaseStore` instance, calls `deriveFromForm`, and applies the ops via `insert` / `update` / `close`. For registration, threads the generated primary `case_id` into child cases' `parent_case_id`; for followup / close, the bound `caseId` is the parent. Returns a typed `WriteFormCompletionResult` discriminated union — the survey arm carries only `{ kind: "survey" }`; the three case-touching arms carry `{ kind, caseId, childCaseIds }`.
-- `lib/case-store/form-bridge/__tests__/deriveFromForm.test.ts` — 14 pure-function tests covering all four form types + edge cases (missing module case-type, missing bound caseId, repeat-instance fan-out, full `data_type` coercion).
+- `lib/case-store/form-bridge/__tests__/deriveFromForm.test.ts` — 15 pure-function tests covering all four form types + edge cases (missing module case-type, missing bound caseId, repeat-instance fan-out, full `data_type` coercion).
 - `lib/case-store/form-bridge/__tests__/writeThrough.test.ts` — 8 integration tests against per-test isolated Postgres via `setupPerTestDatabase`. Round-trip through real AJV validation + `case_indices` materialization. Includes the continuous-validation assertion (post-write `query` sees the new state immediately).
 - `lib/case-store/form-bridge/__tests__/fixtures.ts` — shared `buildBlueprint` / `completed` / `DField` helpers extracted in the fix-pass; both test files import from here.
 
@@ -487,9 +486,19 @@ A second holistic review of the case-store package (after the first-pass cleanup
 
 Final case-store package: 399 tests across 18 files. Full repo: 2957 passed, 14 skipped.
 
+#### Plan 2 follow-up — form-bridge removal SHIPPED
+
+SHIPPED 2026-05-06 in commits `1c1268dc` (plan amendment) → `9a389a9a` (drop unused `_caseTypes` parameter) → `4c053bf1` (engine emits `SubmissionMutation`) → `aca981b2` (case_name slot fix) → `0c49aea1` (controller throws on missing engine) → `40601f13` (`submitFormAction` Server Action + per-arm helpers) → `be3c604c` (comment hygiene fix-pass) → `639306d4` (delete form-bridge package) → `1640af9e` (close coverage gaps + checklist hygiene) on branch `feat/case-list-search`.
+
+Trigger: holistic review of Task 6's shipped form-bridge surfaced `countRepeatInstances` regex-parsing path strings to recover repeat indices. Tracing the smell upstream surfaced the structural problem — the form-bridge package existed as a CCHQ-mirroring serialization layer between two components (the form engine and the case-store) that share memory. CCHQ has runtime/processor separation because their form runtime runs on mobile devices and casedb lives on HQ servers — XForm-the-spec is the wire format that crosses the network. Nova has no such separation. The form-bridge inherited CCHQ's layer count without inheriting CCHQ's reason for it.
+
+What landed: `FormEngine.computeSubmissionMutation` walks the engine's own template tree, consults `getRepeatCount(repeatPath)` for instance counts and `instance.get(materializedPath)` for per-instance values, applies `data_type` coercion via a call-time-injected `caseTypes` array, and emits a typed `SubmissionMutation` discriminated by form type. `EngineController.computeSubmissionMutation` is the consumer-facing pass-through. `submitFormAction` Server Action calls `getSession()` + `withOwnerContext` + dispatches on `mutation.kind` to per-arm helpers (`applyRegistrationMutation` → `insertWithChildren` for atomic primary+children; `applyFollowupMutation` and `applyCloseMutation` for primary update + per-child inserts; `applySurveyMutation` for the no-op survey arm). Typed-error mapping (`mapSubmitFormError`) handles the four user-domain error classes. The form-bridge package + barrel re-exports + form-bridge sections of `lib/case-store/CLAUDE.md` are deleted; the form-completion contract (formerly "Two-state JSONB collapse for form completion") moved to `lib/preview/CLAUDE.md` alongside the form engine. Coverage checklist at `docs/superpowers/plans/2026-05-06-form-bridge-removal-checklist.md` maps every old `it()` block to a new test (with all flagged gaps closed in the same commit per the amendment's spec).
+
+Net delta: deleted ~1000 LOC (deriveFromForm.ts + writeThrough.ts + their tests + fixtures); added ~600 LOC (engine method + Server Action + per-arm helpers + their tests). Test count: 2957 → 2992 (+35 net across the amendment phase).
+
 #### Plan 2 status — ALL TASKS SHIPPED
 
-Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework plus two post-review cleanup passes (above). Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9 → first-pass holistic-review fix-pass → second-pass holistic-review fix-pass. The eventual Plan 2 PR (opened at the end of the entire spec, not at the end of Plan 2) merges into `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
+Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework plus two post-review cleanup passes plus the form-bridge-removal amendment (above). Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9 → first-pass holistic-review fix-pass → second-pass holistic-review fix-pass → form-bridge-removal amendment. The eventual Plan 2 PR (opened at the end of the entire spec, not at the end of Plan 2) merges into `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
 
 ---
 

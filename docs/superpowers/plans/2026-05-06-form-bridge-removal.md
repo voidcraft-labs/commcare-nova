@@ -1,6 +1,8 @@
 # Plan 2 amendment — form-bridge removal (engine emits mutations directly)
 
-**Status:** PLANNED. Amendment to Plan 2 (2026-05-01-case-data-layer.md). Plan 2 cannot close until this lands. The form-bridge sub-system shipped in Plan 2 Task 6 stays in place until its replacement is built; replacement-first, deletion-last.
+**Status:** SHIPPED 2026-05-06 in commits `1c1268dc` (plan amendment) → `9a389a9a` (drop unused `_caseTypes` parameter) → `4c053bf1` (engine emits `SubmissionMutation`) → `aca981b2` (case_name slot fix) → `0c49aea1` (controller throws on missing engine) → `40601f13` (`submitFormAction` Server Action + per-arm helpers) → `be3c604c` (comment hygiene fix-pass) → `639306d4` (delete form-bridge package) → `1640af9e` (close coverage gaps + checklist hygiene) on branch `feat/case-list-search`. Plan 2's `Plan 2 follow-up — form-bridge removal SHIPPED` block at the end of `2026-05-01-case-data-layer.md` is the closure marker.
+
+Original amendment shape preserved below for archeology — described what shipped.
 
 **Trigger:** During holistic review of Plan 2's shipped form-bridge, `countRepeatInstances` was found regex-parsing path strings to recover repeat indices. Tracing the smell upstream surfaced the structural problem: the form-bridge package exists as a CCHQ-mirroring serialization layer between two components (the form engine and the case-store) that share memory. CCHQ has runtime/processor separation because their form runtime runs on mobile devices and casedb lives on HQ servers — XForm-the-spec is the wire format that crosses the network. Nova has no such separation. Both run in the same Node process, in the same Cloud Run container, in the same request lifecycle. The form-bridge inherited CCHQ's layer count without inheriting CCHQ's reason for it; the regex was the visible symptom of a package whose entire job was recovering structure the engine never had to lose.
 

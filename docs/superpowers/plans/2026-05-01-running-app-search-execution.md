@@ -22,7 +22,7 @@ components/builder/preview/
 ├── SearchInputForm.tsx                                  # collects search input values
 ├── shared/
 │   ├── CaseRow.tsx                                      # one row in the case-list rendering
-│   ├── FormHandoff.tsx                                  # form-completion → CaseStore.writeThrough
+│   ├── FormHandoff.tsx                                  # engine.computeSubmissionMutation() → submitFormAction()
 │   └── ResetPreviewButton.tsx
 └── __tests__/
 
@@ -67,7 +67,7 @@ Tests: typing filters results; clearing inputs reverts to default-filter-only re
 
 **Files:** `components/builder/preview/shared/FormHandoff.tsx`, tests.
 
-When a running-app form completes, route through Plan 2's `writeThrough`. The case list re-queries automatically (cache invalidation by app-id + case-type). The author can walk through registration → list → followup → list and see their changes — operating on the same `cases` rows the editor inspects.
+When a running-app form completes, the consumer calls `controller.validateAll()`; on validate-pass, calls `controller.computeSubmissionMutation({ caseId, caseTypes })` with `caseTypes` from the session-store and `caseId` from the URL nav stack, then dispatches the result to `submitFormAction(mutation, appId)` (Server Action; resolves session, constructs `withOwnerContext`, routes to the matching `CaseStore` method per `mutation.kind`). The case list re-queries automatically (cache invalidation by app-id + case-type). The author can walk through registration → list → followup → list and see their changes — operating on the same `cases` rows the editor inspects.
 
 Tests: registration form adds a case to the list; followup form's update shows in the list; close removes the case from default-open queries.
 
