@@ -108,26 +108,27 @@ A single `withOwnerContext` allocation covers both forward and compensation path
 Final state: 3144/3144 tests pass, 14 skipped, 0 failed; tsc + biome lint clean.
 
 
-### Task 2: Predicate card editor
+### Task 2: Predicate card editor — SHIPPED
 
-**Files:** `components/builder/case-list-config/PredicateCardEditor.tsx`, `editorSchemas.ts`, tests.
+SHIPPED 2026-05-06 in commits `84b967eb` (initial feat) → `24bc922c` (CR fix-pass: drop dead imports + suppressed-warnings dead code) → `4410ace9` (CR fix-pass: MatchCard value-term path listening + dead-export cleanup) → `cdc43459` (CR fix-pass: custom drag preview + collapse self-alias + ref discipline) → `0bd81602` (CR fix-pass: align ref-update with useRowDnd convention) → `ce4cd786` (CR fix-pass: preserve non-canonical AST shapes in pickers + tighten validity) → `62357d25` (CR fix-pass: preserve non-Term left slots + complete structural-twin operand swap) → `a39356a7` (CR fix-pass: preserve prop.via in property pickers via shared primitive) → `c5c00f29` (final polish: selfPath canonical tests + hoisted filters + JSDoc precision) on branch `feat/case-list-search`.
 
-Renders a Predicate AST as composable cards. AND/OR groups with drag-drop add/remove (using the existing `pragmatic-drag-and-drop` infra). Each card type maps to a Predicate kind:
-- Comparison card: property dropdown + operator dropdown + value input (typed by property)
-- Multi-select card: property dropdown (multi-select-typed only) + value picker + quantifier (Any / All)
-- Text-match card: property dropdown (text-typed only) + value input + mode (Fuzzy / Phonetic / Date variants / Starts with)
-- Geo card: property dropdown (geopoint-typed only) + center input + distance + unit
-- Range card: property + lower/upper bounds + inclusive/exclusive toggles
-- Null check card: property dropdown
-- Sentinel cards: "Match all cases" / "Match no cases" (used for explicit empty filter or default-disabled state)
-- Relation card: typed RelationPath builder (one step or multi-hop ancestor / single-step subcase) + nested filter card group + quantifier (any/all/none/count comparison)
-- Conditional card: search input + nested clause
+**What landed:**
 
-Cards type-check against the case-type schema at construction; invalid configurations cannot be saved (the save button is disabled until type-check passes).
+The registry-driven Predicate AST card editor at `components/builder/case-list-config/`. Twelve card types (Comparison, MultiSelectContains, Match, WithinDistance, Between, In, IsNull, IsBlank, MatchAll, MatchNone, Exists+Missing, WhenInputPresent, LogicalGroup for and/or/not) plus per-card primitives, plus tests. Cards type-check against the case-type schema via `checkPredicate` on every change; invalid configurations propagate validity to the parent through `onValidityChange`. Inline errors render at the offending node's path via `useEditorErrorsAt` (exact) or `useEditorErrorsAtOrBelow` (prefix capture for the deeper-emitting `match.value.term` path).
 
-Editor schemas live as a declarative table mirroring the field editor pattern at `components/builder/editor/fieldEditorSchemas.ts` — each Predicate kind has an entry mapping to its card component. Adding a new operator means adding one entry.
+The editor schema lives as a declarative table mirroring `components/builder/editor/fieldEditorSchemas.ts`: `predicateCardSchemas` is `Record<Predicate["kind"], PredicateCardSchema<K>>` so a new Predicate kind without an entry fails to compile.
 
-Tests: building common predicates round-trips through the AST; rejecting type-mismatched literals shows inline error; drag-drop reordering preserves AST structure.
+AND/OR group drag-drop reorder uses `@atlaskit/pragmatic-drag-and-drop` mirroring the form-list pattern at `components/preview/form/virtual/useRowDnd.ts` — typed payload helpers (`dragData.ts`), custom drag preview via `setCustomNativeDragPreview` (clause label + icon), per-group monitor scoped by `containerKey`, render-time ref writes for stable monitor deps, cycle guard via per-group `canMonitor`. Recursive editor: `exists.where`, `not.clause`, `when-input-present.clause` all recurse through `ChildPredicateEditor`. `WithCurrentCaseType` flips the type-checker's destination scope for `exists`/`missing` inner where-clauses.
+
+**Round-trip preservation discipline.** The editor receives schema-blessed AST shapes the picker cannot edit: higher-order ValueExpressions (`arith` / `if` / `count` / etc.), non-canonical RelationPaths (multi-hop ancestor walks, qualified ancestors, qualified subcases, `any-relation`), and `prop` terms carrying a non-self `via: RelationPath` walk. Every property and value-expression picker routes through one shared primitive — `PropertyRefPicker` — that detects non-canonical shapes (non-Term ValueExpression, Term-non-prop, Term-prop-with-via) and renders them as read-only badges with an explicit "Replace" affordance. Bypassing the primitive is structurally impossible because the eight property-picking sites all consume it. Same shape applies to `RelationPathBuilder` for non-canonical relation walks.
+
+**Operand-preserving kind swap.** The "Change kind" menu detects four structural-twin pairs (`and ↔ or`, `is-null ↔ is-blank`, comparison ↔ comparison, `exists ↔ missing`) and routes operand-preserving swaps through canonical builders. Non-twin transitions (e.g. `eq → between`) fall through to `defaultValue`. The `KindReplaceMenu` disables the current kind so a no-op click can't fire spurious onChange.
+
+**Hard constraints honored:** No textareas, no string editing of predicate text. Field uuid (`nodeId()`) for UI identity, Path for blueprint mutations + `checkPredicate` lookups. Base UI primitives (`@base-ui/react`) with glass styles on Positioner. `@iconify/react/offline` icons. `motion/react` animation. `pragmatic-drag-and-drop` + custom previews. SA tool prompts/schemas untouched.
+
+**Tests (113 in this task's suite):** round-trip preservation per shape (8 picker surfaces + RelationPathBuilder × 4 non-canonical shapes), `selfPath()` canonical case symmetry, `preservedOperandSwap` per twin pair (incl. absent-not-undefined `exists.where` contract), drag-drop reduction-shape preservation, recursive nesting (`exists.where` containing LogicalGroup containing nested exists), per-card smoke, type-mismatch inline error rendering. The editor's eight rounds of fresh-CR review uncovered four progressively-narrower classes of round-trip destruction (right-slot ValueExpression → left-slot ValueExpression → right-slot non-prop terms → property-with-via); each was closed structurally rather than at the offending site, so the bug class is now impossible by construction.
+
+Final state: 3180 tests pass (104 from the test files in this task + the case-store + chat-completion suites carried forward), 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 3: Expression card editor
