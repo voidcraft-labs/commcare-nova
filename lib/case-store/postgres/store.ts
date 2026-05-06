@@ -752,7 +752,12 @@ export class PostgresCaseStore implements CaseStore {
 		// columns. The leaf alias is a runtime string (depth-
 		// suffixed for nested walks); the leaf row exposes every
 		// `cases` column plus `anchor_case_id`, so the projection
-		// pulls the eight columns matching `CaseRow`.
+		// pulls every column that makes up a `CaseRow`. Adding a
+		// new column to `cases` requires extending this list along
+		// with the leaf-builder projections in `compileRelationPath.ts`
+		// — a missed column would fall through to `undefined` at
+		// runtime even though the type-cast at the bottom of this
+		// method narrows to `CaseRow`.
 		const leafAlias = compiled.leafAlias;
 		const rows = await this.db
 			.selectFrom("cases as c")
@@ -771,6 +776,7 @@ export class PostgresCaseStore implements CaseStore {
 				`${leafAlias}.opened_on as opened_on`,
 				`${leafAlias}.modified_on as modified_on`,
 				`${leafAlias}.closed_on as closed_on`,
+				`${leafAlias}.case_name as case_name`,
 				`${leafAlias}.parent_case_id as parent_case_id`,
 				`${leafAlias}.properties as properties`,
 			])

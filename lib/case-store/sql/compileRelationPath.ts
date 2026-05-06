@@ -527,6 +527,7 @@ function buildAncestorLeaf(args: {
 			"cs0.opened_on as opened_on",
 			"cs0.modified_on as modified_on",
 			"cs0.closed_on as closed_on",
+			"cs0.case_name as case_name",
 			"cs0.parent_case_id as parent_case_id",
 			"cs0.properties as properties",
 		]);
@@ -585,6 +586,7 @@ function buildAncestorLeaf(args: {
 		`${leafCasesAlias}.opened_on as opened_on`,
 		`${leafCasesAlias}.modified_on as modified_on`,
 		`${leafCasesAlias}.closed_on as closed_on`,
+		`${leafCasesAlias}.case_name as case_name`,
 		`${leafCasesAlias}.parent_case_id as parent_case_id`,
 		`${leafCasesAlias}.properties as properties`,
 	]);
@@ -649,6 +651,7 @@ function buildSubcaseLeaf(args: {
 		"cs0.opened_on as opened_on",
 		"cs0.modified_on as modified_on",
 		"cs0.closed_on as closed_on",
+		"cs0.case_name as case_name",
 		"cs0.parent_case_id as parent_case_id",
 		"cs0.properties as properties",
 	]);
@@ -714,6 +717,7 @@ function buildAnyRelationLeaf(args: {
 		"cs0.opened_on as opened_on",
 		"cs0.modified_on as modified_on",
 		"cs0.closed_on as closed_on",
+		"cs0.case_name as case_name",
 		"cs0.parent_case_id as parent_case_id",
 		"cs0.properties as properties",
 	]);
@@ -745,6 +749,7 @@ function buildAnyRelationLeaf(args: {
 		"cs0.opened_on as opened_on",
 		"cs0.modified_on as modified_on",
 		"cs0.closed_on as closed_on",
+		"cs0.case_name as case_name",
 		"cs0.parent_case_id as parent_case_id",
 		"cs0.properties as properties",
 	]);

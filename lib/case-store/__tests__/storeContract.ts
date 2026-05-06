@@ -406,13 +406,24 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 			await seedSchema(store, blueprint, "household");
 
+			// Distinct `case_name` per row so the post-traverse
+			// assertion catches a "leaf projection drops the column"
+			// regression: if the SELECT list omits `case_name`, every
+			// returned row carries `undefined` regardless of which row
+			// the walk reaches, and a single-name fixture would pass
+			// even on the broken path. Different strings per row pin
+			// the contract that traverse returns the LEAF's column,
+			// not a default or the anchor's.
+			const HOUSEHOLD_NAME = "North household";
+			const CHILD_NAME = "Child patient";
+
 			// Parent household.
 			await store.insert({
 				appId: APP_ID,
 				row: {
 					case_id: HOUSEHOLD_ID,
 					case_type: "household",
-					case_name: DEFAULT_CASE_NAME,
+					case_name: HOUSEHOLD_NAME,
 					status: "open",
 					properties: makeProperties({ region: "North" }),
 				},
@@ -425,7 +436,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: CHILD_PATIENT_ID,
 					case_type: "patient",
-					case_name: DEFAULT_CASE_NAME,
+					case_name: CHILD_NAME,
 					status: "open",
 					parent_case_id: HOUSEHOLD_ID,
 					properties: makeProperties({ name: "Child", age: 5 }),
@@ -433,7 +444,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			// From the household, walk one hop down via the `parent`
-			// identifier — the child patient is the leaf.
+			// identifier — the child patient is the leaf. The leaf row
+			// must carry the full `cases` column projection, including
+			// `case_name`, so column-display reads from a traverse
+			// result match the column-display reads from a direct
+			// `query` against the same row.
 			const subcases = await store.traverse({
 				appId: APP_ID,
 				caseId: HOUSEHOLD_ID,
@@ -441,9 +456,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(subcases).toHaveLength(1);
 			expect(subcases[0]?.case_id).toBe(CHILD_PATIENT_ID);
+			expect(subcases[0]?.case_name).toBe(CHILD_NAME);
 
 			// From the patient, walk one hop up via the same
-			// identifier — the household is the ancestor.
+			// identifier — the household is the ancestor. Same column-
+			// projection contract on the ancestor branch.
 			const ancestors = await store.traverse({
 				appId: APP_ID,
 				caseId: CHILD_PATIENT_ID,
@@ -451,6 +468,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(ancestors).toHaveLength(1);
 			expect(ancestors[0]?.case_id).toBe(HOUSEHOLD_ID);
+			expect(ancestors[0]?.case_name).toBe(HOUSEHOLD_NAME);
 		});
 
 		// -----------------------------------------------------------

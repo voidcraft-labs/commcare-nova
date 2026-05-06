@@ -132,6 +132,10 @@ export interface ChildInsertOp {
 	 * The case's display name, routed to the `case_name` column.
 	 * Optional at the derivation surface; the I/O wrapper requires
 	 * a value at write time because the column is non-null.
+	 *
+	 * **Invariant:** when defined, the string is non-empty. The
+	 * derivation walk's empty-string short-circuit covers this
+	 * structurally; consumers trust the non-empty contract.
 	 */
 	readonly caseName?: string;
 	/** The typed JSONB property document for the child case. */
@@ -163,6 +167,11 @@ export interface PrimaryRegistrationOp {
 	 * The case's display name. Optional at the derivation surface;
 	 * the I/O wrapper rejects inserts without a value because the
 	 * `case_name` column is non-null at the database layer.
+	 *
+	 * **Invariant:** when defined, the string is non-empty. The
+	 * derivation walk's empty-string short-circuit covers this
+	 * structurally; the I/O wrapper checks `=== undefined` and
+	 * trusts the non-empty contract on every defined case.
 	 */
 	readonly caseName?: string;
 	/** The typed JSONB property document for the new case. */
@@ -191,6 +200,13 @@ export interface PrimaryUpdateOp {
 	/**
 	 * The case's display name. Absent means "leave the column
 	 * unchanged"; a string value patches the column.
+	 *
+	 * **Invariant:** when defined, the string is non-empty. The
+	 * derivation walk's empty-string short-circuit covers this
+	 * structurally; the I/O wrapper passes the value straight
+	 * through to `CaseStore.update` without re-checking, so the
+	 * non-empty contract is the load-bearing guarantee against the
+	 * database CHECK constraint.
 	 */
 	readonly caseName?: string;
 	/** Properties the form mutated. Empty when the form had no JSONB writes. */
@@ -424,6 +440,15 @@ export function deriveFromForm(args: DeriveFromFormArgs): DerivedFormOps {
  * encounter, never overwritten. The slot stays separate from
  * `properties` because `case_name` routes to the top-level
  * `cases.case_name` column, not to the JSONB document.
+ *
+ * **Invariant:** when `caseName` is defined, it is non-empty. The
+ * walk's `if (rawValue === "") continue` short-circuit (same shape
+ * every JSONB write enforces) covers this structurally — empty
+ * strings never reach the slot. Downstream consumers (the
+ * `applyChildInserts` boundary in `writeThrough.ts`) trust the
+ * non-empty contract; if the walk's empty-string guard ever
+ * regresses, the database CHECK constraint on `cases.case_name` is
+ * the load-bearing fallback.
  */
 interface FieldBucket {
 	readonly caseType: string;
@@ -439,6 +464,12 @@ interface WalkResult {
 	 * The primary case's display name, walked off the field whose
 	 * `id === "case_name"` and `case_property_on === moduleCaseType`.
 	 * Absent when no such field exists or its value is empty.
+	 *
+	 * **Invariant:** when defined, the string is non-empty. The
+	 * walk's `if (rawValue === "") continue` short-circuit covers
+	 * this structurally — empty strings never reach the slot.
+	 * Downstream consumers (`applyPrimaryUpdate`,
+	 * `applyPrimaryRegistration`) trust the non-empty contract.
 	 */
 	readonly primaryCaseName: string | undefined;
 	/** Per-(child-type, repeat-instance) buckets, deterministic order. */

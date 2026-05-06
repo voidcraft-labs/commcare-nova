@@ -1,46 +1,29 @@
 // lib/case-store/sql/dataTypeTokens.ts
 //
-// The two `Record<CasePropertyDataType, <Postgres-token>>` tables
-// the compiler stack reads to lower a case property's declared
-// `data_type` into Postgres syntax. Both tables are pure data —
-// no compiler dispatch logic — so they live in a sibling module
-// every consumer imports from rather than concentrating the
-// constants on one compiler module the others depend on.
+// Shared compiler constants — pure data, no dispatch logic. The
+// compilers (`compileTerm`, `compilePredicate`, `compileLiteral`)
+// each import what they need from this module; concentrating the
+// constants here keeps the dependency graph pointing AT the data
+// from every reading compiler rather than tangling cross-compiler
+// edges to share a `const`.
 //
-// ## Two tables, one keyspace
+// Two flavors live here:
 //
-// `CasePropertyDataType` is the closed-enum keyspace
-// (`text` / `int` / `decimal` / `date` / `time` / `datetime` /
-// `single_select` / `multi_select` / `geopoint`); both tables map
-// each arm to a Postgres token used at compile time:
+// 1. **Per-`CasePropertyDataType` token tables** — one entry per
+//    arm of the closed `data_type` enum, keyed via `Record<...>`
+//    so a new arm surfaces as a compile-time error in this one
+//    file rather than across multiple compilers.
+// 2. **Reserved scalar-column set** — the `cases` columns that
+//    surface as first-class scalar reads at the term layer rather
+//    than as JSONB-document keys. Shared by `compileTerm`'s
+//    `prop` arm and `compilePredicate`'s `is-null` / `is-blank`
+//    arms; both compilers branch on membership identically.
 //
-//   - `POSTGRES_CAST_FOR_DATA_TYPE` — Kysely-recognised
-//     `ColumnDataType` literal the compiler stack lifts a value
-//     into via `eb.cast<T>(expr, dataType)`. Used at every site
-//     that needs to compare a JSONB-string-shaped property read
-//     against a typed Postgres value (`compileTerm`'s
-//     `jsonbColumnRead`, `compileLiteral`'s typed-literal arm).
-//   - `JSONB_READ_OPERATOR_FOR_DATA_TYPE` — the JSONB property-read
-//     operator (`->>` returns text, `->` returns jsonb) the term
-//     compiler emits when reading a property of the corresponding
-//     declared type.
-//
-// Co-locating the tables here means a new `data_type` arm is one
-// edit per table in one file — both tables surface the missing
-// arm as a compile-time error on the closed-enum `Record<...>`
-// shape. Distributing the tables across compiler modules would
-// fragment the addition.
-//
-// ## Why this is its own module rather than a sub-section of compileTerm
-//
-// `compileTerm` and `compileLiteral` both read
-// `POSTGRES_CAST_FOR_DATA_TYPE`; sharing the constant from
-// `compileTerm` produces a dependency edge that points "away from"
-// the leaf-value compiler the constants describe. A standalone
-// data-only module makes the dependency graph point AT the data
-// from every reading compiler — three siblings of equal weight,
-// each importing what it needs from the data module, none
-// importing from another compiler's internals.
+// The data-type tables predate the column set; the file's
+// historical name reflects that. The set lives here because the
+// same "shared compiler constant, no dispatch" rationale applies
+// — extracting to its own module would produce a sibling file
+// with one declaration in it.
 
 import type { ColumnDataType } from "kysely";
 import type { CasePropertyDataType } from "@/lib/domain";
@@ -130,3 +113,46 @@ export const JSONB_READ_OPERATOR_FOR_DATA_TYPE: Readonly<
 	multi_select: "->",
 	geopoint: "->>",
 };
+
+/**
+ * The `cases` columns that surface as first-class scalar reads
+ * rather than as JSONB-document keys. A `prop` term whose
+ * `property` matches one of these names reads from the scalar
+ * column directly via `eb.ref(...)`, both because the column is
+ * indexed (the JSONB read skips the index) and because the column
+ * is not present in the JSONB document (the JSONB read returns
+ * `NULL`). The predicate compiler's `is-null` / `is-blank` arms
+ * branch on the same set so both compilers stay in lockstep on
+ * which property names route to the column shape.
+ *
+ * The other scalar columns on `cases` (`app_id`, `opened_on`,
+ * `modified_on`, `closed_on`, `parent_case_id`) are intentionally
+ * NOT routed through `prop` at the term layer. They are tenant /
+ * timestamp / FK columns whose authoring surface belongs to query-
+ * shape primitives (the outer query's tenant filter, sort order,
+ * opened-vs-closed filter, parent navigation) rather than to the
+ * case's authored property document. Any future term-level support
+ * for those columns gets a dedicated AST shape rather than `prop`-
+ * as-scalar overloading.
+ *
+ * **Shadowing caveat:** these names are also valid CommCare case-
+ * property identifiers (the `casePropertyField` validator on
+ * `propertyRefSchema.property` admits any
+ * `[a-zA-Z][a-zA-Z0-9_-]*` shape). A blueprint that declares a
+ * property whose name matches one of these will be silently
+ * shadowed by the scalar-column read — the term compiler reads
+ * from the column instead of the JSONB document the blueprint
+ * author intended. The blueprint validator is responsible for
+ * rejecting these names (CommCare's wire layer also reserves them,
+ * so the blueprint validator's rejection is independently load-
+ * bearing); the compilers trust that rejection upstream and route
+ * uniformly. If the blueprint validator gains a per-property
+ * reservation check, this constant is the source of truth.
+ */
+export const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
+	"case_id",
+	"case_type",
+	"owner_id",
+	"status",
+	"case_name",
+]);

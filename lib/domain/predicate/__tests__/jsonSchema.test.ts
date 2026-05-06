@@ -217,4 +217,28 @@ describe("caseTypeToJsonSchema", () => {
 			additionalProperties: false,
 		});
 	});
+
+	it("excludes case_name from the property output even when declared on the case type", () => {
+		// `case_name` is a top-level scalar column on `cases`, not a
+		// JSONB-document key. The blueprint surface still admits the
+		// declaration on `CaseType.properties[]` (the SA + author UI
+		// carry the field's label / default-value config there), but
+		// the case-store stores `case_name` on its column. Emitting
+		// it here would force every write to land an unwanted JSONB
+		// key; `additionalProperties: false` would then reject every
+		// write that correctly routes `case_name` to the column. The
+		// non-empty CHECK constraint on `cases.case_name` is the
+		// structural guarantee for the field; the AJV schema covers
+		// user-defined properties only.
+		const ct: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+			],
+		};
+		const schema = caseTypeToJsonSchema(ct);
+		expect(schema.properties).not.toHaveProperty("case_name");
+		expect(schema.properties.age).toEqual({ type: "integer" });
+	});
 });

@@ -439,4 +439,66 @@ describe("caseRowDisplayValue", () => {
 		expect(caseRowDisplayValue(row, "array_prop")).toBe("[1,2,3]");
 		expect(caseRowDisplayValue(row, "object_prop")).toBe('{"a":1,"b":"two"}');
 	});
+
+	// Each reserved scalar column has a dedicated dispatch arm so the
+	// helper reads from the column rather than from the JSONB
+	// document. The shadowing case (a blueprint declares a property
+	// whose name collides with a reserved column) is rejected
+	// upstream by the blueprint validator + the JSON Schema generator
+	// (`case_name` is filtered, the others would fail the column-
+	// name reservation gate at the wire layer); but if a row ever
+	// carried a JSONB shadow value, this helper must still surface
+	// the column. The synthetic row below pins both the happy path
+	// (column populated, JSONB absent) AND the shadow path (JSONB
+	// declared with a different value, column wins).
+	it.each([
+		["case_id", "real-row-id", "shadow-id"],
+		["case_type", "patient", "shadow-type"],
+		["owner_id", "real-owner", "shadow-owner"],
+		["status", "open", "shadow-status"],
+		["case_name", "Real Name", "Shadow Name"],
+	])("caseRowDisplayValue resolves %s from the column, not from properties", (field, columnValue, shadowValue) => {
+		// Construct a row whose JSONB document declares the same
+		// key the column carries; the reserved-column dispatch
+		// must read the column verbatim and ignore the JSONB shadow.
+		const row: CaseRow = {
+			case_id: field === "case_id" ? columnValue : "test-id",
+			app_id: APP_ID,
+			case_type: field === "case_type" ? columnValue : "patient",
+			owner_id: field === "owner_id" ? columnValue : OWNER_A,
+			status: field === "status" ? columnValue : "open",
+			opened_on: null,
+			modified_on: null,
+			closed_on: null,
+			case_name: field === "case_name" ? columnValue : "Synthetic Case",
+			parent_case_id: null,
+			properties: { [field]: shadowValue },
+		};
+		expect(caseRowDisplayValue(row, field)).toBe(columnValue);
+	});
+
+	it.each([
+		["owner_id"],
+		["status"],
+	])("caseRowDisplayValue surfaces null for nullable reserved column %s", (field) => {
+		// `owner_id` and `status` are nullable on `cases`; the
+		// helper coerces a `null` column read to the empty string
+		// (consistent with `jsonValueToString`'s `null` arm) so
+		// case-list table cells render empty rather than the literal
+		// "null".
+		const row: CaseRow = {
+			case_id: "test-id",
+			app_id: APP_ID,
+			case_type: "patient",
+			owner_id: field === "owner_id" ? null : OWNER_A,
+			status: field === "status" ? null : "open",
+			opened_on: null,
+			modified_on: null,
+			closed_on: null,
+			case_name: "Synthetic Case",
+			parent_case_id: null,
+			properties: {},
+		};
+		expect(caseRowDisplayValue(row, field)).toBe("");
+	});
 });

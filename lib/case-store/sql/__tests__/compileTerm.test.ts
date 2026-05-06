@@ -25,9 +25,9 @@
 //      because the predicate compiler's `multi-select-contains`
 //      operators (`?|` / `?&` / `@>`) require JSONB on the
 //      left-hand side.
-//   3. The four reserved scalar columns (`case_id`, `case_type`,
-//      `owner_id`, `status`) read from the table's scalar columns,
-//      not from the JSONB `properties` document.
+//   3. Names in `RESERVED_SCALAR_COLUMNS` (from `dataTypeTokens.ts`)
+//      read from the table's scalar columns, not from the JSONB
+//      `properties` document.
 //   4. Property reads with non-self `via` route through the
 //      relation-path leaf alias, leaving the actual join to the
 //      caller (the term compiler returns the column-read

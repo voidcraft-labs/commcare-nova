@@ -153,6 +153,7 @@ import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
 import { compileTerm, type TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
+import { RESERVED_SCALAR_COLUMNS } from "./dataTypeTokens";
 
 // ---------------------------------------------------------------
 // Shared expression builder
@@ -186,23 +187,6 @@ const eb = expressionBuilder<Database, keyof Database>();
  * context.
  */
 export type PredicateCompileContext = TermCompileContext;
-
-// ---------------------------------------------------------------
-// Reserved scalar columns mirror — same set the term compiler keys
-// scalar-column dispatch on. Predicate-arm helpers that need to
-// distinguish "JSONB-document property" from "scalar column" read
-// from this set; co-locating it with the logic that uses it (rather
-// than re-exporting from compileTerm) avoids cross-module coupling
-// on a closed enum.
-// ---------------------------------------------------------------
-
-const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
-	"case_id",
-	"case_type",
-	"owner_id",
-	"status",
-	"case_name",
-]);
 
 // ---------------------------------------------------------------
 // Comparison operator → SQL token table

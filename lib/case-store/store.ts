@@ -220,10 +220,10 @@ export interface SortKey {
  * `(properties->>'age')::int` for an `int` property). The same
  * shape `applySchemaChange` consumes: a caller-supplied snapshot
  * of the prospective blueprint state. Predicate-free, sort-free
- * `query` calls (or queries whose operands touch only the four
- * reserved scalar columns `case_id` / `case_type` / `owner_id` /
- * `status`) work without a `blueprint` because no property-read
- * cast is needed.
+ * `query` calls (or queries whose operands touch only reserved
+ * scalar columns; see `RESERVED_SCALAR_COLUMNS` at
+ * `lib/case-store/sql/dataTypeTokens.ts`) work without a
+ * `blueprint` because no property-read cast is needed.
  */
 export interface QueryArgs {
 	/** The owning app — first half of the `(app_id, owner_id)` tenant pair. */

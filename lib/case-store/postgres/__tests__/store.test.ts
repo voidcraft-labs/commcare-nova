@@ -1193,3 +1193,102 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(seenByB.map((i) => i.name)).toEqual(["cases_patient_name_fuzzy"]);
 	});
 });
+
+// ---------------------------------------------------------------
+// `insertMany` — bulk-insert path rollback semantics
+// ---------------------------------------------------------------
+//
+// `insertMany` is package-private; tests reach it through the
+// public `generateSampleData` entry point with a stub
+// `SampleCaseGenerator` that emits a hand-crafted batch with one
+// row violating the case-type's JSON Schema. The stub path
+// exercises the real bulk-insert code without fighting the
+// heuristic generator's seed-driven output (the heuristic always
+// produces JSONB-valid rows by construction).
+//
+// The shape pinned: a validation failure inside the bulk
+// transaction rolls back the entire batch — zero rows land in
+// `cases`, zero edges in `case_indices`. A future refactor that
+// opens an inner transaction or skips the throw would silently
+// allow partial commits, and this test is the regression net.
+
+describe("PostgresCaseStore — insertMany rollback semantics", () => {
+	it("rolls back the entire batch when any row fails JSON Schema validation", async () => {
+		// Schema declares `age` as `int`; the stub generator emits
+		// three rows where the second one's `age` is the string
+		// "not-a-number" (rejects against the `integer` schema).
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+			],
+		};
+		const blueprint = buildBlueprint(caseType);
+
+		// Stub generator returning a fixed three-row batch with one
+		// schema-violating row at index 1. The interface admits any
+		// implementation; the stub bypasses every randomness /
+		// blueprint-walk path the heuristic generator carries.
+		const stubGenerator = {
+			generate: () =>
+				[
+					{
+						case_type: "patient",
+						case_name: "Alice",
+						status: "open",
+						properties: { age: 30 },
+					},
+					{
+						case_type: "patient",
+						case_name: "Bob",
+						status: "open",
+						// `age` as a non-numeric string violates the
+						// `integer` schema; AJV rejects mid-batch.
+						properties: { age: "not-a-number" },
+					},
+					{
+						case_type: "patient",
+						case_name: "Carol",
+						status: "open",
+						properties: { age: 40 },
+					},
+				] as const,
+		};
+
+		const store = new PostgresCaseStore({
+			ownerId: OWNER_A,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: stubGenerator,
+		});
+
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+		});
+
+		// `generateSampleData` routes through the bulk-insert path.
+		// AJV's failure on row 1 throws; the transaction rolls back
+		// the whole batch (rows 0 and 2 included).
+		await expect(
+			store.generateSampleData({
+				appId: APP_ID,
+				caseType: "patient",
+				count: 3,
+				seed: "rollback-test",
+				blueprint,
+			}),
+		).rejects.toThrow();
+
+		// Zero rows land in `cases` — the rollback covers EVERY row
+		// in the batch, not just the failing one. A regression that
+		// commits row 0 before reaching row 1's validation would
+		// leak through here.
+		const survivors = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(survivors).toHaveLength(0);
+	});
+});

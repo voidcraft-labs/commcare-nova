@@ -11,10 +11,11 @@
 //
 //   - `compileTerm` (term arm) — leaf-level value reads. JSONB
 //     property reads with per-`data_type` casts, scalar-column reads
-//     for the four reserved columns (`case_id` / `case_type` /
-//     `owner_id` / `status`), parameter-bound runtime bindings
-//     (`input` / `session-user` / `session-context`), and correlated
-//     scalar subqueries for non-self via reads.
+//     for the reserved scalar-column set (see
+//     `RESERVED_SCALAR_COLUMNS` in `dataTypeTokens.ts`), parameter-
+//     bound runtime bindings (`input` / `session-user` /
+//     `session-context`), and correlated scalar subqueries for
+//     non-self via reads.
 //   - `compileExpression` (value-expression arm) — value-bearing
 //     composition (arith / concat / coalesce / if / switch /
 //     count / format-date / today / now / date-coerce /

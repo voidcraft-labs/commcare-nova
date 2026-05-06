@@ -236,6 +236,22 @@ export interface CasesTable {
 	 * `case_name` from its property output so the JSONB document
 	 * never carries it, leaving the column as the single source
 	 * of truth.
+	 *
+	 * **`is-null` / `is-blank` against this column are
+	 * structurally always false.** The column is `NOT NULL` with a
+	 * `length > 0` CHECK, so the SQL the predicate compiler emits
+	 * (`c.case_name IS NULL`, `c.case_name IS NULL OR c.case_name = ''`)
+	 * is a trivially-false predicate at evaluation time. The type
+	 * checker at `lib/domain/predicate/typeChecker.ts` does NOT
+	 * reject these AST shapes today (it admits any
+	 * `RESERVED_SCALAR_COLUMNS` entry on the `is-null` / `is-blank`
+	 * left operand without a nullability check), so the SQL
+	 * compiler emits the trivially-false predicate rather than
+	 * throwing. Authoring surfaces (filter UI, SA tool surface)
+	 * should steer authors away from these no-op shapes; a future
+	 * type-checker rule that rejects `is-null` / `is-blank`
+	 * against non-nullable scalar columns is the structurally
+	 * cleaner fix when scope permits.
 	 */
 	case_name: string;
 

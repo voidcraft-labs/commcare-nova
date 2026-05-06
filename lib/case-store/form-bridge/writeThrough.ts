@@ -262,14 +262,18 @@ export async function writeFormCompletionThrough(
  * carries a `length > 0` CHECK constraint). The form-bridge surfaces
  * the missing-name invariant with a typed throw so the diagnostic
  * points at the form-shape author wiring rather than a downstream
- * Postgres CHECK violation.
+ * Postgres CHECK violation. The non-empty guarantee on a defined
+ * `caseName` lives upstream at `walkFormFields`'s empty-string
+ * short-circuit (per `PrimaryRegistrationOp.caseName`'s invariant);
+ * the guard here only checks `=== undefined` and trusts the
+ * non-empty contract.
  */
 async function applyPrimaryRegistration(args: {
 	caseStore: CaseStore;
 	appId: string;
 	primary: PrimaryRegistrationOp;
 }): Promise<string> {
-	if (args.primary.caseName === undefined || args.primary.caseName === "") {
+	if (args.primary.caseName === undefined) {
 		throw new Error(
 			compilerBugMessage({
 				where: "case-store.writeFormCompletionThrough.applyPrimaryRegistration",
@@ -303,9 +307,11 @@ async function applyPrimaryRegistration(args: {
  * merged document for no benefit; the short-circuit avoids the
  * round-trip.
  *
- * The early-return preserves the original form-bridge contract for
- * truly empty updates while admitting `case_name`-only patches the
- * column write requires.
+ * No empty-`caseName` guard runs here: per
+ * `PrimaryUpdateOp.caseName`'s invariant, a defined `caseName` is
+ * non-empty by structural construction at the derivation layer
+ * (the `walkFormFields` empty-string short-circuit). The patch
+ * passes the value straight through to `CaseStore.update`.
  */
 async function applyPrimaryUpdate(args: {
 	caseStore: CaseStore;
@@ -348,7 +354,10 @@ async function applyPrimaryUpdate(args: {
  * the primary case does (the column is `text NOT NULL` with a
  * `length > 0` CHECK); the form-bridge surfaces the missing-name
  * invariant with a typed throw so the diagnostic points at the
- * form-shape author wiring.
+ * form-shape author wiring. The non-empty guarantee on a defined
+ * `caseName` lives upstream at `walkFormFields` (per
+ * `ChildInsertOp.caseName`'s invariant); the guard here only
+ * checks `=== undefined` and trusts the non-empty contract.
  */
 async function applyChildInserts(args: {
 	caseStore: CaseStore;
@@ -358,7 +367,7 @@ async function applyChildInserts(args: {
 }): Promise<ReadonlyArray<string>> {
 	const ids: string[] = [];
 	for (const child of args.children) {
-		if (child.caseName === undefined || child.caseName === "") {
+		if (child.caseName === undefined) {
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.writeFormCompletionThrough.applyChildInserts",

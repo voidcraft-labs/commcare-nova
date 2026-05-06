@@ -20,13 +20,13 @@
 // The helpers return `CaseRow` directly — the same type the
 // case-store interface exposes. Consumers (the running-app
 // screens) read property values through `row.properties` (a
-// `JsonObject`, i.e. `Record<string, JsonValue>`) plus the four
-// reserved scalar columns (`case_id` / `case_type` / `owner_id` /
-// `status`) via direct row access. The JSONB read shape is what
-// every case-store consumer (form-bridge, applySchemaChange's
-// migration loop, the predicate compiler) binds against;
-// preserving it here keeps a single shape across every surface
-// that touches case data.
+// `JsonObject`, i.e. `Record<string, JsonValue>`) plus the
+// reserved scalar columns (see `RESERVED_SCALAR_COLUMNS` at
+// `lib/case-store/sql/dataTypeTokens.ts`) via direct row access.
+// The JSONB read shape is what every case-store consumer
+// (form-bridge, applySchemaChange's migration loop, the predicate
+// compiler) binds against; preserving it here keeps a single shape
+// across every surface that touches case data.
 //
 // One coercion runs at the form-engine boundary only:
 // `caseRowToFormPreload` flattens the JSONB into the

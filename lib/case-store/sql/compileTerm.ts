@@ -11,9 +11,9 @@
 //
 //   - `prop` — typed JSONB read from the anchor's `properties`
 //     column (or the relation-path leaf alias when the term carries
-//     a non-self `via`). The four reserved scalar columns
-//     (`case_id`, `case_type`, `owner_id`, `status`) read from
-//     dedicated columns rather than through JSONB.
+//     a non-self `via`). Names in `RESERVED_SCALAR_COLUMNS`
+//     (`dataTypeTokens.ts`) read from the dedicated scalar columns
+//     rather than through JSONB.
 //   - `literal` — primitive constant. Strings / numbers / booleans
 //     bind via Kysely's parameter channel; `null` emits as the SQL
 //     literal `NULL`. When the literal carries a `data_type` (date,
@@ -111,51 +111,8 @@ import type { Database } from "./database";
 import {
 	JSONB_READ_OPERATOR_FOR_DATA_TYPE,
 	POSTGRES_CAST_FOR_DATA_TYPE,
+	RESERVED_SCALAR_COLUMNS,
 } from "./dataTypeTokens";
-
-// ---------------------------------------------------------------
-// Reserved scalar columns
-// ---------------------------------------------------------------
-
-/**
- * The five columns on `cases` that surface as first-class scalar
- * columns rather than as JSONB-document keys. A `prop` term whose
- * `property` matches one of these names reads from the scalar
- * column directly via `eb.ref(...)`, both because the column is
- * indexed (the JSONB read skips the index) and because the column
- * is not present in the JSONB document (the read returns `NULL`).
- *
- * The other scalar columns on `cases` (`opened_on` / `modified_on`
- * / `closed_on` / `parent_case_id`) are intentionally NOT routed
- * through `prop` at the term layer. They are timestamp / FK columns
- * whose authoring surface belongs to query-shape primitives (sort
- * order, opened-vs-closed filter, parent navigation) rather than to
- * the case's authored property document. Any future term-level
- * support for those columns gets a dedicated AST shape rather than
- * `prop`-as-scalar overloading.
- *
- * **Shadowing caveat:** these names are also valid CommCare case-
- * property identifiers (the `casePropertyField` validator on
- * `propertyRefSchema.property` admits any
- * `[a-zA-Z][a-zA-Z0-9_-]*` shape). A blueprint that declares a
- * property literally named `case_id` / `case_type` / `owner_id` /
- * `status` / `case_name` will be silently shadowed by the scalar-
- * column read here — the term compiler reads from the scalar column
- * instead of the JSONB document the blueprint author intended. The
- * blueprint validator is responsible for rejecting these names
- * (CommCare's wire layer also reserves them, so the blueprint
- * validator's rejection is independently load-bearing); the term
- * compiler trusts that rejection upstream and routes uniformly.
- * If the blueprint validator gains a per-property reservation
- * check, this set is the source of truth for the five names.
- */
-const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
-	"case_id",
-	"case_type",
-	"owner_id",
-	"status",
-	"case_name",
-]);
 
 // ---------------------------------------------------------------
 // Public types
@@ -337,8 +294,9 @@ const eb = expressionBuilder<Database, keyof Database>();
  *
  * Term-arm dispatch:
  *
- *   - `prop` → JSONB read with cast (or scalar column read for the
- *     four reserved columns), routed through the anchor alias for
+ *   - `prop` → JSONB read with cast (or scalar column read for a
+ *     reserved scalar column; see `RESERVED_SCALAR_COLUMNS` in
+ *     `dataTypeTokens.ts`), routed through the anchor alias for
  *     self-via reads or through the relation-path leaf alias for
  *     non-self-via reads.
  *   - `literal` → typed parameter binding for non-null primitives
@@ -418,8 +376,7 @@ export function compileTerm(
  *
  * Three branches:
  *
- *   1. The property is one of the four reserved scalar columns
- *      (`case_id`, `case_type`, `owner_id`, `status`) — read
+ *   1. The property is in `RESERVED_SCALAR_COLUMNS` — read
  *      directly off the column or out of the via's leaf subquery
  *      (the leaf row exposes every `cases` column).
  *   2. `via` is absent or `selfPath()` (the no-traversal degenerate)
