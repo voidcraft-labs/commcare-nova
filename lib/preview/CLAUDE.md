@@ -22,7 +22,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 ### Two-state JSONB collapse for form completion
 
 `computeSubmissionMutation` reads each leaf field's value via
-`instance.get(materializedPath)` and filters on emptiness only
+`instance.get(fieldPath)` and filters on emptiness only
 (`if (raw === undefined || raw === "") continue`); empty fields
 are excluded from the emitted mutation, hidden fields with non-
 empty values are NOT excluded. Properties whose value is empty

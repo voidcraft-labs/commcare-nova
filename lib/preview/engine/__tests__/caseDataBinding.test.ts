@@ -142,6 +142,36 @@ const VISIT_CASE_TYPE: CaseType = {
 };
 
 /**
+ * Case-type carrying every formatted-property data type AJV's strict
+ * mode rejects on an empty string — `format: date`, `format: time`,
+ * `format: date-time`, the geopoint pattern, plus `integer` and
+ * `number` types. Used by the registration helper test that pins
+ * the empty-properties round-trip: a registration mutation whose
+ * `properties` is `{}` must clear AJV against this schema.
+ *
+ * `caseTypeToJsonSchema` emits `{ type: "object" }` with no
+ * `required` keys, so an empty `properties` document trivially
+ * passes any case-type schema. The structural protection is real
+ * but easy to break — adding `required` keys to the generator
+ * would silently regress every running-app form whose user fills
+ * only `case_name` against a case-type with formatted properties.
+ * This fixture turns the structural protection into an asserted
+ * invariant.
+ */
+const FORMATTED_PROPS_CASE_TYPE: CaseType = {
+	name: "patient",
+	properties: [
+		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "weight", label: "Weight", data_type: "decimal" },
+		{ name: "dob", label: "DOB", data_type: "date" },
+		{ name: "wake_time", label: "Wake time", data_type: "time" },
+		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{ name: "home_location", label: "Home", data_type: "geopoint" },
+	],
+};
+
+/**
  * Local wrapper that pins this suite's `APP_ID`. The shared
  * `buildSimpleBlueprint` helper takes `(caseTypes, appId)`;
  * wrapping it here keeps each test body to a one-liner.
@@ -877,6 +907,53 @@ describe("applyRegistrationMutation", () => {
 		expect(patients.rows).toHaveLength(1);
 	});
 
+	it("admits an empty properties document against a case-type with formatted properties (AJV does not reject)", async () => {
+		// Empty-properties round-trip: a registration whose user filled
+		// only `case_name` against a case-type carrying `format: date`,
+		// `format: time`, `format: date-time`, geopoint, and numeric
+		// properties must clear AJV. The engine's empty-value filter
+		// (`raw === undefined || raw === ""` at `formEngine.ts:402`)
+		// guarantees the absent properties never reach the helper, and
+		// `caseTypeToJsonSchema` emits `{ type: "object" }` with no
+		// `required` keys — so the empty document trivially passes.
+		// Pinning the round-trip end-to-end protects against a future
+		// generator change that adds `required` keys (which would crash
+		// every running-app form whose user fills only `case_name`).
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+			kind: "registration",
+			primary: {
+				caseType: "patient",
+				caseName: "Alice",
+				// Every formatted property left absent — `format: date`
+				// would crash on `""`, the geopoint pattern would
+				// reject `""`, the `integer` / `number` types would
+				// reject `null`. Omission is the only shape that lands.
+				properties: {},
+			},
+			children: [],
+		};
+
+		const result = await applyRegistrationMutation(store, {
+			mutation,
+			appId: APP_ID,
+		});
+		expect(result.childCaseIds).toEqual([]);
+
+		const patients = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		if (patients.kind !== "rows") throw new Error("expected rows");
+		expect(patients.rows).toHaveLength(1);
+		// JSONB document is empty; `case_name` lands on the column.
+		expect(patients.rows[0]?.case_name).toBe("Alice");
+		expect(patients.rows[0]?.properties).toEqual({});
+	});
+
 	it("throws compilerBugMessage when the primary carries no caseName", async () => {
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
@@ -1095,6 +1172,78 @@ describe("applyCloseMutation", () => {
 		if (patients.kind !== "rows") throw new Error("expected rows");
 		// Property update + closure timestamp landed atop the same row.
 		expect(patients.rows[0]?.properties).toEqual({ name: "Alice", age: 32 });
+		expect(patients.rows[0]?.closed_on).not.toBeNull();
+	});
+
+	it("skips the primary UPDATE call when the patch carries no writes but still stamps closed_on", async () => {
+		// Empty-patch close: a close form whose only effect is the
+		// closure stamp itself (no property writes) must skip the
+		// primary's UPDATE round-trip but MUST still land `closed_on`.
+		// The followup test above asserts the same skip via a
+		// `modified_on` snapshot — that approach doesn't translate to
+		// the close arm because `PostgresCaseStore.close()` stamps
+		// `modified_on` itself (`postgres/store.ts:572`), so a real
+		// close always advances the timestamp regardless of whether
+		// the empty patch was short-circuited. A spy on `store.update`
+		// is the durable detector: `close()` writes via a direct
+		// `db.updateTable(...)` chain, NOT through the public
+		// `update()` method, so the spy fires only when
+		// `applyPrimaryUpdate` (the shared helper for followup + close
+		// primary writes) actually invokes the update path. Pins the
+		// close arm against a future refactor that inlines the primary
+		// update or stops delegating to the shared helper.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+
+		// Defaults to passthrough; the underlying close + child-insert
+		// behavior runs unchanged.
+		const updateSpy = vi.spyOn(store, "update");
+
+		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
+			kind: "close",
+			caseId: ALICE_CASE_ID,
+			patch: { properties: {} },
+			children: [
+				{
+					caseType: "visit",
+					caseName: "Closing visit",
+					properties: { notes: "discharged" },
+					parentCaseId: ALICE_CASE_ID,
+				},
+			],
+		};
+
+		const result = await applyCloseMutation(store, {
+			mutation,
+			appId: APP_ID,
+		});
+		expect(result.caseId).toBe(ALICE_CASE_ID);
+		expect(result.childCaseIds).toHaveLength(1);
+
+		// The empty patch never reached `store.update` — the shared
+		// `applyPrimaryUpdate` helper short-circuited.
+		expect(updateSpy).not.toHaveBeenCalled();
+
+		const patients = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		if (patients.kind !== "rows") throw new Error("expected rows");
+		// Properties unchanged (no UPDATE ran); the closure stamp
+		// landed regardless.
+		expect(patients.rows[0]?.properties).toEqual({ name: "Alice", age: 30 });
 		expect(patients.rows[0]?.closed_on).not.toBeNull();
 	});
 });

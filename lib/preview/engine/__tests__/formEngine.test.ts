@@ -808,6 +808,24 @@ describe("FormEngine", () => {
 				{ name: "weight", label: "Weight", data_type: "decimal" },
 				{ name: "tags", label: "Tags", data_type: "multi_select" },
 				{ name: "notes", label: "Notes", data_type: "text" },
+				// String-passthrough data types — the coercion layer
+				// returns the raw string for each. Declared on the
+				// canonical `patient` case-type so the per-type coercion
+				// tests below match a real property declaration rather
+				// than tripping the unknown-property fallthrough.
+				{ name: "dob", label: "DOB", data_type: "date" },
+				{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+				{ name: "wake_time", label: "Wake time", data_type: "time" },
+				{
+					name: "home_location",
+					label: "Home",
+					data_type: "geopoint",
+				},
+				{
+					name: "priority",
+					label: "Priority",
+					data_type: "single_select",
+				},
 			],
 		};
 		const visitCaseType: CaseType = {
@@ -1357,6 +1375,121 @@ describe("FormEngine", () => {
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.age).toBe("not-a-number");
+			});
+
+			// String-passthrough data types: `date`, `datetime`, `time`,
+			// `geopoint`, and `single_select` all return the raw string
+			// from the coercion layer (verbatim from `caseTypeToJsonSchema`'s
+			// type-mapping). The wire shape is the user-typed value;
+			// AJV's `format` keyword validates it at insert time. These
+			// tests pin the per-type contract so a future coercion-layer
+			// change that accidentally unboxes one of them surfaces here.
+			it("coerces date to its raw string", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "dob", kind: "date", case_property_on: "patient" },
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/dob", "1995-03-12");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.dob).toBe("1995-03-12");
+			});
+
+			it("coerces datetime to its raw string", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "last_seen",
+						kind: "datetime",
+						case_property_on: "patient",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/last_seen", "2026-05-06T12:34:56Z");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.last_seen).toBe(
+					"2026-05-06T12:34:56Z",
+				);
+			});
+
+			it("coerces time to its raw string", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "wake_time",
+						kind: "time",
+						case_property_on: "patient",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/wake_time", "07:30:00");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.wake_time).toBe("07:30:00");
+			});
+
+			it("coerces geopoint to its raw string", () => {
+				// Geopoint wire shape is the canonical CommCare
+				// `"lat lon alt acc"` string; the coercion layer never
+				// parses it. PostGIS conversion happens at the case-list
+				// query layer (`within-distance`), not at write time.
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "home_location",
+						kind: "geopoint",
+						case_property_on: "patient",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/home_location", "37.7749 -122.4194 0 5");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.home_location).toBe(
+					"37.7749 -122.4194 0 5",
+				);
+			});
+
+			it("coerces single_select to its raw string", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "priority",
+						kind: "single_select",
+						case_property_on: "patient",
+						options: [
+							{ value: "low", label: "Low" },
+							{ value: "high", label: "High" },
+						],
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/priority", "high");
+
+				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				expect(mutation.primary.properties.priority).toBe("high");
 			});
 		});
 
