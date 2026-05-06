@@ -478,9 +478,18 @@ After Plan 2's nine tasks shipped, a holistic review of the case-store package s
 
 Final case-store package: 379 tests across 18 files. Full repo: 2927 passed, 14 skipped.
 
+#### Plan 2 follow-up — pass-2 holistic-review cleanups SHIPPED
+
+A second holistic review of the case-store package (after the first-pass cleanups landed) surfaced seven more actionable items. One implementer round + supporting CR round addressed all seven plus two CR-flagged LOWs across two commits:
+
+- `65fc4774 refactor(case-store): pass-2 holistic-review fix-pass — atomicity + typed errors + bulk migrations` — `resetSampleData` is now atomic (delete + regenerate in one transaction; threading `trx` through private `*InTransaction` helpers); four cross-tenant contract tests added for `insert` / `applySchemaChange` / `generateSampleData` / `resetSampleData` (the `applySchemaChange` test pins the explicit per-`(appId, caseType)` schema-row contract distinct from the per-row tenant model); two new typed error classes (`CaseTypeNotInBlueprintError`, `SchemaNotSyncedError`) replace `compilerBugMessage` throws on stale-blueprint user-driven paths and are mapped at the `populateSampleCasesAction` Server Action boundary; `runRetypeMigration` and `runNarrowOptionsMigration` collapsed to bulk SQL (5 and 3 round-trips respectively, regardless of row count); `close()` adds `closed_on IS NULL` to its WHERE clause so already-closed cases silently no-op (first-time-close idempotent); `pickBlueprintDoc` uses `blueprintDocSchema.parse(state)` instead of a manual whitelist (Zod's default strip mode handles function stripping; `fieldParent` re-attached because it's an in-memory-only `BlueprintDoc` extension the schema doesn't declare); new `CaseStore.insertWithChildren` method batches a primary case + N children of mixed types into one transaction, with chunking-by-case-type and `originalIndex` reassembly so the returned `childCaseIds` matches input order — the form-bridge registration path uses it.
+- `8c0ed4eb refactor(case-store): pass-2 fix-pass — extend validation error mapping` — `mapPopulateSampleCasesError` now discriminates `CasePropertiesValidationError` and returns a typed `{ kind: "validation-failure", caseType, failures }` arm so AJV's per-field failure list reaches the user instead of leaking through the generic `error` arm; the `CaseListScreen` populate-status switch handles the new arm with a per-field `field: reason` rendering; one eternal-present voice cleanup ("previous wrapper" → "internal-invariant body").
+
+Final case-store package: 399 tests across 18 files. Full repo: 2957 passed, 14 skipped.
+
 #### Plan 2 status — ALL TASKS SHIPPED
 
-Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework plus the post-review cleanup pass above. Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9 → holistic-review fix-pass. The eventual Plan 2 PR opens against `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
+Plan 2 (case data layer) ships in 9 tasks plus the Tasks 1+2 Atlas rework plus two post-review cleanup passes (above). Branch `feat/case-list-search` carries the full commit chain from Task 0 → Task 9 → first-pass holistic-review fix-pass → second-pass holistic-review fix-pass. The eventual Plan 2 PR (opened at the end of the entire spec, not at the end of Plan 2) merges into `main`; the existing Cloud Build trigger fires on the merge commit, builds the new Dockerfile (atlas-bundled), and the new Cloud Run revision applies migrations at startup against the live `nova_cases` Cloud SQL instance.
 
 ---
 
