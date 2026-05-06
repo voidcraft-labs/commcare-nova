@@ -21,15 +21,28 @@
  *
  * This helper is called once at the chat-completion boundary
  * (the `validateApp` success arm in `solutionsArchitect.ts`),
- * AFTER the `data-done` SSE emit and BEFORE the
- * fire-and-forget `completeApp` Firestore write that flips the
- * app's lifecycle status to `complete`. The ordering matters:
+ * BEFORE the `data-done` SSE emit and BEFORE the
+ * fire-and-forget `completeApp` Firestore write. The ordering
+ * matters:
  *
- *   1. `data-done` — UX signal that the SA is done, the client
- *      can disable its progress affordance.
- *   2. Await this helper — any code path that next reads the
- *      app's `complete` status sees a synced Postgres schema.
+ *   1. Await this helper — UPSERTs the schema row + indexes for
+ *      every case type. Blocks until Postgres is caught up.
+ *   2. `data-done` SSE emit — UX signal that the SA is done; the
+ *      client's stream dispatcher stamps `runCompletedAt` on
+ *      this event, which drives the Completed celebration phase.
  *   3. `completeApp` — fire-and-forget Firestore status flip.
+ *
+ * Materializing BEFORE `data-done` is load-bearing. The
+ * case-store consumers (`populateSampleCasesAction`,
+ * `submitFormAction`, live-preview panels) don't gate on
+ * `app.status === "complete"` before issuing reads / writes;
+ * they call `withOwnerContext` and dispatch directly. If
+ * `data-done` fired first, a user clicking "Generate sample
+ * data" sub-second after the celebration animation would race
+ * the materialization and trip `SchemaNotSyncedError`.
+ * Sequencing the await before the SSE emit means any
+ * user-initiated case-store action subsequent to the completion
+ * celebration sees a synced schema.
  *
  * ## Why no saga
  *
@@ -40,14 +53,18 @@
  * `applyBlueprintChange.ts` builds for awaited writes is
  * irrelevant here.
  *
- * ## Why awaited
+ * ## Failure handling
  *
- * If `applySchemaChange` throws, propagate. Swallowing the error
- * just relocates the gap this helper exists to close — a
- * Postgres failure during chat completion is a real signal worth
- * surfacing to the operator-facing log and the SA tool's caller.
- * The chat stream's tool-call boundary surfaces the rejection as
- * a stream error, which is the correct propagation path.
+ * The helper itself surfaces throws unwrapped — a per-case-type
+ * `applySchemaChange` failure stops the loop at the offending
+ * case type and bubbles the error. The caller (`solutionsArchitect`'s
+ * `validateApp` wrapper) is responsible for routing the throw
+ * through the canonical `classifyError` + `ctx.emitError` +
+ * `failApp` path so the client sees `data-error`, the app
+ * status flips to `error` immediately, and the SA loop sees a
+ * clean `success: false` return that doesn't invite another
+ * retry. Swallowing failures here would relocate the
+ * Schema-not-synced gap this helper exists to close.
  */
 
 import { withOwnerContext } from "@/lib/case-store";
@@ -55,9 +72,11 @@ import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 
 /**
  * Arguments for `materializeCaseStoreSchemas`. The blueprint is
- * the freshly-completed snapshot the SA just emitted via
- * `data-done`; it carries the canonical `caseTypes` list the
- * helper iterates.
+ * the freshly-completed snapshot from `validateAndFix`; it
+ * carries the canonical `caseTypes` list the helper iterates.
+ * The SA wrapper passes the same snapshot into the subsequent
+ * `data-done` SSE emit so the client's reconciliation matches
+ * what Postgres just landed.
  */
 export interface MaterializeCaseStoreSchemasArgs {
 	readonly appId: string;

@@ -602,6 +602,7 @@ vi.mock("../validationLoop", async () => {
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
+	failApp: vi.fn(),
 	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
@@ -638,6 +639,125 @@ describe("solutionsArchitect — validateApp", () => {
 		const payload = doneEvents[0].data as { success: boolean };
 		expect(payload.success).toBe(true);
 		expectNoLegacyEvents(writer);
+	});
+
+	it("orders side effects: materialize → data-done → completeApp on success", async () => {
+		// The reordered wrapper runs `materializeCaseStoreSchemas`
+		// BEFORE the `data-done` SSE emit so the celebration
+		// animation never races a user-initiated case-store action.
+		// Pin that ordering structurally — a regression to "emit
+		// data-done first" would let a "Generate sample data" click
+		// sub-second after the celebration trip
+		// `SchemaNotSyncedError`.
+		const { validateAndFix } = await import("../validationLoop");
+		const { materializeCaseStoreSchemas } = await import(
+			"@/lib/db/materializeCaseStoreSchemas"
+		);
+		const { completeApp, failApp } = await import("@/lib/db/apps");
+		const fixtureDoc = makeFixtureDoc();
+		vi.mocked(validateAndFix).mockResolvedValue({
+			success: true,
+			doc: fixtureDoc,
+			hqJson: {} as never,
+		});
+
+		// Shared call-order array each spy pushes to as it runs.
+		// `data-done` detection rides the writer spy because the
+		// SSE emit goes through `writer.write`, not a dedicated
+		// helper.
+		const order: string[] = [];
+		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
+			order.push("materialize");
+		});
+		vi.mocked(completeApp).mockImplementationOnce(async () => {
+			order.push("completeApp");
+		});
+
+		const { ctx, writer } = buildCtx();
+		// `writer.write` is a fresh `vi.fn()` from `buildCtx()` —
+		// no prior implementation to preserve. Push to the shared
+		// order array on `data-done` events; other event types
+		// pass through silently.
+		writer.write.mockImplementation((event: { type?: string }) => {
+			if (event?.type === "data-done") order.push("data-done");
+		});
+
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		await runTool(sa, "validateApp", {});
+
+		expect(order).toEqual(["materialize", "data-done", "completeApp"]);
+		// `failApp` stays untouched on the success path — it's the
+		// failure-arm sibling of `completeApp`.
+		expect(vi.mocked(failApp)).not.toHaveBeenCalled();
+	});
+
+	it("classifies + fails the app and skips data-done when materialize throws", async () => {
+		// A Postgres outage during materialization is unrecoverable
+		// from the SA's edit perspective — the wrapper must route
+		// the failure through `classifyError` + `ctx.emitError` +
+		// `failApp` and return `success: false` so the SA loop
+		// doesn't retry into the staleness-reaper window. Letting
+		// the throw propagate to a `tool-error` content part would
+		// invite the SA to retry `validateApp`, burning through the
+		// 80-step `stopWhen` limit on a Postgres failure that no
+		// blueprint mutation can repair.
+		const { validateAndFix } = await import("../validationLoop");
+		const { materializeCaseStoreSchemas } = await import(
+			"@/lib/db/materializeCaseStoreSchemas"
+		);
+		const { completeApp, failApp } = await import("@/lib/db/apps");
+		const fixtureDoc = makeFixtureDoc();
+		vi.mocked(validateAndFix).mockResolvedValue({
+			success: true,
+			doc: fixtureDoc,
+			hqJson: {} as never,
+		});
+
+		const order: string[] = [];
+		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
+			order.push("materialize-throws");
+			throw new Error("simulated postgres outage");
+		});
+		vi.mocked(completeApp).mockImplementationOnce(async () => {
+			order.push("completeApp");
+		});
+		vi.mocked(failApp).mockImplementationOnce(() => {
+			order.push("failApp");
+		});
+
+		const { ctx, writer } = buildCtx();
+		// Push to the shared order array on `data-done` events. The
+		// failure path SHOULD NOT emit `data-done` — the absence of
+		// the entry in `order` is what the assertion below pins.
+		writer.write.mockImplementation((event: { type?: string }) => {
+			if (event?.type === "data-done") order.push("data-done");
+		});
+
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const result = await runTool(sa, "validateApp", {});
+
+		// `completeApp` MUST NOT fire on the failure path — the
+		// app stays in `generating` until `failApp` flips it to
+		// `error`. `data-done` MUST NOT fire either — the
+		// celebration only runs on a clean Postgres handoff.
+		expect(order).toEqual(["materialize-throws", "failApp"]);
+		expect(vi.mocked(completeApp)).not.toHaveBeenCalled();
+
+		// `failApp` was invoked with the SA's appId + the classified
+		// error type. Postgres errors don't match any of the typed
+		// API arms, so they fall through to `internal` per
+		// `lib/agent/errorClassifier.ts`.
+		expect(vi.mocked(failApp)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(failApp).mock.calls[0]).toEqual(["test-app", "internal"]);
+
+		// The tool returns the canonical failure shape with one
+		// human-readable error string sourced from the classified
+		// error's `message` (the user-facing translation, not the
+		// raw `simulated postgres outage`).
+		expect(result).toMatchObject({
+			success: false,
+			errors: expect.arrayContaining([expect.any(String)]),
+		});
 	});
 });
 

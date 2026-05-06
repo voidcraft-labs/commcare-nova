@@ -20,9 +20,18 @@
 // no-op paths: null `caseTypes`, empty `caseTypes`. The
 // integration test covers the multi-case-type happy path —
 // every case-type row materializes + per-property indexes land.
+// A third arm pins the partial-failure contract: when
+// `applySchemaChange` throws on case type N of M, case types
+// 1..N-1 stay committed (no transactional rollback across case
+// types), N..M never get attempted, and the caller sees the
+// underlying throw bubble unwrapped. The SA wrapper relies on
+// that bubble shape to route the failure through
+// `classifyError` + `failApp` rather than letting the SA retry
+// the tool call.
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CaseStore } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
@@ -189,5 +198,103 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 		const indexNames = indexes.rows.map((r) => r.indexname);
 		expect(indexNames).toContain("cases_patient_name_fuzzy");
 		expect(indexNames).toContain("cases_visit_notes_fuzzy");
+	});
+});
+
+// ── Partial-failure path — `applySchemaChange` throws on N of M ──
+
+describe("materializeCaseStoreSchemas — partial failure", () => {
+	it("stops at the offending case type and bubbles the throw with its name", async () => {
+		// Inject a fake `CaseStore` whose `applySchemaChange` resolves
+		// for the first two case types and rejects on the third. The
+		// helper's loop is sequential, so the third call's rejection
+		// must stop the loop entirely (case type 4 is never attempted).
+		// No testcontainer needed — the assertion is purely about
+		// call ordering + throw propagation, not about actual Postgres
+		// state. Probing rows would also work but adds container
+		// startup cost for a property the spy already proves.
+		const calls: string[] = [];
+		const failureReason = "simulated postgres failure on case type C";
+		// Empty `MigrationReport` shape — the helper doesn't read it,
+		// but the `CaseStore.applySchemaChange` type contract returns
+		// one and the `satisfies CaseStore` constraint below pins
+		// the fake to that shape.
+		const emptyReport = {
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		};
+		const applySchemaChangeMock = vi.fn(async (args: { caseType: string }) => {
+			calls.push(args.caseType);
+			if (args.caseType === "c") {
+				throw new Error(failureReason);
+			}
+			return emptyReport;
+		});
+		// Stub every other `CaseStore` method to a throw — the helper
+		// should never reach them; if a regression made it call them
+		// the throw surfaces as a clearer failure than a silent pass.
+		// The `satisfies CaseStore` constraint pins the fake to the
+		// production interface so a future method addition fails
+		// compilation here (matching the pattern established in
+		// `lib/preview/engine/__tests__/caseDataBinding.test.ts`).
+		const unused = vi.fn(() => {
+			throw new Error("unused method");
+		});
+		const fakeStore = {
+			query: unused,
+			insert: unused,
+			insertWithChildren: unused,
+			update: unused,
+			close: unused,
+			traverse: unused,
+			applySchemaChange: applySchemaChangeMock,
+			dropSchema: unused,
+			generateSampleData: unused,
+			resetSampleData: unused,
+		} satisfies CaseStore;
+		// Override the default per-test PostgresCaseStore wiring with
+		// the fake — `mockImplementationOnce` so subsequent tests
+		// (none in this file, but the harness pattern stays robust)
+		// fall back to the per-test database default.
+		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+
+		const a: CaseType = {
+			name: "a",
+			properties: [{ name: "x", label: "X", data_type: "text" }],
+		};
+		const b: CaseType = {
+			name: "b",
+			properties: [{ name: "y", label: "Y", data_type: "text" }],
+		};
+		const c: CaseType = {
+			name: "c",
+			properties: [{ name: "z", label: "Z", data_type: "text" }],
+		};
+		const d: CaseType = {
+			name: "d",
+			properties: [{ name: "w", label: "W", data_type: "text" }],
+		};
+
+		// The helper must throw — assert on the actual error message
+		// so a future change that wraps the underlying error in a
+		// new layer surfaces here rather than silently shifting the
+		// reported reason.
+		await expect(
+			materializeCaseStoreSchemas({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				blueprint: makeBlueprint([a, b, c, d]),
+			}),
+		).rejects.toThrow(failureReason);
+
+		// Sequential ordering: a + b succeeded, c was attempted (and
+		// threw), d was never attempted. The SA wrapper's
+		// `classifyError` + `failApp` path depends on the helper
+		// stopping at the offending case type — a regression that
+		// continued after a failure would leave the wrapper unable
+		// to identify which case type failed.
+		expect(calls).toEqual(["a", "b", "c"]);
 	});
 });

@@ -213,6 +213,18 @@ set. Missing or invalid indexes degrade query performance but
 never correctness — the term compiler's emitted SQL falls back
 to a sequential scan over the case-type partition.
 
+The chat-completion boundary calls `applySchemaChange` once per
+case type via the sibling helper at
+`lib/db/materializeCaseStoreSchemas.ts` to close the gap the SA's
+fire-and-forget chat-side `saveBlueprint` leaves open (the
+freshly-generated case types have no `case_type_schemas` row
+until that helper lands). The two awaited blueprint-write
+boundaries (auto-save PUT, MCP tool calls) route through the
+sibling saga at `lib/db/applyBlueprintChange.ts` instead — saga
+for awaited writes (compensation on Firestore failure),
+materialize-helper for chat completion (pure additive, no
+compensation needed).
+
 ### Pre-flight identifier validation runs BEFORE Phase A
 
 `computeDesiredIndexSet` runs synchronously at the top of

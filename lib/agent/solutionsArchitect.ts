@@ -20,12 +20,13 @@
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
-import { completeApp } from "@/lib/db/apps";
+import { completeApp, failApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
+import { classifyError } from "./errorClassifier";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
@@ -307,33 +308,45 @@ export function createSolutionsArchitect(
 		 * chat-only side effects on top of the flat shared result, in
 		 * this order:
 		 *
-		 *   1. `data-done` SSE emit — UX signal carrying the full doc +
-		 *      HQ JSON; the client uses this to disable its progress
-		 *      affordance.
-		 *   2. Awaited `materializeCaseStoreSchemas` — UPSERTs the
+		 *   1. Awaited `materializeCaseStoreSchemas` — UPSERTs the
 		 *      `case_type_schemas` rows + per-property expression
 		 *      indexes for every case type the SA just generated. The
 		 *      chat-side intermediate save (`saveBlueprint`) is
 		 *      fire-and-forget by design (`lib/agent/CLAUDE.md`
 		 *      documents the SA fix-retry discipline), so the case-
-		 *      store schema never materialized during streaming. Any
-		 *      awaited downstream operation (sample-data populate,
-		 *      form submit, live preview) reading `app.status ===
-		 *      "complete"` would otherwise fire `SchemaNotSyncedError`
-		 *      until the user's first auto-save.
+		 *      store schema never materialized during streaming.
+		 *   2. `data-done` SSE emit — UX signal carrying the full doc +
+		 *      HQ JSON; the client's stream dispatcher stamps
+		 *      `runCompletedAt` on this event, which drives the
+		 *      Completed celebration phase.
 		 *   3. `completeApp` Firestore update — flips the app record's
 		 *      lifecycle status to `complete`. Stays fire-and-forget
 		 *      so the SA's stream return doesn't block on Firestore
 		 *      latency; the staleness reaper inside `listApps` is the
 		 *      backstop if this ever fails to land.
 		 *
-		 * The materialization sits between (1) and (3) intentionally:
-		 * the SSE tells the client "SA done" without promising
-		 * Postgres readiness; the await ensures any code path that
-		 * next reads `app.status === "complete"` sees a synced
-		 * schema. Materialization throws propagate — silently
-		 * swallowing them just relocates the gap this step exists to
-		 * close.
+		 * Materialization runs FIRST so any user-initiated case-store
+		 * action subsequent to the completion celebration (e.g. a
+		 * "Generate sample data" click sub-second after `data-done`
+		 * fires) sees a synced Postgres schema. Emitting `data-done`
+		 * before the await would leave a window where the celebration
+		 * UI signals "ready" but the schema row is still missing —
+		 * exactly the race this step exists to close.
+		 *
+		 * Materialization failure is unrecoverable from the SA's edit
+		 * perspective (a Postgres outage isn't something the SA can
+		 * fix by mutating the doc). Letting the throw propagate to
+		 * the AI SDK's `tool-error` content part would push the SA
+		 * into a retry loop that burns through the 80-step
+		 * `stopWhen` limit — same throw recurs until the model gives
+		 * up, with `data-done` re-firing on each iteration under any
+		 * ordering that emits before materializing. The catch arm
+		 * routes the failure through the canonical
+		 * `classifyError` + `ctx.emitError` + `failApp` path used by
+		 * `app/api/chat/route.ts`'s `handleRouteError`, so the client
+		 * sees `data-error`, the app status flips to `error`
+		 * immediately, and the SA loop sees a clean `success: false`
+		 * return that doesn't invite another retry.
 		 *
 		 * All three side effects depend on `ctx.usage.runId`,
 		 * `ctx.appId`, `ctx.userId`, or `ctx.emit`, which only exist
@@ -353,24 +366,42 @@ export function createSolutionsArchitect(
 
 					if (result.success) {
 						const persistable = toPersistableDoc(doc);
+						/* Materialize the case-store schema rows + indexes
+						 * BEFORE the celebration emit. The chat-side
+						 * intermediate save was fire-and-forget per
+						 * `lib/agent/CLAUDE.md`, so `case_type_schemas`
+						 * carries no row for the SA's freshly-generated
+						 * case types until this call lands. Awaited so
+						 * any user-initiated case-store action that
+						 * follows the celebration (sample-data populate,
+						 * form submit, live preview) sees a synced
+						 * schema. A Postgres failure here is
+						 * unrecoverable from the SA's perspective — route
+						 * through the same classified-error path the
+						 * chat route uses for stream errors so the SA
+						 * doesn't burn cycles retrying. */
+						try {
+							await materializeCaseStoreSchemas({
+								appId: ctx.appId,
+								userId: ctx.userId,
+								blueprint: persistable,
+							});
+						} catch (err) {
+							const classified = classifyError(err);
+							ctx.emitError(classified, "validateApp:materialize");
+							/* `failApp` is fire-and-forget by design (it
+							 * swallows Firestore errors internally) — match
+							 * the route's `handleRouteError` shape exactly. */
+							failApp(ctx.appId, classified.type);
+							return {
+								success: false as const,
+								errors: [classified.message],
+							};
+						}
 						ctx.emit("data-done", {
 							doc: persistable,
 							hqJson: result.hqJson ?? {},
 							success: true,
-						});
-						/* Materialize the case-store schema rows + indexes
-						 * BEFORE flipping `completeApp`'s status. Awaited:
-						 * a Postgres failure here propagates as a stream
-						 * error; the operator sees exactly which case type
-						 * failed. The chat-side intermediate save was
-						 * fire-and-forget per `lib/agent/CLAUDE.md`, so
-						 * `case_type_schemas` carries no row for the SA's
-						 * freshly-generated case types until this call
-						 * lands. */
-						await materializeCaseStoreSchemas({
-							appId: ctx.appId,
-							userId: ctx.userId,
-							blueprint: persistable,
 						});
 						/* Flip the app record to its final state (fire-and-forget).
 						 * The app doc was created at the start of the request by
