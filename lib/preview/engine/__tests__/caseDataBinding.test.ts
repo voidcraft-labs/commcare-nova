@@ -30,6 +30,8 @@
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	CasePropertiesValidationError,
+	type CasePropertyFailure,
 	type CaseRow,
 	type CaseStore,
 	CaseTypeNotInBlueprintError,
@@ -584,6 +586,26 @@ describe("mapPopulateSampleCasesError", () => {
 		expect(result).toEqual({ kind: "schema-not-synced", caseType: "patient" });
 	});
 
+	it("maps CasePropertiesValidationError to the validation-failure arm carrying the structured failures", () => {
+		// AJV's per-field failure list is the user-actionable shape;
+		// the mapping helper preserves it verbatim onto the arm so
+		// the consumer renders one entry per offending field. Without
+		// this branch, the running-app view's error toast would show
+		// the wrapped invariant body (internal vocabulary), defeating
+		// the typed-error pattern's purpose.
+		const failures: ReadonlyArray<CasePropertyFailure> = [
+			{ path: "/age", message: "must be integer" },
+			{ path: "/name", message: "must NOT have fewer than 1 characters" },
+		];
+		const err = new CasePropertiesValidationError("app-1", "patient", failures);
+		const result = mapPopulateSampleCasesError(err);
+		expect(result).toEqual({
+			kind: "validation-failure",
+			caseType: "patient",
+			failures,
+		});
+	});
+
 	it("falls through to the generic error arm for an unrelated Error instance", () => {
 		const err = new Error("connection refused");
 		const result = mapPopulateSampleCasesError(err);
@@ -659,6 +681,61 @@ describe("mapPopulateSampleCasesError", () => {
 				kind: "schema-not-synced",
 				caseType: "patient",
 			});
+		}
+	});
+
+	it("maps a typed CasePropertiesValidationError thrown by the real seed flow", async () => {
+		// End-to-end mapping for the AJV-rejection path. A stub
+		// `SampleCaseGenerator` emits a schema-violating row (`age`
+		// declared as `int` but the generator returns the string
+		// "not-a-number"); the case-store's bulk-insert path runs
+		// AJV inside its transaction and throws
+		// `CasePropertiesValidationError`. `seedSampleCases`
+		// propagates; the mapping helper translates to the
+		// structured `validation-failure` arm with the per-field
+		// failure list intact.
+		const stubGenerator = {
+			generate: () => [
+				{
+					case_type: "patient",
+					case_name: "Alice",
+					status: "open",
+					// `age` as a non-numeric string fails the int schema.
+					properties: { name: "Alice", age: "not-a-number" },
+				},
+			],
+		};
+		const store = new PostgresCaseStore({
+			ownerId: OWNER_A,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: stubGenerator,
+		});
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		// Schema sync runs so the validator fetch succeeds; the
+		// failure is on the candidate payload, not on the schema
+		// row.
+		await seedSchema(store, blueprint, "patient");
+
+		try {
+			await seedSampleCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+			});
+			throw new Error("seedSampleCases should have thrown");
+		} catch (err) {
+			const result = mapPopulateSampleCasesError(err);
+			expect(result.kind).toBe("validation-failure");
+			if (result.kind !== "validation-failure") return;
+			expect(result.caseType).toBe("patient");
+			// The failure list carries at least the `/age` entry —
+			// AJV may surface multiple failures depending on the
+			// schema's strictness, so pin the load-bearing entry by
+			// substring rather than locking the full array shape.
+			expect(result.failures.length).toBeGreaterThan(0);
+			const ageFailure = result.failures.find((f) => f.path === "/age");
+			expect(ageFailure).toBeDefined();
+			expect(ageFailure?.message).toMatch(/integer/);
 		}
 	});
 });

@@ -114,8 +114,8 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				return;
 			}
 			/* Map the typed result arms to user-facing messages. Each
-			 * arm describes a different precondition the case-store
-			 * surfaces:
+			 * arm describes a different precondition / failure the
+			 * case-store surfaces:
 			 *   - `unauthenticated` — session expired mid-render.
 			 *   - `missing-case-type` — the live blueprint snapshot the
 			 *     action received doesn't declare this case type
@@ -126,15 +126,41 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			 *     because the blueprint mutator skipped the
 			 *     `applySchemaChange` step. The retry succeeds once the
 			 *     sync lands; surfacing the structural fix verbatim
-			 *     would over-share internal vocabulary. */
-			const message =
-				result.kind === "unauthenticated"
-					? "Sign in to generate sample data."
-					: result.kind === "missing-case-type"
-						? `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`
-						: result.kind === "schema-not-synced"
-							? `Case type '${result.caseType}' isn't ready yet. Try again in a moment.`
-							: result.message;
+			 *     would over-share internal vocabulary.
+			 *   - `validation-failure` — AJV rejected a generated row
+			 *     against the case-type's JSON Schema. The structured
+			 *     `failures` array carries one entry per offending
+			 *     field; the message lists each as `field: reason` so
+			 *     the author can correct the case-type definition. */
+			let message: string;
+			switch (result.kind) {
+				case "unauthenticated":
+					message = "Sign in to generate sample data.";
+					break;
+				case "missing-case-type":
+					message = `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`;
+					break;
+				case "schema-not-synced":
+					message = `Case type '${result.caseType}' isn't ready yet. Try again in a moment.`;
+					break;
+				case "validation-failure": {
+					/* Format the per-field failure list as
+					 * `field: reason` pairs. AJV's `path` is the JSONB
+					 * pointer (`/age`, `/name`, or empty string for the
+					 * document root); strip the leading slash for
+					 * readability and substitute `<root>` for the
+					 * empty path so the line is never blank. */
+					const lines = result.failures.map((f) => {
+						const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
+						return `${field}: ${f.message}`;
+					});
+					message = `Generated sample data for case type '${result.caseType}' didn't match its schema:\n${lines.join("\n")}`;
+					break;
+				}
+				case "error":
+					message = result.message;
+					break;
+			}
 			setPopulateStatus({ kind: "error", message });
 		} catch {
 			/* Wire-level failures (the Server Action's promise rejecting

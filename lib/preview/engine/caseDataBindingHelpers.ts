@@ -35,6 +35,7 @@
 // about input strings), not a domain concern.
 
 import {
+	CasePropertiesValidationError,
 	type CaseRow,
 	type CaseStore,
 	CaseTypeNotInBlueprintError,
@@ -231,10 +232,26 @@ export async function seedSampleCases(
  * `CaseStore.generateSampleData`) into the matching
  * `PopulateSampleCasesResult` arm.
  *
- * Two typed errors map to dedicated structured arms — the
- * preconditions a stale doc-store snapshot or an unsynced schema
- * surface; consumers handle each with a different retry / re-resolve
- * path. Anything else falls through to the generic `error` arm.
+ * Three typed errors map to dedicated structured arms:
+ *
+ *   - `CaseTypeNotInBlueprintError` → `missing-case-type`. The
+ *     supplied blueprint snapshot omits the requested case type;
+ *     the consumer re-resolves against fresh state.
+ *   - `SchemaNotSyncedError` → `schema-not-synced`. The
+ *     `case_type_schemas` row hasn't been written yet; the consumer
+ *     either retries after the sync lands or surfaces the
+ *     structural fix.
+ *   - `CasePropertiesValidationError` → `validation-failure`. AJV
+ *     rejected a generated row's `properties` payload during the
+ *     bulk-insert path; the consumer renders the per-field
+ *     `failures` list. Without this branch, AJV's wrapped error
+ *     body (internal vocabulary like "Properties payload failed
+ *     validation for case type ...") would leak through the generic
+ *     `error` arm into the running-app view's error surface — the
+ *     typed-error arms exist precisely to keep that vocabulary off
+ *     the user-facing path.
+ *
+ * Anything else falls through to the generic `error` arm.
  *
  * Lives here (not inline at the Server Action) so the mapping shape
  * stays testable against the case-store contract harness without
@@ -250,6 +267,13 @@ export function mapPopulateSampleCasesError(
 	}
 	if (err instanceof SchemaNotSyncedError) {
 		return { kind: "schema-not-synced", caseType: err.caseType };
+	}
+	if (err instanceof CasePropertiesValidationError) {
+		return {
+			kind: "validation-failure",
+			caseType: err.caseType,
+			failures: err.failures,
+		};
 	}
 	return {
 		kind: "error",

@@ -146,8 +146,8 @@ export async function loadCaseDataAction(
  * `(blueprint, caseType, seed)`, so tests that need reproducibility
  * call `CaseStore.generateSampleData` directly with a fixed seed.
  *
- * Two stale-state preconditions surface as typed result arms
- * rather than the generic `error` arm:
+ * Three failure modes surface as typed result arms rather than
+ * the generic `error` arm:
  *
  *   - `CaseTypeNotInBlueprintError` → `missing-case-type`. The
  *     blueprint snapshot the action received carries no entry for
@@ -158,13 +158,15 @@ export async function loadCaseDataAction(
  *     either retries after the blueprint mutator's
  *     `applySchemaChange` lands or surfaces the structural fix to
  *     the user.
+ *   - `CasePropertiesValidationError` → `validation-failure`. The
+ *     bulk-insert path inside `generateSampleData` fed AJV a
+ *     generated row whose `properties` payload doesn't match the
+ *     case-type's JSON Schema; the consumer renders the structured
+ *     `failures` array as a per-field diagnostic.
  *
- * Both arms point at user-driven flows: clicking "Generate sample
- * data" on a freshly-declared case type whose schema sync hasn't
- * landed, or clicking against a case type that was deleted between
- * mount and click. The typed arms keep the running-app view's
- * render branch on a structured surface instead of the
- * `compilerBugMessage` body the previous wrapper emitted.
+ * The typed arms keep the running-app view's render branch on a
+ * structured surface rather than rendering an internal-invariant
+ * body to the user.
  */
 export async function populateSampleCasesAction(
 	appId: string,
