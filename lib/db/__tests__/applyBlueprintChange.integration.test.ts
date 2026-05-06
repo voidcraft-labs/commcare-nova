@@ -352,6 +352,140 @@ describe("applyBlueprintChange — retype mutations", () => {
 		);
 		expect(quarantined.rows).toHaveLength(1);
 	});
+
+	// Plan 3 line 129: "retype mutation runs schema sync + migration
+	// in one transaction (verified by simulating a mid-migration
+	// failure and confirming the schema row is not present after
+	// rollback)." This test is the saga-level proof of that
+	// guarantee — the sibling store-level proof
+	// (`PostgresCaseStore — applySchemaChange index DDL > Phase A
+	// rolls back atomically on per-row migration failure`) covers the
+	// store on its own; this one covers the saga's wrapper so a
+	// regression in either layer's failure routing surfaces here.
+	it("rolls back the schema row + suppresses the Firestore commit when the retype migration fails mid-Phase-A", async () => {
+		// Bootstrap: seed `case_type_schemas[appId, "patient"]` with
+		// a `text`-typed `age`. This is the prior state the rollback
+		// must preserve.
+		const initial: CaseType = {
+			name: "patient",
+			properties: [{ name: "age", label: "Age", data_type: "text" }],
+		};
+		const initialBlueprint = makeBlueprint([initial]);
+		const seedStore = new PostgresCaseStore({
+			ownerId: OWNER_ID,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+		await seedStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: initialBlueprint,
+		});
+
+		// Insert one row whose `age` value will fail the cast
+		// (`"abc"` → int) so the retype's migration path routes the
+		// row through the `cases_quarantine` INSERT — the step we'll
+		// sabotage to force a mid-Phase-A failure.
+		await seedStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: uuidv7(),
+				case_type: "patient",
+				case_name: "uncastable",
+				status: "open",
+				properties: { age: "abc" },
+			},
+		});
+
+		// Capture the prior schema so the post-failure assertion can
+		// pin the exact bytes the rollback must preserve. Comparing
+		// JSONB values via `toEqual` keeps the test honest if the
+		// schema generator's output ever changes shape — the prior
+		// snapshot is the source of truth, not a hand-rolled literal.
+		const priorRows = await dbHandle.pool.query<{ schema: unknown }>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(priorRows.rows).toHaveLength(1);
+		const priorSchema = priorRows.rows[0]?.schema;
+
+		// Sabotage: drop `case_indices` so the retype's quarantine
+		// path throws mid-flight. `bulkQuarantine` runs INSERT into
+		// `cases_quarantine` FIRST, then DELETE from `case_indices` —
+		// the dropped table makes the second statement throw, and
+		// Phase A's transaction ROLLBACK reverts the in-flight
+		// `cases_quarantine` INSERT alongside the schema regen UPSERT.
+		// `cases_quarantine` survives so the post-failure assertion
+		// can probe it for zero rows; the store-level sibling test
+		// (`postgres/__tests__/store.test.ts > Phase A rolls back
+		// atomically`) drops `cases_quarantine` instead because it
+		// only asserts the schema row's shape.
+		await dbHandle.pool.query("DROP TABLE case_indices");
+
+		// Drive the retype through the saga. The mocked Firestore
+		// `updateApp` would resolve if reached, but the saga
+		// short-circuits on the Postgres failure before the commit
+		// step runs — the post-failure assertion below verifies that.
+		const retyped: CaseType = {
+			name: "patient",
+			properties: [{ name: "age", label: "Age", data_type: "int" }],
+		};
+		const retypedBlueprint = makeBlueprint([retyped]);
+		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
+		updateAppMock.mockResolvedValue(undefined);
+
+		await expect(
+			applyBlueprintChange({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				prospective: retypedBlueprint,
+				hint: {
+					kind: "retype",
+					caseType: "patient",
+					property: "age",
+					fromType: "text",
+					toType: "int",
+				},
+			}),
+		).rejects.toThrow();
+
+		// Phase A rollback: `case_type_schemas` carries the prior
+		// `text`-typed schema verbatim. The schema regen UPSERT and
+		// the failed migration share one transaction; the
+		// transaction's rollback returns the row to its pre-call
+		// shape.
+		const postRows = await dbHandle.pool.query<{ schema: unknown }>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(postRows.rows).toHaveLength(1);
+		expect(postRows.rows[0]?.schema).toEqual(priorSchema);
+
+		// `cases_quarantine` carries zero rows for this app. The
+		// retype path's `bulkQuarantine` ran the INSERT into
+		// `cases_quarantine` BEFORE the DELETE that threw — the
+		// rollback reverts the in-flight INSERT alongside the schema
+		// regen, so the table reflects its pre-call (empty) state.
+		// This is the durability test for the in-transaction
+		// guarantee: a non-transactional implementation would have
+		// committed the INSERT before the DELETE failed and the
+		// quarantine table would carry the orphan row.
+		const quarantined = await dbHandle.pool.query(
+			"SELECT case_id FROM cases_quarantine WHERE app_id = $1",
+			[APP_ID],
+		);
+		expect(quarantined.rows).toHaveLength(0);
+
+		// Saga-level invariant: the Firestore commit MUST NOT have
+		// fired. The saga's contract is "Postgres first, Firestore
+		// second"; an `applySchemaChange` failure short-circuits
+		// before `updateApp` / `updateAppForRun` runs. Without this
+		// check, a future regression that swallowed the Postgres
+		// throw would silently land a Firestore commit pointing at a
+		// schema row that doesn't reflect the new blueprint.
+		expect(updateAppMock).not.toHaveBeenCalled();
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
+	});
 });
 
 // ── Cases — Firestore commit failure + compensation ───────────────
