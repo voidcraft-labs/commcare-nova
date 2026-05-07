@@ -487,7 +487,6 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 - Case list filter (Predicate AST → wire)
 - Case list sort (multi-key; types Plain / Date / Integer / Decimal; sort calculation via Expression AST)
 - Case detail long-detail columns (same kinds)
-- Static detail tabs
 - Search input properties (text, select, date, date-range, barcode)
 - Default search filters (Predicate AST → CSQL)
 - Custom sort properties (incl. `commcare_search_score` as a separate "sort by relevance" toggle, not an AST term)
@@ -499,7 +498,7 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 
 - Visual/geo formats: Image, Icon, Clickable Icon, Address, Distance, Address Popup, Address (map)
 - Case tiles (`case_list_tile`, custom XML grid, persistent case tiles)
-- Related-case detail tabs (nodeset-driven)
+- Detail tabs (static + nodeset-driven). CCHQ partitions the case detail screen into named tab sections. Mobile / tablet is where tabs land more naturally (the case detail there pulls out as a second column, so tabs read inline). Web apps render the case detail as a modal that interrupts flow, and case tiles are the more idiomatic surface for advanced info — so tabs see less use there. Not landed in v1; may revisit later as one of the CCHQ features in the consider/skip pile, especially if Nova starts importing existing CCHQ apps that already use tabs.
 - Multi-select case lists
 - Data registries (cross-domain case sharing)
 - Lookup-table search format (fixture-dependent)

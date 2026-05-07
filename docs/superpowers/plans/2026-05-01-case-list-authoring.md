@@ -554,15 +554,48 @@ SHIPPED 2026-05-07 in commits `8a35eeaa` (initial feat) → `7fc55b7b` (CR fix-p
 Final state: 3740 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Three rounds of fresh-CR review uncovered progressively-narrower issues (round 1: 4 IMPORTANT + 5 MINOR including 7 wrong CCHQ citations + a fabricated function name + half-fix title asymmetry + calc-column position drift; round 2: 2 IMPORTANT + 2 MINOR including stale test citation + forward-projection language; round 3: APPROVED with 2 MINOR wording-precision JSDoc nits classed as not-blockers).
 
 
-### Task 12: Wire emission — case-list long detail
+### Task 12: Wire emission — case-list long detail — SHIPPED
 
-**Files:** `lib/commcare/suite/case-list/longDetail.ts`, tests.
+SHIPPED 2026-05-07 in commit `8ce54369` on branch `feat/case-list-search`.
 
-Same shape as Task 11 for the long-detail (case detail) view. Uses `caseListConfig.detailColumns` if present, falls back to `columns` if absent.
+**What landed:**
 
-Static tabs included; nodeset-driven related-case tabs deferred to follow-up spec per the v2 spec's V1-OUT list.
+`lib/commcare/suite/case-list/longDetail.ts` walks `module.caseListConfig` and produces the `<detail id="m{n}_case_long">` block. Source-list resolution: `caseListConfig.detailColumns` if present, fall back to `caseListConfig.columns` if absent. Three tests pin the resolution paths (override present, absent → mirrors columns, both populated → override wins).
 
-Tests: golden-file comparisons.
+**`columns.ts` refactored to share per-kind emitters across short and long surfaces.** A new `DetailKind` discriminator (`"short" | "long"`) threads through `CaseListEmitContext`. Five precise branch sites:
+- `templateFormFor` — returns `"phone"` only when `column.kind === "phone" && detailKind === "long"`. Matches `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form` (long-detail-only).
+- `resolvePropertySortXml` — short-circuits to `undefined` when `detailKind === "long"`. Matches `detail_screen.py::FormattedDetailColumn.sort_node`'s `display != 'short'` short-circuit.
+- `emitCalculatedColumnField` — wraps the calc field in a sort block only when `detailKind === "short"`. Same rationale.
+- `emitColumnField` — returns `undefined` for `search-only` × `detailKind === "long"`. The position counter still advances so calc-column numbering remains correct.
+- `DETAIL_KIND_LOCALE_TYPE` — `"case_short"` vs `"case_long"` substring centralized at one map.
+
+**`<title>` uses `cchq.case`** — parity with Task 11's title symmetry fix. CCHQ's canonical built-in case-detail title locale; no per-module title registration.
+
+**Calc columns numbered globally** — Pass 2 uses `position: regularCount + i + 1` where `regularCount = sourceColumns.length` (the FULL source array length, including search-only slots that didn't render a `<field>`). This matches CCHQ's `id_strings.py::detail_column_header_locale`'s `column.id + 1` global-position scheme. Pinned by a test: 2 source columns (1 plain, 1 search-only) + 1 calc → calc lands at position 3 even though only 1 regular `<field>` was emitted.
+
+**Static detail tabs not landed.** CCHQ's case detail screen partitions into named tab sections; the spec originally listed "Static detail tabs" as V1-IN. After review, tabs are a CCHQ surface-area concept whose v1 inclusion was undecided rather than required — see the spec's V1-OUT entry for "Detail tabs (static + nodeset-driven)" and the rationale (web apps render the case detail as a modal where tabs see less use; mobile / tablet has the inline second-column UX where they land more naturally; case tiles are the more idiomatic surface for advanced info on web). Nova's case detail in v1 is a single scroll of the configured detail columns. Tabs may revisit later — adding them is additive (extend the schema, add an authoring section, emit `<tab>` blocks) — especially if Nova starts importing existing CCHQ apps that already use tabs.
+
+**Legacy `generateDetail` deleted entirely.** The pre-existing HQ-JSON-driven long-detail emission path in `compiler.ts` is removed: `generateDetail` helper, the `m{n}_{field}_header` legacy app-strings registration, and the unused `DetailColumn` import. The typed `emitLongDetail` path now owns the long-detail wire shape end-to-end. Necessary scope expansion: leaving the legacy path in would create dual locale-id registration paths (`m{n}_{field}_header` from the legacy registration vs `m{n}.case_long.case_<field>_<i>.header` from the typed emitter) writing into the same `appStrings` map, conflicting on the same case-detail row. Disclosed in the commit body. The expander still uses `DetailColumn` for the orthogonal HQ JSON upload path, which is correct and untouched.
+
+**Task 13's filter integration preserved.** The sibling commit's `mod.caseListConfig?.filter` parameter on `deriveEntryDefinition` survives this refactor unchanged.
+
+**Hard constraints honored:**
+- No `void <id>;`, `@ts-ignore`, `biome-ignore`, `eslint-disable`.
+- No process / forward-projection comments. Drift sweep clean (standard + broader patterns).
+- All CCHQ citations use stable name references — `detail_screen.py::Phone.template_form`, `multi-sort.xml::<detail id="m0_case_long">`, etc. — never line numbers, per `feedback_no_line_numbers_in_code_comments.md`.
+- No regex-on-XPath.
+- Strong typing throughout. `DetailKind` is a strict union; no string fallback.
+- No copy-paste duplication — the per-kind emitters genuinely share logic via the `DetailKind` discriminator (centralized at `templateFormFor` + `DETAIL_KIND_LOCALE_TYPE`).
+
+**Tests (20 new, all green):**
+- 3 empty / minimal cases.
+- 3 source-list resolution (`detailColumns` vs `columns` fallback).
+- 7 per-kind goldens (one per ColumnKind).
+- 5 long-detail divergence tests: no-sort × 2 (property keys + calc columns), search-only skip with position-advance × 2, multi-kind integration × 1.
+- 1 module-index composition.
+- 1 all-kinds + calc + suppressed-sort end-to-end golden against `m{n}.case_long.*.header` locale ids.
+
+Final state: 3774 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Spec review found one apparent gap (static tabs) which the user reframed: tabs were never half-built, the implementation has zero tab support across schema / UI / SA tools / wire, and the spec text was aspirational rather than required. Spec moved tabs from V1-IN to V1-OUT. Round 1 CR APPROVED clean.
 
 
 ### Task 13: Wire emission — nodeset filter on entry — SHIPPED
