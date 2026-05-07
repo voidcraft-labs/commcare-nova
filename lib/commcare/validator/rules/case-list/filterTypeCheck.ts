@@ -10,6 +10,16 @@
  * error, with the AST path appended to the message so the editor can
  * highlight the offending node.
  *
+ * The `TypeContext` consumed here carries the augmented case-type
+ * list from `moduleTypeContext` — writer-derived + CommCare standard
+ * properties are synthesized into each case type's `properties[]` so
+ * the predicate AST type checker sees the same admission set the
+ * per-rule resolvers do (declared / standard / writer-derived).
+ * Without this augmentation, a filter referencing a writer-derived
+ * property like `prop("patient", "weight")` would silently fire
+ * "Unknown property" even though the case-store accepts it at
+ * runtime.
+ *
  * Absent filter (`filter` omitted) short-circuits cleanly — no
  * predicate to check, no error.
  */
@@ -27,7 +37,7 @@ export function filterTypeCheck(
 	const filter = mod.caseListConfig?.filter;
 	if (!filter) return [];
 
-	const ctx = moduleTypeContext(mod, doc.caseTypes ?? []);
+	const ctx = moduleTypeContext(mod, doc);
 	const result = checkPredicate(filter, ctx);
 	if (result.ok) return [];
 

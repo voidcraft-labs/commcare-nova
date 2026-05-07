@@ -1,19 +1,19 @@
 /**
  * Rule: every `Column.field` on `caseListConfig.columns` and
- * `caseListConfig.detailColumns` must resolve to a known case property
- * on the module's case type — either a CommCare standard property
- * (`case_name`, `date_opened`, etc.) or a property declared by a field
- * with `case_property_on === mod.caseType`.
+ * `caseListConfig.detailColumns` resolves to a property the module's
+ * case type admits — declared on `ct.properties[]`, written by a
+ * form field via `case_property_on === mod.caseType`, or part of
+ * CommCare's standard set (`case_name`, `date_opened`, …).
  *
  * Walks every column kind regardless of arm: every entry in the
  * `Column` discriminated union carries a `field` slot, and every
  * runtime renderer reads the case property by that name.
  */
 
-import { STANDARD_CASE_LIST_PROPERTIES } from "@/lib/commcare";
 import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 import { collectCaseProperties } from "../../index";
+import { propertyExists } from "./shared";
 
 /**
  * Identifies which slot a column came from. `columns` is the short
@@ -37,16 +37,29 @@ export function columnReferences(
 	if (!config || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
-	const knownProps = collectCaseProperties(doc, mod.caseType) ?? new Set();
+	// Hoist the writer-prop set once per module (one app-walk vs one
+	// per column) — passed into `propertyExists` so the existence
+	// check stays O(columns).
+	const writerProps =
+		collectCaseProperties(doc, mod.caseType) ?? new Set<string>();
 
-	checkColumns(mod, moduleUuid, "columns", config.columns, knownProps, errors);
+	checkColumns(
+		mod,
+		moduleUuid,
+		"columns",
+		config.columns,
+		doc,
+		writerProps,
+		errors,
+	);
 	if (config.detailColumns) {
 		checkColumns(
 			mod,
 			moduleUuid,
 			"detailColumns",
 			config.detailColumns,
-			knownProps,
+			doc,
+			writerProps,
 			errors,
 		);
 	}
@@ -59,18 +72,19 @@ function checkColumns(
 	moduleUuid: Uuid,
 	slot: ColumnSlot,
 	columns: readonly Column[],
-	knownProps: ReadonlySet<string>,
+	doc: BlueprintDoc,
+	writerProps: ReadonlySet<string>,
 	errors: ValidationError[],
 ): void {
+	if (!mod.caseType) return;
 	for (let index = 0; index < columns.length; index++) {
 		const col = columns[index];
-		if (STANDARD_CASE_LIST_PROPERTIES.has(col.field)) continue;
-		if (knownProps.has(col.field)) continue;
+		if (propertyExists(doc, mod.caseType, col.field, writerProps)) continue;
 		errors.push(
 			validationError(
 				"CASE_LIST_COLUMN_UNKNOWN_FIELD",
 				"module",
-				`Module "${mod.name}" has a ${SLOT_LABEL[slot]} (#${index + 1}) referencing field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. Either add a field with id "${col.field}" and \`case_property_on\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
+				`Module "${mod.name}" has a ${SLOT_LABEL[slot]} (#${index + 1}) referencing field "${col.field}" (header: "${col.header}"), but no such property is declared on case type "${mod.caseType}", written to by any field via \`case_property_on\`, or part of the standard set ("case_name", "date_opened", …). Either add the property to the case type, write a field that saves to it, or use a standard property.`,
 				{ moduleUuid, moduleName: mod.name },
 				{ field: col.field, slot, index: String(index) },
 			),

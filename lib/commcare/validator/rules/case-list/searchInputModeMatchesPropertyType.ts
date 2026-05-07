@@ -4,30 +4,24 @@
  * effective `data_type` — at the input's destination case type
  * (resolved through `via` when the input carries a relation walk).
  *
- * The mapping table lives at `SEARCH_MODE_PROPERTY_TYPES` in
- * `lib/domain/modules.ts` (populated in Task 8) — never reinvent it
- * here. Modes whose admit-set is `undefined` (e.g. `exact`) widen to
- * every property type and short-circuit the check; any other mode is
- * compared against the property's effective data type.
+ * The mapping table lives at `SEARCH_MODE_PROPERTY_TYPES`
+ * (`@/lib/domain/modules`) — never reinvent it here. Modes whose
+ * admit-set is `undefined` (e.g. `exact`) widen to every property
+ * type and short-circuit the check; any other mode is compared
+ * against the property's effective data type.
  *
  * **Load-bearing for runtime correctness.** The case-store's index-
  * DDL emitter depends on this rule passing — an unindexed `range`
  * mode on a text property would be undefined behavior at the
  * Postgres runtime.
  *
- * **Property resolution follows the rule set's shared model.** A
- * property exists if (a) declared on `ct.properties[]`, (b) some
- * field writes to it via `case_property_on === ct.name`, or (c) it's
- * a CommCare standard property. Each path supplies the data type the
- * mode-admit-set is checked against:
- *
- *   - declared schema → `effectiveDataType(property)` (the property's
- *     `data_type ?? "text"`).
- *   - writer-derived → `text` (the same `?? "text"` fallback).
- *   - standard → `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name]` (the
- *     CommCare implicit-typing table). `range` against a text-shaped
- *     standard property like `case_name` is structurally rejected;
- *     `range` against `date_opened` (datetime) passes.
+ * **Property resolution follows the rule set's shared 3-arm model.**
+ * Routes through `resolvePropertyDataType` in `./shared.ts` —
+ * declared schema → CommCare standard (typed via
+ * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`) → writer-derived (text
+ * default). `range` against a text-shaped standard property like
+ * `case_name` is structurally rejected; `range` against
+ * `date_opened` (datetime) passes.
  *
  * Cross-walk inputs (`via` carrying an `ancestor` / `subcase` /
  * `any-relation` step) resolve the destination case type via
@@ -40,20 +34,12 @@
  * rules elsewhere.
  */
 
-import {
-	STANDARD_CASE_LIST_PROPERTIES,
-	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-} from "@/lib/commcare";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { SEARCH_MODE_PROPERTY_TYPES } from "@/lib/domain";
-import {
-	type CasePropertyDataType,
-	effectiveDataType,
-} from "@/lib/domain/casePropertyTypes";
 import { type CheckError, checkRelationPath } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import { collectCaseProperties } from "../../index";
-import { moduleTypeContext } from "./shared";
+import { moduleTypeContext, resolvePropertyDataType } from "./shared";
 
 export function searchInputModeMatchesPropertyType(
 	mod: Module,
@@ -64,8 +50,24 @@ export function searchInputModeMatchesPropertyType(
 	if (inputs.length === 0 || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
-	const caseTypes = doc.caseTypes ?? [];
-	const ctx = moduleTypeContext(mod, caseTypes);
+	const ctx = moduleTypeContext(mod, doc);
+	// Per-destination writer-prop cache: relation-walks may resolve
+	// to different case types per input, so the cache keys on the
+	// destination's name. The self-walk module case type populates a
+	// single entry up front; cross-walks lazily fill in their
+	// destinations on first lookup. Avoids re-walking the doc for
+	// every input that targets the same destination.
+	const writerPropCache = new Map<string, ReadonlySet<string>>();
+	const writerPropsFor = (caseType: string): ReadonlySet<string> => {
+		const cached = writerPropCache.get(caseType);
+		if (cached !== undefined) return cached;
+		const collected = collectCaseProperties(doc, caseType) ?? new Set<string>();
+		writerPropCache.set(caseType, collected);
+		return collected;
+	};
+	// Pre-warm the module's own case type — the most common
+	// destination — so the self-walk arm reads from cache.
+	writerPropsFor(mod.caseType);
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
@@ -97,15 +99,15 @@ export function searchInputModeMatchesPropertyType(
 		}
 		if (!destinationCaseType) continue;
 
-		// Resolve the property's data type via the three-arm shared
-		// model. `undefined` means the property doesn't exist anywhere
-		// in the admission set — emit the dedicated unknown-property
-		// error so authors get a direct signal rather than a silent
-		// pass.
+		// Resolve the property's data type via the shared 3-arm model.
+		// `undefined` means the property doesn't exist anywhere in the
+		// admission set — emit the dedicated unknown-property error so
+		// authors get a direct signal rather than a silent pass.
 		const dataType = resolvePropertyDataType(
 			doc,
 			destinationCaseType,
 			input.property,
+			writerPropsFor(destinationCaseType),
 		);
 		if (dataType === undefined) {
 			errors.push(
@@ -148,39 +150,4 @@ export function searchInputModeMatchesPropertyType(
 	}
 
 	return errors;
-}
-
-/**
- * Resolve a property's effective `data_type` against a case type's
- * three-arm admission set:
- *
- *   1. Declared on `ct.properties[]` — return `effectiveDataType`.
- *   2. CommCare standard property — return the implicit type from
- *      `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`.
- *   3. Writer-derived (some field saves to it via `case_property_on`)
- *      — return `text`, matching `effectiveDataType`'s
- *      undeclared-fallback convention.
- *
- * Returns `undefined` when the property exists nowhere in the
- * admission set; callers report the missing-property as a structural
- * error.
- */
-function resolvePropertyDataType(
-	doc: BlueprintDoc,
-	destinationCaseType: string,
-	propertyName: string,
-): CasePropertyDataType | undefined {
-	const ct = doc.caseTypes?.find((c) => c.name === destinationCaseType);
-	const declared = ct?.properties.find((p) => p.name === propertyName);
-	if (declared) return effectiveDataType(declared);
-
-	if (STANDARD_CASE_LIST_PROPERTIES.has(propertyName)) {
-		return STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[propertyName] ?? "text";
-	}
-
-	const writerProps =
-		collectCaseProperties(doc, destinationCaseType) ?? new Set<string>();
-	if (writerProps.has(propertyName)) return "text";
-
-	return undefined;
 }

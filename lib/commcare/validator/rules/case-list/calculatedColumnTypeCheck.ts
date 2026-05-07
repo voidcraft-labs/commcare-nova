@@ -20,6 +20,12 @@
  * The checker's per-operator type rules (numeric arithmetic, ordered
  * comparisons, text-shaped operands for `concat` / `match`, etc.)
  * remain the structural gate for column expressions.
+ *
+ * The `TypeContext` consumed here carries the augmented case-type
+ * list from `moduleTypeContext` — writer-derived + CommCare standard
+ * properties are synthesized into each case type's `properties[]` so
+ * the predicate AST type checker sees the same admission set the
+ * per-rule resolvers do.
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
@@ -35,7 +41,7 @@ export function calculatedColumnTypeCheck(
 	const columns = mod.caseListConfig?.calculatedColumns ?? [];
 	if (columns.length === 0) return [];
 
-	const ctx = moduleTypeContext(mod, doc.caseTypes ?? []);
+	const ctx = moduleTypeContext(mod, doc);
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < columns.length; index++) {

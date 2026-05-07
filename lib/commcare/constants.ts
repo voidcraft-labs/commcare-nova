@@ -123,24 +123,6 @@ export const MAX_CASE_TYPE_LENGTH = 255;
 export const MAX_CASE_PROPERTY_LENGTH = 255;
 
 /**
- * Case properties that are always available in case list columns
- * without needing to be explicitly created by forms.
- * Source: commcare-hq/corehq/apps/app_manager/detail_screen.py CASE_PROPERTY_MAP
- * + modules.py default properties.
- */
-export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<string> = new Set([
-	"case_name", // the display name
-	"name", // alias for case_name
-	"date_opened", // when the case was created
-	"date-opened", // HQ alias
-	"last_modified", // timestamp of last modification
-	"owner_id", // user/group ID owning the case
-	"external_id", // external identifier
-	"external-id", // HQ alias
-	"status", // open/closed
-]);
-
-/**
  * Implicit `data_type` for each standard case-list property — every
  * member of `STANDARD_CASE_LIST_PROPERTIES` carries a known wire-form
  * type that CommCare's runtime comparator and search-input emitter
@@ -161,15 +143,15 @@ export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<string> = new Set([
  *     `external-id` / `status` — plain text identifiers / status
  *     enums; the runtime comparator handles them lexicographically.
  *
- * `STANDARD_CASE_LIST_PROPERTIES.has(name)` AND
- * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name] === undefined` is
- * structurally impossible — every member of the set has an entry
- * here. Adding a property to the set without a matching entry would
- * silently fall through validator rules that consult this table.
+ * Authored as the structural source of truth: the `as const` tuple
+ * declared first, the data-type record keyed on the tuple's union
+ * second, and the runtime `Set` derived from the tuple last. The
+ * `Record<keyof typeof ..., CasePropertyDataType>` shape forces the
+ * compiler to reject the source if any member of the tuple lacks an
+ * entry in the data-type table — silent fall-through is structurally
+ * impossible, no `?? "text"` defensive default needed at consumers.
  */
-export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES: Readonly<
-	Record<string, CasePropertyDataType>
-> = {
+export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
 	case_name: "text",
 	name: "text",
 	date_opened: "datetime",
@@ -179,4 +161,37 @@ export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES: Readonly<
 	external_id: "text",
 	"external-id": "text",
 	status: "text",
-};
+} as const satisfies Record<string, CasePropertyDataType>;
+
+/** Closed key set of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` —
+ *  the canonical type a property name passes through after a
+ *  `STANDARD_CASE_LIST_PROPERTIES.has(name)` narrowing. Consumers
+ *  who want to walk the table use this union to type the lookup. */
+export type StandardCaseListProperty =
+	keyof typeof STANDARD_CASE_LIST_PROPERTY_DATA_TYPES;
+
+/** Type-narrowing predicate against `STANDARD_CASE_LIST_PROPERTIES`.
+ *  Returns `true` when `name` is one of the standard set, narrowing
+ *  to `StandardCaseListProperty` so callers can index
+ *  `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name]` without the `??`
+ *  defensive default.
+ */
+export function isStandardCaseListProperty(
+	name: string,
+): name is StandardCaseListProperty {
+	return name in STANDARD_CASE_LIST_PROPERTY_DATA_TYPES;
+}
+
+/**
+ * Case properties that are always available in case list columns
+ * without needing to be explicitly created by forms.
+ * Source: commcare-hq/corehq/apps/app_manager/detail_screen.py CASE_PROPERTY_MAP
+ * + modules.py default properties.
+ *
+ * Derived from the keys of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`
+ * — single source of truth for the standard set; adding an entry to
+ * the data-type table cascades to this set automatically.
+ */
+export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<string> = new Set(
+	Object.keys(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES),
+);
