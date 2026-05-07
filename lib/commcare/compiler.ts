@@ -98,15 +98,14 @@ export function compileCcz(
 		// the legacy HQ-JSON-driven `generateDetail` shape until the
 		// sibling task in this plan family lands its typed long emitter.
 		//
-		// `cchq.case` (the title locale) ships with CCHQ's runtime as a
-		// built-in with `default="Case"` (per
-		// `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`), so
-		// the short-detail emitter does NOT register it. Long detail
-		// retains the legacy `case_list_title` registration via the old
-		// path; both `<detail>` blocks coexist.
+		// Both detail blocks resolve their `<title>` through CCHQ's
+		// built-in `cchq.case` locale (`default="Case"` per
+		// `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`).
+		// Neither emitter registers a per-module title in app_strings;
+		// the runtime falls back to "Case" until an author overrides
+		// `cchq.case` at the app-strings layer (Nova has no such
+		// authoring surface today).
 		if (caseType) {
-			appStrings.case_list_title = appStrings.case_list_title || `${modName}`;
-
 			const shortEmission = emitShortDetail({ module: mod, moduleIndex: mIdx });
 			suiteDetails.push(shortEmission.xml);
 			Object.assign(appStrings, shortEmission.strings);
@@ -282,9 +281,18 @@ function generateProfile(appName: string): string {
 }
 
 /**
- * Render a single `<detail>` block for suite.xml. The short detail
- * with zero columns still needs a `<title>`; the long detail with
- * zero columns collapses to a title-only stub.
+ * Render a single `<detail>` block for suite.xml — the legacy
+ * HQ-JSON-driven path that still backs long-detail emission until
+ * the typed long-detail emitter lands. Short detail goes through
+ * `emitShortDetail` and never reaches this function.
+ *
+ * Title resolves through CCHQ's built-in `cchq.case` locale
+ * (`commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`,
+ * registered with `default="Case"`) — same pattern as the
+ * short-detail emitter, so both `<detail>` blocks display a
+ * consistent runtime title without needing app-strings entries.
+ *
+ * The zero-column long detail collapses to a title-only stub.
  */
 function generateDetail(
 	id: string,
@@ -292,7 +300,7 @@ function generateDetail(
 	columns: DetailColumn[],
 ): string {
 	if (columns.length === 0 && display === "long") {
-		return `  <detail id="${id}">\n    <title><text><locale id="case_list_title"/></text></title>\n  </detail>`;
+		return `  <detail id="${id}">\n    <title><text><locale id="cchq.case"/></text></title>\n  </detail>`;
 	}
 
 	const fields = columns.map((col) => {
@@ -300,7 +308,7 @@ function generateDetail(
 		return `    <field>\n      <header><text><locale id="${id}_${field}_header"/></text></header>\n      <template><text><xpath function="${field}"/></text></template>\n    </field>`;
 	});
 
-	return `  <detail id="${id}">\n    <title><text><locale id="case_list_title"/></text></title>\n${fields.join("\n")}\n  </detail>`;
+	return `  <detail id="${id}">\n    <title><text><locale id="cchq.case"/></text></title>\n${fields.join("\n")}\n  </detail>`;
 }
 
 /**

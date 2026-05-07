@@ -228,9 +228,11 @@ describe("emitShortDetail — calculated columns", () => {
 			}),
 		});
 		const out = emitShortDetail({ module: mod, moduleIndex: 0 });
-		// Field order: name comes before the calc.
+		// Field order: name comes before the calc. Calc position is
+		// global per CCHQ's `column.id + 1` numbering — with 1
+		// regular column the calc is at position 2.
 		const nameIdx = out.xml.indexOf("case_name_1");
-		const calcIdx = out.xml.indexOf("case_calculated_property_1");
+		const calcIdx = out.xml.indexOf("case_calculated_property_2");
 		expect(nameIdx).toBeGreaterThan(-1);
 		expect(calcIdx).toBeGreaterThan(-1);
 		expect(nameIdx).toBeLessThan(calcIdx);
@@ -356,7 +358,10 @@ describe("emitShortDetail — multi-kind integration", () => {
 
 		// Locale ids registered in app_strings — only the visible
 		// (non-search-only) columns + the calc's calculated_property
-		// id surface here.
+		// id surface here. The calc's position continues the global
+		// 1-based count (7 regular columns + 1 = position 8) per
+		// CCHQ's `detail_column_header_locale` global numbering at
+		// `id_strings.py:105-117`.
 		expect(out.strings).toMatchObject({
 			"m0.case_short.case_name_1.header": "Name",
 			"m0.case_short.case_birthdate_2.header": "Birthdate",
@@ -364,7 +369,7 @@ describe("emitShortDetail — multi-kind integration", () => {
 			"m0.case_short.case_phone_4.header": "Phone",
 			"m0.case_short.case_region_5.header": "Region",
 			"m0.case_short.case_last_visit_6.header": "Late",
-			"m0.case_short.case_calculated_property_1.header": "My Calc",
+			"m0.case_short.case_calculated_property_8.header": "My Calc",
 		});
 		// Search-only columns do NOT register a header string.
 		expect(out.strings).not.toHaveProperty(

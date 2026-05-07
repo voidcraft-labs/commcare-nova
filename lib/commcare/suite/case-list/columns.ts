@@ -77,7 +77,7 @@
 // Calculated columns ride a separate emit path in `emitCalculatedColumnField`
 // — the `<template>` body wraps `$calculated_property` around the
 // inline value-expression emission, mirroring CCHQ's
-// `useXpathExpression` shape at `detail_screen.py:144-155`.
+// `useXpathExpression` shape at `detail_screen.py:145-155`.
 
 import type {
 	CalculatedColumn,
@@ -142,20 +142,19 @@ function formatTimeAgoDivisor(divisor: number): string {
 }
 
 /**
- * Header-locale-id composer. Matches CCHQ's canonical pattern at
- * `commcare-hq/corehq/apps/app_manager/id_strings.py:88-103`:
- * `m{moduleId}.{detail_type}.case_{field}_{1-based-index}.header`.
+ * Header-locale-id composer. Matches CCHQ's `detail_column_header_locale`
+ * at `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117`:
+ * the `@pattern('m%d.%s.%s_%s_%d.header')` decorator on line 105
+ * plus the body's f-string at lines 111-117 produces
+ * `m{module.id}.{detail_type}.{column.model}_{field}_{column.id+1}.header`,
+ * where `column.model` is `'case'` for case-detail columns. The
+ * `column.id + 1` step keys the suffix to the global 1-based
+ * position of the column within its detail (regular columns +
+ * calculated columns share the count).
  *
  * The 1-based index disambiguates duplicate-property columns
  * (the same property rendered through two different format
- * kinds, e.g. plain text + late-flag), and CCHQ's wire layer
- * accepts any locale id shape — this convention's value is
- * collision-safety inside the suite, not a CCHQ-mandated format.
- *
- * Nova mirrors CCHQ's convention because the existing case_long
- * emission and the future long-detail emitter at
- * `lib/commcare/suite/case-list/longDetail.ts` will share the
- * same composer (with `case_short` swapped to `case_long`).
+ * kinds, e.g. plain text + late-flag).
  */
 function shortDetailHeaderLocaleId(
 	moduleIndex: number,
@@ -166,13 +165,15 @@ function shortDetailHeaderLocaleId(
 }
 
 /**
- * Calculated-column header locale id. Matches CCHQ's convention
- * for `useXpathExpression` columns at
- * `commcare-hq/corehq/apps/app_manager/id_strings.py:88-103` —
- * the field segment is the literal `calculated_property` rather
- * than a property name, so two calculated columns with the same
- * authored id (the validator forbids this upstream) would still
- * disambiguate via the position suffix.
+ * Calculated-column header locale id. Matches CCHQ's
+ * `detail_column_header_locale` at
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117` —
+ * the `useXpathExpression` branch on lines 107-110 substitutes
+ * the literal `calculated_property` for the field segment so
+ * the locale id reads `case_calculated_property_<position>.header`.
+ * The position is the global 1-based slot in the detail; the
+ * orchestrator passes `regularColumnCount + calcIndex + 1` so
+ * the count continues across the regular-column pass.
  */
 function shortDetailCalculatedHeaderLocaleId(
 	moduleIndex: number,
@@ -221,7 +222,7 @@ function emitTemplateBlock(xpathFunction: string): string {
 /**
  * Build a `<template>` block carrying an inline calc reference.
  * The wire shape is CCHQ's `useXpathExpression` form per
- * `commcare-hq/corehq/apps/app_manager/detail_screen.py:144-155`:
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py:145-155`:
  *
  *     <template>
  *       <text>
@@ -254,13 +255,20 @@ function emitCalculatedTemplateBlock(calcXpath: string): string {
 
 /**
  * Build a hidden `<header>` / `<template>` pair for a search-only
- * column. CCHQ's `Invisible` format emits both halves with
- * `width="0"` so the runtime collapses the column visually while
- * keeping the property in the case-list's indexable schema.
- *
- * Source: `commcare-hq/corehq/apps/app_manager/detail_screen.py:354-359`
- * (`HideShortColumn` returns `template_width = 0` and an empty
- * `<text/>` header for short detail).
+ * column. CCHQ's `Invisible` format inherits this hide-on-short
+ * behavior across two parent classes:
+ *   - `HideShortHeaderColumn` at
+ *     `commcare-hq/corehq/apps/app_manager/detail_screen.py:340-351`
+ *     overrides `header` to return an empty `<text/>` with
+ *     `width=template_width` on short detail.
+ *   - `HideShortColumn` at the same file's lines 354-359 extends
+ *     `HideShortHeaderColumn` and overrides `template_width` to
+ *     return `0` on short detail.
+ * `Invisible` (`:559-583`) inherits both. The combined effect on
+ * short detail is a `<header width="0"><text/></header>` plus a
+ * `<template width="0">` body — the runtime collapses the column
+ * visually while keeping the property in the case-list's
+ * indexable schema.
  */
 function emitHiddenFieldBody(xpathFunction: string): string {
 	return [
@@ -417,6 +425,22 @@ function idMappingDisplayXpath(
  * divisor; CCHQ's wire shape stores the threshold pre-multiplied
  * (the authoring UI computes `threshold_in_days` from a separate
  * unit picker and persists only the day count).
+ *
+ * Header rendering diverges from CCHQ. CCHQ's `LateFlag` extends
+ * `HideShortHeaderColumn` (`detail_screen.py:553` → `:340-351`),
+ * which hides the header on short detail and emits
+ * `<header width="11%"><text/></header>` (the canonical fixture
+ * at `tests/data/suite/normal-suite.xml:130-138` pins the shape).
+ * Nova emits a normal `<header>` with the author's `header` text
+ * routed through the standard locale-id pattern — the late-flag
+ * column has its own header label in the Nova authoring surface
+ * (the column-editor field is exposed alongside `flagDisplayValue`),
+ * so the runtime renders that label rather than CCHQ's hidden-
+ * header magic. The decision is grounded in
+ * `feedback_dont_inherit_cchq_ux_at_authoring_layer.md`: CCHQ's
+ * authoring surface (header-must-be-hidden-for-this-format) is
+ * not a wire constraint and Nova's authoring layer chooses to
+ * surface a normal header instead.
  */
 function lateFlagDisplayXpath(args: {
 	readonly field: string;
@@ -436,15 +460,28 @@ function lateFlagDisplayXpath(args: {
 // ============================================================
 
 /**
- * Resolve the display + sort XPath pair for a Column. Two values
- * because CCHQ's per-format design splits them — date /
- * time-since-until / late-flag display a transformed value but
+ * The displayed-column subset of the `Column` discriminated
+ * union. `search-only` is the one kind that never reaches the
+ * display + sort resolution path because its `<field>` body is a
+ * hidden width=0 stub; every other kind goes through
+ * `resolveColumnXpaths`.
+ */
+type DisplayedColumn = Exclude<Column, { kind: "search-only" }>;
+
+/**
+ * Resolve the display + sort XPath pair for a displayed column.
+ * Two values because CCHQ's per-format design splits them — date
+ * / time-since-until / late-flag display a transformed value but
  * sort by the raw property (so ISO-string lexicographic order
  * matches calendar order, and so an overdue-flagged row sorts
  * by its actual date rather than by the flag string). For
  * plain / phone / id-mapping the two XPaths are identical.
+ *
+ * Search-only is excluded from the input type — that path skips
+ * this resolver entirely (see `emitColumnField`'s search-only
+ * branch) because the hidden body has no slot for either xpath.
  */
-function resolveColumnXpaths(column: Column): {
+function resolveColumnXpaths(column: DisplayedColumn): {
 	readonly display: string;
 	readonly sort: string;
 } {
@@ -489,22 +526,10 @@ function resolveColumnXpaths(column: Column): {
 				}),
 				sort: column.field,
 			};
-		case "search-only":
-			// Search-only is hidden — display xpath emits as a `width="0"`
-			// `<template>` body so the property still parses as part of
-			// the detail. Sort never targets a search-only column at the
-			// schema layer (sort keys reference properties / calc ids,
-			// not column kinds), so the `sort` slot here is the bare
-			// property and only used if a sibling `findSortKey` somehow
-			// matches it — which a clean module's sort array won't.
-			return {
-				display: column.field,
-				sort: column.field,
-			};
 		default: {
 			const _exhaustive: never = column;
 			throw new Error(
-				`emitColumn: unhandled Column kind ${String(_exhaustive)}`,
+				`emitColumn: unhandled DisplayedColumn kind ${String(_exhaustive)}`,
 			);
 		}
 	}
@@ -528,17 +553,23 @@ export function emitColumnField(args: {
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
 	const { column, position, ctx } = args;
-	const xpaths = resolveColumnXpaths(column);
 
+	// Search-only columns short-circuit before the
+	// `resolveColumnXpaths` dispatcher: their hidden body has no
+	// slot for either display or sort xpath, and they never
+	// register a header string. The `<field>` exists only so the
+	// property is declared at the detail layer for downstream
+	// search-input emission to bind against.
 	if (column.kind === "search-only") {
-		// Hidden field — no header text, no app-strings entry, no
-		// sort. The `<field>` exists only so the property is
-		// declared at the detail layer for downstream search-input
-		// emission to bind against.
-		const xml = `    <field>\n${emitHiddenFieldBody(xpaths.display)}\n    </field>`;
+		const xml = `    <field>\n${emitHiddenFieldBody(column.field)}\n    </field>`;
 		return { xml, strings: {} };
 	}
 
+	// Every other kind goes through the displayed-column
+	// resolver. Narrowing on the search-only short-circuit above
+	// is enough for TypeScript to admit `column` as
+	// `DisplayedColumn` here.
+	const xpaths = resolveColumnXpaths(column);
 	const headerLocaleId = shortDetailHeaderLocaleId(
 		ctx.moduleIndex,
 		column.field,
@@ -566,9 +597,13 @@ export function emitColumnField(args: {
  * the column's `field`; emits the wire-shape `<sort>` block when
  * one matches, returns `undefined` otherwise so the caller skips
  * the slot.
+ *
+ * Restricted to `DisplayedColumn` because search-only columns
+ * never reach this resolver — their emit path short-circuits in
+ * `emitColumnField` before sort resolution.
  */
 function resolvePropertySortXml(
-	column: Column,
+	column: DisplayedColumn,
 	sortXpath: string,
 	ctx: CaseListEmitContext,
 ): string | undefined {
@@ -598,8 +633,9 @@ function resolvePropertySortXml(
  * The strings map carries the calc's `header` text under its
  * computed locale id so `app_strings.txt` carries the rendered
  * header at runtime. CCHQ's stock convention has the same shape
- * (per `id_strings.py:88-103`'s `detail_column_header_locale`),
- * with `calculated_property` substituted for the property name.
+ * (per `id_strings.py:105-117`'s `detail_column_header_locale`,
+ * with `column.useXpathExpression` substituting the literal
+ * `calculated_property` for the property name on lines 107-110).
  */
 export function emitCalculatedColumnField(args: {
 	readonly calculated: CalculatedColumn;

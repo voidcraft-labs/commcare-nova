@@ -2,17 +2,18 @@
 //
 // Suite-XML emission for the case-list short detail —
 // `<detail id="m{n}_case_short">`. Walks `module.caseListConfig`
-// in three passes and concatenates one `<field>` per Column /
+// in two passes and concatenates one `<field>` per Column /
 // CalculatedColumn into the surrounding `<detail>` shell.
 //
 // The `<detail>` shell carries:
 //
 //   - `id="m{moduleIndex}_case_short"` — the canonical short-
-//     detail identifier CCHQ binds entries against (see
-//     `commcare-hq/corehq/apps/app_manager/id_strings.py:111-118`'s
-//     `detail_short_locale`; the surrounding entry's
+//     detail identifier CCHQ binds entries against. CCHQ's helper
+//     at `commcare-hq/corehq/apps/app_manager/id_strings.py:466-467`
+//     (`detail(module, detail_type)`) returns the same
+//     `m{module.id}_{detail_type}` shape; the surrounding entry's
 //     `detail-select="m0_case_short"` attribute references this
-//     id).
+//     id.
 //   - `<title>` referencing `<locale id="cchq.case"/>` — CCHQ's
 //     built-in case-detail title locale, registered with
 //     `default="Case"` at
@@ -24,10 +25,11 @@
 //   - One `<field>` per `CalculatedColumn`, in
 //     `caseListConfig.calculatedColumns` order, AFTER the regular
 //     columns. CCHQ's wire convention places calc fields at the
-//     end of the field list; the canonical fixture pair at
-//     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml:160-170`
-//     (regular columns followed by `case_indicator` calcs)
-//     pins the order.
+//     end of the field list; the canonical fixture's three calc
+//     `<field>` blocks at
+//     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml:281-336`
+//     (locale ids `case_calculated_property_10/11/12.header`)
+//     continue the count after the regular columns.
 //
 // Search-only columns route through their own emit path that
 // produces a `width="0"` `<field>` body — the column stays
@@ -74,9 +76,10 @@ export function emitShortDetail(args: {
 	const detailId = `m${moduleIndex}_case_short`;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
-	// resulting detail still carries a title (CCHQ requires one
-	// per `<detail>` block — Detail's `<title>` is non-optional in
-	// the suite XSD per `xml_models.py:935-958`).
+	// resulting detail still carries a title — CCHQ's `Detail`
+	// model declares `title` as a non-optional `NodeField` at
+	// `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py:945`,
+	// inside the `Detail` class that spans `:917-1021`.
 	if (!mod.caseType || !mod.caseListConfig) {
 		return {
 			xml: emitDetailShell(detailId, []),
@@ -105,17 +108,22 @@ export function emitShortDetail(args: {
 		Object.assign(strings, emission.strings);
 	}
 
-	// Pass 2 — calculated columns. Position resets at 1 per the
-	// CCHQ canonical convention (the `case_calculated_property_<i>`
-	// suffix counts within the calculated subset, not across the
-	// full field list — `id_strings.py:88-103`'s
-	// `detail_column_header_locale` calls `column.id + 1` against
-	// the column's per-detail position, but CCHQ's authoring
-	// model treats calc columns as their own ordering).
+	// Pass 2 — calculated columns. Position continues the global
+	// 1-based count from the regular-column pass: a calc at index
+	// 0 receives `position = config.columns.length + 1`. CCHQ's
+	// `detail_column_header_locale` at
+	// `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117`
+	// computes the suffix as `column.id + 1` where `column.id` is
+	// the global per-detail position across regular AND calc
+	// columns; the canonical fixture at
+	// `tests/data/suite/normal-suite.xml:284,300,320` shows three
+	// calc fields rendered at locale ids `case_calculated_property_10/11/12`,
+	// continuing the count after nine regular-column entries.
+	const regularCount = config.columns.length;
 	for (let i = 0; i < config.calculatedColumns.length; i++) {
 		const emission = emitCalculatedColumnField({
 			calculated: config.calculatedColumns[i],
-			position: i + 1,
+			position: regularCount + i + 1,
 			ctx,
 		});
 		fields.push(emission.xml);

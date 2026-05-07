@@ -80,6 +80,15 @@ const SORT_DIRECTION_TO_WIRE: Record<SortDirection, string> = {
  *       </text>
  *     </sort>
  *
+ * Attribute order — `type, order, direction` — matches CCHQ's
+ * `Sort` xml-model declaration at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py`'s
+ * `Sort` class. XML attribute order is wire-irrelevant (CCHQ's
+ * own fixtures use mixed orderings — `multi-sort.xml:44` matches
+ * the model order, `search_command_detail.xml:19` uses
+ * `direction, order, type` instead — the parser accepts both).
+ * Anchoring on the model declaration gives one stable order.
+ *
  * `xpathFunction` is the wire XPath the runtime reads to obtain
  * the per-row sort value — typically the bare property name for
  * plain / phone / id-mapping columns, or the raw property name
@@ -129,8 +138,8 @@ export function emitSortBlock(args: {
  * calc instead, but CCHQ's wire convention for per-column calcs
  * is the inline `<variable>` shape — keeping the calc local to
  * its consuming `<field>` matches CCHQ's case_short fixtures at
- * `search_command_detail.xml:33-42` (template with inline
- * `<variable name="calculated_property">`).
+ * `search_command_detail.xml:31-39` (the `<template>` body
+ * carrying the inline `<variable name="calculated_property">`).
  *
  * `order` is `number | undefined`. When provided, the wire layer
  * renders `order="<n>"` and the runtime's multi-key sort applies
@@ -181,6 +190,22 @@ export function emitCalculatedSortBlock(args: {
  *   - `calculated` — match by calculated column id. Sort keys
  *     can target a calc by id, including a calc-only sort that
  *     no displayed column references.
+ *
+ * Duplicate-property simplification: when two `<field>` blocks
+ * reference the same case property (e.g. a plain text column and
+ * a date-formatted column both targeting `birthdate`), this
+ * resolver returns the same `(key, order)` pair for each call.
+ * Both fields receive a `<sort order="N">` block. CCHQ's stricter
+ * convention is to attach the order attribute to the first
+ * matching field and emit no-order `<sort>` blocks on the rest
+ * (`commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml:78-83`
+ * shows the second `birthdate` field with `<sort type="string">`
+ * and no `order`). The wire is still well-formed under both
+ * conventions — duplicate `order` attributes don't reject at
+ * import — but Nova's emission diverges from the CCHQ-canonical
+ * shape. The simplification is acceptable because Nova generates
+ * and consumes its own wire output; downstream multi-sort
+ * priority is unambiguous either way.
  */
 export function findSortKey(
 	sort: readonly SortKey[],

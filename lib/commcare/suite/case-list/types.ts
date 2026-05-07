@@ -8,21 +8,19 @@
 // shapes here lets each emitter import only the type it needs
 // without circling back through the orchestrator.
 
-import type { CalculatedColumn, Column, SortKey } from "@/lib/domain";
+import type { SortKey } from "@/lib/domain";
 
 /**
  * The two-component result every emitter at this layer hands back.
  * `xml` is the literal suite-XML fragment (a fully-formed `<field>`
  * block, or a complete `<detail>` block at the top level).
  * `strings` collects the per-detail locale-id → display-string
- * pairs the caller writes into `app_strings.txt`. Calculated
- * columns and the detail title don't contribute to `strings`
- * (calculated columns name themselves through CCHQ's
- * `case_calculated_property_<i>` convention via the same locale
- * id; the title resolves through CCHQ's built-in `cchq.case`
- * locale that ships with `default="Case"` per
- * `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`),
- * so emitters return only the entries they author.
+ * pairs the caller writes into `app_strings.txt`. The detail
+ * title doesn't contribute to `strings` because CCHQ ships
+ * `cchq.case` as a built-in locale with `default="Case"` per
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80` —
+ * the runtime falls back to the registered default and the
+ * emitter doesn't need to register the value itself.
  */
 export interface CaseListEmission {
 	readonly xml: string;
@@ -39,11 +37,13 @@ export interface CaseListEmission {
  *     `doc.moduleOrder`. The wire layer uses it to compose
  *     locale ids (`m{moduleIndex}.case_short.case_<field>_<i>.header`)
  *     and the `<detail>` block's `id` attribute
- *     (`m{moduleIndex}_case_short`). The locale-id pattern matches
- *     CCHQ's canonical convention at
- *     `commcare-hq/corehq/apps/app_manager/id_strings.py:88-103`
- *     (`detail_column_header_locale`); the `<detail>` block id
- *     matches `:111-118` (`detail_short_locale`).
+ *     (`m{moduleIndex}_case_short`). The locale-id pattern
+ *     matches CCHQ's `detail_column_header_locale` at
+ *     `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117`
+ *     (the `@pattern` decorator on line 105 + the function body
+ *     through line 117); the `<detail>` block id matches CCHQ's
+ *     `detail()` helper at the same file's lines 466-467
+ *     (`m{module.id}_{detail_type}`).
  *   - `sort` is the module's sort-key array. Per-column emitters
  *     resolve the matching key via `findSortKey(sort, target)`
  *     (in `sortKeys.ts`) — when one matches, the column's `<field>`
@@ -54,22 +54,3 @@ export interface CaseListEmitContext {
 	readonly moduleIndex: number;
 	readonly sort: readonly SortKey[];
 }
-
-/**
- * Per-column slot identifier the orchestrator threads through to
- * the per-column emitter. Combines the position (1-based, used to
- * compose the locale id) and the column itself. Calculated columns
- * carry the same shape but with `kind: "calculated"` so the
- * dispatcher can branch on a single discriminator.
- */
-export type ColumnSlot =
-	| {
-			readonly kind: "column";
-			readonly position: number;
-			readonly column: Column;
-	  }
-	| {
-			readonly kind: "calculated";
-			readonly position: number;
-			readonly calculated: CalculatedColumn;
-	  };
