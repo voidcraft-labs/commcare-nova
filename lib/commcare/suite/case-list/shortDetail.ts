@@ -8,16 +8,15 @@
 // The `<detail>` shell carries:
 //
 //   - `id="m{moduleIndex}_case_short"` — the canonical short-
-//     detail identifier CCHQ binds entries against. CCHQ's helper
-//     at `commcare-hq/corehq/apps/app_manager/id_strings.py:466-467`
-//     (`detail(module, detail_type)`) returns the same
-//     `m{module.id}_{detail_type}` shape; the surrounding entry's
-//     `detail-select="m0_case_short"` attribute references this
-//     id.
+//     detail identifier CCHQ binds entries against. CCHQ's
+//     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
+//     helper returns the same `m{module.id}_{detail_type}` shape;
+//     the surrounding entry's `detail-select="m0_case_short"`
+//     attribute references this id.
 //   - `<title>` referencing `<locale id="cchq.case"/>` — CCHQ's
 //     built-in case-detail title locale, registered with
 //     `default="Case"` at
-//     `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`.
+//     `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`.
 //     No app-strings entry needed; the runtime resolves the
 //     fallback.
 //   - One `<field>` per displayed `Column`, in
@@ -25,11 +24,12 @@
 //   - One `<field>` per `CalculatedColumn`, in
 //     `caseListConfig.calculatedColumns` order, AFTER the regular
 //     columns. CCHQ's wire convention places calc fields at the
-//     end of the field list; the canonical fixture's three calc
-//     `<field>` blocks at
-//     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml:281-336`
-//     (locale ids `case_calculated_property_10/11/12.header`)
-//     continue the count after the regular columns.
+//     end of the field list; the canonical fixture
+//     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
+//     renders three calc fields under
+//     `<detail id="m0_case_long">` whose locale ids are
+//     `case_calculated_property_10/11/12.header` — continuing the
+//     count after the regular columns.
 //
 // Search-only columns route through their own emit path that
 // produces a `width="0"` `<field>` body — the column stays
@@ -76,10 +76,10 @@ export function emitShortDetail(args: {
 	const detailId = `m${moduleIndex}_case_short`;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
-	// resulting detail still carries a title — CCHQ's `Detail`
-	// model declares `title` as a non-optional `NodeField` at
-	// `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py:945`,
-	// inside the `Detail` class that spans `:917-1021`.
+	// resulting detail still carries a title — CCHQ's
+	// `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py::Detail`
+	// model declares `title` as a non-optional `NodeField`, so a
+	// zero-field detail still emits the `<title>` element.
 	if (!mod.caseType || !mod.caseListConfig) {
 		return {
 			xml: emitDetailShell(detailId, []),
@@ -111,13 +111,13 @@ export function emitShortDetail(args: {
 	// Pass 2 — calculated columns. Position continues the global
 	// 1-based count from the regular-column pass: a calc at index
 	// 0 receives `position = config.columns.length + 1`. CCHQ's
-	// `detail_column_header_locale` at
-	// `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117`
+	// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`
 	// computes the suffix as `column.id + 1` where `column.id` is
 	// the global per-detail position across regular AND calc
-	// columns; the canonical fixture at
-	// `tests/data/suite/normal-suite.xml:284,300,320` shows three
-	// calc fields rendered at locale ids `case_calculated_property_10/11/12`,
+	// columns; the canonical fixture
+	// `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
+	// renders three calc fields under `<detail id="m0_case_long">`
+	// at locale ids `case_calculated_property_10/11/12.header`,
 	// continuing the count after nine regular-column entries.
 	const regularCount = config.columns.length;
 	for (let i = 0; i < config.calculatedColumns.length; i++) {

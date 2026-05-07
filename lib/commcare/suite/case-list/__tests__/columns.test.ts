@@ -78,7 +78,7 @@ describe("emitColumnField — date", () => {
 		const col = dateColumn("opened_on", "Opened", "%d/%m/%Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// CCHQ's date-format wire shape: per
-		// `detail_screen.py:367-370`, `if({xpath} = '', '', format-date(date({xpath}), 'pattern'))`.
+		// `detail_screen.py::Date`, `if({xpath} = '', '', format-date(date({xpath}), 'pattern'))`.
 		// Attribute escaping flips `'` to `&apos;` … no, single quotes
 		// survive verbatim because the helper escapes only `&`, `<`,
 		// `>`, and `"`. The pattern's own quotes show as `'`.
@@ -155,7 +155,8 @@ describe("emitColumnField — phone", () => {
 	it("emits the bare property reference for short-detail phone columns", () => {
 		// CCHQ's `Phone` format inherits the bare-property XPath from
 		// the base class on short detail; only the long detail picks
-		// up `template_form="phone"` (per `detail_screen.py:393-399`).
+		// up `template_form="phone"` (per
+		// `detail_screen.py::Phone.template_form`).
 		const col = phoneColumn("phone", "Phone");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain('<xpath function="phone"/>');
@@ -170,8 +171,9 @@ describe("emitColumnField — id-mapping", () => {
 			idMappingEntry("S", "South"),
 		]);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
-		// CCHQ's `XPathEnum.build` shape per
-		// `xml_models.py:106-112`: `replace(join(' ', if(selected(...)), ...), '\s+', ' ')`.
+		// CCHQ's `xml_models.py::XPathEnum.build` shape (the
+		// `enum`-display arm wraps the per-key `if(selected(...))`
+		// chain in `replace(join(' ', ..., ''), '\s+', ' ')`).
 		// Nova inlines labels as XPath string literals (no locale-id
 		// wiring) — `if(selected(region_code, 'N'), 'North', '')`.
 		expect(out.xml).toContain(
@@ -205,7 +207,7 @@ describe("emitColumnField — late-flag", () => {
 	it("emits both the absent-and-overdue branches with the author's flag string", () => {
 		const col = lateFlagColumn("last_visit", "Overdue", 30, "days", "!");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
-		// CCHQ's wire shape per `detail_screen.py:556`:
+		// CCHQ's wire shape per `detail_screen.py::LateFlag.XPATH_FUNCTION`:
 		// `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <threshold>, '<flag>', ''))`.
 		// Threshold for days × 30 = 30.
 		expect(out.xml).toContain(
@@ -234,7 +236,9 @@ describe("emitColumnField — search-only", () => {
 		const col = searchOnlyColumn("phone", "Phone");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// CCHQ's `Invisible` format pattern — width=0 on both halves
-		// per `detail_screen.py:354-359`.
+		// via `detail_screen.py::HideShortColumn.template_width`
+		// returning `0` (and `HideShortHeaderColumn.header` rendering
+		// the empty-text header) on short detail.
 		expect(out.xml).toContain('<header width="0">');
 		expect(out.xml).toContain('<template width="0">');
 		// No header locale id — search-only columns surface no
@@ -344,10 +348,12 @@ describe("emitCalculatedColumnField", () => {
 			ctx,
 		});
 		// Calc-local sort emits a `<sort>` block WITHOUT an `order`
-		// attribute — CCHQ's per-format-default shape at
-		// `multi-sort.xml:78-83`. The runtime treats no-order
-		// `<sort>` blocks as per-column defaults that the multi-
-		// sort UI surfaces alongside the explicit keys.
+		// attribute — CCHQ's per-format-default shape (the second
+		// `birthdate` `<field>` under `<detail id="m0_case_short">`
+		// in `multi-sort.xml` carries `<sort type="string">` with
+		// no `order`). The runtime treats no-order `<sort>` blocks
+		// as per-column defaults that the multi-sort UI surfaces
+		// alongside the explicit keys.
 		expect(out.xml).toContain("<sort");
 		expect(out.xml).toContain('direction="ascending"');
 		expect(out.xml).not.toMatch(/<sort[^>]*\border=/);

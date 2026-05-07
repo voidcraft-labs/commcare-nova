@@ -9,45 +9,46 @@
 //
 // The seven Nova column kinds map to CCHQ formats as follows:
 //
-//   - `plain`             → CCHQ `plain` format
-//     (`detail_screen.py:362-364`). Bare property reference; the
-//     runtime renders the case property's value as text.
+//   - `plain`             → CCHQ `detail_screen.py::Plain` format.
+//     Bare property reference; the runtime renders the case
+//     property's value as text.
 //
-//   - `date`              → CCHQ `date` format
-//     (`:367-370`). Wire shape:
+//   - `date`              → CCHQ `detail_screen.py::Date` format.
+//     Wire shape:
 //     `if({xpath} = '', '', format-date(date({xpath}), '<pattern>'))`.
 //     The empty-string short-circuit covers absent values; the
 //     pattern routes through `quoteLiteral` to escape any embedded
 //     single-quote authoring (the on-device XPath dialect's
 //     concat-fallback). Sort uses raw `{xpath}` (mirrors CCHQ's
-//     `SORT_XPATH_FUNCTION = "{xpath}"` for the date format) so
-//     ISO-string lexicographic ordering matches calendar order.
+//     `Date.SORT_XPATH_FUNCTION = "{xpath}"`) so ISO-string
+//     lexicographic ordering matches calendar order.
 //
-//   - `time-since-until`  → CCHQ `time-ago` format
-//     (`:373-376`) wrapped with an overdue-label branch. CCHQ's
-//     base shape is
+//   - `time-since-until`  → CCHQ `detail_screen.py::TimeAgo`
+//     format wrapped with an overdue-label branch. CCHQ's base
+//     shape is
 //     `if({xpath} = '', '', string(int((today() - date({xpath})) div <divisor>)))`
 //     where `<divisor>` is the days-equivalent of one unit (year =
 //     365.25, month = 365.25/12, week = 7, day = 1, per
-//     `commcare-hq/corehq/apps/app_manager/static/app_manager/js/details/utils.js:185-190`).
+//     `commcare-hq/corehq/apps/app_manager/static/app_manager/js/details/utils.js::module.TIME_AGO`).
 //     The overdue branch wraps that in
 //     `if(today() - date({xpath}) > <thresholdDays>, '<displayLabel>', <baseShape>)`
 //     so the runtime surfaces the author's overdue text past the
 //     threshold and the integer interval otherwise. CCHQ's stock
-//     `time-ago` has no overdue branch — Nova adds one. Sort uses
+//     `TimeAgo` has no overdue branch — Nova adds one. Sort uses
 //     raw `{xpath}`.
 //
-//   - `phone`             → CCHQ `phone` format
-//     (`:393-399`). Same XPath as `plain`; CCHQ's case-list short
-//     detail renders phone columns as the raw property text. (The
-//     long detail picks up `template_form="phone"` for the tappable-
-//     link affordance per `detail_screen.py:396-399` — out of
-//     scope here; this module emits only the short detail.)
+//   - `phone`             → CCHQ `detail_screen.py::Phone` format.
+//     Same XPath as `plain`; CCHQ's case-list short detail
+//     renders phone columns as the raw property text. (The long
+//     detail picks up `template_form="phone"` for the tappable-
+//     link affordance per `detail_screen.py::Phone.template_form`
+//     — out of scope here; this module emits only the short
+//     detail.)
 //
-//   - `id-mapping`        → CCHQ `enum` format
-//     (`:402-439`). Wire shape:
+//   - `id-mapping`        → CCHQ `detail_screen.py::Enum` format.
+//     Wire shape:
 //     `replace(join(' ', if(selected({xpath}, 'value-1'), 'label-1', ''), ...), '\s+', ' ')`.
-//     CCHQ's stock `enum` references `<variable name="kKey">` →
+//     CCHQ's stock `Enum` references `<variable name="kKey">` →
 //     locale-id labels; Nova inlines the labels as XPath string
 //     literals because the project has no multi-language wiring
 //     (the labels live on the `IdMappingEntry.label` slot
@@ -56,8 +57,8 @@
 //     trims the leading whitespace from the join's empty-arm
 //     fall-throughs. Sort uses raw `{xpath}`.
 //
-//   - `late-flag`         → CCHQ `late-flag` format
-//     (`:552-556`). Wire shape:
+//   - `late-flag`         → CCHQ `detail_screen.py::LateFlag`
+//     format. Wire shape:
 //     `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <thresholdDays>, '<flag>', ''))`.
 //     CCHQ hardcodes the flag string to `'*'`; Nova authors it
 //     via `flagDisplayValue`. CCHQ's wire shape emits the flag
@@ -65,19 +66,21 @@
 //     the cell empty only when the date is present and within
 //     threshold. Sort uses raw `{xpath}`.
 //
-//   - `search-only`       → CCHQ `invisible` format
-//     (`:559-583`). Wire shape: a `<field>` with `width="0"` on
-//     both `<header>` and `<template>` so the runtime hides the
-//     column from the case list while preserving the property as
-//     a sort / search target. Search-only columns never carry a
-//     sort key per the schema's distinction (the validator's
-//     `searchInputModeMatchesPropertyType` rule pins each search-
-//     only declaration to a search-input slot).
+//   - `search-only`       → CCHQ `detail_screen.py::Invisible`
+//     format (which inherits `HideShortColumn` →
+//     `HideShortHeaderColumn`). Wire shape: a `<field>` with
+//     `width="0"` on both `<header>` and `<template>` so the
+//     runtime hides the column from the case list while preserving
+//     the property as a sort / search target. Search-only columns
+//     never carry a sort key per the schema's distinction (the
+//     validator's `searchInputModeMatchesPropertyType` rule pins
+//     each search-only declaration to a search-input slot).
 //
 // Calculated columns ride a separate emit path in `emitCalculatedColumnField`
 // — the `<template>` body wraps `$calculated_property` around the
 // inline value-expression emission, mirroring CCHQ's
-// `useXpathExpression` shape at `detail_screen.py:145-155`.
+// `useXpathExpression` branch in
+// `detail_screen.py::FormattedDetailColumn.template`.
 
 import type {
 	CalculatedColumn,
@@ -100,7 +103,7 @@ import type { CaseListEmission, CaseListEmitContext } from "./types";
  * both `time-since-until` (renders the integer interval count)
  * and `late-flag` (compares a day delta against a threshold). The
  * canonical values come from CCHQ's authoring UI module at
- * `commcare-hq/corehq/apps/app_manager/static/app_manager/js/details/utils.js:185-190`:
+ * `commcare-hq/corehq/apps/app_manager/static/app_manager/js/details/utils.js::module.TIME_AGO`:
  *
  *     module.TIME_AGO = {
  *         year: 365.25,
@@ -119,7 +122,7 @@ import type { CaseListEmission, CaseListEmitContext } from "./types";
  * below — JavaScript's `String(365.25 / 12)` produces
  * `"30.4375"` with no exponent, so a direct interpolation is
  * grammar-safe per the XPath grammar's decimal-literal rule
- * (`grammar.lezer.grammar:133-136`).
+ * (`grammar.lezer.grammar::NumberLiteral`).
  */
 const TIME_AGO_DIVISOR_DAYS = {
 	days: 1,
@@ -142,10 +145,10 @@ function formatTimeAgoDivisor(divisor: number): string {
 }
 
 /**
- * Header-locale-id composer. Matches CCHQ's `detail_column_header_locale`
- * at `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117`:
- * the `@pattern('m%d.%s.%s_%s_%d.header')` decorator on line 105
- * plus the body's f-string at lines 111-117 produces
+ * Header-locale-id composer. Matches CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`,
+ * whose `@pattern('m%d.%s.%s_%s_%d.header')` decorator + body
+ * f-string produce
  * `m{module.id}.{detail_type}.{column.model}_{field}_{column.id+1}.header`,
  * where `column.model` is `'case'` for case-detail columns. The
  * `column.id + 1` step keys the suffix to the global 1-based
@@ -166,11 +169,10 @@ function shortDetailHeaderLocaleId(
 
 /**
  * Calculated-column header locale id. Matches CCHQ's
- * `detail_column_header_locale` at
- * `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117` —
- * the `useXpathExpression` branch on lines 107-110 substitutes
- * the literal `calculated_property` for the field segment so
- * the locale id reads `case_calculated_property_<position>.header`.
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`
+ * — the `useXpathExpression` branch substitutes the literal
+ * `calculated_property` for the field segment so the locale id
+ * reads `case_calculated_property_<position>.header`.
  * The position is the global 1-based slot in the detail; the
  * orchestrator passes `regularColumnCount + calcIndex + 1` so
  * the count continues across the regular-column pass.
@@ -221,8 +223,9 @@ function emitTemplateBlock(xpathFunction: string): string {
 
 /**
  * Build a `<template>` block carrying an inline calc reference.
- * The wire shape is CCHQ's `useXpathExpression` form per
- * `commcare-hq/corehq/apps/app_manager/detail_screen.py:145-155`:
+ * The wire shape is CCHQ's `useXpathExpression` form per the
+ * `useXpathExpression` branch in
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.template`:
  *
  *     <template>
  *       <text>
@@ -255,19 +258,18 @@ function emitCalculatedTemplateBlock(calcXpath: string): string {
 
 /**
  * Build a hidden `<header>` / `<template>` pair for a search-only
- * column. CCHQ's `Invisible` format inherits this hide-on-short
- * behavior across two parent classes:
- *   - `HideShortHeaderColumn` at
- *     `commcare-hq/corehq/apps/app_manager/detail_screen.py:340-351`
+ * column. CCHQ's `detail_screen.py::Invisible` format inherits
+ * this hide-on-short behavior across two parent classes:
+ *   - `commcare-hq/corehq/apps/app_manager/detail_screen.py::HideShortHeaderColumn.header`
  *     overrides `header` to return an empty `<text/>` with
  *     `width=template_width` on short detail.
- *   - `HideShortColumn` at the same file's lines 354-359 extends
- *     `HideShortHeaderColumn` and overrides `template_width` to
- *     return `0` on short detail.
- * `Invisible` (`:559-583`) inherits both. The combined effect on
- * short detail is a `<header width="0"><text/></header>` plus a
- * `<template width="0">` body — the runtime collapses the column
- * visually while keeping the property in the case-list's
+ *   - `commcare-hq/corehq/apps/app_manager/detail_screen.py::HideShortColumn.template_width`
+ *     extends `HideShortHeaderColumn` and overrides
+ *     `template_width` to return `0` on short detail.
+ * `detail_screen.py::Invisible` inherits both. The combined effect
+ * on short detail is a `<header width="0"><text/></header>` plus
+ * a `<template width="0">` body — the runtime collapses the
+ * column visually while keeping the property in the case-list's
  * indexable schema.
  */
 function emitHiddenFieldBody(xpathFunction: string): string {
@@ -296,17 +298,17 @@ function emitHiddenFieldBody(xpathFunction: string): string {
 
 /**
  * Plain text column display XPath — bare property reference.
- * Matches CCHQ's `Plain` format at `detail_screen.py:362-364`
- * (which inherits the `XPATH_FUNCTION = "{xpath}"` default from
- * `FormattedDetailColumn` at `:250`).
+ * Matches CCHQ's `detail_screen.py::Plain` format (which inherits
+ * the `XPATH_FUNCTION = "{xpath}"` default from
+ * `detail_screen.py::FormattedDetailColumn`).
  */
 function plainDisplayXpath(field: string): string {
 	return field;
 }
 
 /**
- * Date-formatted column display XPath. Per CCHQ's `Date` format
- * at `detail_screen.py:367-370`:
+ * Date-formatted column display XPath. Per CCHQ's
+ * `detail_screen.py::Date` format:
  *
  *     if({xpath} = '', '', format-date(date({xpath}), '{date_format}'))
  *
@@ -357,23 +359,25 @@ function timeSinceUntilDisplayXpath(args: {
 }
 
 /**
- * Phone column display XPath. CCHQ's `Phone` format
- * (`detail_screen.py:393-399`) inherits `XPATH_FUNCTION = "{xpath}"`
- * from the base class — the per-format divergence is
+ * Phone column display XPath. CCHQ's
+ * `detail_screen.py::Phone` format inherits
+ * `XPATH_FUNCTION = "{xpath}"` from the base
+ * `FormattedDetailColumn` — the per-format divergence is
  * `template_form="phone"`, applied only on the long detail
- * (`template_form` returns a value when `detail.display == 'long'`
- * at line 397-399). Short detail emits a bare property reference.
+ * (`detail_screen.py::Phone.template_form` returns a value when
+ * `detail.display == 'long'`). Short detail emits a bare property
+ * reference.
  */
 function phoneDisplayXpath(field: string): string {
 	return field;
 }
 
 /**
- * ID-mapping column display XPath. Mirrors CCHQ's `enum` format
- * shape at `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py:85-118`
- * (`XPathEnum.build`) but inlines labels as XPath string literals
- * rather than referencing locale-id variables (Nova has no multi-
- * language wiring at the authoring layer).
+ * ID-mapping column display XPath. Mirrors CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py::XPathEnum.build`
+ * shape but inlines labels as XPath string literals rather than
+ * referencing locale-id variables (Nova has no multi-language
+ * wiring at the authoring layer).
  *
  * Wire shape for a mapping with entries `(value-A, label-A),
  * (value-B, label-B), ...`:
@@ -409,8 +413,8 @@ function idMappingDisplayXpath(
 }
 
 /**
- * Late-flag column display XPath. CCHQ's `LateFlag` format at
- * `detail_screen.py:552-556` emits:
+ * Late-flag column display XPath. CCHQ's
+ * `detail_screen.py::LateFlag` format emits:
  *
  *     if({xpath} = '', '*', if(today() - date({xpath}) > <thresholdDays>, '*', ''))
  *
@@ -426,11 +430,13 @@ function idMappingDisplayXpath(
  * (the authoring UI computes `threshold_in_days` from a separate
  * unit picker and persists only the day count).
  *
- * Header rendering diverges from CCHQ. CCHQ's `LateFlag` extends
- * `HideShortHeaderColumn` (`detail_screen.py:553` → `:340-351`),
- * which hides the header on short detail and emits
- * `<header width="11%"><text/></header>` (the canonical fixture
- * at `tests/data/suite/normal-suite.xml:130-138` pins the shape).
+ * Header rendering diverges from CCHQ. CCHQ's
+ * `detail_screen.py::LateFlag` extends
+ * `detail_screen.py::HideShortHeaderColumn`, which hides the
+ * header on short detail and emits
+ * `<header width="11%"><text/></header>` (canonical fixture:
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
+ * under `<detail id="m0_case_short">/<field>` for `late-flag`).
  * Nova emits a normal `<header>` with the author's `header` text
  * routed through the standard locale-id pattern — the late-flag
  * column has its own header label in the Nova authoring surface
@@ -633,9 +639,9 @@ function resolvePropertySortXml(
  * The strings map carries the calc's `header` text under its
  * computed locale id so `app_strings.txt` carries the rendered
  * header at runtime. CCHQ's stock convention has the same shape
- * (per `id_strings.py:105-117`'s `detail_column_header_locale`,
- * with `column.useXpathExpression` substituting the literal
- * `calculated_property` for the property name on lines 107-110).
+ * (per `id_strings.py::detail_column_header_locale`, with the
+ * `column.useXpathExpression` branch substituting the literal
+ * `calculated_property` for the property name).
  */
 export function emitCalculatedColumnField(args: {
 	readonly calculated: CalculatedColumn;
@@ -665,12 +671,14 @@ export function emitCalculatedColumnField(args: {
 	//      (`CalculatedColumn.sort`) — a per-column sort config
 	//      that doesn't enter the module-level array. The wire
 	//      layer emits `<sort>` WITHOUT an `order` attribute,
-	//      matching CCHQ's per-format-default sort shape at
-	//      `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml:78-83`
-	//      (the second birthdate field's sort block: `<sort
-	//      type="string">` with no `order`). The runtime treats
-	//      no-order `<sort>` blocks as per-column defaults that
-	//      the multi-sort UI surfaces alongside the explicit keys.
+	//      matching CCHQ's per-format-default sort shape: the
+	//      canonical fixture
+	//      `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
+	//      under `<detail id="m0_case_short">` carries a second
+	//      `birthdate` field whose `<sort type="string">` block
+	//      has no `order` attribute. The runtime treats no-order
+	//      `<sort>` blocks as per-column defaults that the
+	//      multi-sort UI surfaces alongside the explicit keys.
 	//
 	// A module-level key wins over a calc-local sort when both
 	// are authored — the module-level array is the canonical

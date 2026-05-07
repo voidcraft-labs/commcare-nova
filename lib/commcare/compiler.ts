@@ -100,8 +100,9 @@ export function compileCcz(
 		// `DetailColumn[]` projected onto `hqMod.case_details.long`.
 		//
 		// Both detail blocks resolve their `<title>` through CCHQ's
-		// built-in `cchq.case` locale (`default="Case"` per
-		// `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`).
+		// built-in `cchq.case` locale (registered with
+		// `default="Case"` at
+		// `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`).
 		// Neither emitter registers a per-module title in app_strings;
 		// the runtime falls back to "Case" until an author overrides
 		// `cchq.case` at the app-strings layer (Nova has no such
@@ -289,10 +290,11 @@ function generateProfile(appName: string): string {
  * never reaches this function.
  *
  * Title resolves through CCHQ's built-in `cchq.case` locale
- * (`commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`,
- * registered with `default="Case"`) — same pattern as the
- * short-detail emitter, so both `<detail>` blocks display a
- * consistent runtime title without needing app-strings entries.
+ * (registered with `default="Case"` at
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`)
+ * — same pattern as the short-detail emitter, so both `<detail>`
+ * blocks display a consistent runtime title without needing
+ * app-strings entries.
  *
  * The zero-column long detail collapses to a title-only stub.
  */

@@ -13,11 +13,12 @@
 //     `SortType` enum (`plain` / `date` / `integer` / `decimal`)
 //     and `SortDirection` enum (`asc` / `desc`) map to CCHQ's wire
 //     vocabulary (`string` / `int` / `double` / `ascending` /
-//     `descending`). The mapping mirrors CCHQ's per-format dispatch
-//     in `commcare-hq/corehq/apps/app_manager/detail_screen.py:200-204`,
-//     where `'plain'` and `'date'` both collapse to wire `'string'`
-//     (lexicographic comparison on ISO 8601 strings is order-
-//     preserving for both dates and plain text).
+//     `descending`). The mapping mirrors the per-format dispatch
+//     dict inside
+//     `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`,
+//     where `'plain'` and `'date'` both collapse to wire
+//     `'string'` (lexicographic comparison on ISO 8601 strings is
+//     order-preserving for both dates and plain text).
 //   - **Source resolution.** A `SortKey.source` is either
 //     `{ kind: "property", property }` or `{ kind: "calculated",
 //     columnId }`. The orchestrator looks up which key (if any)
@@ -27,10 +28,12 @@
 // `<sort>` `@order` is the 1-based position of the key in
 // `caseListConfig.sort`. When multiple `<sort>` elements coexist,
 // the runtime applies them by ascending `order` — `order=1` is
-// the primary sort, `order=2` is the first tie-breaker, etc.
-// Source: `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml:44-99`
-// — three `<sort>` elements in one detail, each carrying its own
-// `order` attribute.
+// the primary sort, `order=2` is the first tie-breaker, etc. The
+// canonical fixture
+// `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
+// renders three `<sort>` elements under
+// `<detail id="m0_case_short">`, each carrying its own `order`
+// attribute.
 
 import type { SortDirection, SortKey, SortType } from "@/lib/domain";
 import { escapeXml } from "../../xml";
@@ -42,12 +45,14 @@ import { escapeXml } from "../../xml";
  * authoring vocabulary and translates here.
  *
  *   - `plain` → `string` (CCHQ's broad-applicability default
- *     comparator; lexicographic comparison via
- *     `detail_screen.py:97`'s `SORT_TYPE = 'string'`).
+ *     comparator; lexicographic comparison via the
+ *     `detail_screen.py::FormattedDetailColumn.SORT_TYPE = 'string'`
+ *     class attribute).
  *   - `date` → `string` (CCHQ collapses `date` to `string` in the
- *     dispatch map at `detail_screen.py:200-203`; ISO 8601 dates
- *     sort correctly under string comparison so a separate date
- *     comparator is unnecessary).
+ *     dispatch dict inside
+ *     `detail_screen.py::FormattedDetailColumn.sort_node`; ISO
+ *     8601 dates sort correctly under string comparison so a
+ *     separate date comparator is unnecessary).
  *   - `integer` → `int` (CCHQ numeric integer comparison).
  *   - `decimal` → `double` (CCHQ numeric float comparison).
  */
@@ -61,9 +66,10 @@ const SORT_TYPE_TO_WIRE: Record<SortType, string> = {
 /**
  * Map a domain-layer `SortDirection` to CCHQ's spelled-out
  * attribute values. CCHQ wire uses the long-form `ascending` /
- * `descending`; the multi-sort fixture at
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml:44`
- * pins the canonical shape.
+ * `descending`; the canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
+ * carries `direction="descending"` / `direction="ascending"` on
+ * each `<sort>` element under `<detail id="m0_case_short">`.
  */
 const SORT_DIRECTION_TO_WIRE: Record<SortDirection, string> = {
 	asc: "ascending",
@@ -81,21 +87,20 @@ const SORT_DIRECTION_TO_WIRE: Record<SortDirection, string> = {
  *     </sort>
  *
  * Attribute order — `type, order, direction` — matches CCHQ's
- * `Sort` xml-model declaration at
- * `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py`'s
- * `Sort` class. XML attribute order is wire-irrelevant (CCHQ's
- * own fixtures use mixed orderings — `multi-sort.xml:44` matches
- * the model order, `search_command_detail.xml:19` uses
- * `direction, order, type` instead — the parser accepts both).
- * Anchoring on the model declaration gives one stable order.
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py::Sort`
+ * field declaration order. XML attribute order is wire-irrelevant
+ * (CCHQ's own fixtures use mixed orderings — `multi-sort.xml`'s
+ * `<sort>` blocks match the model order; `search_command_detail.xml`
+ * uses `direction, order, type` instead — the parser accepts
+ * both). Anchoring on the model declaration gives one stable
+ * order.
  *
  * `xpathFunction` is the wire XPath the runtime reads to obtain
  * the per-row sort value — typically the bare property name for
  * plain / phone / id-mapping columns, or the raw property name
  * for date / time-since-until / late-flag columns (sort-on-raw,
  * not sort-on-formatted, mirrors CCHQ's per-format
- * `SORT_XPATH_FUNCTION = "{xpath}"` default at
- * `detail_screen.py:370` for the date arm).
+ * `detail_screen.py::Date.SORT_XPATH_FUNCTION = "{xpath}"`).
  *
  * The XPath is XML-escaped — `&`, `<`, `>`, `"` are special
  * inside a double-quoted attribute value. Single quotes survive
@@ -121,8 +126,9 @@ export function emitSortBlock(args: {
  * `<variable name="calculated_property">` block through the
  * `<xpath>` element so the sort comparator reads `$calculated_property`
  * resolved against the inline calc expression — same shape CCHQ
- * emits when a column has `useXpathExpression` set (per
- * `detail_screen.py:185-196`):
+ * emits when a column has `useXpathExpression` set (per the
+ * `useXpathExpression` branch in
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`):
  *
  *     <sort type="..." order="..." direction="...">
  *       <text>
@@ -138,20 +144,23 @@ export function emitSortBlock(args: {
  * calc instead, but CCHQ's wire convention for per-column calcs
  * is the inline `<variable>` shape — keeping the calc local to
  * its consuming `<field>` matches CCHQ's case_short fixtures at
- * `search_command_detail.xml:31-39` (the `<template>` body
- * carrying the inline `<variable name="calculated_property">`).
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
+ * (under `<detail id="m0_case_short">`, calc fields render
+ * `<template>` bodies with inline `<variable name="calculated_property">`).
  *
  * `order` is `number | undefined`. When provided, the wire layer
  * renders `order="<n>"` and the runtime's multi-key sort applies
  * the key in that priority position. When omitted, the `<sort>`
  * block carries no `order` attribute — CCHQ's per-format default
- * shape, mirrored at `multi-sort.xml:78-83` (the second birthdate
- * field's sort block has `<sort type="string">` with no order
- * attribute, marking it as a per-format default rather than a
- * multi-key participant). The orchestrator omits `order` for
- * calc-local sort configs (`CalculatedColumn.sort`) and supplies
- * `order` only when a module-level `caseListConfig.sort` key
- * targets the calc.
+ * shape, mirrored at the canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
+ * (the second `birthdate` `<field>` under
+ * `<detail id="m0_case_short">` carries `<sort type="string">`
+ * with no `order` attribute, marking it as a per-format default
+ * rather than a multi-key participant). The orchestrator omits
+ * `order` for calc-local sort configs (`CalculatedColumn.sort`)
+ * and supplies `order` only when a module-level
+ * `caseListConfig.sort` key targets the calc.
  */
 export function emitCalculatedSortBlock(args: {
 	readonly order: number | undefined;
@@ -197,15 +206,17 @@ export function emitCalculatedSortBlock(args: {
  * resolver returns the same `(key, order)` pair for each call.
  * Both fields receive a `<sort order="N">` block. CCHQ's stricter
  * convention is to attach the order attribute to the first
- * matching field and emit no-order `<sort>` blocks on the rest
- * (`commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml:78-83`
- * shows the second `birthdate` field with `<sort type="string">`
- * and no `order`). The wire is still well-formed under both
- * conventions — duplicate `order` attributes don't reject at
- * import — but Nova's emission diverges from the CCHQ-canonical
- * shape. The simplification is acceptable because Nova generates
- * and consumes its own wire output; downstream multi-sort
- * priority is unambiguous either way.
+ * matching field and emit no-order `<sort>` blocks on the rest —
+ * the canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
+ * has two `birthdate` `<field>` blocks under
+ * `<detail id="m0_case_short">`; the second one's `<sort>`
+ * carries no `order` attribute. The wire is still well-formed
+ * under both conventions — duplicate `order` attributes don't
+ * reject at import — but Nova's emission diverges from the
+ * CCHQ-canonical shape. The simplification is acceptable because
+ * Nova generates and consumes its own wire output; downstream
+ * multi-sort priority is unambiguous either way.
  */
 export function findSortKey(
 	sort: readonly SortKey[],

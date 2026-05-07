@@ -83,9 +83,8 @@ describe("emitShortDetail — empty cases", () => {
 	it("emits a title-only detail when caseListConfig is absent", () => {
 		const mod = makeModule({ caseType: "patient" });
 		const out = emitShortDetail({ module: mod, moduleIndex: 0 });
-		// CCHQ's `Detail` model declares `title` as a non-optional
-		// `NodeField` at `xml_models.py:945`, inside the `Detail`
-		// class spanning `:917-1021`. A zero-field detail still
+		// CCHQ's `xml_models.py::Detail` model declares `title` as a
+		// non-optional `NodeField`, so a zero-field detail still
 		// carries the `<title>` element.
 		expect(out.xml).toContain('<detail id="m0_case_short">');
 		expect(out.xml).toContain('<locale id="cchq.case"/>');
@@ -361,8 +360,8 @@ describe("emitShortDetail — multi-kind integration", () => {
 		// (non-search-only) columns + the calc's calculated_property
 		// id surface here. The calc's position continues the global
 		// 1-based count (7 regular columns + 1 = position 8) per
-		// CCHQ's `detail_column_header_locale` global numbering at
-		// `id_strings.py:105-117`.
+		// CCHQ's global numbering in
+		// `id_strings.py::detail_column_header_locale`.
 		expect(out.strings).toMatchObject({
 			"m0.case_short.case_name_1.header": "Name",
 			"m0.case_short.case_birthdate_2.header": "Birthdate",

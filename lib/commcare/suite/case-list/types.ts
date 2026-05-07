@@ -17,9 +17,10 @@ import type { SortKey } from "@/lib/domain";
  * `strings` collects the per-detail locale-id → display-string
  * pairs the caller writes into `app_strings.txt`. The detail
  * title doesn't contribute to `strings` because CCHQ ships
- * `cchq.case` as a built-in locale with `default="Case"` per
- * `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80` —
- * the runtime falls back to the registered default and the
+ * `cchq.case` as a built-in locale registered with
+ * `default="Case"` (see
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`)
+ * — the runtime falls back to the registered default and the
  * emitter doesn't need to register the value itself.
  */
 export interface CaseListEmission {
@@ -38,12 +39,10 @@ export interface CaseListEmission {
  *     locale ids (`m{moduleIndex}.case_short.case_<field>_<i>.header`)
  *     and the `<detail>` block's `id` attribute
  *     (`m{moduleIndex}_case_short`). The locale-id pattern
- *     matches CCHQ's `detail_column_header_locale` at
- *     `commcare-hq/corehq/apps/app_manager/id_strings.py:105-117`
- *     (the `@pattern` decorator on line 105 + the function body
- *     through line 117); the `<detail>` block id matches CCHQ's
- *     `detail()` helper at the same file's lines 466-467
- *     (`m{module.id}_{detail_type}`).
+ *     matches CCHQ's `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`;
+ *     the `<detail>` block id matches CCHQ's
+ *     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
+ *     helper (`m{module.id}_{detail_type}`).
  *   - `sort` is the module's sort-key array. Per-column emitters
  *     resolve the matching key via `findSortKey(sort, target)`
  *     (in `sortKeys.ts`) — when one matches, the column's `<field>`

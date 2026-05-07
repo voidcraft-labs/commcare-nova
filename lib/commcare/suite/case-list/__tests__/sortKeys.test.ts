@@ -4,7 +4,8 @@
 // that drive case-list short-detail `<sort>` blocks. Each test
 // pins the wire shape against CCHQ's canonical multi-sort
 // fixture at
-// `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml:44-99`.
+// `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
+// (the `<sort>` blocks under `<detail id="m0_case_short">`).
 //
 // Coverage organizes around three shells:
 //
@@ -104,7 +105,8 @@ describe("findSortKey — calculated source", () => {
 describe("emitSortBlock", () => {
 	it("emits a string-typed ascending sort matching the CCHQ multi-sort fixture", () => {
 		// CCHQ fixture: `<sort type="string" order="3" direction="ascending">`
-		// from `multi-sort.xml:61-65` (the case_name field's sort).
+		// from `multi-sort.xml`'s `case_name` `<field>` under
+		// `<detail id="m0_case_short">`.
 		const xml = emitSortBlock({
 			order: 3,
 			direction: "asc",
@@ -119,7 +121,8 @@ describe("emitSortBlock", () => {
 
 	it("emits a string-typed descending sort for date sources", () => {
 		// CCHQ fixture: `<sort type="string" order="1" direction="descending">`
-		// targeting `birthdate` per `multi-sort.xml:44-49`. Nova maps
+		// targeting `birthdate` from `multi-sort.xml`'s first `birthdate`
+		// `<field>` under `<detail id="m0_case_short">`. Nova maps
 		// `date` → wire `string` per the SORT_TYPE_TO_WIRE table.
 		const xml = emitSortBlock({
 			order: 1,
@@ -173,8 +176,9 @@ describe("emitSortBlock", () => {
 
 describe("emitCalculatedSortBlock", () => {
 	it("emits the CCHQ inline-variable shape for a calc-targeted sort", () => {
-		// CCHQ wire shape per `detail_screen.py:185-196` — the sort
-		// xpath references `$calculated_property` and the calc
+		// CCHQ wire shape per the `useXpathExpression` branch in
+		// `detail_screen.py::FormattedDetailColumn.sort_node` — the
+		// sort xpath references `$calculated_property` and the calc
 		// xpath rides as a `<variable>` block inside the `<xpath>`.
 		const xml = emitCalculatedSortBlock({
 			order: 1,
