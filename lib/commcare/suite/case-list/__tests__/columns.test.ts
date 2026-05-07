@@ -36,14 +36,40 @@ import {
 } from "@/lib/domain";
 import { literal, prop, term } from "@/lib/domain/predicate/builders";
 import { emitCalculatedColumnField, emitColumnField } from "../columns";
-import type { CaseListEmitContext } from "../types";
+import type { CaseListEmission, CaseListEmitContext } from "../types";
 
-// Empty context — module index 0, no sort keys. Tests that need
-// a sort key construct their own context locally.
+// Empty short-detail context — module index 0, no sort keys.
+// Tests that need a sort key construct their own context locally.
+// The unit-test surface targets the short detail at this layer;
+// long-detail-specific divergences (no `<sort>` blocks, phone
+// `template form`, search-only skip) are pinned in
+// `__tests__/longDetail.test.ts`.
 const emptyCtx: CaseListEmitContext = {
 	moduleIndex: 0,
 	sort: [],
+	detailKind: "short",
 };
+
+/**
+ * Test helper — narrow `emitColumnField`'s
+ * `CaseListEmission | undefined` return to a defined emission for
+ * the short-detail unit-test cases. Every non-search-only kind
+ * always emits a field on short detail; search-only on short
+ * detail also emits (a hidden one). The `undefined` arm exists
+ * for the `search-only` × `long detail` combination only and is
+ * exercised in the long-detail test file.
+ */
+function requireEmission(
+	emission: CaseListEmission | undefined,
+): CaseListEmission {
+	if (emission === undefined) {
+		throw new Error(
+			"requireEmission: expected a defined emission, got undefined; " +
+				"every Column kind emits a `<field>` on short detail",
+		);
+	}
+	return emission;
+}
 
 // ============================================================
 // Shell 1 — per-kind regular column emission
@@ -52,7 +78,9 @@ const emptyCtx: CaseListEmitContext = {
 describe("emitColumnField — plain", () => {
 	it("emits a bare property reference inside the template", () => {
 		const col = plainColumn("name", "Name");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		expect(out.xml).toContain("<field>");
 		expect(out.xml).toContain('<xpath function="name"/>');
 		// The header references the CCHQ-canonical locale id shape.
@@ -66,8 +94,12 @@ describe("emitColumnField — plain", () => {
 	it("uses the 1-based position to disambiguate two columns on the same property", () => {
 		const colA = plainColumn("name", "Name A");
 		const colB = plainColumn("name", "Name B");
-		const a = emitColumnField({ column: colA, position: 1, ctx: emptyCtx });
-		const b = emitColumnField({ column: colB, position: 2, ctx: emptyCtx });
+		const a = requireEmission(
+			emitColumnField({ column: colA, position: 1, ctx: emptyCtx }),
+		);
+		const b = requireEmission(
+			emitColumnField({ column: colB, position: 2, ctx: emptyCtx }),
+		);
 		expect(a.xml).toContain("m0.case_short.case_name_1.header");
 		expect(b.xml).toContain("m0.case_short.case_name_2.header");
 	});
@@ -76,7 +108,9 @@ describe("emitColumnField — plain", () => {
 describe("emitColumnField — date", () => {
 	it("wraps the property in CCHQ's empty-string-guarded format-date shape", () => {
 		const col = dateColumn("opened_on", "Opened", "%d/%m/%Y");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// CCHQ's date-format wire shape: per
 		// `detail_screen.py::Date`, `if({xpath} = '', '', format-date(date({xpath}), 'pattern'))`.
 		// Attribute escaping flips `'` to `&apos;` … no, single quotes
@@ -92,7 +126,9 @@ describe("emitColumnField — date", () => {
 		// shape if the helper interpolated naively; the concat-fallback
 		// shape `concat('', "'", 'em%dpattern')` preserves the literal.
 		const col = dateColumn("opened_on", "Opened", "'em%dpattern");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		expect(out.xml).toContain("concat(");
 		expect(out.xml).toContain(`&quot;'&quot;`);
 	});
@@ -107,7 +143,9 @@ describe("emitColumnField — time-since-until", () => {
 			"weeks",
 			"Overdue",
 		);
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Divisor for weeks = 7; threshold in days = 4 * 7 = 28.
 		// Inner shape: `string(int((today() - date(last_visit)) div 7))`.
 		expect(out.xml).toContain(
@@ -123,7 +161,9 @@ describe("emitColumnField — time-since-until", () => {
 
 	it("uses 365.25 as the divisor for years-unit columns", () => {
 		const col = timeSinceUntilColumn("dob", "Age", 18, "years", "Adult");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Divisor for years = 365.25; threshold = 18 * 365.25 = 6574.5.
 		expect(out.xml).toContain("(today() - date(dob)) div 365.25");
 		expect(out.xml).toContain("today() - date(dob) &gt; 6574.5");
@@ -137,7 +177,9 @@ describe("emitColumnField — time-since-until", () => {
 			"months",
 			"Aged",
 		);
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Divisor for months = 365.25 / 12 = 30.4375; threshold = 3 * 30.4375 = 91.3125.
 		expect(out.xml).toContain("(today() - date(opened_on)) div 30.4375");
 		expect(out.xml).toContain("today() - date(opened_on) &gt; 91.3125");
@@ -145,7 +187,9 @@ describe("emitColumnField — time-since-until", () => {
 
 	it("uses 1 as the divisor for days-unit columns", () => {
 		const col = timeSinceUntilColumn("last_visit", "Days", 7, "days", "Late");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		expect(out.xml).toContain("(today() - date(last_visit)) div 1");
 		expect(out.xml).toContain("today() - date(last_visit) &gt; 7");
 	});
@@ -158,7 +202,9 @@ describe("emitColumnField — phone", () => {
 		// up `template_form="phone"` (per
 		// `detail_screen.py::Phone.template_form`).
 		const col = phoneColumn("phone", "Phone");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		expect(out.xml).not.toContain('form="phone"');
 	});
@@ -170,7 +216,9 @@ describe("emitColumnField — id-mapping", () => {
 			idMappingEntry("N", "North"),
 			idMappingEntry("S", "South"),
 		]);
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// CCHQ's `xml_models.py::XPathEnum.build` shape (the
 		// `enum`-display arm wraps the per-key `if(selected(...))`
 		// chain in `replace(join(' ', ..., ''), '\s+', ' ')`).
@@ -183,7 +231,9 @@ describe("emitColumnField — id-mapping", () => {
 
 	it("emits the empty-string XPath for a zero-entry mapping", () => {
 		const col = idMappingColumn("region_code", "Region", []);
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Empty mapping => `''` literal.
 		expect(out.xml).toContain("<xpath function=\"''\"/>");
 	});
@@ -192,7 +242,9 @@ describe("emitColumnField — id-mapping", () => {
 		const col = idMappingColumn("region_code", "Region", [
 			idMappingEntry("O'Brien", "O'Brien region"),
 		]);
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Each side flips to a concat-fallback shape because the
 		// embedded `'` can't fit a single-quoted XPath string literal.
 		expect(out.xml).toContain("concat(");
@@ -206,7 +258,9 @@ describe("emitColumnField — id-mapping", () => {
 describe("emitColumnField — late-flag", () => {
 	it("emits both the absent-and-overdue branches with the author's flag string", () => {
 		const col = lateFlagColumn("last_visit", "Overdue", 30, "days", "!");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// CCHQ's wire shape per `detail_screen.py::LateFlag.XPATH_FUNCTION`:
 		// `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <threshold>, '<flag>', ''))`.
 		// Threshold for days × 30 = 30.
@@ -217,14 +271,18 @@ describe("emitColumnField — late-flag", () => {
 
 	it("multiplies by the days-equivalent divisor for non-day units", () => {
 		const col = lateFlagColumn("last_visit", "Overdue", 4, "weeks", "!");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Threshold = 4 * 7 = 28 days.
 		expect(out.xml).toContain("today() - date(last_visit) &gt; 28");
 	});
 
 	it("escapes embedded quotes in the flag display value", () => {
 		const col = lateFlagColumn("last_visit", "Overdue", 30, "days", "I'm late");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// Concat-fallback flips a single-quoted literal to a concat
 		// shape because the value carries `'`.
 		expect(out.xml).toContain("concat(");
@@ -234,7 +292,9 @@ describe("emitColumnField — late-flag", () => {
 describe("emitColumnField — search-only", () => {
 	it("emits a hidden field with width=0 on header and template", () => {
 		const col = searchOnlyColumn("phone", "Phone");
-		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx: emptyCtx }),
+		);
 		// CCHQ's `Invisible` format pattern — width=0 on both halves
 		// via `detail_screen.py::HideShortColumn.template_width`
 		// returning `0` (and `HideShortHeaderColumn.header` rendering
@@ -257,9 +317,12 @@ describe("emitColumnField — search-only", () => {
 		const col = searchOnlyColumn("phone", "Phone");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(propertySortSource("phone"), "plain", "asc")],
 		};
-		const out = emitColumnField({ column: col, position: 1, ctx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx }),
+		);
 		expect(out.xml).not.toContain("<sort");
 	});
 });
@@ -308,6 +371,7 @@ describe("emitCalculatedColumnField", () => {
 		);
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(calculatedSortSource("my_calc"), "plain", "desc")],
 		};
 		const out = emitCalculatedColumnField({
@@ -340,6 +404,7 @@ describe("emitCalculatedColumnField", () => {
 		// `sort` slot takes effect.
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(propertySortSource("name"), "plain", "asc")],
 		};
 		const out = emitCalculatedColumnField({
@@ -368,6 +433,7 @@ describe("emitCalculatedColumnField", () => {
 		);
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(calculatedSortSource("my_calc"), "integer", "desc")],
 		};
 		const out = emitCalculatedColumnField({
@@ -405,9 +471,12 @@ describe("emitColumnField — sort integration", () => {
 		const col = plainColumn("name", "Name");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(propertySortSource("name"), "plain", "asc")],
 		};
-		const out = emitColumnField({ column: col, position: 1, ctx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx }),
+		);
 		expect(out.xml).toContain("<sort");
 		expect(out.xml).toContain('order="1"');
 		expect(out.xml).toContain('direction="ascending"');
@@ -423,9 +492,12 @@ describe("emitColumnField — sort integration", () => {
 		const col = dateColumn("opened_on", "Opened", "%d/%m/%Y");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(propertySortSource("opened_on"), "date", "desc")],
 		};
-		const out = emitColumnField({ column: col, position: 1, ctx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx }),
+		);
 		// Display xpath is the wrapped format-date shape; sort xpath
 		// is the bare property.
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
@@ -437,9 +509,12 @@ describe("emitColumnField — sort integration", () => {
 		const col = plainColumn("name", "Name");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [sortKey(propertySortSource("birthdate"), "date", "desc")],
 		};
-		const out = emitColumnField({ column: col, position: 1, ctx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 1, ctx }),
+		);
 		expect(out.xml).not.toContain("<sort");
 	});
 
@@ -447,12 +522,15 @@ describe("emitColumnField — sort integration", () => {
 		const col = plainColumn("name", "Name");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
+			detailKind: "short",
 			sort: [
 				sortKey(propertySortSource("birthdate"), "date", "desc"),
 				sortKey(propertySortSource("name"), "plain", "asc"),
 			],
 		};
-		const out = emitColumnField({ column: col, position: 99, ctx });
+		const out = requireEmission(
+			emitColumnField({ column: col, position: 99, ctx }),
+		);
 		// `position` (column position) does NOT influence sort order;
 		// only the index in `ctx.sort` does. `name` sits at index 1
 		// of `ctx.sort`, so order = 2.
@@ -481,11 +559,13 @@ describe("emitColumnField — Column union coverage", () => {
 			searchOnlyColumn("g", "G"),
 		];
 		for (let i = 0; i < columns.length; i++) {
-			const out = emitColumnField({
-				column: columns[i],
-				position: i + 1,
-				ctx: emptyCtx,
-			});
+			const out = requireEmission(
+				emitColumnField({
+					column: columns[i],
+					position: i + 1,
+					ctx: emptyCtx,
+				}),
+			);
 			expect(out.xml.startsWith("    <field>")).toBe(true);
 			expect(out.xml.endsWith("    </field>")).toBe(true);
 		}

@@ -91,19 +91,27 @@ export function emitShortDetail(args: {
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
 		sort: config.sort,
+		detailKind: "short",
 	};
 
 	const fields: string[] = [];
 	const strings: Record<string, string> = {};
 
 	// Pass 1 — regular columns. Position is 1-based, consumed by
-	// the per-column header-locale composer.
+	// the per-column header-locale composer. `emitColumnField`
+	// can return `undefined` to signal a column that produces no
+	// `<field>` on this surface; on short detail every `Column`
+	// arm produces a field, so the `undefined` branch is
+	// structurally unreachable here. The check stays in place so
+	// the orchestrator's contract with the per-column emitter is
+	// uniform across surfaces.
 	for (let i = 0; i < config.columns.length; i++) {
 		const emission = emitColumnField({
 			column: config.columns[i],
 			position: i + 1,
 			ctx,
 		});
+		if (emission === undefined) continue;
 		fields.push(emission.xml);
 		Object.assign(strings, emission.strings);
 	}
@@ -141,12 +149,10 @@ export function emitShortDetail(args: {
  * through the built-in `cchq.case` locale; field lines slot in
  * between the title and the closing tag.
  *
- * The two-line indent style mirrors the existing compiler.ts
- * `generateDetail` layout so the swap-in lands a structurally
- * familiar block at the suite-XML level. Indentation in the
- * resulting suite.xml follows the parent-compiler convention:
- * `<detail>` and its children indent by two spaces from the
- * `<suite>` root; nested `<field>` content adds two more.
+ * The two-line indent style mirrors the surrounding compiler's
+ * suite-XML layout — `<detail>` and its children indent by two
+ * spaces from the `<suite>` root; nested `<field>` content adds
+ * two more.
  */
 function emitDetailShell(detailId: string, fields: readonly string[]): string {
 	const titleBlock = [

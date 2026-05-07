@@ -25,7 +25,6 @@ import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
 import { parseDocument } from "htmlparser2";
 import {
-	type DetailColumn,
 	escapeXml,
 	type FormActions,
 	type HqApplication,
@@ -34,6 +33,7 @@ import {
 	validateXFormPath,
 } from "@/lib/commcare";
 import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
+import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
@@ -89,15 +89,15 @@ export function compileCcz(
 		// Case detail definitions — emitted only when the module has a case
 		// type. Short + long details are always paired.
 		//
-		// Short detail emits through the typed emitter at
-		// `@/lib/commcare/suite/case-list/shortDetail.ts`, which walks
-		// `module.caseListConfig` directly (the typed `Column`
-		// discriminated union, sort keys, calculated columns) and returns
+		// Both surfaces emit through typed emitters at
+		// `@/lib/commcare/suite/case-list/{shortDetail,longDetail}.ts`,
+		// which walk `module.caseListConfig` directly (the typed
+		// `Column` discriminated union, sort keys, calculated columns,
+		// optional `detailColumns` long-detail override) and return
 		// both the suite-XML fragment and the locale-id → header-string
-		// map the runtime renders against. Long detail flows through the
-		// HQ-JSON-driven `generateDetail` helper below — the short path
-		// reads the typed config; the long path reads the flat
-		// `DetailColumn[]` projected onto `hqMod.case_details.long`.
+		// map the runtime renders against. The HQ-JSON projection on
+		// `hqMod.case_details` is no longer consulted here; the typed
+		// emitters own the wire shape end-to-end.
 		//
 		// Both detail blocks resolve their `<title>` through CCHQ's
 		// built-in `cchq.case` locale (registered with
@@ -112,25 +112,9 @@ export function compileCcz(
 			suiteDetails.push(shortEmission.xml);
 			Object.assign(appStrings, shortEmission.strings);
 
-			suiteDetails.push(
-				generateDetail(
-					`m${mIdx}_case_long`,
-					"long",
-					hqMod.case_details.long.columns,
-				),
-			);
-
-			// Long-detail header registration uses the
-			// `m{n}_{field}_header` locale-id shape that
-			// `generateDetail` references for each column's `<header>`
-			// `<locale>` slot. The short-detail emitter owns its own
-			// locale ids end-to-end (CCHQ-canonical
-			// `m{n}.case_short.case_<field>_<i>.header` shape) and
-			// threads them through `shortEmission.strings`.
-			for (const col of hqMod.case_details.long.columns) {
-				const headerKey = `m${mIdx}_${col.field}_header`;
-				appStrings[headerKey] = col.header.en || col.field;
-			}
+			const longEmission = emitLongDetail({ module: mod, moduleIndex: mIdx });
+			suiteDetails.push(longEmission.xml);
+			Object.assign(appStrings, longEmission.strings);
 		}
 
 		const menuCommands: string[] = [];
@@ -287,38 +271,6 @@ function generateProfile(appName: string): string {
     </resource>
   </suite>
 </profile>`;
-}
-
-/**
- * Render a single `<detail>` block for suite.xml from a flat
- * `DetailColumn[]` (HQ JSON shape). Backs long-detail emission;
- * short detail uses the typed emitter at `emitShortDetail` and
- * never reaches this function.
- *
- * Title resolves through CCHQ's built-in `cchq.case` locale
- * (registered with `default="Case"` at
- * `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`)
- * — same pattern as the short-detail emitter, so both `<detail>`
- * blocks display a consistent runtime title without needing
- * app-strings entries.
- *
- * The zero-column long detail collapses to a title-only stub.
- */
-function generateDetail(
-	id: string,
-	display: string,
-	columns: DetailColumn[],
-): string {
-	if (columns.length === 0 && display === "long") {
-		return `  <detail id="${id}">\n    <title><text><locale id="cchq.case"/></text></title>\n  </detail>`;
-	}
-
-	const fields = columns.map((col) => {
-		const field = col.field || "name";
-		return `    <field>\n      <header><text><locale id="${id}_${field}_header"/></text></header>\n      <template><text><xpath function="${field}"/></text></template>\n    </field>`;
-	});
-
-	return `  <detail id="${id}">\n    <title><text><locale id="cchq.case"/></text></title>\n${fields.join("\n")}\n  </detail>`;
 }
 
 /**

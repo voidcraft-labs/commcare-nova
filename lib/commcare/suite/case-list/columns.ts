@@ -1,11 +1,15 @@
 // lib/commcare/suite/case-list/columns.ts
 //
 // Per-`Column` and per-`CalculatedColumn` `<field>` block emission
-// for the suite-XML case-list short detail. Each column produces
-// one `<field>` element matching CCHQ's wire vocabulary at
+// for the suite-XML case-list detail. Each column produces one
+// `<field>` element matching CCHQ's wire vocabulary at
 // `commcare-hq/corehq/apps/app_manager/detail_screen.py` —
 // per-format-class XPath templates pin the per-kind display +
-// sort behavior.
+// sort behavior. The same emitters service both detail surfaces
+// (short + long); per-surface divergences (locale-id substring,
+// `<sort>` block presence, `<template form="phone">` on long-only,
+// `search-only` skip on long-only) flow through the
+// `CaseListEmitContext.detailKind` discriminator.
 //
 // The seven Nova column kinds map to CCHQ formats as follows:
 //
@@ -38,12 +42,15 @@
 //     raw `{xpath}`.
 //
 //   - `phone`             → CCHQ `detail_screen.py::Phone` format.
-//     Same XPath as `plain`; CCHQ's case-list short detail
-//     renders phone columns as the raw property text. (The long
-//     detail picks up `template_form="phone"` for the tappable-
-//     link affordance per `detail_screen.py::Phone.template_form`
-//     — out of scope here; this module emits only the short
-//     detail.)
+//     Same XPath as `plain`; the divergence between the two
+//     detail surfaces is the `<template>` element's `form`
+//     attribute. CCHQ's
+//     `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`
+//     returns `'phone'` only when `detail.display == 'long'`; on
+//     long detail the runtime renders a tappable-link affordance,
+//     on short detail a bare text cell. The `detailKind`
+//     discriminator routes a phone column to either
+//     `<template>` or `<template form="phone">` accordingly.
 //
 //   - `id-mapping`        → CCHQ `detail_screen.py::Enum` format.
 //     Wire shape:
@@ -68,19 +75,30 @@
 //
 //   - `search-only`       → CCHQ `detail_screen.py::Invisible`
 //     format (which inherits `HideShortColumn` →
-//     `HideShortHeaderColumn`). Wire shape: a `<field>` with
-//     `width="0"` on both `<header>` and `<template>` so the
-//     runtime hides the column from the case list while preserving
-//     the property as a sort / search target. Search-only columns
-//     never carry a sort key per the schema's distinction (the
-//     validator's `searchInputModeMatchesPropertyType` rule pins
-//     each search-only declaration to a search-input slot).
+//     `HideShortHeaderColumn`). On short detail, wire shape: a
+//     `<field>` with `width="0"` on both `<header>` and
+//     `<template>` so the runtime hides the column from the case
+//     list while preserving the property as a sort / search
+//     target. On long detail, the column emits NO `<field>` at
+//     all — Nova's authoring vocabulary defines `search-only` as
+//     a search/filter target with no display affordance, and the
+//     case-detail screen has no search/filter affordance. The
+//     orchestrator handles the skip; the per-Column emitter
+//     returns `undefined` to signal the absence.
 //
 // Calculated columns ride a separate emit path in `emitCalculatedColumnField`
 // — the `<template>` body wraps `$calculated_property` around the
 // inline value-expression emission, mirroring CCHQ's
 // `useXpathExpression` branch in
 // `detail_screen.py::FormattedDetailColumn.template`.
+//
+// `<sort>` block emission is detail-surface-aware. Short detail
+// emits sort blocks for both property-rooted and calculated
+// columns when `caseListConfig.sort` (or `CalculatedColumn.sort`)
+// targets them. Long detail emits no `<sort>` blocks for the
+// non-nodeset case, matching CCHQ's
+// `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
+// short-circuit on `self.detail.display != 'short'`.
 
 import type {
 	CalculatedColumn,
@@ -96,7 +114,24 @@ import {
 	emitSortBlock,
 	findSortKey,
 } from "./sortKeys";
-import type { CaseListEmission, CaseListEmitContext } from "./types";
+import type {
+	CaseListEmission,
+	CaseListEmitContext,
+	DetailKind,
+} from "./types";
+
+/**
+ * The CCHQ `detail_type` substring carried in column header
+ * locale ids per
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`.
+ * The two surfaces' ids share every other segment; only this
+ * token differs (`case_short` vs `case_long`). Centralising the
+ * map keeps the locale-id composers symmetric across surfaces.
+ */
+const DETAIL_KIND_LOCALE_TYPE: Readonly<Record<DetailKind, string>> = {
+	short: "case_short",
+	long: "case_long",
+};
 
 /**
  * Days-equivalent divisor for each `TimeSinceUnit` arm. Shared by
@@ -150,21 +185,25 @@ function formatTimeAgoDivisor(divisor: number): string {
  * whose `@pattern('m%d.%s.%s_%s_%d.header')` decorator + body
  * f-string produce
  * `m{module.id}.{detail_type}.{column.model}_{field}_{column.id+1}.header`,
- * where `column.model` is `'case'` for case-detail columns. The
- * `column.id + 1` step keys the suffix to the global 1-based
- * position of the column within its detail (regular columns +
- * calculated columns share the count).
+ * where `column.model` is `'case'` for case-detail columns and
+ * `detail_type` is `case_short` / `case_long` per
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`.
+ * The `column.id + 1` step keys the suffix to the global
+ * 1-based position of the column within its detail (regular
+ * columns + calculated columns share the count).
  *
  * The 1-based index disambiguates duplicate-property columns
  * (the same property rendered through two different format
  * kinds, e.g. plain text + late-flag).
  */
-function shortDetailHeaderLocaleId(
+function detailHeaderLocaleId(
+	detailKind: DetailKind,
 	moduleIndex: number,
 	field: string,
 	position: number,
 ): string {
-	return `m${moduleIndex}.case_short.case_${field}_${position}.header`;
+	const localeType = DETAIL_KIND_LOCALE_TYPE[detailKind];
+	return `m${moduleIndex}.${localeType}.case_${field}_${position}.header`;
 }
 
 /**
@@ -177,11 +216,13 @@ function shortDetailHeaderLocaleId(
  * orchestrator passes `regularColumnCount + calcIndex + 1` so
  * the count continues across the regular-column pass.
  */
-function shortDetailCalculatedHeaderLocaleId(
+function detailCalculatedHeaderLocaleId(
+	detailKind: DetailKind,
 	moduleIndex: number,
 	position: number,
 ): string {
-	return `m${moduleIndex}.case_short.case_calculated_property_${position}.header`;
+	const localeType = DETAIL_KIND_LOCALE_TYPE[detailKind];
+	return `m${moduleIndex}.${localeType}.case_calculated_property_${position}.header`;
 }
 
 /**
@@ -210,10 +251,23 @@ function emitHeaderBlock(localeId: string): string {
  * by `lib/commcare/expression/onDeviceEmitter.ts` and the per-
  * format helpers below quotes string literals with single
  * quotes, so the attribute's enclosing double quotes stay safe.
+ *
+ * `form` is the optional CCHQ `<template form="...">` attribute.
+ * Carries `'phone'` for long-detail phone columns per
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`,
+ * which the runtime renders as a tappable-link affordance. CCHQ
+ * supports a wider set of `form` values for the long detail
+ * (`address`, `image`, `audio`, et al per
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py`) — Nova's
+ * authoring vocabulary covers `phone` only at this surface.
  */
-function emitTemplateBlock(xpathFunction: string): string {
+function emitTemplateBlock(
+	xpathFunction: string,
+	form: string | undefined = undefined,
+): string {
+	const formAttr = form !== undefined ? ` form="${form}"` : "";
 	return [
-		`      <template>`,
+		`      <template${formAttr}>`,
 		`        <text>`,
 		`          <xpath function="${escapeXml(xpathFunction)}"/>`,
 		`        </text>`,
@@ -362,11 +416,11 @@ function timeSinceUntilDisplayXpath(args: {
  * Phone column display XPath. CCHQ's
  * `detail_screen.py::Phone` format inherits
  * `XPATH_FUNCTION = "{xpath}"` from the base
- * `FormattedDetailColumn` — the per-format divergence is
- * `template_form="phone"`, applied only on the long detail
- * (`detail_screen.py::Phone.template_form` returns a value when
- * `detail.display == 'long'`). Short detail emits a bare property
- * reference.
+ * `FormattedDetailColumn` — both detail surfaces emit a bare
+ * property reference here. The per-surface divergence
+ * (`<template form="phone">` on long, bare `<template>` on
+ * short) lives at the `<template>` element level via
+ * `emitTemplateBlock`'s `form` parameter, not in the XPath.
  */
 function phoneDisplayXpath(field: string): string {
 	return field;
@@ -542,31 +596,66 @@ function resolveColumnXpaths(column: DisplayedColumn): {
 }
 
 /**
+ * Resolve the per-Column `<template>` `form` attribute. Returns
+ * `undefined` for the bare-template case and a string for surfaces
+ * that carry a CCHQ `form` attribute. Centralising the lookup keeps
+ * the per-kind / per-surface matrix in one place.
+ *
+ * Today only `phone` on long detail surfaces a non-`undefined`
+ * value — `'phone'` per
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`.
+ * Other CCHQ `template_form` values (`address`, `image`, `audio`,
+ * et al) belong to column kinds Nova does not author at this
+ * layer.
+ */
+function templateFormFor(
+	column: DisplayedColumn,
+	detailKind: DetailKind,
+): string | undefined {
+	if (column.kind === "phone" && detailKind === "long") return "phone";
+	return undefined;
+}
+
+/**
  * Emit one `<field>` block for a regular (property-rooted) column.
  * The position is 1-based — the surrounding orchestrator passes
  * the column's index plus 1 so the locale-id suffix matches CCHQ's
  * `detail_column_header_locale` convention.
  *
- * Search-only columns route through `emitHiddenFieldBody` (a
- * `width="0"` header + template pair) without a `<sort>` block;
- * every other kind uses the standard `<header>` / `<template>`
- * pair and may carry a `<sort>` block when a key in
- * `ctx.sort` targets the column's property.
+ * Three return shapes:
+ *
+ *   - `undefined` — the column doesn't produce a `<field>` on
+ *     this surface. Today's only path is `search-only` on long
+ *     detail (per `DetailKind`'s authoring-vocabulary contract).
+ *     The orchestrator skips the result; the 1-based position
+ *     counter still advances for the skipped slot, matching
+ *     CCHQ's `column.id`-keyed numbering convention.
+ *   - hidden `<field>` — `search-only` on short detail uses
+ *     `emitHiddenFieldBody` (`width="0"` header + template pair)
+ *     without a `<sort>` block. The `<field>` exists only so the
+ *     property is declared at the detail layer for downstream
+ *     search-input emission to bind against.
+ *   - normal `<field>` — every other kind uses the standard
+ *     `<header>` / `<template>` pair, may carry a `<template>`
+ *     `form` attribute (long-detail phone columns), and may
+ *     carry a `<sort>` block on short detail when a key in
+ *     `ctx.sort` targets the column's property. Long detail emits
+ *     no `<sort>` blocks regardless of `ctx.sort` content.
  */
 export function emitColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
-}): CaseListEmission {
+}): CaseListEmission | undefined {
 	const { column, position, ctx } = args;
 
-	// Search-only columns short-circuit before the
-	// `resolveColumnXpaths` dispatcher: their hidden body has no
-	// slot for either display or sort xpath, and they never
-	// register a header string. The `<field>` exists only so the
-	// property is declared at the detail layer for downstream
-	// search-input emission to bind against.
+	// Search-only columns split by detail surface. Long detail
+	// emits no field for them — Nova's authoring vocabulary
+	// defines `search-only` as a search/filter target with no
+	// display affordance, and the case-detail screen has no
+	// search/filter affordance.
 	if (column.kind === "search-only") {
+		if (ctx.detailKind === "long") return undefined;
 		const xml = `    <field>\n${emitHiddenFieldBody(column.field)}\n    </field>`;
 		return { xml, strings: {} };
 	}
@@ -576,13 +665,17 @@ export function emitColumnField(args: {
 	// is enough for TypeScript to admit `column` as
 	// `DisplayedColumn` here.
 	const xpaths = resolveColumnXpaths(column);
-	const headerLocaleId = shortDetailHeaderLocaleId(
+	const headerLocaleId = detailHeaderLocaleId(
+		ctx.detailKind,
 		ctx.moduleIndex,
 		column.field,
 		position,
 	);
 	const headerXml = emitHeaderBlock(headerLocaleId);
-	const templateXml = emitTemplateBlock(xpaths.display);
+	const templateXml = emitTemplateBlock(
+		xpaths.display,
+		templateFormFor(column, ctx.detailKind),
+	);
 	const sortXml = resolvePropertySortXml(column, xpaths.sort, ctx);
 	const parts = [`    <field>`, headerXml, templateXml];
 	if (sortXml !== undefined) parts.push(sortXml);
@@ -599,10 +692,17 @@ export function emitColumnField(args: {
 
 /**
  * Resolve a property-rooted column's `<sort>` block (or absence
- * thereof). Walks `ctx.sort` for a property-source key matching
- * the column's `field`; emits the wire-shape `<sort>` block when
- * one matches, returns `undefined` otherwise so the caller skips
- * the slot.
+ * thereof). On short detail, walks `ctx.sort` for a
+ * property-source key matching the column's `field` and emits
+ * the wire-shape `<sort>` block when one matches. On long detail,
+ * always returns `undefined` — CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
+ * short-circuits when `self.detail.display != 'short'` (modulo
+ * nodeset-column tabs not modelled in `caseListConfig`), and the
+ * canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
+ * has zero `<sort>` blocks despite a multi-key sort on the parent
+ * module's short detail.
  *
  * Restricted to `DisplayedColumn` because search-only columns
  * never reach this resolver — their emit path short-circuits in
@@ -613,6 +713,7 @@ function resolvePropertySortXml(
 	sortXpath: string,
 	ctx: CaseListEmitContext,
 ): string | undefined {
+	if (ctx.detailKind === "long") return undefined;
 	const match = findSortKey(ctx.sort, {
 		kind: "property",
 		property: column.field,
@@ -650,7 +751,8 @@ export function emitCalculatedColumnField(args: {
 }): CaseListEmission {
 	const { calculated, position, ctx } = args;
 	const calcXpath = emitOnDeviceExpression(calculated.expression);
-	const headerLocaleId = shortDetailCalculatedHeaderLocaleId(
+	const headerLocaleId = detailCalculatedHeaderLocaleId(
+		ctx.detailKind,
 		ctx.moduleIndex,
 		position,
 	);
@@ -659,8 +761,17 @@ export function emitCalculatedColumnField(args: {
 
 	const parts: string[] = [`    <field>`, headerXml, templateXml];
 
-	// Sort resolution for calculated columns has two paths the
-	// schema admits:
+	// Sort resolution for calculated columns is short-detail-only.
+	// Long detail emits no `<sort>` blocks per the same CCHQ rule
+	// `resolvePropertySortXml` documents
+	// (`detail_screen.py::FormattedDetailColumn.sort_node`
+	// short-circuits on `self.detail.display != 'short'`); the
+	// canonical fixture
+	// `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml::<detail id="m0_case_long">`
+	// carries three calculated-property fields with zero `<sort>`
+	// blocks.
+	//
+	// Within the short-detail branch, two paths the schema admits:
 	//
 	//   1. A module-level sort key targets the calc by id
 	//      (`SortKey.source.kind === "calculated"`). The calc
@@ -683,28 +794,30 @@ export function emitCalculatedColumnField(args: {
 	// A module-level key wins over a calc-local sort when both
 	// are authored — the module-level array is the canonical
 	// multi-key spec.
-	const moduleSortMatch = findSortKey(ctx.sort, {
-		kind: "calculated",
-		id: calculated.id,
-	});
-	if (moduleSortMatch !== undefined) {
-		parts.push(
-			emitCalculatedSortBlock({
-				order: moduleSortMatch.order,
-				direction: moduleSortMatch.key.direction,
-				type: moduleSortMatch.key.type,
-				calcXpath,
-			}),
-		);
-	} else if (calculated.sort !== undefined) {
-		parts.push(
-			emitCalculatedSortBlock({
-				order: undefined,
-				direction: calculated.sort.direction,
-				type: calculated.sort.type,
-				calcXpath,
-			}),
-		);
+	if (ctx.detailKind === "short") {
+		const moduleSortMatch = findSortKey(ctx.sort, {
+			kind: "calculated",
+			id: calculated.id,
+		});
+		if (moduleSortMatch !== undefined) {
+			parts.push(
+				emitCalculatedSortBlock({
+					order: moduleSortMatch.order,
+					direction: moduleSortMatch.key.direction,
+					type: moduleSortMatch.key.type,
+					calcXpath,
+				}),
+			);
+		} else if (calculated.sort !== undefined) {
+			parts.push(
+				emitCalculatedSortBlock({
+					order: undefined,
+					direction: calculated.sort.direction,
+					type: calculated.sort.type,
+					calcXpath,
+				}),
+			);
+		}
 	}
 
 	parts.push(`    </field>`);
