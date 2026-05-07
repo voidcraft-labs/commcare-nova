@@ -18,7 +18,7 @@ import type { BlueprintDoc, Module } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, matchAll, prop } from "@/lib/domain/predicate";
 import { setCaseListFilterTool } from "../setCaseListFilter";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListFixture, makeCaseListMcpFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
@@ -233,6 +233,71 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig?.searchInputs).toEqual([]);
 		// `detailColumns` stays absent — schema-default for the
 		// mirror-short-detail case.
+		expect(finalConfig?.detailColumns).toBeUndefined();
+	});
+
+	it("emits the same mutation batch through chat + MCP contexts", async () => {
+		// Cross-surface parity sentinel — driving the same input
+		// through both surfaces' `ToolExecutionContext` implementations
+		// must produce structurally identical mutation batches. The
+		// tool body is ctx-shape-agnostic by construction; this test
+		// pins that contract so future ctx-aware logic added to the
+		// tool surface gets caught.
+		const { doc, ctx: chatCtx } = makeCaseListFixture();
+		const { ctx: mcpCtx } = makeCaseListMcpFixture();
+		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
+
+		const r1 = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter },
+			chatCtx,
+			doc,
+		);
+		const r2 = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter },
+			mcpCtx,
+			doc,
+		);
+
+		expect(r1.mutations).toEqual(r2.mutations);
+	});
+
+	it("initializes the caseListConfig when filter=null on a configless module", async () => {
+		// Edge case: `filter === null` on a module whose
+		// `caseListConfig` is undefined still materializes the config
+		// — the base-config fallback in `baseCaseListConfig` runs
+		// regardless of which slot the tool is replacing, so the
+		// resulting doc carries every required array slot at empty.
+		// Pinned here because a reader could reasonably expect a
+		// "no-op" when both the existing config and the new filter
+		// are absent. Current behavior is structurally fine (the
+		// schema's "if present, all required arrays present"
+		// contract holds); this test seals it against silent flips
+		// during future refactors.
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseMod = baseDoc.modules[MOD_A];
+		const docWithoutConfig: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
+			},
+		};
+
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter: null },
+			ctx,
+			docWithoutConfig,
+		);
+
+		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(finalConfig).toBeDefined();
+		// Every required array slot present at empty.
+		expect(finalConfig?.columns).toEqual([]);
+		expect(finalConfig?.sort).toEqual([]);
+		expect(finalConfig?.calculatedColumns).toEqual([]);
+		expect(finalConfig?.searchInputs).toEqual([]);
+		// `filter` stays absent — `null` means "no filter," and the
+		// schema treats absence as the canonical no-filter shape.
+		expect(finalConfig?.filter).toBeUndefined();
 		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 });

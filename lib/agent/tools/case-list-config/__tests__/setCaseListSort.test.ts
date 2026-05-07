@@ -24,7 +24,7 @@ import {
 	sortKey,
 } from "@/lib/domain";
 import { setCaseListSortTool } from "../setCaseListSort";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListFixture, makeCaseListMcpFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
@@ -229,5 +229,32 @@ describe("setCaseListSort", () => {
 		// the no-filter / mirror-short-detail cases.
 		expect(finalConfig?.filter).toBeUndefined();
 		expect(finalConfig?.detailColumns).toBeUndefined();
+	});
+
+	it("emits the same mutation batch through chat + MCP contexts", async () => {
+		// Cross-surface parity sentinel — driving the same input
+		// through both surfaces' `ToolExecutionContext` implementations
+		// must produce structurally identical mutation batches. The
+		// tool body is ctx-shape-agnostic by construction; this test
+		// pins that contract so future ctx-aware logic added to the
+		// tool surface gets caught.
+		const { doc, ctx: chatCtx } = makeCaseListFixture();
+		const { ctx: mcpCtx } = makeCaseListMcpFixture();
+		const sort: SortKey[] = [
+			sortKey(propertySortSource("case_name"), "plain", "asc"),
+		];
+
+		const r1 = await setCaseListSortTool.execute(
+			{ moduleIndex: 0, sort },
+			chatCtx,
+			doc,
+		);
+		const r2 = await setCaseListSortTool.execute(
+			{ moduleIndex: 0, sort },
+			mcpCtx,
+			doc,
+		);
+
+		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

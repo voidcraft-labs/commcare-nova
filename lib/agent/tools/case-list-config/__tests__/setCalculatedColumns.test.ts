@@ -21,7 +21,7 @@ import {
 } from "@/lib/domain";
 import { concat, literal, prop, term, today } from "@/lib/domain/predicate";
 import { setCalculatedColumnsTool } from "../setCalculatedColumns";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { MOD_A, makeCaseListFixture, makeCaseListMcpFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
@@ -257,5 +257,32 @@ describe("setCalculatedColumns", () => {
 		// the no-filter / mirror-short-detail cases.
 		expect(finalConfig?.filter).toBeUndefined();
 		expect(finalConfig?.detailColumns).toBeUndefined();
+	});
+
+	it("emits the same mutation batch through chat + MCP contexts", async () => {
+		// Cross-surface parity sentinel — driving the same input
+		// through both surfaces' `ToolExecutionContext` implementations
+		// must produce structurally identical mutation batches. The
+		// tool body is ctx-shape-agnostic by construction; this test
+		// pins that contract so future ctx-aware logic added to the
+		// tool surface gets caught.
+		const { doc, ctx: chatCtx } = makeCaseListFixture();
+		const { ctx: mcpCtx } = makeCaseListMcpFixture();
+		const calc: CalculatedColumn[] = [
+			calculatedColumn("today_str", "Today", today()),
+		];
+
+		const r1 = await setCalculatedColumnsTool.execute(
+			{ moduleIndex: 0, calculatedColumns: calc },
+			chatCtx,
+			doc,
+		);
+		const r2 = await setCalculatedColumnsTool.execute(
+			{ moduleIndex: 0, calculatedColumns: calc },
+			mcpCtx,
+			doc,
+		);
+
+		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });
