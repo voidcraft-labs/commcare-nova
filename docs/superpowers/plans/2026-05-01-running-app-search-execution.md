@@ -108,6 +108,8 @@ Plan 5 Task 7 changes the live-mode arm to `PreviewSurface`. After Plan 5 ships,
 
 **User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed app, navigates to a module's case list at `/build/{appId}/{moduleUuid}/cases`. Toggles to live mode (existing builder toolbar). Sees actual case rows from `CaseStore` rendering with the configured columns/sort/filter applied (replaces today's stub `CaseListScreen` rendering). Submits a registration form for that case type via the running-app surface. Returns to the case list. Sees the new case appear in the list. Clicks "Generate sample data" (Task 5). Sees additional rows appear. Clicks "Reset sample data". Sees the cases collection clear back to its prior state. End-to-end running-app loop is reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
 
+**Inherited deferral from Plan 3 Task 8.5 — unfiltered-total in filter status density.** The CaseListWorkspace's filter status header reads `"{N} condition(s) · {totalCount} cases match"` (matched count only). The original Plan 3 spec called for `"{N} condition(s) · {matchCount} of {totalCount}"` — both the matched count and the unfiltered total. Plan 5's `PostgresCaseStore` exposes both natively (a separate count query against the case-type without the filter applied is trivially addable). Plan 5 Task 7's `LoadFilterPreviewResult` (or whatever the equivalent surface for the Plan 5 running-app rendering becomes) should publish both numbers, and the workspace header should be updated to render the full `{matchCount} of {totalCount}` shape. Out of scope for the live rendering itself; in scope for Plan 5 because that's the layer where both numbers are reachable.
+
 
 ---
 

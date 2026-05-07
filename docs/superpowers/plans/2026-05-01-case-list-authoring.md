@@ -289,9 +289,54 @@ SHIPPED 2026-05-07 in commits `c5c0543c` (initial feat) → `17977de1` (CR fix-p
 Final state: 3529 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 8.5: Case List Workspace
+### Task 8.5: Case List Workspace — SHIPPED
+
+SHIPPED 2026-05-07 in commits `d67e2680` (initial feat) → `31384a72` (CR fix-pass: named hooks + useMemo removal + empty-state glass cards + onPreviewStats wiring + drift cleanup) → `238ad0df` (CR fix-pass: condition-count derivation + sticky-test cleanup + motion parity + EMPTY_CONFIG freeze + CTA gating) → `42fa5fe6` (polish: JSDoc reframe + PROPERTYLESS_CTA_HINT extraction + non-comparison branch test) on branch `feat/case-list-search`.
 
 **Origin.** Plan 3's File Structure listed `CaseListConfigPanel.tsx` ("the three-section UI shell") as a deliverable, but no Task in the original plan actually built the shell or named its mount site. Tasks 6/7/8 each shipped one inner section (DisplaySection, FiltersSection, SearchInputsSection) — the shell itself was assumed to "fall out of Tasks 6/7/8" via the ROADMAP narrative ("Tasks 6, 7, 8 compose the three sections of the case-list config panel"), but nothing in those Task descriptions named the shell as a deliverable. The user discovered this when asking "When can I run dev?" — at that point Plans 1-2 + Plan 3 Tasks 1-9 had shipped without the case-list authoring UI being reachable in the running app. This task closes that gap. The supervisor failure is documented in `~/.claude/.../memory/feedback_plan_coverage_audit_before_dispatch.md`; the audit family discovered three sibling plans with the same gap class (Plan 3 here, Plan 4 `CaseSearchConfigPanel`, Plan 5 `PreviewSurface`).
+
+**What landed:**
+
+`CaseListWorkspace.tsx` is the single-scroll three-section authoring shell rendered at `/build/[id]/{moduleUuid}/cases` in edit mode. PreviewShell adds a parallel Activity boundary keyed on `screen.type === "caseList" && mode === "edit"` — the workspace is visible in edit mode; the existing `CaseListScreen` (which Plan 5 Task 7 will replace) is visible in live mode. Both surfaces stay mounted via Activity once visited, so toggling between modes preserves each surface's internal state including scroll position.
+
+`CaseListSectionHeader.tsx` renders the sticky violet-railed section header. `position: sticky; top: 0` via Tailwind utilities; backdrop-blur on the wrapper samples scrolling content beneath; 3px violet rail with subtle glow (`shadow-[0_0_8px_rgba(139,92,246,0.4)]`) tuned so three stacked rails compose without competing; section title in the project's `font-display` (Outfit) at `text-3xl font-light`. Status-density line live-bound to the doc store via shallow selectors.
+
+`useCaseListSummary` and `useCaseListWorkspaceState` at `lib/doc/hooks/useCaseListSummary.ts` are the named domain hooks that consolidate doc reads — components no longer import the raw `useBlueprintDocShallow` directly per the boundary rule (`feedback_no_codebase_convention_excuses.md`). The summary hook exposes the shape ModuleScreen's affordance card needs (caseType, columnCount, hasFilter, searchInputCount); the workspace hook exposes everything the workspace needs including the `Predicate` reference for AST-derived state.
+
+**Live filter status density.** `FiltersPreview` exposes a new `FilterPreviewStats` callback (`onPreviewStats`) emitting `{ totalCount }` on success, `null` on every other state. `FiltersSection` threads it through to FiltersPreview; the workspace stashes the stats in state. The header renders `"{N} condition(s) · {totalCount} cases match"` where `conditionCount` is derived from the predicate AST via the `countConditions` helper (sentinels → 0, and/or → clauses.length, every other operator → 1). The original spec called for `{matchCount} of {totalCount}` — both numbers — but `LoadFilterPreviewResult` carries only the matched count today. Plan 5's `PostgresCaseStore` exposes both natively; the unfiltered-total enhancement is owned by Plan 5 Task 7.
+
+**Empty-state glass cards per section.** When a section's `caseListConfig` slice is empty, the workspace renders a violet-tinted glass card with section-specific guidance and a single CTA: "Add columns to define what users see in the case list" + Add column button (Display); "Add a filter to narrow which cases appear" + Add filter button (Filter); "Add search inputs so users can find specific cases" + Add search input button (Search). The CTAs delegate to the inner section's add affordance — no add-logic duplication. `Add column` and `Add search input` disable when the case type has no declared properties (with a `title` hint pointing at the missing properties); `Add filter` always enables because `matchAll()` is property-less.
+
+**ModuleScreen "Case List" affordance.** A violet-gradient card renders BEFORE the form list when `mod.caseType` is non-empty. Distinct visual treatment from gray-toned form rows: `from-nova-violet/[0.08] to-transparent` gradient, violet pill with `tablerListDetails` icon in `text-nova-violet-bright`, monospace case-type badge, status line `"{N} columns · {filterPresent ? '1 filter' : 'no filter'} · {N} search inputs"` (the affordance card uses simpler copy than the workspace header per the spec's per-surface vocabulary). Click navigates via `navigate.openCaseList(moduleUuid)`.
+
+**`components/builder/detail/ModuleDetail.tsx` deleted.** Confirmed dead, zero consumers. `rg ModuleDetail` returns only plan-doc historical references.
+
+**Sentinel + safety polish.** `EMPTY_CONFIG` (the never-configured-module sentinel) is deeply frozen — wrapper + each inner array via `Object.freeze`. Consumer mutation throws at runtime instead of silently leaking across modules. `motion.button` entry animation on `CaseListCard` runs once on first mount (parity with sibling form rows); Activity preserves the component instance on reveal so the animation does not replay (per `feedback_stateful_ui_truth.md`).
+
+**Hard constraints honored:**
+- No textareas, no `void <id>;` suppressions, no `@ts-ignore` / `biome-ignore` / `eslint-disable`.
+- No process / forward-projection comments. Drift sweep clean.
+- Strong typing throughout; no `as never` / `as any` / `as unknown` casts on the touched surface.
+- `'use client'` at the top of new client components.
+- `motion/react` only; `@iconify/react/offline` icons; `@base-ui/react` primitives where applicable; glass on positioner per `feedback_baseui_backdrop_filter.md`.
+- Doc-store reads via the named hooks; no raw `useBlueprintDocShallow` outside `lib/doc/hooks/`.
+
+**Tests (30 in this task's surface):**
+- Workspace section composition + order, three section header titles, status density per section (Display column count + sort summary, Filter condition count + match count + empty state, Search input count + with-default-values count + empty state).
+- Filter live-match-count flow (placeholder → resolved → null).
+- Empty-state CTA wiring; CTA disabled-state gating when case type has no properties.
+- Sticky section header rail check (data attribute sentinel; the previous `getComputedStyle` test was dropped as tautological after the inline-style workaround was reverted).
+- ModuleScreen "Case List" card renders only for case-typed modules; absent for non-case modules; navigates via `openCaseList(moduleUuid)`.
+- PreviewShell dispatches: edit + cases → workspace visible; live + cases → existing CaseListScreen visible; both stay mounted via Activity.
+- Round-trip: mount → edit a column header → unmount → remount → header preserved.
+- Integration smoke: ModuleScreen affordance click → navigate intent fires; PreviewShell at /cases → three section sentinels render. (Split into two tests because `useDeferredValue` lags the location flip under happy-dom; the chain is exercised by the two together.)
+- `countConditions` policy: sentinels (match-all, match-none) → 0; and/or with N clauses → N; non-comparison operator (is-blank) → 1. All branches pinned.
+
+Three rounds of fresh-CR review uncovered progressively-narrower issue classes (round 1: 4 spec gaps + 6 IMPORTANT + 3 MINOR around named hooks + useMemo + empty states + filter status + boundary rule; round 2: condition-count derivation + 4 MINOR cleanup; round 3: APPROVED with 3 MINOR polish + 1 plan-sync MINOR for the supervisor). Round 4 polish APPROVED clean.
+
+Final state: 3686 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Spec review (run once) found 4 gaps that overlapped with round-1 CR; round-1 fix-pass closed them.
+
+
 
 **Files:**
 - `components/builder/case-list-config/CaseListWorkspace.tsx` (NEW) — single-scroll three-section workspace shell.
@@ -313,7 +358,7 @@ Section order: Display → Filter → Search. Mirrors the authoring narrative: d
 - Section title in display-typography distinct from body (implementer chooses the display-style with the `frontend-design` skill loaded; the project's existing dark Violet Monochrome theme + `app/layout.tsx` font setup constrain the choice — pick something that pairs without competing).
 - Status-density line beneath the title, bound LIVE to the doc store via shallow selectors:
   - Display: "{N} columns · sorted by {sortSummary}" (e.g., "5 columns · sorted by date_visit ↓"). Empty state: "No columns yet — add columns to define what users see in the case list."
-  - Filter: "{N} condition(s) · {matchCount} of {totalCount} cases match" when filter present (live filter-preview match counts already shipped in Task 7's `FiltersPreview`); empty state: "No filter — all cases shown."
+  - Filter: "{N} condition(s) · {totalCount} cases match" when filter present (live match-count via Task 7's `FiltersPreview` + new `onPreviewStats` callback wired through `FiltersSection`); empty state: "No filter — all cases shown." The original spec called for `{matchCount} of {totalCount}` — both the matched count and the unfiltered total. Plan 5's `PostgresCaseStore` runtime exposes both natively; until then, only the matched count is reachable. The unfiltered-total enhancement is owned by Plan 5 (see Plan 5 Task 7).
   - Search: "{N} input(s){`,${withDefaultValueCount} with default values` if any}" when inputs present; empty state: "No search inputs — list-only view (no inline search bar)."
 - 3px violet rail beneath the header text: `h-[3px] bg-nova-violet shadow-[0_0_8px_rgba(139,92,246,0.4)]`. Soft enough that a stack of three pinned headers (when all sections are scrolled into the sticky zone simultaneously, e.g., near the bottom of the workspace) doesn't visually compete; sharp enough that the active-pinned rail reads distinct from the section's rest state.
 - Sticky implementation: `position: sticky; top: 0; z-index: var(--z-floating)` with backdrop-blur on the wrapper (`bg-[rgba(12,12,32,0.7)] backdrop-blur-md`). The blur samples scrolling editor content beneath the header for depth. The implementer must verify the blur composes correctly across all three pinned headers in the stacked-pinning state (use the project's `data-preview-scroll-container` for the scroll context).
