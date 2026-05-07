@@ -565,15 +565,38 @@ Static tabs included; nodeset-driven related-case tabs deferred to follow-up spe
 Tests: golden-file comparisons.
 
 
-### Task 13: Wire emission — nodeset filter on entry
+### Task 13: Wire emission — nodeset filter on entry — SHIPPED
 
-**Files:** `lib/commcare/suite/case-list/nodesetFilter.ts`, tests.
+SHIPPED 2026-05-07 in commit `7e7ab7d2` on branch `feat/case-list-search`.
 
-The case-list filter (`caseListConfig.filter`) compiles via Plan 1's case-list-filter emitter and is appended to the case-list nodeset on the module's `<entry>` session datum: `instance('casedb')/casedb/case[@case_type='X'][<filter>]`.
+**What landed:**
 
-When `caseListConfig.filter` is `match-all` or absent, no filter is appended.
+`lib/commcare/suite/case-list/nodesetFilter.ts` exposes `emitNodesetFilter(filter: Predicate | undefined): string`. The function delegates predicate→XPath compilation to `lib/commcare/predicate/caseListFilterEmitter.ts::emitCaseListFilter` (the shared on-device XPath emitter that all case-list-filter consumers share), then wraps the compiled XPath in `[...]` brackets for the nodeset position.
 
-Tests: golden-file comparison; verifies the filter precedence (`@case_type` filter always first, then user filter).
+`lib/commcare/session.ts::deriveSessionDatums` and `deriveEntryDefinition` accept `caseListFilter?: Predicate` as a trailing optional parameter. The compiler passes `mod.caseListConfig?.filter` verbatim — no per-call adaptation. The filter fragment threads through to the session datum's nodeset construction, where it is appended after the canonical `[@case_type='X'][@status='open']` predicates: `instance('casedb')/casedb/case[@case_type='X'][@status='open'][<filter>]`.
+
+**Filter precedence** matches `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`: case-type → status → user-filter. Verified against the canonical CCHQ implementation.
+
+**Match-all / absent collapse to empty fragment.** `match-all` is the AND-chain identity element; emitting it as a filter would be a no-op `[true()]` that adds wire bytes without semantic effect. Both `filter === undefined` and `filter.kind === "match-all"` collapse to the empty string; the resulting nodeset is `[@case_type='X'][@status='open']` with no third predicate.
+
+**Match-none emits `[false()]` faithfully.** Per `feedback_postgres_strict_ast_null_semantics.md`, the wire is faithful to the AST. Collapsing `match-none` to empty would silently widen the case list to ALL cases, contradicting authored intent. `[false()]` is the canonical XPath 1.0 way to express "match nothing" and is well-formed across every CCHQ-supported runtime. The `caseListFilterEmitter` already produces `false()` for `match-none` in the detail nodeset slot; this commit wraps it in the standard bracket pair at the session-datum nodeset position.
+
+**Filter ignored for non-case-loading forms.** `deriveSessionDatums` returns `[]` early for registration / survey forms (which don't load cases), so the filter has no effect on those form types. Pinned by a dedicated test.
+
+**Integration site:** `lib/commcare/compiler.ts::compileCcz` passes `mod.caseListConfig?.filter` to `deriveEntryDefinition` → `deriveSessionDatums` → `emitNodesetFilter`. The filter flows through the full pipeline verbatim. Pre-existing call sites that don't pass `caseListFilter` continue to compile (it's a trailing optional).
+
+**Hard constraints honored:**
+- No `void <id>;`, `@ts-ignore`, `biome-ignore`, `eslint-disable`.
+- No process / forward-projection comments. Drift sweep clean (standard + broader patterns).
+- No regex-on-XPath per `feedback_never_regex_parse_xpath.md` — all XPath construction routes through the shared on-device emitter.
+- All CCHQ citations use stable name references (`entries.py::EntriesHelper._get_nodeset_xpath`, `suite-advanced-details.xml::<datum id="case_id_case_clinic">`), never line numbers, per `feedback_no_line_numbers_in_code_comments.md`.
+- Strong typing throughout; `caseListFilter?: Predicate` (no `| null`, consistent with `predicateSchema.optional()` shape).
+
+**Tests (14 new, all green):**
+- 10 in `nodesetFilter.test.ts`: undefined / matchAll / matchNone / equality / and / or / not / nested compounds / string literals / boolean literals.
+- 4 in `session.test.ts` (integration): filter appended after case-type/status; matchAll omitted from nodeset; matchNone emitted as `[false()]`; filter ignored for non-case-loading forms.
+
+Final state: 3754 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Spec review APPROVED (every requirement met). Round 1 CR APPROVED clean (no CRITICAL / IMPORTANT findings; 2 cosmetic MINOR JSDoc nits not blocking).
 
 
 ### Task 14: Plan 3 integration test
