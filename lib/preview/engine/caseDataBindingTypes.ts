@@ -79,6 +79,52 @@ export type LoadCaseListPreviewResult =
 	| { kind: "error"; message: string };
 
 /**
+ * Result of loading the Filters-section live-preview rows + count.
+ * The Filters-section preview pairs a limited row sample (top ~10
+ * rows passing the filter) with the full matching count so the
+ * author sees both "what passes" and "how many pass" without
+ * paying for a full row fetch.
+ *
+ * Shape mirrors `LoadCaseListPreviewResult` plus a `totalCount`
+ * field on the `rows` and `empty` arms — `totalCount` is the row
+ * population matching the predicate (NOT the row sample's
+ * `rows.length`); the renderer uses both to surface "Showing N of
+ * M cases that pass this filter".
+ *
+ * Empty / missing arms have the same trust-boundary contract as
+ * `LoadCaseListPreviewResult`. The `paused` arm is NOT part of
+ * this shape because the Server Action never returns it — the
+ * client component renders the paused state locally when its
+ * `filterValid` prop is `false` and never fires the action.
+ */
+export type LoadFilterPreviewResult =
+	| {
+			kind: "rows";
+			rows: ReadonlyArray<CaseRowWithCalculated>;
+			totalCount: number;
+	  }
+	| { kind: "empty"; totalCount: 0 }
+	| { kind: "missing-case-type"; caseType: string }
+	| { kind: "schema-not-synced"; caseType: string }
+	/**
+	 * The Server Action's input failed `caseListConfigSchema`
+	 * validation at the trust boundary. Same shape as
+	 * `LoadCaseListPreviewResult`'s `invalid-config` arm — the
+	 * action is the wire boundary; an unparseable config arriving
+	 * over the wire surfaces as a typed arm rather than letting
+	 * the downstream `compilePredicate` invariant message leak
+	 * through the catchall `error` arm.
+	 */
+	| { kind: "invalid-config"; message: string }
+	/**
+	 * The Server Action's input failed `blueprintDocSchema`
+	 * validation. Same trust-boundary argument as `invalid-config`.
+	 */
+	| { kind: "invalid-blueprint"; message: string }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/**
  * Result of loading a single case by id (the case-loading form
  * path for followup / close). `missing` covers absent-id AND
  * cross-tenant — equivalent under the case-store contract.

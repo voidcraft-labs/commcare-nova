@@ -2203,5 +2203,184 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				}),
 			).rejects.toThrowError(/exceeds Postgres' 63-byte identifier cap/);
 		});
+
+		// -----------------------------------------------------------
+		// count — predicate-driven row count
+		// -----------------------------------------------------------
+		//
+		// `count(args)` returns the row population the
+		// `(appId, caseType, predicate?)` triple resolves to. The
+		// Filters-section live preview pairs the count with a
+		// limited `queryWithCalculated` against the same predicate,
+		// so the WHERE clause emitted here MUST match the
+		// predicate-narrowed `query` it pairs with — any divergence
+		// would surface as a count-vs-row-list mismatch. The four
+		// tests pin:
+		//
+		//   1. Predicate-undefined returns the total population
+		//      (matches the "no filter applied" preview state).
+		//   2. Predicate-narrowed returns the matching subset only
+		//      (the predicate compiles through the same stack as
+		//      `query`).
+		//   3. Tenant scoping — cross-tenant rows are invisible.
+		//   4. Blueprint resolves property data types in the
+		//      predicate (matches `QueryArgs.blueprint`'s contract).
+		//
+		// Three patient rows seeded across these tests; the same
+		// `(name, age)` shape `query`-related tests use, so any
+		// shared compiler-stack regression surfaces in both blocks.
+
+		it("count returns the total row population when predicate is undefined", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Bob", age: 40 }),
+				},
+			});
+
+			const total = await store.count({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(total).toBe(2);
+		});
+
+		it("count narrows to the predicate-matching subset", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Bob", age: 40 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_CAROL_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Carol", age: 35 }),
+				},
+			});
+
+			// `age > 30` matches Bob + Carol; not Alice.
+			const matchedCount = await store.count({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				predicate: gt(prop("patient", "age"), literal(30)),
+			});
+			expect(matchedCount).toBe(2);
+
+			// Predicate-undefined returns all three — pins the
+			// pair-shape contract the Filters preview relies on
+			// ("X of Y total" requires both numbers).
+			const totalCount = await store.count({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(totalCount).toBe(3);
+		});
+
+		it("count respects the bound owner — cross-tenant rows are invisible", async () => {
+			const storeA = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(storeA, blueprint, "patient");
+			await storeA.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+
+			// Owner B sees zero — the structural tenant filter on
+			// every method is the same one `query` applies. Mirrors
+			// the tenant-isolation tests above.
+			const storeB = await options.factory(OWNER_B);
+			const otherCount = await storeB.count({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(otherCount).toBe(0);
+
+			// Owner A sees the row they inserted.
+			const myCount = await storeA.count({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(myCount).toBe(1);
+		});
+
+		it("count requires a blueprint when the predicate reads a typed property", async () => {
+			// `compileTerm` resolves the property's `data_type` from
+			// `caseTypeSchemas` to pick the column cast. A predicate-
+			// reading-typed-property `count` call without a blueprint
+			// means the term compiler reaches an empty schema map
+			// and falls through to the default `text` shape — wrong
+			// cast for an `int` column would yield zero rows for an
+			// otherwise-matching predicate. This test pins the
+			// blueprint-threading contract by asserting the typed-int
+			// comparison returns the expected count when the
+			// blueprint resolves the property's `int` shape.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+
+			const matched = await store.count({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				predicate: gt(prop("patient", "age"), literal(20)),
+			});
+			expect(matched).toBe(1);
+		});
 	});
 }

@@ -108,6 +108,26 @@ export interface QueryArgs {
 }
 
 /**
+ * Arguments for `CaseStore.count`. Subset of `QueryArgs` — `count`
+ * never sorts, never paginates, and never projects calculated
+ * columns; it returns a single integer for the row population the
+ * `(appId, caseType, predicate?)` triple resolves to. `blueprint`
+ * is required when `predicate` reads a case property (same data-
+ * type-resolution contract as `QueryArgs`).
+ *
+ * Predicate-free callers pass `predicate: undefined`; the
+ * implementation skips the WHERE clause entirely so the count
+ * collapses to a sequential / index scan over the case-type
+ * partition.
+ */
+export interface CountArgs {
+	appId: string;
+	caseType: string;
+	blueprint?: BlueprintDoc;
+	predicate?: Predicate;
+}
+
+/**
  * Arguments for `CaseStore.queryWithCalculated`. Same shape as
  * `QueryArgs` plus the calculated-column projection list. Each
  * column's `expression` is compiled inline as a SELECT projection
@@ -288,6 +308,22 @@ export interface CaseStore {
 	 * timestamp prefix.
 	 */
 	query(args: QueryArgs): Promise<CaseRow[]>;
+
+	/**
+	 * Predicate-driven `COUNT(*)`. Returns the row population the
+	 * `(appId, caseType, predicate?)` triple resolves to, scoped to
+	 * the bound owner. The case-list authoring surface's Filters
+	 * section uses this to render a "N cases pass this filter"
+	 * counter without paying for a full `query` round-trip — the
+	 * predicate compiles through the same `compilePredicate` stack
+	 * as `query`, so the WHERE clause is identical to the predicate-
+	 * narrowed `query` it pairs with.
+	 *
+	 * Predicate-free callers (the "no filter applied" preview state)
+	 * pass `predicate: undefined`; the underlying SELECT collapses
+	 * to a tenant-scoped count over the case-type partition.
+	 */
+	count(args: CountArgs): Promise<number>;
 
 	/**
 	 * Predicate-driven SELECT with calculated-column projection.

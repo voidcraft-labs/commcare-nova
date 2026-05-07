@@ -57,12 +57,14 @@ import {
 	caseRowDisplayValue,
 	caseRowToFormPreload,
 	mapCaseListPreviewError,
+	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
 	pickBlueprintDoc,
 	readCaseData,
 	readCaseListPreview,
 	readCases,
+	readFilterPreview,
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
@@ -832,7 +834,7 @@ import {
 	calculatedColumn,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { eq, gt, literal, prop, term } from "@/lib/domain/predicate";
 
 function makeCaseListConfig(
 	overrides: Partial<CaseListConfig> = {},
@@ -1512,6 +1514,7 @@ describe("submitFormAction", () => {
 		const stubStore = {
 			query: vi.fn(),
 			queryWithCalculated: vi.fn(),
+			count: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
 			update: vi.fn(),
@@ -1545,6 +1548,7 @@ describe("submitFormAction", () => {
 		const stubStore = {
 			query: vi.fn(),
 			queryWithCalculated: vi.fn(),
+			count: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
 			update: vi
@@ -1699,6 +1703,294 @@ describe("loadCaseListPreviewAction", () => {
 				searchInputs: [],
 			} as unknown as Parameters<
 				typeof loadCaseListPreviewAction
+			>[0]["caseListConfig"],
+		});
+		expect(result).toEqual({ kind: "unauthenticated" });
+	});
+});
+
+// ---------------------------------------------------------------
+// `readFilterPreview` + `mapFilterPreviewError`
+// ---------------------------------------------------------------
+//
+// The Filters-section live preview routes through the case-store's
+// `queryWithCalculated` for the row sample AND `count` for the
+// totality figure — both compile the same predicate through the
+// same stack so the count + row-list pair is internally consistent.
+// These tests pin the discriminated-union return shapes the
+// preview's UI dispatches on.
+
+describe("readFilterPreview", () => {
+	it("returns the empty arm with totalCount: 0 when no rows exist", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn("name", "Name")],
+			}),
+		});
+		expect(result).toEqual({ kind: "empty", totalCount: 0 });
+	});
+
+	it("returns the rows arm with the row sample + total matching count when no filter is applied", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn("name", "Name")],
+			}),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(2);
+		expect(result.totalCount).toBe(2);
+	});
+
+	it("narrows to the predicate-matching subset and reports the matching totalCount", async () => {
+		// Pins the spec § "editing the filter updates the result
+		// count and visible rows" obligation at the helper level —
+		// applying a predicate must affect BOTH the row sample and
+		// the totalCount, identically.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 25 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		// `age > 30` — only Bob matches.
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn("name", "Name")],
+				filter: gt(prop("patient", "age"), literal(30)),
+			}),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
+		expect(result.totalCount).toBe(1);
+	});
+
+	it("populates calculated columns inline when the filter passes", async () => {
+		// Pins the cross-feature shape: filter narrowing AND
+		// calculated-column projection compose. The Filters preview
+		// surfaces the same column-rendering shape the Display
+		// section's preview uses, so calculated values must render
+		// per row alongside the filter narrowing.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn("name", "Name")],
+				calculatedColumns: [
+					calculatedColumn("note", "Note", term(literal("hello"))),
+				],
+				filter: eq(prop("patient", "name"), literal("Alice")),
+			}),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows[0]?.calculated.note).toBe("hello");
+		expect(result.totalCount).toBe(1);
+	});
+});
+
+describe("mapFilterPreviewError", () => {
+	// Mirrors `mapCaseListPreviewError`'s shape — same typed errors,
+	// same arm structure (the only difference between the two result
+	// types is the paired `totalCount` on the success arms).
+
+	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		expect(mapFilterPreviewError(err)).toEqual({
+			kind: "missing-case-type",
+			caseType: "patient",
+		});
+	});
+
+	it("maps SchemaNotSyncedError to the schema-not-synced arm", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		expect(mapFilterPreviewError(err)).toEqual({
+			kind: "schema-not-synced",
+			caseType: "patient",
+		});
+	});
+
+	it("falls through to the generic error arm for an unrelated Error", () => {
+		const err = new Error("connection refused");
+		const result = mapFilterPreviewError(err);
+		expect(result.kind).toBe("error");
+		if (result.kind !== "error") return;
+		expect(result.message).toBe("connection refused");
+	});
+
+	it("falls through to the generic error arm with a default message for non-Error throws", () => {
+		const result = mapFilterPreviewError("some string");
+		expect(result.kind).toBe("error");
+		if (result.kind !== "error") return;
+		expect(result.message).toBe("Failed to load preview.");
+	});
+});
+
+// ---------------------------------------------------------------
+// `loadFilterPreviewAction` (Server Action)
+// ---------------------------------------------------------------
+//
+// Mirrors `loadCaseListPreviewAction`'s test block. Pins the wire-
+// boundary parse arms and the session-first ordering invariant.
+
+describe("loadFilterPreviewAction", () => {
+	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
+			caseListConfig: {
+				columns: "not an array",
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			} as unknown as Parameters<
+				typeof loadFilterPreviewAction
+			>[0]["caseListConfig"],
+		});
+		expect(result.kind).toBe("invalid-config");
+		if (result.kind !== "invalid-config") return;
+		expect(result.message).toMatch(/^columns:/);
+	});
+
+	it("returns the invalid-blueprint arm with a path-prefixed message when blueprint fails Zod parse", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: {
+				appId: 42,
+				appName: "Test app",
+				connectType: null,
+				caseTypes: [],
+				modules: {},
+				forms: {},
+				fields: {},
+				moduleOrder: [],
+				formOrder: {},
+				fieldOrder: {},
+				fieldParent: {},
+			} as unknown as Parameters<
+				typeof loadFilterPreviewAction
+			>[0]["blueprint"],
+			caseListConfig: {
+				columns: [],
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			},
+		});
+		expect(result.kind).toBe("invalid-blueprint");
+		if (result.kind !== "invalid-blueprint") return;
+		expect(result.message).toMatch(/^appId:/);
+	});
+
+	it("returns the unauthenticated arm before parsing when the session is absent (session-first ordering)", async () => {
+		// Pins the session-first ordering: an unauthenticated
+		// request short-circuits BEFORE the Zod parse. The ordering
+		// matches `loadCaseListPreviewAction` and every other action
+		// in the file. Match Task 6's discipline — passing a
+		// deliberately malformed `caseListConfig` here would fail
+		// `invalid-config` if the parse ran first; the test asserts
+		// `unauthenticated` to confirm the session check beats the
+		// parse to the punch.
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce(null);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
+			caseListConfig: {
+				columns: "not an array",
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			} as unknown as Parameters<
+				typeof loadFilterPreviewAction
 			>[0]["caseListConfig"],
 		});
 		expect(result).toEqual({ kind: "unauthenticated" });

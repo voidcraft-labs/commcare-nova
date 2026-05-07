@@ -22,17 +22,20 @@ import {
 	applyRegistrationMutation,
 	applySurveyMutation,
 	mapCaseListPreviewError,
+	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
 	readCaseData,
 	readCaseListPreview,
 	readCases,
+	readFilterPreview,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
 import type {
 	LoadCaseDataResult,
 	LoadCaseListPreviewResult,
 	LoadCasesResult,
+	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
 	SubmissionMutation,
 	SubmissionResult,
@@ -209,6 +212,91 @@ export async function loadCaseListPreviewAction(args: {
 		});
 	} catch (err) {
 		return mapCaseListPreviewError(err);
+	}
+}
+
+/**
+ * Load Filters-section authoring-surface live-preview rows + the
+ * full matching count. Resolves the request's session, constructs
+ * a tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`,
+ * and delegates to `readFilterPreview` which routes through
+ * `caseStore.queryWithCalculated` (row sample) + `caseStore.count`
+ * (totality figure) — both compile the same predicate through the
+ * same stack so the count + row-list pair is internally consistent.
+ *
+ * Trust-boundary parse + session-first ordering match
+ * `loadCaseListPreviewAction`'s shape verbatim — the action is
+ * structurally a sibling of the case-list preview action with a
+ * different result shape (rows + totalCount, vs rows alone). Both
+ * actions read the same `caseListConfig` shape; the only divergence
+ * is which slot of the config they treat as load-bearing
+ * (`calculatedColumns` + `sort` for the case-list preview;
+ * `filter` for the Filters-section preview).
+ *
+ * Authoring-surface contract: the caller MUST suppress the action
+ * while the filter editor reports `valid: false`. An invalid
+ * predicate AST reaching `compilePredicate` would throw at the SQL
+ * layer; the editor's validity gate is the primary defense, and
+ * the typed-error arms surface only the structural failures the
+ * gate cannot catch.
+ */
+export async function loadFilterPreviewAction(args: {
+	appId: string;
+	caseType: string;
+	blueprint: BlueprintDoc;
+	caseListConfig: CaseListConfig;
+	limit?: number;
+}): Promise<LoadFilterPreviewResult> {
+	try {
+		// Session-first matches every other action in this file. An
+		// unauthenticated request short-circuits before the parse
+		// work runs.
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+
+		// Wire-boundary parse — same shape as
+		// `loadCaseListPreviewAction`. `caseListConfig` first because
+		// its parse is structurally independent of the blueprint;
+		// blueprint second.
+		const parsedConfig = caseListConfigSchema.safeParse(args.caseListConfig);
+		if (!parsedConfig.success) {
+			const firstIssue = parsedConfig.error.issues[0];
+			const message =
+				firstIssue !== undefined
+					? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
+					: "Case-list configuration is malformed.";
+			return { kind: "invalid-config", message };
+		}
+		const parsedBlueprint = blueprintDocSchema.safeParse(args.blueprint);
+		if (!parsedBlueprint.success) {
+			const firstIssue = parsedBlueprint.error.issues[0];
+			const message =
+				firstIssue !== undefined
+					? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
+					: "Blueprint is malformed.";
+			return { kind: "invalid-blueprint", message };
+		}
+
+		const store = await withOwnerContext(session.user.id);
+		// `fieldParent` re-attach mirrors `loadCaseListPreviewAction`'s
+		// shape — the persisted schema doesn't declare the slot, but
+		// the `BlueprintDoc` type contract requires it. The case-store's
+		// compiler stack reads only `caseTypes`; `fieldParent` is a
+		// no-op for the predicate compile path but necessary for the
+		// type contract.
+		const fullBlueprint: BlueprintDoc = {
+			...parsedBlueprint.data,
+			fieldParent: args.blueprint.fieldParent ?? {},
+		};
+		return await readFilterPreview(store, {
+			appId: args.appId,
+			caseType: args.caseType,
+			limit: args.limit,
+			caseListConfig: parsedConfig.data,
+			blueprint: fullBlueprint,
+		});
+	} catch (err) {
+		return mapFilterPreviewError(err);
 	}
 }
 

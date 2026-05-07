@@ -35,6 +35,7 @@ import type {
 	LoadCaseDataResult,
 	LoadCaseListPreviewResult,
 	LoadCasesResult,
+	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
 	SubmissionMutation,
 	SubmissionResult,
@@ -198,6 +199,123 @@ export async function readCaseListPreview(
 export function mapCaseListPreviewError(
 	err: unknown,
 ): LoadCaseListPreviewResult {
+	if (err instanceof CaseTypeNotInBlueprintError) {
+		return { kind: "missing-case-type", caseType: err.caseType };
+	}
+	if (err instanceof SchemaNotSyncedError) {
+		return { kind: "schema-not-synced", caseType: err.caseType };
+	}
+	return {
+		kind: "error",
+		message: err instanceof Error ? err.message : "Failed to load preview.",
+	};
+}
+
+/**
+ * Default row-sample limit for the Filters-section live preview.
+ * Smaller than `PREVIEW_CASE_DEFAULT_LIMIT` because the Filters
+ * section's preview is "what passes the filter, plus how many" —
+ * the count surfaces totality, the row sample only needs to be
+ * enough to show shape (column-rendering, sort order). Pinning to
+ * 10 mirrors common "top results" UX conventions and keeps the
+ * preview's payload bounded even for huge case populations.
+ */
+export const FILTER_PREVIEW_DEFAULT_LIMIT = 10;
+
+/**
+ * Read Filters-section authoring-surface live-preview rows + the
+ * full matching count. Routes through `caseStore.queryWithCalculated`
+ * for the row sample (so calculated columns evaluate inline at the
+ * SQL layer) and `caseStore.count` for the totality figure — both
+ * compile the same predicate through the same stack so the count
+ * + row-list pair is internally consistent.
+ *
+ * The two SELECTs run sequentially (no transaction needed for an
+ * authoring-time preview): rows first (cheap, limited) then count
+ * second. Concurrent inserts between the two reads can shift the
+ * count vs the visible row sample by ±1 row; the preview is
+ * tolerant of small drift because it's an authoring hint, not a
+ * transactional read.
+ *
+ * Empty arm: `totalCount: 0` is structurally enforced by the
+ * arm's discriminator type. Calling code reads `totalCount`
+ * uniformly across both `rows` and `empty` arms.
+ *
+ * Typed-error mapping reuses `mapCaseListPreviewError` —
+ * `LoadFilterPreviewResult`'s error arms are a strict subset of
+ * `LoadCaseListPreviewResult`'s (the only difference is the
+ * paired `totalCount` on the success arms), so the error mapper
+ * applies verbatim.
+ */
+export async function readFilterPreview(
+	store: CaseStore,
+	args: {
+		appId: string;
+		caseType: string;
+		blueprint: BlueprintDoc;
+		caseListConfig: CaseListConfig;
+		limit?: number;
+	},
+): Promise<LoadFilterPreviewResult> {
+	const limit = args.limit ?? FILTER_PREVIEW_DEFAULT_LIMIT;
+	const calculatedById = new Map(
+		args.caseListConfig.calculatedColumns.map((c) => [c.id, c]),
+	);
+
+	// Row sample. `queryWithCalculated` so the table preview's
+	// calculated cells render the same shape the Display preview
+	// shows. The filter-section preview is a "results that pass the
+	// filter" view, so the predicate slot is the load-bearing arg
+	// here — `caseListConfig.filter` flows through verbatim.
+	const rows = await store.queryWithCalculated({
+		appId: args.appId,
+		caseType: args.caseType,
+		blueprint: args.blueprint,
+		calculated: args.caseListConfig.calculatedColumns,
+		predicate: args.caseListConfig.filter,
+		// Same sort interpretation as `readCaseListPreview` — the
+		// rows the user sees ordered the way the case list itself
+		// would order them. `sortKeyToExpression` lifts each
+		// `SortKey.source` to a `ValueExpression` via builders.
+		sort: args.caseListConfig.sort.flatMap((key) => {
+			const expression = sortKeyToExpression(
+				key.source,
+				args.caseType,
+				calculatedById,
+			);
+			if (expression === null) return [];
+			return [{ direction: key.direction, expression }];
+		}),
+		limit,
+	});
+
+	// Count of all matching rows. The same predicate compiles
+	// through the same `compilePredicate` stack — the count and
+	// the row sample are guaranteed to use the identical WHERE
+	// clause.
+	const totalCount = await store.count({
+		appId: args.appId,
+		caseType: args.caseType,
+		blueprint: args.blueprint,
+		predicate: args.caseListConfig.filter,
+	});
+
+	if (rows.length === 0) return { kind: "empty", totalCount: 0 };
+	return { kind: "rows", rows, totalCount };
+}
+
+/**
+ * Map errors from `readFilterPreview` to typed `LoadFilterPreviewResult`
+ * arms. `LoadFilterPreviewResult`'s error arms are a strict subset
+ * of `LoadCaseListPreviewResult`'s (the only difference is the
+ * paired `totalCount` on the success arms), so the mapping shape
+ * is identical to `mapCaseListPreviewError` modulo the result
+ * type. A separate function keeps the typed-result inference
+ * tight at the call site — narrowing the union via a single
+ * function with a polymorphic return would force the caller to
+ * re-narrow.
+ */
+export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
 	if (err instanceof CaseTypeNotInBlueprintError) {
 		return { kind: "missing-case-type", caseType: err.caseType };
 	}

@@ -69,6 +69,7 @@ import type {
 	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
+	CountArgs,
 	GenerateSampleDataArgs,
 	MigrationReport,
 	QueryArgs,
@@ -172,6 +173,49 @@ export class PostgresCaseStore implements CaseStore {
 		}
 
 		return await qb.execute();
+	}
+
+	async count(args: CountArgs): Promise<number> {
+		// Same predicate-context plumbing `query` uses — the WHERE
+		// clause emitted here MUST match a predicate-narrowed `query`
+		// against the same `(appId, caseType, blueprint, predicate)`
+		// tuple; the Filters-section preview pairs the count with a
+		// limited `queryWithCalculated` against the same predicate, so
+		// any divergence between the two compile paths would surface
+		// as a count vs row-list mismatch.
+		const ctx = this.buildPredicateContext({
+			db: this.db,
+			appId: args.appId,
+			caseType: args.caseType,
+			schemas: buildCaseTypeMap(args.blueprint),
+		});
+
+		// `eb.fn.countAll<string>()` matches the existing usage at
+		// `runRenameMigration` — pg-driver returns BIGINT counts as
+		// strings (numeric-precision-preserving), so the typed
+		// builder declares the column as string and the caller
+		// `Number(...)` coerces. Tenant filter on the outer scan;
+		// `compileRelationPath` handles JOIN-side cases independently
+		// per the `lib/case-store/CLAUDE.md` § "Tenant scoping"
+		// contract.
+		let qb = this.db
+			.selectFrom("cases as c")
+			.select((eb) => eb.fn.countAll<string>().as("total"))
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.where("c.owner_id", "=", this.ownerId);
+
+		if (args.predicate !== undefined) {
+			qb = qb.where(compilePredicate(args.predicate, ctx));
+		}
+
+		// `executeTakeFirstOrThrow` is appropriate here — Postgres'
+		// `count` aggregate always returns exactly one row even on
+		// empty input. A `undefined` from the executor would indicate
+		// a structural pg-driver violation rather than a runtime
+		// branch the caller can recover from.
+		const row = await qb.executeTakeFirstOrThrow();
+		return Number(row.total);
 	}
 
 	async queryWithCalculated(
