@@ -253,12 +253,14 @@ function buildWellFormedCaseListConfig(): CaseListConfig {
  *
  * The `patient` case type declares `name` (text), `age` (int),
  * `region` (text), `last_visit` (date). Combined with the
- * standard properties (`case_name`, `status`, `date_opened`,
- * `modified_on`, ...) the augmented admission set covers every
- * property the well-formed config references — `columnReferences`
- * + `filterTypeCheck` + `sortTypeCheck` +
- * `calculatedColumnTypeCheck` + `searchInputModeMatchesPropertyType`
- * all stay clean.
+ * standard properties used by the well-formed config —
+ * `case_name` (text), `status` (text), `date_opened` (datetime),
+ * `last_modified` (datetime), all members of
+ * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` — the augmented
+ * admission set covers every property the well-formed config
+ * references, so `columnReferences` + `filterTypeCheck` +
+ * `sortTypeCheck` + `calculatedColumnTypeCheck` +
+ * `searchInputModeMatchesPropertyType` all stay clean.
  */
 function buildFixtureDoc() {
 	return buildDoc({
