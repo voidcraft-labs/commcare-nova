@@ -187,10 +187,15 @@ export function compileCcz(
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
-			// module's case type, and any form-level link overrides.
+			// module's case type, any form-level link overrides, and the
+			// module's authored case-list filter.
 			// The expander already resolved form-link uuids into indexed
 			// HQ shape, so the compiler forwards `hqForm.form_links`
 			// verbatim — no second resolution pass needed here.
+			// `caseListConfig.filter` flows through verbatim; the wire
+			// layer at `session.ts::deriveSessionDatums` routes it
+			// through `emitNodesetFilter` to compose the bracketed
+			// fragment that appends to the case-loading datum's nodeset.
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -199,6 +204,7 @@ export function compileCcz(
 				postSubmit,
 				caseType || undefined,
 				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
+				mod.caseListConfig?.filter,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);

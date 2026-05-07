@@ -20,7 +20,9 @@
 
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import type { Predicate } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
+import { emitNodesetFilter } from "./suite/case-list/nodesetFilter";
 import type { HqFormLink } from "./types";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -102,23 +104,34 @@ const SESSION_REF = "instance('commcaresession')/session/data";
 /**
  * Derive session datums required by a form entry.
  *
- * Currently emits a single `case_id` datum for case-loading forms
+ * Emits a single `case_id` datum for case-loading forms
  * (followup, close). Advanced-module multi-datum sessions, parent
  * datums, and search datums will extend this when those features ship.
+ *
+ * The optional `caseListFilter` is the module's
+ * `caseListConfig.filter` predicate; when present, the wire layer
+ * appends its bracketed XPath fragment to the nodeset after the
+ * `[@case_type][@status]` predicates, narrowing the case set the
+ * runtime selects from. Filter precedence (case-type / status
+ * first, user filter last) matches CCHQ's canonical builder at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
  */
 export function deriveSessionDatums(
 	formType: FormType,
 	moduleIndex: number,
 	caseType?: string,
+	caseListFilter?: Predicate,
 ): SessionDatum[] {
 	if (!CASE_LOADING_FORM_TYPES.has(formType) || !caseType) return [];
+
+	const filterFragment = emitNodesetFilter(caseListFilter);
 
 	return [
 		{
 			id: "case_id",
 			instanceId: "casedb",
 			instanceSrc: "jr://instance/casedb",
-			nodeset: `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']`,
+			nodeset: `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}`,
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
 		},
@@ -297,6 +310,13 @@ export function deriveFormLinkStack(
  * becomes one conditional `<create>` per link plus a fallback that fires
  * the `postSubmit` destination when no condition matches. An empty (or
  * omitted) `formLinks` falls back to the simple `postSubmit` derivation.
+ *
+ * `caseListFilter` is the module's `caseListConfig.filter` predicate;
+ * the wire layer routes it through `deriveSessionDatums` so the
+ * resulting case-loading datum's nodeset narrows to the authored
+ * filter's match set. The filter is meaningful only on case-loading
+ * form types — `deriveSessionDatums` ignores it for registration /
+ * survey forms because they emit no case-loading datum at all.
  */
 export function deriveEntryDefinition(
 	formXmlns: string,
@@ -306,11 +326,17 @@ export function deriveEntryDefinition(
 	postSubmit: PostSubmitDestination,
 	caseType?: string,
 	formLinks?: HqFormLink[],
+	caseListFilter?: Predicate,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
 
-	const datums = deriveSessionDatums(formType, moduleIndex, caseType);
+	const datums = deriveSessionDatums(
+		formType,
+		moduleIndex,
+		caseType,
+		caseListFilter,
+	);
 	const instances: EntryInstance[] = [];
 
 	if (datums.length > 0) {

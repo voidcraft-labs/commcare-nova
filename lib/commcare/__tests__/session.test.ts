@@ -10,6 +10,13 @@ import {
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
+import {
+	eq,
+	literal,
+	matchAll,
+	matchNone,
+	prop,
+} from "@/lib/domain/predicate/builders";
 
 // ── deriveSessionDatums ────────────────────────────────────────────
 
@@ -39,6 +46,53 @@ describe("deriveSessionDatums", () => {
 
 	it("returns empty for followup without case type", () => {
 		expect(deriveSessionDatums("followup", 0)).toEqual([]);
+	});
+
+	// ── caseListConfig.filter integration ──
+	//
+	// The optional fourth positional parameter compiles the
+	// module's case-list filter through `emitNodesetFilter` and
+	// appends the bracketed XPath fragment to the nodeset after
+	// the canonical `[@case_type][@status]` predicates. Filter
+	// precedence (case-type / status first, user filter last)
+	// matches CCHQ's
+	// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
+
+	it("appends the filter fragment after the case-type / status predicates", () => {
+		const filter = eq(prop("patient", "is_priority"), literal(true));
+		const datums = deriveSessionDatums("followup", 0, "patient", filter);
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true']",
+		);
+	});
+
+	it("omits the filter fragment when the filter is the match-all sentinel", () => {
+		const datums = deriveSessionDatums("followup", 0, "patient", matchAll());
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open']",
+		);
+	});
+
+	it("emits a [false()] fragment for the match-none sentinel", () => {
+		// `match-none` faithfully restricts the case list to the
+		// empty match set — opposite of match-all's no-op
+		// collapse.
+		const datums = deriveSessionDatums("followup", 0, "patient", matchNone());
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][false()]",
+		);
+	});
+
+	it("ignores the filter for non-case-loading form types", () => {
+		// Registration / survey forms emit no case-loading datum
+		// at all; the filter is meaningful only against the
+		// case-loading datum's nodeset, so the empty array is
+		// the correct result regardless of filter presence.
+		const filter = eq(prop("patient", "is_priority"), literal(true));
+		expect(deriveSessionDatums("registration", 0, "patient", filter)).toEqual(
+			[],
+		);
+		expect(deriveSessionDatums("survey", 0, undefined, filter)).toEqual([]);
 	});
 });
 
