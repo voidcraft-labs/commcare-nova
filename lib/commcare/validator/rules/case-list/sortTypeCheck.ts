@@ -6,9 +6,16 @@
  * Two arms drive resolution:
  *
  *   - `source.kind === "property"` — the source is a case property
- *     on the module's case type; its `data_type` (with the standard
- *     `?? "text"` fallback via `effectiveDataType`) selects the
- *     compatible `SortType` set via `applicableSortTypes(...)`.
+ *     on the module's case type. Resolution follows the rule set's
+ *     shared model (see `./shared.ts`): a property exists if it's
+ *     declared on `ct.properties[]` OR a form field writes to it via
+ *     `case_property_on === ct.name`, OR it's one of CommCare's
+ *     standard list properties. The declared type drives
+ *     `applicableSortTypes(...)`; writer-derived properties default
+ *     to `text` per `effectiveDataType`'s `?? "text"` convention;
+ *     standard properties consult the
+ *     `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` table for their
+ *     implicit typing.
  *
  *   - `source.kind === "calculated"` — the source is one of the
  *     module's `caseListConfig.calculatedColumns[i]`. Calculated
@@ -18,23 +25,17 @@
  *     resolves; the per-source compatibility check is skipped because
  *     every sort type is structurally admissible against a calculated
  *     column.
- *
- * Standard CommCare list properties (`case_name`, `date_opened`, …)
- * resolve from outside the blueprint's declared `caseTypes` (CCHQ
- * provides them implicitly). The blueprint carries no `data_type`
- * declaration for them, so the per-type compatibility check has no
- * source of truth to compare against — the rule admits any declared
- * sort type for these properties and trusts the author's pick. The
- * declared sort type still routes through to wire emission; this
- * rule's role is structural reachability, not enforcement of CCHQ's
- * implicit per-property typing for the standard set.
  */
 
-import { STANDARD_CASE_LIST_PROPERTIES } from "@/lib/commcare";
+import {
+	STANDARD_CASE_LIST_PROPERTIES,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+} from "@/lib/commcare";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { applicableSortTypes } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import { type ValidationError, validationError } from "../../errors";
+import { collectCaseProperties } from "../../index";
 
 export function sortTypeCheck(
 	mod: Module,
@@ -52,6 +53,13 @@ export function sortTypeCheck(
 	const calculatedIds = new Set(
 		(mod.caseListConfig?.calculatedColumns ?? []).map((c) => c.id),
 	);
+	// Writer-derived property names: every property that some field
+	// saves to via `case_property_on === moduleCaseType`. Used as the
+	// secondary admission set when `ct.properties[]` doesn't declare
+	// the property — sort keys against a writer-only property resolve
+	// without firing UNKNOWN_PROPERTY. Their data type defaults to
+	// `text` (no declared schema → `effectiveDataType`'s fallback).
+	const writerProps = collectCaseProperties(doc, moduleCaseType) ?? new Set();
 
 	for (let index = 0; index < sort.length; index++) {
 		const key = sort[index];
@@ -77,61 +85,105 @@ export function sortTypeCheck(
 			continue;
 		}
 
-		// Property-rooted sort: resolve the property against the module's
-		// case type. Standard properties are admitted without a per-type
-		// check (they're text-shaped at the wire layer regardless).
+		// Property-rooted sort: resolve the property through the rule
+		// set's shared resolution model — declared schema, writer-
+		// derived, or standard — and pick the data type accordingly.
 		const propertyName = source.property;
-		if (STANDARD_CASE_LIST_PROPERTIES.has(propertyName)) continue;
 
-		if (!ct) {
-			// No case type schema in scope — can't resolve. Surface the
-			// missing-property as a structural error so authors don't see
-			// a silent green-light on a sort key targeting a property the
-			// module's case type can't provide.
-			errors.push(
-				validationError(
-					"CASE_LIST_SORT_UNKNOWN_PROPERTY",
-					"module",
-					`Module "${mod.name}" sort key #${index + 1} targets property "${propertyName}", but the module's case type ${moduleCaseType ? `("${moduleCaseType}")` : "is unset"} declares no schema. Either declare the case type's properties, or use a standard property like "case_name" / "date_opened".`,
-					baseLoc,
-					{ index: String(index), property: propertyName },
-				),
-			);
+		// Standard properties: implicit data type from the CommCare
+		// standard table. The check still runs against
+		// `applicableSortTypes(...)` because some standard properties
+		// are date-typed (`date_opened`, `last_modified`) — picking a
+		// `plain` sort against `date_opened` is fine; `date` against
+		// `case_name` is structurally rejected.
+		if (STANDARD_CASE_LIST_PROPERTIES.has(propertyName)) {
+			const dataType =
+				STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[propertyName] ?? "text";
+			const allowed = applicableSortTypes(dataType);
+			if (!allowed.includes(key.type)) {
+				errors.push(
+					validationError(
+						"CASE_LIST_SORT_TYPE_INCOMPATIBLE",
+						"module",
+						`Module "${mod.name}" sort key #${index + 1} sorts standard property "${propertyName}" (data_type "${dataType}") with sort type "${key.type}", but only ${allowed.map((t) => `"${t}"`).join(" / ")} ${allowed.length === 1 ? "is" : "are"} compatible with this property's type.`,
+						baseLoc,
+						{
+							index: String(index),
+							property: propertyName,
+							declaredSortType: key.type,
+							propertyDataType: dataType,
+						},
+					),
+				);
+			}
 			continue;
 		}
 
-		const property = ct.properties.find((p) => p.name === propertyName);
-		if (!property) {
-			errors.push(
-				validationError(
-					"CASE_LIST_SORT_UNKNOWN_PROPERTY",
-					"module",
-					`Module "${mod.name}" sort key #${index + 1} references property "${propertyName}" on case type "${ct.name}", but no such property is declared. Add the property to the case type, write a field that saves to it via \`case_property_on\`, or pick a standard property.`,
-					baseLoc,
-					{ index: String(index), property: propertyName },
-				),
-			);
+		// Declared property on the case type's `properties[]` schema.
+		const property = ct?.properties.find((p) => p.name === propertyName);
+		if (property) {
+			const dataType = effectiveDataType(property);
+			const allowed = applicableSortTypes(dataType);
+			if (!allowed.includes(key.type)) {
+				errors.push(
+					validationError(
+						"CASE_LIST_SORT_TYPE_INCOMPATIBLE",
+						"module",
+						`Module "${mod.name}" sort key #${index + 1} sorts "${propertyName}" (data_type "${dataType}") with sort type "${key.type}", but only ${allowed.map((t) => `"${t}"`).join(" / ")} ${allowed.length === 1 ? "is" : "are"} compatible with this property's type. Pick one of those, or change the property's data_type.`,
+						baseLoc,
+						{
+							index: String(index),
+							property: propertyName,
+							declaredSortType: key.type,
+							propertyDataType: dataType,
+						},
+					),
+				);
+			}
 			continue;
 		}
 
-		const dataType = effectiveDataType(property);
-		const allowed = applicableSortTypes(dataType);
-		if (!allowed.includes(key.type)) {
-			errors.push(
-				validationError(
-					"CASE_LIST_SORT_TYPE_INCOMPATIBLE",
-					"module",
-					`Module "${mod.name}" sort key #${index + 1} sorts "${propertyName}" (data_type "${dataType}") with sort type "${key.type}", but only ${allowed.map((t) => `"${t}"`).join(" / ")} ${allowed.length === 1 ? "is" : "are"} compatible with this property's type. Pick one of those, or change the property's data_type.`,
-					baseLoc,
-					{
-						index: String(index),
-						property: propertyName,
-						declaredSortType: key.type,
-						propertyDataType: dataType,
-					},
-				),
-			);
+		// Writer-derived property: some field writes to it via
+		// `case_property_on`, but the case type's schema doesn't
+		// declare a `data_type`. Default to `text` (matching
+		// `effectiveDataType`'s convention). Only `plain` sort is
+		// structurally admissible against text per
+		// `applicableSortTypes`.
+		if (writerProps.has(propertyName)) {
+			const allowed = applicableSortTypes("text");
+			if (!allowed.includes(key.type)) {
+				errors.push(
+					validationError(
+						"CASE_LIST_SORT_TYPE_INCOMPATIBLE",
+						"module",
+						`Module "${mod.name}" sort key #${index + 1} sorts "${propertyName}" with sort type "${key.type}", but the case type's schema declares no data_type for this property — it defaults to "text", which is only compatible with ${allowed.map((t) => `"${t}"`).join(" / ")}. Either declare the property's data_type on the case type, or pick a "plain" sort.`,
+						baseLoc,
+						{
+							index: String(index),
+							property: propertyName,
+							declaredSortType: key.type,
+							propertyDataType: "text",
+						},
+					),
+				);
+			}
+			continue;
 		}
+
+		// Property is unresolvable — neither declared, writer-derived,
+		// nor standard. Surface the missing-property as a structural
+		// error.
+		errors.push(
+			validationError(
+				"CASE_LIST_SORT_UNKNOWN_PROPERTY",
+				"module",
+				`Module "${mod.name}" sort key #${index + 1} references property "${propertyName}"${
+					moduleCaseType ? ` on case type "${moduleCaseType}"` : ""
+				}, but no such property is declared on the case type, written to by any field via \`case_property_on\`, or part of the standard set ("case_name", "date_opened", …). Add the property to the case type's \`properties[]\`, or pick one that exists.`,
+				baseLoc,
+				{ index: String(index), property: propertyName },
+			),
+		);
 	}
 
 	return errors;

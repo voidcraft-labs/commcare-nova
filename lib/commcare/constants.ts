@@ -1,5 +1,7 @@
 /** CommCare platform constants — single source of truth. */
 
+import type { CasePropertyDataType } from "@/lib/domain";
+
 /**
  * Case property names that HQ rejects in update_case / case_preload blocks.
  * Matches commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json
@@ -137,3 +139,44 @@ export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<string> = new Set([
 	"external-id", // HQ alias
 	"status", // open/closed
 ]);
+
+/**
+ * Implicit `data_type` for each standard case-list property — every
+ * member of `STANDARD_CASE_LIST_PROPERTIES` carries a known wire-form
+ * type that CommCare's runtime comparator and search-input emitter
+ * read against. The blueprint's declared `caseTypes[].properties[]`
+ * never lists these — CommCare provides them implicitly — so any
+ * type-driven validator rule (sort compatibility, search-input
+ * mode-vs-type) needs this table to enforce the same per-type
+ * structural constraints that custom properties get from
+ * `effectiveDataType(...)`.
+ *
+ * Type assignments follow the wire-form contracts in CommCare HQ's
+ * detail screen + case search layers:
+ *
+ *   - `date_opened` / `date-opened` / `last_modified` — datetime
+ *     timestamps; emitted into `<sort type="...">` blocks as date-
+ *     comparator targets.
+ *   - `case_name` / `name` / `owner_id` / `external_id` /
+ *     `external-id` / `status` — plain text identifiers / status
+ *     enums; the runtime comparator handles them lexicographically.
+ *
+ * `STANDARD_CASE_LIST_PROPERTIES.has(name)` AND
+ * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name] === undefined` is
+ * structurally impossible — every member of the set has an entry
+ * here. Adding a property to the set without a matching entry would
+ * silently fall through validator rules that consult this table.
+ */
+export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES: Readonly<
+	Record<string, CasePropertyDataType>
+> = {
+	case_name: "text",
+	name: "text",
+	date_opened: "datetime",
+	"date-opened": "datetime",
+	last_modified: "datetime",
+	owner_id: "text",
+	external_id: "text",
+	"external-id": "text",
+	status: "text",
+};

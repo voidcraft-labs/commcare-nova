@@ -244,7 +244,10 @@ describe("sortTypeCheck", () => {
 		).toBe(true);
 	});
 
-	it("admits standard properties without a per-type check", () => {
+	it("type-checks standard properties via the implicit-typing table (date_opened admits date)", () => {
+		// `date_opened` is implicitly datetime per
+		// `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`; `date` sort is in
+		// `applicableSortTypes("datetime")` and passes.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -274,6 +277,156 @@ describe("sortTypeCheck", () => {
 				},
 			],
 			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) =>
+					e.code === "CASE_LIST_SORT_UNKNOWN_PROPERTY" ||
+					e.code === "CASE_LIST_SORT_TYPE_INCOMPATIBLE",
+			),
+		).toBe(false);
+	});
+
+	it("rejects an incompatible sort type on a standard property (date sort against case_name)", () => {
+		// `case_name` is implicitly text per
+		// `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`. `date` sort against
+		// text is structurally rejected (text → ["plain"]).
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn("case_name", "Name")],
+						sort: [sortKey(propertySortSource("case_name"), "date", "asc")],
+						calculatedColumns: [],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CASE_LIST_SORT_TYPE_INCOMPATIBLE",
+			),
+		).toBe(true);
+	});
+
+	it("admits writer-derived properties (text-default) and rejects incompatible sort types", () => {
+		// `weight` is written by an int field via `case_property_on`,
+		// but the case type's `properties[]` doesn't list it. Defaults
+		// to text. `date` sort against text is rejected.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn("case_name", "Name")],
+						sort: [sortKey(propertySortSource("weight"), "date", "asc")],
+						calculatedColumns: [],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "int",
+									id: "weight",
+									label: "Weight",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		// Property is admitted (not unknown) but `date` sort is
+		// rejected against the text default.
+		expect(
+			errors.some((e) => e.code === "CASE_LIST_SORT_UNKNOWN_PROPERTY"),
+		).toBe(false);
+		expect(
+			errors.some((e) => e.code === "CASE_LIST_SORT_TYPE_INCOMPATIBLE"),
+		).toBe(true);
+	});
+
+	it("admits writer-derived properties with a compatible sort type", () => {
+		// `weight` (writer-derived, text default) with `plain` sort
+		// passes — `applicableSortTypes("text") === ["plain"]`.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn("case_name", "Name")],
+						sort: [sortKey(propertySortSource("weight"), "plain", "asc")],
+						calculatedColumns: [],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "int",
+									id: "weight",
+									label: "Weight",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
 		});
 		expect(
 			runValidation(doc).some(

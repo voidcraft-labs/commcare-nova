@@ -1,7 +1,8 @@
 /**
  * Rule: every `CalculatedColumn.expression` on
- * `caseListConfig.calculatedColumns` type-checks via Plan 1's
- * `checkValueExpression(...)` against the module's case-type schema.
+ * `caseListConfig.calculatedColumns` type-checks via
+ * `checkValueExpression(...)` (the predicate AST type checker at
+ * `@/lib/domain/predicate`) against the module's case-type schema.
  *
  * Calculated columns are author-defined `ValueExpression`s whose
  * resolved type drives downstream wire emission. The type checker

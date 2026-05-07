@@ -10,6 +10,39 @@
  * rule also formats `CheckPath` segments into a readable per-error
  * suffix; centralizing both pieces keeps the rules thin and rules out
  * drift between callers.
+ *
+ * ## Property resolution model (rule-set-wide contract)
+ *
+ * A property is considered to "exist" on a case type if any of the
+ * following holds, in this priority order:
+ *
+ *   1. Declared on `ct.properties[]` — the canonical schema. Data
+ *      type comes from the property's `data_type` (with the
+ *      `?? "text"` fallback via `effectiveDataType`).
+ *
+ *   2. CommCare standard property (member of
+ *      `STANDARD_CASE_LIST_PROPERTIES`) — implicit-typed via
+ *      `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`. CommCare provides
+ *      these at the wire layer; the blueprint never lists them.
+ *
+ *   3. Writer-derived — some form field saves to the property via
+ *      `case_property_on === ct.name`. Walked by
+ *      `collectCaseProperties(doc, caseType)`. Data type defaults to
+ *      `text` because the case type's schema declares none for this
+ *      property; the wire layer accepts any string-coerceable value.
+ *
+ * The case-list-config rules
+ * (`columnReferences`, `filterTypeCheck`, `sortTypeCheck`,
+ * `calculatedColumnTypeCheck`, `searchInputModeMatchesPropertyType`)
+ * all consult this same admission set. The predicate-AST type
+ * checker (`checkPredicate`, `checkValueExpression`) is stricter — it
+ * resolves only against `ct.properties[]` because its types come from
+ * the AST schema's `prop` term, which carries no implicit-typing
+ * fallback. Type-checker errors against writer-derived properties
+ * surface as "Unknown property"; the per-rule resolution above
+ * widens the admission to keep authoring surfaces (sort, search
+ * input, column reference) in sync with what the case-store actually
+ * emits at runtime.
  */
 
 import type { CaseType, Module } from "@/lib/domain";

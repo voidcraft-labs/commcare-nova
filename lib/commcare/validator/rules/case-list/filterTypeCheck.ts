@@ -2,13 +2,13 @@
  * Rule: `caseListConfig.filter` (the always-on case-list predicate)
  * type-checks against the module's case-type schema.
  *
- * Delegates to Plan 1's `checkPredicate(predicate, ctx)` — the
- * predicate AST type checker that validates property references,
- * operator type-compatibility, and relational walks against the
- * declared case-type schemas. Any error the checker returns is
- * surfaced as a single `CASE_LIST_FILTER_TYPE_ERROR` per error, with
- * the AST path appended to the message so the editor can highlight
- * the offending node.
+ * Delegates to `checkPredicate(predicate, ctx)` — the predicate AST
+ * type checker (`@/lib/domain/predicate`) that validates property
+ * references, operator type-compatibility, and relational walks
+ * against the declared case-type schemas. Any error the checker
+ * returns is surfaced as a single `CASE_LIST_FILTER_TYPE_ERROR` per
+ * error, with the AST path appended to the message so the editor can
+ * highlight the offending node.
  *
  * Absent filter (`filter` omitted) short-circuits cleanly — no
  * predicate to check, no error.
