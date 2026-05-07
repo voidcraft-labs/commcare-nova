@@ -43,6 +43,7 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKind, appendKindSlot, type EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { RelationPathBuilder } from "../../primitives/RelationPathBuilder";
+import { resolveRelationDestination } from "../../relationDestination";
 import { ChildPredicateEditor } from "../ChildPredicateEditor";
 
 /** Default `count` — one-step ancestor walk via `parent` with no
@@ -79,10 +80,11 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 
 	// Resolve the destination case type from the relation path so
 	// nested property pickers in the `where` clause show the
-	// destination's properties. Mirrors `ExistsCard`'s
-	// `resolveDestination` shape.
+	// destination's properties. Same shared helper drives the
+	// destination resolution in `ExistsCard`.
 	const destinationCaseType = useMemo(
-		() => resolveDestination(value.via, ctx.currentCaseType, ctx.caseTypes),
+		() =>
+			resolveRelationDestination(value.via, ctx.currentCaseType, ctx.caseTypes),
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
 
@@ -134,45 +136,4 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 			</div>
 		</div>
 	);
-}
-
-/** Resolve the destination case-type name for a relation walk. Same
- *  shape as `ExistsCard`'s helper — mirrors `checkRelationPath`'s
- *  walk semantics. Returns undefined when the walk is structurally
- *  unresolvable; the surrounding card surfaces the error inline via
- *  the type checker's verdict. */
-function resolveDestination(
-	via: RelationPath,
-	originCaseType: string,
-	caseTypes: readonly { name: string; parent_type?: string }[],
-): string | undefined {
-	switch (via.kind) {
-		case "self":
-			// `count(via: self)` is rejected by the type checker as a
-			// no-op walk; the editor still renders the where-clause
-			// against the origin so transient picks don't blank the
-			// inner editor.
-			return originCaseType;
-		case "ancestor": {
-			let current: string | undefined = originCaseType;
-			for (const _step of via.via) {
-				if (current === undefined) return undefined;
-				const ct = caseTypes.find((c) => c.name === current);
-				if (ct === undefined) return undefined;
-				current = ct.parent_type;
-			}
-			return current;
-		}
-		case "subcase":
-		case "any-relation": {
-			const candidates = caseTypes.filter(
-				(c) => c.parent_type === originCaseType,
-			);
-			if (via.ofCaseType !== undefined) {
-				const named = candidates.find((c) => c.name === via.ofCaseType);
-				return named?.name;
-			}
-			return candidates[0]?.name;
-		}
-	}
 }

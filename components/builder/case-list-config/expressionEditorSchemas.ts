@@ -171,9 +171,11 @@ function applicableForNumeric(
 }
 
 /**
- * Date-typed kind (`today`, `date-add`, `date-coerce`) — applicable
- * for date or `_any` expected types. Some date kinds produce
- * `datetime` instead of `date`; their entries override accordingly.
+ * Date-only kinds (`today`) — applicable strictly when the slot
+ * accepts `date` (or has no expected type, or accepts the null-
+ * compatibility `_any` sentinel). `today` always resolves to `date`,
+ * so a `datetime` slot rejects it at the picker without further
+ * gating.
  */
 function applicableForDate(
 	_ctx: ExpressionEditContext,
@@ -184,6 +186,10 @@ function applicableForDate(
 	return expectedType === "date";
 }
 
+/**
+ * Datetime-only kinds (`now`) — symmetric with `applicableForDate`.
+ * `now` always resolves to `datetime`.
+ */
 function applicableForDatetime(
 	_ctx: ExpressionEditContext,
 	expectedType?: ResolvedType,
@@ -191,6 +197,35 @@ function applicableForDatetime(
 	if (expectedType === undefined) return true;
 	if (expectedType === "_any") return true;
 	return expectedType === "datetime";
+}
+
+/**
+ * Date-or-datetime kinds — applicable for either temporal slot type.
+ *
+ * Used by the kinds whose result type follows the operand or whose
+ * structural-twin partner covers the other temporal:
+ *
+ *   - `date-add` — result type follows `date.kind`, so
+ *     `dateAdd(today(), "days", literal(7))` resolves to `date`
+ *     while `dateAdd(now(), "hours", literal(1))` resolves to
+ *     `datetime` (per `checkExpression`'s `case "date-add":`). The
+ *     kind picker surfaces it for either temporal slot — the
+ *     operand picker drives which side the type checker validates
+ *     against.
+ *   - `date-coerce` ↔ `datetime-coerce` — the kind-replace menu's
+ *     structural-twin swap (`preservedExpressionSwap`) flips
+ *     between the two without losing the operand. Picker-side
+ *     parity matches: a date slot accepts `datetime-coerce` (which
+ *     the user can then twin-swap to `date-coerce`), and vice
+ *     versa, instead of de-emphasizing the wrong-temporal arm.
+ */
+function applicableForDateOrDatetime(
+	_ctx: ExpressionEditContext,
+	expectedType?: ResolvedType,
+): boolean {
+	if (expectedType === undefined) return true;
+	if (expectedType === "_any") return true;
+	return expectedType === "date" || expectedType === "datetime";
 }
 
 /**
@@ -272,7 +307,12 @@ export const expressionCardSchemas: {
 		description: "Date plus an interval × quantity",
 		component: DateAddCard,
 		defaultValue: dateAddDefault,
-		applicable: applicableForDate,
+		// `date-add`'s result type follows the `date` operand —
+		// `dateAdd(today(), ...)` resolves to `date`,
+		// `dateAdd(now(), ...)` resolves to `datetime`. Applicable for
+		// either temporal slot type; the operand picker drives which
+		// side the type checker validates against.
+		applicable: applicableForDateOrDatetime,
 	},
 	"date-coerce": {
 		kind: "date-coerce",
@@ -281,7 +321,12 @@ export const expressionCardSchemas: {
 		description: "Coerce a text value to a typed date",
 		component: DateCoerceCard,
 		defaultValue: dateCoerceDefault,
-		applicable: applicableForDate,
+		// `date-coerce` ↔ `datetime-coerce` is a structural-twin pair
+		// the kind-replace menu can swap operand-preserving. Picker
+		// parity: a datetime slot still surfaces `date-coerce` (the
+		// author can twin-swap to `datetime-coerce`) instead of
+		// de-emphasizing it.
+		applicable: applicableForDateOrDatetime,
 	},
 	"datetime-coerce": {
 		kind: "datetime-coerce",
@@ -290,7 +335,7 @@ export const expressionCardSchemas: {
 		description: "Coerce a text value to a typed datetime",
 		component: DateCoerceCard,
 		defaultValue: datetimeCoerceDefault,
-		applicable: applicableForDatetime,
+		applicable: applicableForDateOrDatetime,
 	},
 
 	// ── Numeric ──────────────────────────────────────────────────────

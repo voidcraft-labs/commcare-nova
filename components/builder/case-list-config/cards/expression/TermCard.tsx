@@ -608,11 +608,18 @@ function SessionContextMenu({
  *    - default → text input.
  *
  *  Mode picker on the leading edge lets the author flip between
- *  shapes without re-authoring; switches commit through the
- *  matching builder so the data_type qualifier rebases on every
- *  flip. The `LiteralValueInput` primitive handles property-
- *  anchored typed inputs; this editor handles the free-form case
- *  where no anchor property exists. */
+ *  shapes; flipping is a destructive operation — it RESETS the
+ *  literal to the new shape's default value via
+ *  `buildLiteralForShape`, replacing both the value and the
+ *  `data_type` qualifier (e.g. flipping `dateLiteral("2024")` to
+ *  text shape commits `literal("")` — empty value, qualifier
+ *  cleared). Edits within a single shape preserve the qualifier
+ *  via `rebuildLiteralPreservingDataType`; the shape menu is the
+ *  one path that rebases the qualifier intentionally.
+ *
+ *  The `LiteralValueInput` primitive handles property-anchored
+ *  typed inputs; this editor handles the free-form case where no
+ *  anchor property exists. */
 function LiteralCardEditor({
 	value,
 	onChange,
@@ -671,8 +678,12 @@ function classifyLiteralShape(lit: Literal): LiteralShape {
 
 /** Default literal for a given shape. Routes through the typed
  *  builders (`dateLiteral` / `datetimeLiteral` / `timeLiteral` for
- *  the temporal shapes; bare `literal()` for the others) so the
- *  qualifier rebases on every shape flip. */
+ *  the temporal shapes; bare `literal()` for the others). Called
+ *  ONLY on shape-menu flip — flipping is a destructive operation
+ *  that RESETS both the value and the `data_type` qualifier to the
+ *  new shape's defaults. Within-shape edits route through
+ *  `rebuildLiteralPreservingDataType` instead, which carries the
+ *  source's qualifier through. */
 function buildLiteralForShape(shape: LiteralShape): Literal {
 	switch (shape) {
 		case "text":

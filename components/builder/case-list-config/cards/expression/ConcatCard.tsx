@@ -51,22 +51,19 @@ interface ConcatCardProps {
 export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 	const containerKey = nodeId(value);
 
-	// Build the next concat from a transformed parts array. The
-	// helper centralises the variadic-builder cast — `concat(...args)`
-	// requires at least one part at the type layer, which TS can't
-	// prove from a spread of an arbitrary `readonly ValueExpression[]`.
+	// Build the next concat from a transformed parts array. Every
+	// code path here guarantees `parts.length >= 1` (the "Add" button
+	// only appends; the "Remove" button refuses to delete the last
+	// remaining row), so destructuring `[first, ...rest]` is sound at
+	// runtime; the `concat` builder's variadic-with-required-first
+	// signature ties the call together. `concat`'s declared return
+	// type is the precise `Extract<ValueExpression, { kind: "concat" }>`
+	// arm — no narrowing cast needed.
 	const apply = (
 		parts: readonly ValueExpression[],
 	): Extract<ValueExpression, { kind: "concat" }> => {
 		const [first, ...rest] = parts;
-		// The cast keeps the call-site readable — every code path
-		// here guarantees `parts.length >= 1` (the "Add" button only
-		// appends; the "Remove" button refuses to delete the last
-		// remaining row), so the runtime contract holds.
-		return concat(first, ...rest) as Extract<
-			ValueExpression,
-			{ kind: "concat" }
-		>;
+		return concat(first, ...rest);
 	};
 
 	const { pendingDrop } = useReorderableExpressionList({
@@ -100,7 +97,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 					// Stable per-part identity from the WeakMap-backed
 					// `nodeId(part)` rather than the array index — keeps
 					// React state on the right row across reorders.
-					key={nodeId(part as object)}
+					key={nodeId(part)}
 					index={i}
 					containerKey={containerKey}
 					containerKind="concat"

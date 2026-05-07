@@ -56,13 +56,13 @@ export function CoalesceCard({ value, onChange, path }: CoalesceCardProps) {
 		values: readonly ValueExpression[],
 	): Extract<ValueExpression, { kind: "coalesce" }> => {
 		const [first, ...rest] = values;
-		// Same call-site cast pattern as ConcatCard — the runtime
-		// contract guarantees `values.length >= 1` (no path mutates
-		// the array to empty).
-		return coalesce(first, ...rest) as Extract<
-			ValueExpression,
-			{ kind: "coalesce" }
-		>;
+		// Runtime contract guarantees `values.length >= 1` (no path
+		// mutates the array to empty), so destructuring is sound; the
+		// `coalesce` builder's variadic-with-required-first signature
+		// ties the call together. The builder's declared return type
+		// is the precise `Extract<ValueExpression, { kind: "coalesce" }>`
+		// arm — no narrowing cast needed.
+		return coalesce(first, ...rest);
 	};
 
 	const { pendingDrop } = useReorderableExpressionList({
@@ -95,7 +95,7 @@ export function CoalesceCard({ value, onChange, path }: CoalesceCardProps) {
 			</div>
 			{value.values.map((v, i) => (
 				<ReorderableRow
-					key={nodeId(v as object)}
+					key={nodeId(v)}
 					index={i}
 					containerKey={containerKey}
 					containerKind="coalesce"

@@ -121,19 +121,63 @@ describe("expressionCardSchemas — applicable predicates", () => {
 		expect(expressionCardSchemas.if.applicable(ctx, "date")).toBe(true);
 	});
 
-	it("today applies to date / _any expectedTypes; not to int", () => {
+	it("today applies to date / _any expectedTypes; not to datetime or int", () => {
+		// `today` always resolves to `date` — strict-only.
 		expect(expressionCardSchemas.today.applicable(ctx)).toBe(true);
 		expect(expressionCardSchemas.today.applicable(ctx, "date")).toBe(true);
 		expect(expressionCardSchemas.today.applicable(ctx, "_any")).toBe(true);
+		expect(expressionCardSchemas.today.applicable(ctx, "datetime")).toBe(false);
 		expect(expressionCardSchemas.today.applicable(ctx, "int")).toBe(false);
 	});
 
 	it("now applies to datetime / _any expectedTypes; not to date or int", () => {
+		// `now` always resolves to `datetime` — strict-only.
 		expect(expressionCardSchemas.now.applicable(ctx)).toBe(true);
 		expect(expressionCardSchemas.now.applicable(ctx, "datetime")).toBe(true);
 		expect(expressionCardSchemas.now.applicable(ctx, "_any")).toBe(true);
 		expect(expressionCardSchemas.now.applicable(ctx, "date")).toBe(false);
 		expect(expressionCardSchemas.now.applicable(ctx, "int")).toBe(false);
+	});
+
+	it("date-add applies to BOTH date and datetime expectedTypes", () => {
+		// `date-add`'s result type follows the operand — `today() + N`
+		// resolves to `date`, `now() + N` resolves to `datetime`. The
+		// kind picker surfaces it for either temporal slot; the
+		// operand picker drives which side the type checker validates.
+		expect(expressionCardSchemas["date-add"].applicable(ctx, "date")).toBe(
+			true,
+		);
+		expect(expressionCardSchemas["date-add"].applicable(ctx, "datetime")).toBe(
+			true,
+		);
+		expect(expressionCardSchemas["date-add"].applicable(ctx, "int")).toBe(
+			false,
+		);
+	});
+
+	it("date-coerce ↔ datetime-coerce: each is applicable for the other's temporal slot", () => {
+		// The structural-twin pair is operand-preserving via
+		// `preservedExpressionSwap`; picker parity matches that
+		// authoring path so the wrong-temporal arm doesn't de-emphasize.
+		expect(expressionCardSchemas["date-coerce"].applicable(ctx, "date")).toBe(
+			true,
+		);
+		expect(
+			expressionCardSchemas["date-coerce"].applicable(ctx, "datetime"),
+		).toBe(true);
+		expect(
+			expressionCardSchemas["datetime-coerce"].applicable(ctx, "date"),
+		).toBe(true);
+		expect(
+			expressionCardSchemas["datetime-coerce"].applicable(ctx, "datetime"),
+		).toBe(true);
+		// Neither applies to a non-temporal slot.
+		expect(expressionCardSchemas["date-coerce"].applicable(ctx, "text")).toBe(
+			false,
+		);
+		expect(
+			expressionCardSchemas["datetime-coerce"].applicable(ctx, "int"),
+		).toBe(false);
 	});
 
 	it("arith / double apply to numeric expectedTypes; not to text", () => {

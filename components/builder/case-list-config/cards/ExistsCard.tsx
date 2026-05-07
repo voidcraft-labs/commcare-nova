@@ -39,6 +39,7 @@ import {
 } from "../editorContext";
 import { appendKindSlot, type EditorPath } from "../path";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
+import { resolveRelationDestination } from "../relationDestination";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
 
 export function existsDefault(): Extract<Predicate, { kind: "exists" }> {
@@ -86,7 +87,8 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 	// still allows authoring; the surfaced inline error tells the
 	// user the walk is broken.
 	const destinationCaseType = useMemo(
-		() => resolveDestination(value.via, ctx.currentCaseType, ctx.caseTypes),
+		() =>
+			resolveRelationDestination(value.via, ctx.currentCaseType, ctx.caseTypes),
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
 
@@ -139,55 +141,6 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 			</div>
 		</div>
 	);
-}
-
-/** Resolve the destination case-type name for a relation walk.
- *  Returns undefined when the walk is structurally unresolvable
- *  against the current schema (the surrounding card surfaces the
- *  error inline via the type checker's verdict). */
-function resolveDestination(
-	via: RelationPath,
-	originCaseType: string,
-	caseTypes: readonly { name: string; parent_type?: string }[],
-): string | undefined {
-	switch (via.kind) {
-		case "self":
-			// `exists(via: self)` is a meaningless top-level shape (the
-			// type checker rejects it), but inside the editor the user
-			// may transiently pick `self` while editing — render the
-			// where-clause against the origin scope so the picker isn't
-			// blank.
-			return originCaseType;
-		case "ancestor": {
-			// throughCaseType disagreement — the type checker reports the
-			// structural mismatch; the editor falls back to the resolved
-			// parent so the where clause stays renderable. The qualifier
-			// is therefore not consulted here.
-			let current: string | undefined = originCaseType;
-			for (const _step of via.via) {
-				if (current === undefined) return undefined;
-				const ct = caseTypes.find((c) => c.name === current);
-				if (ct === undefined) return undefined;
-				current = ct.parent_type;
-			}
-			return current;
-		}
-		case "subcase":
-		case "any-relation": {
-			// Find a case type whose parent_type points back at the
-			// origin. When more than one matches, prefer `ofCaseType`
-			// when set; otherwise return the first match (the editor's
-			// inline error surfaces the disambiguation requirement).
-			const candidates = caseTypes.filter(
-				(c) => c.parent_type === originCaseType,
-			);
-			if (via.ofCaseType !== undefined) {
-				const named = candidates.find((c) => c.name === via.ofCaseType);
-				return named?.name;
-			}
-			return candidates[0]?.name;
-		}
-	}
 }
 
 function KindMenu({

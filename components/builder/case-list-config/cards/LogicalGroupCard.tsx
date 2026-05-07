@@ -331,7 +331,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			<div className="space-y-1.5">
 				{value.clauses.map((clause, i) => (
 					<ClauseRow
-						key={nodeId(clause as object)}
+						key={nodeId(clause)}
 						clause={clause}
 						clauseIndex={i}
 						containerKey={containerKey}

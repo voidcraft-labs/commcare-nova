@@ -150,7 +150,7 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 				</div>
 				{value.cases.map((c, i) => (
 					<ReorderableRow
-						key={nodeId(c as object)}
+						key={nodeId(c)}
 						index={i}
 						containerKey={containerKey}
 						containerKind="switch"

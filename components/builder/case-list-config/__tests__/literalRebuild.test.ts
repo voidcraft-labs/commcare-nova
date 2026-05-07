@@ -136,4 +136,36 @@ describe("literalToInputText / parseInputTextToLiteral — symmetric round-trip"
 		expect(next.data_type).toBe("time");
 		expect(next.value).toBe("15:30:00");
 	});
+
+	it("empty-text asymmetry — temporal qualifiers route empty input to a typed empty-string literal", () => {
+		// The qualifier-driven decode path runs first: a date / datetime
+		// / time source produces a typed-empty-string literal when the
+		// input is empty, NOT a `literal(null)`. The unqualified path's
+		// "empty input → null" heuristic never applies to a temporal
+		// source because the qualifier wins. Locks the documented
+		// asymmetry against silent regression.
+		const dateSource = dateLiteral("2024-01-01");
+		const dateEmpty = parseInputTextToLiteral("", dateSource);
+		expect(dateEmpty.kind).toBe("literal");
+		expect(dateEmpty.value).toBe("");
+		expect(dateEmpty.data_type).toBe("date");
+
+		const datetimeEmpty = parseInputTextToLiteral(
+			"",
+			datetimeLiteral("2024-01-01T00:00:00"),
+		);
+		expect(datetimeEmpty.value).toBe("");
+		expect(datetimeEmpty.data_type).toBe("datetime");
+
+		const timeEmpty = parseInputTextToLiteral("", timeLiteral("12:00:00"));
+		expect(timeEmpty.value).toBe("");
+		expect(timeEmpty.data_type).toBe("time");
+
+		// Symmetric: an unqualified text source DOES route empty input
+		// to `literal(null)`. The two halves of the asymmetry are
+		// pinned together so a regression in either branch surfaces.
+		const textEmpty = parseInputTextToLiteral("", literal(""));
+		expect(textEmpty.value).toBeNull();
+		expect(textEmpty.data_type).toBeUndefined();
+	});
 });
