@@ -347,11 +347,11 @@ export async function POST(req: Request) {
 				 *    turns would just waste tokens against a dead cache.
 				 *
 				 * 2. **Live-cache edits get full history, but with build-only tool
-				 *    parts stripped.** Edit mode excludes `generateSchema` /
-				 *    `generateScaffold` / `addModule` from the tool set; any
-				 *    lingering tool-use parts from the original build would make
-				 *    Anthropic reject the request ("tool not found in tools
-				 *    array"). Stripping them by `tool-${name}` part type removes
+				 *    parts stripped.** Edit mode excludes `generateSchema` and
+				 *    `generateScaffold` from the tool set; any lingering tool-use
+				 *    parts from the original build would make Anthropic reject
+				 *    the request ("tool not found in tools array"). Stripping
+				 *    them by `tool-${name}` part type removes
 				 *    both the call and its output in one step — AI SDK v5 keeps
 				 *    both sides of a tool invocation on the same part — so the
 				 *    converted Anthropic messages come out with matched

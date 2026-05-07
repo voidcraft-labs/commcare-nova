@@ -1,10 +1,11 @@
 /**
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
- * Tools are split into two groups: **generation** (schema, scaffold, columns) and
- * **shared** (conversation, read, mutation, validation). In edit mode (existing app),
- * generation tools are excluded — the SA only gets shared tools and an editing prompt
- * with a blueprint summary. In build mode (new app), all tools are available.
+ * Tools are split into two groups: **generation** (schema, scaffold) and
+ * **shared** (conversation, read, mutation, validation, case-list-config).
+ * In edit mode (existing app), generation tools are excluded — the SA only
+ * gets shared tools and an editing prompt with a blueprint summary. In build
+ * mode (new app), all tools are available.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -32,7 +33,6 @@ import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
-import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { setCalculatedColumnsTool } from "./tools/case-list-config/setCalculatedColumns";
 import { setCaseListColumnsTool } from "./tools/case-list-config/setCaseListColumns";
@@ -77,7 +77,6 @@ export { validateAndFix } from "./validationLoop";
 export const BUILD_ONLY_TOOL_NAMES = [
 	"generateSchema",
 	"generateScaffold",
-	"addModule",
 ] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
@@ -172,8 +171,7 @@ export function createSolutionsArchitect(
 	 * job is to advance the SA's working-doc closure when the batch was
 	 * non-empty, so the next tool call sees updated index → uuid
 	 * resolution. Empty batches leave `doc` alone — matters for success
-	 * branches that don't change state (e.g. the survey-only module
-	 * branch in `addModule`).
+	 * branches that don't change state.
 	 *
 	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
 	 * the returned `execute` callback hands the exact Zod-output type to
@@ -255,8 +253,11 @@ export function createSolutionsArchitect(
 	}
 
 	// ── Generation tools (build mode only) ────────────────────────────
-	// These drive the initial build sequence: schema → scaffold → columns → fields.
-	// Excluded in edit mode — the SA uses mutation tools instead.
+	// Drive the initial build sequence: schema → scaffold → fields. Case
+	// list authoring (columns / sort / filter / calculated / search inputs)
+	// happens through the typed case-list-config tools in the shared set
+	// — same tools both during initial build and on later edits. Excluded
+	// in edit mode — the SA uses mutation tools instead.
 	//
 	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
 	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key
@@ -267,7 +268,6 @@ export function createSolutionsArchitect(
 	const generationTools = {
 		generateSchema: wrapMutating(generateSchemaTool),
 		generateScaffold: wrapMutating(generateScaffoldTool),
-		addModule: wrapMutating(addModuleTool),
 	} satisfies Record<BuildOnlyToolName, unknown>;
 
 	// ── Shared tools (all modes) ─────────────────────────────────────

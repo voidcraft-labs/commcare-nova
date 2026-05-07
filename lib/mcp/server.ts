@@ -44,7 +44,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { addFieldTool } from "@/lib/agent/tools/addField";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
-import { addModuleTool } from "@/lib/agent/tools/addModule";
 import { setCalculatedColumnsTool } from "@/lib/agent/tools/case-list-config/setCalculatedColumns";
 import { setCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/setCaseListColumns";
 import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
@@ -104,7 +103,6 @@ import type { ToolContext } from "./types";
 const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "add_field", tool: addFieldTool },
 	{ name: "add_fields", tool: addFieldsTool },
-	{ name: "add_module", tool: addModuleTool },
 	{ name: "create_form", tool: createFormTool },
 	{ name: "create_module", tool: createModuleTool },
 	{ name: "edit_field", tool: editFieldTool },

@@ -374,31 +374,22 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(addFormMut?.form.postSubmit).toBe("module");
 	});
 
-	it("addModule emits data-mutations with module-scoped stage; survey-only module is silent", async () => {
-		// Fixture's MOD_A has caseType "patient" and accepts column writes;
-		// MOD_B is survey-only (no caseType) and should emit nothing.
+	it("setCaseListColumns emits data-mutations tagged module:M:columns", async () => {
+		// Pin the case-list-config write surface emits through the same
+		// `data-mutations` path as every other shared tool — case list
+		// authoring is the typed-AST replacement for the deleted
+		// `addModule` SA tool, so the fixture exercises one structured
+		// `Column` mutation at the same staging granularity.
 		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
 
-		await runTool(sa, "addModule", {
+		await runTool(sa, "setCaseListColumns", {
 			moduleIndex: 0,
-			case_list_columns: [{ field: "case_name", header: "Name" }],
-			case_detail_columns: null,
+			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
 		});
 
-		let muts = mutationEvents(writer);
+		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("module:0");
-		expectNoLegacyEvents(writer);
-
-		// Survey module: no caseType → the handler returns silently.
-		writer.write.mockClear();
-		await runTool(sa, "addModule", {
-			moduleIndex: 1,
-			case_list_columns: null,
-			case_detail_columns: null,
-		});
-		muts = mutationEvents(writer);
-		expect(muts).toHaveLength(0);
+		expect(muts[0].stage).toBe("module:0:columns");
 		expectNoLegacyEvents(writer);
 	});
 
@@ -517,10 +508,13 @@ describe("solutionsArchitect — emitMutations migration", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		await runTool(sa, "addModule", {
+
+		// Case-list-config write tool — covers the typed-AST surface that
+		// replaced the deleted `addModule` SA tool. Walking it here keeps
+		// the safety-net's coverage of column-replacement mutations.
+		await runTool(sa, "setCaseListColumns", {
 			moduleIndex: 0,
-			case_list_columns: [{ field: "case_name", header: "Name" }],
-			case_detail_columns: null,
+			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
 		});
 
 		// Shared tools: read + mutation + structural.

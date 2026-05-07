@@ -60,7 +60,7 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 				validationError(
 					"MISSING_CHILD_CASE_MODULE",
 					"app",
-					`The child case type "${ct.name}" (child of "${ct.parent_type}") is created by forms but has no module to display it. CommCare requires every case type to have a module — add one with case_type "${ct.name}" and case_list_columns so users can see these cases.`,
+					`The child case type "${ct.name}" (child of "${ct.parent_type}") is created by forms but has no module to display it. CommCare requires every case type to have a module — add one with case_type "${ct.name}" and configure its case list columns so users can see these cases.`,
 					{},
 					{ caseType: ct.name },
 				),

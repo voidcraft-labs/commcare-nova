@@ -11,9 +11,11 @@
  *
  * The `predicate` slot is `nullable()` — `null` clears the filter
  * (case list shows every case of the module's case type), a
- * supplied predicate replaces whatever was there. Matches the
- * "clear via null" convention `updateModule.case_detail_columns`
- * uses for its analogous nullable slot.
+ * supplied predicate replaces whatever was there. The clear-via-
+ * `null` convention reads as "an absence value rather than absence-
+ * via-omission" — it forces the SA to spell out "remove the filter"
+ * as a payload rather than relying on a missing key, which the AI
+ * SDK / Anthropic schema wouldn't honor consistently across edits.
  *
  * Both the SA chat factory and the MCP adapter call this through
  * the shared `ToolExecutionContext` interface. Two exit branches:

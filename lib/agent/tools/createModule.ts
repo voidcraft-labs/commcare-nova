@@ -7,6 +7,12 @@
  * post-mutation `moduleOrder` length to compute the index for the
  * success message.
  *
+ * Case list authoring (columns / sort / filter / calculated / search
+ * inputs) is a separate step. After the new module is created, the SA
+ * calls the typed case-list-config tools (`setCaseListColumns` et al.)
+ * with the fresh module's index. Those tools preserve the structured
+ * `Column` discriminated union end-to-end.
+ *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
@@ -16,7 +22,7 @@
  */
 
 import { z } from "zod";
-import { type BlueprintDoc, plainColumn } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { addModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
@@ -35,15 +41,6 @@ export const createModuleInputSchema = z.object({
 		.describe(
 			"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.",
 		),
-	case_list_columns: z
-		.array(
-			z.object({
-				field: z.string().describe("Case property name"),
-				header: z.string().describe("Column header text"),
-			}),
-		)
-		.optional()
-		.describe("Case list columns"),
 });
 
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
@@ -52,43 +49,24 @@ export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 export type CreateModuleResult = string | { error: string };
 
 export const createModuleTool = {
-	description: "Add a new module to the app.",
+	description:
+		"Add a new module to the app. Configure its case list separately via setCaseListColumns once the module exists.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateModuleResult>> {
-		const { name, case_type, case_list_only, case_list_columns } = input;
+		const { name, case_type, case_list_only } = input;
 		try {
 			// Stage tag `module:create` — a positional index isn't available
 			// yet because the new module's slot only exists after the
 			// mutations apply. Downstream consumers that need the index read
 			// it from the post-mutation `moduleOrder`.
-			//
-			// The SA-facing input keeps the legacy `{field, header}[]`
-			// shape; the helper builder takes the structured
-			// `caseListConfig` shape, so the entries map through the
-			// typed `plainColumn(...)` builder — the discriminated-
-			// union arm equivalent to "render the property value as a
-			// string." The remaining `caseListConfig` slots stay empty
-			// since this entry point doesn't author sort / calculated
-			// / search.
-			const caseListConfig = case_list_columns
-				? {
-						columns: case_list_columns.map((col) =>
-							plainColumn(col.field, col.header),
-						),
-						sort: [],
-						calculatedColumns: [],
-						searchInputs: [],
-					}
-				: undefined;
 			const mutations = addModuleMutations(doc, {
 				name,
 				...(case_type && { caseType: case_type }),
 				...(case_list_only && { caseListOnly: case_list_only }),
-				...(caseListConfig && { caseListConfig }),
 			});
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, "module:create");

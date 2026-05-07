@@ -1,16 +1,24 @@
 /**
- * SA tool: `getModule` — read one module's metadata + case list columns
+ * SA tool: `getModule` — read one module's metadata + case list config
  * + form summary by positional index.
  *
  * Pure read — no mutations, no SSE emission. Useful to the SA mid-edit
- * when it needs to confirm a module's case type or enumerate its forms
- * without re-reading the whole doc. Both the SA chat factory and the
- * MCP adapter call this the same way.
+ * when it needs to confirm a module's case type, inspect the structured
+ * `caseListConfig` it has authored, or enumerate its forms without
+ * re-reading the whole doc. Both the SA chat factory and the MCP
+ * adapter call this the same way.
+ *
+ * The returned `case_list_config` mirrors the structured `CaseListConfig`
+ * shape the case-list-config write tools (`setCaseListColumns`,
+ * `setCaseListSort`, `setCaseListFilter`, `setCalculatedColumns`,
+ * `setCaseListSearchInputs`) consume. Keeping the read shape symmetric
+ * with the write shape lets the SA round-trip its own authoring without
+ * lossy projection.
  */
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc, FormType } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig, FormType } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -33,20 +41,13 @@ export interface GetModuleFormSummary {
 }
 
 /**
- * Legacy `{field, header}[]` shape returned to the SA. The doc
- * stores a structured `Column` discriminated union; this shape
- * is the projection the SA continues to consume.
- */
-export interface GetModuleColumn {
-	field: string;
-	header: string;
-}
-
-/**
  * Two legal result shapes:
  *
  *   - `{ error }` when the moduleIndex is out of range.
- *   - Module snapshot — metadata + columns + per-form summary.
+ *   - Module snapshot — metadata + structured case list config + per-form
+ *     summary. `case_list_config` is `null` when the module has no
+ *     authored config yet (a survey-only module or a freshly created
+ *     case-carrying module before any case-list-config tool runs).
  */
 export type GetModuleResult =
 	| { error: string }
@@ -54,13 +55,13 @@ export type GetModuleResult =
 			moduleIndex: number;
 			name: string;
 			case_type: string | null;
-			case_list_columns: GetModuleColumn[] | null;
+			case_list_config: CaseListConfig | null;
 			forms: GetModuleFormSummary[];
 	  };
 
 export const getModuleTool = {
 	description:
-		"Get a module by index. Returns module metadata, case list columns, and a summary of its forms.",
+		"Get a module by index. Returns module metadata, the structured case list config (columns / sort / filter / calculated / detail / search inputs), and a summary of its forms.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,
@@ -83,25 +84,13 @@ export const getModuleTool = {
 			};
 		}
 		const formUuids = doc.formOrder[moduleUuid] ?? [];
-		// Only project `kind === "plain"` columns to the legacy
-		// `{field, header}[]` shape the SA reads — the structured
-		// `Column` union carries per-kind configuration that doesn't
-		// fit the legacy shape, and the columns the SA's writer
-		// tools (`addModule` / `createModule` / `updateModule`)
-		// produce are always plain-kind. Returning `null` when no
-		// plain-kind columns are present mirrors the prior
-		// "no columns authored" signal the SA already handles.
-		const plainColumns =
-			mod.caseListConfig?.columns
-				.filter((col) => col.kind === "plain")
-				.map((col) => ({ field: col.field, header: col.header })) ?? [];
 		return {
 			kind: "read",
 			data: {
 				moduleIndex,
 				name: mod.name,
 				case_type: mod.caseType ?? null,
-				case_list_columns: plainColumns.length > 0 ? plainColumns : null,
+				case_list_config: mod.caseListConfig ?? null,
 				forms: formUuids.map((fUuid, i) => {
 					const f = doc.forms[fUuid];
 					return {

@@ -89,8 +89,8 @@ describe("eventSchema", () => {
 				payload: {
 					type: "tool-call",
 					toolCallId: "tc-1",
-					toolName: "addModule",
-					input: { name: "m1" },
+					toolName: "setCaseListColumns",
+					input: { moduleIndex: 0, columns: [] },
 				},
 			},
 			{
@@ -102,7 +102,7 @@ describe("eventSchema", () => {
 				payload: {
 					type: "tool-result",
 					toolCallId: "tc-1",
-					toolName: "addModule",
+					toolName: "setCaseListColumns",
 					output: "Success",
 				},
 			},
