@@ -237,13 +237,27 @@ The Display section composition at `components/builder/case-list-config/`. `Disp
 Final state: 3456 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 7: Filters section composition
+### Task 7: Filters section composition — SHIPPED
 
-**Files:** `components/builder/case-list-config/FiltersSection.tsx`, tests.
+SHIPPED 2026-05-07 in commits `5f7e348d` (initial feat) → `bfedb910` (collapse rows/empty arms; spec-aligned count copy) → `80922828` (CR polish: symmetric clear-filter slot test + drop fragile eager reset) on branch `feat/case-list-search`.
 
-Mounts `PredicateCardEditor` for the always-on filter. Live-preview panel re-runs the case-list query through Plan 2's `PostgresCaseStore` showing how many cases pass the filter.
+**What landed:**
 
-Tests: editing the filter updates the result count and visible rows; clearing the filter shows all cases.
+`FiltersSection.tsx` mounts `PredicateCardEditor` (Task 2) for the always-on filter. The section header carries a "Clear filter" affordance when present and an "Add filter" affordance when absent — adding a filter initializes via the `matchAll()` builder (lets the user swap to any concrete operator via the kind-replace menu without seeing a false-error state). Validity propagates via the slot-presence short-circuit `!filterPresent || predicateValid`, so a cleared filter is always valid regardless of the inner editor's stale verdict.
+
+`FiltersPreview.tsx` renders a count card ("N cases pass this filter" / "All N cases (no filter applied)") plus a small row sample (top ~10 rows by default) using the shared `columnCellRenderer.tsx` extracted in this task. The column-cell rendering is now consolidated across `DisplayPreview` and `FiltersPreview`; both surfaces share `renderColumnCell` + `renderCalculatedCell` plus best-effort formatters for `date` / `phone` / `time-since-until` / `late-flag` / `id-mapping` / `search-only`.
+
+**`CaseStore.count`** — new sibling to `query` / `queryWithCalculated` (`lib/case-store/store.ts` + `postgres/store.ts`). Same argument shape `(appId, caseType, blueprint?, predicate?)`, structurally tenant-scoped via the same outer-scan filter, predicate compiles via the existing `compilePredicate` stack. Returns `number` via `eb.fn.countAll<string>()` cast (the `bigint`-as-string serialization Postgres emits, parsed at the boundary). Four contract tests pin the contract: predicate-undefined returns total, predicate-narrowed returns subset, tenant scoping rejects cross-app rows, blueprint snapshot required for typed property reads.
+
+**`loadFilterPreviewAction`** — Server Action mirroring `loadCaseListPreviewAction`'s shape. Resolves session FIRST (matching the file's pattern), then Zod-parses both `caseListConfig` and `blueprint` at entry, then queries via `caseStore.queryWithCalculated(...)` (truncated row sample) + `caseStore.count(...)` (full count). Discriminated arms: `rows` (with `totalCount: number`, possibly empty `rows` array) / `unauthenticated` / `error` / `invalid-config` / `invalid-blueprint`. The `rows` arm carries the row sample AND the `totalCount` so the count-and-sample stay internally consistent across renders.
+
+**Round-trip preservation discipline.** Add-filter and clear-filter transitions preserve every other `CaseListConfig` slot verbatim (columns, sort, calculatedColumns, searchInputs); pinned by symmetric tests on both transition directions. AST mutations route through `matchAll()` (and other Predicate builders). No hand-rolled AST literals in production code.
+
+**Hard constraints honored:** No textareas. Field uuid (`nodeId()`) for stable React keys. Base UI primitives, glass on Positioner. `@iconify/react/offline` icons. `motion/react` animation. `'use client'` at top. SA tool prompts/schemas untouched.
+
+**Tests (32 in this task's surface):** filter add / clear / edit round-trip, validity aggregation (defined-invalid → undefined → valid transitions), filter editing updates count + visible rows (per spec), clearing filter shows all cases (per spec), `invalid-config` + `invalid-blueprint` arm tests at action-level + renderer-level, CaseStore `count` contract tests (4), session-first ordering test, symmetric slot preservation across add/clear transitions. One round of fresh-CR review uncovered the asymmetric-coverage + fragile-eager-reset items closed in the polish commit.
+
+Final state: 3488 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 8: Search Inputs section composition
