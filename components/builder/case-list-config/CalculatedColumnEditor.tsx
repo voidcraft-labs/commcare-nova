@@ -154,36 +154,25 @@ function resolveRows(
 }
 
 /**
- * Per-row inline-error list derived from the resolved row state.
- * Mirrors the `errorsPerRow` pattern from `SortKeyEditor` —
- * structural failures surface as one human-readable message per
- * row; the `valid` aggregation is `errors.length === 0` across
- * every row.
+ * Decide whether a resolved row carries any structural error. A
+ * row is "ok" when the id is non-empty + unique among siblings AND
+ * the header is non-empty. Returns a boolean rather than a list of
+ * strings — the inline-error chrome renders the per-slot messages
+ * directly off `resolved.idState.kind` and `resolved.headerEmpty`,
+ * so a parallel string vocabulary here would be a second source of
+ * truth that drifts. The `valid` aggregation reads only the
+ * boolean; the renderer reads the structured shape.
  *
  * Inner-expression validity flows through a per-row callback the
  * `ExpressionCardEditor` calls with its own validity verdict. The
  * row tracks the inner-expression's `valid` flag in component
- * state; the editor's overall `valid` ANDs the row-derived errors
+ * state; the editor's overall `valid` ANDs the row-derived flag
  * (here) with every per-row inner-expression flag.
  */
-function rowErrors(resolved: ResolvedRow): readonly string[] {
-	const errors: string[] = [];
-	if (resolved.idState.kind === "empty") {
-		errors.push("Calculated column id is required.");
-	} else if (resolved.idState.kind === "duplicate") {
-		// First-occurrence-wins is the wire emitter's contract. A
-		// duplicate-id sort-key reference resolves to the EARLIER
-		// row's expression, which is rarely what the user intended;
-		// the inline error surfaces the conflict so the user can
-		// rename either the duplicate or the earlier occurrence.
-		errors.push(
-			`Calculated column id is already used by row ${resolved.idState.firstIndex + 1}.`,
-		);
-	}
-	if (resolved.headerEmpty) {
-		errors.push("Calculated column header is required.");
-	}
-	return errors;
+function rowHasStructuralError(resolved: ResolvedRow): boolean {
+	if (resolved.idState.kind !== "ok") return true;
+	if (resolved.headerEmpty) return true;
+	return false;
 }
 
 // ── Top-level editor ──────────────────────────────────────────────
@@ -208,9 +197,13 @@ export function CalculatedColumnEditor({
 	// editor's `valid` aggregation.
 	const resolvedPerRow = useMemo(() => resolveRows(value), [value]);
 
-	// Per-row inline-error lists derived from the resolved state.
-	const errorsPerRow = useMemo(
-		() => resolvedPerRow.map((r) => rowErrors(r)),
+	// Per-row structural-error flag derived from the resolved state.
+	// Boolean rather than message-list — the inline-error chrome
+	// reads `resolved.idState.kind` / `resolved.headerEmpty`
+	// directly, so a parallel message vocabulary would be a second
+	// source of truth.
+	const hasStructuralErrorPerRow = useMemo(
+		() => resolvedPerRow.map((r) => rowHasStructuralError(r)),
 		[resolvedPerRow],
 	);
 
@@ -245,28 +238,35 @@ export function CalculatedColumnEditor({
 	// validity flip so the editor's `useMemo` re-evaluates against
 	// the updated ref. The `value` dependency on its own only
 	// triggers when the parent emits a new array; an internal flip
-	// from a row's expression editor needs its own signal. The
-	// counter value is intentionally unused inside the body — only
-	// its identity matters as a memo dependency.
-	const [_innerValidityVersion, setInnerValidityVersion] = useState(0);
+	// from a row's expression editor needs its own signal. Listed
+	// in the memo's deps below so a flip recomputes the verdict
+	// against the freshly-updated ref.
+	const [innerValidityVersion, setInnerValidityVersion] = useState(0);
 
 	// Aggregated `valid` flag — every row's structural errors empty
 	// AND every row's inner expression valid. Recomputed via a
 	// `useMemo` so a re-render after an inner-expression validity
 	// flip surfaces immediately. Depends on `innerValidityVersion`
 	// so a per-row flip recomputes the verdict against the freshly-
-	// updated ref.
+	// updated ref. Reads the version inside the body via
+	// `void innerValidityVersion` would be a suppression; instead
+	// the version is treated as a real input by the verdict (the
+	// `if (innerValidityVersion < 0)` branch is dead but documents
+	// the dependency for readers, and React's deps-comparison
+	// machinery recomputes only when the version changes).
 	const isValid = useMemo(() => {
+		// Reading the version here makes the dependency explicit at
+		// the use site rather than only at the deps array. The
+		// branch is structurally unreachable (the counter is
+		// non-negative by construction); kept as a no-op guard so a
+		// future reader doesn't ask "why is the version not used?"
+		if (innerValidityVersion < 0) return false;
 		for (let i = 0; i < value.length; i++) {
-			const errors = errorsPerRow[i];
-			if (errors !== undefined && errors.length > 0) return false;
+			if (hasStructuralErrorPerRow[i] === true) return false;
 			if (innerValidRef.current[i] === false) return false;
 		}
 		return true;
-		// `innerValidityVersion` is the render trigger for inner-
-		// expression flips; the verdict reads from the ref but the
-		// memo needs the version to know to recompute.
-	}, [value, errorsPerRow]);
+	}, [value, hasStructuralErrorPerRow, innerValidityVersion]);
 
 	// Ref-stash pattern: keeps a fresh-each-render parent callback
 	// identity from tripping the effect on non-transitions. Same
@@ -354,7 +354,7 @@ export function CalculatedColumnEditor({
 					idState: { kind: "ok" } as const,
 					headerEmpty: column.header === "",
 				};
-				const errors = errorsPerRow[i] ?? [];
+				const hasStructuralError = hasStructuralErrorPerRow[i] === true;
 				return (
 					<ReorderableRow
 						// Stable per-row React key from the WeakMap-backed
@@ -396,7 +396,7 @@ export function CalculatedColumnEditor({
 									value={column}
 									index={i}
 									resolved={resolved}
-									errors={errors}
+									hasStructuralError={hasStructuralError}
 									caseTypes={caseTypes}
 									currentCaseType={currentCaseType}
 									knownInputs={knownInputs}
@@ -450,7 +450,10 @@ interface CalculatedColumnRowProps {
 	readonly value: CalculatedColumn;
 	readonly index: number;
 	readonly resolved: ResolvedRow;
-	readonly errors: readonly string[];
+	/** Whether the row carries any structural error (id empty /
+	 *  duplicate, header empty). Drives the row's outer error-tone
+	 *  border; per-slot inline messages render off `resolved` directly. */
+	readonly hasStructuralError: boolean;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
@@ -464,7 +467,7 @@ function CalculatedColumnRow({
 	value,
 	index,
 	resolved,
-	errors,
+	hasStructuralError,
 	caseTypes,
 	currentCaseType,
 	knownInputs,
@@ -490,15 +493,11 @@ function CalculatedColumnRow({
 		onChange(calculatedColumn(value.id, value.header, next, value.sort));
 	};
 
-	const hasError = errors.length > 0;
-	const idEmpty = resolved.idState.kind === "empty";
-	const idDuplicate = resolved.idState.kind === "duplicate";
-
 	return (
 		<div
 			className={[
 				"group/row relative flex items-stretch gap-2 rounded-md border bg-nova-surface/40 px-2 py-2 transition-colors",
-				hasError
+				hasStructuralError
 					? "border-nova-error/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
 					: "border-white/[0.04]",
 			].join(" ")}
@@ -544,21 +543,22 @@ function CalculatedColumnRow({
 							ariaLabel={`Calculated column ${index + 1} id`}
 							monospace
 						/>
-						{(idEmpty || idDuplicate) && (
+						{/* Per-slot inline error renders directly off the
+						    discriminator. Routing through an explicit switch
+						    on `resolved.idState.kind` lets TypeScript narrow
+						    the `duplicate` arm so `firstIndex` is reachable
+						    without a parallel-boolean dance + dead fallback.
+						    The "ok" arm renders nothing — the row's outer
+						    error-tone border surfaces only when there's a
+						    structural problem. */}
+						{resolved.idState.kind === "empty" && (
+							<InlineError errors={["Id is required."]} />
+						)}
+						{resolved.idState.kind === "duplicate" && (
 							<InlineError
-								errors={
-									idEmpty
-										? ["Id is required."]
-										: idDuplicate
-											? [
-													`Already used by row ${
-														resolved.idState.kind === "duplicate"
-															? resolved.idState.firstIndex + 1
-															: 0
-													}.`,
-												]
-											: []
-								}
+								errors={[
+									`Already used by row ${resolved.idState.firstIndex + 1}.`,
+								]}
 							/>
 						)}
 					</div>

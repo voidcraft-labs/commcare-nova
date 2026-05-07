@@ -334,18 +334,22 @@ function ColumnList({
 
 	// Render-trigger counter — bumped on every inner-validity flip
 	// so the wrapper's aggregated verdict recomputes against the
-	// freshly-updated ref.
-	const [_innerValidityVersion, setInnerValidityVersion] = useState(0);
+	// freshly-updated ref. Listed in the memo's deps below so a
+	// flip recomputes the verdict against the updated ref.
+	const [innerValidityVersion, setInnerValidityVersion] = useState(0);
 
 	const isValid = useMemo(() => {
+		// Reading the version here makes the dependency explicit at
+		// the use site rather than only at the deps array. The
+		// branch is structurally unreachable (the counter is
+		// non-negative by construction); kept as a no-op guard so a
+		// future reader doesn't ask "why is the version not used?"
+		if (innerValidityVersion < 0) return false;
 		for (let i = 0; i < value.length; i++) {
 			if (innerValidRef.current[i] === false) return false;
 		}
 		return true;
-		// `innerValidityVersion` is the render trigger for inner-
-		// editor flips; the verdict reads from the ref but the memo
-		// needs the version to know to recompute.
-	}, [value]);
+	}, [value, innerValidityVersion]);
 
 	const onValidityChangeRef = useRef(onValidityChange);
 	onValidityChangeRef.current = onValidityChange;

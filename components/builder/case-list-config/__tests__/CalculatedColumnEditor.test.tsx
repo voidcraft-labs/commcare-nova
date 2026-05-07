@@ -21,7 +21,7 @@
 //     expression flips the editor's `valid: false` even when the id
 //     and header pass.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	type CalculatedColumn,
@@ -344,5 +344,89 @@ describe("CalculatedColumnEditor — builder discipline", () => {
 		expect(next[0]?.sort).toEqual({ type: "date", direction: "desc" });
 		// Schema round-trip.
 		expect(() => CALCULATED_SCHEMA.parse(next)).not.toThrow();
+	});
+});
+
+// ── External-prop validity flip ──────────────────────────────────
+//
+// The aggregated `isValid` verdict combines per-row structural
+// errors (id / header) AND every row's inner-expression validity.
+// The inner verdict flows through the parallel `innerValidRef`
+// shadow array; a render-trigger counter (`innerValidityVersion`)
+// recomputes the `useMemo` so the verdict picks up the freshly-
+// updated ref.
+//
+// Pre-fix: the version counter was missing from the memo's deps —
+// a `caseTypes` / `knownInputs` change that flipped a previously-
+// valid inner expression to invalid would update the ref + bump
+// the version, but the memo's referentially-stable `[value]` /
+// `[value, errorsPerRow]` deps would short-circuit and return the
+// cached stale `isValid`. The downstream `useEffect([isValid])`
+// wouldn't fire and the parent never received the
+// `onValidityChange(false)` notification.
+//
+// Post-fix: the version is in the deps; a flip recomputes the
+// verdict and propagates to the parent.
+
+describe("CalculatedColumnEditor — external-prop validity flip", () => {
+	it("propagates validity false when a caseTypes change makes a calculated expression's property reference stale", async () => {
+		// Initial render: a calculated column whose expression reads
+		// `patient.age`. With the original `caseTypes` (PATIENT
+		// declares `age`), the inner expression type-checks clean and
+		// the editor reports `valid: true`.
+		//
+		// Re-render: swap to a `caseTypes` shape that does NOT declare
+		// `age`. The inner ExpressionCardEditor's `checkValueExpression`
+		// runs against the new context and flips its verdict to false;
+		// the wrapper picks up the flip via the version counter +
+		// memo-deps wiring and propagates `valid: false` to the parent.
+		const onValidityChange = vi.fn();
+		const value: CalculatedColumn[] = [
+			calculatedColumn(
+				"days_since_age",
+				"Days since age",
+				term(prop("patient", "age")),
+			),
+		];
+		const { rerender } = render(
+			<CalculatedColumnEditor
+				value={value}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		// Initial verdict — inner expression resolves, validity is true.
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(true);
+		});
+
+		// Re-render with a case-types list that no longer declares
+		// `age`. The inner expression's `prop("patient", "age")`
+		// reference becomes a type-checker error; the inner editor
+		// flips to `valid: false`.
+		const PATIENT_NO_AGE: CaseType = {
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		};
+		rerender(
+			<CalculatedColumnEditor
+				value={value}
+				onChange={() => {}}
+				caseTypes={[PATIENT_NO_AGE]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+
+		// The flip propagates through the version counter + memo-deps
+		// wiring; the parent's onValidityChange fires with false.
+		// Without the fix (version missing from deps), this assertion
+		// fails — `useMemo` returns the cached true and the parent
+		// never sees the transition.
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(false);
+		});
 	});
 });
