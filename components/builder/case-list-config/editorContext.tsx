@@ -187,10 +187,14 @@ export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
 	const { validityIndex } = usePredicateEditContext();
 	const prefix = serializePath(path);
 	// Strict-descendant: only the prefix-with-separator form matches.
-	// Exact-key match is excluded by the explicit `key !== prefix`
-	// guard, and the root path's empty serialization gets the same
-	// strict treatment (every non-empty key is a descendant of the
-	// root, so the check reduces to the non-empty-prefix branch).
+	// Exact-key match is excluded structurally by the trailing `\0`
+	// on `prefixWithSep`, which exact-match keys lack — the slot's
+	// own serialized form ends after its last segment, so it can't
+	// `startsWith(prefixWithSep)`. The root path's empty
+	// serialization gets the same strict treatment via the explicit
+	// `key !== ""` guard on the root branch — every non-empty key is
+	// a descendant of the root, so excluding the empty key gives
+	// strict-descendant semantics there too.
 	const prefixWithSep = prefix === "" ? "" : `${prefix}\0`;
 	const seen = new Set<string>();
 	const merged: string[] = [];

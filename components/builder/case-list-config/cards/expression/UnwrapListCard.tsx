@@ -15,6 +15,16 @@
 // The badge surfaces the authored shape without offering scalar
 // editing affordances; the kind-replace menu on the parent shell
 // handles the path back to a scalar shape.
+//
+// Lossless recovery affordance: a "Replace" button swaps
+// `unwrap-list(<inner>)` for the inner expression directly. Authors
+// who land on this card with an unrepairable inner shape (e.g. a
+// stale property reference) can recover without losing the inner
+// expression — the kind-replace menu on the parent shell would
+// otherwise discard the operand via `defaultValue(...)`. The card
+// stays read-only on the value slot itself; the inner expression
+// only re-enters the editor through the unwrap collapse, then
+// becomes editable through whatever its native card surfaces.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -52,25 +62,41 @@ export function unwrapListDefault(
 
 interface UnwrapListCardProps {
 	readonly value: Extract<ValueExpression, { kind: "unwrap-list" }>;
-	// onChange is part of the registry's card-component contract.
-	// This card is read-only — no editing affordance fires onChange.
-	// The type is preserved so the registry's mapped-type guard
-	// remains exhaustive over the kind union.
+	// onChange is fired ONLY by the "Replace" affordance below — the
+	// card is otherwise read-only on the value slot itself. The
+	// recovery path collapses `unwrap-list(<inner>)` to `<inner>` so
+	// the user can repair an unrepairable inner shape without losing
+	// the operand to a kind-replace default.
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
 }
 
 /**
- * Read-only sequence badge. The card shows the wrapped property
- * reference (when the operand is a Term/prop — the most common
- * shape) and surfaces a hint that the operator only applies in the
- * CSQL wire emitter's `selected-any(prop, unwrap-list(...))` form.
- * Authors who want scalar value-position editing flip the kind via
- * the parent shell's "Change" menu — `onChange` is part of the
- * card's prop contract but the badge body never fires it (no
- * editing affordances).
+ * Read-only sequence badge with a lossless "Replace" affordance.
+ *
+ * The card shows the wrapped property reference (when the operand
+ * is a Term/prop — the most common shape) and surfaces a hint that
+ * the operator only applies in the CSQL wire emitter's
+ * `selected-any(prop, unwrap-list(...))` form. Authors who want
+ * scalar value-position editing have two paths:
+ *
+ *   1. Click "Replace with inner expression" — collapses
+ *      `unwrap-list(<inner>)` to `<inner>` directly, which then
+ *      becomes editable through whatever card the inner expression's
+ *      kind dispatches to. Lossless: the inner expression survives
+ *      the unwrap.
+ *   2. Use the parent shell's "Change" kind-replace menu —
+ *      destructive: the target kind's default-value factory rebuilds
+ *      from scratch, the inner expression is lost.
+ *
+ * Path (1) is the canonical recovery path for repairing a saved
+ * `unwrap-list` whose inner expression has gone stale (e.g. a
+ * property reference whose target was renamed). The card body has
+ * no recursive `ExpressionPicker` — that would re-admit
+ * `unwrap-list` as an authorable kind through the inner picker's
+ * own kind menu, defeating the round-trip-only contract.
  */
-export function UnwrapListCard({ value, path }: UnwrapListCardProps) {
+export function UnwrapListCard({ value, onChange, path }: UnwrapListCardProps) {
 	const valueErrors = useEditorErrorsAt(appendSlot(path, "value"));
 
 	// Render the operand's shape verbatim. When the operand is a
@@ -91,7 +117,7 @@ export function UnwrapListCard({ value, path }: UnwrapListCardProps) {
 					height="14"
 					className="text-nova-violet-bright/70 mt-0.5 shrink-0"
 				/>
-				<div className="text-xs space-y-1 min-w-0">
+				<div className="text-xs space-y-1 min-w-0 flex-1">
 					<div className="text-nova-text">
 						Unwraps a JSON-encoded array stored in
 						<span className="font-mono text-nova-violet-bright/80 mx-1">
@@ -108,6 +134,14 @@ export function UnwrapListCard({ value, path }: UnwrapListCardProps) {
 						at the wire-emission boundary.
 					</div>
 				</div>
+				<button
+					type="button"
+					onClick={() => onChange(value.value)}
+					aria-label="Replace unwrap-list with its inner expression"
+					className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer shrink-0"
+				>
+					Replace
+				</button>
 			</div>
 			<InlineError errors={valueErrors} />
 		</div>

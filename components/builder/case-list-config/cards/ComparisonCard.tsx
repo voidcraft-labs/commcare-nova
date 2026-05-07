@@ -195,7 +195,21 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				 *  the picker shell is the path for swapping kinds.
 				 *  The picker's own `CardShell` footer surfaces inline
 				 *  errors at the slot path, so no parallel
-				 *  `<InlineError>` is needed here. */}
+				 *  `<InlineError>` is needed here.
+				 *
+				 *  `expectedType` is intentionally omitted: comparison's
+				 *  per-kind type rules (the ordered-types check on
+				 *  `gt` / `gte` / `lt` / `lte`, plus `typesCompatible`'s
+				 *  promotion / select-to-text widenings) admit any
+				 *  type compatible with the LEFT slot's resolved type,
+				 *  not a single primitive. A narrowing `expectedType`
+				 *  hint would over-filter the kind menu — the type
+				 *  checker's inline error is the structural gate
+				 *  instead. Symmetric to `WithinDistanceCard.center`
+				 *  (which similarly omits the hint because its allow-
+				 *  list is `geopoint` OR `text`). `MatchCard.value`'s
+				 *  hint applies only because the match-mode allow-list
+				 *  cleanly narrows to a single primitive per mode. */}
 				<ExpressionPicker
 					value={value.right}
 					onChange={setRight}

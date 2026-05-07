@@ -166,9 +166,17 @@ function PresetRow({ pattern, setPattern }: PresetRowProps) {
 }
 
 /** Free-text custom pattern input. Commits on blur. The schema
- *  rejects empty patterns via `z.string().min(1)`, so the editor
- *  surfaces the type checker's verdict (or a parse-time rejection
- *  at save) when the user clears the field. */
+ *  (`formatDateSchema.pattern: z.string().min(1)`) rejects empty
+ *  patterns at parse time, but the type checker's per-arm rules
+ *  in `checkExpression` don't reproduce that constraint at the
+ *  validity-index layer — empty input would otherwise flow silently
+ *  through the editor and surface only at save-boundary parse.
+ *
+ *  Local validity gate: track whether the draft would parse, drive
+ *  `aria-invalid` and a visible error border off it, and surface an
+ *  inline hint below the input. The commit handler refuses the
+ *  empty-string emit so the AST stays parseable, but the user sees
+ *  the rejection inline rather than a silent rollback. */
 function CustomPatternInput({
 	value,
 	onChange,
@@ -179,32 +187,60 @@ function CustomPatternInput({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const initial = value;
 	const [draft, setDraft] = useState(initial);
+	const [showEmptyError, setShowEmptyError] = useState(false);
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setShowEmptyError(false);
 		}
 	}, [initial, draft]);
 	const commit = useCallback(() => {
-		// Refuse the empty-string commit — the schema rejects it. Roll
-		// back the draft so the input doesn't visually clear.
+		// Empty draft — surface the schema's `min(1)` rejection inline
+		// and refuse the emit. The user sees the error message + red
+		// border; on the next keystroke the error clears (per the
+		// onChange handler below). The input retains the empty draft
+		// state so the user doesn't lose context about what they did.
 		if (draft.trim() === "") {
-			setDraft(initial);
+			setShowEmptyError(true);
 			return;
 		}
+		setShowEmptyError(false);
 		onChange(draft);
-	}, [draft, initial, onChange]);
+	}, [draft, onChange]);
+	const isInvalid = showEmptyError;
+	const inputCls = [
+		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors",
+		isInvalid
+			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
+			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
+	].join(" ");
 	return (
-		<input
-			ref={inputRef}
-			type="text"
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder="CCHQ format-date pattern (e.g. %d-%b-%Y)"
-			aria-label="Custom date pattern"
-			className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
-		/>
+		<div className="space-y-1">
+			<input
+				ref={inputRef}
+				type="text"
+				value={draft}
+				onChange={(e) => {
+					setDraft(e.target.value);
+					// Clear the empty-error signal as soon as the user
+					// types so the visual state matches the live draft.
+					if (showEmptyError && e.target.value.trim() !== "") {
+						setShowEmptyError(false);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				placeholder="CCHQ format-date pattern (e.g. %d-%b-%Y)"
+				aria-label="Custom date pattern"
+				aria-invalid={isInvalid || undefined}
+				className={inputCls}
+			/>
+			{isInvalid && (
+				<div className="text-[11px] leading-snug text-nova-error/90">
+					Custom pattern cannot be empty.
+				</div>
+			)}
+		</div>
 	);
 }
