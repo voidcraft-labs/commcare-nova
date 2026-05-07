@@ -34,6 +34,7 @@ import {
 import {
 	and,
 	eq,
+	isBlank,
 	literal,
 	matchAll,
 	matchNone,
@@ -286,6 +287,23 @@ describe("CaseListWorkspace — Filter status density", () => {
 		render(
 			renderWorkspace({
 				filter: eq(prop("patient", "name"), literal("Ada")),
+			}),
+		);
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/1 condition ·/)).toBeDefined();
+	});
+
+	it("renders '1 condition' for a non-comparison single-operand predicate (is-blank)", () => {
+		// Pin the policy's "fallthrough returns 1" semantic against
+		// any non-sentinel, non-and/or predicate. `is-blank` is a
+		// single-operand operator the user authored as one condition;
+		// the same applies to every other arm in this branch
+		// (`is-null` / `exists` / `missing` / `not` / `match` / `in`
+		// / `between` / `multi-select-contains` / `within-distance`
+		// / `when-input-present`).
+		render(
+			renderWorkspace({
+				filter: isBlank(prop("patient", "name")),
 			}),
 		);
 		const filterHeader = getSectionHeader("Filter");

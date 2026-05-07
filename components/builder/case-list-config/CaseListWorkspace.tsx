@@ -68,6 +68,16 @@ export interface CaseListWorkspaceProps {
 	readonly moduleUuid: Uuid;
 }
 
+// ── Constants ────────────────────────────────────────────────────
+
+/**
+ * Native `title` hint surfaced on disabled empty-state CTAs whose
+ * seed depends on a case-property reference (Add column /
+ * Add search input). The Add filter CTA stays enabled in this state
+ * because `matchAll()` is property-less and doesn't need the hint.
+ */
+const PROPERTYLESS_CTA_HINT = "Define case-type properties first.";
+
 // ── Top-level component ───────────────────────────────────────────
 
 /**
@@ -194,7 +204,7 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 							ctaLabel="Add column"
 							onCtaClick={handleAddFirstColumn}
 							ctaDisabled={!firstProperty}
-							ctaDisabledHint="Define case-type properties first."
+							ctaDisabledHint={PROPERTYLESS_CTA_HINT}
 						/>
 					) : null}
 					<DisplaySection
@@ -263,7 +273,7 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 							ctaLabel="Add search input"
 							onCtaClick={handleAddFirstSearchInput}
 							ctaDisabled={!firstProperty}
-							ctaDisabledHint="Define case-type properties first."
+							ctaDisabledHint={PROPERTYLESS_CTA_HINT}
 						/>
 					) : null}
 					<SearchInputsSection

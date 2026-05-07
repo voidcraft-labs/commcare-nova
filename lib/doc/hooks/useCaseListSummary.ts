@@ -92,8 +92,8 @@ export interface CaseListWorkspaceState extends CaseListSummary {
 	readonly firstSortKey: SortKey | undefined;
 	readonly searchInputDefaultCount: number;
 	/** The active filter predicate, or `undefined` when the slot is
-	 *  empty. Surfaced separately from the `hasFilter` flag so the
-	 *  workspace can drive condition-count derivation off the AST. */
+	 *  empty. Surfaced separately from `hasFilter` so consumers can
+	 *  derive AST-shaped state without re-reading the config slot. */
 	readonly filter: Predicate | undefined;
 }
 
