@@ -312,7 +312,7 @@ Each tool's input schema accepts the typed AST shape via Zod (no strings). All s
 
 **Init shape.** When `caseListConfig` is undefined on the module before the mutation, each tool initializes via `emptyCaseListConfig()` (every required slot present-and-empty; `filter`/`detailColumns` absent). Pinned by per-tool init tests in all five test files.
 
-**Existing tool surfaces untouched** per `feedback_never_touch_agent.md`. `updateModule.case_list_columns` legacy `{field, header}[]` shape stays; the dual-tool overlap (legacy lossy-flatten vs typed AST preservation) is acknowledged as a deferred item per spec line 173. Future authorized session can either remove the legacy fields or reword the description; this work is out of scope without explicit permission.
+**Existing tool surfaces untouched in this commit** per `feedback_never_touch_agent.md`. The dual-tool overlap with `updateModule.case_list_columns` (legacy lossy-flatten vs typed AST preservation) is closed in a follow-up commit — `updateModule`'s `case_list_columns` and `case_detail_columns` fields are removed entirely, leaving the typed `setCaseListColumns` / `setCalculatedColumns` / etc. as the single SA-facing surface for `caseListConfig` mutations.
 
 **Schema-compiler ceiling.** Per-array-item optional counts verified concretely: `setCaseListColumns` 0/0/0/0/0/0/0 across all 7 column-kind arms; `setCaseListSort` 0; `setCalculatedColumns` 1; `setCaseListSearchInputs` 5. All comfortably under the 8-optional ceiling. The schema test's per-arm walker reads `oneOf ?? anyOf ?? [items]` (correctly handles Zod 4's `discriminatedUnion` lowering to `oneOf`), resolves one `$ref` hop, and asserts `armsChecked > 0` to prevent silent vacuous-pass regressions.
 
