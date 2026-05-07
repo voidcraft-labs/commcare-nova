@@ -44,6 +44,7 @@ import { PhoneColumnCard } from "./cards/column/PhoneColumnCard";
 import { PlainColumnCard } from "./cards/column/PlainColumnCard";
 import { SearchOnlyCard } from "./cards/column/SearchOnlyCard";
 import { TimeSinceUntilCard } from "./cards/column/TimeSinceUntilCard";
+import { isDateTyped, isTextShaped } from "./propertyTypeSets";
 
 /**
  * Minimum context every `defaultValue(...)` factory and
@@ -116,7 +117,7 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 	readonly applicabilityRequirement: string | null;
 }
 
-// ── Property-data-type sets ───────────────────────────────────────
+// ── Property applicability ────────────────────────────────────────
 //
 // Per-kind property compatibility. The case-list column kinds
 // fall into three families:
@@ -124,48 +125,25 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 //   - **Date-typed only** — Date, Time-Since-Until, Late Flag.
 //     Their wire emitters compute calendar arithmetic against the
 //     property's value; a non-date property would silently
-//     misformat / produce nonsense thresholds. Validator fires
-//     when the field references a property whose `data_type` is
-//     not in `DATE_DATA_TYPES`.
+//     misformat / produce nonsense thresholds.
 //   - **Text-shaped** — Phone. The wire emitter renders the
 //     value as a tappable telephone link; numeric-typed phone
 //     numbers are valid CCHQ practice but the runtime tap binding
-//     expects a string. `text` data type is the canonical choice;
-//     un-annotated properties fall back to `text` per the type
-//     checker's `data_type ?? "text"` convention.
+//     expects a string. Un-annotated properties fall back to
+//     `text` per the type checker's `data_type ?? "text"`
+//     convention (encoded by `propertyTypeSets`).
 //   - **Universal** — Plain, ID-Mapping, Search-Only. Any
 //     property surface is acceptable — the column either renders
 //     the raw value (Plain), looks it up in a value→label table
 //     (ID-Mapping), or declares searchability without rendering
 //     (Search-Only).
 //
-// `undefined` from `effectiveDataType(...)` means the field is
-// either unset or references a missing property. Both states are
-// surfaced inline by the picker itself; the applicability gate
-// returns `true` so the kind menu stays open while the user
-// chooses a valid field.
-
-const DATE_DATA_TYPES = new Set<string>(["date", "datetime"]);
-const TEXT_SHAPED_DATA_TYPES = new Set<string>([
-	"text",
-	"single_select",
-	"multi_select",
-]);
-
-/**
- * Resolve the effective `data_type` of a property, falling back to
- * `"text"` when the property declares none (matches the type
- * checker's `data_type ?? "text"` convention). Returns `undefined`
- * only when the property reference itself is absent — the caller
- * uses that signal to keep the kind picker permissive while the
- * field slot is unset.
- */
-function effectiveDataType(
-	property: CaseProperty | undefined,
-): string | undefined {
-	if (property === undefined) return undefined;
-	return property.data_type ?? "text";
-}
+// `undefined` from the caller (no property selected yet, or the
+// field references a property the case type doesn't declare)
+// short-circuits to `true` so the kind picker stays open while
+// the user is choosing. The picker's own `(unknown)` icon and
+// the editor's per-kind applicability error surface the missing-
+// property condition; the kind menu stays permissive.
 
 /** Plain / ID-Mapping / Search-Only — accept every property. */
 function applicableForAny(_: CaseProperty | undefined): boolean {
@@ -173,21 +151,19 @@ function applicableForAny(_: CaseProperty | undefined): boolean {
 }
 
 /** Date / Time-Since-Until / Late Flag — require a date-typed
- *  property. Returns `true` when no property is selected yet so
- *  the kind picker stays available; the inline-validity surface
- *  catches the mismatch once a field is chosen. */
+ *  property. Permissive when the field slot is unset so the kind
+ *  picker stays available; the inline-validity surface catches
+ *  the mismatch once a field is chosen. */
 function applicableForDate(property: CaseProperty | undefined): boolean {
-	const dt = effectiveDataType(property);
-	if (dt === undefined) return true;
-	return DATE_DATA_TYPES.has(dt);
+	if (property === undefined) return true;
+	return isDateTyped(property);
 }
 
-/** Phone — require a text-shaped property. Same `undefined`
- *  permissiveness as the date predicate. */
+/** Phone — require a text-shaped property. Same unset-permissive
+ *  contract as `applicableForDate`. */
 function applicableForText(property: CaseProperty | undefined): boolean {
-	const dt = effectiveDataType(property);
-	if (dt === undefined) return true;
-	return TEXT_SHAPED_DATA_TYPES.has(dt);
+	if (property === undefined) return true;
+	return isTextShaped(property);
 }
 
 // ── Default-value seeds ───────────────────────────────────────────
@@ -210,15 +186,11 @@ function pickFirstProperty(
 }
 
 function pickFirstDate(ctx: ColumnEditContext): string {
-	return pickFirstProperty(ctx, (p) =>
-		DATE_DATA_TYPES.has(p.data_type ?? "text"),
-	);
+	return pickFirstProperty(ctx, isDateTyped);
 }
 
 function pickFirstText(ctx: ColumnEditContext): string {
-	return pickFirstProperty(ctx, (p) =>
-		TEXT_SHAPED_DATA_TYPES.has(p.data_type ?? "text"),
-	);
+	return pickFirstProperty(ctx, isTextShaped);
 }
 
 function pickFirstAny(ctx: ColumnEditContext): string {

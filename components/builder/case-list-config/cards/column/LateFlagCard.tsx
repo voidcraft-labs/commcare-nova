@@ -22,17 +22,13 @@
 // onChange.
 
 "use client";
-import type { CaseProperty, Column, TimeSinceUnit } from "@/lib/domain";
+import type { Column, TimeSinceUnit } from "@/lib/domain";
 import { lateFlagColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
+import { isDateTyped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
-
-const DATE_DATA_TYPES = new Set<string>(["date", "datetime"]);
-function isDateTyped(p: CaseProperty): boolean {
-	return DATE_DATA_TYPES.has(p.data_type ?? "text");
-}
 
 interface LateFlagCardProps {
 	readonly value: Extract<Column, { kind: "late-flag" }>;

@@ -16,7 +16,7 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { addModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
@@ -68,17 +68,17 @@ export const createModuleTool = {
 			//
 			// The SA-facing input keeps the legacy `{field, header}[]`
 			// shape; the helper builder takes the structured
-			// `caseListConfig` shape, so the entries map to
-			// `kind: "plain"` columns inside an otherwise-empty
-			// config (no sort / calculated / search authored from
-			// this entry point).
+			// `caseListConfig` shape, so the entries map through the
+			// typed `plainColumn(...)` builder — the discriminated-
+			// union arm equivalent to "render the property value as a
+			// string." The remaining `caseListConfig` slots stay empty
+			// since this entry point doesn't author sort / calculated
+			// / search.
 			const caseListConfig = case_list_columns
 				? {
-						columns: case_list_columns.map((col) => ({
-							kind: "plain" as const,
-							field: col.field,
-							header: col.header,
-						})),
+						columns: case_list_columns.map((col) =>
+							plainColumn(col.field, col.header),
+						),
 						sort: [],
 						calculatedColumns: [],
 						searchInputs: [],

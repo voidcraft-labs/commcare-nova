@@ -100,7 +100,14 @@ describe("columnSchema — discriminated union arms", () => {
 				kind: "date",
 				field: "opened_on",
 				header: "Opened",
-				pattern: "yyyy-MM-dd",
+				// CCHQ wire-form date pattern (strftime-style); same
+				// shape as `formatDateSchema.pattern` on the
+				// ValueExpression side. Java SimpleDateFormat
+				// notation (`yyyy-MM-dd`) is structurally accepted
+				// by `z.string().min(1)` but isn't representative of
+				// the wire-format strings the runtime formatter
+				// consumes.
+				pattern: "%Y-%m-%d",
 			},
 			{
 				kind: "time-since-until",

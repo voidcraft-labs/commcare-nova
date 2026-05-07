@@ -24,6 +24,7 @@
 
 import "dotenv/config";
 import { getDb } from "@/lib/db/firestore";
+import { type Column, plainColumn } from "@/lib/domain";
 import { log } from "@/lib/logger";
 
 /** Legacy column shape — dropped from the live schema. */
@@ -32,12 +33,16 @@ interface LegacyColumn {
 	header: string;
 }
 
-/** Plain-kind column on the new structured config. */
-interface PlainColumn {
-	kind: "plain";
-	field: string;
-	header: string;
-}
+/**
+ * Plain-kind column on the new structured config — narrowed
+ * extraction over the domain `Column` union. Sourced from the
+ * shared domain type so the migration's constructed shape stays
+ * in lockstep with `plainColumnSchema`; routing every column
+ * through the typed `plainColumn(...)` builder below keeps a
+ * future required field on the schema visible as a builder-
+ * signature change rather than a silent rot.
+ */
+type PlainColumn = Extract<Column, { kind: "plain" }>;
 
 interface NewCaseListConfig {
 	columns: PlainColumn[];
@@ -73,19 +78,11 @@ export function migrateModule(mod: MigrableModule): MigrableModule | null {
 	delete next.caseDetailColumns;
 
 	const columns: PlainColumn[] = Array.isArray(legacyList)
-		? legacyList.map((c) => ({
-				kind: "plain" as const,
-				field: c.field,
-				header: c.header,
-			}))
+		? legacyList.map((c) => plainColumn(c.field, c.header))
 		: (mod.caseListConfig?.columns ?? []);
 
 	const detailColumns: PlainColumn[] | undefined = Array.isArray(legacyDetail)
-		? legacyDetail.map((c) => ({
-				kind: "plain" as const,
-				field: c.field,
-				header: c.header,
-			}))
+		? legacyDetail.map((c) => plainColumn(c.field, c.header))
 		: mod.caseListConfig?.detailColumns;
 
 	next.caseListConfig = {

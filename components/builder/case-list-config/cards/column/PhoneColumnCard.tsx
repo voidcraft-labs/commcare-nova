@@ -13,22 +13,11 @@
 //   - `header` — column display label.
 
 "use client";
-import type { CaseProperty, Column } from "@/lib/domain";
+import type { Column } from "@/lib/domain";
 import { phoneColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { isTextShaped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
-
-const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
-
-/**
- * Property-type filter for the phone column. Restricts the
- * picker to text-shaped properties; un-annotated properties
- * (with no `data_type`) fall back to `"text"` per the type
- * checker's convention and qualify.
- */
-function isTextShaped(p: CaseProperty): boolean {
-	return TEXT_SHAPED.has(p.data_type ?? "text");
-}
 
 interface PhoneColumnCardProps {
 	readonly value: Extract<Column, { kind: "phone" }>;

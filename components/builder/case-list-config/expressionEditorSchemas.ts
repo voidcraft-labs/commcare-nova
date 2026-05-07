@@ -67,6 +67,11 @@ import {
 	UnwrapListCard,
 	unwrapListDefault,
 } from "./cards/expression/UnwrapListCard";
+import {
+	isDateTyped,
+	NUMERIC_DATA_TYPES,
+	TEXT_SHAPED_DATA_TYPES,
+} from "./propertyTypeSets";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -148,12 +153,6 @@ function hasPropertyOfType(
 	return ct.properties.some(predicate);
 }
 
-const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
-
-const NUMERIC = new Set<string>(["int", "decimal"]);
-
-const DATE_OR_DATETIME = new Set<string>(["date", "datetime"]);
-
 /**
  * Numeric-typed kind (`arith`, `double`) — applicable when the slot
  * either has no expected type OR the expected type is numeric. The
@@ -167,7 +166,7 @@ function applicableForNumeric(
 ): boolean {
 	if (expectedType === undefined) return true;
 	if (expectedType === "_any") return true;
-	return NUMERIC.has(expectedType);
+	return NUMERIC_DATA_TYPES.has(expectedType);
 }
 
 /**
@@ -240,7 +239,7 @@ function applicableForText(
 ): boolean {
 	if (expectedType === undefined) return true;
 	if (expectedType === "_any") return true;
-	return TEXT_SHAPED.has(expectedType);
+	return TEXT_SHAPED_DATA_TYPES.has(expectedType);
 }
 
 /**
@@ -414,7 +413,7 @@ export const expressionCardSchemas: {
 			// disallows it via the relation-path builder, but mounting
 			// is still allowed for round-trip preservation.
 			if (expectedType !== undefined && expectedType !== "_any") {
-				if (!NUMERIC.has(expectedType)) return false;
+				if (!NUMERIC_DATA_TYPES.has(expectedType)) return false;
 			}
 			return ctx.caseTypes.length > 0;
 		},
@@ -449,11 +448,7 @@ export const expressionCardSchemas: {
 		component: FormatDateCard,
 		defaultValue: formatDateDefault,
 		applicable: (ctx, expectedType) => {
-			if (
-				!hasPropertyOfType(ctx, (p) =>
-					DATE_OR_DATETIME.has(p.data_type ?? "text"),
-				)
-			) {
+			if (!hasPropertyOfType(ctx, isDateTyped)) {
 				// No date / datetime property to format — the kind isn't
 				// useful in this scope. Authors who pass a `today()` /
 				// `now()` expression to format-date can still get there

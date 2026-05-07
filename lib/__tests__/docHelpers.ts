@@ -23,6 +23,7 @@ import {
 	type Form,
 	type FormLink,
 	type Module,
+	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -105,15 +106,14 @@ export function caseListConfig(
 	} = {},
 ): NonNullable<Module["caseListConfig"]> {
 	return {
-		columns: columns.map((c) => ({ kind: "plain" as const, ...c })),
+		columns: columns.map((c) => plainColumn(c.field, c.header)),
 		sort: [],
 		calculatedColumns: [],
 		searchInputs: [],
 		...(options.detailColumns && {
-			detailColumns: options.detailColumns.map((c) => ({
-				kind: "plain" as const,
-				...c,
-			})),
+			detailColumns: options.detailColumns.map((c) =>
+				plainColumn(c.field, c.header),
+			),
 		}),
 	};
 }

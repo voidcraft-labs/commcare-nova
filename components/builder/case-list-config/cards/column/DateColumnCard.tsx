@@ -25,21 +25,15 @@
 // preset-vs-custom discriminator.
 
 "use client";
-import type { CaseProperty, Column } from "@/lib/domain";
+import type { Column } from "@/lib/domain";
 import { dateColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import {
 	CustomDatePatternInput,
 	type DatePatternPreset,
 } from "../../primitives/CustomDatePatternInput";
+import { isDateTyped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
-
-const DATE_DATA_TYPES = new Set<string>(["date", "datetime"]);
-
-/** Property-type filter — date / datetime only. */
-function isDateTyped(p: CaseProperty): boolean {
-	return DATE_DATA_TYPES.has(p.data_type ?? "text");
-}
 
 /**
  * Preset table for the column's date pattern. Labels are CCHQ's

@@ -177,9 +177,14 @@ export function CardShell({
 			 *  `useEditorErrorsAt` returns a deduped list) and
 			 *  `useEditorErrorsBelow` deduplicates across the
 			 *  prefix-merged result, so every entry in `errors` is
-			 *  guaranteed unique within the render. */}
+			 *  guaranteed unique within the render.
+			 *
+			 *  `aria-live="polite"` + `aria-atomic="true"` mirror
+			 *  `InlineError`'s announcement contract — diagnostics
+			 *  appearing / disappearing during typing are announced
+			 *  without preempting the user. */}
 			{hasErrors && (
-				<div className="mt-2 space-y-0.5">
+				<div aria-live="polite" aria-atomic="true" className="mt-2 space-y-0.5">
 					{errors.map((message) => (
 						<div
 							key={message}
@@ -204,11 +209,18 @@ interface InlineErrorProps {
  * helper short-circuits when no errors landed so callers can render
  * it unconditionally. Mirrors the visual tier the field editor
  * uses for validation hints.
+ *
+ * The wrapper carries `aria-live="polite"` so screen readers
+ * announce diagnostics as they appear / disappear without
+ * preempting the user's typing — matches the convention for
+ * typed-as-you-go validation. `aria-atomic="true"` reads the full
+ * region content on each update so a partial change (one of two
+ * errors clearing) doesn't leak partial-region announcements.
  */
 export function InlineError({ errors }: InlineErrorProps) {
 	if (errors.length === 0) return null;
 	return (
-		<div className="mt-1 space-y-0.5">
+		<div aria-live="polite" aria-atomic="true" className="mt-1 space-y-0.5">
 			{/* The message string is a safe React key —
 			 *  `buildValidityIndex` (in `editorContext.tsx`)
 			 *  deduplicates per path on the way in (so the exact-match

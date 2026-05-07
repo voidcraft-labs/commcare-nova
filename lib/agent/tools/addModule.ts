@@ -18,7 +18,7 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import { moduleContentSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -102,21 +102,20 @@ export const addModuleTool = {
 
 			// The SA-facing input keeps the legacy `{field, header}[]`
 			// shape; this layer maps each entry to the structured
-			// `caseListConfig.columns` shape stored on the doc. Each
-			// entry becomes a `kind: "plain"` column — the simplest
-			// kind in the discriminated union, equivalent to "render
-			// the property value as a string." Detail columns flow
-			// through the same shape into `detailColumns`.
-			const columns = case_list_columns.map((col) => ({
-				kind: "plain" as const,
-				field: col.field,
-				header: col.header,
-			}));
-			const detailColumns = case_detail_columns?.map((col) => ({
-				kind: "plain" as const,
-				field: col.field,
-				header: col.header,
-			}));
+			// `caseListConfig.columns` shape stored on the doc through
+			// `plainColumn(...)` — the discriminated-union arm
+			// equivalent to "render the property value as a string."
+			// Routing every column construction through the typed
+			// builder keeps the wire shape in lockstep with
+			// `plainColumnSchema`; a new required field on the schema
+			// would surface here as a builder-signature change rather
+			// than a silently-rotting raw literal.
+			const columns = case_list_columns.map((col) =>
+				plainColumn(col.field, col.header),
+			);
+			const detailColumns = case_detail_columns?.map((col) =>
+				plainColumn(col.field, col.header),
+			);
 			const mutations = updateModuleMutations(doc, moduleUuid, {
 				caseListConfig: {
 					columns,

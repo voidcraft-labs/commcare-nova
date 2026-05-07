@@ -74,6 +74,7 @@ import {
 	WithinDistanceCard,
 	withinDistanceDefault,
 } from "./cards/WithinDistanceCard";
+import { isOrdered, isTextShaped } from "./propertyTypeSets";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -158,10 +159,6 @@ function hasPropertyOfType(
 	return ct.properties.some(predicate);
 }
 
-const TEXT_SHAPED = new Set<string>(["text", "single_select", "multi_select"]);
-
-const ORDERED = new Set<string>(["int", "decimal", "date", "datetime", "time"]);
-
 // ── Registry ────────────────────────────────────────────────────────────
 //
 // Keyed by `Predicate["kind"]` so the discriminator union forces an
@@ -208,8 +205,7 @@ export const predicateCardSchemas: {
 		description: "Property is less than a value",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("lt", ctx),
-		applicable: (ctx) =>
-			hasPropertyOfType(ctx, (p) => ORDERED.has(p.data_type ?? "text")),
+		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 	lte: {
 		kind: "lte",
@@ -218,8 +214,7 @@ export const predicateCardSchemas: {
 		description: "Property is at most a value",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("lte", ctx),
-		applicable: (ctx) =>
-			hasPropertyOfType(ctx, (p) => ORDERED.has(p.data_type ?? "text")),
+		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 	gt: {
 		kind: "gt",
@@ -228,8 +223,7 @@ export const predicateCardSchemas: {
 		description: "Property is greater than a value",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("gt", ctx),
-		applicable: (ctx) =>
-			hasPropertyOfType(ctx, (p) => ORDERED.has(p.data_type ?? "text")),
+		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 	gte: {
 		kind: "gte",
@@ -238,8 +232,7 @@ export const predicateCardSchemas: {
 		description: "Property is at least a value",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("gte", ctx),
-		applicable: (ctx) =>
-			hasPropertyOfType(ctx, (p) => ORDERED.has(p.data_type ?? "text")),
+		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 
 	// ── Membership / range ──────────────────────────────────────────
@@ -259,8 +252,7 @@ export const predicateCardSchemas: {
 		description: "Property falls within a range",
 		component: BetweenCard,
 		defaultValue: betweenDefault,
-		applicable: (ctx) =>
-			hasPropertyOfType(ctx, (p) => ORDERED.has(p.data_type ?? "text")),
+		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 
 	// ── Multi-select containment ────────────────────────────────────
@@ -287,7 +279,7 @@ export const predicateCardSchemas: {
 			hasPropertyOfType(
 				ctx,
 				(p) =>
-					TEXT_SHAPED.has(p.data_type ?? "text") ||
+					isTextShaped(p) ||
 					p.data_type === "date" ||
 					p.data_type === "datetime",
 			),

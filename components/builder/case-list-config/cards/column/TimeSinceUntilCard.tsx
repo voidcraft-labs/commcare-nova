@@ -15,17 +15,13 @@
 //     exceeded.
 
 "use client";
-import type { CaseProperty, Column, TimeSinceUnit } from "@/lib/domain";
+import type { Column, TimeSinceUnit } from "@/lib/domain";
 import { timeSinceUntilColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
+import { isDateTyped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
-
-const DATE_DATA_TYPES = new Set<string>(["date", "datetime"]);
-function isDateTyped(p: CaseProperty): boolean {
-	return DATE_DATA_TYPES.has(p.data_type ?? "text");
-}
 
 interface TimeSinceUntilCardProps {
 	readonly value: Extract<Column, { kind: "time-since-until" }>;

@@ -214,12 +214,17 @@ function MappingRow({
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Label
 					</div>
+					{/* The `value` cell holds the wire-form code (monospace
+					 *  matches the case-list-runtime's per-row value rendering);
+					 *  the `label` cell holds display text rendered in the
+					 *  case list's proportional font. Dropping `monospace`
+					 *  here keeps the authoring surface visually congruent
+					 *  with what the user sees at runtime. */}
 					<BlurCommitTextInput
 						value={entry.label}
 						onCommit={(next) => onUpdate({ label: next })}
 						placeholder="Display label"
 						ariaLabel={`Mapping ${index + 1} label`}
-						monospace
 					/>
 				</div>
 			</div>

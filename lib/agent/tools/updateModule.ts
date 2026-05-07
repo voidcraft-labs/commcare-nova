@@ -18,7 +18,7 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
@@ -102,11 +102,7 @@ export const updateModuleTool = {
 			) {
 				const nextColumns =
 					case_list_columns !== undefined
-						? case_list_columns.map((col) => ({
-								kind: "plain" as const,
-								field: col.field,
-								header: col.header,
-							}))
+						? case_list_columns.map((col) => plainColumn(col.field, col.header))
 						: baseConfig.columns;
 				let nextDetail: typeof baseConfig.detailColumns;
 				if (case_detail_columns === null) {
@@ -114,11 +110,9 @@ export const updateModuleTool = {
 					// "long detail mirrors short detail".
 					nextDetail = undefined;
 				} else if (case_detail_columns !== undefined) {
-					nextDetail = case_detail_columns.map((col) => ({
-						kind: "plain" as const,
-						field: col.field,
-						header: col.header,
-					}));
+					nextDetail = case_detail_columns.map((col) =>
+						plainColumn(col.field, col.header),
+					);
 				} else {
 					nextDetail = baseConfig.detailColumns;
 				}
