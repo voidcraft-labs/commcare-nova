@@ -1952,5 +1952,148 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const value = row.calculated.today_iso;
 			expect(value instanceof Date).toBe(true);
 		});
+
+		// -----------------------------------------------------------
+		// Reserved-column collision protection
+		// -----------------------------------------------------------
+		//
+		// Pre-fix repro: an author types `case_name` (or any other
+		// reserved `cases` column name) into a calculated-column id.
+		// Postgres allows duplicate output names; pg-driver keeps the
+		// LAST occurrence; the row's actual `case_name` becomes the
+		// calculated value; the reshape's strip-step then deletes the
+		// slot entirely. Real data loss in one keystroke.
+		//
+		// Post-fix: calculated aliases are emitted under a fixed
+		// `__nova_calc__<id>` prefix. The wire and the consumer-facing
+		// key live in disjoint keyspaces, so the row's reserved column
+		// survives unaltered AND the calculated value lands on
+		// `row.calculated[id]` under the authored id.
+		//
+		// Test sweeps every reserved column the case-store carries
+		// at the row level, plus `app_id` (excluded from the user-
+		// facing reserved set but present on the row), and the JSONB
+		// `properties` slot. A regression to non-prefixed aliasing
+		// would fail this test on multiple discovered slots.
+
+		const RESERVED_COLLISION_IDS = [
+			"case_name",
+			"case_id",
+			"case_type",
+			"owner_id",
+			"status",
+			"app_id",
+			"opened_on",
+			"closed_on",
+			"modified_on",
+			"parent_case_id",
+			"properties",
+		] as const;
+
+		for (const collisionId of RESERVED_COLLISION_IDS) {
+			it(`preserves the row's \`${collisionId}\` column when a calculated id collides`, async () => {
+				const store = await options.factory(OWNER_A);
+				const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+				await seedSchema(store, blueprint, "patient");
+				await store.insert({
+					appId: APP_ID,
+					row: {
+						case_id: PATIENT_ALICE_ID,
+						case_type: "patient",
+						case_name: DEFAULT_CASE_NAME,
+						status: "open",
+						properties: makeProperties({ name: "Alice", age: 30 }),
+					},
+				});
+
+				// The calculated expression is a constant string sentinel
+				// — distinguishes the calculated value from the row's
+				// scalar value at every assertion site.
+				const SENTINEL = "CALCULATED_VALUE";
+				const rows = await store.queryWithCalculated({
+					appId: APP_ID,
+					caseType: "patient",
+					blueprint,
+					calculated: [
+						calculatedColumn(collisionId, "Header", term(literal(SENTINEL))),
+					],
+				});
+				expect(rows).toHaveLength(1);
+				const row = rows[0];
+				if (row === undefined) throw new Error("expected one row");
+
+				// Calculated value lands on the calculated map under
+				// the authored id.
+				expect(row.calculated[collisionId]).toBe(SENTINEL);
+
+				// Row's scalar column survives unaltered. Per-slot
+				// expected values mirror the inserted row above; the
+				// `properties` slot reads the JSONB document; the
+				// nullable timestamps stay null.
+				switch (collisionId) {
+					case "case_name":
+						expect(row.case_name).toBe(DEFAULT_CASE_NAME);
+						break;
+					case "case_id":
+						expect(row.case_id).toBe(PATIENT_ALICE_ID);
+						break;
+					case "case_type":
+						expect(row.case_type).toBe("patient");
+						break;
+					case "owner_id":
+						expect(row.owner_id).toBe(OWNER_A);
+						break;
+					case "status":
+						expect(row.status).toBe("open");
+						break;
+					case "app_id":
+						expect(row.app_id).toBe(APP_ID);
+						break;
+					case "opened_on":
+						expect(row.opened_on).toBeNull();
+						break;
+					case "closed_on":
+						expect(row.closed_on).toBeNull();
+						break;
+					case "modified_on":
+						// `modified_on` stamps only on UPDATE, not on
+						// initial insert — the freshly-inserted row's
+						// `modified_on` column is null. The collision-
+						// protection contract is the load-bearing
+						// check: the row's column survives unaltered
+						// regardless of the value at insert time.
+						expect(row.modified_on).toBeNull();
+						break;
+					case "parent_case_id":
+						expect(row.parent_case_id).toBeNull();
+						break;
+					case "properties":
+						expect(row.properties).toEqual({ name: "Alice", age: 30 });
+						break;
+				}
+			});
+		}
+
+		it("rejects an empty-string calculated id with a typed compiler-bug throw", async () => {
+			// Belt-and-suspenders: editor's validity gate should
+			// prevent an empty id from reaching the action, but a
+			// programmatic caller (fixtures, SA tools, future surfaces)
+			// might bypass the gate. The store rejects the empty id
+			// with the canonical compiler-bug message shape rather
+			// than letting Postgres reject an empty SELECT alias and
+			// leak its parser error.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			await expect(
+				store.queryWithCalculated({
+					appId: APP_ID,
+					caseType: "patient",
+					blueprint,
+					calculated: [calculatedColumn("", "Header", term(literal("x")))],
+				}),
+			).rejects.toThrowError(/empty-string id/);
+		});
 	});
 }

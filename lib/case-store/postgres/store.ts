@@ -185,14 +185,60 @@ export class PostgresCaseStore implements CaseStore {
 		});
 		const exprCtx = expressionContextFor(ctx);
 
-		// Per-row alias for each calculated column. The alias matches
-		// the column's `id` verbatim so the result-row map keys back to
-		// the authored id without an indirection step. Unsafe identifiers
-		// (whitespace, special characters) are protected by Postgres's
-		// double-quoting at the Kysely layer; the only structural risk
-		// is collision on duplicate ids, which the editor's uniqueness
-		// gate prevents upstream.
+		// Belt-and-suspenders defense for the empty-id case: editor's
+		// validity gate prevents an empty-string id from reaching the
+		// action under normal authoring flow, but a future caller
+		// composing `queryWithCalculated` directly (programmatic
+		// surfaces, fixtures, SA tools) might not honor the gate.
+		// Postgres rejects an empty-string identifier in the SELECT
+		// alias, so the failure mode without this guard is a wrapped
+		// invariant message at run time. Reject early with the
+		// canonical compiler-bug shape so the caller surfaces the
+		// authoring contract violation instead.
+		for (const column of args.calculated) {
+			if (column.id === "") {
+				throw new Error(
+					compilerBugMessage({
+						where: "case-store.PostgresCaseStore.queryWithCalculated",
+						invariant: "a calculated column carried an empty-string id",
+						detail:
+							"Calculated columns project as SELECT aliases; Postgres rejects an empty alias and the row partition step relies on a non-empty key. The CalculatedColumnEditor's validity gate flags empty ids upstream — reaching this throw means a non-editor caller bypassed the gate. Hint: Zod-parse the case-list config at the request boundary to catch the violation before it reaches the SQL layer.",
+					}),
+				);
+			}
+		}
+
+		// Calculated-column aliases are EMITTED with a fixed prefix so
+		// they cannot collide with any `cases` column the
+		// `selectAll("c")` projection emits. Without the prefix, an
+		// author typing a reserved column name (`case_name`,
+		// `case_id`, `case_type`, `owner_id`, `status`, `app_id`,
+		// `opened_on`, `closed_on`, `modified_on`, `parent_case_id`,
+		// `properties`) into the calculated-column id field would
+		// silently corrupt the row's actual scalar value: Postgres
+		// allows duplicate output names; pg-driver's row-object
+		// deserializer keeps the LAST occurrence (the calculated
+		// expression's value); the reshape's `delete cleaned[id]` then
+		// wipes the original column. Real data loss in one keystroke.
 		//
+		// The prefix sits below the wire — consumers receive the
+		// authored `id` verbatim on `row.calculated[id]`. The editor's
+		// id-uniqueness gate covers ONE collision class (duplicate ids
+		// across siblings); this prefix covers the other (collision
+		// against reserved `cases` columns). A pinned contract test in
+		// `lib/case-store/__tests__/storeContract.ts` exercises every
+		// reserved column id to confirm the row's scalar survives
+		// unaltered.
+		//
+		// `__nova_calc__` is sufficiently improbable as a `cases`
+		// column name that the prefix-protected partition stays
+		// structurally collision-free regardless of future schema
+		// additions. The double-underscore on each side mirrors
+		// Python's name-mangling convention — visually flags
+		// "internal infrastructure, do not collide."
+		const ALIAS_PREFIX = "__nova_calc__";
+		const aliasFor = (id: string) => `${ALIAS_PREFIX}${id}`;
+
 		// `selectAll("c")` first so the row carries every `cases`
 		// column, then chain `.select(eb => ...)` per calculated column
 		// for the projection. The Kysely fluent surface admits arbitrary
@@ -204,14 +250,10 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.case_type", "=", args.caseType)
 			.where("c.owner_id", "=", this.ownerId);
 
-		// Project each calculated column. The Kysely query builder
-		// accepts `(eb) => AliasedExpression` — passing the
-		// `compileExpression` result through `.as(column.id)` aliases
-		// it; the row-deserializer threads the typed value into the
-		// per-id slot at execution time.
+		// Project each calculated column under its prefixed alias.
 		for (const column of args.calculated) {
 			const expr = compileExpression(column.expression, exprCtx);
-			qb = qb.select(expr.as(column.id));
+			qb = qb.select(expr.as(aliasFor(column.id)));
 		}
 
 		if (args.predicate !== undefined) {
@@ -232,20 +274,28 @@ export class PostgresCaseStore implements CaseStore {
 			qb = qb.offset(args.offset);
 		}
 
-		// `qb.execute()` returns row objects that carry both the
-		// `selectAll("c")` columns AND the per-calculated-column aliases
-		// at the top level. Reshape each row into `CaseRow & { calculated }`
-		// by partitioning the keys: every calculated id moves into the
-		// `calculated` map; the rest stays at the row root.
+		// `qb.execute()` returns row objects carrying both the
+		// `selectAll("c")` columns AND the per-calculated-column
+		// PREFIXED aliases at the top level. Reshape each row into
+		// `CaseRow & { calculated }` by reading each prefixed alias
+		// into the calculated map under the unprefixed authored id,
+		// then stripping the prefixed slot from the row's top-level
+		// shape. The cases-side scalar columns flow through untouched
+		// because the prefix puts the calculated slots in a disjoint
+		// keyspace.
 		const rows = (await qb.execute()) as Array<
 			CaseRow & Record<string, unknown>
 		>;
 
-		// Materialize the calculated-id allowlist once outside the row
-		// loop so the per-row partition is O(rows × calc-cols) rather
-		// than O(rows × all-keys × calc-cols). The Set membership check
-		// runs in constant time.
-		const calculatedIds = new Set(args.calculated.map((c) => c.id));
+		// Materialize the alias allowlist once outside the row loop so
+		// the per-row partition is O(rows × calc-cols) rather than
+		// O(rows × all-keys × calc-cols). Each entry pairs the wire
+		// alias (`__nova_calc__<id>`) with the consumer-facing id
+		// (`<id>`) so the loop body needs no extra string ops per row.
+		const calcAliases = args.calculated.map((c) => ({
+			alias: aliasFor(c.id),
+			id: c.id,
+		}));
 
 		return rows.map((row) => {
 			const calculated: Record<string, CalculatedValue> = {};
@@ -264,15 +314,12 @@ export class PostgresCaseStore implements CaseStore {
 			// shape; the renderer in `DisplayPreview.tsx` discriminates
 			// on `instanceof Date` to format the temporal value without
 			// `JSON.stringify`'s quoted-ISO output.
-			for (const id of calculatedIds) {
-				// `Object.prototype.hasOwnProperty.call` guards against
-				// the rare case where Postgres elides the alias from the
-				// row (zero-row scan against a calculated SELECT can in
-				// theory return undefined under certain pg-driver
-				// versions); the explicit guard keeps the map clean of
-				// `undefined`-typed slots.
-				if (Object.hasOwn(row, id)) {
-					calculated[id] = row[id] as CalculatedValue;
+			for (const { alias, id } of calcAliases) {
+				// `Object.hasOwn` guards against the rare case where
+				// Postgres elides the alias from the row; the explicit
+				// guard keeps the map clean of `undefined`-typed slots.
+				if (Object.hasOwn(row, alias)) {
+					calculated[id] = row[alias] as CalculatedValue;
 				} else {
 					// Defensive fall-through: treat missing alias as null.
 					// Documented contract from the interface JSDoc says
@@ -284,15 +331,16 @@ export class PostgresCaseStore implements CaseStore {
 				}
 			}
 
-			// Strip the calculated keys from the row's top-level shape
-			// so the consumer's `row.calculated[id]` is the only path to
-			// each evaluated value. Without the strip, both
-			// `row[id]` and `row.calculated[id]` would carry the same
-			// value and a future sort/filter that mutates one would
-			// silently drift from the other.
+			// Strip the prefixed-alias keys from the row's top-level
+			// shape so the consumer's `row.calculated[id]` is the only
+			// path to each evaluated value. The cases-side scalar
+			// columns (`case_name`, `case_id`, etc.) survive verbatim
+			// because the prefix puts the calculated slots in a
+			// disjoint keyspace — the strip touches ONLY the prefixed
+			// aliases, never a `cases` column.
 			const cleaned = { ...row } as Record<string, unknown>;
-			for (const id of calculatedIds) {
-				delete cleaned[id];
+			for (const { alias } of calcAliases) {
+				delete cleaned[alias];
 			}
 			return {
 				...(cleaned as unknown as CaseRow),

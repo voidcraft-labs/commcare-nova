@@ -48,6 +48,7 @@ import {
 	pickBlueprintDoc,
 } from "@/lib/preview/engine/caseDataBindingHelpers";
 import type { LoadCaseListPreviewResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import { nodeId } from "./nodeIdentity";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -239,6 +240,23 @@ export function DisplayPreview({
 		);
 	}
 
+	if (state.kind === "invalid-config") {
+		// The wire-boundary parse rejected the config shape. The
+		// editor's validity gate normally prevents this; reaching
+		// here means a non-editor caller produced a config the Zod
+		// schema rejects. Surface the parse-failure message so the
+		// user (typically a developer hitting this from a fixture
+		// or programmatic surface) sees the structural cause.
+		return (
+			<PreviewMessage
+				icon={tablerEye}
+				tone="error"
+				title="Case-list configuration is malformed"
+				body={state.message}
+			/>
+		);
+	}
+
 	if (state.kind === "error") {
 		return (
 			<PreviewMessage
@@ -286,9 +304,19 @@ export function DisplayPreview({
 				<table className="w-full text-[11px]">
 					<thead>
 						<tr className="bg-nova-surface/40">
+							{/* Column / calculated-column React keys use
+							    `nodeId(col)` — the same WeakMap-backed identity
+							    helper every other case-list-config surface uses
+							    for stable per-row keys. A `field:header` /
+							    `id` composite would collide on degenerate
+							    authoring shapes (two columns referencing the
+							    same property + same header, two calculated
+							    columns sharing an id mid-edit). The
+							    `nodeId(...)` identity survives every authoring
+							    transition the editor admits. */}
 							{displayColumns.map((col) => (
 								<th
-									key={`col:${col.field}:${col.header}`}
+									key={nodeId(col)}
 									className="text-left px-3 py-2 font-medium text-nova-text border-b border-white/[0.06] whitespace-nowrap"
 								>
 									<HeaderLabel
@@ -300,7 +328,7 @@ export function DisplayPreview({
 							))}
 							{caseListConfig.calculatedColumns.map((col) => (
 								<th
-									key={`calc:${col.id}`}
+									key={nodeId(col)}
 									className="text-left px-3 py-2 font-medium text-nova-text border-b border-white/[0.06] whitespace-nowrap"
 								>
 									<HeaderLabel
@@ -328,7 +356,7 @@ export function DisplayPreview({
 							>
 								{displayColumns.map((col) => (
 									<td
-										key={`col:${col.field}:${col.header}`}
+										key={nodeId(col)}
 										className="px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04]"
 									>
 										{renderColumnCell(col, row)}
@@ -336,7 +364,7 @@ export function DisplayPreview({
 								))}
 								{caseListConfig.calculatedColumns.map((col) => (
 									<td
-										key={`calc:${col.id}`}
+										key={nodeId(col)}
 										className="px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04] font-mono"
 									>
 										{renderCalculatedCell(row.calculated[col.id])}

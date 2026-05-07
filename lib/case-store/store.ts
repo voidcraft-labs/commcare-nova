@@ -171,15 +171,33 @@ export type CalculatedValue = JsonValue | Date;
  * distinguish "column absent from the query" (key not in map) from
  * "column evaluated to null" (`map[id] === null`).
  *
- * Duplicate-id contract: when two `calculated` entries share the
- * same `id`, the projection emits one column keyed by the shared
- * id and the second occurrence's value silently overwrites the
- * first's at result-row deserialization time. The
- * `CalculatedColumnEditor` validates id uniqueness across siblings
- * upstream so the SQL projection never reaches that shape — the
- * defense lives at the editor's display-vs-validity parity gate
- * rather than in this contract; the SQL layer trusts the upstream
- * gate.
+ * Two collision classes the projection must handle:
+ *
+ *   1. **Calculated id vs `cases` column collision.** An author
+ *      can type a reserved column name (`case_name`, `case_id`,
+ *      `case_type`, `owner_id`, `status`, `app_id`, `opened_on`,
+ *      `closed_on`, `modified_on`, `parent_case_id`, `properties`)
+ *      into the calculated-column id field. Without protection,
+ *      Postgres allows duplicate output names; pg-driver's row
+ *      deserializer keeps the LAST occurrence (the calculated
+ *      expression's value); the row's actual scalar value is
+ *      silently corrupted. `PostgresCaseStore.queryWithCalculated`
+ *      defends structurally by emitting calculated aliases under
+ *      a fixed `__nova_calc__<id>` prefix in the SELECT, then
+ *      unprefixing during the row partition — the wire and the
+ *      consumer-facing key live in disjoint keyspaces, so this
+ *      collision class is impossible regardless of the author's
+ *      chosen id.
+ *
+ *   2. **Duplicate id across siblings.** When two `calculated`
+ *      entries share the same `id`, the SELECT emits two columns
+ *      under the same `__nova_calc__<id>` alias; pg-driver keeps
+ *      the last and the second occurrence's value overwrites the
+ *      first's. The `CalculatedColumnEditor` validates id
+ *      uniqueness across siblings upstream — the display-vs-
+ *      validity parity gate flags duplicates before they reach
+ *      the action — so the SQL layer trusts the upstream gate for
+ *      this class.
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;

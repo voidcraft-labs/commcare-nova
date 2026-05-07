@@ -13,6 +13,7 @@
 import { getSession } from "@/lib/auth-utils";
 import { withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
+import { caseListConfigSchema } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
 	applyCloseMutation,
@@ -103,13 +104,28 @@ export async function populateSampleCasesAction(
  * narrowing for free without a parallel call site. Display-section-
  * only callers pass a config whose `filter` slot is undefined.
  *
+ * Trust-boundary parse: the action is the wire boundary. The
+ * `caseListConfig` carries an arbitrary AST (15 ValueExpression
+ * arms, 12+ Predicate arms, plus Term operands and relation paths);
+ * an unparseable shape over the wire would otherwise reach
+ * `compileExpression` / `compilePredicate` and surface the
+ * compiler's invariant message through the catchall `error` arm.
+ * Routing through `caseListConfigSchema.parse(...)` at action entry
+ * traps the shape failure as a typed `invalid-config` arm so the
+ * client surface dispatches on the structural cause rather than on
+ * a wrapped invariant body. Trusted callers (the Display section's
+ * own client component) pass the same shape the editor produces, so
+ * the parse is a no-op there; defense-in-depth covers programmatic
+ * surfaces, fixtures, and the SA tool path.
+ *
  * Authoring-surface contract: the caller MUST suppress the action
  * while any sub-editor reports `valid: false`. An invalid AST
  * reaching `compileExpression` would throw at the SQL layer; the
  * editor's aggregated validity gate is the primary defense, and
  * the typed-error arms surface only the structural failures the
  * gate cannot catch (missing case type after a stale blueprint
- * snapshot, schema-not-synced after a chat completion in flight).
+ * snapshot, schema-not-synced after a chat completion in flight,
+ * invalid-config from a wire-boundary parse failure).
  */
 export async function loadCaseListPreviewAction(args: {
 	appId: string;
@@ -118,11 +134,28 @@ export async function loadCaseListPreviewAction(args: {
 	caseListConfig: CaseListConfig;
 	limit?: number;
 }): Promise<LoadCaseListPreviewResult> {
+	// Wire-boundary parse. Runs BEFORE session resolution / store
+	// construction so an unparseable config short-circuits without
+	// touching auth or the database. `safeParse` returns a
+	// discriminated result; the `success: false` arm surfaces the
+	// Zod issue's first message as the user-facing detail.
+	const parsed = caseListConfigSchema.safeParse(args.caseListConfig);
+	if (!parsed.success) {
+		const firstIssue = parsed.error.issues[0];
+		const message =
+			firstIssue !== undefined
+				? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
+				: "Case-list configuration is malformed.";
+		return { kind: "invalid-config", message };
+	}
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await withOwnerContext(session.user.id);
-		return await readCaseListPreview(store, args);
+		return await readCaseListPreview(store, {
+			...args,
+			caseListConfig: parsed.data,
+		});
 	} catch (err) {
 		return mapCaseListPreviewError(err);
 	}

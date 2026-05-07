@@ -55,6 +55,16 @@ export type LoadCaseListPreviewResult =
 	| { kind: "empty" }
 	| { kind: "missing-case-type"; caseType: string }
 	| { kind: "schema-not-synced"; caseType: string }
+	/**
+	 * The Server Action's input failed `caseListConfigSchema`
+	 * validation at the trust boundary. The action is the wire
+	 * boundary; an unparseable config arriving over the wire
+	 * indicates either a stale client or a malicious caller, and
+	 * the action surfaces a typed arm rather than letting the
+	 * downstream `compileExpression` invariant message leak through
+	 * the catchall `error` arm.
+	 */
+	| { kind: "invalid-config"; message: string }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 

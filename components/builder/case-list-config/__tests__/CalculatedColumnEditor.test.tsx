@@ -295,4 +295,54 @@ describe("CalculatedColumnEditor — builder discipline", () => {
 		// Verify the value parses through the schema as-is.
 		expect(() => CALCULATED_SCHEMA.parse(value)).not.toThrow();
 	});
+
+	it("preserves the optional `sort` slot across header edits", () => {
+		// `CalculatedColumn.sort?: SortConfig` is the optional per-
+		// column sort declaration. The row's mutators thread
+		// `value.sort` through `calculatedColumn(...)` on every
+		// rebuild path; without this test, a regression that drops
+		// `value.sort` on header / id edits would silently strip the
+		// authored sort config.
+		const expr = term(prop("patient", "age"));
+		const initial: CalculatedColumn[] = [
+			calculatedColumn("days_since", "Days since", expr, {
+				type: "date",
+				direction: "desc",
+			}),
+		];
+		const onChange = vi.fn();
+		render(
+			<CalculatedColumnEditor
+				value={initial}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+		// Trip the header input via focus → change → blur. The
+		// BlurCommit input gates commits on focus equality
+		// (`document.activeElement === inputRef.current`), so the
+		// `change` alone wouldn't fire onChange; the canonical user
+		// path is `input.focus()` (sets `document.activeElement`),
+		// `change`, then `blur`. Use `input.focus()` rather than
+		// `fireEvent.focus(...)` — the existing column-card edit
+		// tests use the same shape; `fireEvent.focus` dispatches the
+		// event but doesn't move `document.activeElement` under
+		// happy-dom, so the blur-commit's `draft === value` check
+		// would short-circuit on the post-blur re-sync.
+		const headerInput = screen.getByLabelText(
+			/calculated column 1 header/i,
+		) as HTMLInputElement;
+		headerInput.focus();
+		fireEvent.change(headerInput, { target: { value: "Renamed" } });
+		fireEvent.blur(headerInput);
+		const next = lastEmitted(onChange);
+		expect(next).toHaveLength(1);
+		// Header committed.
+		expect(next[0]?.header).toBe("Renamed");
+		// Sort slot preserved verbatim.
+		expect(next[0]?.sort).toEqual({ type: "date", direction: "desc" });
+		// Schema round-trip.
+		expect(() => CALCULATED_SCHEMA.parse(next)).not.toThrow();
+	});
 });
