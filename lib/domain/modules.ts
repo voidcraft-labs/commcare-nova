@@ -16,6 +16,12 @@
 // schemas.
 
 import { z } from "zod";
+import type { CasePropertyDataType } from "./casePropertyTypes";
+import type {
+	Predicate,
+	RelationPath,
+	ValueExpression,
+} from "./predicate/types";
 import {
 	predicateSchema,
 	relationPathSchema,
@@ -523,7 +529,16 @@ export function applicableSortTypes(
 // explicit search mode (`mode`), an optional default value
 // (`default`), and an optional advanced predicate (`xpath`).
 
-const SEARCH_INPUT_TYPES = [
+/**
+ * Search-input authoring widget kinds. Exported so every consumer
+ * that reasons about the closed set — the editor's type picker, the
+ * SA tools' tool-schema enum, the validator's per-type / per-mode
+ * applicability gate — shares one tuple rather than maintaining
+ * parallel copies. Adding a kind cascades to all surfaces in one
+ * edit, the same shape `TIME_SINCE_UNITS` / `SORT_TYPES` /
+ * `MULTI_SELECT_QUANTIFIERS` use above.
+ */
+export const SEARCH_INPUT_TYPES = [
 	"text",
 	"select",
 	"date",
@@ -600,6 +615,286 @@ const searchInputDefSchema = z.object({
 	xpath: predicateSchema.optional(),
 });
 export type SearchInputDef = z.infer<typeof searchInputDefSchema>;
+
+// ── SearchInputMode builders ──────────────────────────────────────
+//
+// Thin per-arm constructors. Mirror the per-arm column / sort-key
+// builder pattern: every SearchInputMode-producing call site routes
+// through one of these so the constructed shape stays in lockstep
+// with `searchInputModeSchema`. Adding a required field to a mode
+// arm surfaces here as a builder-signature change rather than a
+// silently-rotting raw literal at editor mutation paths.
+
+/** Equality match. Wire layer: `prop = value` for property modes;
+ *  `prop = ''` for empty-input short-circuits. */
+export function exactMode(): Extract<SearchInputMode, { kind: "exact" }> {
+	return { kind: "exact" };
+}
+
+/** pg_trgm `%` similarity — text-only. Validator gates against
+ *  text-shaped property data types. */
+export function fuzzyMode(): Extract<SearchInputMode, { kind: "fuzzy" }> {
+	return { kind: "fuzzy" };
+}
+
+/** Prefix match — text-only. Validator gates against text-shaped
+ *  property data types. */
+export function startsWithMode(): Extract<
+	SearchInputMode,
+	{ kind: "starts-with" }
+> {
+	return { kind: "starts-with" };
+}
+
+/** fuzzystrmatch dmetaphone — text-only. Validator gates against
+ *  text-shaped property data types. */
+export function phoneticMode(): Extract<SearchInputMode, { kind: "phonetic" }> {
+	return { kind: "phonetic" };
+}
+
+/** Date-permutation match — text-only (the property holds free-form
+ *  date text rather than a typed date column). Validator gates
+ *  against text-shaped property data types. */
+export function fuzzyDateMode(): Extract<
+	SearchInputMode,
+	{ kind: "fuzzy-date" }
+> {
+	return { kind: "fuzzy-date" };
+}
+
+/** Between-with-bounds — numeric / temporal types. Validator gates
+ *  against ordered property data types. */
+export function rangeMode(): Extract<SearchInputMode, { kind: "range" }> {
+	return { kind: "range" };
+}
+
+/** JSONB `@>` (`all`) / `?` (`any`) against a multi-select
+ *  property. Validator gates the property's data type to
+ *  `multi_select`; the quantifier picks the membership shape. */
+export function multiSelectContainsMode(
+	quantifier: MultiSelectQuantifier,
+): Extract<SearchInputMode, { kind: "multi-select-contains" }> {
+	return { kind: "multi-select-contains", quantifier };
+}
+
+// ── SearchInputDef builder ────────────────────────────────────────
+//
+// Single construction surface for `SearchInputDef`. Mirrors the
+// pattern `calculatedColumn(...)` uses for its optional `sort` slot:
+// when the caller supplies an optional slot whose content is
+// absent-equivalent (an undefined value, or — for `via` — the
+// `selfPath()` shape that's structurally equivalent to "no walk"),
+// the builder OMITS the key entirely so the constructed shape
+// round-trips through `safeParse(...).toEqual(input)` against the
+// original-shaped persisted document.
+//
+// This matters at the editor's `RelationPathBuilder` slot: the
+// builder defaults to `selfPath()` when the user doesn't author a
+// walk, but the schema treats `via: undefined` as the canonical
+// "self" shape (per the `searchInputDefSchema`'s "absent ≡ self"
+// contract on line 579-582). Without omission here, the editor
+// would author `via: { kind: "self" }` on every save and break
+// equality assertions.
+
+interface SearchInputDefOptionalSlots {
+	/** Optional case property the input targets. When absent, the
+	 *  input is "advanced" — every predicate is expressed via
+	 *  `xpath`. */
+	readonly property?: string;
+	/** Optional relation walk to a destination case type. `selfPath()`
+	 *  is structurally equivalent to absent and the builder omits
+	 *  the key in that case to preserve schema-shape equality. */
+	readonly via?: RelationPath;
+	/** Optional explicit search mode. When absent, the wire layer
+	 *  picks the per-`type` default (text → exact, date-range →
+	 *  range, etc.). */
+	readonly mode?: SearchInputMode;
+	/** Optional default-value expression seeded into the input's
+	 *  initial state (e.g. `today()` for date-typed inputs). */
+	readonly default?: ValueExpression;
+	/** Optional advanced predicate that replaces the
+	 *  `(property, mode)`-derived predicate when present. */
+	readonly xpath?: Predicate;
+}
+
+/**
+ * Constructs a `SearchInputDef`. Required slots (`name`, `label`,
+ * `type`) are positional; every optional slot is supplied via the
+ * `slots` object. The builder OMITS keys whose values are
+ * absent-equivalent so the constructed shape round-trips through
+ * the schema's strip-mode parse without an `undefined`-valued key
+ * leaking past `expect(parsed).toEqual(input)` assertions:
+ *
+ *   - `via === undefined` OR `via.kind === "self"` → omitted.
+ *     `selfPath()` is the schema's canonical "no walk" shape and
+ *     `via: undefined` is equivalent (per the schema's "absent ≡
+ *     self" contract).
+ *   - Every other optional whose value is `undefined` → omitted.
+ *
+ * Routes the structural assembly through one builder so every
+ * `SearchInputDef`-producing call site (case-list-config editor,
+ * SA tools wiring, validator test fixtures, migration scripts)
+ * carries the same key-order and the same handling of optional
+ * slots.
+ */
+export function searchInputDef(
+	name: string,
+	label: string,
+	type: SearchInputType,
+	slots: SearchInputDefOptionalSlots = {},
+): SearchInputDef {
+	const out: SearchInputDef = { name, label, type };
+	// Property — omit when undefined (absent-equivalent at the schema
+	// layer). Empty-string is preserved verbatim as the user's
+	// "I haven't filled this in yet" state, which the editor surfaces
+	// distinctly from "I don't want a property at all" (the former
+	// shows the picker placeholder; the latter omits the slot).
+	if (slots.property !== undefined) out.property = slots.property;
+	// Via — omit when undefined OR `selfPath()`. The latter is the
+	// schema's canonical "no walk" shape; both shapes are
+	// semantically equivalent at the wire layer (see relationPath
+	// emission at `lib/commcare/predicate/...`). Treating both as
+	// "omit" keeps round-trip equality against persisted documents
+	// that omitted the slot.
+	if (slots.via !== undefined && slots.via.kind !== "self") {
+		out.via = slots.via;
+	}
+	if (slots.mode !== undefined) out.mode = slots.mode;
+	if (slots.default !== undefined) out.default = slots.default;
+	if (slots.xpath !== undefined) out.xpath = slots.xpath;
+	return out;
+}
+
+// ── Per-type / per-mode applicability ─────────────────────────────
+//
+// The matrix authoring surfaces use to gate available modes per
+// input type AND to surface type-coupling validation errors when
+// the targeted property's `data_type` doesn't satisfy the picked
+// `(type, mode)` pair. Centralized here so the editor's mode
+// picker, the validator's per-input rule, and the SA tool surface
+// all read from one source of truth — two independent copies would
+// drift; one shared table keeps every surface aligned by
+// construction.
+
+/**
+ * Modes admitted by each `SearchInputType`. The wire layer's
+ * default-mode contract (per `searchInputDefSchema`'s `mode`
+ * comment, lines 583-585) selects the first entry of each tuple
+ * when the slot is absent: text → exact, select → exact,
+ * date → exact, date-range → range, barcode → exact.
+ *
+ * The order also drives the editor's picker — the first entry is
+ * the default; subsequent entries surface as alternative modes the
+ * author can pick when their semantics fit.
+ */
+export const APPLICABLE_SEARCH_MODES: Readonly<
+	Record<SearchInputType, readonly SearchInputMode["kind"][]>
+> = {
+	text: [
+		"exact",
+		"fuzzy",
+		"starts-with",
+		"phonetic",
+		"fuzzy-date",
+		"multi-select-contains",
+	],
+	select: ["exact", "multi-select-contains"],
+	date: ["exact", "range"],
+	"date-range": ["range"],
+	barcode: ["exact"],
+};
+
+/**
+ * The tuple of modes admitted for a given input `type`. Read by:
+ *
+ *   - The editor's per-row mode picker (filters the menu items the
+ *     user sees).
+ *   - The validator's per-input rule (rejects `(type, mode)` pairs
+ *     not in this table at parse time).
+ *
+ * Never falls through to a fallback — every entry of
+ * `SEARCH_INPUT_TYPES` has an explicit row in
+ * `APPLICABLE_SEARCH_MODES` (the readonly mapping is keyed on the
+ * full tuple, so adding a new type without adding its row is a
+ * compile error).
+ */
+export function applicableSearchModes(
+	type: SearchInputType,
+): readonly SearchInputMode["kind"][] {
+	return APPLICABLE_SEARCH_MODES[type];
+}
+
+/**
+ * Property `data_type`s admitted by each search-input mode. The
+ * editor's per-row type-coupling check + the validator's per-input
+ * rule both read this table to flag mismatches between a picked
+ * mode and the targeted property's data type.
+ *
+ * `undefined` in a tuple's place means the mode is unrestricted
+ * against the property's `data_type` — `exact` widens to every
+ * property type (the wire equality compares serialized values
+ * regardless of declared type).
+ *
+ * Routes through `effectiveDataType(property)` at the call site so
+ * un-annotated properties (no `data_type` declared) resolve to
+ * `"text"`, matching the type-checker's fallback convention.
+ */
+export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
+	Record<SearchInputMode["kind"], readonly CasePropertyDataType[] | undefined>
+> = {
+	// `exact` is unrestricted — equality compares against the
+	// property's serialized value at the wire layer regardless of
+	// declared type.
+	exact: undefined,
+	// Approximate-string modes — text-shaped only.
+	fuzzy: ["text", "single_select", "multi_select"],
+	"starts-with": ["text", "single_select", "multi_select"],
+	phonetic: ["text", "single_select", "multi_select"],
+	// `fuzzy-date` widens to text + temporal — the operator recovers
+	// from transposed date input against typed dates AND free-form
+	// date text. Mirrors the type-checker's `MATCH_PROPERTY_TYPES_FUZZY_DATE`
+	// allow-list at `lib/domain/predicate/typeChecker.ts:301-306`.
+	"fuzzy-date": ["text", "single_select", "multi_select", "date", "datetime"],
+	// `range` requires totally-ordered types — numeric or temporal.
+	range: ["int", "decimal", "date", "datetime", "time"],
+	// `multi-select-contains` requires a `multi_select` property at
+	// the JSONB layer; `single_select` is also admitted because its
+	// option-value semantics overlap with single-element multi-select
+	// (the SQL emitter normalizes to a singleton array). The validator
+	// surface keeps both admitted; if a future tightening narrows to
+	// `multi_select`-only, the change lives here and propagates to
+	// every consumer.
+	"multi-select-contains": ["multi_select", "single_select"],
+};
+
+/**
+ * The data types admitted by each `SearchInputType`'s widget kind.
+ * Used by the editor's type-coupling check to flip `valid: false`
+ * when the picked widget kind doesn't match the targeted property's
+ * `data_type`:
+ *
+ *   - `text` — admits every type; the input always serializes as a
+ *     string and the wire layer handles the cast at evaluation.
+ *   - `select` — admits select-typed properties (single + multi).
+ *   - `date` / `date-range` — admit calendar-shaped properties
+ *     (`date` / `datetime`). `time` is excluded — neither widget
+ *     surfaces a time-only picker.
+ *   - `barcode` — admits text-only properties; barcodes scan as
+ *     plain strings.
+ *
+ * `undefined` in a tuple's place means the widget kind is
+ * unrestricted against the property's `data_type` — surfaced for
+ * `text`, where every wire-shape coerces through string.
+ */
+export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
+	Record<SearchInputType, readonly CasePropertyDataType[] | undefined>
+> = {
+	text: undefined,
+	select: ["single_select", "multi_select"],
+	date: ["date", "datetime"],
+	"date-range": ["date", "datetime"],
+	barcode: ["text"],
+};
 
 // ── CaseListConfig ───────────────────────────────────────────────
 //
