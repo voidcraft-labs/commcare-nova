@@ -504,25 +504,54 @@ Six validator rules at `lib/commcare/validator/rules/case-list/` (the spec said 
 Final state: 3668 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Three rounds of fresh-CR review uncovered progressively-narrower issue classes (false unified-contract claim → priority-order divergence between two rules → augmentation regression coverage gap + dual-implementation drift). Round 4 CR APPROVED with two non-blocking MINORs (TypeContext.caseTypes mutability tightening — out of scope, touches `lib/domain/predicate/`; JSDoc clarification on cache reach). Note: spec review was skipped on this task; the four CR rounds covered spec-relevant behavior in their checklists, but the `feedback_always_run_reviews.md` discipline was not formally honored on this task.
 
 
-### Task 11: Wire emission — case-list short detail
+### Task 11: Wire emission — case-list short detail — SHIPPED
 
-**Files:** `lib/commcare/suite/case-list/shortDetail.ts`, `columns.ts`, `sortKeys.ts`, tests.
+SHIPPED 2026-05-07 in commits `8a35eeaa` (initial feat) → `7fc55b7b` (CR fix-pass: citation accuracy + global calc-column numbering + title symmetry close) → `5bcc957d` (CR fix-pass: stale test citation + forward-projection sweep + Invisible inconsistency) → `2442ef8e` (docs: line-number purge — every CCHQ + Nova citation now uses stable name reference, never line number) on branch `feat/case-list-search`.
 
-Walks `module.caseListConfig` and produces the suite XML `<detail id="m{n}_case_short">` block:
-- `<title>` from module
-- `<lookup>` if module has external lookup config (deferred — V1 emits without)
-- `<no_items_text>` from `caseListConfig.searchInputs.emptyListText` if defined
-- `<variables>` from calculated columns (each becomes a `<calculated-property>` with the Plan 1 expression emitter's output)
-- One `<field>` per `Column`:
-  - `<style>` (per kind defaults)
-  - `<header>` with locale id
-  - `<template>` with the property reference or computed-column reference
-  - `<sort>` per matching SortKey (using Plan 1 expression emitter for sort-calc cases)
-- `<no_items_text>` if `searchInputs.emptyListText` is defined
+**What landed:**
 
-Filter: not emitted in `<detail>` (it's a nodeset filter on the `<entry>`'s session datum); emitted via `lib/commcare/suite/case-list/nodesetFilter.ts` separately at the entry-construction site.
+`lib/commcare/suite/case-list/shortDetail.ts` is the orchestrator that walks `module.caseListConfig` and produces the suite XML `<detail id="m{n}_case_short">` block. Two passes: regular columns (Pass 1) then calculated columns (Pass 2) appended after, matching CCHQ canonical (`commcare-hq::normal-suite.xml::<detail id="m0_case_short">/<field[10..12]>`'s calc fields at the global tail). Per-column position numbering is global across regular AND calculated, matching CCHQ's `id_strings.py::detail_column_header_locale`'s `column.id + 1` semantic.
 
-Tests: golden-file comparisons against expected suite XML for each format kind. Cross-check fragment structure against `commcare-hq/.../tests/data/suite/` fixtures.
+`lib/commcare/suite/case-list/columns.ts` emits the per-Column `<field>` blocks. One sub-emitter per `ColumnKind`:
+- `plain` → bare property reference (`detail_screen.py::Plain`).
+- `date` → empty-string-guarded `format-date(date(...))` wrap (`detail_screen.py::Date`).
+- `time-since-until` → CCHQ time-ago shape with overdue branch (`detail_screen.py::TimeAgo` + `static/app_manager/js/details/utils.js::module.TIME_AGO` divisor table).
+- `phone` → bare property reference (correct per `detail_screen.py::Phone.template_form`: `template_form="phone"` is long-detail only; short-detail uses bare reference).
+- `id-mapping` → `replace(join(' ', if(selected(...))), '\\s+', ' ')` shape (`detail_screen.py::Enum` + `xml_models.py::XPathEnum`).
+- `late-flag` → `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <threshold>, '<flag>', ''))` (`detail_screen.py::LateFlag.XPATH_FUNCTION`). Nova diverges from CCHQ's hidden-header convention (`detail_screen.py::Invisible.HideShortHeaderColumn.header`'s `width="11%"<text/>`) — Nova surfaces a normal author-controlled header with the `flagDisplayValue` instead. Documented as a deliberate authoring-layer choice.
+- `search-only` → `<field>` with `<header><text/></header>` and `<template width="0">` (`detail_screen.py::Invisible.HideShortColumn.template_width`).
+
+`lib/commcare/suite/case-list/sortKeys.ts` emits the `<sort>` blocks. Direction enum (`ascending`/`descending`) and type dispatch (`xml_models.py::Sort` declaration order: `type, order, direction`) match CCHQ. Calc-local sort (`CalculatedColumn.sort` without a corresponding module-level `SortKey`) emits `<sort>` WITHOUT the `order` attribute, matching CCHQ's per-format-default shape (`commcare-hq::multi-sort.xml::<sort type="string">[no-order]`). Sort XPath for date / time-since-until / late-flag uses the raw `field` (not the formatted display XPath), per CCHQ's `detail_screen.py::FormattedDetailColumn.SORT_XPATH_FUNCTION` pattern.
+
+**Calculated columns emit inline `<variable>` per field**, not in a top-level `<variables>` block. This matches CCHQ's actual wire shape for calculated columns (`commcare-hq::search_command_detail.xml::<detail>/<field>/<template>/<text>/<xpath>/<variable name="calculated_property">`); the top-level `<variables>` element in `xml_models.py::Detail` is for enum locale-key variables (the `XPathEnum.build` path), not calculated columns. The Plan 3 spec text was imprecise on this distinction; the implementation followed the CCHQ fixture evidence.
+
+**`<style>` skipped on standard short-detail fields.** The Plan 3 spec listed `<style>` as a required sub-element, but CCHQ's `<style>` only appears in case-tile / grid layouts (per `commcare-hq::suite-case-detail-instances.xml`, `suite-case-tiles.xml`); it's absent from all standard column fixtures including `multi-sort.xml` and `normal-suite.xml`. Spec inaccuracy, not implementation gap.
+
+**`searchInputs.emptyListText` deferred.** The Plan 3 spec mentions emitting `<no_items_text>` from this slot, but the slot doesn't exist on `caseListConfigSchema` today (Plan 4 will own search-config including emptyListText). Skipped emission until the schema lands the field.
+
+**Title symmetry fix (cross-cutting).** Pre-commit, both short and long detail titles registered `case_list_title` in `app_strings.txt` via `appStrings.case_list_title || modName` — the `||` short-circuit kept the FIRST module's name, so all subsequent modules' detail titles pointed at module 0's name. Replaced both short and long detail titles with `<locale id="cchq.case"/>` (CCHQ's canonical built-in detail title locale, `commcare-hq::id_strings.py::_case_detail_title_locale`, `default="Case"`). The broken `appStrings.case_list_title` registration is removed entirely. (NOTE: the round-1 commit body initially mis-described this as "last-module-wins"; round-2's body corrected it to "first-module-wins" per the `||` semantics. The bug shape is the same either way: multiple modules sharing one title string.)
+
+**Compiler integration site.** `lib/commcare/compiler.ts` switched from the legacy HQ-JSON-driven short-detail emission path to call `emitShortDetail(module, ctx)` per module with `caseListConfig`. Locale-id strings emitted by the new path merge into `app_strings.txt` cleanly. Long-detail keeps the legacy HQ-JSON-driven path until Task 12 lands the typed long emitter.
+
+**autoFixer regex follow-up note.** `lib/commcare/autoFixer.ts::idToLabel` carries a defensive `.replace(/^case_list_title$/, "Cases")` mapping for the legacy locale id. With the legacy registration removed, this regex is now unreachable in normal output. Documented as out-of-scope cleanup for this commit; addressable when autoFixer is next touched.
+
+**Citation discipline (cross-cutting fix).** All CCHQ citations in the new files use stable name references (`file.py::function_name`, `file.py::ClassName.method_name`, `file.xml::<element_path>` for fixtures), never line numbers. Per `feedback_no_line_numbers_in_code_comments.md` — line numbers are opaque (don't say what they point at) and fragile (any upstream edit invalidates them). Citations against an upstream we don't control are guaranteed to rot if line-numbered; named references survive at least until upstream renames the symbol.
+
+**Hard constraints honored:**
+- No `void <id>;` suppressions, `@ts-ignore`, `biome-ignore`, `eslint-disable`.
+- No process / forward-projection comments. Drift sweep clean across `lib/commcare/suite/case-list/` and `lib/commcare/compiler.ts`. Sweeps include the broader pattern (`sibling task|plan family|until.*lands|in this plan|future emitter|once we`).
+- No regex-on-XPath per `feedback_never_regex_parse_xpath.md` — XPath construction goes through string templates with parser-validated atoms.
+- Strong typing throughout; no widening, no `as any` / `as unknown` / `as never`.
+- CommCare boundary discipline maintained.
+
+**Tests (53 in this surface):**
+- All 7 ColumnKinds covered with positive + negative cases.
+- Multi-key sort + calc-local no-order sort.
+- Calculated columns + columns referencing calcs.
+- Empty caseListConfig (only required `<title>`).
+- Cross-fixture comparison: `multi-sort.xml`, `search_command_detail.xml`, `normal-suite.xml` cited as canonical structure.
+
+Final state: 3740 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Three rounds of fresh-CR review uncovered progressively-narrower issues (round 1: 4 IMPORTANT + 5 MINOR including 7 wrong CCHQ citations + a fabricated function name + half-fix title asymmetry + calc-column position drift; round 2: 2 IMPORTANT + 2 MINOR including stale test citation + forward-projection language; round 3: APPROVED with 2 MINOR wording-precision JSDoc nits classed as not-blockers).
 
 
 ### Task 12: Wire emission — case-list long detail
