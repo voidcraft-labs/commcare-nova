@@ -145,6 +145,142 @@ export const columnSchema = z.discriminatedUnion("kind", [
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
+/** Single id-mapping entry — value-to-label pair surfaced by
+ *  `idMappingColumn`'s lookup table. The pair is the canonical
+ *  shape parsed by `idMappingEntrySchema`; constructing through
+ *  this helper pins the key order and avoids ad-hoc literals
+ *  drifting out of the schema. */
+export type IdMappingEntry = z.infer<typeof idMappingEntrySchema>;
+
+// ── Column builders ───────────────────────────────────────────────
+//
+// One thin builder per `ColumnKind` arm, each pinning the
+// discriminator and threading the per-arm structural fields onto
+// the constructed object. Mirrors the predicate-side pattern at
+// `lib/domain/predicate/builders.ts`: every per-arm precise type is
+// preserved on the return value, so callers narrowing on `kind`
+// after a builder call get the per-variant fields directly without
+// re-narrowing.
+//
+// The builders are the single construction surface for Column AST
+// nodes — every Column-producing call site routes through these so
+// the bug class "ad-hoc literal drifts out of schema shape" is
+// structurally impossible at the editor's mutation paths.
+
+/**
+ * Constructs a plain-text column. `field` references the case
+ * property name; `header` is the column's display label.
+ */
+export function plainColumn(
+	field: string,
+	header: string,
+): Extract<Column, { kind: "plain" }> {
+	return { kind: "plain", field, header };
+}
+
+/**
+ * Constructs a date-formatted column. `pattern` carries the wire-
+ * form date format string consumed by the runtime formatter (e.g.
+ * `%Y-%m-%d` for ISO output, `%d-%b-%Y` for `27-Apr-2025`).
+ */
+export function dateColumn(
+	field: string,
+	header: string,
+	pattern: string,
+): Extract<Column, { kind: "date" }> {
+	return { kind: "date", field, header, pattern };
+}
+
+/**
+ * Constructs a time-since-until interval column. `threshold` +
+ * `unit` drive the per-row "is this overdue?" decision; the
+ * `displayLabel` text surfaces when the threshold is exceeded.
+ * Wire-emit binds `unit` to one of the `TIME_SINCE_UNITS` enum
+ * values; passing a non-enum value is a compile-time error.
+ */
+export function timeSinceUntilColumn(
+	field: string,
+	header: string,
+	threshold: number,
+	unit: TimeSinceUnit,
+	displayLabel: string,
+): Extract<Column, { kind: "time-since-until" }> {
+	return {
+		kind: "time-since-until",
+		field,
+		header,
+		threshold,
+		unit,
+		displayLabel,
+	};
+}
+
+/**
+ * Constructs a phone-number column. The runtime renders the
+ * referenced property as a tappable telephone link; static
+ * contexts fall back to plain text.
+ */
+export function phoneColumn(
+	field: string,
+	header: string,
+): Extract<Column, { kind: "phone" }> {
+	return { kind: "phone", field, header };
+}
+
+/**
+ * Constructs an ID-mapping column. `mapping` is the lookup table
+ * from raw property value to display label; the runtime renders
+ * the matched label or falls back to the raw value when no entry
+ * matches.
+ */
+export function idMappingColumn(
+	field: string,
+	header: string,
+	mapping: readonly IdMappingEntry[],
+): Extract<Column, { kind: "id-mapping" }> {
+	return {
+		kind: "id-mapping",
+		field,
+		header,
+		mapping: [...mapping],
+	};
+}
+
+/**
+ * Constructs a late-flag column. The runtime surfaces
+ * `flagDisplayValue` when the date property exceeds `threshold ×
+ * unit` from the current date; otherwise the cell renders empty.
+ */
+export function lateFlagColumn(
+	field: string,
+	header: string,
+	threshold: number,
+	unit: TimeSinceUnit,
+	flagDisplayValue: string,
+): Extract<Column, { kind: "late-flag" }> {
+	return {
+		kind: "late-flag",
+		field,
+		header,
+		threshold,
+		unit,
+		flagDisplayValue,
+	};
+}
+
+/**
+ * Constructs a search-only column — declares the property as
+ * searchable without surfacing a visible cell on the case list.
+ * `header` is preserved for the authoring-surface label even
+ * though the wire layer skips emission for this kind.
+ */
+export function searchOnlyColumn(
+	field: string,
+	header: string,
+): Extract<Column, { kind: "search-only" }> {
+	return { kind: "search-only", field, header };
+}
+
 // ── Sort + calculated columns ─────────────────────────────────────
 //
 // Sort keys reference either a property (typed via `data_type`)
