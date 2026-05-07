@@ -1,6 +1,7 @@
 // components/builder/case-list-config/dragData.ts
 //
-// Typed drag-and-drop payloads for the predicate card editor.
+// Typed drag-and-drop payloads for the predicate / expression /
+// sort-key card editors.
 //
 // Pragmatic-drag-and-drop stores arbitrary `Record<string | symbol,
 // unknown>` on each source + drop target. The cast at the boundary
@@ -106,60 +107,62 @@ export function readClauseDropData(
 	};
 }
 
-// ── Expression-side reorder payloads ───────────────────────────────────
+// ── Generic list-item reorder payloads ─────────────────────────────────
 //
-// Three drag surfaces inside the ValueExpression editor — `concat.parts`
-// (variadic text concatenation), `coalesce.values` (variadic fallback
-// chain), `switch.cases` (multi-case dispatch). Each surface reorders
-// inside ONE container; cross-container drops never apply (a `concat`
-// part can't move into a `coalesce` slot at the AST layer). Same
-// nodeKey-scoped pattern as the predicate-clause drag/drop above —
-// the monitor pairs source + target by exact match and rejects
-// cross-container drops.
+// Generic list-reorder surface used by every list-shaped editor that
+// reorders inside ONE container. Today's call sites:
 //
-// One discriminated union per surface (drag vs drop) so the source
-// `kind` discriminator stays the single dispatch key inside any
-// monitor that owns multiple drag surfaces.
+//   - `concat.parts` — variadic text concatenation
+//   - `coalesce.values` — variadic fallback chain
+//   - `switch.cases` — multi-case dispatch
+//   - `sort` — case-list sort-key list
+//
+// Each surface reorders inside its own container; cross-container drops
+// never apply (a `concat` part can't move into a `coalesce` slot at the
+// AST layer; a sort key can't move into a `switch` cases list). The
+// monitor pairs source + target by exact `nodeKey` AND `containerKind`
+// match and rejects cross-container drops.
+//
+// `containerKind` is a free-form `string` so call sites pick their own
+// scope tokens without coupling to a closed enum here. The `nodeKey`
+// is the strict scope (a UUID per container instance from
+// `nodeIdentity.ts`); `containerKind` is a coarser belt-and-suspenders
+// gate that catches a misregistered monitor before it ever reads the
+// nodeKey. Same pattern the predicate-clause payload above uses with
+// its own discriminator.
 
 /** Source-side payload — identifies which item is being dragged in
- *  which container. The container kind ("concat" / "coalesce" /
- *  "switch") plus the container's stable nodeKey scopes the drop to
- *  the matching container's item list. */
-export interface ExpressionItemDragData {
-	readonly kind: "expression-item-drag";
-	readonly containerKind: "concat" | "coalesce" | "switch";
+ *  which container. The container kind plus the container's stable
+ *  nodeKey scopes the drop to the matching container's item list. */
+export interface ListItemDragData {
+	readonly kind: "list-item-drag";
+	readonly containerKind: string;
 	readonly itemIndex: number;
 	readonly nodeKey: string;
 }
 
 /** Drop-target payload — symmetric with the source; identifies a
  *  target slot in the same container's item list. */
-export interface ExpressionItemDropData {
-	readonly kind: "expression-item-drop";
-	readonly containerKind: "concat" | "coalesce" | "switch";
+export interface ListItemDropData {
+	readonly kind: "list-item-drop";
+	readonly containerKind: string;
 	readonly itemIndex: number;
 	readonly nodeKey: string;
 }
 
 /** Narrow a source data bag back into the typed
- *  `ExpressionItemDragData`. Defensive against an unrelated drag
- *  source landing in the same monitor's `source.data`. */
-export function readExpressionItemDragData(
+ *  `ListItemDragData`. Defensive against an unrelated drag source
+ *  landing in the same monitor's `source.data`. */
+export function readListItemDragData(
 	data: Record<string | symbol, unknown>,
-): ExpressionItemDragData | undefined {
-	const partial = data as Partial<ExpressionItemDragData>;
-	if (partial.kind !== "expression-item-drag") return undefined;
+): ListItemDragData | undefined {
+	const partial = data as Partial<ListItemDragData>;
+	if (partial.kind !== "list-item-drag") return undefined;
 	if (partial.itemIndex === undefined) return undefined;
 	if (partial.nodeKey === undefined) return undefined;
-	if (
-		partial.containerKind !== "concat" &&
-		partial.containerKind !== "coalesce" &&
-		partial.containerKind !== "switch"
-	) {
-		return undefined;
-	}
+	if (typeof partial.containerKind !== "string") return undefined;
 	return {
-		kind: "expression-item-drag",
+		kind: "list-item-drag",
 		containerKind: partial.containerKind,
 		itemIndex: partial.itemIndex,
 		nodeKey: partial.nodeKey,
@@ -167,22 +170,16 @@ export function readExpressionItemDragData(
 }
 
 /** Symmetric reader for the drop-target side. */
-export function readExpressionItemDropData(
+export function readListItemDropData(
 	data: Record<string | symbol, unknown>,
-): ExpressionItemDropData | undefined {
-	const partial = data as Partial<ExpressionItemDropData>;
-	if (partial.kind !== "expression-item-drop") return undefined;
+): ListItemDropData | undefined {
+	const partial = data as Partial<ListItemDropData>;
+	if (partial.kind !== "list-item-drop") return undefined;
 	if (partial.itemIndex === undefined) return undefined;
 	if (partial.nodeKey === undefined) return undefined;
-	if (
-		partial.containerKind !== "concat" &&
-		partial.containerKind !== "coalesce" &&
-		partial.containerKind !== "switch"
-	) {
-		return undefined;
-	}
+	if (typeof partial.containerKind !== "string") return undefined;
 	return {
-		kind: "expression-item-drop",
+		kind: "list-item-drop",
 		containerKind: partial.containerKind,
 		itemIndex: partial.itemIndex,
 		nodeKey: partial.nodeKey,

@@ -4,7 +4,7 @@
 // chain. Each `values[i]` is a recursive `ValueExpression`; the
 // result type is the agreed type across all values (per
 // `accumulateBranchType` in the type checker). Drag-and-drop
-// reorders the values via the shared `useReorderableExpressionList`
+// reorders the values via the shared `useReorderableList`
 // + `<ReorderableRow>` primitives.
 //
 // Schema invariant: `values` is non-empty (`z.tuple([first], rest)`).
@@ -28,10 +28,7 @@ import { expressionCardSchemas } from "../../expressionEditorSchemas";
 import { nodeId } from "../../nodeIdentity";
 import { appendSlotIndex, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
-import {
-	ReorderableRow,
-	useReorderableExpressionList,
-} from "../../useReorderableExpressionList";
+import { ReorderableRow, useReorderableList } from "../../useReorderableList";
 
 /** Default `coalesce` — two null literals. Both values resolve to
  *  the `_any` sentinel so the `accumulateBranchType` agreement
@@ -65,7 +62,7 @@ export function CoalesceCard({ value, onChange, path }: CoalesceCardProps) {
 		return coalesce(first, ...rest);
 	};
 
-	const { pendingDrop } = useReorderableExpressionList({
+	const { pendingDrop } = useReorderableList({
 		containerKey,
 		containerKind: "coalesce",
 		items: value.values,

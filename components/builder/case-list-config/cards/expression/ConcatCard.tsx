@@ -3,7 +3,7 @@
 // Renders the `concat` ValueExpression — variadic string
 // concatenation. Each `parts[i]` is a recursive `ValueExpression`;
 // the result type is always `text`. Drag-and-drop reorders the
-// parts in place via the shared `useReorderableExpressionList`
+// parts in place via the shared `useReorderableList`
 // + `<ReorderableRow>` primitives.
 //
 // Schema invariant: `parts` is non-empty (`z.tuple([first], rest)`).
@@ -27,10 +27,7 @@ import { expressionCardSchemas } from "../../expressionEditorSchemas";
 import { nodeId } from "../../nodeIdentity";
 import { appendSlotIndex, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
-import {
-	ReorderableRow,
-	useReorderableExpressionList,
-} from "../../useReorderableExpressionList";
+import { ReorderableRow, useReorderableList } from "../../useReorderableList";
 
 /** Default `concat` — two empty text literals. The schema rejects
  *  empty parts; seeding two rows lets the user immediately see the
@@ -66,7 +63,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 		return concat(first, ...rest);
 	};
 
-	const { pendingDrop } = useReorderableExpressionList({
+	const { pendingDrop } = useReorderableList({
 		containerKey,
 		containerKind: "concat",
 		items: value.parts,

@@ -53,10 +53,7 @@ import {
 } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
-import {
-	ReorderableRow,
-	useReorderableExpressionList,
-} from "../../useReorderableExpressionList";
+import { ReorderableRow, useReorderableList } from "../../useReorderableList";
 
 /** Default `switch` — `switch(literal(""), [{ when: "", then: "" }],
  *  fallback: "")`. The single-case seed satisfies the schema's
@@ -123,7 +120,7 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 		onChange(apply(next));
 	};
 
-	const { pendingDrop } = useReorderableExpressionList({
+	const { pendingDrop } = useReorderableList({
 		containerKey,
 		containerKind: "switch",
 		items: value.cases,

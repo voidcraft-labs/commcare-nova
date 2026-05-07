@@ -18,12 +18,8 @@
 // Why move-up / move-down (not drag-and-drop): mapping tables
 // are typically 2-10 entries authored once. The complexity of
 // pragmatic-drag-and-drop's monitor + per-row preview wiring is
-// disproportionate to the gain — and the existing
-// `useReorderableExpressionList` hook is typed to a closed set
-// of expression-side container kinds (`concat` / `coalesce` /
-// `switch`). Extending that union with `"id-mapping"` would couple
-// the column-side editor to an expression-side hook for a
-// secondary use case. Manual buttons fit the use case cleanly.
+// disproportionate to the gain. Manual buttons fit the use case
+// cleanly.
 
 "use client";
 import { Icon } from "@iconify/react/offline";

@@ -379,6 +379,107 @@ const sortKeySchema = z.object({
 export type SortKey = z.infer<typeof sortKeySchema>;
 export type SortKeySource = z.infer<typeof sortKeySourceSchema>;
 
+// ── SortKey builders ──────────────────────────────────────────────
+//
+// Thin builder per discriminated arm + the top-level `sortKey`
+// builder. Mirrors the per-arm column-builder pattern above: every
+// SortKey-producing call site routes through these so the
+// constructed shape always matches the schema. Adding a required
+// field to the source / sort key schema surfaces here as a
+// builder-signature change rather than a silently-rotting raw
+// literal at editor mutation paths.
+
+/**
+ * Constructs a property-rooted sort source. The runtime reads the
+ * referenced property's value per row and applies the comparator
+ * the surrounding `SortKey.type` selects. The `property` slot is a
+ * case-property name on the originating case type (no relation
+ * walks at the sort layer — those resolve through a calculated
+ * column whose expression encodes the walk).
+ */
+export function propertySortSource(
+	property: string,
+): Extract<SortKeySource, { kind: "property" }> {
+	return { kind: "property", property };
+}
+
+/**
+ * Constructs a calculated-column sort source. The `columnId`
+ * references one of the case-list's `calculatedColumns[i].id`
+ * entries; the runtime evaluates the matching expression per row
+ * and applies the comparator the surrounding `SortKey.type`
+ * selects.
+ */
+export function calculatedSortSource(
+	columnId: string,
+): Extract<SortKeySource, { kind: "calculated" }> {
+	return { kind: "calculated", columnId };
+}
+
+/**
+ * Constructs a single sort key. The runtime applies sort keys in
+ * declaration order — the first key is the primary sort, each
+ * subsequent key acts as a tiebreaker on the previous keys.
+ */
+export function sortKey(
+	source: SortKeySource,
+	type: SortType,
+	direction: SortDirection,
+): SortKey {
+	return { source, type, direction };
+}
+
+/**
+ * Compatibility table from a property's effective `data_type` to
+ * the `SortType` set the comparator can meaningfully apply. The
+ * editor's per-row type-picker filters on this set; the inline
+ * type-mismatch error reads it to decide whether the current
+ * `(source, type)` pair is structurally rejected.
+ *
+ * The matrix:
+ *   - text / single_select / multi_select / geopoint → ["plain"].
+ *     Only lexicographic comparison is meaningful — these values
+ *     are stored as strings at the wire layer; numeric / temporal
+ *     casts would silently coerce nonsense.
+ *   - int → ["integer", "plain"]. Numeric comparison is the
+ *     canonical sort; lexicographic stays available for the rare
+ *     "stable display order" case.
+ *   - decimal → ["decimal", "plain"]. Same shape as int; the
+ *     numeric comparator promotes through the runtime's decimal
+ *     arithmetic.
+ *   - date / datetime / time → ["date", "plain"]. Calendar
+ *     comparison is canonical; lexicographic on ISO strings is a
+ *     valid fallback because ISO 8601 is order-preserving. `time`
+ *     joins date/datetime here because it's temporally shaped —
+ *     the on-device runtime parses it through the same calendar
+ *     comparator the wire emitter binds for `date` / `datetime`.
+ *
+ * Calculated-column sources have no resolvable property type at
+ * the source layer; the editor admits all four sort types for
+ * them and trusts the user's pick.
+ */
+export function applicableSortTypes(
+	dataType: string | undefined,
+): readonly SortType[] {
+	switch (dataType) {
+		case "int":
+			return ["integer", "plain"];
+		case "decimal":
+			return ["decimal", "plain"];
+		case "date":
+		case "datetime":
+		case "time":
+			return ["date", "plain"];
+		// `text` / `single_select` / `multi_select` / `geopoint` and
+		// the unresolved (`undefined`) case all collapse to plain.
+		// Permissive default: when the property isn't declared (or
+		// resolves to a non-numeric / non-temporal type), only
+		// lexicographic comparison is structurally sound.
+		default:
+			return ["plain"];
+	}
+}
+
 // ── Search inputs ─────────────────────────────────────────────────
 //
 // Search input definitions. Each input declares an authoring-

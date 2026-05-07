@@ -1,23 +1,30 @@
-// components/builder/case-list-config/useReorderableExpressionList.ts
+// components/builder/case-list-config/useReorderableList.ts
 //
-// Shared drag-and-drop reorder primitives for the ValueExpression
-// editor's three list-shaped containers — `concat.parts` (variadic
-// text concatenation), `coalesce.values` (variadic fallback chain),
-// and `switch.cases` (multi-case dispatch). Each container reorders
-// inside itself; cross-container drops never apply.
+// Shared drag-and-drop reorder primitives for every list-shaped
+// editor surface. Today's consumers:
 //
-// The pattern factors what LogicalGroupCard's `AndOrBody` established
-// (per-container monitor scoped by nodeKey, ref-stash so the monitor
-// effect deps stay [containerKey], custom drag preview via
-// `setCustomNativeDragPreview`, adjacency suppression so the preview
-// doesn't flicker into the source's slot). Centralizing here keeps
-// the three call sites (concat / coalesce / switch) structurally
-// identical — a behavior change lands in one place rather than
-// drifting across three near-duplicates.
+//   - `concat.parts` (variadic text concatenation)
+//   - `coalesce.values` (variadic fallback chain)
+//   - `switch.cases` (multi-case dispatch)
+//   - `sort` (case-list sort-key list)
+//
+// Each surface reorders inside ONE container; cross-container drops
+// never apply. The hook is generic over `T` (the row payload type)
+// and accepts a free-form `containerKind` discriminator so call
+// sites pick their own scope token without coupling to a closed
+// enum here.
+//
+// The pattern factors what `LogicalGroupCard`'s `AndOrBody`
+// established (per-container monitor scoped by nodeKey, ref-stash so
+// the monitor effect deps stay [containerKey], custom drag preview
+// via `setCustomNativeDragPreview`, adjacency suppression so the
+// preview doesn't flicker into the source's slot). Centralizing here
+// keeps every consumer structurally identical — a behavior change
+// lands in one place rather than drifting across N near-duplicates.
 //
 // Two pieces:
 //
-//   - `useReorderableExpressionList(...)` — installs the
+//   - `useReorderableList(...)` — installs the
 //     `monitorForElements` for the container. Owns the monitor's
 //     drag/drop bookkeeping, ref-stashes the latest items + reorder
 //     callback, and tracks the active-drag indicator. Returns the
@@ -48,16 +55,11 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
 	asDragPayload,
-	type ExpressionItemDragData,
-	type ExpressionItemDropData,
-	readExpressionItemDragData,
-	readExpressionItemDropData,
+	type ListItemDragData,
+	type ListItemDropData,
+	readListItemDragData,
+	readListItemDropData,
 } from "./dragData";
-
-/** The three reorderable containers the hook supports. The
- *  discriminator scopes the monitor to its container — a `concat`
- *  source can't drop into a `coalesce` target. */
-export type ReorderContainerKind = "concat" | "coalesce" | "switch";
 
 /** Active-drag indicator state — the source row's index plus the
  *  resolved insertion index. The host card uses `fromIndex` to
@@ -69,27 +71,32 @@ export type PendingDrop = {
 	readonly toIndex: number;
 } | null;
 
-interface UseReorderableExpressionListArgs<T> {
+interface UseReorderableListArgs<T> {
 	/** Stable per-container identity. The monitor and the source /
 	 *  target payloads scope drops to this key, so an outer container
 	 *  with a sibling list at the same nesting level doesn't accept
 	 *  drags from this list. Use `nodeId(value)` from
-	 *  `nodeIdentity.ts`. */
+	 *  `nodeIdentity.ts` for AST-rooted containers; for non-AST
+	 *  containers (e.g. the SortKey list, which has no envelope
+	 *  object), use a stable per-mount identifier. */
 	readonly containerKey: string;
 	/** The container's discriminator — drives the source / target
-	 *  payloads and gates the monitor against cross-container drops. */
-	readonly containerKind: ReorderContainerKind;
+	 *  payloads and gates the monitor against cross-container drops.
+	 *  Free-form so call sites pick their own scope token; the
+	 *  `nodeKey` is the strict scope, `containerKind` is the coarser
+	 *  belt-and-suspenders gate. */
+	readonly containerKind: string;
 	/** The container's current item list. The hook ref-stashes a
 	 *  reference; the monitor effect re-installs only when
 	 *  `containerKey` / `containerKind` changes. */
 	readonly items: readonly T[];
 	/** Fired when a drop produces a new item order. Receives the
-	 *  reordered array; the caller rebuilds the expression via the
-	 *  matching builder. */
+	 *  reordered array; the caller rebuilds the list-owning AST via
+	 *  the matching builder. */
 	readonly onReorder: (next: readonly T[]) => void;
 }
 
-interface UseReorderableExpressionListResult {
+interface UseReorderableListResult {
 	/** The active drag's source/target indices, or `null` when no
 	 *  drag is in flight. The host card threads this into each row
 	 *  via `<ReorderableRow pendingDrop=...>` so the rows can render
@@ -98,15 +105,14 @@ interface UseReorderableExpressionListResult {
 }
 
 /**
- * Install the reorder monitor for one ValueExpression list container
- * (`concat.parts`, `coalesce.values`, or `switch.cases`). Returns the
+ * Install the reorder monitor for one list container. Returns the
  * pending-drop state for visual indicators. Render one
  * `<ReorderableRow>` per item; the row component owns the row-side
  * draggable + drop-target wiring.
  */
-export function useReorderableExpressionList<T>(
-	args: UseReorderableExpressionListArgs<T>,
-): UseReorderableExpressionListResult {
+export function useReorderableList<T>(
+	args: UseReorderableListArgs<T>,
+): UseReorderableListResult {
 	const { containerKey, containerKind, items, onReorder } = args;
 	const [pendingDrop, setPendingDrop] = useState<PendingDrop>(null);
 
@@ -123,7 +129,7 @@ export function useReorderableExpressionList<T>(
 	useEffect(() => {
 		const cleanup = monitorForElements({
 			canMonitor: ({ source }) => {
-				const data = readExpressionItemDragData(source.data);
+				const data = readListItemDragData(source.data);
 				return (
 					data !== undefined &&
 					data.nodeKey === containerKey &&
@@ -132,7 +138,7 @@ export function useReorderableExpressionList<T>(
 			},
 			onDrop: ({ source, location }) => {
 				setPendingDrop(null);
-				const sourceData = readExpressionItemDragData(source.data);
+				const sourceData = readListItemDragData(source.data);
 				if (
 					sourceData === undefined ||
 					sourceData.nodeKey !== containerKey ||
@@ -142,7 +148,7 @@ export function useReorderableExpressionList<T>(
 				}
 				const target = location.current.dropTargets[0];
 				if (target === undefined) return;
-				const targetData = readExpressionItemDropData(target.data);
+				const targetData = readListItemDropData(target.data);
 				if (
 					targetData === undefined ||
 					targetData.nodeKey !== containerKey ||
@@ -163,7 +169,7 @@ export function useReorderableExpressionList<T>(
 				onReorderRef.current(reordered);
 			},
 			onDrag: ({ source, location }) => {
-				const sourceData = readExpressionItemDragData(source.data);
+				const sourceData = readListItemDragData(source.data);
 				if (
 					sourceData === undefined ||
 					sourceData.nodeKey !== containerKey ||
@@ -176,7 +182,7 @@ export function useReorderableExpressionList<T>(
 					setPendingDrop(null);
 					return;
 				}
-				const targetData = readExpressionItemDropData(target.data);
+				const targetData = readListItemDropData(target.data);
 				if (
 					targetData === undefined ||
 					targetData.nodeKey !== containerKey ||
@@ -230,7 +236,7 @@ export interface ReorderableRowWiring {
 interface ReorderableRowProps {
 	readonly index: number;
 	readonly containerKey: string;
-	readonly containerKind: ReorderContainerKind;
+	readonly containerKind: string;
 	readonly pendingDrop: PendingDrop;
 	/** The custom drag preview React tree. The browser snapshots the
 	 *  rendered tree as the native drag image; the tree lives in a
@@ -264,14 +270,14 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 	useEffect(() => {
 		const wrapper = wrapperElRef.current;
 		if (wrapper === null) return;
-		const dragData: ExpressionItemDragData = {
-			kind: "expression-item-drag",
+		const dragData: ListItemDragData = {
+			kind: "list-item-drag",
 			containerKind,
 			itemIndex: index,
 			nodeKey: containerKey,
 		};
-		const dropData: ExpressionItemDropData = {
-			kind: "expression-item-drop",
+		const dropData: ListItemDropData = {
+			kind: "list-item-drop",
 			containerKind,
 			itemIndex: index,
 			nodeKey: containerKey,
@@ -299,7 +305,7 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 			dropTargetForElements({
 				element: wrapper,
 				canDrop: ({ source }) => {
-					const d = readExpressionItemDragData(source.data);
+					const d = readListItemDragData(source.data);
 					return (
 						d !== undefined &&
 						d.nodeKey === containerKey &&
