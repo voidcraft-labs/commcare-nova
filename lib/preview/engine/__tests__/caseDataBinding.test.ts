@@ -1626,4 +1626,47 @@ describe("loadCaseListPreviewAction", () => {
 		// the literal string "columns".
 		expect(result.message).toMatch(/^columns:/);
 	});
+
+	it("returns the invalid-blueprint arm with a path-prefixed message when blueprint fails Zod parse", async () => {
+		// Symmetric to the `invalid-config` test above. The action
+		// runs `blueprintDocSchema.safeParse(...)` AFTER the config
+		// parse but BEFORE session resolution; an unparseable
+		// blueprint short-circuits without touching auth or the
+		// store. Pass a blueprint whose `appId` is a number — the
+		// schema's `z.string()` rejects with a structural type
+		// mismatch.
+		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
+		// Cast through `unknown` because the bad shape intentionally
+		// violates the `BlueprintDoc` type at the call site — the
+		// runtime parse is the structural defense.
+		const result = await loadCaseListPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: {
+				appId: 42,
+				appName: "Test app",
+				connectType: null,
+				caseTypes: [],
+				modules: {},
+				forms: {},
+				fields: {},
+				moduleOrder: [],
+				formOrder: {},
+				fieldOrder: {},
+				fieldParent: {},
+			} as unknown as Parameters<
+				typeof loadCaseListPreviewAction
+			>[0]["blueprint"],
+			caseListConfig: {
+				columns: [],
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			},
+		});
+		expect(result.kind).toBe("invalid-blueprint");
+		if (result.kind !== "invalid-blueprint") return;
+		// The path for `appId` is the literal string "appId".
+		expect(result.message).toMatch(/^appId:/);
+	});
 });

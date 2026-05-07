@@ -201,6 +201,41 @@ describe("DisplayPreview — invalid-config arm", () => {
 	});
 });
 
+// ── Invalid-blueprint state ──────────────────────────────────────
+
+describe("DisplayPreview — invalid-blueprint arm", () => {
+	it("renders 'Blueprint is malformed' + the parse-failure message when the action returns invalid-blueprint", async () => {
+		// Symmetric to the `invalid-config` test above. Same trust-
+		// boundary shape; the Server Action's
+		// `blueprintDocSchema.safeParse(...)` failure surfaces here.
+		// Doc-store's `pickBlueprintDoc(...)` projection always
+		// produces a parseable shape, so reaching this arm in
+		// production means a non-editor caller bypassed the
+		// projection — typically a fixture or a programmatic surface.
+		vi.mocked(loadCaseListPreviewAction).mockResolvedValueOnce({
+			kind: "invalid-blueprint",
+			message: "appId: expected string, received number",
+		});
+		const config = makeConfig({
+			columns: [plainColumn("name", "Name")],
+		});
+		render(
+			<DisplayPreview
+				appId={APP_ID}
+				caseListConfig={config}
+				currentCaseType="patient"
+				configValid={true}
+			/>,
+		);
+		await waitFor(() => {
+			expect(screen.getByText(/blueprint is malformed/i)).toBeDefined();
+		});
+		expect(
+			screen.getByText(/appId: expected string, received number/),
+		).toBeDefined();
+	});
+});
+
 // ── Rows arm ─────────────────────────────────────────────────────
 
 describe("DisplayPreview — rows arm", () => {

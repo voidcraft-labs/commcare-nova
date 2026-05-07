@@ -1854,6 +1854,84 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(Number(row.calculated.age_next_year)).toBe(41);
 		});
 
+		it("sorts by a calculated column's expression when the same expression is reused in ORDER BY", async () => {
+			// The Display section's `sortKeyToExpression` helper lifts
+			// a calculated-source `SortKey` to the calculated column's
+			// `expression` verbatim, then passes it both as
+			// `calculated[0]` AND in the `sort` slot's `expression`.
+			// Postgres's planner CSE-folds the redundant evaluation
+			// across SELECT and ORDER BY (one evaluation per row), so
+			// the runtime cost is no worse than sorting by a plain
+			// property. This test pins both halves of the contract:
+			//
+			//   1. The SQL emitter accepts the same expression in both
+			//      slots without duplicate-alias / over-cap throws.
+			//   2. The rows return in ascending-by-calculated order.
+			//
+			// Insert two patients with distinct ages (Alice 25, Bob 40);
+			// the calculated column emits `age + 1` (so Alice = 26,
+			// Bob = 41). Sort ascending by the same expression; expect
+			// Alice first, Bob second.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Bob", age: 40 }),
+				},
+			});
+
+			// Calculated expression — `age + 1`. Same shape the
+			// CalculatedColumnEditor authoring path produces.
+			const ageNextYear = arith(
+				"+",
+				term(prop("patient", "age")),
+				term({ kind: "literal", value: 1, data_type: "int" }),
+			);
+
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [
+					calculatedColumn("age_next_year", "Next year", ageNextYear),
+				],
+				// `sortKeyToExpression`'s lift contract: a calculated-
+				// source SortKey passes the calculated column's
+				// `expression` verbatim into the case-store's `sort`
+				// slot. The case-store reuses the same expression in
+				// ORDER BY; Postgres CSE-folds.
+				sort: [
+					{
+						direction: "asc",
+						expression: ageNextYear,
+					},
+				],
+			});
+			expect(rows).toHaveLength(2);
+			// Alice (age + 1 = 26) comes before Bob (age + 1 = 41).
+			expect(rows[0]?.case_id).toBe(PATIENT_ALICE_ID);
+			expect(rows[1]?.case_id).toBe(PATIENT_BOB_ID);
+			// Calculated values surface in declaration order on each row.
+			expect(Number(rows[0]?.calculated.age_next_year)).toBe(26);
+			expect(Number(rows[1]?.calculated.age_next_year)).toBe(41);
+		});
+
 		it("does not leak calculated-column aliases onto the row's top-level shape", async () => {
 			// The reshape step strips the per-id aliases from the row's
 			// top level after extracting them into `calculated`. Without

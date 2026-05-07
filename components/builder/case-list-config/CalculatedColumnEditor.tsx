@@ -255,12 +255,15 @@ export function CalculatedColumnEditor({
 	// the dependency for readers, and React's deps-comparison
 	// machinery recomputes only when the version changes).
 	const isValid = useMemo(() => {
-		// Reading the version here makes the dependency explicit at
-		// the use site rather than only at the deps array. The
-		// branch is structurally unreachable (the counter is
-		// non-negative by construction); kept as a no-op guard so a
-		// future reader doesn't ask "why is the version not used?"
-		if (innerValidityVersion < 0) return false;
+		// Read the version here so the dependency is explicit at the
+		// use site rather than only at the deps array. The verdict
+		// reads from the ref (the version's purpose is to trigger
+		// the recompute, not to be consulted directly); the `void`
+		// expression is the project's existing idiom for
+		// "load-bearing read whose value is unused" — see e.g.
+		// `lib/case-store/sql/__tests__/compileExpression.test.ts`
+		// and `lib/domain/predicate/__tests__/builders.test.ts`.
+		void innerValidityVersion;
 		for (let i = 0; i < value.length; i++) {
 			if (hasStructuralErrorPerRow[i] === true) return false;
 			if (innerValidRef.current[i] === false) return false;
