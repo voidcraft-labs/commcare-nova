@@ -2,10 +2,10 @@
 //
 // components/preview/screens/__tests__/ModuleScreen.test.tsx
 //
-// Pins the ModuleScreen "Case List" affordance card. Per Task 8.5,
-// case-typed modules surface a violet-gradient affordance card
-// BEFORE the form list that navigates to the case list authoring
-// surface. Non-case modules don't render the card.
+// Pins the ModuleScreen "Case List" affordance card. Case-typed
+// modules surface a violet-gradient affordance card BEFORE the
+// form list that navigates to the case list authoring surface.
+// Non-case modules don't render the card.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

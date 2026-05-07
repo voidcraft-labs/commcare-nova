@@ -3,7 +3,6 @@
 // components/preview/__tests__/PreviewShell.test.tsx
 //
 // Pins the PreviewShell dispatch contract at the case list URL.
-// Per Task 8.5:
 //
 //   - Edit mode + cases location → CaseListWorkspace is the visible
 //     surface; the legacy CaseListScreen is mounted but hidden by
@@ -17,8 +16,7 @@
 // applied at commit time, so a `screen.queryByTestId` will find
 // elements from BOTH branches if both are mounted. The tests
 // therefore assert visibility via the Activity's `<div>` parent
-// `aria-hidden` / inline style rather than presence/absence in
-// the DOM.
+// inline style rather than presence/absence in the DOM.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

@@ -17,7 +17,7 @@
 // FiltersSection / SearchInputsSection have their own dedicated
 // test files for their internals; this file pins the shell.
 
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
@@ -32,8 +32,6 @@ import {
 	sortKey,
 } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
-
-import { DisplaySection as MockedDisplaySection } from "../DisplaySection";
 
 /**
  * Stub the three inner sections so the workspace shell is the only
@@ -98,6 +96,8 @@ vi.mock("@/lib/session/hooks", async () => {
 });
 
 import { CaseListWorkspace } from "../CaseListWorkspace";
+import { DisplaySection as MockedDisplaySection } from "../DisplaySection";
+import { FiltersSection as MockedFiltersSection } from "../FiltersSection";
 
 // ── Fixtures ──────────────────────────────────────────────────────
 
@@ -254,10 +254,54 @@ describe("CaseListWorkspace — Filter status density", () => {
 		expect(within(filterHeader).getByText(/No filter/i)).toBeDefined();
 	});
 
-	it("renders '1 filter active' when the filter slot is defined", () => {
+	it("renders '1 filter · …' placeholder when filter is present and preview hasn't loaded", () => {
+		// Filter present but FiltersPreview hasn't fired its
+		// `onPreviewStats` callback yet (the stub never fires it).
+		// Header renders the em-dash placeholder so the line doesn't
+		// flicker while the preview load is in flight.
 		render(renderWorkspace({ filter: matchAll() }));
 		const filterHeader = getSectionHeader("Filter");
-		expect(within(filterHeader).getByText(/1 filter active/i)).toBeDefined();
+		expect(within(filterHeader).getByText(/1 filter ·/)).toBeDefined();
+		expect(within(filterHeader).getByText(/…/)).toBeDefined();
+	});
+
+	it("renders '1 filter · {N} cases match' when the preview load resolves", () => {
+		// Render with the filter present, then fire `onPreviewStats`
+		// from the FiltersSection stub to simulate the preview load
+		// completing with a case count. The header should re-render
+		// with the live count.
+		render(renderWorkspace({ filter: matchAll() }));
+		const calls = vi.mocked(MockedFiltersSection).mock.calls;
+		expect(calls.length).toBeGreaterThan(0);
+		const filterProps = calls[calls.length - 1][0];
+		// `onPreviewStats` is wired by the workspace; firing it here
+		// from the stub side simulates the FiltersPreview's success
+		// arm reaching the workspace's filter-stats state.
+		act(() => {
+			filterProps.onPreviewStats?.({ totalCount: 47 });
+		});
+		const filterHeader = getSectionHeader("Filter");
+		expect(
+			within(filterHeader).getByText(/1 filter · 47 cases match/),
+		).toBeDefined();
+	});
+
+	it("falls back to the placeholder when the preview emits null (loading / paused / error)", () => {
+		render(renderWorkspace({ filter: matchAll() }));
+		const calls = vi.mocked(MockedFiltersSection).mock.calls;
+		const filterProps = calls[calls.length - 1][0];
+		// First emit a successful load to populate the count.
+		act(() => {
+			filterProps.onPreviewStats?.({ totalCount: 47 });
+		});
+		expect(screen.getByText(/47 cases match/)).toBeDefined();
+		// Then emit `null` (loading / paused / error). Header reverts
+		// to the placeholder so a stale count doesn't linger.
+		act(() => {
+			filterProps.onPreviewStats?.(null);
+		});
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/1 filter · …/)).toBeDefined();
 	});
 });
 
@@ -315,14 +359,15 @@ describe("CaseListWorkspace — section header chrome", () => {
 		// One header per section — Display, Filter, Search.
 		expect(headers.length).toBe(3);
 		for (const header of headers) {
-			// Sticky positioning lives on the header wrapper so all three
-			// pin to the scroll container's top as the user scrolls past.
-			// happy-dom doesn't compile Tailwind utilities at the
-			// computed-style layer, so the test inspects the className
-			// for the sticky token + top-0 anchor — equivalent in a
-			// real browser to `position: sticky; top: 0`.
-			expect(header.className).toContain("sticky");
-			expect(header.className).toContain("top-0");
+			// Sticky positioning lives inline so happy-dom's
+			// `getComputedStyle` resolves the position token cleanly —
+			// happy-dom doesn't compile Tailwind utilities into computed
+			// styles, but it does honor inline styles. Pinning via
+			// `getComputedStyle` matches the spec's "DOM-position
+			// assertion" requirement.
+			const styles = window.getComputedStyle(header);
+			expect(styles.position).toBe("sticky");
+			expect(styles.top).toBe("0px");
 			// Each header carries a violet-rail underline element. The
 			// rail is the only visual border for the section — no
 			// surrounding box, just the rail beneath the title.
@@ -346,6 +391,72 @@ describe("CaseListWorkspace — section header chrome", () => {
 		expect(
 			screen.getByTestId("search-inputs-section-stub").dataset.currentCaseType,
 		).toBe("patient");
+	});
+});
+
+// ── Empty-state cards with CTA ───────────────────────────────────
+
+describe("CaseListWorkspace — empty-state cards", () => {
+	it("renders an empty-state CTA above each empty section", () => {
+		render(renderWorkspace());
+		// Three empty-state cards, one per section.
+		const cards = document.querySelectorAll("[data-empty-state-card]");
+		expect(cards.length).toBe(3);
+		// Each card surfaces a single CTA button.
+		expect(screen.getByRole("button", { name: /^Add column$/i })).toBeDefined();
+		expect(screen.getByRole("button", { name: /^Add filter$/i })).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /^Add search input$/i }),
+		).toBeDefined();
+	});
+
+	it("hides each empty-state card when its corresponding slice is populated", () => {
+		render(
+			renderWorkspace({
+				columns: [plainColumn("name", "Name")],
+				filter: matchAll(),
+				searchInputs: [
+					searchInputDef("input_1", "First", "text", { property: "name" }),
+				],
+			}),
+		);
+		expect(document.querySelectorAll("[data-empty-state-card]").length).toBe(0);
+	});
+
+	it("Add column CTA seeds a plain column against the case type's first property", () => {
+		render(renderWorkspace());
+		// Initial state — no columns yet.
+		expect(screen.getByText(/No columns yet/i)).toBeDefined();
+		// Click the empty-state CTA. The seed routes through the
+		// workspace's shared mutator, the doc store updates, the
+		// status line re-derives.
+		const cta = screen.getByRole("button", { name: /^Add column$/i });
+		act(() => {
+			fireEvent.click(cta);
+		});
+		expect(screen.getByText(/1 column/)).toBeDefined();
+	});
+
+	it("Add filter CTA seeds a match-all filter (always-true sentinel)", () => {
+		render(renderWorkspace());
+		const cta = screen.getByRole("button", { name: /^Add filter$/i });
+		act(() => {
+			fireEvent.click(cta);
+		});
+		// Header status line flips to "1 filter · …" (placeholder
+		// because the FiltersPreview stub never resolves).
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/1 filter ·/)).toBeDefined();
+	});
+
+	it("Add search input CTA seeds a text input row", () => {
+		render(renderWorkspace());
+		const cta = screen.getByRole("button", { name: /^Add search input$/i });
+		act(() => {
+			fireEvent.click(cta);
+		});
+		const searchHeader = getSectionHeader("Search");
+		expect(within(searchHeader).getByText(/1 input/i)).toBeDefined();
 	});
 });
 
@@ -378,5 +489,71 @@ describe("CaseListWorkspace — config edits flow through updateModule", () => {
 		// selector fires the same render pass, so the new copy lands
 		// without an additional rerender.
 		expect(screen.getByText(/1 column/)).toBeDefined();
+	});
+
+	it("an edit through Display section survives unmount → remount via doc store persistence", () => {
+		// Render the workspace with a `key` prop on the workspace
+		// child so flipping the key forces an unmount + remount of
+		// the workspace tree without disturbing the surrounding
+		// BlueprintDocProvider. The provider's per-mount store
+		// reference persists across the workspace remount, so the
+		// edit committed to the doc store survives.
+		const tree = (key: number): ReactNode => (
+			<BlueprintDocProvider
+				appId="app-workspace-test"
+				initialDoc={{
+					appId: "app-workspace-test",
+					appName: "Workspace test app",
+					connectType: null,
+					caseTypes: [PATIENT],
+					modules: {
+						[MODULE_UUID]: {
+							uuid: MODULE_UUID,
+							id: "patient_module",
+							name: "Patient module",
+							caseType: "patient",
+							caseListConfig: {
+								columns: [],
+								sort: [],
+								calculatedColumns: [],
+								searchInputs: [],
+							},
+						},
+					},
+					forms: {},
+					fields: {},
+					moduleOrder: [MODULE_UUID],
+					formOrder: { [MODULE_UUID]: [] },
+					fieldOrder: {},
+				}}
+			>
+				<CaseListWorkspace key={key} moduleUuid={MODULE_UUID} />
+			</BlueprintDocProvider>
+		);
+		const { rerender } = render(tree(0));
+		// Edit a column header through the Display section's onChange.
+		const calls = vi.mocked(MockedDisplaySection).mock.calls;
+		const initialProps = calls[calls.length - 1][0];
+		act(() => {
+			initialProps.onChange({
+				...initialProps.value,
+				columns: [plainColumn("name", "Edited header")],
+			});
+		});
+		expect(screen.getByText(/1 column/)).toBeDefined();
+		// Unmount + remount the workspace by flipping the key. The
+		// underlying BlueprintDocProvider's store stays alive because
+		// the provider element is reused across the rerender.
+		rerender(tree(1));
+		// After remount, the new DisplaySection mount receives the
+		// edited config from the doc store. The header copy reads
+		// "1 column" because the doc store persisted the edit.
+		expect(screen.getByText(/1 column/)).toBeDefined();
+		// The header value also surfaces through the latest captured
+		// props on the freshly-mounted DisplaySection stub.
+		const remountCalls = vi.mocked(MockedDisplaySection).mock.calls;
+		const remountedProps = remountCalls[remountCalls.length - 1][0];
+		expect(remountedProps.value.columns).toHaveLength(1);
+		expect(remountedProps.value.columns[0]?.header).toBe("Edited header");
 	});
 });

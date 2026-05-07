@@ -35,7 +35,7 @@ import tablerFilterOff from "@iconify-icons/tabler/filter-off";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import { motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { CaseListConfig } from "@/lib/domain";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
@@ -45,6 +45,12 @@ import { renderCalculatedCell, renderColumnCell } from "./columnCellRenderer";
 import { nodeId } from "./nodeIdentity";
 
 // ── Public types ──────────────────────────────────────────────────
+
+export interface FilterPreviewStats {
+	/** Cases passing the current filter — the same `totalCount` the
+	 *  Server Action returns in the success arm. */
+	readonly totalCount: number;
+}
 
 export interface FiltersPreviewProps {
 	readonly appId: string;
@@ -59,6 +65,15 @@ export interface FiltersPreviewProps {
 	 * filterValid gate is the structural defense.
 	 */
 	readonly filterValid: boolean;
+	/**
+	 * Live-preview stats callback. Fires with `{ totalCount }` once
+	 * a successful preview load completes; fires with `null` while
+	 * the preview is loading, paused, or in any error arm. Lets
+	 * surfaces outside this preview (e.g. the workspace's filter
+	 * section header) render the same live counts without
+	 * duplicating the load.
+	 */
+	readonly onPreviewStats?: (stats: FilterPreviewStats | null) => void;
 }
 
 // ── Loading-state union ───────────────────────────────────────────
@@ -88,9 +103,31 @@ export function FiltersPreview({
 	caseListConfig,
 	currentCaseType,
 	filterValid,
+	onPreviewStats,
 }: FiltersPreviewProps) {
 	const docApi = useBlueprintDocApi();
 	const [state, setState] = useState<PreviewState>({ kind: "idle" });
+
+	// Stash the latest `onPreviewStats` callback in a ref so the
+	// load effect doesn't refire when the parent passes a fresh
+	// closure each render. Same pattern the editor's validity
+	// propagator uses for parent-callback identity drift.
+	const onPreviewStatsRef = useRef(onPreviewStats);
+	onPreviewStatsRef.current = onPreviewStats;
+	// Publish the current state's stats slice every render. Fires
+	// `null` for non-success arms (loading / paused / error / etc.)
+	// and `{ totalCount }` for the rows arm. Consumers (e.g. the
+	// workspace's filter section header) read the latest emitted
+	// stats without needing to subscribe to the state union.
+	useEffect(() => {
+		const cb = onPreviewStatsRef.current;
+		if (!cb) return;
+		if (state.kind === "rows") {
+			cb({ totalCount: state.totalCount });
+		} else {
+			cb(null);
+		}
+	}, [state]);
 
 	// Display columns only — `search-only` columns declare a
 	// property as searchable without rendering a row. Same filter

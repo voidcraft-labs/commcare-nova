@@ -4,8 +4,8 @@ import tablerListDetails from "@iconify-icons/tabler/list-details";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCaseListSummary } from "@/lib/doc/hooks/useCaseListSummary";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
@@ -152,36 +152,24 @@ interface CaseListCardProps {
  * the same column / filter / search-input counts on both surfaces.
  *
  * Lives inside ModuleScreen.tsx because its data dependencies
- * (single module shallow-read against the doc store) are tightly
- * scoped to this screen and there's no other consumer.
+ * (single module summary read against the doc store) are tightly
+ * scoped to this screen and there's no other consumer. The
+ * named-hook contract (`useCaseListSummary`) keeps the doc-store
+ * boundary rule clean — components consume a domain hook, not the
+ * raw shallow selector.
+ *
+ * No mount animation: Activity hides the parent ModuleScreen and
+ * re-reveals it on subsequent visits, which would re-fire any
+ * `motion/react` entry animation per `feedback_stateful_ui_truth.md`.
+ * CSS hover transitions cover the in-flow interaction states.
  */
 function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
-	const { columnCount, hasFilter, searchInputCount } = useBlueprintDocShallow(
-		(s) => {
-			const mod = s.modules[moduleUuid];
-			const config = mod?.caseListConfig;
-			return {
-				// Plain + calculated columns both render rows in the case
-				// list display; the status line aggregates both for parity
-				// with the workspace's Display section header.
-				columnCount: config
-					? config.columns.length + config.calculatedColumns.length
-					: 0,
-				hasFilter: config?.filter !== undefined,
-				searchInputCount: config?.searchInputs.length ?? 0,
-			};
-		},
-	);
-
-	const columnText = `${columnCount} ${columnCount === 1 ? "column" : "columns"}`;
-	const filterText = hasFilter ? "1 filter" : "no filter";
-	const searchText = `${searchInputCount} search ${searchInputCount === 1 ? "input" : "inputs"}`;
+	const { columnCount, hasFilter, searchInputCount } =
+		useCaseListSummary(moduleUuid);
 
 	return (
-		<motion.button
-			initial={{ opacity: 0, y: 12 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+		<button
+			type="button"
 			onClick={onClick}
 			className="w-full flex items-center gap-3 p-4 rounded-lg bg-gradient-to-r from-nova-violet/[0.08] to-transparent border border-nova-violet/[0.2] hover:border-nova-violet/[0.4] hover:from-nova-violet/[0.12] transition-all duration-200 cursor-pointer text-left group"
 		>
@@ -200,7 +188,9 @@ function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
 					Case List
 				</div>
 				<div className="text-xs text-nova-text-muted mt-0.5">
-					{`${columnText} · ${filterText} · ${searchText}`}
+					{`${columnCount} ${columnCount === 1 ? "column" : "columns"} · ${
+						hasFilter ? "1 filter" : "no filter"
+					} · ${searchInputCount} search ${searchInputCount === 1 ? "input" : "inputs"}`}
 				</div>
 			</div>
 			{/* Case-type badge — monospace pill so the user immediately
@@ -208,6 +198,6 @@ function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
 			<span className="px-2 py-0.5 rounded text-[11px] font-mono bg-nova-violet/[0.12] text-nova-violet-bright border border-nova-violet/[0.25]">
 				{caseType}
 			</span>
-		</motion.button>
+		</button>
 	);
 }

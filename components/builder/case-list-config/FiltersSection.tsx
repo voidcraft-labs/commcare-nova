@@ -37,7 +37,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
-import { FiltersPreview } from "./FiltersPreview";
+import { type FilterPreviewStats, FiltersPreview } from "./FiltersPreview";
 import { PredicateCardEditor } from "./PredicateCardEditor";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -69,6 +69,16 @@ export interface FiltersSectionProps {
 	 *  undefined OR the active predicate type-checks; the parent
 	 *  gates its save affordance on this. */
 	readonly onValidityChange?: (valid: boolean) => void;
+	/**
+	 * Live filter-preview stats callback. Forwarded verbatim to
+	 * the embedded `FiltersPreview` — fires with `{ totalCount }`
+	 * once a successful preview load completes, fires with `null`
+	 * while the preview is loading, paused, or in any error arm.
+	 * Surfaces outside this section (e.g. the workspace's filter
+	 * section header) read the live counts via this callback
+	 * without firing a duplicate preview load.
+	 */
+	readonly onPreviewStats?: (stats: FilterPreviewStats | null) => void;
 }
 
 // ── Top-level component ───────────────────────────────────────────
@@ -94,6 +104,7 @@ export function FiltersSection({
 	knownInputs = [],
 	appId,
 	onValidityChange,
+	onPreviewStats,
 }: FiltersSectionProps) {
 	// Inner predicate-editor verdict. Default `true` — when
 	// `value.filter` is undefined, the editor is unmounted and the
@@ -233,6 +244,7 @@ export function FiltersSection({
 					caseListConfig={value}
 					currentCaseType={currentCaseType}
 					filterValid={isValid}
+					onPreviewStats={onPreviewStats}
 				/>
 			</div>
 		</div>
