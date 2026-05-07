@@ -260,13 +260,33 @@ SHIPPED 2026-05-07 in commits `5f7e348d` (initial feat) → `bfedb910` (collapse
 Final state: 3488 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 8: Search Inputs section composition
+### Task 8: Search Inputs section composition — SHIPPED
 
-**Files:** `components/builder/case-list-config/SearchInputsSection.tsx`, tests.
+SHIPPED 2026-05-07 in commits `c5c0543c` (initial feat) → `17977de1` (CR fix-pass: tighten effectiveDataType return type, drop as-never casts) → `bda38f9f` (CR fix-pass: PropertyRefPicker via fix + WeakMap shadow + extract useInnerValidityShadow + useValidityPropagator) → `897f06eb` (final polish: finish useValidityPropagator migration + adopt applicableSearchModes accessor) on branch `feat/case-list-search`.
 
-List of input definitions. Per-input: type picker (text / select / date / date-range / barcode), label input, optional default-value `ExpressionCardEditor`, optional advanced XPath via `PredicateCardEditor`.
+**What landed:**
 
-Tests: round-trip; type-coupling warnings (a `Date` input declared on a text property surfaces a warning).
+`SearchInputsSection.tsx` is a drag-orderable list of `SearchInputDef` rows. Each row carries name, label, type picker (text / select / date / date-range / barcode), optional property reference (`PropertyRefPicker` mode=property-only), optional relation walk (`RelationPathBuilder`), optional mode (filtered by type + property data type via the centralized applicability tables), optional default-value (`ExpressionCardEditor` from Task 3), and optional advanced XPath (`PredicateCardEditor` from Task 2). When the advanced XPath is present, property + mode pickers hide behind an amber "Advanced override active" banner — bypassing the type-coupling check since the user has taken authoring control of the predicate shape.
+
+**Hard validation, not soft warning.** The spec called for "type-coupling warnings" but per `feedback_always_in_valid_state.md` (apps must always be in a valid state), incompatible (type, property, mode) tuples flip `valid: false` rather than rendering as soft advisories. Date input on text property → invalid. Fuzzy mode on int property → invalid. Range mode on multi_select property → invalid. The host's save affordance gates on the aggregated validity, so unexportable configurations cannot persist.
+
+**Centralized applicability tables.** `lib/domain/modules.ts` adds `APPLICABLE_SEARCH_MODES` (per-type → applicable modes), `SEARCH_MODE_PROPERTY_TYPES` (per-mode → applicable property data types), `SEARCH_INPUT_TYPE_PROPERTY_TYPES` (per-type → applicable property data types), and the `applicableSearchModes(type)` accessor (single indirection point all consumers go through). Adding a new search mode or input type cascades through every consumer via the tables; the bug class "added a mode but only updated 2 of 3 consumers" is structurally impossible.
+
+**`searchInputDef(...)` builder.** Added with optional-slot omission semantics — `via: selfPath()` collapses to absent (mirrors `calculatedColumn`'s `sort` handling) for round-trip equality. Per-mode helpers (`exactMode`, `fuzzyMode`, `phoneticMode`, `startsWithMode`, `fuzzyDateMode`, `rangeMode`, `multiSelectContainsMode(quantifier)`) exposed for downstream consumers (Task 9 SA tools, Task 10 validator rules).
+
+**Type-system tightening.** `effectiveDataType` (`lib/domain/casePropertyTypes.ts`) and `applicableSortTypes` (`lib/domain/modules.ts`) tightened from `string` returns to `CasePropertyDataType`. Drops `as never` casts in editor consumers; closes the closed-enum-vs-string asymmetry across all 15+ callers.
+
+**Shared validity-aggregation primitives.** Two new hooks at `components/builder/case-list-config/`:
+- `useInnerValidityShadow` — WeakMap-keyed `ValidityShadow<RowObject>` consumed by SearchInputsSection, CalculatedColumnEditor, and DisplaySection's ColumnList. WeakMap auto-GCs when rows are removed; reorder-then-flip preserves the per-row verdict. Replaces three index-keyed shadow arrays that all carried the same reorder-desync bug class. Three regression tests pin the contract (one per editor): mount [invalid, valid, valid] → reorder to [valid, invalid_at_new_index, valid] → flip invalid to valid → assert `onValidityChange(true)` fires.
+- `useValidityPropagator` — standardized `(isValid, onValidityChange) → useEffect([isValid]) {...}` pattern with ref-stashed callback. Consumed by every editor with a `onValidityChange` prop (5 sites total): SearchInputsSection, CalculatedColumnEditor, DisplaySection, SortKeyEditor, ColumnList.
+
+**Round-trip preservation across all optional slots.** `property` / `via` / `mode` / `default` / `xpath` survive every per-slot edit. The CRITICAL `PropertyRefPicker` regression (badging out when `via` is non-self, blocking property edits across the canonical "add property → set ancestor walk → edit property" flow) closed structurally: the row passes a self-shaped `prop()` to the property-only picker, with the `RelationPathBuilder` next to it owning `via`. Two regression tests pin the visual stability + via preservation across property edits.
+
+**Hard constraints honored:** No textareas. Field uuid (`nodeId()`) for stable React keys. Drag-and-drop via `useReorderableList` with `containerKind: "search-inputs"`. Base UI Menu primitives, glass on Positioner. `@iconify/react/offline` icons. `motion/react` animation. `'use client'` at top. SA tool prompts/schemas untouched.
+
+**Tests (44 in this task's surface):** round-trip per input field, type-coupling hard validation per spec (Date input on text property → `valid: false`), optional slots present + absent round-trip, drag-drop reorder, add/remove, type→mode gating (changing type filters available modes), per-row name uniqueness inline error, xpath-override hides property + mode pickers + restores on remove, default-value type-mismatch surfaces inline, xpath type-mismatch surfaces inline, reorder-then-flip regression (the IMPORTANT 2 fix). Three rounds of fresh-CR review uncovered progressively-narrower issue classes (`as never` cast hiding type-discipline gap → CRITICAL property picker block + IMPORTANT shadow desync → MINOR partial-migration drift on the new helper extraction).
+
+Final state: 3529 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 9: SA tools
