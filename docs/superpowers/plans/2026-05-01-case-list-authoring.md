@@ -214,13 +214,27 @@ The multi-key drag-orderable Sort Key editor at `components/builder/case-list-co
 Final state: 3390 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 6: Display section composition
+### Task 6: Display section composition — SHIPPED
 
-**Files:** `components/builder/case-list-config/DisplaySection.tsx`, tests.
+SHIPPED 2026-05-07 in commits `6e1ca2dd` (initial feat) → `3f858f03` (CR fix-pass: prefix calculated aliases against reserved-column collisions + Zod-parse Server Action + JSDoc + sort round-trip) → `810265b1` (CR fix-pass: innerValidityVersion deps + dead error vocabulary) → `ca8c4857` (CR fix-pass: alias byte cap + invalid-config tests + builder discipline + blueprint Zod) → `325579fe` (CR fix-pass: invalid-blueprint coverage + sort-by-calculated contract test + dead-if idiom alignment) → `34bebc9a` (final polish: auth ordering + SortKey alias + fieldParent mock shape) on branch `feat/case-list-search`.
 
-Shell that mounts `ColumnEditor` (drag-orderable column list) + `SortKeyEditor` + `CalculatedColumnEditor` (which uses Task 3's expression editor). Renders a live-preview panel showing what the case list looks like with the current configuration (uses Plan 2's `PostgresCaseStore` to query against generated sample data).
+**What landed:**
 
-Tests: editing a column updates the preview; reordering columns reorders the preview; adding a calculated column shows the computed values.
+The Display section composition at `components/builder/case-list-config/`. `DisplaySection.tsx` is the shell that mounts `ColumnList` (drag-orderable column editor wrapper), `SortKeyEditor` (Task 5), `CalculatedColumnEditor` (new, drag-orderable calculated-column rows with the Task 3 ExpressionCardEditor), and `DisplayPreview` (live preview panel). Validity from each sub-editor aggregates to the parent via a single `onValidityChange` propagation; the `innerValidityVersion` deps + ref-shadow pattern survives external-prop-driven flips (e.g., a `caseTypes` change makes a calculated-column expression's property reference stale).
+
+**`CalculatedColumnEditor`** — drag-orderable list of `CalculatedColumn` rows, each with id (validated for non-empty + uniqueness across siblings), header, expression slot (mounts `ExpressionCardEditor`), and optional sort config. Routes mutations through the new `calculatedColumn(...)` builder added to `lib/domain/modules.ts`. Single `resolveRows` helper produces per-row state consumed by both inline-error chrome AND validity aggregation — no display/validity asymmetry.
+
+**`DisplayPreview`** — live-preview table rendering the case list per the current config. Calls a new `loadCaseListPreviewAction` Server Action that resolves session via `getSession()`, constructs `withOwnerContext(session.user.id)`, Zod-parses both `caseListConfig` and `blueprint` at the entry, and routes through the new `caseStore.queryWithCalculated(...)` method. Discriminated-union return shape covers `paused | rows | empty | unauthenticated | error | invalid-config | invalid-blueprint`. The renderer dispatches on every arm; both error arms have action-level + renderer-level test coverage.
+
+**`CaseStore.queryWithCalculated`** — sibling to `query`, returns `CaseRowWithCalculated[]` (`{ ...CaseRow, calculated: { [columnId]: CalculatedValue } }`). `CalculatedValue` is `JsonValue | Date` (pg-driver-honest; `date`/`timestamptz` columns deserialize to Date objects natively). Calculated columns project as SELECT aliases prefixed `__nova_calc__<id>` so collisions with reserved `cases` columns (`case_name`, `case_id`, `case_type`, `owner_id`, `status`, `app_id`, `opened_on`, `closed_on`, `modified_on`, `parent_case_id`, `properties`) are structurally impossible. The 63-byte Postgres identifier cap is enforced at the SQL boundary via `Buffer.byteLength(alias, "utf8") > 63` mirroring the `indexName` defense — a `compilerBugMessage` throw rejects over-cap aliases before the SELECT lands. Empty-id is rejected with the same shape. Sort by calculated column re-evaluates the expression in ORDER BY; Postgres CSE-folds against the identical SELECT projection.
+
+**Round-trip preservation discipline.** `CalculatedColumn.sort` slot survives header / id / expression edits (pinned by test). The `sortKeyToExpression` helper at `caseDataBindingHelpers.ts` lifts a `calculated` source to the calculated column's expression verbatim via `term(prop(...))` builders — no hand-rolled AST literals.
+
+**Hard constraints honored:** No textareas. Field uuid (`nodeId()`) for stable React keys. Drag-and-drop via `useReorderableList` with unique `containerKind` per surface (`case-list-columns` / `calculated-columns`). Base UI primitives, glass on Positioner. `@iconify/react/offline` icons. `motion/react` animation. `'use client'` at top of interactive components. `autoComplete="off"` + `data-1p-ignore` on every input. SA tool prompts/schemas untouched.
+
+**Tests (94 in this task's surface):** 11 reserved-column-collision contract tests sweeping every reserved `cases` column, empty-id rejection test, 60-byte over-cap rejection test, sort-by-calculated round-trip test (insert two patients with distinct ages, project `age + 1` as calculated, sort ascending by the same expression, assert row order + calculated values), `invalid-config` + `invalid-blueprint` arm tests at action-level AND renderer-level, `innerValidityVersion` regression tests for both `CalculatedColumnEditor` and `ColumnList` (external-prop-driven validity flips), per-row id uniqueness inline error rendering, calculated column sort round-trip, drag-handle wiring across both reorderable surfaces, edits update preview / reorders update preview / calculated columns surface computed values (the spec's three explicit test obligations). Five rounds of fresh-CR review uncovered progressively-narrower issue classes (CRITICAL alias collision data corruption → calculated alias byte-overflow → invalid-blueprint coverage gap → auth ordering asymmetry).
+
+Final state: 3456 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 7: Filters section composition
