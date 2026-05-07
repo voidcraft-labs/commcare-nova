@@ -158,13 +158,35 @@ This task also replaces Task 2's Term-only `ValueExpressionPicker` stub with the
 Final state: 3294 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 4: Column editor (per-format-kind)
+### Task 4: Column editor (per-format-kind) — SHIPPED
 
-**Files:** `components/builder/case-list-config/ColumnEditor.tsx`, tests.
+SHIPPED 2026-05-06 in commits `44cf0c13` (initial feat) → `941d4bf4` (CR fix-pass: extract shared CustomDatePatternInput + BlurCommitTextInput + tighten dateColumnSchema) → `bd482b8e` (CR fix-pass: id-mapping label proportional + builder discipline + dedup property-type sets) → `0bc326dc` (CR fix-pass: finish per-card dedup + lift propertyTypeSets to lib/domain + aria-live unconditional + builder parity) → `55e6dd50` (final polish: effectiveDataType sweep) on branch `feat/case-list-search`.
 
-Discriminated UI per `ColumnKind`. Plain shows `field` picker + header input. Date shows field + format pattern. Time Since/Until shows field (date-typed) + interval unit + threshold + display label. Phone Number shows field. ID Mapping shows field + a table of value→label rows. Late Flag shows field (date-typed) + threshold (interval picker) + flag display value. Search Only is field-only — declares the field is searchable but not displayed.
+**What landed:**
 
-Tests: each kind round-trips through the schema; invalid combinations (e.g., Late Flag on a non-date property) surface inline errors.
+The registry-driven Column editor at `components/builder/case-list-config/`. Seven cards covering all `ColumnKind` arms (`plain`, `date`, `time-since-until`, `phone`, `id-mapping`, `late-flag`, `search-only`). Per-kind UI: Plain (field + header), Date (field + header + preset/custom pattern), Time Since/Until (field date-typed + header + threshold + unit + display label), Phone (field text-typed + header), Id Mapping (field + header + drag-orderable mapping table), Late Flag (field date-typed + header + threshold + unit + flag display value), Search Only (field + header for the authoring label; wire layer skips emission).
+
+Cards type-check via `applicableForProperty` predicates against the case-type schema; invalid combinations (Late Flag on text, Phone on date, etc.) surface inline errors and propagate validity through `onValidityChange`. The kind-replace menu disables / de-emphasizes inapplicable kinds. Operand-preserving swap: `field` + `header` carry across every kind transition; `(threshold, unit)` carries across the `time-since-until ↔ late-flag` twin; non-twin transitions fall through to `defaultValue`.
+
+The editor schema mirrors Tasks 2 / 3's pattern: `columnEditorSchemas.ts` is `Record<ColumnKind, ColumnCardSchema<K>>` so a new `ColumnKind` without an entry fails to compile. Mounts `PredicateEditProvider` (reuses Task 2/3's context) so `PropertyPicker` reads `currentCaseType` from one place; the column editor supplies an empty validity index since applicability errors flow through the `errors` prop.
+
+**Column construction discipline.** Every Column AST mutation routes through builders (`plainColumn` / `dateColumn` / `timeSinceUntilColumn` / `phoneColumn` / `idMappingColumn` / `lateFlagColumn` / `searchOnlyColumn`) added to `lib/domain/modules.ts`. The builders are the single construction surface for Column AST nodes — every mutation in the editor, the SA tools (`addModule` / `createModule` / `updateModule`), the migration script, and test helpers route through them. SA tool input shapes stay legacy (`{field, header}[]`) per `feedback_never_touch_agent.md`; the internal mapping uses `plainColumn(...)`. `idMappingEntry(value, label)` builder added for parity at the inner level.
+
+**Shared primitives.** `CustomDatePatternInput` consolidates the preset toggle + free-text custom input + empty-pattern signal (aria-invalid + visible inline error + refused commit) used by both `FormatDateCard` (Task 3) and `DateColumnCard` (Task 4). `BlurCommitTextInput` consolidates the draft/commit text-input pattern across `ColumnFieldRow`, `TimeSinceUntilCard`, `LateFlagCard`, and `IdMappingCard`. `IntervalThresholdRow` shared between `TimeSinceUntilCard` and `LateFlagCard`. The `monospace` prop on `BlurCommitTextInput` correctly applied: monospace on the wire-code value cell, proportional on the display-label cell.
+
+**Domain consolidation.** `lib/domain/casePropertyTypes.ts` consolidates `DATE_DATA_TYPES` / `TEXT_SHAPED_DATA_TYPES` / `NUMERIC_DATA_TYPES` / `ORDERED_DATA_TYPES` plus the `isDateTyped` / `isTextShaped` / `isOrdered` / `effectiveDataType` helpers. Re-exported through `@/lib/domain`. Replaces 11 sites of duplicate Sets / inline `data_type ?? "text"` fallbacks across the case-list-config tree. Adding a `CasePropertyDataType` variant now cascades through every consumer via the helpers — the bug class "future variant added but only updated in N of M places" is structurally impossible.
+
+**`TIME_SINCE_UNITS` exported** from `lib/domain/modules.ts` so `IntervalThresholdRow` iterates the canonical array directly. The previous local `UNITS: readonly TimeSinceUnit[]` would silently drop new variants — now structurally protected.
+
+**Schema tightening.** `dateColumnSchema.pattern: z.string().min(1)` — symmetric with `formatDateSchema.pattern`. Empty patterns rejected at parse time, with the inline UX gate from `CustomDatePatternInput` as the user-facing surface.
+
+**Accessibility.** `aria-live="polite"` + `aria-atomic="true"` on `CardShell`'s footer error region and `InlineError`. Wrappers render unconditionally with `sr-only` collapse when empty (WCAG canonical pattern — live regions must be monitored before content arrives).
+
+**Hard constraints honored:** No textareas. Field uuid (`nodeId()`) for UI identity, path for blueprint mutations. Base UI primitives with glass on Positioner. `@iconify/react/offline` icons. `motion/react` animation. SA tool prompts/schemas untouched.
+
+**Tests (66 in this task's suite):** round-trip per kind via the schema, type-mismatch inline error rendering, applicability errors per kind (Late Flag / Date / Time-Since / Phone), kind-replace twin-pair preservation (`time-since-until ↔ late-flag` carries `threshold + unit`), non-twin transitions fall through to default, per-card edit emission shapes (Date preset click, Date custom blur-commit, Time-Since display label + threshold, Late Flag flag value + threshold, Phone header), id-mapping table mutations (add / move-up / move-down / remove / disabled boundaries / blur-commit on value+label). Four rounds of fresh-CR review uncovered progressively-narrower issue classes (empty-pattern signal asymmetry → builder discipline gap → consolidation incompleteness → architectural placement → display-label literals).
+
+Final state: 3362 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 5: Sort key editor
