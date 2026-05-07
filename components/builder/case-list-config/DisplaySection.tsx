@@ -47,6 +47,7 @@ import {
 	type CaseType,
 	type Column,
 	plainColumn,
+	type SortKey,
 } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { CalculatedColumnEditor } from "./CalculatedColumnEditor";
@@ -140,7 +141,7 @@ export function DisplaySection({
 	const setCalculated = (next: readonly CalculatedColumn[]) => {
 		onChange({ ...value, calculatedColumns: [...next] });
 	};
-	const setSort = (next: readonly CaseListConfig["sort"][number][]) => {
+	const setSort = (next: readonly SortKey[]) => {
 		onChange({ ...value, sort: [...next] });
 	};
 

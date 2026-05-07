@@ -114,14 +114,24 @@ export async function populateSampleCasesAction(
  * arriving malformed over the wire would otherwise reach
  * `compileExpression` / `compilePredicate` / `compileTerm` and
  * surface the compiler's invariant message through the catchall
- * `error` arm. Routing both through `safeParse(...)` at action
- * entry traps shape failures as typed `invalid-config` /
- * `invalid-blueprint` arms so the client surface dispatches on the
- * structural cause rather than on a wrapped invariant body.
- * Trusted callers (the Display section's own client component)
- * pass the same shapes the editor + doc-store produce, so both
- * parses are no-ops there; defense-in-depth covers programmatic
- * surfaces, fixtures, and the SA tool path.
+ * `error` arm. Routing both through `safeParse(...)` traps shape
+ * failures as typed `invalid-config` / `invalid-blueprint` arms so
+ * the client surface dispatches on the structural cause rather
+ * than on a wrapped invariant body. Trusted callers (the Display
+ * section's own client component) pass the same shapes the editor
+ * + doc-store produce, so both parses are no-ops there; defense-
+ * in-depth covers programmatic surfaces, fixtures, and the SA
+ * tool path.
+ *
+ * Action ordering: session-first matches every other action in
+ * this file (`loadCasesAction`, `loadCaseDataAction`,
+ * `populateSampleCasesAction`, `submitFormAction`). The Zod parse
+ * runs after session resolution but before the store call —
+ * unauthenticated requests short-circuit on the session check;
+ * authenticated requests with malformed payloads short-circuit on
+ * the parse before the case-store contacts Postgres. Both
+ * `getSession` and `safeParse` are cheap, so the auth-first
+ * ordering is stylistic consistency rather than a perf decision.
  *
  * Authoring-surface contract: the caller MUST suppress the action
  * while any sub-editor reports `valid: false`. An invalid AST
@@ -140,37 +150,40 @@ export async function loadCaseListPreviewAction(args: {
 	caseListConfig: CaseListConfig;
 	limit?: number;
 }): Promise<LoadCaseListPreviewResult> {
-	// Wire-boundary parse. Runs BEFORE session resolution / store
-	// construction so an unparseable shape short-circuits without
-	// touching auth or the database. `safeParse` returns a
-	// discriminated result; the `success: false` arm surfaces the
-	// Zod issue's first message as the user-facing detail.
-	//
-	// `caseListConfig` first because its parse is structurally
-	// independent of the blueprint (no cross-references); a malformed
-	// config reports its own arm rather than masking under the
-	// blueprint arm.
-	const parsedConfig = caseListConfigSchema.safeParse(args.caseListConfig);
-	if (!parsedConfig.success) {
-		const firstIssue = parsedConfig.error.issues[0];
-		const message =
-			firstIssue !== undefined
-				? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
-				: "Case-list configuration is malformed.";
-		return { kind: "invalid-config", message };
-	}
-	const parsedBlueprint = blueprintDocSchema.safeParse(args.blueprint);
-	if (!parsedBlueprint.success) {
-		const firstIssue = parsedBlueprint.error.issues[0];
-		const message =
-			firstIssue !== undefined
-				? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
-				: "Blueprint is malformed.";
-		return { kind: "invalid-blueprint", message };
-	}
 	try {
+		// Session resolution first — matches every other action in
+		// this file. Unauthenticated requests short-circuit before
+		// the parse work runs.
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
+
+		// Wire-boundary parse. `safeParse` returns a discriminated
+		// result; the `success: false` arm surfaces the Zod issue's
+		// first message as the user-facing detail.
+		//
+		// `caseListConfig` first because its parse is structurally
+		// independent of the blueprint (no cross-references); a
+		// malformed config reports its own arm rather than masking
+		// under the blueprint arm.
+		const parsedConfig = caseListConfigSchema.safeParse(args.caseListConfig);
+		if (!parsedConfig.success) {
+			const firstIssue = parsedConfig.error.issues[0];
+			const message =
+				firstIssue !== undefined
+					? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
+					: "Case-list configuration is malformed.";
+			return { kind: "invalid-config", message };
+		}
+		const parsedBlueprint = blueprintDocSchema.safeParse(args.blueprint);
+		if (!parsedBlueprint.success) {
+			const firstIssue = parsedBlueprint.error.issues[0];
+			const message =
+				firstIssue !== undefined
+					? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
+					: "Blueprint is malformed.";
+			return { kind: "invalid-blueprint", message };
+		}
+
 		const store = await withOwnerContext(session.user.id);
 		// `blueprintDocSchema.parse(...)` strips `fieldParent` (the
 		// derived in-memory reverse-index that's not part of the

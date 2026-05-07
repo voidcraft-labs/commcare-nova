@@ -70,7 +70,15 @@ const STABLE_DOC_API = {
 		moduleOrder: [],
 		formOrder: {},
 		fieldOrder: {},
-		fieldParent: new Map(),
+		// `BlueprintDoc.fieldParent` is `Record<Uuid, Uuid | null>`
+		// per `lib/domain/blueprint.ts`. The earlier `new Map()` shape
+		// happened to survive at runtime because `pickBlueprintDoc`
+		// parses through Zod (which strips the slot since the schema
+		// doesn't declare it) and re-attaches from the input — but
+		// per `feedback_tautological_mocks.md`, hand-rolled mocks
+		// must mirror production shape so a future change that DOES
+		// read `fieldParent` doesn't slip past the tests.
+		fieldParent: {},
 	}),
 };
 vi.mock("@/lib/doc/hooks/useBlueprintDoc", () => ({

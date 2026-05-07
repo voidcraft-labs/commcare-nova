@@ -1595,12 +1595,18 @@ describe("submitFormAction", () => {
 
 describe("loadCaseListPreviewAction", () => {
 	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
-		// The action runs `caseListConfigSchema.safeParse(...)` BEFORE
-		// session resolution, so we don't need a getSession mock here
-		// — the parse short-circuits first. Pass a config whose
-		// `columns` slot is a string instead of an array; the schema's
+		// The action runs `getSession()` first (session-first matches
+		// every other action in this file), then
+		// `caseListConfigSchema.safeParse(...)`. Mock the session so
+		// the parse path is reachable; pass a config whose `columns`
+		// slot is a string instead of an array; the schema's
 		// `z.array(columnSchema)` rejects with a structural type
 		// mismatch.
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
 		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
 		// Cast through `unknown` because the bad shape intentionally
 		// violates the `CaseListConfig` type at the call site — the
@@ -1628,13 +1634,16 @@ describe("loadCaseListPreviewAction", () => {
 	});
 
 	it("returns the invalid-blueprint arm with a path-prefixed message when blueprint fails Zod parse", async () => {
-		// Symmetric to the `invalid-config` test above. The action
-		// runs `blueprintDocSchema.safeParse(...)` AFTER the config
-		// parse but BEFORE session resolution; an unparseable
-		// blueprint short-circuits without touching auth or the
-		// store. Pass a blueprint whose `appId` is a number — the
-		// schema's `z.string()` rejects with a structural type
-		// mismatch.
+		// Symmetric to the `invalid-config` test above. After session
+		// resolution and the (passing) `caseListConfig` parse, the
+		// action runs `blueprintDocSchema.safeParse(...)`. Pass a
+		// blueprint whose `appId` is a number — the schema's
+		// `z.string()` rejects with a structural type mismatch.
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
 		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
 		// Cast through `unknown` because the bad shape intentionally
 		// violates the `BlueprintDoc` type at the call site — the
@@ -1668,5 +1677,30 @@ describe("loadCaseListPreviewAction", () => {
 		if (result.kind !== "invalid-blueprint") return;
 		// The path for `appId` is the literal string "appId".
 		expect(result.message).toMatch(/^appId:/);
+	});
+
+	it("returns the unauthenticated arm before parsing when the session is absent", async () => {
+		// Session-first ordering means an unauthenticated request
+		// short-circuits BEFORE the Zod parse. Pass a deliberately
+		// malformed `caseListConfig`; assert the result is
+		// `unauthenticated`, not `invalid-config`.
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce(null);
+
+		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
+		const result = await loadCaseListPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
+			caseListConfig: {
+				columns: "not an array",
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			} as unknown as Parameters<
+				typeof loadCaseListPreviewAction
+			>[0]["caseListConfig"],
+		});
+		expect(result).toEqual({ kind: "unauthenticated" });
 	});
 });
