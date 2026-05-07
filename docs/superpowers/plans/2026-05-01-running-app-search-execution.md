@@ -88,6 +88,27 @@ Tests: each button triggers the corresponding action; rendering reflects the reg
 End-to-end: build a fixture blueprint with full caseListConfig + caseSearchConfig; mount the running-app surface; verify the rendering matches the web-apps split-screen-with-inline-filter shape; complete a form; verify the case persists through subsequent queries against the live Cloud SQL Postgres `cases` rows.
 
 
+### Task 7: PreviewSurface shell + mount site
+
+**Origin.** Plan 5's File Structure (line 19) lists `PreviewSurface.tsx` as "shell that mounts the running-app surface." Tasks 1-5 build the inner pieces (case-list binding, case-list screen, split-screen search, form write-through, sample-data UI). No Task in the original plan explicitly builds the SHELL or names its mount site. This is the same gap class that bit Plan 3 (case-list authoring) and Plan 4 (case-search authoring); discovered during the family audit on 2026-05-07. This task closes it BEFORE Plan 5 dispatch.
+
+**Files:**
+- `components/builder/preview/PreviewSurface.tsx` (NEW) — shell that mounts the running-app surface. The implementation REPLACES the existing `components/preview/screens/CaseListScreen.tsx` consumed by `PreviewShell` in live mode (per Plan 3 Task 8.5's edit-vs-live split: `CaseListWorkspace` handles edit, `CaseListScreen` handles live; Plan 5 replaces `CaseListScreen` with the new builder-context running-app rendering).
+- `components/builder/preview/__tests__/PreviewSurface.test.tsx` (NEW).
+- `components/preview/PreviewShell.tsx` (EDIT) — replace `CaseListScreen` import + dispatch with `PreviewSurface` for live-mode `kind === "cases"` (and `kind === "form"` if Plan 5 covers form running-app rendering — per Tasks 2-4 it does).
+- `components/preview/screens/CaseListScreen.tsx` (DELETE) — replaced by `PreviewSurface` + Task 2's `CaseListScreen` at the new path `components/builder/preview/CaseListScreen.tsx`.
+
+**Mount site (named explicitly per the audit gate).** `PreviewSurface` renders inside `PreviewShell` for live-mode `kind === "cases"` (and `kind === "form"` for live-mode form rendering per Tasks 2-4). The URL schema is unchanged from Plan 3 Task 8.5; only the live-mode dispatcher target changes. Plan 3 Task 8.5 ships:
+- Edit + `kind === "cases"` → `CaseListWorkspace` (Plan 3 surface, authoring).
+- Live + `kind === "cases"` → existing `CaseListScreen` (Plan 5 will replace this arm).
+
+Plan 5 Task 7 changes the live-mode arm to `PreviewSurface`. After Plan 5 ships, the routing is symmetric:
+- Edit + `kind === "cases"` → `CaseListWorkspace` (authoring; Plan 3).
+- Live + `kind === "cases"` → `PreviewSurface` (running-app; Plan 5).
+
+**User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed app, navigates to a module's case list at `/build/{appId}/{moduleUuid}/cases`. Toggles to live mode (existing builder toolbar). Sees actual case rows from `CaseStore` rendering with the configured columns/sort/filter applied (replaces today's stub `CaseListScreen` rendering). Submits a registration form for that case type via the running-app surface. Returns to the case list. Sees the new case appear in the list. Clicks "Generate sample data" (Task 5). Sees additional rows appear. Clicks "Reset sample data". Sees the cases collection clear back to its prior state. End-to-end running-app loop is reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
+
+
 ---
 
 ## Dependencies between tasks
@@ -98,6 +119,7 @@ End-to-end: build a fixture blueprint with full caseListConfig + caseSearchConfi
 - 4 depends on 2 + Plan 2
 - 5 depends on Plan 2
 - 6 depends on all prior
+- 7 depends on 2, 3, 4, 5 + Plan 3 Task 8.5 (the edit-mode split that Plan 5's live mode mirrors)
 
 ## Final verification
 
@@ -106,6 +128,7 @@ End-to-end: build a fixture blueprint with full caseListConfig + caseSearchConfi
 - [ ] Integration test (Task 6) passes
 - [ ] Manual smoke: full registration → search → followup workflow round-trips through the running-app view against live Cloud SQL Postgres
 - [ ] Web-apps split-screen rendering verified end-to-end (no platform toggle; this is the only rendering)
+- [ ] **User-runnable acceptance:** User runs `npm run dev`, navigates to `/build/{appId}/{moduleUuid}/cases` in live mode, sees actual case rows. Submits a registration form via the running-app surface. Returns to case list. Sees the new case appear. End-to-end running-app loop reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
 
 ## Plan shape
 

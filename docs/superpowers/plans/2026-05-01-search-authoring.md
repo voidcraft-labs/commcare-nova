@@ -229,6 +229,26 @@ Tests: each rule fires on bad input.
 End-to-end: build a fixture blueprint with case-search-config; run the validator; emit `<remote-request>`; compare against golden file; round-trip via the platform-aware compiler for both Android and Web; verify the WireShape outputs.
 
 
+### Task 13: CaseSearchConfigPanel + mount site
+
+**Origin.** Plan 4's File Structure (line 21) lists `CaseSearchConfigPanel.tsx` as "the multi-section UI shell." Tasks 2-5 build the inner sections (DefaultFilters / Claim / Display / SearchInputs cross-section binding). No Task in the original plan explicitly builds the SHELL or names its mount site. This is the same gap class that bit Plan 3 (case-list authoring); discovered during the family audit on 2026-05-07. This task closes it BEFORE Plan 4 dispatch.
+
+**Files:**
+- `components/builder/case-search-config/CaseSearchConfigPanel.tsx` (NEW) — the multi-section UI shell.
+- `components/builder/case-search-config/__tests__/CaseSearchConfigPanel.test.tsx` (NEW).
+- Mount-site integration files (TBD per "Mount site" decision below) — at minimum either `components/preview/PreviewShell.tsx` (if a new URL is added) or `components/builder/case-list-config/CaseListWorkspace.tsx` (if mounted alongside the case-list authoring workspace).
+
+**Mount site decision (REQUIRED to be made before dispatching the Task 13 implementer; do NOT default).**
+
+The user explicitly directed: NOT a 4th tab in `CaseListWorkspace`. Two remaining shapes:
+- **Option A — dedicated workspace at its own URL.** Add `kind: "search-config"` to the URL schema (`/build/[id]/{moduleUuid}/search-config`). PreviewShell dispatches to `<CaseSearchConfigPanel />` in edit mode. Symmetric with how `/cases` works. ModuleScreen gets a second affordance card ("Search Config") below the "Case List" card, shown only when the module has at least one case-search consumer.
+- **Option B — additional section in `CaseListWorkspace`.** Same single-scroll workspace, additional section below Search Inputs (e.g., titled "Search Config" or "Case Search"). The user's "no 4th TAB" instruction does not necessarily forbid an additional SECTION in the single-scroll layout — the workspace is sectioned, not tabbed. But this conflates two distinct authoring surfaces (case-list config vs case-search config) into one workspace, which the spec line 17 vs line 18 (the spec lists them as separate authoring layers) might want kept apart.
+
+**Recommendation for the supervisor at Plan 4 dispatch time:** Option A (dedicated `/search-config` URL). The spec treats case-list config and case-search config as two separate concepts ("Case list config" line 17, "Case search config" line 18), and the user's UX direction so far (single-scroll magazine, no tabs/mode-pickers) suggests two parallel scrolling workspaces are clearer than one mega-workspace. But the supervisor MUST confirm with the user before dispatching the Task 13 implementer — the ambiguity about whether case-search-config gets its own /search-config URL vs lives inside /cases as a sibling section is a real design question, not punt-framing.
+
+**User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed module with a case-search consumer, navigates to the case-search authoring surface (either via the second ModuleScreen card → `/search-config`, OR by scrolling further down within `/cases` — depending on which mount-site option the supervisor confirms with the user). Sees the multi-section authoring UI (Default Filters / Claim / Display + the cross-bound Search Inputs from Plan 3). Edits a default filter, sees the change persist after page reload.
+
+
 ---
 
 ## Dependencies between tasks
@@ -243,6 +263,7 @@ End-to-end: build a fixture blueprint with case-search-config; run the validator
 - 10 depends on 1 + Plan 1
 - 11 depends on 1 + Plan 1
 - 12 depends on all prior
+- 13 depends on 1, 2, 3, 4 + Plan 3 Task 8.5 (CaseListWorkspace establishes the workspace pattern this mirrors)
 
 ## Final verification
 
@@ -250,6 +271,7 @@ End-to-end: build a fixture blueprint with case-search-config; run the validator
 - [ ] `npm run lint` clean
 - [ ] Integration test (Task 12) passes
 - [ ] Cross-check `<remote-request>` emission against `commcare-hq/.../tests/data/suite/remote_request.xml`
+- [ ] **User-runnable acceptance:** User runs `npm run dev`, opens a built case-typed app, navigates to a module with case-search-config, opens the case-search authoring surface (mount site per Task 13 decision), edits a default filter via the Default Filters section, sees the change persist after page reload. End-to-end authoring is reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
 
 ## Plan shape
 

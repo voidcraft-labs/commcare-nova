@@ -289,6 +289,102 @@ SHIPPED 2026-05-07 in commits `c5c0543c` (initial feat) → `17977de1` (CR fix-p
 Final state: 3529 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
+### Task 8.5: Case List Workspace
+
+**Origin.** Plan 3's File Structure listed `CaseListConfigPanel.tsx` ("the three-section UI shell") as a deliverable, but no Task in the original plan actually built the shell or named its mount site. Tasks 6/7/8 each shipped one inner section (DisplaySection, FiltersSection, SearchInputsSection) — the shell itself was assumed to "fall out of Tasks 6/7/8" via the ROADMAP narrative ("Tasks 6, 7, 8 compose the three sections of the case-list config panel"), but nothing in those Task descriptions named the shell as a deliverable. The user discovered this when asking "When can I run dev?" — at that point Plans 1-2 + Plan 3 Tasks 1-9 had shipped without the case-list authoring UI being reachable in the running app. This task closes that gap. The supervisor failure is documented in `~/.claude/.../memory/feedback_plan_coverage_audit_before_dispatch.md`; the audit family discovered three sibling plans with the same gap class (Plan 3 here, Plan 4 `CaseSearchConfigPanel`, Plan 5 `PreviewSurface`).
+
+**Files:**
+- `components/builder/case-list-config/CaseListWorkspace.tsx` (NEW) — single-scroll three-section workspace shell.
+- `components/builder/case-list-config/CaseListSectionHeader.tsx` (NEW) — sticky section header with live status density + violet rail.
+- `components/builder/case-list-config/__tests__/CaseListWorkspace.test.tsx` (NEW).
+- `components/preview/PreviewShell.tsx` (EDIT) — branch `loc.kind === "cases"` on edit mode: edit → `CaseListWorkspace`, live → existing `CaseListScreen` (Plan 5 will replace the live arm).
+- `components/preview/screens/ModuleScreen.tsx` (EDIT) — add "Case List" affordance card for case-typed modules navigating via `navigate.openCaseList(moduleUuid)`.
+- `components/builder/detail/ModuleDetail.tsx` (DELETE) — confirmed dead code, zero consumers.
+
+**Mount site (named explicitly per the audit gate).** `CaseListWorkspace` renders inside `PreviewShell` at the existing `/build/[id]/{moduleUuid}/cases` URL. The URL schema is already in `lib/routing/types.ts:34` and parsed at `lib/routing/location.ts:189` producing `{ kind: "cases", moduleUuid }`. `useNavigate.openCaseList(moduleUuid)` already exists for navigation. The existing dispatch in `PreviewShell.tsx:82-86` returns `{ type: "caseList", ... }` for the legacy `PreviewScreen` adapter; this task adds an edit-mode short-circuit BEFORE the adapter call: `if (useEditMode() === "edit" && loc.kind === "cases") return <CaseListWorkspace moduleUuid={loc.moduleUuid} />`. Live mode (`useEditMode() === "live"` or whatever the current "preview" sentinel is) keeps the legacy adapter path so today's `CaseListScreen` continues rendering — Plan 5 Task 2 replaces that arm with the builder-context running-app rendering.
+
+**User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed app at `/build/{appId}`, clicks a module from the structure sidebar → `ModuleScreen` renders showing a "Case List" card before the form list. User clicks the card → lands at `/build/{appId}/{moduleUuid}/cases` showing the three-section authoring workspace (Display / Filter / Search) with sticky violet section headers and live status density. User edits a column header via the Display section, sees the change persist after page reload. User toggles edit/live mode in the existing builder toolbar — edit mode shows authoring, live mode shows the existing `CaseListScreen` running-app preview (Plan 5 will replace the live arm with builder-context running-app rendering against `CaseStore`).
+
+**Layout — single-scroll magazine, three sections stacked.**
+
+Section order: Display → Filter → Search. Mirrors the authoring narrative: define what shows, narrow what shows, let the user filter further. No tabs, no accordion, no mode pickers — all three sections are always visible and scannable. The user scrolls between them; the sticky violet section headers double as scroll anchors and orientation marks.
+
+**Section header (sticky, pins to viewport top when scrolled past):**
+- Section title in display-typography distinct from body (implementer chooses the display-style with the `frontend-design` skill loaded; the project's existing dark Violet Monochrome theme + `app/layout.tsx` font setup constrain the choice — pick something that pairs without competing).
+- Status-density line beneath the title, bound LIVE to the doc store via shallow selectors:
+  - Display: "{N} columns · sorted by {sortSummary}" (e.g., "5 columns · sorted by date_visit ↓"). Empty state: "No columns yet — add columns to define what users see in the case list."
+  - Filter: "{N} condition(s) · {matchCount} of {totalCount} cases match" when filter present (live filter-preview match counts already shipped in Task 7's `FiltersPreview`); empty state: "No filter — all cases shown."
+  - Search: "{N} input(s){`,${withDefaultValueCount} with default values` if any}" when inputs present; empty state: "No search inputs — list-only view (no inline search bar)."
+- 3px violet rail beneath the header text: `h-[3px] bg-nova-violet shadow-[0_0_8px_rgba(139,92,246,0.4)]`. Soft enough that a stack of three pinned headers (when all sections are scrolled into the sticky zone simultaneously, e.g., near the bottom of the workspace) doesn't visually compete; sharp enough that the active-pinned rail reads distinct from the section's rest state.
+- Sticky implementation: `position: sticky; top: 0; z-index: var(--z-floating)` with backdrop-blur on the wrapper (`bg-[rgba(12,12,32,0.7)] backdrop-blur-md`). The blur samples scrolling editor content beneath the header for depth. The implementer must verify the blur composes correctly across all three pinned headers in the stacked-pinning state (use the project's `data-preview-scroll-container` for the scroll context).
+
+**Section body:**
+- Each section renders its existing component from Tasks 6/7/8 unchanged: `<DisplaySection moduleUuid={moduleUuid} />`, `<FiltersSection moduleUuid={moduleUuid} />`, `<SearchInputsSection moduleUuid={moduleUuid} />`. Internal layouts (DisplaySection has its own editor + DisplayPreview side-by-side; FiltersSection same with FiltersPreview; SearchInputsSection has just the editor — no preview today) survive intact.
+- Section vertical rhythm: 96px top padding + 64px bottom padding around the body. Sections separated by full-width violet hairline (`border-t border-nova-violet/[0.15]`). The hairline visually anchors the transition between sections and reads as the seam between the previous section's content and the next section's sticky header.
+
+**ModuleScreen "Case List" affordance:**
+- Renders BEFORE the form list in `ModuleScreen.tsx`, only when `mod.caseType` is non-empty.
+- Visual: violet-gradient rounded card distinct from the gray-toned form rows. `bg-gradient-to-r from-nova-violet/[0.08] to-transparent border border-nova-violet/[0.2] hover:border-nova-violet/[0.4] hover:from-nova-violet/[0.12]` with rounded-lg. Left adornment: violet pill (`p-2 rounded-md bg-nova-violet/[0.15] border border-nova-violet/[0.3]`) holding a `tablerListDetails` icon in `text-nova-violet-bright`.
+- Title: "Case List" (display-style, parity with section header titles).
+- Status line beneath title: "{N} columns · {filterPresent ? '1 filter' : 'no filter'} · {N} search inputs" (live-bound via shallow selectors against `mod.caseListConfig`).
+- Optional caseType badge to the right: small monospace pill showing the case type name.
+- Click → `navigate.openCaseList(moduleUuid)` (existing intent in `lib/routing/hooks.tsx`).
+
+**PreviewShell dispatch changes:**
+- The existing `PreviewShell.tsx` adapter at line 67-89 translates `Location` → legacy `PreviewScreen` for the interact-mode preview pipeline. The case-list edit-mode workspace is NOT a preview-pipeline screen — it's a builder authoring surface, so it bypasses the adapter.
+- Insertion point: in `PreviewShell.tsx`'s component body (NOT the `locationToScreen` helper), add a guard BEFORE the existing screen-dispatch logic:
+  ```tsx
+  const editMode = useEditMode();
+  const loc = useLocation();
+  if (editMode === "edit" && loc.kind === "cases") {
+    return <CaseListWorkspace moduleUuid={loc.moduleUuid} />;
+  }
+  // ... existing dispatch
+  ```
+- Live mode (the existing default for `loc.kind === "cases"`) is unchanged and continues rendering `CaseListScreen` via the legacy adapter. Plan 5 Task 2 replaces this arm with builder-context running-app rendering.
+- Activity wrapping: `CaseListWorkspace` should be wrapped in an `<Activity>` for screen retention parity with the rest of `PreviewShell`'s screens (so navigating away and back doesn't unmount the workspace + lose section scroll position). Confirm pattern by reading the existing `PreviewShell.tsx` Activity setup.
+
+**Aesthetic execution (this is where the boldness lives — the layout itself is intentionally classical magazine; the EXECUTION is what makes it not feel generic):**
+- **Typography hierarchy.** Section title at ~28-36px in a display style; status-density line beneath at ~13px in muted body; section bodies at the existing 13-14px body. Implementer picks the display style with `frontend-design` skill loaded, considering the project's existing `app/layout.tsx` font setup.
+- **Violet rail glow.** Per-section header rail at 3px height with the soft glow shadow above. The implementer must visually verify that three rails pinned simultaneously (long-scroll edge case) compose without visual noise — adjust glow opacity if needed.
+- **Sticky-blur depth.** Pinned section headers use backdrop-blur to sample the scrolling content beneath, creating depth between the pinned chrome and the rolling body. Verify in browser that the blur is non-trivial (not "near-transparent overlay") and that text contrast on the pinned header remains readable against any underlying content.
+- **Status-line precision.** Every count, sort indicator, validity dot, presence flag rendered in the status line is bound directly to the doc store via shallow selectors. No debouncing, no derived caching, no `useMemo` on simple counts — read-once-per-render so updates feel synchronous when the user adds/removes a column or toggles sort.
+- **Spatial composition.** Section header reads as a MARKER, not a WRAPPER — the rail beneath it is the only visual border, no surrounding box. Section bodies have no outer container chrome; the existing inner layouts from Tasks 6/7/8 ARE the chrome. The hairline between sections is the only visual seam.
+- **Empty states per section.** When `caseListConfig.{columns | filter | searchInputs}` is empty for a section, render a violet-tinted glass card with section-specific guidance + a single CTA (e.g., Display empty: "Add columns to define what users see in the case list" + "Add column" button). Use the project's existing glass primitive on the positioner (per `lib/ui/CLAUDE.md` if it exists, or `feedback_baseui_backdrop_filter.md` — glass on positioner, not on popup).
+- **ModuleScreen "Case List" card distinctiveness.** The card uses violet-gradient + violet pill icon while form rows use gray surface. Visually it should read as "this is a different kind of affordance" — the user should immediately understand "this is config for the case list, not a form to open."
+
+**Hard constraints honored:**
+- No textareas anywhere in this surface. (Existing case-list-config rule.)
+- `motion/react` for animations. NO scroll-triggered animations on subsequent visits (Activity preserves state — re-running entry animations on remount per `feedback_stateful_ui_truth.md` is forbidden).
+- `@iconify/react/offline` icons.
+- `@base-ui/react` primitives where applicable (glass on positioner per `feedback_baseui_backdrop_filter.md`).
+- `'use client'` at the top of CaseListWorkspace.tsx.
+- React 19 ref-callback cleanup for any DOM listeners (sticky-pinning detection if needed beyond CSS sticky).
+- BlurCommitTextInput / EditableText for any inline text editing introduced.
+- frontend-design skill MUST be loaded by the implementer for visual decisions (typography pick, glow tuning, hairline color).
+- No `loadApp` / `getSession` / RSC patterns inside the client component — workspace is a pure client surface.
+- Doc store reads via the named shallow selector hooks (`useBlueprintDocShallow` etc. — not raw `useBlueprintDoc(state => state.modules[uuid].caseListConfig.columns.length)` per `feedback_no_codebase_convention_excuses.md` for boundary-rule discipline).
+
+**Tests:**
+- Workspace renders all three sections in correct order (Display → Filter → Search).
+- Each sticky section header pins at the correct scroll position; verify via JSDOM scroll mocks or DOM-position assertions.
+- Status density renders correctly per section: column count, filter presence + match counts, input count + with-default-values count.
+- Empty-state per section renders when the corresponding `caseListConfig` slice is empty.
+- ModuleScreen "Case List" card renders only for case-typed modules; absent for non-case modules.
+- ModuleScreen "Case List" card navigates to `/cases` URL via `navigate.openCaseList(moduleUuid)` (assert the URL change OR the navigate spy).
+- PreviewShell dispatches: edit mode + `kind === "cases"` → `CaseListWorkspace`; live mode + `kind === "cases"` → existing `CaseListScreen`.
+- Edit mode toggle does NOT unmount the workspace + lose section scroll position (Activity preserves; pin via repeat mode-toggle test).
+- Round-trip: mount workspace → edit a column header in the Display section → unmount → remount → header preserved (doc store persistence pin).
+- Dead-code deletion verified: `rg ModuleDetail` returns no production-code matches; the file is gone.
+- One-shot integration smoke test: render `<PreviewShell />` with a fixture blueprint having a case-typed module; navigate to `/cases`; assert the workspace renders the three sections; click "Configure" affordance from Module screen; assert URL change.
+
+**Acceptance gates beyond user-runnable:**
+- `npx tsc --noEmit` clean.
+- `npm run lint` clean.
+- `npm test` green.
+- No imports of deleted `components/builder/detail/ModuleDetail.tsx` survive (grep proves it).
+
+
 ### Task 9: SA tools — SHIPPED
 
 SHIPPED 2026-05-07 in commits `27d7b58a` (initial feat) → `a072a922` (CR fix-pass: tighten schema discriminated-union check + close test coverage gaps + correct filter description) → `219e9ce1` (final polish: symmetric chat+MCP parity tests + pin setCaseListFilter init-on-absent-clear behavior) on branch `feat/case-list-search`.
