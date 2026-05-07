@@ -500,7 +500,7 @@ export function sortKey(
  * them and trusts the user's pick.
  */
 export function applicableSortTypes(
-	dataType: string | undefined,
+	dataType: CasePropertyDataType | undefined,
 ): readonly SortType[] {
 	switch (dataType) {
 		case "int":
@@ -857,13 +857,10 @@ export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
 	"fuzzy-date": ["text", "single_select", "multi_select", "date", "datetime"],
 	// `range` requires totally-ordered types — numeric or temporal.
 	range: ["int", "decimal", "date", "datetime", "time"],
-	// `multi-select-contains` requires a `multi_select` property at
-	// the JSONB layer; `single_select` is also admitted because its
-	// option-value semantics overlap with single-element multi-select
-	// (the SQL emitter normalizes to a singleton array). The validator
-	// surface keeps both admitted; if a future tightening narrows to
-	// `multi_select`-only, the change lives here and propagates to
-	// every consumer.
+	// `multi-select-contains` admits `multi_select` (the canonical
+	// JSONB membership match) AND `single_select` — the SQL emitter
+	// normalizes a single-select value to a singleton array so the
+	// containment operator's semantics carry over.
 	"multi-select-contains": ["multi_select", "single_select"],
 };
 

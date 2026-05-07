@@ -368,6 +368,115 @@ describe("CalculatedColumnEditor — builder discipline", () => {
 // Post-fix: the version is in the deps; a flip recomputes the
 // verdict and propagates to the parent.
 
+// ── Reorder-then-flip regression ─────────────────────────────────
+//
+// Pre-fix: the inner-validity shadow was an index-keyed boolean
+// array. After a reorder, an inner-flip on the moved row would write
+// against the row's NEW index, which was already occupied by a
+// different row's stale verdict. The flip would silently no-op (both
+// values matched), the aggregation would walk the unchanged shadow,
+// and the parent's `onValidityChange(true)` never fired even though
+// every row was structurally valid. User couldn't save.
+//
+// Post-fix: `useInnerValidityShadow` uses a `WeakMap<Row, boolean>`
+// keyed by row reference. The reorder hook splices existing
+// references into the new array order, so the WeakMap entries
+// survive the reorder; the inner-flip writes against the row's
+// reference (not its index) and the aggregation reads each row's
+// verdict via `shadow.get(row) ?? true`. Reorder + flip propagates
+// correctly.
+
+describe("CalculatedColumnEditor — reorder-then-flip propagation", () => {
+	it("propagates valid:true after reorder + inner-flip on the moved row", async () => {
+		// Phase 1 — Mount with [A_invalid, B_valid, C_valid]. A's
+		// expression references `patient.age`; the initial caseTypes
+		// shape DOESN'T declare `age`, so A's inner verdict is false.
+		// B + C reference `patient.name` (declared) and resolve to
+		// true.
+		const PATIENT_NO_AGE: CaseType = {
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		};
+		const PATIENT_WITH_AGE: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+			],
+		};
+
+		const A = calculatedColumn("a", "Header A", term(prop("patient", "age")));
+		const B = calculatedColumn("b", "Header B", term(prop("patient", "name")));
+		const C = calculatedColumn("c", "Header C", term(prop("patient", "name")));
+
+		const onValidityChange = vi.fn();
+		const { rerender } = render(
+			<CalculatedColumnEditor
+				value={[A, B, C]}
+				onChange={() => {}}
+				caseTypes={[PATIENT_NO_AGE]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+
+		// Phase 1 verdict — A is invalid → aggregate false.
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(false);
+		});
+
+		// Phase 2 — Rerender with the rows in a new order: [C, A, B].
+		// CRITICAL: the SAME object references must thread through (the
+		// reorder hook splices references into the new array order, so
+		// WeakMap entries persist). Pass the same A/B/C constants.
+		rerender(
+			<CalculatedColumnEditor
+				value={[C, A, B]}
+				onChange={() => {}}
+				caseTypes={[PATIENT_NO_AGE]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+
+		// Phase 2 verdict — A is still invalid (just at a new index).
+		// Aggregate stays false. With both INDEX-keyed and WEAKMAP-
+		// keyed shadows, the verdict is correct here — the bug only
+		// surfaces on the next flip.
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(false);
+		});
+
+		// Phase 3 — Rerender with caseTypes that DOES declare `age`.
+		// A's inner expression now type-checks; the inner editor's
+		// `onValidityChange(true)` fires for A. With WEAKMAP keying,
+		// the shadow's entry for the A reference flips to true; the
+		// aggregation walks [C, A, B] and reads true / true / true →
+		// reports valid:true to the parent.
+		//
+		// With the pre-fix INDEX keying, the inner-flip would write
+		// shadow[1] = true (A's new index) — but shadow[1] was already
+		// true (B's value when the shadow was originally laid out for
+		// [A, B, C], where B was at index 1). The setter's no-op gate
+		// would skip the version bump; the aggregation would never
+		// recompute; the parent would never see valid:true. THIS IS
+		// THE BUG THE FIX RESOLVES.
+		rerender(
+			<CalculatedColumnEditor
+				value={[C, A, B]}
+				onChange={() => {}}
+				caseTypes={[PATIENT_WITH_AGE]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(true);
+		});
+	});
+});
+
 describe("CalculatedColumnEditor — external-prop validity flip", () => {
 	it("propagates validity false when a caseTypes change makes a calculated expression's property reference stale", async () => {
 		// Initial render: a calculated column whose expression reads

@@ -70,7 +70,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSelect from "@iconify-icons/tabler/select";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef } from "react";
 import {
 	APPLICABLE_SEARCH_MODES,
 	type CaseProperty,
@@ -119,6 +119,10 @@ import { BlurCommitTextInput } from "./primitives/BlurCommitTextInput";
 import { InlineError } from "./primitives/CardShell";
 import { PropertyRefPicker } from "./primitives/PropertyRefPicker";
 import { RelationPathBuilder } from "./primitives/RelationPathBuilder";
+import {
+	useInnerValidityShadow,
+	useValidityPropagator,
+} from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -660,56 +664,27 @@ export function SearchInputsSection({
 		[resolvedPerRow],
 	);
 
-	// Per-row inner-editor validity. Each row's `default` /
-	// `xpath` editors fire `onValidityChange(boolean)` on every
-	// transition; the editor maintains a parallel array tracking
-	// each row's combined inner verdict.
-	//
-	// Default `true` so a fresh-mount row doesn't flag `valid: false`
-	// before the inner editors' first verdicts land. The shadow array
-	// is INDEX-keyed; the aggregation downstream is logical-AND
-	// across every row's verdict (permutation-invariant under
-	// reorder).
-	const innerValidRef = useRef<boolean[]>([]);
-	if (innerValidRef.current.length !== value.length) {
-		const next = innerValidRef.current.slice(0, value.length);
-		while (next.length < value.length) next.push(true);
-		innerValidRef.current = next;
-	}
+	// Per-row inner-editor validity. Each row's `default` / `xpath`
+	// editors fire `onValidityChange(boolean)` on every transition;
+	// the shared `useInnerValidityShadow` hook maintains a row-
+	// identity-keyed `WeakMap<SearchInputDef, boolean>` so a
+	// reorder-then-flip never races against a stale index slot.
+	const { aggregatedValid: innerAggregatedValid, setRowValid } =
+		useInnerValidityShadow<SearchInputDef>(value);
 
-	// Render-trigger counter — bumped on every inner-editor validity
-	// flip so the editor's `useMemo`-derived `isValid` re-evaluates
-	// against the updated ref. Without it, an inner flip wouldn't
-	// recompute the verdict (the memo's `value` dep is referentially
-	// stable across an inner-only mutation).
-	const [innerValidityVersion, setInnerValidityVersion] = useState(0);
-
-	// Aggregated `valid` flag — every row's structural errors empty
-	// AND every row's inner editors valid. The pattern matches
-	// `CalculatedColumnEditor`'s shape exactly (deps include the
-	// version counter so an inner flip recomputes against the
-	// freshly-updated ref; the `void` expression below is the
-	// project's load-bearing-read idiom for "this dep is consumed
-	// indirectly via the ref").
+	// Aggregated section-level verdict — every row's structural
+	// errors empty AND the shadow's inner aggregation true.
 	const isValid = useMemo(() => {
-		// Read the version so the dependency is explicit at the use
-		// site rather than only at the deps array. Same pattern the
-		// `CalculatedColumnEditor` uses.
-		void innerValidityVersion;
 		for (let i = 0; i < value.length; i++) {
 			if (hasStructuralErrorPerRow[i] === true) return false;
-			if (innerValidRef.current[i] === false) return false;
 		}
-		return true;
-	}, [value, hasStructuralErrorPerRow, innerValidityVersion]);
+		return innerAggregatedValid;
+	}, [value, hasStructuralErrorPerRow, innerAggregatedValid]);
 
-	// Ref-stash: keeps a fresh-each-render parent callback identity
-	// from tripping the effect on non-transitions.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed against fresh-each-render parent
+	// callback identity.
+	useValidityPropagator({ isValid, onValidityChange });
 
 	// Reorder wiring — per-container monitor scoped to `containerKey`.
 	const { pendingDrop } = useReorderableList<SearchInputDef>({
@@ -718,18 +693,6 @@ export function SearchInputsSection({
 		items: value,
 		onReorder: (next) => onChange(next),
 	});
-
-	// Per-row inner-editor validity setter. Updates the ref + bumps
-	// the render trigger counter so the editor's `valid` aggregation
-	// recomputes on the next render.
-	const setInnerValid = (index: number, next: boolean) => {
-		const current = innerValidRef.current[index];
-		if (current === next) return;
-		const updated = [...innerValidRef.current];
-		updated[index] = next;
-		innerValidRef.current = updated;
-		setInnerValidityVersion((v) => v + 1);
-	};
 
 	// ── Mutators ──
 	//
@@ -742,10 +705,11 @@ export function SearchInputsSection({
 	};
 
 	const removeRow = (index: number) => {
-		// Drop the row's inner-validity entry from the shadow array
-		// so the aggregated verdict reflects only surviving rows.
-		const survivors = innerValidRef.current.filter((_, i) => i !== index);
-		innerValidRef.current = survivors;
+		// The row-identity-keyed shadow auto-collects entries when the
+		// removed row's reference leaves React state — no manual
+		// "drop this index" cleanup needed. The new `value` array
+		// excludes the removed row, the next aggregation walks only
+		// surviving rows, and the WeakMap entry is unreachable.
 		onChange(value.filter((_, i) => i !== index));
 	};
 
@@ -762,10 +726,10 @@ export function SearchInputsSection({
 		// property / mode / via / default / xpath. The
 		// `searchInputDef(...)` builder omits every absent optional
 		// slot so the seed parses through `safeParse(...).toEqual(input)`.
+		// The shadow's "missing entry → trivially valid" default
+		// covers the fresh row until its inner editors fire their
+		// first verdicts.
 		const seed = searchInputDef(freshName, "", "text");
-		// Extend the inner-validity shadow with `true` (no inner
-		// editors mounted on a fresh row → trivially valid).
-		innerValidRef.current = [...innerValidRef.current, true];
 		onChange([...value, seed]);
 	};
 
@@ -857,7 +821,12 @@ export function SearchInputsSection({
 										knownInputs={knownInputs}
 										onChange={(next) => replaceRow(i, next)}
 										onRemove={() => removeRow(i)}
-										onInnerValidityChange={(valid) => setInnerValid(i, valid)}
+										// Route the row's combined inner verdict through
+										// the row-identity-keyed shadow. Passing `row`
+										// (the current SearchInputDef object) keys the
+										// WeakMap entry to this row's reference so a
+										// reorder-then-flip writes against the right slot.
+										onInnerValidityChange={(valid) => setRowValid(row, valid)}
 										setHandleEl={setHandleEl}
 									/>
 									{previewPortal}
@@ -1032,15 +1001,19 @@ function SearchInputRow({
 	// own providers below this one and replace the context for
 	// their own subtrees, so this provider only governs the row-
 	// level pickers.
-	const rowKnownInputs = useMemo(() => [...knownInputs], [knownInputs]);
-	const rowCaseTypes = useMemo(() => [...caseTypes], [caseTypes]);
+	// `knownInputs` and `caseTypes` are recomputed by the parent on
+	// every render anyway; wrapping them in `useMemo([...arr])` would
+	// allocate a fresh array each render AND memoize nothing. Pass
+	// the readonly arrays straight through — `PredicateEditProvider`
+	// accepts `readonly`. The validity-index is the only memoized
+	// value; its `[]` dep makes the singleton-shape meaningful.
 	const emptyValidityIndex = useMemo(() => buildValidityIndex([]), []);
 
 	return (
 		<PredicateEditProvider
-			caseTypes={rowCaseTypes}
+			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
-			knownInputs={rowKnownInputs}
+			knownInputs={knownInputs}
 			validityIndex={emptyValidityIndex}
 		>
 			<div
@@ -1159,30 +1132,31 @@ function SearchInputRow({
 									<div className="space-y-1.5">
 										<PropertyRefPicker
 											mode="property-only"
-											value={prop(
-												currentCaseType,
-												value.property ?? "",
-												value.via,
-											)}
+											// The `via` slot is OWNED by the sibling
+											// `RelationPathBuilder` below, NOT by this picker.
+											// Pass a self-shaped `prop(...)` (omitting `via`)
+											// so the picker stays in its property-dropdown
+											// surface across every authoring state — including
+											// rows whose row-level `via` is a non-self walk.
+											// Threading `value.via` here would route every
+											// non-self walk through `PropertyRefPicker`'s
+											// "Property via relation walk" badge, which
+											// replaces the property dropdown with a Replace
+											// affordance and blocks property edits on the
+											// canonical authoring flow. The picker's
+											// property-only mode is the right surface for
+											// property edits; the walk surface lives one row
+											// down.
+											value={prop(currentCaseType, value.property ?? "")}
 											onChange={(nextRef) => {
-												// `PropertyRefPicker.property-only` rebuilds the
-												// canonical `prop(...)` ref including any preserved
-												// `via`. We extract the property name and any non-
-												// self via and route both through the row builder
-												// — `setProperty` updates the name; `setVia`
-												// updates the walk if the picker preserved a via.
-												// The picker's three-arg `prop()` rebuild keeps
-												// `via` intact across name changes, so a separate
-												// dispatch for `via` is only needed when the
-												// picker (via the badge replace path) emits a
-												// canonical ref with `via: undefined`.
-												const nextProp = nextRef.property;
-												const nextVia = nextRef.via ?? selfPath();
+												// Property-only mode emits a canonical `prop()`
+												// ref with no `via` slot (the picker doesn't
+												// see / edit `via` here); the row's `via` is
+												// authored independently via the
+												// `RelationPathBuilder` below. Apply only the
+												// property-name change.
 												onChange(
-													rebuildRow(value, {
-														property: nextProp,
-														via: nextVia,
-													}),
+													rebuildRow(value, { property: nextRef.property }),
 												);
 											}}
 											ariaLabel={`Search input ${index + 1} property`}

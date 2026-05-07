@@ -40,7 +40,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
 	type CalculatedColumn,
 	type CaseListConfig,
@@ -55,6 +55,10 @@ import { ColumnEditor } from "./ColumnEditor";
 import { DisplayPreview } from "./DisplayPreview";
 import { nodeId } from "./nodeIdentity";
 import { SortKeyEditor } from "./SortKeyEditor";
+import {
+	useInnerValidityShadow,
+	useValidityPropagator,
+} from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -297,61 +301,17 @@ function ColumnList({
 	const containerKey = useId();
 
 	// Per-row inner-validity shadow. Each `ColumnEditor` fires
-	// `onValidityChange(boolean)` on every transition; the wrapper
-	// maintains a parallel array tracking each row's verdict.
-	// Default `true` so a fresh-mount row doesn't flag `valid: false`
-	// before the inner editor's first verdict lands.
-	//
-	// Index-keyed shadow (NOT row-identity-keyed). The aggregation
-	// is logical-AND across every row's verdict, which is
-	// permutation-invariant — reordering the boolean array doesn't
-	// change the AND, so index-keyed shadow is safe under reorder.
-	// A future change that surfaces per-row validity to the user
-	// MUST rebuild this shape around row identity (`nodeId(column)`)
-	// so the shadow re-aligns after reorder.
-	const innerValidRef = useRef<boolean[]>([]);
-	if (innerValidRef.current.length !== value.length) {
-		const next = innerValidRef.current.slice(0, value.length);
-		while (next.length < value.length) next.push(true);
-		innerValidRef.current = next;
-	}
+	// `onValidityChange(boolean)` on every transition; the shared
+	// `useInnerValidityShadow` hook maintains a row-identity-keyed
+	// `WeakMap<Column, boolean>` so a reorder-then-flip never races
+	// against a stale index slot.
+	const { aggregatedValid: isValid, setRowValid } =
+		useInnerValidityShadow<Column>(value);
 
-	// Render-trigger counter — bumped on every inner-validity flip
-	// so the wrapper's aggregated verdict recomputes against the
-	// freshly-updated ref. Listed in the memo's deps below so a
-	// flip recomputes the verdict against the updated ref.
-	const [innerValidityVersion, setInnerValidityVersion] = useState(0);
-
-	const isValid = useMemo(() => {
-		// Read the version here so the dependency is explicit at the
-		// use site rather than only at the deps array. The verdict
-		// reads from the ref (the version's purpose is to trigger
-		// the recompute, not to be consulted directly); the `void`
-		// expression is the project's existing idiom for
-		// "load-bearing read whose value is unused" — see e.g.
-		// `lib/case-store/sql/__tests__/compileExpression.test.ts`
-		// and `lib/domain/predicate/__tests__/builders.test.ts`.
-		void innerValidityVersion;
-		for (let i = 0; i < value.length; i++) {
-			if (innerValidRef.current[i] === false) return false;
-		}
-		return true;
-	}, [value, innerValidityVersion]);
-
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
-
-	const setInnerValid = (index: number, next: boolean) => {
-		const current = innerValidRef.current[index];
-		if (current === next) return;
-		const updated = [...innerValidRef.current];
-		updated[index] = next;
-		innerValidRef.current = updated;
-		setInnerValidityVersion((v) => v + 1);
-	};
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed against fresh-each-render parent
+	// callback identity.
+	useValidityPropagator({ isValid, onValidityChange });
 
 	const { pendingDrop } = useReorderableList<Column>({
 		containerKey,
@@ -365,8 +325,9 @@ function ColumnList({
 	};
 
 	const removeRow = (index: number) => {
-		const survivors = innerValidRef.current.filter((_, i) => i !== index);
-		innerValidRef.current = survivors;
+		// Row-identity-keyed shadow auto-collects entries for removed
+		// rows once the reference leaves React state — no manual
+		// "drop this index" cleanup needed.
 		onChange(value.filter((_, i) => i !== index));
 	};
 
@@ -374,13 +335,12 @@ function ColumnList({
 		// Default new column: a Plain text column referencing the
 		// case type's first property (or empty if none). The user
 		// then renames the header / picks a different kind via the
-		// kind-replace menu inside `ColumnEditor`.
+		// kind-replace menu inside `ColumnEditor`. The shadow's
+		// "missing entry → trivially valid" default covers the fresh
+		// row until its inner editor fires its first verdict.
 		const ct = caseTypes.find((c) => c.name === currentCaseType);
 		const firstProperty = ct?.properties[0]?.name ?? "";
 		const seed = plainColumn(firstProperty, "");
-		// Extend the inner-validity shadow with `true` (the default
-		// plain column is always applicable).
-		innerValidRef.current = [...innerValidRef.current, true];
 		onChange([...value, seed]);
 	};
 
@@ -457,7 +417,12 @@ function ColumnList({
 										onChange={(next) => replaceRow(i, next)}
 										caseTypes={caseTypes}
 										currentCaseType={currentCaseType}
-										onValidityChange={(valid) => setInnerValid(i, valid)}
+										// Route the column's inner verdict through the
+										// row-identity-keyed shadow. Passing `column`
+										// (the current Column object) keys the WeakMap
+										// entry to this row's reference so a reorder-
+										// then-flip writes against the right slot.
+										onValidityChange={(valid) => setRowValid(column, valid)}
 									/>
 								</div>
 								<button

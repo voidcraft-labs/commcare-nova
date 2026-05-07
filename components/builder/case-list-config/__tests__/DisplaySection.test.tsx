@@ -286,6 +286,100 @@ describe("DisplaySection — validity aggregation", () => {
 	});
 });
 
+// ── Reorder-then-flip regression (IMPORTANT 2 backstop) ──────────
+//
+// Pre-fix: ColumnList's inner-validity shadow was an index-keyed
+// boolean array. After a column reorder, an inner-flip on the moved
+// column would write against the column's NEW index, which was
+// occupied by a different column's stale verdict — the flip would
+// silently no-op, the aggregation would walk the unchanged shadow,
+// and the parent's `onValidityChange(true)` never fired even when
+// every column was applicable. User couldn't save.
+//
+// Post-fix: `useInnerValidityShadow` keys the shadow by row
+// reference via `WeakMap`. Reorder + flip propagates correctly.
+
+describe("DisplaySection — reorder-then-flip propagation", () => {
+	it("propagates valid:true after column reorder + applicability fix", async () => {
+		// Phase 1 — Mount with [DateCol_invalid, PlainCol, PlainCol].
+		// `dob` is text-typed in the initial caseTypes shape, making
+		// the Date column inapplicable → ColumnList aggregates false.
+		const PATIENT_DOB_AS_TEXT: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "dob", label: "Date of birth", data_type: "text" },
+			],
+		};
+		const PATIENT_DOB_AS_DATE: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "dob", label: "Date of birth", data_type: "date" },
+			],
+		};
+
+		const A = dateColumn("dob", "DOB", "%Y-%m-%d");
+		const B = plainColumn("name", "Name B");
+		const C = plainColumn("name", "Name C");
+		const config = makeConfig({ columns: [A, B, C] });
+
+		const onValidityChange = vi.fn();
+		const { rerender } = render(
+			<DisplaySection
+				value={config}
+				onChange={() => {}}
+				caseTypes={[PATIENT_DOB_AS_TEXT]}
+				currentCaseType="patient"
+				appId={APP_ID}
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(false);
+		});
+
+		// Phase 2 — Rerender with the columns in a new order: [C, A, B].
+		// Same object references thread through (the splice contract
+		// `useReorderableList` honors). The verdict is still false
+		// because A's column kind is still inapplicable.
+		const reordered = makeConfig({ columns: [C, A, B] });
+		rerender(
+			<DisplaySection
+				value={reordered}
+				onChange={() => {}}
+				caseTypes={[PATIENT_DOB_AS_TEXT]}
+				currentCaseType="patient"
+				appId={APP_ID}
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(false);
+		});
+
+		// Phase 3 — Rerender with caseTypes that retypes `dob` to
+		// `date`. A's Date-kind column is now applicable; the inner
+		// editor flips to valid and writes against A's reference. With
+		// WEAKMAP keying the aggregation reports valid:true. With
+		// INDEX keying the flip would no-op against the stale slot
+		// and the parent would never see the transition.
+		rerender(
+			<DisplaySection
+				value={reordered}
+				onChange={() => {}}
+				caseTypes={[PATIENT_DOB_AS_DATE]}
+				currentCaseType="patient"
+				appId={APP_ID}
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(true);
+		});
+	});
+});
+
 // ── Slot ownership ───────────────────────────────────────────────
 
 describe("DisplaySection — slot ownership", () => {

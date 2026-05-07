@@ -46,6 +46,7 @@ import { useEffect, useId, useMemo, useRef } from "react";
 import {
 	applicableSortTypes,
 	type CalculatedColumn,
+	type CasePropertyDataType,
 	type CaseType,
 	calculatedSortSource,
 	effectiveDataType,
@@ -373,7 +374,14 @@ interface ResolvedSource {
 	readonly state: SourceResolutionState;
 	readonly displayLabel: string;
 	readonly kindLabel: string;
-	readonly dataType: string | undefined;
+	/** Effective `data_type` of the resolved source. `undefined` for
+	 *  calculated sources (the expression's return type isn't known
+	 *  at the source layer) AND for empty / missing sources (no
+	 *  property to read). The narrower `CasePropertyDataType` enum
+	 *  matches `effectiveDataType`'s strict return type so the
+	 *  per-property compatibility table (`applicableSortTypes`)
+	 *  consumes the value without a string-vs-enum cast. */
+	readonly dataType: CasePropertyDataType | undefined;
 	readonly monospaceLabel: boolean;
 }
 

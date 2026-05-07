@@ -36,7 +36,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo } from "react";
 import {
 	type CalculatedColumn,
 	type CaseType,
@@ -52,6 +52,10 @@ import { ExpressionCardEditor } from "./ExpressionCardEditor";
 import { nodeId } from "./nodeIdentity";
 import { BlurCommitTextInput } from "./primitives/BlurCommitTextInput";
 import { InlineError } from "./primitives/CardShell";
+import {
+	useInnerValidityShadow,
+	useValidityPropagator,
+} from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -209,77 +213,25 @@ export function CalculatedColumnEditor({
 
 	// Per-row inner-expression validity. Each `ExpressionCardEditor`
 	// fires `onValidityChange(boolean)` on every transition; the
-	// editor maintains a parallel array tracking each row's verdict.
-	// Default `true` so a fresh-mount row doesn't flag `valid: false`
-	// before the inner editor's first verdict lands.
-	//
-	// The shadow array is INDEX-keyed, not row-identity-keyed. The
-	// aggregation downstream is logical-AND across every row's
-	// verdict, which is permutation-invariant: reordering the boolean
-	// array doesn't change the AND. Index-keyed shadow is therefore
-	// safe under reorder. If a future change ever surfaces per-row
-	// validity to the user (highlighting a specific invalid row, for
-	// example), this shape MUST be rebuilt around row identity (the
-	// `nodeId(column)` WeakMap-backed id is the canonical handle) so
-	// the shadow re-aligns after reorder.
-	const innerValidRef = useRef<boolean[]>([]);
-	// Sync the ref's length to `value.length` so a removed row's
-	// stale verdict doesn't survive into the parent's aggregated
-	// validity. Kept as a render-time write instead of an effect so
-	// the next `validityChanged` computation reads the freshest
-	// length.
-	if (innerValidRef.current.length !== value.length) {
-		const next = innerValidRef.current.slice(0, value.length);
-		while (next.length < value.length) next.push(true);
-		innerValidRef.current = next;
-	}
+	// shared `useInnerValidityShadow` hook maintains a row-identity-
+	// keyed `WeakMap<CalculatedColumn, boolean>` so a reorder-then-
+	// flip never races against a stale index slot.
+	const { aggregatedValid: innerAggregatedValid, setRowValid } =
+		useInnerValidityShadow<CalculatedColumn>(value);
 
-	// Render-trigger counter — bumped on every inner-expression
-	// validity flip so the editor's `useMemo` re-evaluates against
-	// the updated ref. The `value` dependency on its own only
-	// triggers when the parent emits a new array; an internal flip
-	// from a row's expression editor needs its own signal. Listed
-	// in the memo's deps below so a flip recomputes the verdict
-	// against the freshly-updated ref.
-	const [innerValidityVersion, setInnerValidityVersion] = useState(0);
-
-	// Aggregated `valid` flag — every row's structural errors empty
-	// AND every row's inner expression valid. Recomputed via a
-	// `useMemo` so a re-render after an inner-expression validity
-	// flip surfaces immediately. Depends on `innerValidityVersion`
-	// so a per-row flip recomputes the verdict against the freshly-
-	// updated ref. Reads the version inside the body via
-	// `void innerValidityVersion` would be a suppression; instead
-	// the version is treated as a real input by the verdict (the
-	// `if (innerValidityVersion < 0)` branch is dead but documents
-	// the dependency for readers, and React's deps-comparison
-	// machinery recomputes only when the version changes).
+	// Aggregated section-level verdict — every row's structural
+	// errors empty AND the shadow's inner aggregation true.
 	const isValid = useMemo(() => {
-		// Read the version here so the dependency is explicit at the
-		// use site rather than only at the deps array. The verdict
-		// reads from the ref (the version's purpose is to trigger
-		// the recompute, not to be consulted directly); the `void`
-		// expression is the project's existing idiom for
-		// "load-bearing read whose value is unused" — see e.g.
-		// `lib/case-store/sql/__tests__/compileExpression.test.ts`
-		// and `lib/domain/predicate/__tests__/builders.test.ts`.
-		void innerValidityVersion;
 		for (let i = 0; i < value.length; i++) {
 			if (hasStructuralErrorPerRow[i] === true) return false;
-			if (innerValidRef.current[i] === false) return false;
 		}
-		return true;
-	}, [value, hasStructuralErrorPerRow, innerValidityVersion]);
+		return innerAggregatedValid;
+	}, [value, hasStructuralErrorPerRow, innerAggregatedValid]);
 
-	// Ref-stash pattern: keeps a fresh-each-render parent callback
-	// identity from tripping the effect on non-transitions. Same
-	// shape every other case-list-config editor uses for its parent
-	// validity propagation.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed against fresh-each-render parent
+	// callback identity.
+	useValidityPropagator({ isValid, onValidityChange });
 
 	// Reorder wiring — per-container monitor scoped to `containerKey`.
 	const { pendingDrop } = useReorderableList<CalculatedColumn>({
@@ -288,26 +240,6 @@ export function CalculatedColumnEditor({
 		items: value,
 		onReorder: (next) => onChange(next),
 	});
-
-	// Per-row inner-expression validity setter. Updates the ref and
-	// triggers a re-render so the editor's `valid` aggregation
-	// recomputes. Setting `[index] = next` on a ref doesn't trigger
-	// React's render cycle on its own — the row's `setRowState`
-	// call below bumps a render-trigger counter to surface the
-	// change up the tree. Without the bump, an inner-expression
-	// flip (e.g. cleared error) wouldn't reach `onValidityChange`
-	// until the next external trigger.
-	const setInnerValid = (index: number, next: boolean) => {
-		const current = innerValidRef.current[index];
-		if (current === next) return;
-		const updated = [...innerValidRef.current];
-		updated[index] = next;
-		innerValidRef.current = updated;
-		// Force a render so the `useMemo`-derived `isValid` recomputes.
-		// Setting the ref alone doesn't trigger React; the row state
-		// counter below is the render trigger.
-		setInnerValidityVersion((v) => v + 1);
-	};
 
 	// ── Mutators ──
 	//
@@ -320,11 +252,11 @@ export function CalculatedColumnEditor({
 	};
 
 	const removeRow = (index: number) => {
-		// Drop the row's inner-expression validity entry from the
-		// shadow array so the aggregated verdict reflects only
-		// surviving rows.
-		const survivors = innerValidRef.current.filter((_, i) => i !== index);
-		innerValidRef.current = survivors;
+		// The row-identity-keyed shadow auto-collects entries when the
+		// removed row's reference leaves React state — no manual
+		// "drop this index" cleanup needed. The new `value` array
+		// excludes the removed row, the next aggregation walks only
+		// surviving rows, and the WeakMap entry is unreachable.
 		onChange(value.filter((_, i) => i !== index));
 	};
 
@@ -341,11 +273,10 @@ export function CalculatedColumnEditor({
 		// parses clean through `valueExpressionSchema`, no qualifier
 		// needed. The expression editor surfaces the empty-string
 		// literal as a Plain Text term ready for the user to swap.
+		// The shadow's "missing entry → trivially valid" default
+		// covers the fresh row until its inner editor fires its first
+		// verdict.
 		const seed = calculatedColumn(freshId, "", term(literal("")));
-		// Append the row + extend the inner-validity shadow with
-		// `true` (the default empty-string literal type-checks
-		// clean).
-		innerValidRef.current = [...innerValidRef.current, true];
 		onChange([...value, seed]);
 	};
 
@@ -405,7 +336,12 @@ export function CalculatedColumnEditor({
 									knownInputs={knownInputs}
 									onChange={(next) => replaceRow(i, next)}
 									onRemove={() => removeRow(i)}
-									onInnerValidityChange={(valid) => setInnerValid(i, valid)}
+									// Route the row's inner verdict through the row-
+									// identity-keyed shadow. Passing `column` (the
+									// current CalculatedColumn object) keys the
+									// WeakMap entry to this row's reference so a
+									// reorder-then-flip writes against the right slot.
+									onInnerValidityChange={(valid) => setRowValid(column, valid)}
 									setHandleEl={setHandleEl}
 								/>
 								{previewPortal}

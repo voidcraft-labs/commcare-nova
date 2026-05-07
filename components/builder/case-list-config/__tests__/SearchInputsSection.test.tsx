@@ -764,6 +764,178 @@ describe("SearchInputsSection — inner-validity propagation", () => {
 	});
 });
 
+// ── Property picker stays editable across non-self via ───────────
+//
+// Regression: a previous implementation passed `value.via` into
+// `prop(currentCaseType, property, via)` when constructing the
+// `<PropertyRefPicker mode="property-only">`'s `value`. The picker's
+// `term-prop-with-via` detection fired for any non-self walk and
+// replaced the property dropdown with a read-only "Property via
+// relation walk" badge — blocking property edits on the canonical
+// authoring flow (user adds property → picks ancestor walk →
+// property dropdown disappears).
+//
+// Fix: the row passes a self-shaped `prop(currentCaseType, property)`
+// to the picker. The walk surface (`RelationPathBuilder`) lives in
+// the row body next to the picker; the picker's property-only
+// surface stays stable across every authoring state.
+
+describe("SearchInputsSection — property picker stays editable across non-self via", () => {
+	it("renders the property dropdown (NOT the via badge) when row has an ancestor walk", () => {
+		const { container } = renderEditor([
+			searchInputDef("village_q", "Village", "text", {
+				property: "village",
+				via: ancestorPath(relationStep("parent")),
+			}),
+		]);
+		// The picker MUST stay in its property-dropdown surface — the
+		// trigger button has the "Search input 1 property: ..." aria
+		// label per `PropertyRefPicker.property-only`'s
+		// `<PropertyPicker>` chrome.
+		const propertyTrigger = container.querySelector(
+			'button[aria-label^="Search input 1 property:"]',
+		);
+		expect(propertyTrigger).not.toBeNull();
+		// And the badge surface must NOT render — the badge has a
+		// "Replace" affordance that would replace the picker's
+		// dropdown trigger.
+		const replaceButton = Array.from(container.querySelectorAll("button")).find(
+			(b) => b.textContent === "Replace",
+		);
+		expect(replaceButton).toBeUndefined();
+	});
+
+	it("changing the property via the dropdown preserves the row's via", () => {
+		// Pin the via-preservation contract end-to-end: with a non-self
+		// walk on the row, the property picker's onChange routes only
+		// the property-name change through the row builder. The via
+		// slot stays intact because the picker doesn't see / edit it.
+		const onChange = vi.fn();
+		render(
+			<SearchInputsSection
+				value={[
+					searchInputDef("village_q", "Village", "text", {
+						property: "village",
+						via: ancestorPath(relationStep("parent")),
+					}),
+				]}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+		// Open the property menu and pick a different property.
+		const propertyTrigger = screen.getByRole("button", {
+			name: /search input 1 property:/i,
+		});
+		fireEvent.click(propertyTrigger);
+		// `size` is declared on `household` (the parent_type); it
+		// shows in the dropdown because the property-only picker
+		// scopes to currentCaseType. Pick `village` (the same)
+		// alternative on `patient`.
+		// Use a property declared on the editor's `currentCaseType`
+		// (patient) — the picker's property-only dropdown reads from
+		// `currentCaseType` regardless of the row's `via`.
+		const sizeItem = screen.getByRole("menuitem", { name: /name/i });
+		fireEvent.click(sizeItem);
+		const next = lastEmitted(onChange);
+		const row = next[0];
+		if (row === undefined) throw new Error("expected row");
+		expect(row.property).toBe("name");
+		// Via slot preserved verbatim.
+		expect(row.via).toEqual(ancestorPath(relationStep("parent")));
+	});
+});
+
+// ── Reorder-then-flip regression (IMPORTANT 2 backstop) ──────────
+//
+// Pre-fix: the inner-validity shadow was an index-keyed boolean
+// array. After a reorder, an inner-flip on the moved row would
+// write against the row's NEW index, which was occupied by a
+// different row's stale verdict. The flip would silently no-op
+// (both values matched), the aggregation would walk the unchanged
+// shadow, and the parent's `onValidityChange(true)` never fired
+// even though every row was structurally valid.
+//
+// Post-fix: `useInnerValidityShadow` keys the shadow by row
+// reference via `WeakMap`. Reorder + flip propagates correctly.
+
+describe("SearchInputsSection — reorder-then-flip propagation", () => {
+	it("propagates valid:true after reorder + inner-flip on the moved row", async () => {
+		// Phase 1 — Mount with [A_invalid, B_valid, C_valid]. A's
+		// default expression references a missing property; B + C
+		// reference a declared property. The text-typed input picks
+		// `expectedType: "text"` for the inner editor, so the
+		// declared text-typed property satisfies the inner type
+		// checker; the missing property fails outright.
+		const PATIENT_NO_NICKNAME: CaseType = {
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		};
+		const PATIENT_WITH_NICKNAME: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "nickname", label: "Nickname", data_type: "text" },
+			],
+		};
+
+		const A = searchInputDef("a", "A", "text", {
+			default: term(prop("patient", "nickname")),
+		});
+		const B = searchInputDef("b", "B", "text", {
+			default: term(prop("patient", "name")),
+		});
+		const C = searchInputDef("c", "C", "text", {
+			default: term(prop("patient", "name")),
+		});
+
+		const onValidityChange = vi.fn();
+		const { rerender } = render(
+			<SearchInputsSection
+				value={[A, B, C]}
+				onChange={() => {}}
+				caseTypes={[PATIENT_NO_NICKNAME]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		expect(onValidityChange).toHaveBeenLastCalledWith(false);
+
+		// Phase 2 — Rerender with rows in [C, A, B] order. The SAME
+		// object references thread through (mirrors the splice
+		// contract `useReorderableList` honors).
+		rerender(
+			<SearchInputsSection
+				value={[C, A, B]}
+				onChange={() => {}}
+				caseTypes={[PATIENT_NO_NICKNAME]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		expect(onValidityChange).toHaveBeenLastCalledWith(false);
+
+		// Phase 3 — Rerender with caseTypes that declare `nickname`.
+		// A's inner expression now type-checks; the inner-flip writes
+		// against A's reference (not its index). With WEAKMAP keying
+		// the shadow's A entry flips to true and the aggregation
+		// reports valid:true. With INDEX keying the flip would no-op
+		// against the old slot and the parent would never see the
+		// transition.
+		rerender(
+			<SearchInputsSection
+				value={[C, A, B]}
+				onChange={() => {}}
+				caseTypes={[PATIENT_WITH_NICKNAME]}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		expect(onValidityChange).toHaveBeenLastCalledWith(true);
+	});
+});
+
 // ── Builder discipline ───────────────────────────────────────────
 
 describe("SearchInputsSection — builder discipline", () => {
