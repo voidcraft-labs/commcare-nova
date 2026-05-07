@@ -145,8 +145,20 @@ type PropertyDataTypeCarrier = { readonly data_type?: CasePropertyDataType };
  *
  * Exported so callers that need the raw resolved type (rather
  * than a per-shape predicate) can avoid duplicating the fallback.
+ *
+ * The return type is `CasePropertyDataType` — the closed enum the
+ * function structurally returns. Both arms of the body produce a
+ * `CasePropertyDataType` value (the prop's own typed `data_type`,
+ * or the literal `"text"` fallback), so widening the signature to
+ * `string` would surrender narrowing at call sites for no
+ * structural gain. Callers that need a `string`-typed value (e.g.
+ * `applicableSortTypes(string | undefined)`, JSX template strings
+ * rendering the type label) accept the narrower type by structural
+ * assignment without changes.
  */
-export function effectiveDataType(p: PropertyDataTypeCarrier): string {
+export function effectiveDataType(
+	p: PropertyDataTypeCarrier,
+): CasePropertyDataType {
 	return p.data_type ?? "text";
 }
 

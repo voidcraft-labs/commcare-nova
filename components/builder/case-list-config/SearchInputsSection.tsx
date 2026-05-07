@@ -445,10 +445,7 @@ function computeTypeCouplingErrors(
 	// Widget-kind vs property data-type. `undefined` in the table
 	// means unrestricted (the kind admits every data type).
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
-	if (
-		typeAllowList !== undefined &&
-		!typeAllowList.includes(dataType as never)
-	) {
+	if (typeAllowList !== undefined && !typeAllowList.includes(dataType)) {
 		errors.push(
 			`${SEARCH_INPUT_TYPE_LABELS[row.type]} input is not valid for ${dataType} property "${row.property}"; pick a ${typeAllowList.join(" / ")} property.`,
 		);
@@ -458,10 +455,7 @@ function computeTypeCouplingErrors(
 	// unrestricted (e.g. `exact` admits every data type).
 	if (row.mode !== undefined) {
 		const modeAllowList = SEARCH_MODE_PROPERTY_TYPES[row.mode.kind];
-		if (
-			modeAllowList !== undefined &&
-			!modeAllowList.includes(dataType as never)
-		) {
+		if (modeAllowList !== undefined && !modeAllowList.includes(dataType)) {
 			errors.push(
 				`${SEARCH_MODE_LABELS[row.mode.kind]} mode is not valid for ${dataType} property "${row.property}"; pick a ${modeAllowList.join(" / ")} property.`,
 			);
