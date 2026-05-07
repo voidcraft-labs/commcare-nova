@@ -6,11 +6,11 @@ import {
 	type UIMessage,
 } from "ai";
 import {
+	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
 	createSolutionsArchitect,
 	GenerationContext,
 	MESSAGES,
-	STRIP_TARGET_TOOL_NAMES,
 } from "@/lib/agent";
 import { resolveApiKey } from "@/lib/auth-utils";
 import {
@@ -346,34 +346,28 @@ export async function POST(req: Request) {
 				 *    prompt already carries a compact blueprint summary, so past
 				 *    turns would just waste tokens against a dead cache.
 				 *
-				 * 2. **Live-cache edits get full history, but with build-only +
-				 *    retired tool parts stripped.** Edit mode excludes the
-				 *    build-only generation tools (`generateSchema` /
-				 *    `generateScaffold`) from the tool set, and any historical
-				 *    chat may also reference tools that have been retired
-				 *    entirely since (`addModule`, etc. — see
-				 *    `RETIRED_TOOL_NAMES`). Anthropic rejects any tool
-				 *    reference whose name isn't in the current tools array, so
-				 *    both classes must be stripped to avoid 4xx mid-thread.
-				 *    Stripping them by `tool-${name}` part type removes both
-				 *    the call and its output in one step — AI SDK v5 keeps
+				 * 2. **Live-cache edits get full history, but with build-only tool
+				 *    parts stripped.** Edit mode excludes `generateSchema` and
+				 *    `generateScaffold` from the tool set; any lingering tool-use
+				 *    parts from the original build would make Anthropic reject
+				 *    the request ("tool not found in tools array"). Stripping
+				 *    them by `tool-${name}` part type removes
+				 *    both the call and its output in one step — AI SDK v5 keeps
 				 *    both sides of a tool invocation on the same part — so the
 				 *    converted Anthropic messages come out with matched
-				 *    `tool_use` / `tool_result` pairs for the tools that
-				 *    remain. Assistant messages that collapse to zero parts
-				 *    after the strip are dropped so the wire doesn't carry
-				 *    empty turns. The filter is deterministic in its inputs,
-				 *    so successive edit requests produce identical prefixes
-				 *    and hit the prompt cache as intended. */
-				const stripTargetPartTypes = new Set<string>(
-					STRIP_TARGET_TOOL_NAMES.map((name) => `tool-${name}`),
+				 *    `tool_use` / `tool_result` pairs for the tools that remain.
+				 *    Assistant messages that collapse to zero parts after the
+				 *    strip are dropped so the wire doesn't carry empty turns.
+				 *    The filter is deterministic in its inputs, so successive
+				 *    edit requests produce identical prefixes and hit the
+				 *    prompt cache as intended. */
+				const buildOnlyPartTypes = new Set<string>(
+					BUILD_ONLY_TOOL_NAMES.map((name) => `tool-${name}`),
 				);
-				const stripRetiredAndBuildOnlyParts = (
-					m: UIMessage,
-				): UIMessage | undefined => {
+				const stripBuildOnlyParts = (m: UIMessage): UIMessage | undefined => {
 					if (m.role !== "assistant") return m;
 					const nextParts = m.parts.filter(
-						(p) => !stripTargetPartTypes.has(p.type),
+						(p) => !buildOnlyPartTypes.has(p.type),
 					);
 					if (nextParts.length === 0) return undefined;
 					return nextParts.length === m.parts.length
@@ -384,7 +378,7 @@ export async function POST(req: Request) {
 					? cacheExpired
 						? messages.filter((m) => m.role === "user").slice(-1)
 						: messages
-								.map(stripRetiredAndBuildOnlyParts)
+								.map(stripBuildOnlyParts)
 								.filter((m): m is UIMessage => m !== undefined)
 					: messages;
 
