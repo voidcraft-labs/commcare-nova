@@ -34,6 +34,7 @@ import {
 	validateXFormPath,
 } from "@/lib/commcare";
 import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
+import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
@@ -78,6 +79,7 @@ export function compileCcz(
 		const moduleUuid = doc.moduleOrder[mIdx];
 		const formUuids = doc.formOrder[moduleUuid] ?? [];
 
+		const mod = doc.modules[moduleUuid];
 		const modName = hqMod.name.en;
 		const caseType = hqMod.case_type;
 		const hqForms = hqMod.forms;
@@ -85,18 +87,30 @@ export function compileCcz(
 		appStrings[`modules.m${mIdx}`] = modName;
 
 		// Case detail definitions — emitted only when the module has a case
-		// type. Short + long details are always paired; headers for every
-		// column (from either detail) land in `appStrings`.
+		// type. Short + long details are always paired.
+		//
+		// Short detail emits through the typed emitter at
+		// `@/lib/commcare/suite/case-list/shortDetail.ts`, which walks
+		// `module.caseListConfig` directly (the typed `Column`
+		// discriminated union, sort keys, calculated columns) and returns
+		// both the suite-XML fragment and the locale-id → header-string
+		// map the runtime renders against. The long-detail path keeps
+		// the legacy HQ-JSON-driven `generateDetail` shape until the
+		// sibling task in this plan family lands its typed long emitter.
+		//
+		// `cchq.case` (the title locale) ships with CCHQ's runtime as a
+		// built-in with `default="Case"` (per
+		// `commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`), so
+		// the short-detail emitter does NOT register it. Long detail
+		// retains the legacy `case_list_title` registration via the old
+		// path; both `<detail>` blocks coexist.
 		if (caseType) {
 			appStrings.case_list_title = appStrings.case_list_title || `${modName}`;
 
-			suiteDetails.push(
-				generateDetail(
-					`m${mIdx}_case_short`,
-					"short",
-					hqMod.case_details.short.columns,
-				),
-			);
+			const shortEmission = emitShortDetail({ module: mod, moduleIndex: mIdx });
+			suiteDetails.push(shortEmission.xml);
+			Object.assign(appStrings, shortEmission.strings);
+
 			suiteDetails.push(
 				generateDetail(
 					`m${mIdx}_case_long`,
@@ -105,14 +119,15 @@ export function compileCcz(
 				),
 			);
 
-			for (const detail of [
-				hqMod.case_details.short,
-				hqMod.case_details.long,
-			]) {
-				for (const col of detail.columns) {
-					const headerKey = `m${mIdx}_${col.field}_header`;
-					appStrings[headerKey] = col.header.en || col.field;
-				}
+			// Long-detail header registration retains the legacy
+			// `m{n}_{field}_header` shape so the existing locale ids
+			// the long-detail emitter references stay populated. The
+			// short-detail emitter owns its own locale ids end-to-end
+			// (CCHQ-canonical `m{n}.case_short.case_<field>_<i>.header`
+			// shape) and threads them through `shortEmission.strings`.
+			for (const col of hqMod.case_details.long.columns) {
+				const headerKey = `m${mIdx}_${col.field}_header`;
+				appStrings[headerKey] = col.header.en || col.field;
 			}
 		}
 
