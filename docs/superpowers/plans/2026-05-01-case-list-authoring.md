@@ -189,13 +189,29 @@ The editor schema mirrors Tasks 2 / 3's pattern: `columnEditorSchemas.ts` is `Re
 Final state: 3362 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 5: Sort key editor
+### Task 5: Sort key editor — SHIPPED
 
-**Files:** `components/builder/case-list-config/SortKeyEditor.tsx`, tests.
+SHIPPED 2026-05-06 in commits `1d1423bd` (initial feat) → `f78e7f11` (CR fix-pass: drop dead PredicateEditProvider mount + nodeId row keys + JSDoc precision) → `9ce3e781` (CR fix-pass: unify SortKey validity with display.missing detection via shared resolveSource helper) → `30696254` (final polish: direct discriminator + drop dead fallback + gate empty-section headers + reorder property lookup + test name precision) on branch `feat/case-list-search`.
 
-Multi-key, drag-orderable list. Each key has source (property pick / calculated column pick) + type (Plain / Date / Integer / Decimal) + direction (Ascending / Descending).
+**What landed:**
 
-Tests: round-trip; conflicting types surface as errors (sorting an `int` property as Date type).
+The multi-key drag-orderable Sort Key editor at `components/builder/case-list-config/SortKeyEditor.tsx`. Each row has a source (property OR calculated column), a type (Plain / Date / Integer / Decimal), and a direction (asc / desc). The Source picker is a single Base UI Menu with section headers that combine properties + calculated columns under one trigger; the discriminator is visible per item via icon (database vs math-function). Direction toggle, type picker, drag handle, and remove button complete each row. "Add sort key" affordance below the list.
+
+**Source resolution is unified.** A single `resolveSource(...)` helper returns `{ state: "resolved" | "empty" | "missing", displayLabel, kindLabel, dataType, monospaceLabel }` and is consumed by BOTH `errorsPerRow` (validity propagation) AND every `<SourcePicker resolved={...} />` (trigger chrome + aria-label). Two consumers, one computation, no drift possible. Four unresolvable states (empty property, stale property name, empty columnId, stale columnId) flip `valid: false` and surface inline errors symmetric with the visual chrome. Closes the "display says broken but validity says fine" asymmetry that violates `feedback_always_in_valid_state.md`.
+
+**Type-checking matrix.** `applicableSortTypes(propertyDataType)`: text/single_select/multi_select/geopoint → `["plain"]`; int → `["integer", "plain"]`; decimal → `["decimal", "plain"]`; date/datetime/time → `["date", "plain"]`. Calculated sources admit all four (no resolvable type at the source layer). Inapplicable types stay clickable with reduced opacity; the inline error makes the rejection visible.
+
+**Hook generalization.** `useReorderableExpressionList` → `useReorderableList`. The closed `containerKind` discriminator widened to free-form `string` so any list-shaped editor can share the reorder primitives. Per-instance `nodeKey` (via `useId()`) is the strict cross-list scope; `containerKind` is a coarse belt-and-suspenders gate. The four consumers (`ConcatCard`, `CoalesceCard`, `SwitchCard`, `SortKeyEditor`) each pin their own `containerKind` token — `concat` / `coalesce` / `switch` / `sort-keys`. Drag preview portal correct.
+
+**Builders.** `propertySortSource(property)`, `calculatedSortSource(columnId)`, `sortKey(source, type, direction)`, `applicableSortTypes(propertyDataType)` added to `lib/domain/modules.ts`. Every editor mutation routes through them.
+
+**aria-label disambiguation.** `Sort source: Property "<name>"` / `Sort source: Calculated column "<name>"` with `" (missing)"` suffix when unresolvable. The trigger icon follows `value.kind` regardless of resolution; only the icon's color flips to error red when missing.
+
+**Hard constraints honored:** No textareas. `nodeId(key)` for stable React keys (WeakMap-backed; survives reorders + duplicate-source rows). Base UI Menu with `Menu.Trigger`. `@iconify/react/offline` icons. `motion/react` animation (none needed at this surface). `'use client'` at top. SA tool prompts/schemas untouched.
+
+**Tests (28 in this task's suite):** round-trip per source kind, type-mismatch inline error rendering, all four unresolvable cases (empty property, stale property, empty columnId, stale columnId) propagate `valid: false` AND surface inline errors, calculated source `columnId` preservation across direction toggle / type pick / source change, drag-handle wiring (one grip per row, zero on empty list), add/remove, direction toggle, type picker, empty list, **duplicate-source rows** (two keys on same property with different `(type, direction)` survive remove-by-index correctly), aria-label disambiguation. Three rounds of fresh-CR review uncovered progressively-narrower issue classes (dead PredicateEditProvider mount with lying docs → validity/display asymmetry → polish drift).
+
+Final state: 3390 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 6: Display section composition
