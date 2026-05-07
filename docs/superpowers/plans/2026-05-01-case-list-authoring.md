@@ -632,11 +632,42 @@ SHIPPED 2026-05-07 in commit `7e7ab7d2` on branch `feat/case-list-search`.
 Final state: 3754 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Spec review APPROVED (every requirement met). Round 1 CR APPROVED clean (no CRITICAL / IMPORTANT findings; 2 cosmetic MINOR JSDoc nits not blocking).
 
 
-### Task 14: Plan 3 integration test
+### Task 14: Plan 3 integration test — SHIPPED
 
-**Files:** `__tests__/integration/`.
+SHIPPED 2026-05-07 in commits `151495d0` (initial feat) → `83fdfc37` (polish: standard-property JSDoc accuracy) on branch `feat/case-list-search`.
 
-End-to-end: build a fixture blueprint with case-list-config; run the validator; emit suite XML; compare against golden file; run preview rendering against `PostgresCaseStore` and verify the rendered case list matches expected.
+**What landed:**
+
+`__tests__/integration/case-list-authoring.test.ts` exercises Plan 3's full surface end-to-end against a single fixture blueprint. 9 tests cover schema parse, validator, wire emission, and live Postgres preview rendering — every layer hits production code paths, no tautological mocks.
+
+**Fixture coverage:**
+- `Patients` module — case-typed with full `caseListConfig`:
+  - 4 ColumnKinds (plain × 2, date, time-since-until, id-mapping)
+  - Real predicate filter (`eq(prop("status"), literal("open"))`) against the `status` standard property
+  - Multi-key sort: `age` integer desc, `case_name` plain asc
+  - Calculated column: `age + 1` over the int property
+  - Two search inputs: text-typed on `name`, range-mode on `age`
+  - `detailColumns` distinct from `columns` (long-detail override path: `last_modified` standard datetime column on detail-only)
+- `Households` module — case-typed without `caseListConfig`, exercising the title-only-shell absence arm.
+
+**Tests (9):**
+- 1 schema parse — fixture round-trips through live `caseListConfigSchema.parse`. A schema drift surfaces as a Zod parse failure at this layer.
+- 2 validator — `runValidation(doc)` clean for the well-formed fixture; `CASE_LIST_COLUMN_UNKNOWN_FIELD` fires on a surgically-corrupted variant referencing `ghost_property`.
+- 5 wire emission — `emitShortDetail` (structural fingerprints for plain/date/time-since-until/id-mapping/calc + multi-key sort blocks); `emitLongDetail` (override path, no-sort divergence); title-only shell on absent `caseListConfig`; `emitNodesetFilter` (bracket-wrapped fragment); full `compileCcz` archive verifies suite.xml end-to-end via AdmZip extraction.
+- 1 preview rendering — `setupPerTestDatabase` boots a Postgres testcontainer; three patient rows seeded (Alice open/25, Bob open/40, Carol closed/30); `PostgresCaseStore.queryWithCalculated` exercises the AST → Kysely compiler stack; assertions pin filter elimination (Carol drops out), sort order (Bob 40 desc-precedes Alice 25), and calculated-value projection (`age + 1` lands as 41 / 26).
+
+**Hard constraints honored:**
+- No tautological mocks — every layer hits production code (`caseListConfigSchema.parse`, `runValidation`, the four wire emitters, `compileCcz`, `PostgresCaseStore.insert` + `queryWithCalculated`).
+- No line numbers in comments — citations use stable name references throughout.
+- No process / forward-projection comments. Drift sweep clean.
+- Standard-property JSDoc verified against `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` after the polish round (initial commit had a `modified_on` misname; `modified_on` is in `RESERVED_CASE_PROPERTIES` write-side, NOT in the read-side standard list — the canonical authoring name is `last_modified`).
+
+**Bug-class observations during fixture wiring** (all resolved as fixture-side alignment, not shipped-code bugs):
+- Sort keys silently drop at wire emission when no displayed column matches the source property. Validator's `sortTypeCheck` rejects sort sources that don't resolve to a property; the remaining "source resolves but no column references it" case is an authoring-time UX gap. Tracked as a follow-up.
+- `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` uses CCHQ-canonical authoring `key`s (`last_modified`), not internal `system_name`s (`modified_on`). Confirmed against `commcare-hq::case_search/const.py::INDEXED_METADATA_BY_KEY`.
+- `expander.ts::hasCases` requires at least one non-survey form for case-type emission. Survey-only modules with a `caseType` declared are incoherent (surveys don't touch case state), and the gate degrades gracefully — no detail block is emitted.
+
+Final state: 3783 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean. Spec review SPEC_COMPLIANT. Round 1 CR APPROVED clean.
 
 
 ### Task 15: Migration script run + archive
