@@ -13,7 +13,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type CalculatedColumn, calculatedColumn } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CalculatedColumn,
+	calculatedColumn,
+	type Module,
+} from "@/lib/domain";
 import { concat, literal, prop, term, today } from "@/lib/domain/predicate";
 import { setCalculatedColumnsTool } from "../setCalculatedColumns";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -216,5 +221,41 @@ describe("setCalculatedColumns", () => {
 
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toEqual({ error: "Module 99 not found" });
+	});
+
+	it("initializes the caseListConfig when the module has none", async () => {
+		// Module without an existing config — the tool must produce a
+		// fully-populated config with the new calculated columns +
+		// empty arrays for the unset slots, rather than write
+		// `caseListConfig: { calculatedColumns }` and leave the
+		// schema-required arrays absent.
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseMod = baseDoc.modules[MOD_A];
+		const docWithoutConfig: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
+			},
+		};
+
+		const calc: CalculatedColumn[] = [
+			calculatedColumn("today_str", "Today", today()),
+		];
+		const result = await setCalculatedColumnsTool.execute(
+			{ moduleIndex: 0, calculatedColumns: calc },
+			ctx,
+			docWithoutConfig,
+		);
+
+		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(finalConfig).toBeDefined();
+		expect(finalConfig?.calculatedColumns).toEqual(calc);
+		expect(finalConfig?.columns).toEqual([]);
+		expect(finalConfig?.sort).toEqual([]);
+		expect(finalConfig?.searchInputs).toEqual([]);
+		// `filter` + `detailColumns` stay absent — schema-default for
+		// the no-filter / mirror-short-detail cases.
+		expect(finalConfig?.filter).toBeUndefined();
+		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 });

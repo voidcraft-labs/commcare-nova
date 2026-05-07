@@ -19,7 +19,6 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type Column,
@@ -262,7 +261,6 @@ describe("setCaseListColumns", () => {
 			doc,
 		);
 
-		const stripStage = (muts: Mutation[]) => muts.map((m) => ({ ...m }));
-		expect(stripStage(r1.mutations)).toEqual(stripStage(r2.mutations));
+		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

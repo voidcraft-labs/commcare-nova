@@ -14,6 +14,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BlueprintDoc, Module } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, matchAll, prop } from "@/lib/domain/predicate";
 import { setCaseListFilterTool } from "../setCaseListFilter";
@@ -200,5 +201,38 @@ describe("setCaseListFilter", () => {
 
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toEqual({ error: "Module 99 not found" });
+	});
+
+	it("initializes the caseListConfig when the module has none", async () => {
+		// Module without an existing config — the tool must produce a
+		// fully-populated config with the new filter + empty arrays
+		// for the unset slots, rather than write `caseListConfig:
+		// { filter }` and leave the schema-required arrays absent.
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseMod = baseDoc.modules[MOD_A];
+		const docWithoutConfig: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
+			},
+		};
+
+		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter },
+			ctx,
+			docWithoutConfig,
+		);
+
+		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(finalConfig).toBeDefined();
+		expect(finalConfig?.filter).toEqual(filter);
+		expect(finalConfig?.columns).toEqual([]);
+		expect(finalConfig?.sort).toEqual([]);
+		expect(finalConfig?.calculatedColumns).toEqual([]);
+		expect(finalConfig?.searchInputs).toEqual([]);
+		// `detailColumns` stays absent — schema-default for the
+		// mirror-short-detail case.
+		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 });

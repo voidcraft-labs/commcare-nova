@@ -51,7 +51,7 @@ export type SetCaseListFilterResult = string | { error: string };
 
 export const setCaseListFilterTool = {
 	description:
-		"Set or clear the always-on case list filter on a module. Pass a typed Predicate AST to filter the case list; pass null to remove an existing filter. Filter applies before any search-input refinement. To remove a filter, prefer null over a `match-all` predicate — null omits the filter entirely; `match-all` would emit a redundant `true()` wrapper at the wire layer.",
+		"Set or clear the always-on case list filter on a module. Pass a typed Predicate AST to filter the case list; pass null to remove an existing filter. Filter applies before any search-input refinement. To clear, always pass null — `match-all` is a non-empty filter expressing 'match every case' as a value, not a clear signal.",
 	inputSchema: setCaseListFilterInputSchema,
 	async execute(
 		input: SetCaseListFilterInput,

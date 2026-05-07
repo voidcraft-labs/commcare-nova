@@ -38,15 +38,50 @@ import { setCaseListSortTool } from "../setCaseListSort";
 
 /* JSON Schema shape this test introspects. Both `properties` and
  * `required` are present on object-shaped schemas; the `items` slot
- * carries the per-item shape on array slots. The cast is explicit so
- * each property access is typed. */
+ * carries the per-item shape on array slots. The `$defs` map carries
+ * shared `$ref` targets emitted for recursive AST cycles (Predicate /
+ * ValueExpression). The cast is explicit so each property access is
+ * typed. */
 interface ObjectJsonSchema {
 	type?: string;
 	properties?: Record<string, ObjectJsonSchema>;
 	required?: readonly string[];
 	items?: ObjectJsonSchema;
 	$ref?: string;
+	$defs?: Record<string, ObjectJsonSchema>;
+	/* Zod 4 lowers `z.discriminatedUnion(...)` to `oneOf`. The
+	 * legacy `z.union(...)` lowers to `anyOf`. Both arms must be
+	 * checked when counting per-item optionals — missing one of
+	 * the two would silently skip half the union shapes. */
+	oneOf?: readonly ObjectJsonSchema[];
 	anyOf?: readonly ObjectJsonSchema[];
+}
+
+const DEFS_REF_PREFIX = "#/$defs/";
+
+/**
+ * Resolve a single arm of a JSON Schema item shape to its concrete
+ * object shape. JSON Schema `$ref` strings encode references as
+ * `#/$defs/<name>` against the document root's `$defs` map; this
+ * helper follows one hop. Arms without `$ref` are returned as-is.
+ *
+ * Internally used by the per-item optional-count check below — the
+ * cycle-bearing schemas (`searchInputDefSchema`'s `via` / `default`
+ * / `xpath` slots) lower to `$ref`-bearing shapes that point into
+ * `$defs`, but the per-arm count we care about is the top-level
+ * item which is concrete. The helper keeps the test future-proof
+ * against a future reshape that lifts the item arm into `$defs`
+ * itself.
+ */
+function resolveArm(
+	arm: ObjectJsonSchema,
+	root: ObjectJsonSchema,
+): ObjectJsonSchema {
+	if (arm.$ref === undefined) return arm;
+	if (!arm.$ref.startsWith(DEFS_REF_PREFIX)) return arm;
+	const name = arm.$ref.slice(DEFS_REF_PREFIX.length);
+	const target = root.$defs?.[name];
+	return target ?? arm;
 }
 
 const TOOLS = [
@@ -96,22 +131,39 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 					`expected \`${arrayKey}\` to be the array slot on ${name}`,
 				);
 			}
-			/* The array's `items` slot is the per-item schema. For
-			 * discriminated unions (the Column shape), Zod lowers each arm
-			 * to an `anyOf` entry; the per-arm optional count is what the
-			 * compiler sees, so we count optionals across every arm and
-			 * assert each stays under the ceiling. For plain object
-			 * shapes (`SortKey`, `CalculatedColumn`, `SearchInputDef`),
-			 * we count directly on the item shape. */
+			/* The array's `items` slot is the per-item schema. Three
+			 * shapes the compiler can produce:
+			 *
+			 *   - Discriminated union (`z.discriminatedUnion`) lowers
+			 *     to `oneOf` — every Column / SortKeySource arm is its
+			 *     own object shape; we count optionals on each arm.
+			 *   - Generic union (`z.union`) lowers to `anyOf` — same
+			 *     per-arm counting rule; included for forward-
+			 *     compatibility with future tools.
+			 *   - Plain object (`z.object`) — single shape; counted
+			 *     directly.
+			 *
+			 * Resolving each arm through `resolveArm` follows a single
+			 * `$ref` hop into `$defs`; future reshapes that lift the
+			 * item arm into `$defs` won't silently bypass the check.
+			 * Arms with no resolvable `properties` after that hop fail
+			 * the test loudly — the test must SEE every arm to trust
+			 * the ceiling, never silently skip. */
 			const items = arrayProp.items;
 			if (!items) {
 				throw new Error(
 					`expected \`${arrayKey}.items\` to be defined on ${name}`,
 				);
 			}
-			const arms = items.anyOf ?? [items];
-			for (const arm of arms) {
-				if (!arm.properties) continue;
+			const rawArms = items.oneOf ?? items.anyOf ?? [items];
+			let armsChecked = 0;
+			for (const rawArm of rawArms) {
+				const arm = resolveArm(rawArm, json);
+				if (!arm.properties) {
+					throw new Error(
+						`${name}: per-item arm has no \`properties\` after \`$ref\` resolution — refusing to silently skip the optional-count check.`,
+					);
+				}
 				const allKeys = Object.keys(arm.properties);
 				const required = new Set(arm.required ?? []);
 				const optionalCount = allKeys.filter((k) => !required.has(k)).length;
@@ -119,7 +171,16 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 					optionalCount,
 					`${name}: arm with required=${[...required].join(",")} has ${optionalCount} optional fields`,
 				).toBeLessThanOrEqual(8);
+				armsChecked++;
 			}
+			/* Pin a positive lower bound on arms checked — a
+			 * regression that wires the test against an `items` shape
+			 * with zero arms (e.g. an `unknown`-typed item) would
+			 * otherwise pass vacuously. */
+			expect(
+				armsChecked,
+				`${name}: expected ≥1 arm to be checked`,
+			).toBeGreaterThan(0);
 		});
 	}
 

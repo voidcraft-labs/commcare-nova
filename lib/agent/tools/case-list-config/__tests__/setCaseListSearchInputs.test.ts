@@ -16,7 +16,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type BlueprintDoc,
 	exactMode,
+	type Module,
 	rangeMode,
 	type SearchInputDef,
 	searchInputDef,
@@ -261,5 +263,41 @@ describe("setCaseListSearchInputs", () => {
 		);
 
 		expect(r1.mutations).toEqual(r2.mutations);
+	});
+
+	it("initializes the caseListConfig when the module has none", async () => {
+		// Module without an existing config — the tool must produce a
+		// fully-populated config with the new search inputs + empty
+		// arrays for the unset slots, rather than write
+		// `caseListConfig: { searchInputs }` and leave the schema-
+		// required arrays absent.
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseMod = baseDoc.modules[MOD_A];
+		const docWithoutConfig: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
+			},
+		};
+
+		const searchInputs: SearchInputDef[] = [
+			searchInputDef("name_search", "Name", "text", { property: "case_name" }),
+		];
+		const result = await setCaseListSearchInputsTool.execute(
+			{ moduleIndex: 0, searchInputs },
+			ctx,
+			docWithoutConfig,
+		);
+
+		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(finalConfig).toBeDefined();
+		expect(finalConfig?.searchInputs).toEqual(searchInputs);
+		expect(finalConfig?.columns).toEqual([]);
+		expect(finalConfig?.sort).toEqual([]);
+		expect(finalConfig?.calculatedColumns).toEqual([]);
+		// `filter` + `detailColumns` stay absent — schema-default for
+		// the no-filter / mirror-short-detail cases.
+		expect(finalConfig?.filter).toBeUndefined();
+		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 });

@@ -15,7 +15,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type BlueprintDoc,
 	calculatedSortSource,
+	type Module,
 	plainColumn,
 	propertySortSource,
 	type SortKey,
@@ -192,5 +194,40 @@ describe("setCaseListSort", () => {
 
 		expect(result.mutations).toEqual([]);
 		expect(result.result).toEqual({ error: "Module 99 not found" });
+	});
+
+	it("initializes the caseListConfig when the module has none", async () => {
+		// Module without an existing config — the tool must produce a
+		// fully-populated config with the new sort + empty arrays for
+		// the unset slots, rather than write `caseListConfig: { sort }`
+		// and leave the schema-required arrays absent.
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseMod = baseDoc.modules[MOD_A];
+		const docWithoutConfig: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: { ...baseMod, caseListConfig: undefined } as Module,
+			},
+		};
+
+		const sort: SortKey[] = [
+			sortKey(propertySortSource("case_name"), "plain", "asc"),
+		];
+		const result = await setCaseListSortTool.execute(
+			{ moduleIndex: 0, sort },
+			ctx,
+			docWithoutConfig,
+		);
+
+		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(finalConfig).toBeDefined();
+		expect(finalConfig?.sort).toEqual(sort);
+		expect(finalConfig?.columns).toEqual([]);
+		expect(finalConfig?.calculatedColumns).toEqual([]);
+		expect(finalConfig?.searchInputs).toEqual([]);
+		// `filter` + `detailColumns` stay absent — schema-default for
+		// the no-filter / mirror-short-detail cases.
+		expect(finalConfig?.filter).toBeUndefined();
+		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 });
