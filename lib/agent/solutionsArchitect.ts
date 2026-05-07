@@ -63,11 +63,12 @@ export { validateAndFix } from "./validationLoop";
  * literals so the array is module-scope (the concrete tool record lives
  * inside the factory closure, bound to `ctx` and `doc`).
  *
- * The chat route uses this list to strip build-only tool-use parts from
- * message history on edit-mode requests — Anthropic rejects any tool
- * reference whose name isn't in the current tools array, and a
- * mid-session edit right after a build would otherwise carry these
- * references in its history.
+ * The chat route uses this list (joined with `RETIRED_TOOL_NAMES` —
+ * see below) to strip build-only and removed tool parts from message
+ * history on edit-mode requests. Anthropic rejects any tool reference
+ * whose name isn't in the current tools array, and a mid-session edit
+ * right after a build would otherwise carry these references in its
+ * history.
  *
  * `BuildOnlyToolName` pins the list to its literal values; the factory
  * applies a matching `satisfies Record<BuildOnlyToolName, …>` to its
@@ -80,6 +81,44 @@ export const BUILD_ONLY_TOOL_NAMES = [
 ] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
+
+/**
+ * Names of SA tools that existed in prior conversations but no longer
+ * appear in the current tool set — for any reason (build-only tool
+ * deleted outright, shared tool replaced by a successor, etc.). The
+ * chat route folds these into the same strip set as
+ * `BUILD_ONLY_TOOL_NAMES` so persisted assistant turns from before
+ * the removal don't reach Anthropic with stale `tool-use` parts. The
+ * model rejects any tool reference whose name isn't in the current
+ * tools array — every retired tool would otherwise produce a 4xx on
+ * the next live-cache edit-mode request, breaking historical chats
+ * mid-thread until the cache expires.
+ *
+ * Add an entry whenever a tool is removed from the registered set.
+ * Names map directly to AI-SDK part types via `tool-<name>` (one
+ * deleted tool = one entry here). Removing a name from this list
+ * re-exposes the regression for any historical thread that called the
+ * tool — so leave entries in place permanently unless it's been long
+ * enough that the persisted message history can no longer reference
+ * them (currently never — Firestore retains chat threads
+ * indefinitely).
+ */
+export const RETIRED_TOOL_NAMES = ["addModule"] as const;
+
+type RetiredToolName = (typeof RETIRED_TOOL_NAMES)[number];
+
+/**
+ * Union of tool names whose `tool-<name>` parts must be stripped from
+ * edit-mode message history. Combines the still-build-only tools (not
+ * exposed in edit mode) with the fully retired tools (not exposed at
+ * all). Exported so the chat route's strip filter has one source of
+ * truth.
+ */
+export type StripTargetToolName = BuildOnlyToolName | RetiredToolName;
+export const STRIP_TARGET_TOOL_NAMES: ReadonlyArray<StripTargetToolName> = [
+	...BUILD_ONLY_TOOL_NAMES,
+	...RETIRED_TOOL_NAMES,
+];
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
