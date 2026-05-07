@@ -6,14 +6,14 @@
  * every module.
  */
 
-import {
-	CASE_TYPE_REGEX,
-	MAX_CASE_TYPE_LENGTH,
-	STANDARD_CASE_LIST_PROPERTIES,
-} from "@/lib/commcare";
+import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
-import { collectCaseProperties } from "../index";
+import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
+import { columnReferences } from "./case-list/columnReferences";
+import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
+import { sortTypeCheck } from "./case-list/sortTypeCheck";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
@@ -156,45 +156,6 @@ function missingCaseListColumns(
 	];
 }
 
-/**
- * Case-list column `field` references must resolve to a known
- * case property on the module's case type — either a standard
- * property (`case_name`, `date_opened`, etc.) or a property
- * declared by a field with `case_property_on === mod.caseType`.
- *
- * Walks every column on `caseListConfig.columns` regardless of
- * kind: every kind in the discriminated union carries a `field`
- * slot, and every kind's runtime renderer reads the case property
- * by that name.
- */
-function invalidColumnField(
-	mod: Module,
-	moduleUuid: Uuid,
-	doc: BlueprintDoc,
-): ValidationError[] {
-	const columns = mod.caseListConfig?.columns ?? [];
-	if (!mod.caseType || columns.length === 0) {
-		return [];
-	}
-	const errors: ValidationError[] = [];
-	const knownProps = collectCaseProperties(doc, mod.caseType) ?? new Set();
-
-	for (const col of columns) {
-		if (STANDARD_CASE_LIST_PROPERTIES.has(col.field)) continue;
-		if (knownProps.has(col.field)) continue;
-		errors.push(
-			validationError(
-				"INVALID_COLUMN_FIELD",
-				"module",
-				`Module "${mod.name}" has a case-list column with field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. The case list won't be able to display this column. Either add a field with id "${col.field}" and \`case_property_on\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
-				{ moduleUuid, moduleName: mod.name },
-				{ field: col.field },
-			),
-		);
-	}
-	return errors;
-}
-
 export const MODULE_RULES = [
 	caseFormsNoCaseType,
 	caseListOnlyHasForms,
@@ -203,5 +164,11 @@ export const MODULE_RULES = [
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,
-	invalidColumnField,
+	// Case-list-config rules (sit at module scope; the cross-form
+	// kind-vs-property-type rule lives at app scope in `app.ts`).
+	columnReferences,
+	filterTypeCheck,
+	sortTypeCheck,
+	calculatedColumnTypeCheck,
+	searchInputModeMatchesPropertyType,
 ];

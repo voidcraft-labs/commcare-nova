@@ -8,6 +8,7 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 
 function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	if (doc.appName?.trim()) return [];
@@ -140,4 +141,8 @@ export const APP_RULES = [
 	duplicateModuleNames,
 	childCaseTypeMissingModule,
 	circularFormLinks,
+	// Cross-form rule — multi-writer disagreement detection requires the
+	// full app's writer set, so the rule is app-scoped rather than
+	// module-scoped.
+	fieldKindMatchesPropertyType,
 ];

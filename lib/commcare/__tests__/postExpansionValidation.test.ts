@@ -202,7 +202,7 @@ describe("case list column validation", () => {
 		expect(
 			errors.some(
 				(e) =>
-					e.code === "INVALID_COLUMN_FIELD" &&
+					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
 					e.message.includes("nonexistent_prop"),
 			),
 		).toBe(true);
@@ -240,7 +240,9 @@ describe("case list column validation", () => {
 			],
 		});
 		const errors = runValidation(doc);
-		expect(errors.some((e) => e.code === "INVALID_COLUMN_FIELD")).toBe(false);
+		expect(
+			errors.some((e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD"),
+		).toBe(false);
 	});
 
 	it("allows custom properties defined by forms", () => {
@@ -287,7 +289,9 @@ describe("case list column validation", () => {
 			],
 		});
 		const errors = runValidation(doc);
-		expect(errors.some((e) => e.code === "INVALID_COLUMN_FIELD")).toBe(false);
+		expect(
+			errors.some((e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD"),
+		).toBe(false);
 	});
 });
 
