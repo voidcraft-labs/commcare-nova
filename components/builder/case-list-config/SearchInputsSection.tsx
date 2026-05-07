@@ -72,7 +72,7 @@ import tablerSelect from "@iconify-icons/tabler/select";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useMemo, useRef } from "react";
 import {
-	APPLICABLE_SEARCH_MODES,
+	applicableSearchModes,
 	type CaseProperty,
 	type CaseType,
 	effectiveDataType,
@@ -427,7 +427,7 @@ function computeTypeCouplingErrors(
 	// — the gate doesn't depend on the property at all.
 	if (row.mode !== undefined) {
 		const modeKind = row.mode.kind;
-		const applicable = APPLICABLE_SEARCH_MODES[row.type];
+		const applicable = applicableSearchModes(row.type);
 		if (!applicable.includes(modeKind)) {
 			const allowedLabels = applicable
 				.map((m) => SEARCH_MODE_LABELS[m])
@@ -936,7 +936,7 @@ function SearchInputRow({
 		// the gate, switching from `text` to `select` and back would
 		// silently drop the user's previously-picked `fuzzy` mode;
 		// keeping the mode when admissible preserves authoring intent.
-		const applicable = APPLICABLE_SEARCH_MODES[type];
+		const applicable = applicableSearchModes(type);
 		const keepMode =
 			value.mode !== undefined && applicable.includes(value.mode.kind);
 		onChange(
@@ -1433,7 +1433,7 @@ function ModePicker({
 	rowIndex,
 }: ModePickerProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const applicable = APPLICABLE_SEARCH_MODES[type];
+	const applicable = applicableSearchModes(type);
 	const triggerLabel =
 		value === undefined ? "Default" : SEARCH_MODE_LABELS[value.kind];
 	const triggerClass = [

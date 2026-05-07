@@ -42,7 +42,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSortAscending from "@iconify-icons/tabler/sort-ascending";
 import tablerSortDescending from "@iconify-icons/tabler/sort-descending";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import {
 	applicableSortTypes,
 	type CalculatedColumn,
@@ -66,6 +66,7 @@ import {
 } from "@/lib/styles";
 import { nodeId } from "./nodeIdentity";
 import { InlineError } from "./primitives/CardShell";
+import { useValidityPropagator } from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
 
 // ── Public type-picker label table ────────────────────────────────
@@ -215,15 +216,10 @@ export function SortKeyEditor({
 
 	const isValid = errorsPerRow.every((errors) => errors.length === 0);
 
-	// Propagate validity to the parent. Same ref-stash pattern as the
-	// `ColumnEditor` / `PredicateCardEditor` — keeps a fresh-each-
-	// render parent callback identity from tripping the effect on
-	// non-transitions.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed against fresh-each-render parent
+	// callback identity.
+	useValidityPropagator({ isValid, onValidityChange });
 
 	// Reorder wiring — installs the per-container monitor scoped to
 	// `containerKey`. The reordered array's entries are reference-

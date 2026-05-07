@@ -40,7 +40,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import {
 	type CalculatedColumn,
 	type CaseListConfig,
@@ -118,14 +118,10 @@ export function DisplaySection({
 
 	const isValid = columnsValid && calculatedValid && sortValid;
 
-	// Same ref-stash pattern as the sub-editors — keeps a fresh-each-
-	// render parent callback from tripping the effect on
-	// non-transitions.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed against fresh-each-render parent
+	// callback identity.
+	useValidityPropagator({ isValid, onValidityChange });
 
 	// ── Per-slot mutators ──
 	//
