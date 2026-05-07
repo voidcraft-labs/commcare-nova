@@ -33,6 +33,7 @@
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseListConfig, SortKey } from "@/lib/domain";
+import type { Predicate } from "@/lib/domain/predicate";
 
 // ── Empty-config sentinel ─────────────────────────────────────────
 
@@ -44,13 +45,23 @@ import type { CaseListConfig, SortKey } from "@/lib/domain";
  * `?? { columns: [], ... }` fallback would allocate a new object
  * each render and defeat the shallow comparator that
  * `useBlueprintDocShallow` applies on the returned record.
+ *
+ * `Object.freeze` at every layer (the wrapper + each inner array)
+ * so a consumer that reaches in and tries to mutate a sub-array
+ * (`config.columns.push(...)` instead of the workspace's
+ * spread-and-replace mutator contract) throws at runtime rather
+ * than silently corrupting the shared sentinel and leaking the
+ * mutation across modules. The cast adapts the deeply-readonly
+ * frozen shape back to the schema's mutable element types — the
+ * sentinel is read-only by contract, so the cast is a one-way
+ * labelling step that never sees a write.
  */
-const EMPTY_CONFIG: CaseListConfig = {
-	columns: [],
-	sort: [],
-	calculatedColumns: [],
-	searchInputs: [],
-};
+const EMPTY_CONFIG: CaseListConfig = Object.freeze({
+	columns: Object.freeze([]),
+	sort: Object.freeze([]),
+	calculatedColumns: Object.freeze([]),
+	searchInputs: Object.freeze([]),
+}) as unknown as CaseListConfig;
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -80,6 +91,10 @@ export interface CaseListWorkspaceState extends CaseListSummary {
 	readonly sortKeyCount: number;
 	readonly firstSortKey: SortKey | undefined;
 	readonly searchInputDefaultCount: number;
+	/** The active filter predicate, or `undefined` when the slot is
+	 *  empty. Surfaced separately from the `hasFilter` flag so the
+	 *  workspace can drive condition-count derivation off the AST. */
+	readonly filter: Predicate | undefined;
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────
@@ -128,6 +143,7 @@ export function useCaseListWorkspaceState(
 			config,
 			columnCount: config.columns.length + config.calculatedColumns.length,
 			hasFilter: config.filter !== undefined,
+			filter: config.filter,
 			searchInputCount: config.searchInputs.length,
 			sortKeyCount: config.sort.length,
 			firstSortKey: config.sort[0],

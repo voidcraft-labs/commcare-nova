@@ -61,23 +61,16 @@ export function CaseListSectionHeader({
 	return (
 		<div
 			data-section-header
-			// `position: sticky; top: 0` pins the wrapper to the preview
-			// scroll container's top once the user scrolls past it.
-			// Inline style (not Tailwind utility) so happy-dom's
-			// `getComputedStyle` resolves the position token cleanly —
-			// happy-dom doesn't compile Tailwind classes into computed
-			// styles, but it does honor inline styles, which is the
-			// load-bearing property the test pins.
-			//
-			// `z-raised` (the project's in-flow elevation tier) keeps
-			// the pinned chrome above body content while staying well
-			// below floating popovers, which use `z-popover`.
+			// `sticky top-0` pins the wrapper to the preview scroll
+			// container's top once the user scrolls past it. The
+			// `z-raised` token (the project's in-flow elevation tier)
+			// keeps the pinned chrome above body content while staying
+			// well below floating popovers, which use `z-popover`.
 			//
 			// The translucent background + `backdrop-blur-md` samples
 			// the scrolling body content beneath the pinned header,
 			// creating depth between the chrome and the rolling content.
-			style={{ position: "sticky", top: 0 }}
-			className="z-raised bg-[rgba(12,12,32,0.7)] backdrop-blur-md px-8 pt-6 pb-3"
+			className="sticky top-0 z-raised bg-[rgba(12,12,32,0.7)] backdrop-blur-md px-8 pt-6 pb-3"
 		>
 			<h2 className="text-3xl font-display font-light tracking-tight text-nova-text">
 				{title}

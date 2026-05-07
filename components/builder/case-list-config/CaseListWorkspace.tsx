@@ -51,7 +51,7 @@ import {
 	type SearchInputDef,
 	searchInputDef,
 } from "@/lib/domain";
-import { matchAll } from "@/lib/domain/predicate";
+import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { useAppId } from "@/lib/session/hooks";
 import { CaseListSectionHeader } from "./CaseListSectionHeader";
 import { DisplaySection } from "./DisplaySection";
@@ -86,6 +86,7 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 		sortKeyCount,
 		firstSortKey,
 		hasFilter,
+		filter,
 		searchInputCount,
 		searchInputDefaultCount,
 	} = useCaseListWorkspaceState(moduleUuid);
@@ -152,7 +153,18 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 		sortKeyCount,
 		firstSortKey,
 	});
-	const filterStatus = buildFilterStatus({ hasFilter, filterStats });
+	// Filter conditions are derived from the predicate AST — `and`
+	// / `or` count their direct clauses; sentinels (`match-all` /
+	// `match-none`) count zero (no user-meaningful condition); every
+	// other operator counts as one. The wider FiltersPreview body
+	// supplies the live `totalCount` of cases that pass the filter
+	// via the `onPreviewStats` callback above.
+	const conditionCount = countConditions(filter);
+	const filterStatus = buildFilterStatus({
+		hasFilter,
+		conditionCount,
+		filterStats,
+	});
 	const searchStatus = buildSearchStatus({
 		searchInputCount,
 		searchInputDefaultCount,
@@ -181,6 +193,8 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 							title="Add columns to define what users see in the case list."
 							ctaLabel="Add column"
 							onCtaClick={handleAddFirstColumn}
+							ctaDisabled={!firstProperty}
+							ctaDisabledHint="Define case-type properties first."
 						/>
 					) : null}
 					<DisplaySection
@@ -248,6 +262,8 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 							title="Add search inputs so users can find specific cases."
 							ctaLabel="Add search input"
 							onCtaClick={handleAddFirstSearchInput}
+							ctaDisabled={!firstProperty}
+							ctaDisabledHint="Define case-type properties first."
 						/>
 					) : null}
 					<SearchInputsSection
@@ -279,6 +295,15 @@ interface EmptyStateCardProps {
 	readonly title: string;
 	readonly ctaLabel: string;
 	readonly onCtaClick: () => void;
+	/** When `true`, the CTA button renders disabled with a native
+	 *  hover hint via `title`. The button stays visible so the
+	 *  affordance path is discoverable; clicking does nothing until
+	 *  the precondition resolves. */
+	readonly ctaDisabled?: boolean;
+	/** Native `title` text rendered on the disabled CTA — surfaces
+	 *  the precondition the user needs to satisfy. Has no effect
+	 *  when `ctaDisabled` is `false`. */
+	readonly ctaDisabledHint?: string;
 }
 
 /**
@@ -300,6 +325,8 @@ function EmptyStateCard({
 	title,
 	ctaLabel,
 	onCtaClick,
+	ctaDisabled = false,
+	ctaDisabledHint,
 }: EmptyStateCardProps) {
 	return (
 		<div
@@ -320,7 +347,9 @@ function EmptyStateCard({
 			<button
 				type="button"
 				onClick={onCtaClick}
-				className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-nova-violet/[0.18] hover:bg-nova-violet/[0.28] border border-nova-violet/[0.35] hover:border-nova-violet/[0.55] text-nova-violet-bright transition-colors cursor-pointer shrink-0"
+				disabled={ctaDisabled}
+				title={ctaDisabled ? ctaDisabledHint : undefined}
+				className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-nova-violet/[0.18] hover:bg-nova-violet/[0.28] border border-nova-violet/[0.35] hover:border-nova-violet/[0.55] text-nova-violet-bright transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-nova-violet/[0.18] disabled:hover:border-nova-violet/[0.35]"
 			>
 				{ctaLabel}
 			</button>
@@ -377,8 +406,37 @@ function describeSortKey(key: CaseListConfig["sort"][number]): string {
 	return `${sourceLabel} ${directionGlyph}`;
 }
 
+/**
+ * Count user-meaningful conditions in a filter predicate. The
+ * derivation policy:
+ *
+ *   - `undefined` (no filter slot) → 0
+ *   - `match-all` / `match-none` → 0 (sentinels carry no
+ *     user-meaningful condition; they're identity / absorbing
+ *     elements of the boolean algebra)
+ *   - `and` / `or` → the clause count (each clause is one
+ *     condition the user authored)
+ *   - every other operator (eq / between / exists / match / …) → 1
+ *
+ * The status line's count is an at-a-glance summary, not a deep
+ * AST walk — a nested `and(eq, or(eq, eq))` reads as "two
+ * conditions" because the outer `and` carries two clauses, even
+ * though one of them is itself a compound expression. That's the
+ * same shape the inner predicate editor surfaces in its top-level
+ * card list.
+ */
+function countConditions(filter: Predicate | undefined): number {
+	if (!filter) return 0;
+	if (filter.kind === "match-all" || filter.kind === "match-none") return 0;
+	if (filter.kind === "and" || filter.kind === "or") {
+		return filter.clauses.length;
+	}
+	return 1;
+}
+
 interface FilterStatusInput {
 	readonly hasFilter: boolean;
+	readonly conditionCount: number;
 	readonly filterStats: FilterPreviewStats | null;
 }
 
@@ -386,22 +444,28 @@ interface FilterStatusInput {
  * Filter section status line. Three states:
  *
  *   - No filter slot configured → "No filter — all cases shown."
- *   - Filter present, preview load not yet resolved → "1 filter · …"
- *     (em-dash placeholder so the line doesn't flicker on every
- *     load tick).
- *   - Filter present, preview load resolved → "1 filter · {N} cases match".
+ *   - Filter present, preview load not yet resolved →
+ *     "{N} condition(s) · …" (em-dash placeholder so the line
+ *     doesn't flicker on every load tick).
+ *   - Filter present, preview load resolved →
+ *     "{N} condition(s) · {totalCount} cases match".
  *
  * `LoadFilterPreviewResult.totalCount` is the count of cases
  * passing the active filter — the same value the FiltersPreview
  * body's count card surfaces, sourced from the same Server Action
- * call.
+ * call. The spec calls for "{matchCount} of {totalCount}" but the
+ * action carries only `totalCount` (cases passing the filter); the
+ * unfiltered total would require a second query. The deferred
+ * "of {unfilteredTotal}" half is a Plan-level addition.
  */
 function buildFilterStatus(input: FilterStatusInput): string {
 	if (!input.hasFilter) return "No filter — all cases shown.";
-	if (input.filterStats === null) return "1 filter · …";
+	const conditionWord = input.conditionCount === 1 ? "condition" : "conditions";
+	const conditionText = `${input.conditionCount} ${conditionWord}`;
+	if (input.filterStats === null) return `${conditionText} · …`;
 	const { totalCount } = input.filterStats;
 	const caseWord = totalCount === 1 ? "case" : "cases";
-	return `1 filter · ${totalCount} ${caseWord} match`;
+	return `${conditionText} · ${totalCount} ${caseWord} match`;
 }
 
 interface SearchStatusInput {

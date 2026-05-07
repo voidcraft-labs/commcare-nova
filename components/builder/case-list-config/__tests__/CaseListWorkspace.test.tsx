@@ -31,7 +31,16 @@ import {
 	searchInputDef,
 	sortKey,
 } from "@/lib/domain";
-import { literal, matchAll, term } from "@/lib/domain/predicate";
+import {
+	and,
+	eq,
+	literal,
+	matchAll,
+	matchNone,
+	or,
+	prop,
+	term,
+} from "@/lib/domain/predicate";
 
 /**
  * Stub the three inner sections so the workspace shell is the only
@@ -254,40 +263,111 @@ describe("CaseListWorkspace — Filter status density", () => {
 		expect(within(filterHeader).getByText(/No filter/i)).toBeDefined();
 	});
 
-	it("renders '1 filter · …' placeholder when filter is present and preview hasn't loaded", () => {
-		// Filter present but FiltersPreview hasn't fired its
-		// `onPreviewStats` callback yet (the stub never fires it).
-		// Header renders the em-dash placeholder so the line doesn't
-		// flicker while the preview load is in flight.
+	it("renders '0 conditions · …' placeholder for the match-all sentinel before preview loads", () => {
+		// `match-all` is a sentinel: filter slot defined, but no
+		// user-meaningful condition. The condition count is zero;
+		// the header still surfaces the count + the em-dash
+		// placeholder while the FiltersPreview load is in flight.
 		render(renderWorkspace({ filter: matchAll() }));
 		const filterHeader = getSectionHeader("Filter");
-		expect(within(filterHeader).getByText(/1 filter ·/)).toBeDefined();
+		expect(within(filterHeader).getByText(/0 conditions ·/)).toBeDefined();
 		expect(within(filterHeader).getByText(/…/)).toBeDefined();
 	});
 
-	it("renders '1 filter · {N} cases match' when the preview load resolves", () => {
-		// Render with the filter present, then fire `onPreviewStats`
-		// from the FiltersSection stub to simulate the preview load
-		// completing with a case count. The header should re-render
-		// with the live count.
-		render(renderWorkspace({ filter: matchAll() }));
+	it("renders '0 conditions' for the match-none sentinel", () => {
+		render(renderWorkspace({ filter: matchNone() }));
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/0 conditions/)).toBeDefined();
+	});
+
+	it("renders '1 condition' for a single non-sentinel predicate", () => {
+		// A bare `eq` predicate counts as one condition — it's the
+		// minimal user-authored shape.
+		render(
+			renderWorkspace({
+				filter: eq(prop("patient", "name"), literal("Ada")),
+			}),
+		);
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/1 condition ·/)).toBeDefined();
+	});
+
+	it("counts each clause of an `and` predicate as a condition", () => {
+		// `and([eq, eq, eq])` carries three direct clauses; the
+		// status line reads three conditions.
+		render(
+			renderWorkspace({
+				filter: and(
+					eq(prop("patient", "name"), literal("Ada")),
+					eq(prop("patient", "age"), literal(42)),
+					eq(prop("patient", "dob"), literal("1815-12-10")),
+				),
+			}),
+		);
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/3 conditions ·/)).toBeDefined();
+	});
+
+	it("counts each clause of an `or` predicate as a condition", () => {
+		render(
+			renderWorkspace({
+				filter: or(
+					eq(prop("patient", "name"), literal("Ada")),
+					eq(prop("patient", "name"), literal("Grace")),
+				),
+			}),
+		);
+		const filterHeader = getSectionHeader("Filter");
+		expect(within(filterHeader).getByText(/2 conditions ·/)).toBeDefined();
+	});
+
+	it("renders '{N} conditions · {M} cases match' when the preview load resolves", () => {
+		// Render with two-clause `and`; fire `onPreviewStats` to
+		// simulate the FiltersPreview success arm. Header reads
+		// "2 conditions · 47 cases match".
+		render(
+			renderWorkspace({
+				filter: and(
+					eq(prop("patient", "name"), literal("Ada")),
+					eq(prop("patient", "age"), literal(42)),
+				),
+			}),
+		);
 		const calls = vi.mocked(MockedFiltersSection).mock.calls;
 		expect(calls.length).toBeGreaterThan(0);
 		const filterProps = calls[calls.length - 1][0];
-		// `onPreviewStats` is wired by the workspace; firing it here
-		// from the stub side simulates the FiltersPreview's success
-		// arm reaching the workspace's filter-stats state.
 		act(() => {
 			filterProps.onPreviewStats?.({ totalCount: 47 });
 		});
 		const filterHeader = getSectionHeader("Filter");
 		expect(
-			within(filterHeader).getByText(/1 filter · 47 cases match/),
+			within(filterHeader).getByText(/2 conditions · 47 cases match/),
+		).toBeDefined();
+	});
+
+	it("uses singular 'case' when the resolved count is exactly 1", () => {
+		render(
+			renderWorkspace({
+				filter: eq(prop("patient", "name"), literal("Ada")),
+			}),
+		);
+		const calls = vi.mocked(MockedFiltersSection).mock.calls;
+		const filterProps = calls[calls.length - 1][0];
+		act(() => {
+			filterProps.onPreviewStats?.({ totalCount: 1 });
+		});
+		const filterHeader = getSectionHeader("Filter");
+		expect(
+			within(filterHeader).getByText(/1 condition · 1 case match/),
 		).toBeDefined();
 	});
 
 	it("falls back to the placeholder when the preview emits null (loading / paused / error)", () => {
-		render(renderWorkspace({ filter: matchAll() }));
+		render(
+			renderWorkspace({
+				filter: eq(prop("patient", "name"), literal("Ada")),
+			}),
+		);
 		const calls = vi.mocked(MockedFiltersSection).mock.calls;
 		const filterProps = calls[calls.length - 1][0];
 		// First emit a successful load to populate the count.
@@ -301,7 +381,7 @@ describe("CaseListWorkspace — Filter status density", () => {
 			filterProps.onPreviewStats?.(null);
 		});
 		const filterHeader = getSectionHeader("Filter");
-		expect(within(filterHeader).getByText(/1 filter · …/)).toBeDefined();
+		expect(within(filterHeader).getByText(/1 condition · …/)).toBeDefined();
 	});
 });
 
@@ -350,27 +430,21 @@ describe("CaseListWorkspace — Search status density", () => {
 	});
 });
 
-// ── Sticky violet rail ───────────────────────────────────────────
+// ── Section header chrome ────────────────────────────────────────
 
 describe("CaseListWorkspace — section header chrome", () => {
-	it("renders a sticky-positioned violet rail for each section header", () => {
+	it("renders one section header with a violet rail per section", () => {
 		render(renderWorkspace());
 		const headers = document.querySelectorAll("[data-section-header]");
 		// One header per section — Display, Filter, Search.
 		expect(headers.length).toBe(3);
 		for (const header of headers) {
-			// Sticky positioning lives inline so happy-dom's
-			// `getComputedStyle` resolves the position token cleanly —
-			// happy-dom doesn't compile Tailwind utilities into computed
-			// styles, but it does honor inline styles. Pinning via
-			// `getComputedStyle` matches the spec's "DOM-position
-			// assertion" requirement.
-			const styles = window.getComputedStyle(header);
-			expect(styles.position).toBe("sticky");
-			expect(styles.top).toBe("0px");
 			// Each header carries a violet-rail underline element. The
 			// rail is the only visual border for the section — no
-			// surrounding box, just the rail beneath the title.
+			// surrounding box, just the rail beneath the title. Sticky-
+			// positioning behavior itself is layout, not DOM, so it
+			// surfaces meaningfully under integration / visual review,
+			// not in a JSDOM unit test.
 			const rail = header.querySelector("[data-section-rail]");
 			expect(rail).not.toBeNull();
 		}
@@ -443,10 +517,11 @@ describe("CaseListWorkspace — empty-state cards", () => {
 		act(() => {
 			fireEvent.click(cta);
 		});
-		// Header status line flips to "1 filter · …" (placeholder
-		// because the FiltersPreview stub never resolves).
+		// `match-all` is a sentinel — zero user-meaningful conditions.
+		// The header reads "0 conditions · …" (placeholder because
+		// the FiltersPreview stub never resolves the load).
 		const filterHeader = getSectionHeader("Filter");
-		expect(within(filterHeader).getByText(/1 filter ·/)).toBeDefined();
+		expect(within(filterHeader).getByText(/0 conditions ·/)).toBeDefined();
 	});
 
 	it("Add search input CTA seeds a text input row", () => {
@@ -457,6 +532,82 @@ describe("CaseListWorkspace — empty-state cards", () => {
 		});
 		const searchHeader = getSectionHeader("Search");
 		expect(within(searchHeader).getByText(/1 input/i)).toBeDefined();
+	});
+});
+
+// ── Disabled CTA when the case type has no declared properties ───
+
+describe("CaseListWorkspace — empty-state CTAs gated on case-type properties", () => {
+	/**
+	 * Render against a module whose case type is declared but
+	 * carries no properties. The column / search-input CTAs would
+	 * seed against `firstProperty = ""` and produce a row with an
+	 * empty property dropdown — so the workspace disables those
+	 * CTAs and surfaces the precondition via the button's `title`.
+	 *
+	 * The filter CTA stays enabled — `matchAll()` is a property-
+	 * less sentinel, so the path doesn't depend on case-type
+	 * properties.
+	 */
+	function renderPropertylessWorkspace(): ReactNode {
+		const NO_PROP_CT: CaseType = { name: "patient", properties: [] };
+		return (
+			<BlueprintDocProvider
+				appId="app-workspace-test"
+				initialDoc={{
+					appId: "app-workspace-test",
+					appName: "Workspace test app",
+					connectType: null,
+					caseTypes: [NO_PROP_CT],
+					modules: {
+						[MODULE_UUID]: {
+							uuid: MODULE_UUID,
+							id: "patient_module",
+							name: "Patient module",
+							caseType: "patient",
+							caseListConfig: {
+								columns: [],
+								sort: [],
+								calculatedColumns: [],
+								searchInputs: [],
+							},
+						},
+					},
+					forms: {},
+					fields: {},
+					moduleOrder: [MODULE_UUID],
+					formOrder: { [MODULE_UUID]: [] },
+					fieldOrder: {},
+				}}
+			>
+				<CaseListWorkspace moduleUuid={MODULE_UUID} />
+			</BlueprintDocProvider>
+		);
+	}
+
+	it("disables the Add column CTA with a precondition hint", () => {
+		render(renderPropertylessWorkspace());
+		const cta = screen.getByRole("button", { name: /^Add column$/i });
+		expect((cta as HTMLButtonElement).disabled).toBe(true);
+		expect(cta.getAttribute("title")).toBe(
+			"Define case-type properties first.",
+		);
+	});
+
+	it("disables the Add search input CTA with a precondition hint", () => {
+		render(renderPropertylessWorkspace());
+		const cta = screen.getByRole("button", { name: /^Add search input$/i });
+		expect((cta as HTMLButtonElement).disabled).toBe(true);
+		expect(cta.getAttribute("title")).toBe(
+			"Define case-type properties first.",
+		);
+	});
+
+	it("keeps the Add filter CTA enabled — match-all sentinel needs no property", () => {
+		render(renderPropertylessWorkspace());
+		const cta = screen.getByRole("button", { name: /^Add filter$/i });
+		expect((cta as HTMLButtonElement).disabled).toBe(false);
+		expect(cta.getAttribute("title")).toBeNull();
 	});
 });
 

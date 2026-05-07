@@ -157,19 +157,16 @@ interface CaseListCardProps {
  * named-hook contract (`useCaseListSummary`) keeps the doc-store
  * boundary rule clean — components consume a domain hook, not the
  * raw shallow selector.
- *
- * No mount animation: Activity hides the parent ModuleScreen and
- * re-reveals it on subsequent visits, which would re-fire any
- * `motion/react` entry animation per `feedback_stateful_ui_truth.md`.
- * CSS hover transitions cover the in-flow interaction states.
  */
 function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
 	const { columnCount, hasFilter, searchInputCount } =
 		useCaseListSummary(moduleUuid);
 
 	return (
-		<button
-			type="button"
+		<motion.button
+			initial={{ opacity: 0, y: 12 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
 			onClick={onClick}
 			className="w-full flex items-center gap-3 p-4 rounded-lg bg-gradient-to-r from-nova-violet/[0.08] to-transparent border border-nova-violet/[0.2] hover:border-nova-violet/[0.4] hover:from-nova-violet/[0.12] transition-all duration-200 cursor-pointer text-left group"
 		>
@@ -198,6 +195,6 @@ function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
 			<span className="px-2 py-0.5 rounded text-[11px] font-mono bg-nova-violet/[0.12] text-nova-violet-bright border border-nova-violet/[0.25]">
 				{caseType}
 			</span>
-		</button>
+		</motion.button>
 	);
 }
