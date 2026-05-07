@@ -45,6 +45,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { addFieldTool } from "@/lib/agent/tools/addField";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
 import { addModuleTool } from "@/lib/agent/tools/addModule";
+import { setCalculatedColumnsTool } from "@/lib/agent/tools/case-list-config/setCalculatedColumns";
+import { setCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/setCaseListColumns";
+import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
+import { setCaseListSearchInputsTool } from "@/lib/agent/tools/case-list-config/setCaseListSearchInputs";
+import { setCaseListSortTool } from "@/lib/agent/tools/case-list-config/setCaseListSort";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
@@ -112,6 +117,14 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "remove_form", tool: removeFormTool },
 	{ name: "remove_module", tool: removeModuleTool },
 	{ name: "search_blueprint", tool: searchBlueprintTool },
+	/* Case-list-config mutations — one tool per slot. Snake_case
+	 * MCP wire names mirror the camelCase TypeScript exports per
+	 * the wire-name convention above. */
+	{ name: "set_calculated_columns", tool: setCalculatedColumnsTool },
+	{ name: "set_case_list_columns", tool: setCaseListColumnsTool },
+	{ name: "set_case_list_filter", tool: setCaseListFilterTool },
+	{ name: "set_case_list_search_inputs", tool: setCaseListSearchInputsTool },
+	{ name: "set_case_list_sort", tool: setCaseListSortTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
 	{ name: "validate_app", tool: validateAppTool },

@@ -34,6 +34,11 @@ import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
+import { setCalculatedColumnsTool } from "./tools/case-list-config/setCalculatedColumns";
+import { setCaseListColumnsTool } from "./tools/case-list-config/setCaseListColumns";
+import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilter";
+import { setCaseListSearchInputsTool } from "./tools/case-list-config/setCaseListSearchInputs";
+import { setCaseListSortTool } from "./tools/case-list-config/setCaseListSort";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
@@ -301,6 +306,20 @@ export function createSolutionsArchitect(
 		removeForm: wrapMutating(removeFormTool),
 		createModule: wrapMutating(createModuleTool),
 		removeModule: wrapMutating(removeModuleTool),
+
+		// ── Case list config mutations ─────────────────────────────────
+		// One tool per `caseListConfig` slot. Each accepts the typed
+		// AST shape directly (no flat-text shape, no string parsing).
+		// Wholesale replace: each tool replaces ONE slot of the config
+		// and preserves every other slot. See
+		// `lib/agent/tools/case-list-config/shared.ts` for the shared
+		// resolve / patch / persist scaffolding.
+
+		setCaseListColumns: wrapMutating(setCaseListColumnsTool),
+		setCaseListSort: wrapMutating(setCaseListSortTool),
+		setCaseListFilter: wrapMutating(setCaseListFilterTool),
+		setCalculatedColumns: wrapMutating(setCalculatedColumnsTool),
+		setCaseListSearchInputs: wrapMutating(setCaseListSearchInputsTool),
 
 		// ── Validation ────────────────────────────────────────────────
 

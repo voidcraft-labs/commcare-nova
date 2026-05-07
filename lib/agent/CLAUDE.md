@@ -43,7 +43,9 @@ SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }
 
 ## Two tool groups: generation + shared
 
-Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`, `addModule`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`, `addModule`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `setCaseListColumns`, `setCaseListSort`, `setCaseListFilter`, `setCalculatedColumns`, `setCaseListSearchInputs`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+
+The case-list-config tools (`setCase*` / `setCalculated*`) accept the typed AST shape directly via Zod — `Column[]`, `SortKey[]`, `Predicate`, `CalculatedColumn[]`, `SearchInputDef[]` — pulled from `lib/domain/predicate` and `lib/domain/modules`. Each tool replaces ONE slot of `caseListConfig` and preserves the others. The shared resolve / patch / persist scaffolding lives at `tools/case-list-config/shared.ts`.
 
 ## Shared-tool return contract
 

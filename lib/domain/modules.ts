@@ -358,7 +358,7 @@ const sortConfigSchema = z.object({
  * lowers into a Postgres expression / on-device XPath / CSQL
  * fragment.
  */
-const calculatedColumnSchema = z.object({
+export const calculatedColumnSchema = z.object({
 	id: z.string(),
 	header: z.string(),
 	expression: valueExpressionSchema,
@@ -412,7 +412,7 @@ const sortKeySourceSchema = z.discriminatedUnion("kind", [
  * runtime applies keys in order — the first key is the primary
  * sort, each subsequent key is a tiebreaker.
  */
-const sortKeySchema = z.object({
+export const sortKeySchema = z.object({
 	source: sortKeySourceSchema,
 	type: z.enum(SORT_TYPES),
 	direction: z.enum(SORT_DIRECTIONS),
@@ -604,7 +604,7 @@ export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
  *   - `xpath` — optional advanced `Predicate` that replaces the
  *     `(property, mode)`-derived predicate when present.
  */
-const searchInputDefSchema = z.object({
+export const searchInputDefSchema = z.object({
 	name: z.string(),
 	label: z.string(),
 	type: z.enum(SEARCH_INPUT_TYPES),
