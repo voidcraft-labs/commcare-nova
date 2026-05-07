@@ -159,62 +159,29 @@ export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
 }
 
 /**
- * Read every error attached to a slot OR any descendant of it.
- * Used by cards whose type-checker emits per-slot errors at deeper
- * paths than the operator-level slot — e.g. `match` emits term-
- * resolution failures (Unknown property, Unknown search input) at
- * `[..., "value", "term"]` while emitting operator-level mode-
- * mismatch errors at `[..., "value"]`. Both must reach the same
- * inline UI, so the lookup widens to a path-prefix capture.
+ * Read errors attached to a STRICT descendant of `path` — excludes
+ * the slot itself. Used by term-arm cards inside an outer slot that
+ * need to surface deeper-path errors which no inner card reads at
+ * its own depth, WITHOUT duplicating the slot-level errors the
+ * outer shell already renders via `useEditorErrorsAt(path)` exact
+ * lookup.
+ *
+ * Concretely (the `TermCard` consumer at `cards/expression/TermCard.tsx`):
+ * `match.value`'s term-resolution failures emit at
+ * `[..., "value", "term"]` because `checkMatch` resolves the term
+ * directly with that path rather than routing through
+ * `checkExpression`'s general term-arm branch (which would push at
+ * the slot path itself). The `ExpressionPicker` mounted at
+ * `[..., "value"]` renders shell-footer errors at the slot exactly;
+ * `TermCard` inside the picker reads this strict-descendant lookup
+ * to surface the deeper match-side errors below the input WITHOUT
+ * re-reading the slot's own errors.
  *
  * The merged list is deduplicated — multiple checker passes can
  * leave duplicate messages at adjacent paths, and React's key
  * uniqueness contract on the rendered diagnostic rows demands a
  * unique identifier per row. Stable-order (insertion-order) dedup
  * preserves the message ordering authors see.
- */
-export function useEditorErrorsAtOrBelow(path: EditorPath): EditorPathErrors {
-	const { validityIndex } = usePredicateEditContext();
-	const prefix = serializePath(path);
-	// Two prefix forms match: the slot itself (exact-key match) and
-	// any descendant (the segment-separator '\0' in `serializePath`
-	// makes the prefix-with-separator check structurally distinct
-	// from a same-named sibling slot).
-	const prefixWithSep = prefix === "" ? "" : `${prefix}\0`;
-	const seen = new Set<string>();
-	const merged: string[] = [];
-	for (const [key, list] of validityIndex) {
-		const matches =
-			key === prefix ||
-			(prefixWithSep !== "" && key.startsWith(prefixWithSep)) ||
-			// Root path captures every error.
-			prefix === "";
-		if (!matches) continue;
-		for (const message of list) {
-			if (seen.has(message)) continue;
-			seen.add(message);
-			merged.push(message);
-		}
-	}
-	return merged;
-}
-
-/**
- * Read errors attached to a STRICT descendant of `path` — excludes
- * the slot itself. Used by container cards (e.g. `ExpressionPicker`'s
- * shell) that need to surface deeper-path errors which no inner card
- * reads at its own depth, WITHOUT duplicating the slot-level errors
- * the shell already renders via `useEditorErrorsAt(path)` exact
- * lookup.
- *
- * Concretely: `match.value` emits its term-resolution failure at
- * `[..., "value", "term"]` (one segment deeper than the slot path).
- * The ExpressionPicker mounted at `[..., "value"]` renders shell-
- * footer errors at the slot exactly; this helper captures the
- * deeper match-side errors for an additional render path WITHOUT
- * re-reading the slot's own errors.
- *
- * Same dedup contract as `useEditorErrorsAtOrBelow`.
  */
 export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
 	const { validityIndex } = usePredicateEditContext();

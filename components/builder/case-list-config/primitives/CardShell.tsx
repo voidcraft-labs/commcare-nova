@@ -172,9 +172,10 @@ export function CardShell({
 			 *  "between has lower > upper", "gt requires ordered
 			 *  types"). Per-slot diagnostics render adjacent to their
 			 *  input via `InlineError` below. The message string is a
-			 *  safe React key here — `buildValidityIndex` deduplicates
-			 *  within a single path on the way in, and
-			 *  `useEditorErrorsAtOrBelow` deduplicates across the
+			 *  safe React key here — `buildValidityIndex`
+			 *  deduplicates per path on the way in (so the exact-match
+			 *  `useEditorErrorsAt` returns a deduped list) and
+			 *  `useEditorErrorsBelow` deduplicates across the
 			 *  prefix-merged result, so every entry in `errors` is
 			 *  guaranteed unique within the render. */}
 			{hasErrors && (
@@ -210,10 +211,11 @@ export function InlineError({ errors }: InlineErrorProps) {
 		<div className="mt-1 space-y-0.5">
 			{/* The message string is a safe React key —
 			 *  `buildValidityIndex` (in `editorContext.tsx`)
-			 *  deduplicates per path on the way in, and
-			 *  `useEditorErrorsAtOrBelow` deduplicates across
-			 *  prefix-merged paths, so every `errors` entry is
-			 *  guaranteed unique within a single render. */}
+			 *  deduplicates per path on the way in (so the exact-match
+			 *  `useEditorErrorsAt` returns a deduped list), and
+			 *  `useEditorErrorsBelow` deduplicates across prefix-
+			 *  merged paths, so every `errors` entry is guaranteed
+			 *  unique within a single render. */}
 			{errors.map((message) => (
 				<div
 					key={message}

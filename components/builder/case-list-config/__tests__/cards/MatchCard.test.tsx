@@ -7,10 +7,13 @@
 // `lib/domain/predicate/typeChecker.ts`) emits term-resolution
 // failures (Unknown property / Unknown search input) at
 // `[..., "value", "term"]` — one segment deeper than the operator-
-// level mode-mismatch path `[..., "value"]`. The card listens via
-// `useEditorErrorsAtOrBelow` so both paths' messages reach the
-// inline UI; without the prefix capture, term-resolution failures
-// silently drop from display while still flipping the parent's
+// level mode-mismatch path `[..., "value"]`. The slot is composed via
+// `ExpressionPicker`, whose `CardShell` footer reads operator-level
+// errors at the slot path exactly via `useEditorErrorsAt`; the inner
+// `TermCard` reads strict-descendant errors via `useEditorErrorsBelow`
+// so the deeper match-side resolution failures still surface inline.
+// Without the strict-descendant lookup, term-resolution failures
+// would silently drop from display while still flipping the parent's
 // save gate.
 
 import { render } from "@testing-library/react";
