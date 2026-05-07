@@ -183,8 +183,14 @@ describe("FiltersSection — clear filter", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		const next = onChange.mock.calls[0]?.[0];
 		expect(next?.filter).toBeUndefined();
+		// Symmetric with the add-filter test's full slot check —
+		// every non-filter slot must survive the clear transition.
+		// A future change to `clearFilter` that drops the spread on
+		// the clear path would surface here as a regression.
 		expect(next?.columns).toEqual(config.columns);
 		expect(next?.sort).toEqual(config.sort);
+		expect(next?.calculatedColumns).toEqual(config.calculatedColumns);
+		expect(next?.searchInputs).toEqual(config.searchInputs);
 	});
 });
 

@@ -133,15 +133,14 @@ export function FiltersSection({
 		setFilter(matchAll());
 	};
 	const clearFilter = () => {
-		// Reset the inner verdict so the next "Add filter" press
-		// starts from a known-good default. Otherwise a `false` left
-		// behind by a previously-invalid predicate would leak as the
-		// initial verdict for the new editor's mount, briefly flipping
-		// the parent's save state to false until the new editor's
-		// first verdict lands. The slot-presence guard in `isValid`
-		// covers this for the cleared-state period; resetting here
-		// keeps the inner state consistent for the next mount.
-		setPredicateValid(true);
+		// The structural defense for the cleared-state validity
+		// verdict is the `!filterPresent || predicateValid` short-
+		// circuit in `isValid` above — when the slot is undefined
+		// the section reports `valid: true` regardless of the inner
+		// `predicateValid` shadow. The next "Add filter" mount
+		// starts with a `match-all()` seed which type-checks as
+		// valid; the inner editor's first verdict overrides any
+		// stale shadow before the mount-time `useEffect` fires.
 		setFilter(undefined);
 	};
 
