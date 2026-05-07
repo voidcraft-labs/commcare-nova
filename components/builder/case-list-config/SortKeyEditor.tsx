@@ -7,21 +7,15 @@
 // in declaration order: row 1 is the primary sort, each subsequent
 // row acts as a tiebreaker on the previous keys.
 //
-// The editor mounts the shared `PredicateEditProvider` so the
-// embedded `PropertyPicker` reads `currentCaseType` from the same
-// context the predicate / column editors use. The `validityIndex`
-// is unused at this surface — sort-key validity is computed inline
-// per row via `applicableSortTypes(...)` and surfaced through the
-// row's `<InlineError>` rather than the predicate editor's path-
-// keyed checker.
-//
 // Source UI shape: a single combined Base UI Menu lists both
 // case-type properties and calculated columns under per-section
 // headers. The selected source's discriminator (property vs
 // calculated) determines the leading icon and the displayed value;
 // authors click the trigger, see both classes side-by-side, and
 // pick whichever one they want without flipping a separate mode
-// switch first.
+// switch first. The picker is a bespoke `SourcePicker` rather than
+// the shared `PropertyPicker` because it composes the property +
+// calculated-column branches under one menu.
 //
 // Reorder uses the shared `useReorderableList` + `<ReorderableRow>`
 // primitives — same monitor / preview / adjacency-suppression
@@ -29,7 +23,11 @@
 // sort-key list has no envelope object (it's a plain `SortKey[]` on
 // the case-list config), so the container's stable identity is a
 // per-mount UUID rather than a `nodeId(...)` lookup against an AST
-// envelope.
+// envelope. Per-row React keys use `nodeId(key)` against the
+// `SortKey` object — the WeakMap-backed identity helper handles
+// the duplicate-source case (two keys on the same property with
+// different types / directions) that an index-or-source-name key
+// would collide on.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -65,22 +63,9 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { PredicateEditProvider } from "./editorContext";
+import { nodeId } from "./nodeIdentity";
 import { InlineError } from "./primitives/CardShell";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
-
-// ── Provider wiring ─────────────────────────────────────────────────
-//
-// The embedded `PropertyPicker` reads from `PredicateEditProvider`'s
-// context. Sort-key editing has no relation walks, no search-input
-// bindings, and no path-keyed checker, so the provider's structured
-// fields collapse to:
-//   - caseTypes / currentCaseType: drive the picker's dropdown
-//   - knownInputs: empty (no search-input binding scope here)
-//   - validityIndex: empty (per-row inline errors handle validity)
-// Pinning a single empty Map avoids re-allocating per render.
-
-const EMPTY_VALIDITY_INDEX = new Map<string, readonly string[]>();
 
 // ── Public type-picker label table ────────────────────────────────
 //
@@ -196,14 +181,16 @@ export function SortKeyEditor({
 	}, [isValid]);
 
 	// Reorder wiring — installs the per-container monitor scoped to
-	// `containerKey`. The `onReorder` rebuilds the array via the
-	// builder, preserving every key's source / type / direction
-	// verbatim.
+	// `containerKey`. The reordered array's entries are reference-
+	// preserved (the hook splices the existing element references
+	// into the new order); passing the array straight through keeps
+	// `nodeId(key)`-backed React keys stable across the reorder so
+	// transient row state survives.
 	const { pendingDrop } = useReorderableList<SortKey>({
 		containerKey,
 		containerKind: "sort-keys",
 		items: value,
-		onReorder: (next) => onChange(next.map(normalizeKey)),
+		onReorder: (next) => onChange(next),
 	});
 
 	// ── Mutators ──
@@ -233,87 +220,70 @@ export function SortKeyEditor({
 	};
 
 	return (
-		<PredicateEditProvider
-			caseTypes={caseTypes}
-			currentCaseType={currentCaseType}
-			knownInputs={[]}
-			validityIndex={EMPTY_VALIDITY_INDEX}
-		>
-			<div className="space-y-1.5">
-				{value.length === 0 && <EmptyState />}
-				{value.map((key, i) => {
-					// Stable per-row React key. The `SortKey` value-types
-					// don't carry uuids; we generate one per row from the
-					// row's discriminated-source field plus its index. The
-					// index is part of the key on purpose — drag/drop
-					// reorder produces a new array order, and the row
-					// component's local state (the menu's open/closed
-					// state, the type picker's hover) should reset on a
-					// reorder so the user sees the row's new identity at
-					// its new position. Same shape `IdMappingCard` uses
-					// for its move-up/move-down rows.
-					const rowKey = `${i}:${
-						key.source.kind === "property"
-							? key.source.property
-							: key.source.columnId
-					}`;
-					return (
-						<ReorderableRow
-							key={rowKey}
-							index={i}
-							containerKey={containerKey}
-							containerKind="sort-keys"
-							pendingDrop={pendingDrop}
-							preview={<SortKeyDragPreview index={i} />}
-						>
-							{({
-								wrapperRef,
-								setHandleEl,
-								closestEdge,
-								previewPortal,
-								beingMoved,
-							}) => (
-								<div
-									ref={wrapperRef}
-									className={`relative ${beingMoved ? "opacity-50" : ""}`}
-								>
-									{closestEdge !== null && (
-										<div
-											aria-hidden="true"
-											className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full"
-											style={{
-												top: closestEdge === "top" ? -3 : undefined,
-												bottom: closestEdge === "bottom" ? -3 : undefined,
-											}}
-										/>
-									)}
-									<SortKeyRow
-										value={key}
-										index={i}
-										caseTypes={caseTypes}
-										currentCaseType={currentCaseType}
-										calculatedColumns={calculatedColumns}
-										errors={errorsPerRow[i]}
-										onChange={(next) => replaceRow(i, next)}
-										onRemove={() => removeRow(i)}
-										setHandleEl={setHandleEl}
-									/>
-									{previewPortal}
-								</div>
-							)}
-						</ReorderableRow>
-					);
-				})}
-				<button
-					type="button"
-					onClick={appendRow}
-					className="inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+		<div className="space-y-1.5">
+			{value.length === 0 && <EmptyState />}
+			{value.map((key, i) => (
+				<ReorderableRow
+					// Stable per-row React key from the WeakMap-backed
+					// `nodeId(key)`. The reorder hook splices the existing
+					// element references into the new array order, so the
+					// per-row identity persists across drag-drop AND
+					// across the duplicate-source case (two keys on the
+					// same property with different types / directions
+					// would collide on an index-or-source-name key).
+					key={nodeId(key)}
+					index={i}
+					containerKey={containerKey}
+					containerKind="sort-keys"
+					pendingDrop={pendingDrop}
+					preview={<SortKeyDragPreview index={i} />}
 				>
-					<Icon icon={tablerPlus} width="11" height="11" />
-					<span>Add sort key</span>
-				</button>
-			</div>
-		</PredicateEditProvider>
+					{({
+						wrapperRef,
+						setHandleEl,
+						closestEdge,
+						previewPortal,
+						beingMoved,
+					}) => (
+						<div
+							ref={wrapperRef}
+							className={`relative ${beingMoved ? "opacity-50" : ""}`}
+						>
+							{closestEdge !== null && (
+								<div
+									aria-hidden="true"
+									className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full"
+									style={{
+										top: closestEdge === "top" ? -3 : undefined,
+										bottom: closestEdge === "bottom" ? -3 : undefined,
+									}}
+								/>
+							)}
+							<SortKeyRow
+								value={key}
+								index={i}
+								caseTypes={caseTypes}
+								currentCaseType={currentCaseType}
+								calculatedColumns={calculatedColumns}
+								errors={errorsPerRow[i]}
+								onChange={(next) => replaceRow(i, next)}
+								onRemove={() => removeRow(i)}
+								setHandleEl={setHandleEl}
+							/>
+							{previewPortal}
+						</div>
+					)}
+				</ReorderableRow>
+			))}
+			<button
+				type="button"
+				onClick={appendRow}
+				className="inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+			>
+				<Icon icon={tablerPlus} width="11" height="11" />
+				<span>Add sort key</span>
+			</button>
+		</div>
 	);
 }
 
@@ -357,19 +327,6 @@ function pickDefaultSource(
 	const ct = caseTypes.find((c) => c.name === currentCaseType);
 	const firstProperty = ct?.properties[0]?.name ?? "";
 	return propertySortSource(firstProperty);
-}
-
-/**
- * Re-route a SortKey through the builder. The reorder hook hands
- * back a `SortKey[]` whose entries are reference-equal to the
- * pre-reorder array elements; passing them through `sortKey(...)`
- * is a no-op at the wire shape and a structural guarantee that
- * every emitted SortKey in the new array is freshly built. Mirrors
- * the `apply(...)` helper pattern in `ConcatCard` /
- * `CoalesceCard` / `SwitchCard`.
- */
-function normalizeKey(key: SortKey): SortKey {
-	return sortKey(key.source, key.type, key.direction);
 }
 
 // ── Empty state ────────────────────────────────────────────────────
@@ -741,10 +698,13 @@ function SourcePicker({
 interface TypePickerProps {
 	readonly value: SortType;
 	readonly onChange: (next: SortType) => void;
-	/** The set of `SortType` values the menu lists as enabled. Types
-	 *  outside the set still render in the menu (for transparency)
-	 *  but are disabled — picking one would fire an inline error,
-	 *  so disabling at the menu layer is the more direct UX. */
+	/** The set of `SortType` values the source's resolved data type
+	 *  admits. Inapplicable types still render in the menu (and stay
+	 *  clickable) at reduced opacity — same convention as the
+	 *  column-kind menu in `ColumnEditor`'s `KindReplaceMenu`. The
+	 *  inline error surface gates validity once the user picks an
+	 *  inapplicable type; hiding the option would lock authors out
+	 *  of overrides when they know better. */
 	readonly allowed: readonly SortType[];
 	readonly invalid: boolean;
 }

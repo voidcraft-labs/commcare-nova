@@ -21,10 +21,10 @@
 //   - **Empty list:** an empty `value` renders the empty-state
 //     affordance + the Add button cleanly.
 //
-// The editor mounts inside a `PredicateEditProvider` so the source
-// picker's `PropertyPicker` can resolve case-type context; tests
-// pass `caseTypes` + `currentCaseType` through the editor's own
-// props (the provider mount happens internally).
+// The editor's bespoke `SourcePicker` reads `caseTypes` +
+// `currentCaseType` directly from props (no provider wrapper), so
+// tests pass them straight through and assert against the rendered
+// menu items.
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -276,15 +276,44 @@ describe("SortKeyEditor — drag handle wiring", () => {
 		);
 		expect(grips.length).toBe(0);
 	});
+
+	it("renders distinct rows when two keys share a source (duplicate-source case)", () => {
+		// Two sort keys on the same property with different `(type,
+		// direction)` tuples are structurally valid (e.g. sort by age
+		// integer-asc, tiebreaker by age plain-desc). The per-row React
+		// key has to distinguish them — `nodeId(key)` against the
+		// `SortKey` object identity is the only stable strategy
+		// (an `index:source-name` key would collide on these two
+		// rows). The structural test: removing one row emits an array
+		// of length 1 holding the OTHER row, even though both rows had
+		// the same source name.
+		const valueAsc = sortKey(propertySortSource("age"), "integer", "asc");
+		const valueDesc = sortKey(propertySortSource("age"), "plain", "desc");
+		const { container, onChange } = renderEditor([valueAsc, valueDesc]);
+		// Two grip handles render — confirms both rows mounted.
+		const grips = container.querySelectorAll(
+			'button[aria-label="Reorder sort key"]',
+		);
+		expect(grips.length).toBe(2);
+		// Remove the first row; the survivor is the second `(plain, desc)`.
+		const removeButtons = screen.getAllByRole("button", {
+			name: /remove sort key/i,
+		});
+		fireEvent.click(removeButtons[0]);
+		const next = lastEmittedSort(onChange);
+		expect(next).toHaveLength(1);
+		expect(next[0].type).toBe("plain");
+		expect(next[0].direction).toBe("desc");
+	});
 });
 
 describe("SortKeyEditor — reorder rebuild contract", () => {
 	it("reordering produces a sort-key array in the new order", () => {
 		// Construct the new order via the public builder and assert
-		// the emitted shape matches what the editor's onReorder would
-		// emit. The editor's `normalizeKey` re-routes each entry
-		// through `sortKey(...)` so the reordered array is shape-
-		// equal to the input but freshly built.
+		// the emitted shape parses cleanly. The editor's onReorder
+		// passes the spliced array straight through to `onChange` —
+		// per-entry references are preserved so `nodeId(key)`-keyed
+		// React state survives the reorder.
 		const a = sortKey(propertySortSource("dob"), "date", "asc");
 		const b = sortKey(propertySortSource("age"), "integer", "desc");
 		const c = sortKey(propertySortSource("name"), "plain", "asc");
