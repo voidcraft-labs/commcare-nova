@@ -18,7 +18,8 @@
 import type { CaseProperty, Column, TimeSinceUnit } from "@/lib/domain";
 import { timeSinceUntilColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
-import { BlurCommitTextInput, ColumnFieldRow } from "./ColumnFieldRow";
+import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
+import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 
 const DATE_DATA_TYPES = new Set<string>(["date", "datetime"]);
@@ -112,7 +113,7 @@ export function TimeSinceUntilCard({
 				</div>
 				<BlurCommitTextInput
 					value={value.displayLabel}
-					onChange={setDisplayLabel}
+					onCommit={setDisplayLabel}
 					placeholder="Rendered when threshold is exceeded"
 					ariaLabel="Display label"
 				/>

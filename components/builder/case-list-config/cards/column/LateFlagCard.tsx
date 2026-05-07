@@ -25,7 +25,8 @@
 import type { CaseProperty, Column, TimeSinceUnit } from "@/lib/domain";
 import { lateFlagColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
-import { BlurCommitTextInput, ColumnFieldRow } from "./ColumnFieldRow";
+import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
+import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 
 const DATE_DATA_TYPES = new Set<string>(["date", "datetime"]);
@@ -115,7 +116,7 @@ export function LateFlagCard({ value, onChange, errors }: LateFlagCardProps) {
 				</div>
 				<BlurCommitTextInput
 					value={value.flagDisplayValue}
-					onChange={setFlagDisplayValue}
+					onCommit={setFlagDisplayValue}
 					placeholder="Rendered when overdue"
 					ariaLabel="Flag display value"
 				/>

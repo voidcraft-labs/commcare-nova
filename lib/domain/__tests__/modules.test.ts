@@ -162,6 +162,21 @@ describe("columnSchema — discriminated union arms", () => {
 		expect(parsed.success).toBe(false);
 	});
 
+	it("rejects a date column with an empty pattern", () => {
+		// Schema constraint: `dateColumnSchema.pattern` is
+		// `z.string().min(1)` — symmetric with `formatDateSchema.pattern`
+		// on the ValueExpression side. Both fields drive the same CCHQ
+		// format-date runtime; an empty pattern would render the
+		// property's raw ISO string at the wire boundary.
+		const parsed = columnSchema.safeParse({
+			kind: "date",
+			field: "opened_on",
+			header: "Opened",
+			pattern: "",
+		});
+		expect(parsed.success).toBe(false);
+	});
+
 	it("rejects an unknown column kind", () => {
 		const parsed = columnSchema.safeParse({
 			kind: "rainbow",

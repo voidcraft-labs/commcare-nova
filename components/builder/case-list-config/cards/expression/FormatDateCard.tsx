@@ -9,19 +9,24 @@
 //     `format-date(date, pattern)` value function).
 //
 // The pattern slot's two-branch union (preset enum vs. free-string)
-// surfaces as a segmented presets row + a free-text input. The
-// preset row commits the matching enum value; the free-text input
-// commits any non-empty string. When the saved pattern matches an
-// enum value, the preset row marks it active; otherwise the free-
-// text input shows the custom string and the preset row reads as
-// "Custom".
+// surfaces through the shared `CustomDatePatternInput` primitive
+// (`primitives/CustomDatePatternInput.tsx`): segmented preset
+// toggle row + free-text custom input + empty-pattern signal. The
+// primitive is mounted by both this card and the column-side
+// `DateColumnCard` so polish-passes apply once.
+//
+// Preset commits: this card supplies the FORMAT_DATE_PRESETS enum
+// values verbatim as the preset patterns — the AST distinguishes
+// preset (enum branch) from custom (string branch) and downstream
+// consumers (wire emitter, type checker) read the discriminator.
+// The column-side commits wire-form patterns instead since its
+// schema flattens the union to `z.string().min(1)`.
 //
 // Type-checker rules (per `checkExpression`'s `case "format-date":`):
 // the `date` operand must resolve to `date` or `datetime`. Errors
 // land at `[..., "date"]`. Result type is always `text`.
 
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	FORMAT_DATE_PRESETS,
 	type FormatDatePreset,
@@ -31,6 +36,10 @@ import {
 } from "@/lib/domain/predicate";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
+import {
+	CustomDatePatternInput,
+	type DatePatternPreset,
+} from "../../primitives/CustomDatePatternInput";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
 const PRESET_LABELS: Record<FormatDatePreset, string> = {
@@ -38,6 +47,19 @@ const PRESET_LABELS: Record<FormatDatePreset, string> = {
 	long: "Long",
 	iso: "ISO",
 };
+
+/**
+ * Preset table for the format-date AST. Each preset commits the
+ * enum value verbatim (`"short"` / `"long"` / `"iso"`) — the AST
+ * keeps the preset-vs-custom distinction at the discriminator
+ * level, and the wire emitter reads it.
+ */
+const FORMAT_DATE_PRESET_TABLE: readonly DatePatternPreset[] =
+	FORMAT_DATE_PRESETS.map((preset) => ({
+		id: preset,
+		label: PRESET_LABELS[preset],
+		pattern: preset,
+	}));
 
 /** Default — `format-date(today(), "short")`. The seed is a clean
  *  formatted date; the type checker validates the date operand and
@@ -63,15 +85,9 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 		onChange(formatDate(next, value.pattern));
 	};
 
-	const setPattern = (next: FormatDatePreset | string) => {
+	const setPattern = (next: string) => {
 		onChange(formatDate(value.date, next));
 	};
-
-	// Classify the current pattern — enum branch vs custom string —
-	// so the UI surfaces the right active state.
-	const isPreset = (FORMAT_DATE_PRESETS as readonly string[]).includes(
-		value.pattern,
-	);
 
 	return (
 		<div className="space-y-2">
@@ -92,155 +108,12 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
 					Pattern
 				</div>
-				<PresetRow pattern={value.pattern} setPattern={setPattern} />
-				{!isPreset && (
-					<CustomPatternInput value={value.pattern} onChange={setPattern} />
-				)}
+				<CustomDatePatternInput
+					value={value.pattern}
+					onChange={setPattern}
+					presets={FORMAT_DATE_PRESET_TABLE}
+				/>
 			</div>
-		</div>
-	);
-}
-
-interface PresetRowProps {
-	readonly pattern: FormatDatePreset | string;
-	readonly setPattern: (next: FormatDatePreset | string) => void;
-}
-
-/** Segmented preset selector + a "Custom" affordance. Each preset
- *  commits the matching enum value verbatim through the schema's
- *  `pattern` union; "Custom" commits an empty string and reveals
- *  the free-text input below. */
-function PresetRow({ pattern, setPattern }: PresetRowProps) {
-	const isPreset = (FORMAT_DATE_PRESETS as readonly string[]).includes(pattern);
-	const baseCls =
-		"px-2 py-1.5 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
-	const activeCls = "text-nova-violet-bright bg-nova-violet/10";
-	const idleCls =
-		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";
-	// `<fieldset>` carries the implicit "group of related controls"
-	// role without an explicit `role="group"` attribute — biome's
-	// `useSemanticElements` rule prefers the semantic element. The
-	// visible-label decoration uses `aria-label` rather than a
-	// `<legend>` because the surrounding "Pattern" sub-section header
-	// already labels the group; a redundant legend would add a
-	// structural heading the screen reader doesn't need.
-	return (
-		<fieldset
-			className="flex gap-1 px-1 py-1 rounded-md border border-white/[0.06] bg-nova-deep/50"
-			aria-label="Date pattern preset"
-		>
-			{FORMAT_DATE_PRESETS.map((preset) => {
-				const isActive = isPreset && pattern === preset;
-				return (
-					<button
-						type="button"
-						key={preset}
-						onClick={() => setPattern(preset)}
-						className={`${baseCls} ${isActive ? activeCls : idleCls}`}
-						aria-pressed={isActive}
-					>
-						{PRESET_LABELS[preset]}
-					</button>
-				);
-			})}
-			<button
-				type="button"
-				onClick={() => {
-					// Switching from preset → custom seeds with a real
-					// CCHQ pattern (`%Y-%m-%d` — ISO date) so the schema's
-					// `z.string().min(1)` branch admits the value AND the
-					// wire emitter renders a meaningful formatted date if
-					// the author saves without further editing. Seeding
-					// with a placeholder string like "custom-pattern"
-					// would leak that literal into the wire output —
-					// nothing in the wire stack treats it as a sentinel.
-					if (isPreset) setPattern("%Y-%m-%d");
-				}}
-				className={`${baseCls} ${!isPreset ? activeCls : idleCls} ml-auto`}
-				aria-pressed={!isPreset}
-			>
-				Custom
-			</button>
-		</fieldset>
-	);
-}
-
-/** Free-text custom pattern input. Commits on blur. The schema
- *  (`formatDateSchema.pattern: z.string().min(1)`) rejects empty
- *  patterns at parse time, but the type checker's per-arm rules
- *  in `checkExpression` don't reproduce that constraint at the
- *  validity-index layer — empty input would otherwise flow silently
- *  through the editor and surface only at save-boundary parse.
- *
- *  Local validity gate: track whether the draft would parse, drive
- *  `aria-invalid` and a visible error border off it, and surface an
- *  inline hint below the input. The commit handler refuses the
- *  empty-string emit so the AST stays parseable, but the user sees
- *  the rejection inline rather than a silent rollback. */
-function CustomPatternInput({
-	value,
-	onChange,
-}: {
-	readonly value: string;
-	readonly onChange: (next: string) => void;
-}) {
-	const inputRef = useRef<HTMLInputElement>(null);
-	const initial = value;
-	const [draft, setDraft] = useState(initial);
-	const [showEmptyError, setShowEmptyError] = useState(false);
-	useEffect(() => {
-		if (initial !== draft && document.activeElement !== inputRef.current) {
-			setDraft(initial);
-			setShowEmptyError(false);
-		}
-	}, [initial, draft]);
-	const commit = useCallback(() => {
-		// Empty draft — surface the schema's `min(1)` rejection inline
-		// and refuse the emit. The user sees the error message + red
-		// border; on the next keystroke the error clears (per the
-		// onChange handler below). The input retains the empty draft
-		// state so the user doesn't lose context about what they did.
-		if (draft.trim() === "") {
-			setShowEmptyError(true);
-			return;
-		}
-		setShowEmptyError(false);
-		onChange(draft);
-	}, [draft, onChange]);
-	const isInvalid = showEmptyError;
-	const inputCls = [
-		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors",
-		isInvalid
-			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
-			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
-	].join(" ");
-	return (
-		<div className="space-y-1">
-			<input
-				ref={inputRef}
-				type="text"
-				value={draft}
-				onChange={(e) => {
-					setDraft(e.target.value);
-					// Clear the empty-error signal as soon as the user
-					// types so the visual state matches the live draft.
-					if (showEmptyError && e.target.value.trim() !== "") {
-						setShowEmptyError(false);
-					}
-				}}
-				onBlur={commit}
-				autoComplete="off"
-				data-1p-ignore
-				placeholder="CCHQ format-date pattern (e.g. %d-%b-%Y)"
-				aria-label="Custom date pattern"
-				aria-invalid={isInvalid || undefined}
-				className={inputCls}
-			/>
-			{isInvalid && (
-				<div className="text-[11px] leading-snug text-nova-error/90">
-					Custom pattern cannot be empty.
-				</div>
-			)}
 		</div>
 	);
 }

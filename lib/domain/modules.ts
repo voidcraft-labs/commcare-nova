@@ -48,12 +48,20 @@ const plainColumnSchema = z.object({
  * preset date format. The property must resolve to a date-shaped
  * `data_type` (validator rule); the runtime formatter consumes
  * `pattern` to produce the displayed string.
+ *
+ * `pattern` rejects empty strings (`z.string().min(1)`) — symmetric
+ * with `formatDateSchema.pattern` on the ValueExpression side.
+ * Both fields drive the same CCHQ format-date runtime; an empty
+ * pattern would render the property's raw ISO string at the wire
+ * boundary, defeating the column's purpose. Backed at the editor
+ * by an inline empty-pattern signal in the shared
+ * `CustomDatePatternInput` primitive.
  */
 const dateColumnSchema = z.object({
 	kind: z.literal("date"),
 	field: z.string(),
 	header: z.string(),
-	pattern: z.string(),
+	pattern: z.string().min(1),
 });
 
 /** Time-since/time-until interval units. */
@@ -182,6 +190,16 @@ export function plainColumn(
  * Constructs a date-formatted column. `pattern` carries the wire-
  * form date format string consumed by the runtime formatter (e.g.
  * `%Y-%m-%d` for ISO output, `%d-%b-%Y` for `27-Apr-2025`).
+ *
+ * Schema constraint: `pattern` must be non-empty. The schema layer
+ * (`dateColumnSchema.pattern: z.string().min(1)`) enforces it at
+ * parse — same shape as `formatDateSchema.pattern` on the
+ * ValueExpression side. TypeScript can't structurally encode
+ * "non-empty string" without a branded subtype + runtime guard at
+ * every constructor; the schema is the structural defense, mirroring
+ * `formatDate`'s parallel pattern. The editor's
+ * `CustomDatePatternInput` primitive surfaces the rejection inline
+ * before save.
  */
 export function dateColumn(
 	field: string,

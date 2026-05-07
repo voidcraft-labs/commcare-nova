@@ -31,11 +31,11 @@ import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback, useEffect, useRef, useState } from "react";
 import type { Column, IdMappingEntry } from "@/lib/domain";
 import { idMappingColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { nodeId } from "../../nodeIdentity";
+import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 interface IdMappingCardProps {
@@ -202,70 +202,27 @@ function MappingRow({
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Value
 					</div>
-					<MappingInput
+					<BlurCommitTextInput
 						value={entry.value}
+						onCommit={(next) => onUpdate({ value: next })}
 						placeholder="Property value"
 						ariaLabel={`Mapping ${index + 1} value`}
-						onCommit={(next) => onUpdate({ value: next })}
+						monospace
 					/>
 				</div>
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Label
 					</div>
-					<MappingInput
+					<BlurCommitTextInput
 						value={entry.label}
+						onCommit={(next) => onUpdate({ label: next })}
 						placeholder="Display label"
 						ariaLabel={`Mapping ${index + 1} label`}
-						onCommit={(next) => onUpdate({ label: next })}
+						monospace
 					/>
 				</div>
 			</div>
 		</div>
-	);
-}
-
-interface MappingInputProps {
-	readonly value: string;
-	readonly placeholder: string;
-	readonly ariaLabel: string;
-	readonly onCommit: (next: string) => void;
-}
-
-/** Tight blur-commit text input scoped to the mapping row layout
- *  — slightly smaller chrome than `BlurCommitTextInput`. Same
- *  draft / commit handshake; the local draft holds the in-flight
- *  edit, the commit fires on blur, and the draft re-syncs to the
- *  external `value` only when the input isn't focused. */
-function MappingInput({
-	value,
-	placeholder,
-	ariaLabel,
-	onCommit,
-}: MappingInputProps) {
-	const inputRef = useRef<HTMLInputElement>(null);
-	const [draft, setDraft] = useState(value);
-	useEffect(() => {
-		if (value !== draft && document.activeElement !== inputRef.current) {
-			setDraft(value);
-		}
-	}, [value, draft]);
-	const commit = useCallback(() => {
-		if (draft === value) return;
-		onCommit(draft);
-	}, [draft, value, onCommit]);
-	return (
-		<input
-			ref={inputRef}
-			type="text"
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder={placeholder}
-			aria-label={ariaLabel}
-			className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
-		/>
 	);
 }
