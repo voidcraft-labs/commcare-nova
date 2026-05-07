@@ -131,23 +131,31 @@ AND/OR group drag-drop reorder uses `@atlaskit/pragmatic-drag-and-drop` mirrorin
 Final state: 3180 tests pass (104 from the test files in this task + the case-store + chat-completion suites carried forward), 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 3: Expression card editor
+### Task 3: Expression card editor — SHIPPED
 
-**Files:** `components/builder/case-list-config/ExpressionCardEditor.tsx`, tests.
+SHIPPED 2026-05-06 in commits `4aebe572` (initial feat) → `f487b7b5` (CR fix-pass: preserve literal.data_type in switch rebuild + ref-callback identity + applicability docs) → `d28302f0` (CR fix-pass: qualifiedLiteral builder + JSDoc and comment drift sweep) → `9f7cab9e` (CR fix-pass: align applicability with operand-driven results + extract resolveDestination + drop redundant casts) → `a527ca95` (CR fix-pass: drop unused useEditorErrorsAtOrBelow helper + correct JSDoc consumer reference) → `91bcf09d` (final polish: UnwrapList recovery path + FormatDate validation + JSDoc precision) on branch `feat/case-list-search`.
 
-Same shape as Task 2 but for ValueExpressions. Calculated-column UX is a sub-mode of this editor. Cards:
-- Term card: property / input / session-context / literal / value-expression-of-... picker
-- Date constant cards: today / now (zero-arg)
-- Date arithmetic card: date input + interval picker + quantity input
-- Coercion cards: date-coerce / datetime-coerce / double
-- Arithmetic card: left + op + right
-- Concat card: list of value-expression parts
-- Conditional card: cond Predicate (delegates to the predicate editor) + then expression + else expression
-- Switch card: on expression + case rows (when literal + then expression) + fallback
-- Count card: RelationPath + optional filter (nested predicate editor)
-- Format-date card: date expression + pattern picker
+**What landed:**
 
-Tests: same shape as predicate editor.
+The registry-driven ValueExpression card editor at `components/builder/case-list-config/`. 13 cards covering all 15 `ValueExpression` arms (Term, Today, Now, DateAdd, DateCoerce, DatetimeCoerce, Double, Arith, Concat, Coalesce, If, Switch, Count, UnwrapList, FormatDate). Cards type-check via `checkValueExpression` on every change; invalid configurations propagate validity to the parent through `onValidityChange`. Inline errors render at the offending node's path via the same exact-match / strict-descendant lookup helpers Task 2 established.
+
+The editor schema mirrors Task 2's pattern: `expressionEditorSchemas.ts` is `{ readonly [K in ValueExpression["kind"]]: ExpressionCardSchema<K> }` so a new ValueExpression kind without an entry fails to compile. `applicableForX` helpers gate kind-picker / Change-menu applicability per slot's `expectedType`; date-typed kinds (`date-add`, coercion pair) accept BOTH `date` AND `datetime` since their result type follows the operand.
+
+This task also replaces Task 2's Term-only `ValueExpressionPicker` stub with the full `ExpressionPicker` and migrates 4 Predicate-side cards (Comparison, Match, Between, WithinDistance) to consume it. ComparisonCard's right-slot intentionally omits `expectedType` (comparison's ordered-types rules + numeric promotion / select-to-text widenings admit any compatible type); the JSDoc cross-references the parallel cases.
+
+**Cross-family recursion.** `IfCard.cond` and `CountCard.where` route through the same `ChildPredicateEditor` that Task 2's predicate cards already use. `WithCurrentCaseType` flips the type-checker's destination scope for `count.where` so property references inside resolve against the relation walk's destination. The shared `resolveRelationDestination` helper (extracted to `relationDestination.ts`) is consumed by both `ExistsCard` and `CountCard`.
+
+**Drag-and-drop.** Three reorderable surfaces — `concat.parts`, `coalesce.values`, `switch.cases` — share the new `useReorderableExpressionList` hook. Custom drag preview via `setCustomNativeDragPreview`; per-list monitor scoped by `containerKey`; ref-stash during render (matching the canonical `useRowDnd` pattern); adjacency suppression.
+
+**Round-trip preservation.** Every literal-rebuild site routes through `rebuildLiteralPreservingDataType` (and its `parseInputTextToLiteral` peer), which threads through the new `qualifiedLiteral` builder added to `lib/domain/predicate/builders.ts`. The temporal builders (`dateLiteral` / `datetimeLiteral` / `timeLiteral`) are now thin specializations on top. Switch's `when` literal, Term's literal arms, FormatDate's pattern literal, and Task 2's `LiteralValueInput` (TextInput / NumericInput / SelectOptionInput) all preserve `data_type` qualifiers through edits and blur.
+
+**UnwrapList lossless recovery.** Saved `unwrap-list(<inner>)` ASTs surface as a read-only badge with a Replace affordance that swaps to `<inner>` reference-identical. The kind isn't authored from the picker (round-trip-only — CSQL emitter wraps via the AST); the Replace path lets users repair the wrapped expression without losing operands.
+
+**Hard constraints honored:** No textareas, no string editing of expression text. Field uuid (`nodeId()`) for UI identity; path for blueprint mutations + `checkValueExpression` lookups. Base UI primitives (`@base-ui/react`) with glass styles on Positioner. `@iconify/react/offline` icons. `motion/react` animation. `pragmatic-drag-and-drop` + custom previews. SA tool prompts/schemas untouched.
+
+**Tests (114 in this task's suite, +37 net to the suite from Task 2's baseline):** round-trip per kind (15 kinds), type-mismatch inline error rendering (not just `onValidityChange(false)`), drag-drop reduction-shape preservation, cross-family integration (`if.cond` / `count.where` containing Predicate operands that reference properties), `expectedType` gating, `qualifiedLiteral` builder contract (general-purpose primitive, value union consistency, temporal-specialization equivalence), `parseInputTextToLiteral` symmetric empty-input behavior across qualified vs unqualified sources, UnwrapList Replace round-trip preservation. Six rounds of fresh-CR review locked progressively-narrower issue classes (literal.data_type destruction → applicability registry / JSDoc divergence → builder discipline → dead-code hygiene → recovery-path completeness).
+
+Final state: 3294 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 4: Column editor (per-format-kind)
