@@ -30,7 +30,10 @@ import {
 	type Column,
 	type ColumnKind,
 	dateColumn,
+	effectiveDataType,
 	idMappingColumn,
+	isDateTyped,
+	isTextShaped,
 	lateFlagColumn,
 	phoneColumn,
 	plainColumn,
@@ -44,7 +47,6 @@ import { PhoneColumnCard } from "./cards/column/PhoneColumnCard";
 import { PlainColumnCard } from "./cards/column/PlainColumnCard";
 import { SearchOnlyCard } from "./cards/column/SearchOnlyCard";
 import { TimeSinceUntilCard } from "./cards/column/TimeSinceUntilCard";
-import { isDateTyped, isTextShaped } from "./propertyTypeSets";
 
 /**
  * Minimum context every `defaultValue(...)` factory and
@@ -131,7 +133,7 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 //     numbers are valid CCHQ practice but the runtime tap binding
 //     expects a string. Un-annotated properties fall back to
 //     `text` per the type checker's `data_type ?? "text"`
-//     convention (encoded by `propertyTypeSets`).
+//     convention (encoded by `lib/domain/casePropertyTypes.ts`).
 //   - **Universal** — Plain, ID-Mapping, Search-Only. Any
 //     property surface is acceptable — the column either renders
 //     the raw value (Plain), looks it up in a value→label table
@@ -310,7 +312,7 @@ export function resolveColumnPropertyDataType(
 	if (ct === undefined) return undefined;
 	const property = ct.properties.find((p) => p.name === field);
 	if (property === undefined) return undefined;
-	return property.data_type ?? "text";
+	return effectiveDataType(property);
 }
 
 /**

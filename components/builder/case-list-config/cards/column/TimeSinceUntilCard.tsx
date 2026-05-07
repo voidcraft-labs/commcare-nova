@@ -16,10 +16,9 @@
 
 "use client";
 import type { Column, TimeSinceUnit } from "@/lib/domain";
-import { timeSinceUntilColumn } from "@/lib/domain";
+import { isDateTyped, timeSinceUntilColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
-import { isDateTyped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 

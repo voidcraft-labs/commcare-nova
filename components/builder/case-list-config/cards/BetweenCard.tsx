@@ -9,6 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerSquare from "@iconify-icons/tabler/square";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check-filled";
+import { isOrdered } from "@/lib/domain";
 import {
 	between,
 	literal,
@@ -24,28 +25,19 @@ import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 
-const ORDERED_PROPERTY_TYPES = new Set<string>([
-	"int",
-	"decimal",
-	"date",
-	"datetime",
-	"time",
-]);
-
 /** Module-level filter so render-time identity stays stable —
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
  *  on each fresh-arrow filter, even when the actual selection rule
- *  is constant. */
-const ORDERED_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
-	ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text");
+ *  is constant. The shared `isOrdered` helper (in
+ *  `lib/domain/casePropertyTypes.ts`) consolidates the
+ *  `data_type ?? "text"` fallback every consumer applies. */
+const ORDERED_PROPERTY_FILTER = isOrdered;
 
 export function betweenDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "between" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
-	const property = ct?.properties.find((p) =>
-		ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text"),
-	);
+	const property = ct?.properties.find(isOrdered);
 	const propName = property?.name ?? "";
 	return between(prop(ctx.currentCaseType, propName), {
 		lower: literal(""),

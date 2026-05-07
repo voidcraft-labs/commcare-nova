@@ -26,13 +26,12 @@
 
 "use client";
 import type { Column } from "@/lib/domain";
-import { dateColumn } from "@/lib/domain";
+import { dateColumn, isDateTyped } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import {
 	CustomDatePatternInput,
 	type DatePatternPreset,
 } from "../../primitives/CustomDatePatternInput";
-import { isDateTyped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 /**

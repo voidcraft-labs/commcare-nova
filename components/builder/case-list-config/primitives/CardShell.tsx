@@ -179,22 +179,30 @@ export function CardShell({
 			 *  prefix-merged result, so every entry in `errors` is
 			 *  guaranteed unique within the render.
 			 *
-			 *  `aria-live="polite"` + `aria-atomic="true"` mirror
-			 *  `InlineError`'s announcement contract — diagnostics
-			 *  appearing / disappearing during typing are announced
-			 *  without preempting the user. */}
-			{hasErrors && (
-				<div aria-live="polite" aria-atomic="true" className="mt-2 space-y-0.5">
-					{errors.map((message) => (
-						<div
-							key={message}
-							className="text-[11px] leading-snug text-nova-error/90"
-						>
-							{message}
-						</div>
-					))}
-				</div>
-			)}
+			 *  The `aria-live="polite"` + `aria-atomic="true"`
+			 *  region renders unconditionally — many screen readers
+			 *  fail to announce content of a live region "born
+			 *  together" with the content itself. Keeping the
+			 *  wrapper mounted means the region is monitored before
+			 *  diagnostics arrive. The `sr-only` className when
+			 *  `!hasErrors` keeps the empty region offscreen for
+			 *  visual users while preserving the assistive-tech
+			 *  contract; the `aria-invalid` flags on individual
+			 *  inputs handle the immediate-by-input signal. */}
+			<div
+				aria-live="polite"
+				aria-atomic="true"
+				className={hasErrors ? "mt-2 space-y-0.5" : "sr-only"}
+			>
+				{errors?.map((message) => (
+					<div
+						key={message}
+						className="text-[11px] leading-snug text-nova-error/90"
+					>
+						{message}
+					</div>
+				))}
+			</div>
 		</div>
 	);
 }
@@ -206,21 +214,29 @@ interface InlineErrorProps {
 /**
  * Per-slot inline error rendering. Cards call this beneath each
  * input that may carry a diagnostic from the type checker — the
- * helper short-circuits when no errors landed so callers can render
- * it unconditionally. Mirrors the visual tier the field editor
- * uses for validation hints.
+ * helper renders the live region UNCONDITIONALLY so screen readers
+ * have it monitored before content arrives. Many screen readers
+ * fail to announce content of a live region "born together" with
+ * its content; keeping the wrapper mounted closes that gap.
  *
- * The wrapper carries `aria-live="polite"` so screen readers
- * announce diagnostics as they appear / disappear without
- * preempting the user's typing — matches the convention for
- * typed-as-you-go validation. `aria-atomic="true"` reads the full
- * region content on each update so a partial change (one of two
- * errors clearing) doesn't leak partial-region announcements.
+ * `aria-live="polite"` defers announcement until the user pauses
+ * input — appropriate for typed-as-you-go validation messages
+ * (alert would be too aggressive). `aria-atomic="true"` reads the
+ * full region content on each update so a partial change (one of
+ * two errors clearing) doesn't leak partial-region announcements.
+ *
+ * Visually the region collapses to `sr-only` when empty so the
+ * empty wrapper doesn't take layout space; the `aria-invalid` flag
+ * on the input handles the immediate per-input signal.
  */
 export function InlineError({ errors }: InlineErrorProps) {
-	if (errors.length === 0) return null;
+	const hasErrors = errors.length > 0;
 	return (
-		<div aria-live="polite" aria-atomic="true" className="mt-1 space-y-0.5">
+		<div
+			aria-live="polite"
+			aria-atomic="true"
+			className={hasErrors ? "mt-1 space-y-0.5" : "sr-only"}
+		>
 			{/* The message string is a safe React key —
 			 *  `buildValidityIndex` (in `editorContext.tsx`)
 			 *  deduplicates per path on the way in (so the exact-match

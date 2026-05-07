@@ -34,6 +34,11 @@ import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerVariable from "@iconify-icons/tabler/variable";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType } from "@/lib/domain";
+import {
+	isDateTyped,
+	NUMERIC_DATA_TYPES,
+	TEXT_SHAPED_DATA_TYPES,
+} from "@/lib/domain";
 import type {
 	ResolvedType,
 	SearchInputDecl,
@@ -67,11 +72,6 @@ import {
 	UnwrapListCard,
 	unwrapListDefault,
 } from "./cards/expression/UnwrapListCard";
-import {
-	isDateTyped,
-	NUMERIC_DATA_TYPES,
-	TEXT_SHAPED_DATA_TYPES,
-} from "./propertyTypeSets";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.

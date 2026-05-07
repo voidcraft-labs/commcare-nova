@@ -14,9 +14,8 @@
 
 "use client";
 import type { Column } from "@/lib/domain";
-import { phoneColumn } from "@/lib/domain";
+import { isTextShaped, phoneColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
-import { isTextShaped } from "../../propertyTypeSets";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 interface PhoneColumnCardProps {

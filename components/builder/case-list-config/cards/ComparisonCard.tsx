@@ -14,6 +14,7 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { useRef } from "react";
+import { isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
 	eq,
@@ -66,13 +67,6 @@ const KIND_LABELS: Record<ComparisonKind, { label: string; symbol: string }> = {
 };
 
 const ORDERED_KINDS = new Set<ComparisonKind>(["lt", "lte", "gt", "gte"]);
-const ORDERED_PROPERTY_TYPES = new Set<string>([
-	"int",
-	"decimal",
-	"date",
-	"datetime",
-	"time",
-]);
 
 /**
  * Comparison-arm shape narrowed on the per-kind discriminator. The
@@ -107,9 +101,7 @@ export function comparisonDefault<K extends ComparisonKind>(
 ): ComparisonArm<K> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((p) =>
-		ORDERED_KINDS.has(kind)
-			? ORDERED_PROPERTY_TYPES.has(p.data_type ?? "text")
-			: true,
+		ORDERED_KINDS.has(kind) ? isOrdered(p) : true,
 	);
 	const propName = property?.name ?? "";
 	const builder = KIND_BUILDERS[kind] as (

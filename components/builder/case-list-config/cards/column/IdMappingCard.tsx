@@ -31,8 +31,12 @@ import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import type { Column, IdMappingEntry } from "@/lib/domain";
-import { idMappingColumn } from "@/lib/domain";
+import {
+	type Column,
+	type IdMappingEntry,
+	idMappingColumn,
+	idMappingEntry,
+} from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { nodeId } from "../../nodeIdentity";
 import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
@@ -76,7 +80,7 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 	};
 
 	const appendEntry = () => {
-		setMapping([...value.mapping, { value: "", label: "" }]);
+		setMapping([...value.mapping, idMappingEntry("", "")]);
 	};
 
 	return (

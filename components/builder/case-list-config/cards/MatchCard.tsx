@@ -9,6 +9,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { useRef } from "react";
 import type { CaseProperty } from "@/lib/domain";
+import { isDateTyped, isTextShaped } from "@/lib/domain";
 import {
 	literal,
 	type MatchMode,
@@ -28,7 +29,6 @@ import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
-import { isDateTyped, isTextShaped } from "../propertyTypeSets";
 
 /** Module-level filters so render-time identity stays stable per
  *  match mode — `PropertyPicker`'s `useMemo` on
@@ -40,8 +40,9 @@ import { isDateTyped, isTextShaped } from "../propertyTypeSets";
  *  additionally accept date / datetime properties. The card picks
  *  one of the two filters based on the current mode without
  *  allocating a fresh closure. The shared `isTextShaped` /
- *  `isDateTyped` helpers (in `propertyTypeSets.ts`) consolidate
- *  the `data_type ?? "text"` fallback every consumer applies. */
+ *  `isDateTyped` helpers (in `lib/domain/casePropertyTypes.ts`)
+ *  consolidate the `data_type ?? "text"` fallback every consumer
+ *  applies. */
 const MATCH_TEXT_SHAPED_FILTER = (p: CaseProperty): boolean => isTextShaped(p);
 
 const MATCH_FUZZY_DATE_FILTER = (p: CaseProperty): boolean =>

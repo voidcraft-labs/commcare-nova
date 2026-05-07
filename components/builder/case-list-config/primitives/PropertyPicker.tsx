@@ -21,7 +21,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import { useCallback, useId, useMemo, useRef } from "react";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CaseType,
+	effectiveDataType,
+} from "@/lib/domain";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -265,5 +269,5 @@ export function resolvePropertyDataType(
 	if (ct === undefined) return undefined;
 	const prop = ct.properties.find((p) => p.name === propertyName);
 	if (prop === undefined) return undefined;
-	return prop.data_type ?? "text";
+	return effectiveDataType(prop);
 }

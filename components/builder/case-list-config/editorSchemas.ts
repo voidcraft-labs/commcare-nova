@@ -41,6 +41,7 @@ import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType } from "@/lib/domain";
+import { isOrdered, isTextShaped } from "@/lib/domain";
 import {
 	matchAll as buildMatchAll,
 	matchNone as buildMatchNone,
@@ -74,7 +75,6 @@ import {
 	WithinDistanceCard,
 	withinDistanceDefault,
 } from "./cards/WithinDistanceCard";
-import { isOrdered, isTextShaped } from "./propertyTypeSets";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.

@@ -29,6 +29,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerForklift from "@iconify-icons/tabler/forklift";
+import { isTextShaped } from "@/lib/domain";
 import {
 	prop,
 	term,
@@ -44,18 +45,18 @@ import { InlineError } from "../../primitives/CardShell";
  *  firstTextProperty))`. The default seeds against the first text-
  *  shaped property on the current case type so the type checker
  *  accepts the seed without an "unwrap-list requires a text-shaped
- *  operand" error. The kind isn't authored from the kind picker
- *  (the `applicable` predicate gates it on `expectedType ===
- *  "_sequence"`, which no scalar slot supplies) — the default
- *  factory exists for round-trip preservation symmetry, not for
- *  active authoring. */
+ *  operand" error. The shared `isTextShaped` helper (in
+ *  `lib/domain/casePropertyTypes.ts`) consolidates the
+ *  `data_type ?? "text"` fallback every consumer applies. The kind
+ *  isn't authored from the kind picker (the `applicable` predicate
+ *  gates it on `expectedType === "_sequence"`, which no scalar slot
+ *  supplies) — the default factory exists for round-trip
+ *  preservation symmetry, not for active authoring. */
 export function unwrapListDefault(
 	ctx: ExpressionEditContext,
 ): Extract<ValueExpression, { kind: "unwrap-list" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
-	const property = ct?.properties.find((p) =>
-		["text", "single_select", "multi_select"].includes(p.data_type ?? "text"),
-	);
+	const property = ct?.properties.find(isTextShaped);
 	const propName = property?.name ?? "";
 	return unwrapList(term(prop(ctx.currentCaseType, propName)));
 }

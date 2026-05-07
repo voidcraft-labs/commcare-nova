@@ -64,8 +64,16 @@ const dateColumnSchema = z.object({
 	pattern: z.string().min(1),
 });
 
-/** Time-since/time-until interval units. */
-const TIME_SINCE_UNITS = ["days", "weeks", "months", "years"] as const;
+/**
+ * Time-since/time-until interval units. Single source of truth
+ * for both the schema's `z.enum(...)` constraint AND every
+ * consumer that renders a unit picker — exporting the tuple keeps
+ * the dropdown options in lockstep with the schema's accepted set.
+ * Adding a unit here cascades to the picker without a parallel
+ * edit (the structural-subtype `readonly TimeSinceUnit[]` array
+ * shape can silently accept a strict subset).
+ */
+export const TIME_SINCE_UNITS = ["days", "weeks", "months", "years"] as const;
 export type TimeSinceUnit = (typeof TIME_SINCE_UNITS)[number];
 
 /**
@@ -262,6 +270,19 @@ export function idMappingColumn(
 		header,
 		mapping: [...mapping],
 	};
+}
+
+/**
+ * Constructs a single id-mapping entry. The thin builder mirrors
+ * the column-level builder pattern — every IdMappingEntry-producing
+ * call site routes through this helper so the bug class "ad-hoc
+ * literal drifts out of schema shape" stays structurally
+ * impossible. Adding a required field to `idMappingEntrySchema`
+ * would surface here as a builder-signature change rather than a
+ * silently-rotting raw literal.
+ */
+export function idMappingEntry(value: string, label: string): IdMappingEntry {
+	return { value, label };
 }
 
 /**

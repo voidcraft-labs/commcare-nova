@@ -17,21 +17,28 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import type { TimeSinceUnit } from "@/lib/domain";
+import { TIME_SINCE_UNITS, type TimeSinceUnit } from "@/lib/domain";
 import {
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
+/**
+ * Per-unit display label. The `Record<TimeSinceUnit, string>` shape
+ * forces an entry for every variant — adding `"hours"` to
+ * `TIME_SINCE_UNITS` (the source of truth in
+ * `lib/domain/modules.ts`) breaks the build here until a label
+ * lands. The dropdown options below iterate `TIME_SINCE_UNITS`
+ * directly so the new variant flows into the picker without a
+ * parallel edit.
+ */
 const UNIT_LABELS: Record<TimeSinceUnit, string> = {
 	days: "Days",
 	weeks: "Weeks",
 	months: "Months",
 	years: "Years",
 };
-
-const UNITS: readonly TimeSinceUnit[] = ["days", "weeks", "months", "years"];
 
 interface IntervalThresholdRowProps {
 	readonly threshold: number;
@@ -171,9 +178,9 @@ function UnitMenu({ unit, onUnitChange }: UnitMenuProps) {
 					className={MENU_POSITIONER_CLS}
 				>
 					<Menu.Popup className={MENU_POPUP_CLS}>
-						{UNITS.map((u, i) => {
+						{TIME_SINCE_UNITS.map((u, i) => {
 							const isActive = u === unit;
-							const last = UNITS.length - 1;
+							const last = TIME_SINCE_UNITS.length - 1;
 							const corners =
 								i === 0 && i === last
 									? "rounded-xl"

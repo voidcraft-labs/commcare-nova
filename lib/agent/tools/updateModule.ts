@@ -100,6 +100,23 @@ export const updateModuleTool = {
 				case_list_columns !== undefined ||
 				case_detail_columns !== undefined
 			) {
+				// SA-input shape is intentionally lossy. The SA's
+				// `case_list_columns` schema is `{field, header}[]` —
+				// a flat-text shape that maps to `kind: "plain"` columns
+				// only. When an SA `updateModule` arrives with a fresh
+				// columns list, structured kinds previously authored
+				// through the column editor (Date / Phone / Late Flag /
+				// ID Mapping / Time-Since-Until / Search-Only) are
+				// flattened into plain columns. The success summary
+				// counts the post-flatten plain columns; the SA receives
+				// no signal that structured authoring was discarded.
+				// The tradeoff is intentional — exposing the full
+				// discriminated-union to the SA blows past the Anthropic
+				// schema-compiler's 8-optional ceiling per array item
+				// (per root CLAUDE.md "Structured output constraint")
+				// and would force a breaking change on every existing SA
+				// conversation. Authors who want structured kinds use
+				// the column editor directly.
 				const nextColumns =
 					case_list_columns !== undefined
 						? case_list_columns.map((col) => plainColumn(col.field, col.header))
