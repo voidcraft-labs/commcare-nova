@@ -40,14 +40,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import {
-	useCallback,
-	useEffect,
-	useId,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
 	type CalculatedColumn,
 	type CaseListConfig,
@@ -135,31 +128,21 @@ export function DisplaySection({
 	// The shared mutator threads the new slot value through `onChange`
 	// preserving every other slot — including `filter` /
 	// `searchInputs` / `detailColumns` which the Display section
-	// doesn't own.
-	//
-	// `useCallback` with shallow `[value, onChange]` deps keeps the
-	// callback identity stable across renders that don't change the
-	// config; sub-editors hold their own internal state that doesn't
-	// need to re-mount on every render.
-
-	const setColumns = useCallback(
-		(next: readonly Column[]) => {
-			onChange({ ...value, columns: [...next] });
-		},
-		[value, onChange],
-	);
-	const setCalculated = useCallback(
-		(next: readonly CalculatedColumn[]) => {
-			onChange({ ...value, calculatedColumns: [...next] });
-		},
-		[value, onChange],
-	);
-	const setSort = useCallback(
-		(next: readonly CaseListConfig["sort"][number][]) => {
-			onChange({ ...value, sort: [...next] });
-		},
-		[value, onChange],
-	);
+	// doesn't own. Inline arrows rather than `useCallback` because
+	// every config-changing edit replaces `value`, which would
+	// invalidate any memoized identity anyway — `useCallback` here
+	// would be decorative noise. Sub-editors capture the live closure
+	// per render; they're stateful internally and don't depend on
+	// callback-prop identity for correctness.
+	const setColumns = (next: readonly Column[]) => {
+		onChange({ ...value, columns: [...next] });
+	};
+	const setCalculated = (next: readonly CalculatedColumn[]) => {
+		onChange({ ...value, calculatedColumns: [...next] });
+	};
+	const setSort = (next: readonly CaseListConfig["sort"][number][]) => {
+		onChange({ ...value, sort: [...next] });
+	};
 
 	return (
 		<div className="space-y-4">

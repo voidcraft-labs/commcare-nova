@@ -257,6 +257,21 @@ export function DisplayPreview({
 		);
 	}
 
+	if (state.kind === "invalid-blueprint") {
+		// Same trust-boundary shape as `invalid-config`, but for the
+		// blueprint AST. The doc store's `pickBlueprintDoc(...)`
+		// projection always produces a parseable shape; reaching
+		// this arm means a non-editor caller bypassed the projection.
+		return (
+			<PreviewMessage
+				icon={tablerEye}
+				tone="error"
+				title="Blueprint is malformed"
+				body={state.message}
+			/>
+		);
+	}
+
 	if (state.kind === "error") {
 		return (
 			<PreviewMessage

@@ -2095,5 +2095,35 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				}),
 			).rejects.toThrowError(/empty-string id/);
 		});
+
+		it("rejects a calculated id whose composed alias exceeds Postgres' 63-byte cap", async () => {
+			// Postgres silently truncates identifiers at
+			// `NAMEDATALEN - 1` (63 bytes). The composed wire alias
+			// is `__nova_calc__<id>` — 13 bytes of prefix, so any
+			// id ≥ 51 bytes pushes the alias over the cap. Without
+			// this guard, truncation kicks in: the downstream row-
+			// partition step uses the FULL pre-truncation alias for
+			// the lookup, misses, and silently emits `null` for
+			// every row. The id under test is 60 bytes (alias 73
+			// bytes total — safely past the cap).
+			//
+			// Mirrors the empty-id rejection test above and the
+			// `indexName` defense pattern at the bottom of
+			// `lib/case-store/postgres/store.ts`.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			const overlongId = "x".repeat(60);
+			await expect(
+				store.queryWithCalculated({
+					appId: APP_ID,
+					caseType: "patient",
+					blueprint,
+					calculated: [
+						calculatedColumn(overlongId, "Header", term(literal("x"))),
+					],
+				}),
+			).rejects.toThrowError(/exceeds Postgres' 63-byte identifier cap/);
+		});
 	});
 }

@@ -14,6 +14,7 @@ import { getSession } from "@/lib/auth-utils";
 import { withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
 	applyCloseMutation,
@@ -104,18 +105,22 @@ export async function populateSampleCasesAction(
  * narrowing for free without a parallel call site. Display-section-
  * only callers pass a config whose `filter` slot is undefined.
  *
- * Trust-boundary parse: the action is the wire boundary. The
- * `caseListConfig` carries an arbitrary AST (15 ValueExpression
- * arms, 12+ Predicate arms, plus Term operands and relation paths);
- * an unparseable shape over the wire would otherwise reach
- * `compileExpression` / `compilePredicate` and surface the
- * compiler's invariant message through the catchall `error` arm.
- * Routing through `caseListConfigSchema.parse(...)` at action entry
- * traps the shape failure as a typed `invalid-config` arm so the
- * client surface dispatches on the structural cause rather than on
- * a wrapped invariant body. Trusted callers (the Display section's
- * own client component) pass the same shape the editor produces, so
- * the parse is a no-op there; defense-in-depth covers programmatic
+ * Trust-boundary parse: the action is the wire boundary. Both
+ * `caseListConfig` AND `blueprint` carry arbitrary AST shapes
+ * (`caseListConfig` carries 15 ValueExpression arms + 12+ Predicate
+ * arms + Term operands + relation paths; `blueprint` carries the
+ * full module / form / field / case-type tree the case-store
+ * compiler stack reads property data types from). Either shape
+ * arriving malformed over the wire would otherwise reach
+ * `compileExpression` / `compilePredicate` / `compileTerm` and
+ * surface the compiler's invariant message through the catchall
+ * `error` arm. Routing both through `safeParse(...)` at action
+ * entry traps shape failures as typed `invalid-config` /
+ * `invalid-blueprint` arms so the client surface dispatches on the
+ * structural cause rather than on a wrapped invariant body.
+ * Trusted callers (the Display section's own client component)
+ * pass the same shapes the editor + doc-store produce, so both
+ * parses are no-ops there; defense-in-depth covers programmatic
  * surfaces, fixtures, and the SA tool path.
  *
  * Authoring-surface contract: the caller MUST suppress the action
@@ -125,7 +130,8 @@ export async function populateSampleCasesAction(
  * the typed-error arms surface only the structural failures the
  * gate cannot catch (missing case type after a stale blueprint
  * snapshot, schema-not-synced after a chat completion in flight,
- * invalid-config from a wire-boundary parse failure).
+ * invalid-config / invalid-blueprint from a wire-boundary parse
+ * failure).
  */
 export async function loadCaseListPreviewAction(args: {
 	appId: string;
@@ -135,26 +141,58 @@ export async function loadCaseListPreviewAction(args: {
 	limit?: number;
 }): Promise<LoadCaseListPreviewResult> {
 	// Wire-boundary parse. Runs BEFORE session resolution / store
-	// construction so an unparseable config short-circuits without
+	// construction so an unparseable shape short-circuits without
 	// touching auth or the database. `safeParse` returns a
 	// discriminated result; the `success: false` arm surfaces the
 	// Zod issue's first message as the user-facing detail.
-	const parsed = caseListConfigSchema.safeParse(args.caseListConfig);
-	if (!parsed.success) {
-		const firstIssue = parsed.error.issues[0];
+	//
+	// `caseListConfig` first because its parse is structurally
+	// independent of the blueprint (no cross-references); a malformed
+	// config reports its own arm rather than masking under the
+	// blueprint arm.
+	const parsedConfig = caseListConfigSchema.safeParse(args.caseListConfig);
+	if (!parsedConfig.success) {
+		const firstIssue = parsedConfig.error.issues[0];
 		const message =
 			firstIssue !== undefined
 				? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
 				: "Case-list configuration is malformed.";
 		return { kind: "invalid-config", message };
 	}
+	const parsedBlueprint = blueprintDocSchema.safeParse(args.blueprint);
+	if (!parsedBlueprint.success) {
+		const firstIssue = parsedBlueprint.error.issues[0];
+		const message =
+			firstIssue !== undefined
+				? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
+				: "Blueprint is malformed.";
+		return { kind: "invalid-blueprint", message };
+	}
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await withOwnerContext(session.user.id);
+		// `blueprintDocSchema.parse(...)` strips `fieldParent` (the
+		// derived in-memory reverse-index that's not part of the
+		// persisted schema). The case-store's compiler stack doesn't
+		// read `fieldParent` — only `caseTypes` for property data-
+		// type resolution — but the `BlueprintDoc` type requires the
+		// slot. Re-attach the original input's `fieldParent` after
+		// the parse so the type contract is satisfied; mirrors
+		// `pickBlueprintDoc(...)`'s shape. If the input's
+		// `fieldParent` is malformed, downstream call sites that DO
+		// read it would surface the issue then; today's case-store
+		// callers don't, so the parse covers the load-bearing AST.
+		const fullBlueprint: BlueprintDoc = {
+			...parsedBlueprint.data,
+			fieldParent: args.blueprint.fieldParent ?? {},
+		};
 		return await readCaseListPreview(store, {
-			...args,
-			caseListConfig: parsed.data,
+			appId: args.appId,
+			caseType: args.caseType,
+			limit: args.limit,
+			caseListConfig: parsedConfig.data,
+			blueprint: fullBlueprint,
 		});
 	} catch (err) {
 		return mapCaseListPreviewError(err);

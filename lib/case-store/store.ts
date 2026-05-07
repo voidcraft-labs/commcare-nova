@@ -198,6 +198,22 @@ export type CalculatedValue = JsonValue | Date;
  *      validity parity gate flags duplicates before they reach
  *      the action — so the SQL layer trusts the upstream gate for
  *      this class.
+ *
+ *   3. **Alias overflow past Postgres' 63-byte identifier cap.**
+ *      Postgres silently truncates identifiers at
+ *      `NAMEDATALEN - 1` (63 bytes). The composed alias
+ *      `__nova_calc__<id>` (13 bytes of prefix) gets truncated
+ *      when `id` pushes the total over the cap; the row-partition
+ *      step uses the FULL pre-truncation alias to read each
+ *      calculated value, misses the truncated wire-side key, and
+ *      silently emits `null` for every row. Two ids matching in
+ *      the truncation prefix collide on the same wire alias.
+ *      `queryWithCalculated` defends with a pre-projection byte-
+ *      length check that throws a `compilerBugMessage` naming
+ *      the over-cap alias — same shape as the `indexName` defense
+ *      under `applySchemaChange`. The editor's id-uniqueness gate
+ *      is the upstream cover; this throw catches programmatic
+ *      surfaces that bypass the gate.
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;

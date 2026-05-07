@@ -166,6 +166,41 @@ describe("DisplayPreview — paused state (validity gate)", () => {
 	});
 });
 
+// ── Invalid-config state ─────────────────────────────────────────
+
+describe("DisplayPreview — invalid-config arm", () => {
+	it("renders 'configuration is malformed' + the parse-failure message when the action returns invalid-config", async () => {
+		// The Server Action's wire-boundary parse rejects unparseable
+		// `caseListConfig` shapes and surfaces them as the
+		// `invalid-config` arm. Mock the action to return that arm
+		// and assert the renderer surfaces both the error title and
+		// the path-prefixed message.
+		vi.mocked(loadCaseListPreviewAction).mockResolvedValueOnce({
+			kind: "invalid-config",
+			message: "columns: expected array, received string",
+		});
+		const config = makeConfig({
+			columns: [plainColumn("name", "Name")],
+		});
+		render(
+			<DisplayPreview
+				appId={APP_ID}
+				caseListConfig={config}
+				currentCaseType="patient"
+				configValid={true}
+			/>,
+		);
+		await waitFor(() => {
+			expect(
+				screen.getByText(/case-list configuration is malformed/i),
+			).toBeDefined();
+		});
+		expect(
+			screen.getByText(/columns: expected array, received string/),
+		).toBeDefined();
+	});
+});
+
 // ── Rows arm ─────────────────────────────────────────────────────
 
 describe("DisplayPreview — rows arm", () => {

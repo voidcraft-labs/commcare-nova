@@ -29,7 +29,7 @@ import {
 } from "@/lib/case-store";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import { eq, literal, prop } from "@/lib/domain/predicate/builders";
+import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type {
 	LoadCaseDataResult,
@@ -237,10 +237,14 @@ function sortKeyToExpression(
 	calculatedById: ReadonlyMap<string, import("@/lib/domain").CalculatedColumn>,
 ): import("@/lib/domain/predicate").ValueExpression | null {
 	if (source.kind === "property") {
-		return {
-			kind: "term",
-			term: { kind: "prop", caseType, property: source.property },
-		};
+		// Route through `term(prop(...))` rather than constructing the
+		// AST node by hand — every domain mutation in the codebase
+		// flows through builders so the constructed shape stays in
+		// lockstep with the schema. A future required field on
+		// `propertyRefSchema` would surface here as a
+		// builder-signature change rather than a silently-rotting raw
+		// literal.
+		return term(prop(caseType, source.property));
 	}
 	const calc = calculatedById.get(source.columnId);
 	if (calc === undefined) return null;

@@ -185,29 +185,6 @@ export class PostgresCaseStore implements CaseStore {
 		});
 		const exprCtx = expressionContextFor(ctx);
 
-		// Belt-and-suspenders defense for the empty-id case: editor's
-		// validity gate prevents an empty-string id from reaching the
-		// action under normal authoring flow, but a future caller
-		// composing `queryWithCalculated` directly (programmatic
-		// surfaces, fixtures, SA tools) might not honor the gate.
-		// Postgres rejects an empty-string identifier in the SELECT
-		// alias, so the failure mode without this guard is a wrapped
-		// invariant message at run time. Reject early with the
-		// canonical compiler-bug shape so the caller surfaces the
-		// authoring contract violation instead.
-		for (const column of args.calculated) {
-			if (column.id === "") {
-				throw new Error(
-					compilerBugMessage({
-						where: "case-store.PostgresCaseStore.queryWithCalculated",
-						invariant: "a calculated column carried an empty-string id",
-						detail:
-							"Calculated columns project as SELECT aliases; Postgres rejects an empty alias and the row partition step relies on a non-empty key. The CalculatedColumnEditor's validity gate flags empty ids upstream — reaching this throw means a non-editor caller bypassed the gate. Hint: Zod-parse the case-list config at the request boundary to catch the violation before it reaches the SQL layer.",
-					}),
-				);
-			}
-		}
-
 		// Calculated-column aliases are EMITTED with a fixed prefix so
 		// they cannot collide with any `cases` column the
 		// `selectAll("c")` projection emits. Without the prefix, an
@@ -238,6 +215,55 @@ export class PostgresCaseStore implements CaseStore {
 		// "internal infrastructure, do not collide."
 		const ALIAS_PREFIX = "__nova_calc__";
 		const aliasFor = (id: string) => `${ALIAS_PREFIX}${id}`;
+
+		// Belt-and-suspenders id validation. Editor's validity gate
+		// catches both classes upstream under normal authoring flow,
+		// but programmatic surfaces (fixtures, SA tools, future
+		// composers) might not honor the gate.
+		//
+		//   1. **Empty-string id.** Postgres rejects an empty-string
+		//      identifier in the SELECT alias; without this guard the
+		//      failure mode is a wrapped invariant message at run time.
+		//   2. **63-byte alias overflow.** Postgres SILENTLY truncates
+		//      identifiers longer than 63 bytes (`NAMEDATALEN - 1`).
+		//      The wire alias `__nova_calc__<id>` (13 bytes of prefix)
+		//      gets truncated; the downstream `Object.hasOwn(row, alias)`
+		//      lookup uses the FULL pre-truncation alias and misses,
+		//      falling through to `null`. Net effect: a calculated
+		//      value whose authored id pushes the alias over the cap
+		//      silently emits as `null` for every row, with no editor
+		//      feedback. Two ids matching in the truncation prefix
+		//      collide on the same alias. Mirrors the
+		//      `indexName` defense at the bottom of this file — same
+		//      Postgres invariant, same throw-with-compiler-bug-shape
+		//      response.
+		//
+		// Reject early with the canonical compiler-bug shape so the
+		// caller surfaces the authoring contract violation instead of
+		// a silent null-row or a wrapped pg parser error.
+		for (const column of args.calculated) {
+			if (column.id === "") {
+				throw new Error(
+					compilerBugMessage({
+						where: "case-store.PostgresCaseStore.queryWithCalculated",
+						invariant: "a calculated column carried an empty-string id",
+						detail:
+							"Calculated columns project as SELECT aliases; Postgres rejects an empty alias and the row partition step relies on a non-empty key. The CalculatedColumnEditor's validity gate flags empty ids upstream — reaching this throw means a non-editor caller bypassed the gate. Hint: Zod-parse the case-list config at the request boundary to catch the violation before it reaches the SQL layer.",
+					}),
+				);
+			}
+			const alias = aliasFor(column.id);
+			if (Buffer.byteLength(alias, "utf8") > 63) {
+				throw new Error(
+					compilerBugMessage({
+						where: "case-store.PostgresCaseStore.queryWithCalculated",
+						invariant: `composed calculated alias \`${alias}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
+						detail:
+							"Postgres silently truncates identifiers at 63 bytes. The downstream row-partition step uses the FULL pre-truncation alias to read each calculated value; a truncated wire-side alias would miss the lookup and the projection would silently emit `null` for every row. Two ids matching in the truncation prefix would collide on the same alias.\n\nThe CalculatedColumnEditor's id-uniqueness gate is the upstream defense; reaching this throw means a non-editor caller bypassed the gate. Hint: shorten the calculated-column id at the authoring layer (the alias is `__nova_calc__<id>`, so the id itself must be ≤ 50 bytes).",
+					}),
+				);
+			}
+		}
 
 		// `selectAll("c")` first so the row carries every `cases`
 		// column, then chain `.select(eb => ...)` per calculated column

@@ -29,6 +29,7 @@ import {
 	type CaseListConfig,
 	type CaseType,
 	calculatedColumn,
+	dateColumn,
 	plainColumn,
 	propertySortSource,
 	sortKey,
@@ -202,6 +203,70 @@ describe("DisplaySection — validity aggregation", () => {
 				value={config}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				appId={APP_ID}
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(false);
+		});
+	});
+
+	it("propagates validity false from the columns sub-editor when a caseTypes change makes a column kind inapplicable", async () => {
+		// Mirrors the `external-prop validity flip` regression test
+		// in `CalculatedColumnEditor.test.tsx` — same bug class
+		// (`useMemo` deps must include `innerValidityVersion` so a
+		// per-row inner-editor flip recomputes the verdict). The
+		// `ColumnList` wrapper inside DisplaySection has the same
+		// machinery; without this test the bug class could re-emerge
+		// undetected on the columns side.
+		//
+		// Initial render: a Date-kind column referencing `dob` against
+		// a `caseTypes` where `dob` is `data_type: "date"`. The
+		// per-kind applicability check passes; the inner ColumnEditor
+		// reports `valid: true`; the wrapper ANDs to `valid: true`.
+		//
+		// Re-render: swap to a `caseTypes` where `dob` is text-typed.
+		// The Date-kind applicability fires (Date columns require a
+		// date-typed property); the inner editor flips to `valid:
+		// false`; the version counter bumps; the wrapper's `useMemo`
+		// recomputes (with the version in deps) and propagates
+		// `valid: false` to the parent.
+		const onValidityChange = vi.fn();
+		const config = makeConfig({
+			columns: [dateColumn("dob", "Date of birth", "%Y-%m-%d")],
+		});
+		const { rerender } = render(
+			<DisplaySection
+				value={config}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				appId={APP_ID}
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		// Initial verdict — Date column on a date-typed property is
+		// applicable, validity true.
+		await waitFor(() => {
+			expect(onValidityChange).toHaveBeenLastCalledWith(true);
+		});
+		// Re-render with `dob` retyped as text. Date column becomes
+		// inapplicable; inner verdict flips to false.
+		const PATIENT_DOB_AS_TEXT: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "dob", label: "Date of birth", data_type: "text" },
+			],
+		};
+		rerender(
+			<DisplaySection
+				value={config}
+				onChange={() => {}}
+				caseTypes={[PATIENT_DOB_AS_TEXT]}
 				currentCaseType="patient"
 				appId={APP_ID}
 				onValidityChange={onValidityChange}

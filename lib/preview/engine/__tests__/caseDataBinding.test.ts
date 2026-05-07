@@ -1575,3 +1575,55 @@ describe("submitFormAction", () => {
 		});
 	});
 });
+
+// ---------------------------------------------------------------
+// `loadCaseListPreviewAction` (Server Action)
+// ---------------------------------------------------------------
+//
+// The action wraps `readCaseListPreview` with three responsibilities
+// the helper itself doesn't carry:
+//
+//   1. Wire-boundary parse via `caseListConfigSchema.safeParse(...)`.
+//      An unparseable config returns the `invalid-config` arm
+//      WITHOUT touching auth or the store.
+//   2. Session resolution + `withOwnerContext` construction.
+//   3. Catch-and-map for case-store typed errors.
+//
+// This block pins (1) — the parse-failure path — since the helper
+// tests above bypass it by passing an already-typed
+// `CaseListConfig`.
+
+describe("loadCaseListPreviewAction", () => {
+	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
+		// The action runs `caseListConfigSchema.safeParse(...)` BEFORE
+		// session resolution, so we don't need a getSession mock here
+		// — the parse short-circuits first. Pass a config whose
+		// `columns` slot is a string instead of an array; the schema's
+		// `z.array(columnSchema)` rejects with a structural type
+		// mismatch.
+		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
+		// Cast through `unknown` because the bad shape intentionally
+		// violates the `CaseListConfig` type at the call site — the
+		// runtime parse is the structural defense.
+		const result = await loadCaseListPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
+			caseListConfig: {
+				columns: "not an array",
+				sort: [],
+				calculatedColumns: [],
+				searchInputs: [],
+			} as unknown as Parameters<
+				typeof loadCaseListPreviewAction
+			>[0]["caseListConfig"],
+		});
+		expect(result.kind).toBe("invalid-config");
+		if (result.kind !== "invalid-config") return;
+		// The action prefixes the first Zod issue's path so the
+		// client surface dispatches on the structural cause rather
+		// than the wrapped invariant body. The path for `columns` is
+		// the literal string "columns".
+		expect(result.message).toMatch(/^columns:/);
+	});
+});
