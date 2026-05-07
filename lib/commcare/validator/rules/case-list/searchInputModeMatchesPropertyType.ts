@@ -38,7 +38,6 @@ import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { SEARCH_MODE_PROPERTY_TYPES } from "@/lib/domain";
 import { type CheckError, checkRelationPath } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
-import { collectCaseProperties } from "../../index";
 import { moduleTypeContext, resolvePropertyDataType } from "./shared";
 
 export function searchInputModeMatchesPropertyType(
@@ -51,23 +50,6 @@ export function searchInputModeMatchesPropertyType(
 
 	const errors: ValidationError[] = [];
 	const ctx = moduleTypeContext(mod, doc);
-	// Per-destination writer-prop cache: relation-walks may resolve
-	// to different case types per input, so the cache keys on the
-	// destination's name. The self-walk module case type populates a
-	// single entry up front; cross-walks lazily fill in their
-	// destinations on first lookup. Avoids re-walking the doc for
-	// every input that targets the same destination.
-	const writerPropCache = new Map<string, ReadonlySet<string>>();
-	const writerPropsFor = (caseType: string): ReadonlySet<string> => {
-		const cached = writerPropCache.get(caseType);
-		if (cached !== undefined) return cached;
-		const collected = collectCaseProperties(doc, caseType) ?? new Set<string>();
-		writerPropCache.set(caseType, collected);
-		return collected;
-	};
-	// Pre-warm the module's own case type — the most common
-	// destination — so the self-walk arm reads from cache.
-	writerPropsFor(mod.caseType);
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
@@ -99,15 +81,17 @@ export function searchInputModeMatchesPropertyType(
 		}
 		if (!destinationCaseType) continue;
 
-		// Resolve the property's data type via the shared 3-arm model.
-		// `undefined` means the property doesn't exist anywhere in the
-		// admission set — emit the dedicated unknown-property error so
-		// authors get a direct signal rather than a silent pass.
+		// Resolve the property's data type via the shared 3-arm model
+		// — backed by the cached augmented case-type list, so
+		// destination lookups (self-walk + cross-walk) all hit memoized
+		// state. `undefined` means the property doesn't exist anywhere
+		// in the admission set — emit the dedicated unknown-property
+		// error so authors get a direct signal rather than a silent
+		// pass.
 		const dataType = resolvePropertyDataType(
 			doc,
 			destinationCaseType,
 			input.property,
-			writerPropsFor(destinationCaseType),
 		);
 		if (dataType === undefined) {
 			errors.push(

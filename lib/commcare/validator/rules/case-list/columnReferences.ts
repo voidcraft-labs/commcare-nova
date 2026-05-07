@@ -7,12 +7,15 @@
  *
  * Walks every column kind regardless of arm: every entry in the
  * `Column` discriminated union carries a `field` slot, and every
- * runtime renderer reads the case property by that name.
+ * runtime renderer reads the case property by that name. Resolution
+ * routes through the shared `propertyExists` helper, which reads
+ * the memoized `ValidationContext` augmented case-type list — so
+ * this rule's admission set agrees with every other case-list-config
+ * rule by construction.
  */
 
 import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
-import { collectCaseProperties } from "../../index";
 import { propertyExists } from "./shared";
 
 /**
@@ -37,21 +40,8 @@ export function columnReferences(
 	if (!config || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
-	// Hoist the writer-prop set once per module (one app-walk vs one
-	// per column) — passed into `propertyExists` so the existence
-	// check stays O(columns).
-	const writerProps =
-		collectCaseProperties(doc, mod.caseType) ?? new Set<string>();
 
-	checkColumns(
-		mod,
-		moduleUuid,
-		"columns",
-		config.columns,
-		doc,
-		writerProps,
-		errors,
-	);
+	checkColumns(mod, moduleUuid, "columns", config.columns, doc, errors);
 	if (config.detailColumns) {
 		checkColumns(
 			mod,
@@ -59,7 +49,6 @@ export function columnReferences(
 			"detailColumns",
 			config.detailColumns,
 			doc,
-			writerProps,
 			errors,
 		);
 	}
@@ -73,13 +62,12 @@ function checkColumns(
 	slot: ColumnSlot,
 	columns: readonly Column[],
 	doc: BlueprintDoc,
-	writerProps: ReadonlySet<string>,
 	errors: ValidationError[],
 ): void {
 	if (!mod.caseType) return;
 	for (let index = 0; index < columns.length; index++) {
 		const col = columns[index];
-		if (propertyExists(doc, mod.caseType, col.field, writerProps)) continue;
+		if (propertyExists(doc, mod.caseType, col.field)) continue;
 		errors.push(
 			validationError(
 				"CASE_LIST_COLUMN_UNKNOWN_FIELD",

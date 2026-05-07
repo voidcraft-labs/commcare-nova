@@ -190,8 +190,15 @@ export function isStandardCaseListProperty(
  *
  * Derived from the keys of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`
  * — single source of truth for the standard set; adding an entry to
- * the data-type table cascades to this set automatically.
+ * the data-type table cascades to this set automatically. Element
+ * type is `StandardCaseListProperty` (the closed key union of the
+ * data-type table) so iterators land on a key the type system
+ * recognizes — no defensive narrowing needed at consumer sites that
+ * walk the set and index back into the table.
  */
-export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<string> = new Set(
-	Object.keys(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES),
-);
+export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<StandardCaseListProperty> =
+	new Set(
+		Object.keys(
+			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+		) as StandardCaseListProperty[],
+	);

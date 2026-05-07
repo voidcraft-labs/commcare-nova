@@ -177,6 +177,178 @@ describe("calculatedColumnTypeCheck", () => {
 		).toBe(true);
 	});
 
+	// ── Augmentation regression coverage ─────────────────────────
+	//
+	// Pin the rule-set-wide admission model for value expressions:
+	// a calculated column referencing a writer-derived OR standard
+	// property must NOT spuriously fire "Unknown property", and the
+	// implicit type of standard properties must drive operator
+	// selection.
+
+	it("admits a writer-derived-only property in a calculated column (no spurious unknown)", () => {
+		// `nickname` is written via `case_property_on` but NOT declared
+		// on `ct.properties[]`. The augmented case-type list adds it as
+		// `text`, so `term(prop("patient", "nickname"))` type-checks
+		// cleanly.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn("case_name", "Name")],
+						sort: [],
+						calculatedColumns: [
+							calculatedColumn(
+								"nick_alias",
+								"Nickname",
+								term(prop("patient", "nickname")),
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "text",
+									id: "nickname",
+									label: "Nickname",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+			),
+		).toBe(false);
+	});
+
+	it("admits a standard-only property in a calculated column (no spurious unknown)", () => {
+		// `case_name` is implicitly text. A calculated column reading
+		// it should type-check cleanly without an "Unknown property"
+		// error.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn("case_name", "Name")],
+						sort: [],
+						calculatedColumns: [
+							calculatedColumn(
+								"display_name",
+								"Display name",
+								term(prop("patient", "case_name")),
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+			),
+		).toBe(false);
+	});
+
+	it("rejects arith on a standard text-typed property (implicit type drives the check)", () => {
+		// `case_name` is implicitly text. `arith` requires numeric
+		// operands — the standard property's implicit `text` type
+		// must surface here as a type error. If the augmentation
+		// missed the standard arm, this would either pass silently
+		// (fall-through to text via some default) or fail with
+		// "Unknown property". We want the exact "numeric" error.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn("case_name", "Name")],
+						sort: [],
+						calculatedColumns: [
+							calculatedColumn(
+								"bad_arith",
+								"Bad",
+								arith(
+									"+",
+									term(prop("patient", "case_name")),
+									term(prop("patient", "case_name")),
+								),
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		const errors = runValidation(doc);
+		// The property exists (so no "Unknown property"); the type
+		// rule fires (so we see "numeric" / "arith" in the message).
+		const hits = errors.filter(
+			(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+		);
+		expect(hits.length).toBeGreaterThan(0);
+		expect(hits.some((e) => /unknown property/i.test(e.message))).toBe(false);
+		expect(hits.some((e) => /arith|numeric/i.test(e.message))).toBe(true);
+	});
+
 	it("short-circuits cleanly when no calculated columns are declared", () => {
 		const doc = buildDoc({
 			appName: "Test",

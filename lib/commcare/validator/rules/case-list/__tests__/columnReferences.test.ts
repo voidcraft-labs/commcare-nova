@@ -179,6 +179,59 @@ describe("columnReferences", () => {
 		).toBe(true);
 	});
 
+	it("admits declared-only properties (no field writer, no standard)", () => {
+		// `weight` is declared on `ct.properties[]` but NOT written by
+		// any field via `case_property_on`. Pre-fix, the rule consulted
+		// only writer-derived + standard, so a declared-only property
+		// would spuriously fire UNKNOWN_FIELD. The shared resolver's
+		// declared-first arm closes that gap; this test pins the
+		// admission for the declared-only path.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+						{ field: "weight", header: "Weight" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						// Declared but no writer + not in the standard set.
+						{ name: "weight", label: "Weight", data_type: "decimal" },
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) =>
+					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
+					e.message.includes("weight"),
+			),
+		).toBe(false);
+	});
+
 	it("short-circuits cleanly on modules without a caseType", () => {
 		const doc = buildDoc({
 			appName: "Test",

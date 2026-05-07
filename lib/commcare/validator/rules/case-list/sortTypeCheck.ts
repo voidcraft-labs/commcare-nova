@@ -24,7 +24,6 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { applicableSortTypes } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
-import { collectCaseProperties } from "../../index";
 import { resolvePropertyDataType } from "./shared";
 
 export function sortTypeCheck(
@@ -40,11 +39,6 @@ export function sortTypeCheck(
 	const calculatedIds = new Set(
 		(mod.caseListConfig?.calculatedColumns ?? []).map((c) => c.id),
 	);
-	// Hoist the writer-prop set once per module — passed into
-	// `resolvePropertyDataType` so the type-driven branch stays O(sort).
-	const writerProps = moduleCaseType
-		? (collectCaseProperties(doc, moduleCaseType) ?? new Set<string>())
-		: new Set<string>();
 
 	for (let index = 0; index < sort.length; index++) {
 		const key = sort[index];
@@ -71,19 +65,16 @@ export function sortTypeCheck(
 		}
 
 		// Property-rooted sort: resolve through the rule set's shared
-		// 3-arm model. `undefined` means the property exists nowhere.
+		// 3-arm model — backed by the cached augmented case-type list,
+		// so per-pass cost is one walk regardless of sort key count.
+		// `undefined` means the property exists nowhere.
 		const propertyName = source.property;
 		if (!moduleCaseType) {
 			errors.push(unknownPropertyError(mod, baseLoc, index, propertyName));
 			continue;
 		}
 
-		const dataType = resolvePropertyDataType(
-			doc,
-			moduleCaseType,
-			propertyName,
-			writerProps,
-		);
+		const dataType = resolvePropertyDataType(doc, moduleCaseType, propertyName);
 		if (dataType === undefined) {
 			errors.push(unknownPropertyError(mod, baseLoc, index, propertyName));
 			continue;

@@ -6,9 +6,11 @@
  *   1. **Property resolution** — every case-list-config rule that
  *      reads a property by name routes through the same admission
  *      set, so a property that exists for one rule exists for
- *      every rule and vice versa. Single source of truth at the
- *      `resolvePropertyDataType` / `propertyExists` /
- *      `augmentedCaseTypes` helpers below.
+ *      every rule and vice versa. Single source of truth at
+ *      `validationContextFor(doc)` below: one memoized augmented
+ *      case-type list per `BlueprintDoc` reference, consumed by
+ *      every consumer (per-rule resolvers + the predicate AST type
+ *      checker via `moduleTypeContext`).
  *   2. **TypeContext composition** — predicate / value-expression
  *      checks (`filterTypeCheck`, `calculatedColumnTypeCheck`)
  *      consume a `TypeContext` whose `caseTypes` carry the
@@ -37,6 +39,14 @@
  *      `text` because the case type's schema declares none for this
  *      property; the wire layer accepts any string-coerceable value.
  *
+ * **Priority order lives in exactly one place** —
+ * `augmentCaseType(...)` below builds the augmented `properties[]`
+ * by appending in priority order: declared-first, then standard
+ * (skipped on conflict), then writer-derived (skipped on conflict).
+ * Both `resolvePropertyDataType` and `propertyExists` look up
+ * against the augmented list, so the priority order can never
+ * diverge between the two helpers.
+ *
  * Every case-list-config rule consults this same admission set:
  *
  *   - `columnReferences` — `propertyExists` (existence only; no type
@@ -48,16 +58,26 @@
  *   - `filterTypeCheck` / `calculatedColumnTypeCheck` — delegate to
  *     `checkPredicate` / `checkValueExpression`, which resolve only
  *     against `ct.properties[]`. Routing through `moduleTypeContext`
- *     supplies an `augmentedCaseTypes`-widened list so writer-
- *     derived + standard properties resolve to their effective data
- *     types as if declared. This keeps the predicate-AST type
- *     checker semantically aligned with the case-store runtime
- *     (which accepts every property the case-store actually emits)
- *     without modifying the type checker itself.
+ *     supplies the augmented list so writer-derived + standard
+ *     properties resolve to their effective data types as if
+ *     declared. This keeps the predicate-AST type checker
+ *     semantically aligned with the case-store runtime (which
+ *     accepts every property the case-store actually emits) without
+ *     modifying the type checker itself.
+ *
+ * ## Memoization
+ *
+ * The augmented list is computed once per `BlueprintDoc` reference
+ * and cached in a module-scope `WeakMap`. The doc-store layer
+ * (`@/lib/doc/store` via Immer) replaces the doc reference on every
+ * mutation, so a stale cache entry is structurally unreachable —
+ * the GC collects it once the doc reference drops. This keeps the
+ * common case (multiple validation passes against the same doc, or
+ * multiple module rules within one pass) at one augmentation walk
+ * rather than `3N × C` walks.
  */
 
 import {
-	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTIES,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "@/lib/commcare";
@@ -79,10 +99,45 @@ import type {
 import { collectCaseProperties } from "../../index";
 
 /**
+ * Per-doc validation context. Carries the augmented case-type list
+ * — the rule-set-wide property admission set, with each case type's
+ * `properties[]` extended to include CommCare standard properties
+ * (typed via `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`) and writer-
+ * derived properties (typed `text`). Declared properties win on
+ * conflict.
+ *
+ * Computed once per `BlueprintDoc` reference; subsequent reads hit
+ * the WeakMap cache. Consumers route every property lookup through
+ * this list so the priority order has exactly one structural home.
+ */
+export interface ValidationContext {
+	readonly augmentedCaseTypes: readonly CaseType[];
+}
+
+const VALIDATION_CONTEXT_CACHE = new WeakMap<BlueprintDoc, ValidationContext>();
+
+/**
+ * Get the cached `ValidationContext` for the doc, computing it on
+ * first access. Module-scope WeakMap so the cache persists across
+ * rule invocations within a single validation pass; the doc-store
+ * layer replaces the doc reference on every mutation, so stale
+ * entries get GC'd as soon as the doc is dropped.
+ */
+export function validationContextFor(doc: BlueprintDoc): ValidationContext {
+	const cached = VALIDATION_CONTEXT_CACHE.get(doc);
+	if (cached !== undefined) return cached;
+	const ctx: ValidationContext = {
+		augmentedCaseTypes: buildAugmentedCaseTypes(doc),
+	};
+	VALIDATION_CONTEXT_CACHE.set(doc, ctx);
+	return ctx;
+}
+
+/**
  * Build the `TypeContext` a per-module type-checker call runs against.
  *
- * `caseTypes` is the augmented case-type list — see
- * `augmentedCaseTypes` — so the predicate AST type checker resolves
+ * `caseTypes` is the augmented case-type list from the cached
+ * `ValidationContext`, so the predicate AST type checker resolves
  * writer-derived + standard properties as if declared on
  * `ct.properties[]`. Rules that delegate to the type checker
  * (`filterTypeCheck`, `calculatedColumnTypeCheck`) thus consume the
@@ -106,7 +161,7 @@ import { collectCaseProperties } from "../../index";
 export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	const moduleCaseType = mod.caseType;
-	const augmented = augmentedCaseTypes(doc);
+	const { augmentedCaseTypes } = validationContextFor(doc);
 
 	const knownInputs: SearchInputDecl[] = [];
 	for (const input of inputs) {
@@ -134,9 +189,11 @@ export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
 		}
 		// Resolve against the augmented list so writer-derived /
 		// standard properties contribute their effective data type to
-		// the input's declaration.
-		const dataType = resolvePropertyDataTypeFromAugmented(
-			augmented,
+		// the input's declaration. Routes through the same lookup the
+		// `resolvePropertyDataType` resolver uses — single source of
+		// truth.
+		const dataType = lookupInAugmented(
+			augmentedCaseTypes,
 			moduleCaseType,
 			input.property,
 		);
@@ -147,7 +204,13 @@ export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
 	}
 
 	return {
-		caseTypes: augmented,
+		// `TypeContext.caseTypes` is typed as a mutable array
+		// (`CaseType[]`) by the predicate-AST type checker. The
+		// validation context's `augmentedCaseTypes` is `readonly` so it
+		// can be safely shared across rules — copy into a fresh mutable
+		// array at the boundary. The contents (the `CaseType` objects
+		// themselves) stay shared by reference.
+		caseTypes: [...augmentedCaseTypes],
 		knownInputs,
 		...(moduleCaseType !== undefined && { currentCaseType: moduleCaseType }),
 	};
@@ -176,38 +239,17 @@ export function formatPath(path: CheckPath): string {
  * structural error.
  *
  * Priority order matches the contract in the file header:
- * declared → standard → writer-derived. Conflicts resolve in favor
- * of the higher-priority arm.
- *
- * `writerProps` is an optional precomputed set of writer-derived
- * property names for the target case type. Callers that resolve
- * many properties against the same case type should hoist the
- * collection once and pass it in to avoid per-call walking of the
- * full doc; callers resolving a single property can omit the
- * argument and the helper computes the set lazily.
+ * declared → standard → writer-derived. The order is encoded once,
+ * in `augmentCaseType` below; this resolver is a thin lookup
+ * against the augmented list.
  */
 export function resolvePropertyDataType(
 	doc: BlueprintDoc,
 	caseType: string,
 	propertyName: string,
-	writerProps?: ReadonlySet<string>,
 ): CasePropertyDataType | undefined {
-	// Priority 1: declared on `ct.properties[]`.
-	const ct = doc.caseTypes?.find((c) => c.name === caseType);
-	const declared = ct?.properties.find((p) => p.name === propertyName);
-	if (declared) return effectiveDataType(declared);
-
-	// Priority 2: CommCare standard property — implicit-typed.
-	if (isStandardCaseListProperty(propertyName)) {
-		return STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[propertyName];
-	}
-
-	// Priority 3: writer-derived — text default.
-	const writers =
-		writerProps ?? collectCaseProperties(doc, caseType) ?? new Set<string>();
-	if (writers.has(propertyName)) return "text";
-
-	return undefined;
+	const { augmentedCaseTypes } = validationContextFor(doc);
+	return lookupInAugmented(augmentedCaseTypes, caseType, propertyName);
 }
 
 /**
@@ -220,12 +262,28 @@ export function propertyExists(
 	doc: BlueprintDoc,
 	caseType: string,
 	propertyName: string,
-	writerProps?: ReadonlySet<string>,
 ): boolean {
-	return (
-		resolvePropertyDataType(doc, caseType, propertyName, writerProps) !==
-		undefined
-	);
+	return resolvePropertyDataType(doc, caseType, propertyName) !== undefined;
+}
+
+// ── Internal helpers ─────────────────────────────────────────────
+
+/**
+ * Look up a property's effective data type in an already-augmented
+ * case-type list. The augmented list IS the admission set (every
+ * arm of the priority order is flattened into each `ct.properties[]`
+ * by `augmentCaseType`), so this is a two-level lookup: case-type
+ * by name, then property by name on the matched case type. Returns
+ * `undefined` when either lookup misses.
+ */
+function lookupInAugmented(
+	augmented: readonly CaseType[],
+	caseType: string,
+	propertyName: string,
+): CasePropertyDataType | undefined {
+	const ct = augmented.find((c) => c.name === caseType);
+	const property = ct?.properties.find((p) => p.name === propertyName);
+	return property ? effectiveDataType(property) : undefined;
 }
 
 /**
@@ -233,16 +291,12 @@ export function propertyExists(
  * `properties[]` extended to include the rule-set-wide admission
  * set: writer-derived (typed `text`) + CommCare standard (typed via
  * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`). Declared properties
- * win on conflict.
- *
- * Routed through by `moduleTypeContext` so the predicate AST type
- * checker (which resolves only against `ct.properties[]`) sees the
- * same admission set the per-rule resolvers use. Without this
- * augmentation, `filterTypeCheck` / `calculatedColumnTypeCheck`
- * would silently fire "Unknown property" on writer-derived /
- * standard properties that the runtime accepts.
+ * win on conflict (kept first in the array; subsequent arms skip
+ * names already present). This is the canonical site for the
+ * priority order — the resolvers above all read against the
+ * resulting list.
  */
-export function augmentedCaseTypes(doc: BlueprintDoc): CaseType[] {
+function buildAugmentedCaseTypes(doc: BlueprintDoc): CaseType[] {
 	const caseTypes = doc.caseTypes ?? [];
 	return caseTypes.map((ct) => augmentCaseType(ct, doc));
 }
@@ -251,23 +305,24 @@ function augmentCaseType(ct: CaseType, doc: BlueprintDoc): CaseType {
 	const declaredNames = new Set(ct.properties.map((p) => p.name));
 	const extra: CaseProperty[] = [];
 
-	// Standard properties — only inject when not declared. CommCare
-	// admits them implicitly; the blueprint may also declare them
-	// (the schema doesn't forbid it), in which case the declared
-	// arm wins and we don't shadow it.
+	// Priority 2: standard properties — only inject when not declared.
+	// `STANDARD_CASE_LIST_PROPERTIES` is typed `ReadonlySet<StandardCaseListProperty>`,
+	// so iteration narrows `name` to a key of
+	// `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` directly — the table
+	// lookup is total without a defensive default.
 	for (const name of STANDARD_CASE_LIST_PROPERTIES) {
 		if (declaredNames.has(name)) continue;
-		const dataType = isStandardCaseListProperty(name)
-			? STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name]
-			: undefined;
-		if (dataType === undefined) continue;
-		extra.push({ name, label: name, data_type: dataType });
+		extra.push({
+			name,
+			label: name,
+			data_type: STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name],
+		});
 	}
 
-	// Writer-derived properties — fields saving to this case type
-	// via `case_property_on`. Default to text per the model's
-	// undeclared-fallback convention. Skip names already declared OR
-	// already injected as standard above.
+	// Priority 3: writer-derived properties — fields saving to this
+	// case type via `case_property_on`. Default to text per the
+	// model's undeclared-fallback convention. Skip names already
+	// declared OR already injected as standard above.
 	const writerProps = collectCaseProperties(doc, ct.name) ?? new Set<string>();
 	const injected = new Set(extra.map((p) => p.name));
 	for (const name of writerProps) {
@@ -278,19 +333,4 @@ function augmentCaseType(ct: CaseType, doc: BlueprintDoc): CaseType {
 
 	if (extra.length === 0) return ct;
 	return { ...ct, properties: [...ct.properties, ...extra] };
-}
-
-/**
- * Resolve a property's data type against an already-augmented case-
- * type list. Used internally by `moduleTypeContext` to populate
- * search-input data types without walking the doc twice.
- */
-function resolvePropertyDataTypeFromAugmented(
-	augmented: readonly CaseType[],
-	caseType: string,
-	propertyName: string,
-): CasePropertyDataType | undefined {
-	const ct = augmented.find((c) => c.name === caseType);
-	const property = ct?.properties.find((p) => p.name === propertyName);
-	return property ? effectiveDataType(property) : undefined;
 }
