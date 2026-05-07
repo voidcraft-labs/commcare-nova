@@ -27,7 +27,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CaseType,
+	effectiveDataType,
+} from "@/lib/domain";
 import {
 	dateLiteral,
 	datetimeLiteral,
@@ -99,7 +103,17 @@ export function LiteralValueInput({
 		return ct.properties.find((p) => p.name === propertyName);
 	}, [ctx.caseTypes, caseTypeName, propertyName]);
 
-	const dataType: string = overrideDataType ?? property?.data_type ?? "text";
+	// Override-precedence resolution: caller-supplied `overrideDataType`
+	// wins (search-input refs whose declared type lives on
+	// `SearchInputDecl`, not on a case property), otherwise the
+	// resolved property's effective type. The `(property ?
+	// effectiveDataType(property) : "text")` shape routes the
+	// `data_type ?? "text"` fallback through the shared helper rather
+	// than re-deriving the literal — adding a new fallback rule (e.g.
+	// for an `unknown` data-type sentinel) lights up every consumer
+	// in one edit.
+	const dataType: string =
+		overrideDataType ?? (property ? effectiveDataType(property) : "text");
 
 	if (propertyName === undefined) {
 		return (

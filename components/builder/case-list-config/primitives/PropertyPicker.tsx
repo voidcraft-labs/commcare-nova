@@ -217,7 +217,7 @@ export function PropertyPicker({
 														: "text-nova-text-muted"
 												}`}
 											>
-												{p.data_type ?? "text"}
+												{effectiveDataType(p)}
 											</div>
 										</span>
 									</Menu.Item>
