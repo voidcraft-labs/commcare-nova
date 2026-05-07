@@ -177,6 +177,130 @@ describe("SortKeyEditor — type-mismatch validation", () => {
 	});
 });
 
+// ── Unresolvable-source validity (display ↔ validity parity) ─────
+//
+// Per `feedback_always_in_valid_state.md`: an editor whose UI
+// shouts "this is broken" (red error chrome on an unresolvable
+// source) MUST propagate `valid: false`. Without these gates, the
+// host's save affordance would let the user export an unbuildable
+// case list. Each test pins one of the four states the editor can
+// surface — empty/stale × property/calculated.
+
+describe("SortKeyEditor — unresolvable-source validity", () => {
+	it("an empty property string surfaces inline error + reports invalid", () => {
+		const onValidityChange = vi.fn();
+		const { container } = renderEditor(
+			[sortKey(propertySortSource(""), "plain", "asc")],
+			[],
+			onValidityChange,
+		);
+		const liveRegion = container.querySelector('[aria-live="polite"]');
+		expect(liveRegion?.textContent ?? "").toMatch(/source not selected/i);
+		expect(onValidityChange).toHaveBeenLastCalledWith(false);
+	});
+
+	it("a stale property name surfaces inline error + reports invalid", () => {
+		const onValidityChange = vi.fn();
+		// "missing_prop" isn't declared on PATIENT.properties.
+		const { container } = renderEditor(
+			[sortKey(propertySortSource("missing_prop"), "plain", "asc")],
+			[],
+			onValidityChange,
+		);
+		const liveRegion = container.querySelector('[aria-live="polite"]');
+		expect(liveRegion?.textContent ?? "").toMatch(
+			/missing_prop.*no longer.*property/i,
+		);
+		expect(onValidityChange).toHaveBeenLastCalledWith(false);
+	});
+
+	it("an empty columnId surfaces inline error + reports invalid", () => {
+		const onValidityChange = vi.fn();
+		const { container } = renderEditor(
+			[sortKey(calculatedSortSource(""), "plain", "asc")],
+			[],
+			onValidityChange,
+		);
+		const liveRegion = container.querySelector('[aria-live="polite"]');
+		expect(liveRegion?.textContent ?? "").toMatch(/source not selected/i);
+		expect(onValidityChange).toHaveBeenLastCalledWith(false);
+	});
+
+	it("a stale columnId surfaces inline error + reports invalid", () => {
+		const onValidityChange = vi.fn();
+		// "missing_calc" isn't in the calculatedColumns list.
+		const { container } = renderEditor(
+			[sortKey(calculatedSortSource("missing_calc"), "plain", "asc")],
+			// Pass a non-empty list (without the referenced id) to
+			// distinguish "the entire list is empty" from "this id is
+			// stale relative to the list."
+			[CALC_DAYS_SINCE],
+			onValidityChange,
+		);
+		const liveRegion = container.querySelector('[aria-live="polite"]');
+		expect(liveRegion?.textContent ?? "").toMatch(
+			/missing_calc.*no longer.*calculated column/i,
+		);
+		expect(onValidityChange).toHaveBeenLastCalledWith(false);
+	});
+
+	it("the source picker trigger renders the missing-source aria-label suffix", () => {
+		// AT signal: a stale source's trigger button announces
+		// "(missing)" alongside the kind discriminator and label, so
+		// AT users get the same signal sighted users get from the red
+		// exclamation icon.
+		renderEditor(
+			[sortKey(propertySortSource("missing_prop"), "plain", "asc")],
+			[],
+		);
+		const trigger = screen.getByRole("button", {
+			name: /sort source: property "missing_prop" \(missing\)/i,
+		});
+		expect(trigger).toBeDefined();
+	});
+
+	it("the source picker aria-label disambiguates property vs calculated source", () => {
+		// Two rows with the same display label — one property, one
+		// calculated column header — both displaying "shared". The
+		// aria-label has to carry the kind discriminator so AT users
+		// can tell them apart even though the visual icon (database
+		// vs math function) is the only sighted-user signal.
+		const calcShared: CalculatedColumn = {
+			id: "shared_id",
+			header: "shared",
+			expression: term(prop("patient", "name")),
+		};
+		const caseTypes: CaseType[] = [
+			{
+				name: "patient",
+				properties: [{ name: "shared", label: "Shared", data_type: "text" }],
+			},
+		];
+		render(
+			<SortKeyEditor
+				value={[
+					sortKey(propertySortSource("shared"), "plain", "asc"),
+					sortKey(calculatedSortSource("shared_id"), "plain", "asc"),
+				]}
+				onChange={() => {}}
+				caseTypes={caseTypes}
+				currentCaseType="patient"
+				calculatedColumns={[calcShared]}
+			/>,
+		);
+		const propertyTrigger = screen.getByRole("button", {
+			name: /sort source: property "shared"$/i,
+		});
+		const calcTrigger = screen.getByRole("button", {
+			name: /sort source: calculated column "shared"$/i,
+		});
+		expect(propertyTrigger).toBeDefined();
+		expect(calcTrigger).toBeDefined();
+		// And they're distinct DOM nodes.
+		expect(propertyTrigger).not.toBe(calcTrigger);
+	});
+});
+
 // ── Calculated source columnId preservation ──────────────────────
 
 describe("SortKeyEditor — calculated source preservation", () => {

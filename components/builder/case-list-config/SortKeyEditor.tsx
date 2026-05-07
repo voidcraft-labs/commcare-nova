@@ -135,37 +135,72 @@ export function SortKeyEditor({
 	// re-renders without coupling to the array reference.
 	const containerKey = useId();
 
-	// Resolve per-row data-type once — used by both the type-picker
-	// filter and the inline applicability check, so computing it
-	// once per row keeps the two reads in lockstep.
-	const dataTypePerRow = useMemo(
+	// Resolve every row's source once. The unified `resolveSource`
+	// helper feeds both the inline-error computation and the per-row
+	// `SourcePicker`'s trigger chrome (via `<SortKeyRow>`'s pass-
+	// through), so the editor's display and its validity propagation
+	// share one source of truth — the trigger's red error chrome and
+	// `valid: false` agree on every `resolved.state` value.
+	const resolvedPerRow = useMemo(
 		() =>
 			value.map((key) =>
-				resolveSourceDataType(key.source, caseTypes, currentCaseType),
+				resolveSource(
+					key.source,
+					caseTypes,
+					currentCaseType,
+					calculatedColumns,
+				),
 			),
-		[value, caseTypes, currentCaseType],
+		[value, caseTypes, currentCaseType, calculatedColumns],
 	);
 
-	// Per-row inline error: the picked `type` must be one of the
-	// sort types `applicableSortTypes(dataType)` admits. Calculated
-	// sources have no resolvable data type (the `dataType` is
-	// `undefined`); `applicableSortTypes` returns `["plain"]` for
-	// the unresolved case, but calculated sources should admit ALL
-	// four types — the editor trusts the user's pick because the
-	// expression's return type isn't known at the source layer.
+	// Per-row inline-error list. Two independent failure classes
+	// surface here:
+	//
+	//   - **Source not resolvable** — empty source string ("Pick a
+	//     source") or stale name (property renamed / deleted, or a
+	//     calculated columnId that's no longer in the list). Without
+	//     this gate, the editor would propagate `valid: true` while
+	//     visually rendering the red exclamation chrome — the host's
+	//     save affordance would let the user export an unbuildable
+	//     case list. Per `feedback_always_in_valid_state.md`, an app
+	//     in this shape MUST report `valid: false`.
+	//   - **Type mismatch** — only checked once the source is
+	//     `resolved`. Calculated sources stay permissive (the
+	//     expression's return type isn't known at the source layer
+	//     so any sort type is admitted). Property sources gate
+	//     against `applicableSortTypes(dataType)`.
 	const errorsPerRow = useMemo(
 		() =>
 			value.map((key, i) => {
+				const resolved = resolvedPerRow[i];
+				if (resolved.state === "empty") {
+					return [
+						`Sort source not selected; pick a property or calculated column.`,
+					] as const;
+				}
+				if (resolved.state === "missing") {
+					const noun =
+						resolved.kindLabel === "Property"
+							? "property"
+							: "calculated column";
+					return [
+						`Sort source "${resolved.displayLabel}" is no longer a declared ${noun}.`,
+					] as const;
+				}
+				// `state === "resolved"`. Calculated sources skip the
+				// type-mismatch gate (any type admitted); property
+				// sources gate against the property-type compatibility
+				// table.
 				if (key.source.kind === "calculated") return [] as const;
-				const dataType = dataTypePerRow[i];
-				const allowed = applicableSortTypes(dataType);
+				const allowed = applicableSortTypes(resolved.dataType);
 				if (allowed.includes(key.type)) return [] as const;
 				const labelList = allowed.map((t) => SORT_TYPE_LABELS[t]).join(", ");
 				return [
-					`${SORT_TYPE_LABELS[key.type]} comparison isn't valid for ${dataType ?? "untyped"} properties; pick ${labelList}.`,
+					`${SORT_TYPE_LABELS[key.type]} comparison isn't valid for ${resolved.dataType ?? "untyped"} properties; pick ${labelList}.`,
 				] as const;
 			}),
-		[value, dataTypePerRow],
+		[value, resolvedPerRow],
 	);
 
 	const isValid = errorsPerRow.every((errors) => errors.length === 0);
@@ -265,6 +300,7 @@ export function SortKeyEditor({
 								caseTypes={caseTypes}
 								currentCaseType={currentCaseType}
 								calculatedColumns={calculatedColumns}
+								resolved={resolvedPerRow[i]}
 								errors={errorsPerRow[i]}
 								onChange={(next) => replaceRow(i, next)}
 								onRemove={() => removeRow(i)}
@@ -287,29 +323,124 @@ export function SortKeyEditor({
 	);
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// ── Source resolution ──────────────────────────────────────────────
+//
+// One helper resolves a `SortKeySource` against the editor's
+// `caseTypes` + `calculatedColumns` context and returns everything
+// every consumer needs:
+//
+//   - `state` — `"resolved"` (the source points at an existing
+//     property / calculated column), `"empty"` (the source is unset
+//     — empty property name / empty columnId), or `"missing"` (the
+//     source names something the case-type / calculated-column list
+//     no longer declares).
+//   - `displayLabel` — author-facing label for the trigger button +
+//     aria-label. `"Pick a source"` when empty; the property name /
+//     calculated column header otherwise.
+//   - `kindLabel` — the discriminator name (`"Property"` /
+//     `"Calculated column"`) — surfaced in the aria-label so AT
+//     users can tell the two source kinds apart without the visual
+//     icon.
+//   - `dataType` — effective property data type when the source is
+//     a resolved property; `undefined` for calculated sources (the
+//     expression's return type isn't known at the source layer)
+//     AND for empty / missing sources (no property to read).
+//   - `monospaceLabel` — purely visual: render the trigger label in
+//     `font-mono` for property names (wire-form codes) and
+//     proportional for calculated headers / placeholder.
+//
+// Both `errorsPerRow` (validity propagation) and `SourcePicker`
+// (visual chrome + aria-label) consume the same helper output, so
+// the two halves of the editor agree on what "this source is
+// broken" means. Two independent computations of resolvability
+// would let the trigger's red error chrome and `valid` (the host's
+// save gate) drift — surfacing a UI that screams "broken" while
+// the host saves the doc anyway, exactly the failure mode
+// `feedback_always_in_valid_state.md` rules out.
+
+type SourceResolutionState = "resolved" | "empty" | "missing";
+
+interface ResolvedSource {
+	readonly state: SourceResolutionState;
+	readonly displayLabel: string;
+	readonly kindLabel: string;
+	readonly dataType: string | undefined;
+	readonly monospaceLabel: boolean;
+}
 
 /**
- * Resolve the effective `data_type` of the sort key's source.
- * Property sources resolve through the case-type's properties;
- * calculated sources have no resolvable type at the source layer
- * (the `expression`'s return type isn't known here). Returns
- * `undefined` for both calculated sources and unresolved property
- * sources (case-type missing, property name not declared, etc.) —
- * the calling site distinguishes the two by checking
- * `source.kind`.
+ * Resolve a `SortKeySource` into the shape every consumer needs.
+ * Single source of truth for "is this source resolvable" — the
+ * `state` discriminator drives both inline-error rendering AND the
+ * trigger's missing-source chrome, so the editor's display and
+ * its validity propagation share one computation.
  */
-function resolveSourceDataType(
+function resolveSource(
 	source: SortKeySource,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
-): string | undefined {
-	if (source.kind === "calculated") return undefined;
-	const ct = caseTypes.find((c) => c.name === currentCaseType);
-	if (ct === undefined) return undefined;
-	const property = ct.properties.find((p) => p.name === source.property);
-	if (property === undefined) return undefined;
-	return effectiveDataType(property);
+	calculatedColumns: readonly CalculatedColumn[],
+): ResolvedSource {
+	if (source.kind === "property") {
+		const ct = caseTypes.find((c) => c.name === currentCaseType);
+		const property = ct?.properties.find((p) => p.name === source.property);
+		if (source.property === "") {
+			return {
+				state: "empty",
+				displayLabel: "Pick a source",
+				kindLabel: "Property",
+				dataType: undefined,
+				monospaceLabel: false,
+			};
+		}
+		if (property === undefined) {
+			return {
+				state: "missing",
+				displayLabel: source.property,
+				kindLabel: "Property",
+				dataType: undefined,
+				monospaceLabel: true,
+			};
+		}
+		return {
+			state: "resolved",
+			displayLabel: source.property,
+			kindLabel: "Property",
+			dataType: effectiveDataType(property),
+			monospaceLabel: true,
+		};
+	}
+	const calcCol = calculatedColumns.find((c) => c.id === source.columnId);
+	if (source.columnId === "") {
+		return {
+			state: "empty",
+			displayLabel: "Pick a source",
+			kindLabel: "Calculated column",
+			dataType: undefined,
+			monospaceLabel: false,
+		};
+	}
+	if (calcCol === undefined) {
+		return {
+			state: "missing",
+			displayLabel: source.columnId,
+			kindLabel: "Calculated column",
+			dataType: undefined,
+			monospaceLabel: false,
+		};
+	}
+	return {
+		state: "resolved",
+		displayLabel: calcCol.header || calcCol.id,
+		kindLabel: "Calculated column",
+		// Calculated sources admit all four sort types regardless of
+		// the expression's structural type — the runtime evaluates the
+		// expression and the comparator coerces. `dataType` stays
+		// `undefined` so the type-picker filter / type-mismatch check
+		// know to skip the per-property compatibility table.
+		dataType: undefined,
+		monospaceLabel: false,
+	};
 }
 
 /**
@@ -317,8 +448,9 @@ function resolveSourceDataType(
  * declared property of the editor's `currentCaseType`. When the
  * case-type has no properties (or isn't declared on the schema),
  * seeds with an empty property name — the row's inline picker
- * surfaces the unset state as `(unknown)` and the user picks
- * a property explicitly.
+ * surfaces the unset state as `"Pick a source"` AND `errorsPerRow`
+ * surfaces an inline "source not selected" message + flips
+ * `valid: false`, so the host's save affordance gates correctly.
  */
 function pickDefaultSource(
 	caseTypes: readonly CaseType[],
@@ -357,6 +489,12 @@ interface SortKeyRowProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly calculatedColumns: readonly CalculatedColumn[];
+	/** Resolved-source descriptor from the editor's top-level
+	 *  `resolveSource(...)` pass. Threaded through so the row's
+	 *  `SourcePicker` and the row's `TypePicker` filter share the
+	 *  same resolution the editor's validity gate consumed —
+	 *  display chrome and validity propagation can't drift. */
+	readonly resolved: ResolvedSource;
 	readonly errors: readonly string[];
 	readonly onChange: (next: SortKey) => void;
 	readonly onRemove: () => void;
@@ -374,20 +512,22 @@ function SortKeyRow({
 	caseTypes,
 	currentCaseType,
 	calculatedColumns,
+	resolved,
 	errors,
 	onChange,
 	onRemove,
 	setHandleEl,
 }: SortKeyRowProps) {
-	const dataType = resolveSourceDataType(
-		value.source,
-		caseTypes,
-		currentCaseType,
-	);
+	// Calculated sources admit all four sort types regardless of the
+	// source's resolution state — the runtime evaluates the
+	// expression and the comparator coerces. Property sources gate
+	// against `applicableSortTypes(dataType)`; the unresolved /
+	// missing case collapses to `["plain"]` which is the safest
+	// default while the user is still picking a property.
 	const allowedTypes =
 		value.source.kind === "calculated"
 			? SORT_TYPES
-			: applicableSortTypes(dataType);
+			: applicableSortTypes(resolved.dataType);
 
 	const setSource = (next: SortKeySource) => {
 		// Source change preserves type + direction. The applicability
@@ -445,6 +585,7 @@ function SortKeyRow({
 					<div className="min-w-0 flex-1">
 						<SourcePicker
 							value={value.source}
+							resolved={resolved}
 							onChange={setSource}
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
@@ -481,6 +622,12 @@ function SortKeyRow({
 
 interface SourcePickerProps {
 	readonly value: SortKeySource;
+	/** Resolved-source descriptor produced by the editor's top-level
+	 *  `resolveSource(...)` pass. Drives the trigger label, the
+	 *  missing-source chrome, and the aria-label so the picker's
+	 *  visual state and the editor's validity gate share one
+	 *  computation. */
+	readonly resolved: ResolvedSource;
 	readonly onChange: (next: SortKeySource) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
@@ -493,12 +640,15 @@ interface SourcePickerProps {
  * available calculated columns under a "Calculated columns"
  * header. Selecting a property emits a `propertySortSource(name)`;
  * selecting a calculated column emits a
- * `calculatedSortSource(columnId)`. The selected discriminator
- * determines the trigger's leading icon (database vs math
- * function).
+ * `calculatedSortSource(columnId)`. The trigger's leading icon
+ * follows `value.kind` (database vs math function) so the
+ * discriminator stays visible at-a-glance even when the source is
+ * unresolved / missing; the icon's color flips to error red when
+ * `resolved.state === "missing"`.
  */
 function SourcePicker({
 	value,
+	resolved,
 	onChange,
 	caseTypes,
 	currentCaseType,
@@ -512,32 +662,24 @@ function SourcePicker({
 		return ct?.properties ?? [];
 	}, [caseTypes, currentCaseType]);
 
-	// Display state for the trigger — icon, displayed label, and a
-	// "missing" flag when the source references a property /
-	// calculated column that's no longer declared.
-	const display = useMemo(() => {
-		if (value.kind === "property") {
-			const exists = properties.some((p) => p.name === value.property);
-			return {
-				icon: tablerDatabase,
-				label: value.property === "" ? "Pick a source" : value.property,
-				monospace: value.property !== "",
-				missing: !exists && value.property !== "",
-			};
-		}
-		const calcCol = calculatedColumns.find((c) => c.id === value.columnId);
-		return {
-			icon: tablerMathFunction,
-			label:
-				calcCol !== undefined
-					? calcCol.header || calcCol.id
-					: value.columnId === ""
-						? "Pick a source"
-						: value.columnId,
-			monospace: false,
-			missing: calcCol === undefined,
-		};
-	}, [value, properties, calculatedColumns]);
+	// Trigger icon follows the discriminator regardless of
+	// resolution. A `"missing"` state recolors the icon to error
+	// red but keeps the kind shape so the user sees what kind of
+	// source the row was set to.
+	const triggerIcon =
+		value.kind === "property" ? tablerDatabase : tablerMathFunction;
+
+	const triggerIsMissing = resolved.state === "missing";
+
+	// AT-readable aria-label disambiguating the source kind. Without
+	// the kind prefix, "Days since visit" reads identically whether
+	// it's a property or a calculated column header — the visual
+	// icon (database vs math function) carries the discriminator
+	// only for sighted users. The "(missing)" suffix surfaces the
+	// resolved-source error chrome for AT.
+	const ariaLabel = `Sort source: ${resolved.kindLabel} "${resolved.displayLabel}"${
+		triggerIsMissing ? " (missing)" : ""
+	}`;
 
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30",
@@ -545,8 +687,8 @@ function SourcePicker({
 
 	const labelClass = [
 		"truncate",
-		display.monospace ? "font-mono" : "",
-		display.missing ? "text-nova-error/90" : "text-nova-text",
+		resolved.monospaceLabel ? "font-mono" : "",
+		triggerIsMissing ? "text-nova-error/90" : "text-nova-text",
 	]
 		.filter(Boolean)
 		.join(" ");
@@ -555,22 +697,22 @@ function SourcePicker({
 		<Menu.Root>
 			<Menu.Trigger
 				ref={triggerRef}
-				aria-label={`Sort source: ${display.label}`}
+				aria-label={ariaLabel}
 				className={triggerClass}
 			>
 				<span className="flex items-center gap-1.5 min-w-0">
 					<Icon
-						icon={display.icon}
+						icon={triggerIcon}
 						width="14"
 						height="14"
 						className={
-							display.missing
+							triggerIsMissing
 								? "text-nova-error/80"
 								: "text-nova-violet-bright/80"
 						}
 					/>
-					<span className={labelClass}>{display.label}</span>
-					{display.missing && (
+					<span className={labelClass}>{resolved.displayLabel}</span>
+					{triggerIsMissing && (
 						<Icon
 							icon={tablerExclamationCircle}
 							width="14"
