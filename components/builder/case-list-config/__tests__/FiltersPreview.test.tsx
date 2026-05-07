@@ -103,7 +103,8 @@ function makeRow(
 
 beforeEach(() => {
 	vi.mocked(loadFilterPreviewAction).mockResolvedValue({
-		kind: "empty",
+		kind: "rows",
+		rows: [],
 		totalCount: 0,
 	});
 });

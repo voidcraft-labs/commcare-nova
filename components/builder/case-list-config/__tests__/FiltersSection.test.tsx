@@ -95,11 +95,12 @@ function makeConfig(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
 }
 
 beforeEach(() => {
-	// Default the action to `empty` so the FiltersPreview renders
-	// the no-cases empty state without polluting the FiltersSection
-	// assertions.
+	// Default the action to an empty rows arm so the FiltersPreview
+	// renders the no-cases empty body without polluting the
+	// FiltersSection assertions.
 	vi.mocked(loadFilterPreviewAction).mockResolvedValue({
-		kind: "empty",
+		kind: "rows",
+		rows: [],
 		totalCount: 0,
 	});
 });

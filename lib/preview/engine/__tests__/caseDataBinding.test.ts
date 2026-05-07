@@ -1721,7 +1721,7 @@ describe("loadCaseListPreviewAction", () => {
 // preview's UI dispatches on.
 
 describe("readFilterPreview", () => {
-	it("returns the empty arm with totalCount: 0 when no rows exist", async () => {
+	it("returns the rows arm with empty rows + totalCount: 0 when no cases exist", async () => {
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -1733,7 +1733,9 @@ describe("readFilterPreview", () => {
 				columns: [plainColumn("name", "Name")],
 			}),
 		});
-		expect(result).toEqual({ kind: "empty", totalCount: 0 });
+		// Single `rows` arm covers both populated and empty success
+		// paths — the empty case is `rows: []` + `totalCount: 0`.
+		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
 	});
 
 	it("returns the rows arm with the row sample + total matching count when no filter is applied", async () => {

@@ -237,15 +237,17 @@ export const FILTER_PREVIEW_DEFAULT_LIMIT = 10;
  * tolerant of small drift because it's an authoring hint, not a
  * transactional read.
  *
- * Empty arm: `totalCount: 0` is structurally enforced by the
- * arm's discriminator type. Calling code reads `totalCount`
- * uniformly across both `rows` and `empty` arms.
+ * Single `rows` arm covers both the populated and empty success
+ * paths — `rows.length === 0` + `totalCount` from the count query
+ * is honest under the rare race where a matching row is deleted
+ * between the row read and the count read. The renderer formats
+ * the empty-rows case from the same arm. A separate `empty` arm
+ * would have to hardcode `totalCount: 0`, fighting the racy count.
  *
- * Typed-error mapping reuses `mapCaseListPreviewError` —
- * `LoadFilterPreviewResult`'s error arms are a strict subset of
- * `LoadCaseListPreviewResult`'s (the only difference is the
- * paired `totalCount` on the success arms), so the error mapper
- * applies verbatim.
+ * Typed-error mapping reuses the same shape as
+ * `mapCaseListPreviewError` — `LoadFilterPreviewResult`'s error
+ * arms mirror `LoadCaseListPreviewResult`'s, so the mapper logic
+ * is identical.
  */
 export async function readFilterPreview(
 	store: CaseStore,
@@ -300,7 +302,6 @@ export async function readFilterPreview(
 		predicate: args.caseListConfig.filter,
 	});
 
-	if (rows.length === 0) return { kind: "empty", totalCount: 0 };
 	return { kind: "rows", rows, totalCount };
 }
 

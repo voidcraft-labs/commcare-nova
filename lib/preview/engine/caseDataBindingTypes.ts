@@ -86,12 +86,21 @@ export type LoadCaseListPreviewResult =
  * paying for a full row fetch.
  *
  * Shape mirrors `LoadCaseListPreviewResult` plus a `totalCount`
- * field on the `rows` and `empty` arms — `totalCount` is the row
- * population matching the predicate (NOT the row sample's
- * `rows.length`); the renderer uses both to surface "Showing N of
- * M cases that pass this filter".
+ * field on the `rows` arm — `totalCount` is the row population
+ * matching the predicate (NOT the row sample's `rows.length`).
+ * The renderer uses both numbers to surface "Showing N of M cases
+ * that pass this filter".
  *
- * Empty / missing arms have the same trust-boundary contract as
+ * The success path collapses to a single `rows` arm (with possibly
+ * empty `rows` array). A separate `empty` arm would tightly couple
+ * `rows.length === 0` with `totalCount === 0`, which fails under
+ * the rare race where a row matching the filter is deleted between
+ * the row sample read and the count read — the row query returns
+ * empty but the count returns the pre-delete value. The collapsed
+ * shape keeps the count value honest and lets the renderer decide
+ * how to format the rows-empty case from the same arm.
+ *
+ * Missing / schema / trust-boundary arms have the same shape as
  * `LoadCaseListPreviewResult`. The `paused` arm is NOT part of
  * this shape because the Server Action never returns it — the
  * client component renders the paused state locally when its
@@ -103,7 +112,6 @@ export type LoadFilterPreviewResult =
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			totalCount: number;
 	  }
-	| { kind: "empty"; totalCount: 0 }
 	| { kind: "missing-case-type"; caseType: string }
 	| { kind: "schema-not-synced"; caseType: string }
 	/**

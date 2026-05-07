@@ -235,15 +235,17 @@ export function FiltersPreview({
 		);
 	}
 
-	// `state.kind === "rows" | "empty"` — both arms carry
-	// `totalCount`. Branch on `kind` for the row table; render the
-	// count card uniformly above either branch.
+	// `state.kind === "rows"` — the success arm. Carries the row
+	// sample (possibly empty) plus the matching `totalCount`. The
+	// count card surfaces above the table; if the row sample is
+	// empty the body falls back to the empty-state message.
 	const filterApplied = caseListConfig.filter !== undefined;
 	const countCard = (
 		<CountCard totalCount={state.totalCount} filterApplied={filterApplied} />
 	);
 
-	if (state.kind === "empty") {
+	const rows = state.rows;
+	if (rows.length === 0) {
 		return (
 			<div className="space-y-2">
 				{countCard}
@@ -263,7 +265,6 @@ export function FiltersPreview({
 		);
 	}
 
-	const rows = state.rows;
 	const hasAnyColumns =
 		displayColumns.length > 0 || caseListConfig.calculatedColumns.length > 0;
 
@@ -397,6 +398,14 @@ function CountCard({ totalCount, filterApplied }: CountCardProps) {
 		<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 px-3 py-2 flex items-center gap-2">
 			<Icon icon={icon} width="14" height="14" className={accent} />
 			<div className="flex items-baseline gap-1.5">
+				{/* "All N cases" prefix on the no-filter copy reads as
+				    "every case is visible"; the filter-applied copy
+				    drops the prefix so "5 cases pass" reads as a
+				    discrete count. The leading "All" cue is the
+				    spec's chosen phrasing for the no-filter state. */}
+				{!filterApplied && (
+					<span className="text-[11px] text-nova-text-muted/80">All</span>
+				)}
 				<span className={`text-base font-semibold ${accent}`}>
 					{totalCount}
 				</span>
