@@ -232,10 +232,12 @@ export function findSortKey(
 }
 
 /**
- * Re-export the wire-vocab maps so test fixtures and the future
- * long-detail emitter share one authoritative translation. Adding
- * a `SortType` arm surfaces here as a `Record` exhaustiveness
- * error rather than a silent fall-through to a default.
+ * Re-export the wire-vocab maps so any consumer composing a sort
+ * block (test fixtures, sibling emitters that share the
+ * `SortType` / `SortDirection` translation) reads from one
+ * authoritative table. Adding a `SortType` arm surfaces here as a
+ * `Record` exhaustiveness error rather than a silent fall-through
+ * to a default.
  */
 export const SORT_TYPE_WIRE_MAP: Readonly<Record<SortType, string>> =
 	SORT_TYPE_TO_WIRE;

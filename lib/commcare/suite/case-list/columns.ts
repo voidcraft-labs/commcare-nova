@@ -39,10 +39,10 @@
 //
 //   - `phone`             → CCHQ `phone` format
 //     (`:393-399`). Same XPath as `plain`; CCHQ's case-list short
-//     detail and short detail both render phone columns as the raw
-//     property text (the long detail picks up `template_form="phone"`
-//     for the tappable-link affordance — long-detail emission is
-//     owned by the sibling task in this plan family).
+//     detail renders phone columns as the raw property text. (The
+//     long detail picks up `template_form="phone"` for the tappable-
+//     link affordance per `detail_screen.py:396-399` — out of
+//     scope here; this module emits only the short detail.)
 //
 //   - `id-mapping`        → CCHQ `enum` format
 //     (`:402-439`). Wire shape:
@@ -66,7 +66,7 @@
 //     threshold. Sort uses raw `{xpath}`.
 //
 //   - `search-only`       → CCHQ `invisible` format
-//     (`:559-576`). Wire shape: a `<field>` with `width="0"` on
+//     (`:559-583`). Wire shape: a `<field>` with `width="0"` on
 //     both `<header>` and `<template>` so the runtime hides the
 //     column from the case list while preserving the property as
 //     a sort / search target. Search-only columns never carry a

@@ -94,9 +94,10 @@ export function compileCcz(
 		// `module.caseListConfig` directly (the typed `Column`
 		// discriminated union, sort keys, calculated columns) and returns
 		// both the suite-XML fragment and the locale-id → header-string
-		// map the runtime renders against. The long-detail path keeps
-		// the legacy HQ-JSON-driven `generateDetail` shape until the
-		// sibling task in this plan family lands its typed long emitter.
+		// map the runtime renders against. Long detail flows through the
+		// HQ-JSON-driven `generateDetail` helper below — the short path
+		// reads the typed config; the long path reads the flat
+		// `DetailColumn[]` projected onto `hqMod.case_details.long`.
 		//
 		// Both detail blocks resolve their `<title>` through CCHQ's
 		// built-in `cchq.case` locale (`default="Case"` per
@@ -118,12 +119,13 @@ export function compileCcz(
 				),
 			);
 
-			// Long-detail header registration retains the legacy
-			// `m{n}_{field}_header` shape so the existing locale ids
-			// the long-detail emitter references stay populated. The
-			// short-detail emitter owns its own locale ids end-to-end
-			// (CCHQ-canonical `m{n}.case_short.case_<field>_<i>.header`
-			// shape) and threads them through `shortEmission.strings`.
+			// Long-detail header registration uses the
+			// `m{n}_{field}_header` locale-id shape that
+			// `generateDetail` references for each column's `<header>`
+			// `<locale>` slot. The short-detail emitter owns its own
+			// locale ids end-to-end (CCHQ-canonical
+			// `m{n}.case_short.case_<field>_<i>.header` shape) and
+			// threads them through `shortEmission.strings`.
 			for (const col of hqMod.case_details.long.columns) {
 				const headerKey = `m${mIdx}_${col.field}_header`;
 				appStrings[headerKey] = col.header.en || col.field;
@@ -281,10 +283,10 @@ function generateProfile(appName: string): string {
 }
 
 /**
- * Render a single `<detail>` block for suite.xml — the legacy
- * HQ-JSON-driven path that still backs long-detail emission until
- * the typed long-detail emitter lands. Short detail goes through
- * `emitShortDetail` and never reaches this function.
+ * Render a single `<detail>` block for suite.xml from a flat
+ * `DetailColumn[]` (HQ JSON shape). Backs long-detail emission;
+ * short detail uses the typed emitter at `emitShortDetail` and
+ * never reaches this function.
  *
  * Title resolves through CCHQ's built-in `cchq.case` locale
  * (`commcare-hq/corehq/apps/app_manager/id_strings.py:78-80`,

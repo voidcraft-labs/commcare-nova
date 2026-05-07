@@ -83,9 +83,10 @@ describe("emitShortDetail — empty cases", () => {
 	it("emits a title-only detail when caseListConfig is absent", () => {
 		const mod = makeModule({ caseType: "patient" });
 		const out = emitShortDetail({ module: mod, moduleIndex: 0 });
-		// Per CCHQ's Detail XSD shape (`xml_models.py:935-958`), the
-		// `<title>` element is required; a zero-field detail still
-		// carries it.
+		// CCHQ's `Detail` model declares `title` as a non-optional
+		// `NodeField` at `xml_models.py:945`, inside the `Detail`
+		// class spanning `:917-1021`. A zero-field detail still
+		// carries the `<title>` element.
 		expect(out.xml).toContain('<detail id="m0_case_short">');
 		expect(out.xml).toContain('<locale id="cchq.case"/>');
 		expect(out.xml).not.toContain("<field>");
