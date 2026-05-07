@@ -4,18 +4,20 @@
 //
 // Round-trip preservation contract for the picker primitives.
 //
-// `ValueExpressionPicker` and `RelationPathBuilder` are mounted at
-// every value / relation slot in the editor. The schema accepts
-// shapes wider than what those pickers EDIT — higher-order
-// ValueExpression arms (arith / if / count / etc.) and non-canonical
-// RelationPath shapes (multi-hop ancestor walks, qualified
-// subcase / ancestor walks, `any-relation`). The pickers MUST
-// round-trip those shapes without destruction: rendering the
-// editor with a non-canonical shape must NOT trigger an
-// `onChange` that overwrites it.
+// `ExpressionPicker` and `RelationPathBuilder` are mounted at every
+// value / relation slot in the editor. The schema accepts shapes
+// wider than what some pickers EDIT directly — non-canonical
+// `RelationPath` shapes (multi-hop ancestor walks, qualified
+// subcase / ancestor walks, `any-relation`) route through a
+// read-only badge. Higher-order ValueExpression arms (`arith` /
+// `if` / `count` / etc.) mount their dedicated cards via
+// `ExpressionPicker`'s registry-driven dispatch. Both paths MUST
+// round-trip the source AST verbatim: rendering the editor with
+// any saved shape must NOT trigger an `onChange` that overwrites
+// it.
 //
 // Without these guarantees, a saved predicate emitted by any
-// caller that produces higher-order shapes at value / relation
+// caller that produces non-canonical shapes at value / relation
 // slots would silently lose its content the moment a user opens
 // the editor.
 
@@ -74,16 +76,14 @@ const VISIT: CaseType = {
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT];
 
 describe("ExpressionPicker — non-Term round-trip preservation", () => {
-	// Task 3 replaced the Term-only `ValueExpressionPicker` stub with
-	// the full registry-driven `ExpressionPicker` shell. Higher-order
-	// ValueExpression arms (`arith`, `count`, `today`, etc.) mount via
-	// their per-kind cards rather than via the read-only badge the
-	// stub used. The round-trip-preservation principle still holds at
-	// the structural level: rendering the editor with a non-Term value
-	// must NOT trigger a spurious `onChange` on mount, AND the
-	// authored shape must remain reachable from the saved AST without
-	// destruction. The tests below pin the no-spurious-onChange half;
-	// the per-kind cards' shapes are pinned by their own card tests.
+	// Higher-order ValueExpression arms (`arith`, `count`, `today`,
+	// etc.) mount via their per-kind cards through the registry-
+	// driven dispatch. Round-trip preservation: rendering the editor
+	// with any non-Term value must NOT trigger a spurious `onChange`
+	// on mount, AND the authored shape must remain reachable from
+	// the saved AST without destruction. The tests below pin the
+	// no-spurious-onChange half; the per-kind cards' shapes are
+	// pinned by their own card tests.
 
 	it("`arith` value round-trips without firing onChange on mount", () => {
 		// `eq(prop, arith(literal, literal, "+"))` — the right side

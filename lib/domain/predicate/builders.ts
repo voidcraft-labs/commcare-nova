@@ -59,6 +59,7 @@
 // that's the same failure mode every other illegal-but-typeable
 // payload produces, so leaving it at the schema is consistent.
 
+import type { CasePropertyDataType } from "@/lib/domain";
 import {
 	reduceAnd as reduceAndImpl,
 	reduceNot as reduceNotImpl,
@@ -261,10 +262,38 @@ export function sessionContext(field: SessionContextField): SessionContextRef {
  * wire form is a string, but typing them as plain text via this builder
  * would force the type checker to either format-sniff or reject ordered
  * comparisons against date-typed properties; the typed builders set
- * `data_type` explicitly so the AST carries the author's intent.
+ * `data_type` explicitly so the AST carries the author's intent. For
+ * any other declared `CasePropertyDataType` qualifier, use
+ * `qualifiedLiteral` below.
  */
 export function literal(value: string | number | boolean | null): Literal {
 	return { kind: "literal", value };
+}
+
+/**
+ * Constructs a `Literal` carrying an explicit `data_type` qualifier.
+ * The general construction primitive for qualified literals — the
+ * temporal-typed builders (`dateLiteral` / `datetimeLiteral` /
+ * `timeLiteral`) are thin specializations on top of this one, and
+ * any caller that needs to carry a non-temporal qualifier (e.g.
+ * preserving the source's `single_select` / `int` qualifier across
+ * an editor edit) routes through here.
+ *
+ * Centralizes the qualified-literal shape in one place so a future
+ * widening of `CasePropertyDataType` lights up every qualifier
+ * call site automatically — there is no shape-construction shim
+ * outside this file.
+ *
+ * Format validation lives at the wire-emit boundary
+ * (`lib/commcare/...`), not here — pass a wire-format value and
+ * trust the schema layer to reject malformed values at emit time,
+ * matching the contract every other literal builder follows.
+ */
+export function qualifiedLiteral(
+	value: string | number | boolean | null,
+	data_type: CasePropertyDataType,
+): Literal {
+	return { kind: "literal", value, data_type };
 }
 
 /**
@@ -275,47 +304,31 @@ export function literal(value: string | number | boolean | null): Literal {
  * the type checker's ordered-types rule rather than falling through to
  * text.
  *
- * Format validation lives at the wire-emit boundary
- * (`lib/commcare/...`), not here — pass a wire-format string and trust
- * the schema layer to reject malformed values at emit time.
- * `dateLiteral("not-a-date")` constructs a valid AST and type-checks
- * against any date-typed property, then fails when the wire emitter
- * renders the predicate. This split keeps the AST library independent
- * of any particular wire emitter's format rules.
+ * Thin specialization over `qualifiedLiteral`; same parse-time
+ * trust contract for the wire-format string. `dateLiteral("not-a-date")`
+ * constructs a valid AST and type-checks against any date-typed
+ * property, then fails when the wire emitter renders the predicate.
  */
 export function dateLiteral(value: string): Literal {
-	return { kind: "literal", value, data_type: "date" };
+	return qualifiedLiteral(value, "date");
 }
 
 /**
  * Constructs a datetime-typed literal. The value is the wire-form
  * string (`YYYY-MM-DDTHH:MM:SS`, optionally with a timezone suffix, per
- * CommCare convention).
- *
- * Format validation lives at the wire-emit boundary
- * (`lib/commcare/...`), not here — pass a wire-format string and trust
- * the schema layer to reject malformed values at emit time.
- * `datetimeLiteral("not-a-datetime")` constructs a valid AST and
- * type-checks against any datetime-typed property, then fails when the
- * wire emitter renders the predicate.
+ * CommCare convention). Thin specialization over `qualifiedLiteral`.
  */
 export function datetimeLiteral(value: string): Literal {
-	return { kind: "literal", value, data_type: "datetime" };
+	return qualifiedLiteral(value, "datetime");
 }
 
 /**
  * Constructs a time-typed literal. The value is the wire-form string
- * (`HH:MM[:SS]` per CommCare convention).
- *
- * Format validation lives at the wire-emit boundary
- * (`lib/commcare/...`), not here — pass a wire-format string and trust
- * the schema layer to reject malformed values at emit time.
- * `timeLiteral("not-a-time")` constructs a valid AST and type-checks
- * against any time-typed property, then fails when the wire emitter
- * renders the predicate.
+ * (`HH:MM[:SS]` per CommCare convention). Thin specialization over
+ * `qualifiedLiteral`.
  */
 export function timeLiteral(value: string): Literal {
-	return { kind: "literal", value, data_type: "time" };
+	return qualifiedLiteral(value, "time");
 }
 
 // ---------- Relation-path builders ----------

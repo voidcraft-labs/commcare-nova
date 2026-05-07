@@ -86,13 +86,14 @@ describe("SwitchCard — case removal contract", () => {
 });
 
 describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
-	// Regression test for the data-loss class Task 2 paid 8 CR rounds
-	// to lock down: an uncontrolled blur-commit input that
-	// unconditionally rebuilds via the bare `literal(...)` builder
-	// drops any `data_type` qualifier on the source AST. Mounting a
-	// switch whose `when` carries `dateLiteral(...)`, focusing then
-	// blurring without typing, MUST leave the AST reference-stable
-	// — no spurious `onChange` and no qualifier loss.
+	// Regression test for the data-loss class where blur-commit
+	// silently strips the `data_type` qualifier: an uncontrolled
+	// blur-commit input that unconditionally rebuilds via the bare
+	// `literal(...)` builder drops any qualifier on the source AST.
+	// Mounting a switch whose `when` carries `dateLiteral(...)`,
+	// focusing then blurring without typing, MUST leave the AST
+	// reference-stable — no spurious `onChange` and no qualifier
+	// loss.
 
 	it("focus + blur without typing leaves the dateLiteral when AST untouched", () => {
 		// `dateLiteral("2024-01-01")` carries `data_type: "date"`.

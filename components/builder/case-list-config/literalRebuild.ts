@@ -8,8 +8,9 @@
 // wire emitters consume to pick the right value-function. A naïve
 // rebuild via the bare `literal(value)` builder strips the
 // qualifier on every edit, silently turning a `dateLiteral(...)`
-// into a plain text literal — the same data-loss class Task 2
-// spent eight CR rounds locking down for prop refs.
+// into a plain text literal — the data-loss class where blur-
+// commit silently strips the `data_type` qualifier from the
+// rebuilt AST.
 //
 // Two helpers cover the patterns the editor needs:
 //
@@ -30,27 +31,36 @@
 // gate the commit on `text !== initial` get the round-trip
 // guarantee for free; callers that don't get the qualifier
 // preservation but may still allocate a fresh object.
+//
+// All AST construction routes through the predicate package's
+// builders — `qualifiedLiteral` for qualified shapes, `literal`
+// for the unqualified case, plus the temporal specializations
+// (`dateLiteral` / `datetimeLiteral` / `timeLiteral`) used by the
+// free-text decode path. The editor never hand-rolls a Literal
+// shape; the predicate package owns the construction primitive
+// (per `lib/domain/predicate/CLAUDE.md`).
 
 import {
 	dateLiteral,
 	datetimeLiteral,
 	type Literal,
 	literal,
+	qualifiedLiteral,
 	timeLiteral,
 } from "@/lib/domain/predicate";
 
 /**
  * Build a literal that carries the source's `data_type` qualifier.
- * Routes through the matching typed-literal builder
- * (`dateLiteral` / `datetimeLiteral` / `timeLiteral`) when the
- * qualifier is one of the temporal types — those builders bake the
- * `data_type` into the result. For other qualifiers (int / decimal
- * / select kinds / geopoint) and the qualifier-absent case, returns
- * an object with the qualifier copied through verbatim — the bare
- * `literal()` builder doesn't accept a qualifier argument, so the
- * preservation is by direct shape construction. The shape is
- * structurally identical to what the typed-literal builders
- * produce.
+ * Routes through `qualifiedLiteral` when the source declares a
+ * qualifier, and through the bare `literal` builder when the source
+ * has none. Centralizing on the `qualifiedLiteral` primitive keeps
+ * the editor out of direct AST shape construction — adding a new
+ * `CasePropertyDataType` to the schema flows through the builder
+ * without an editor-side parallel edit.
+ *
+ * `qualifiedLiteral` accepts `string | number | boolean | null` for
+ * the value, mirroring the Literal schema's union; callers don't
+ * coerce before passing through this helper.
  */
 export function rebuildLiteralPreservingDataType(
 	source: Literal,
@@ -59,33 +69,7 @@ export function rebuildLiteralPreservingDataType(
 	if (source.data_type === undefined) {
 		return literal(nextValue);
 	}
-	switch (source.data_type) {
-		case "date":
-			// `dateLiteral` accepts a string per its CCHQ wire-form
-			// contract; the runtime check is the schema's, not ours.
-			// Coerce non-string values through `String(...)` so authors
-			// flipping a numeric input back to a date-typed input don't
-			// crash the rebuild.
-			return dateLiteral(
-				typeof nextValue === "string" ? nextValue : String(nextValue),
-			);
-		case "datetime":
-			return datetimeLiteral(
-				typeof nextValue === "string" ? nextValue : String(nextValue),
-			);
-		case "time":
-			return timeLiteral(
-				typeof nextValue === "string" ? nextValue : String(nextValue),
-			);
-		default:
-			// Non-temporal qualifier (int / decimal / single_select /
-			// multi_select / geopoint / text) — the canonical builders
-			// don't ship a `data_type` argument for these, so the
-			// preservation goes through direct shape construction. The
-			// shape stays parseable through `literalSchema` because
-			// every field is exactly what the schema declares.
-			return { kind: "literal", value: nextValue, data_type: source.data_type };
-	}
+	return qualifiedLiteral(nextValue, source.data_type);
 }
 
 /**

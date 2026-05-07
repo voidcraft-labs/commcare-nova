@@ -62,6 +62,7 @@ import {
 	now,
 	or,
 	prop,
+	qualifiedLiteral,
 	relationStep,
 	selfPath,
 	sessionContext,
@@ -296,6 +297,47 @@ describe("predicate builders", () => {
 		expect(t.data_type).toBe("time");
 		const p = eq(prop("patient", "dob"), t);
 		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	// `qualifiedLiteral` is the general-purpose construction
+	// primitive every typed literal routes through. The temporal
+	// builders (`dateLiteral` / `datetimeLiteral` / `timeLiteral`)
+	// are thin specializations on top; consumers needing a non-
+	// temporal qualifier (e.g. `single_select` / `int` preservation
+	// across an editor edit) call this builder directly.
+
+	it("constructs a literal carrying an explicit non-temporal qualifier", () => {
+		const t = qualifiedLiteral("active", "single_select");
+		expect(t.kind).toBe("literal");
+		expect(t.value).toBe("active");
+		expect(t.data_type).toBe("single_select");
+		const p = eq(prop("patient", "status"), t);
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("supports number / boolean / null values via qualifiedLiteral", () => {
+		const asInt = qualifiedLiteral(42, "int");
+		expect(asInt.value).toBe(42);
+		expect(asInt.data_type).toBe("int");
+		const asBool = qualifiedLiteral(true, "text");
+		expect(asBool.value).toBe(true);
+		expect(asBool.data_type).toBe("text");
+		const asNull = qualifiedLiteral(null, "date");
+		expect(asNull.value).toBeNull();
+		expect(asNull.data_type).toBe("date");
+	});
+
+	it("date / datetime / time literal builders produce shapes equivalent to qualifiedLiteral with the matching qualifier", () => {
+		// The temporal specializations are thin wrappers — verify the
+		// shape equivalence so a future refactor can't drift the two
+		// construction paths apart.
+		expect(dateLiteral("2024-01-01")).toEqual(
+			qualifiedLiteral("2024-01-01", "date"),
+		);
+		expect(datetimeLiteral("2024-01-01T00:00:00")).toEqual(
+			qualifiedLiteral("2024-01-01T00:00:00", "datetime"),
+		);
+		expect(timeLiteral("12:30")).toEqual(qualifiedLiteral("12:30", "time"));
 	});
 
 	// All six comparison operators share one curried helper, so a

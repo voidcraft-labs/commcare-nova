@@ -4,14 +4,14 @@
 // Pins the regression contract: every literal rebuild path the
 // editor uses MUST carry the source's `data_type` qualifier
 // through. The naïve rebuild (`literal(nextValue)`) drops the
-// qualifier silently — the same data-loss class Task 2 spent
-// eight CR rounds locking down for prop refs.
+// qualifier silently.
 
 import { describe, expect, it } from "vitest";
 import {
 	dateLiteral,
 	datetimeLiteral,
 	literal,
+	qualifiedLiteral,
 	timeLiteral,
 } from "@/lib/domain/predicate";
 import {
@@ -47,15 +47,11 @@ describe("rebuildLiteralPreservingDataType", () => {
 
 	it("preserves non-temporal qualifiers (single_select, multi_select, int, etc.)", () => {
 		// The schema admits a `data_type` qualifier on every
-		// `CasePropertyDataType`. The temporal builders set the
-		// qualifier explicitly; non-temporal qualifiers can land via
-		// the SA tool surface or a future widening of the typed-
-		// builder set. Either way, the rebuild must carry them.
-		const source = {
-			kind: "literal" as const,
-			value: "active",
-			data_type: "single_select" as const,
-		};
+		// `CasePropertyDataType`. The rebuild routes through
+		// `qualifiedLiteral` for any qualifier — temporal or not —
+		// so a non-temporal qualifier on the source carries through
+		// the rebuild verbatim.
+		const source = qualifiedLiteral("active", "single_select");
 		const next = rebuildLiteralPreservingDataType(source, "inactive");
 		expect(next.data_type).toBe("single_select");
 		expect(next.value).toBe("inactive");
@@ -68,16 +64,17 @@ describe("rebuildLiteralPreservingDataType", () => {
 		expect(next.value).toBe("other");
 	});
 
-	it("coerces non-string values when the qualifier is temporal", () => {
-		// A user flipping a typed-date input to numeric mode shouldn't
-		// crash the rebuild — `String(...)` keeps the value
-		// constructable as a date-typed literal even if the wire-
-		// format string isn't a real date (which the wire emitter
-		// rejects later, per `dateLiteral`'s docs).
+	it("accepts non-string values at a temporal qualifier (parse-time validation lives at the wire boundary)", () => {
+		// `qualifiedLiteral` accepts the full schema union
+		// (`string | number | boolean | null`) for the value, so the
+		// rebuilt literal carries whatever the caller passed. The
+		// schema layer + wire emitter reject malformed wire forms at
+		// emit time, matching `dateLiteral("not-a-date")`'s
+		// parse-time-trust contract.
 		const source = dateLiteral("2024-01-01");
 		const next = rebuildLiteralPreservingDataType(source, 2025);
 		expect(next.data_type).toBe("date");
-		expect(next.value).toBe("2025");
+		expect(next.value).toBe(2025);
 	});
 });
 

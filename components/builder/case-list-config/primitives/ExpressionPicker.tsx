@@ -18,12 +18,9 @@
 // context via the `usePredicateEditContext` provider, so the shell
 // works identically in either tree.
 //
-// REPLACES the Task 2 stub at the same path. The stub edited only
-// Term-shaped operands and routed everything else through a read-only
-// badge; the full shell here edits every ValueExpression kind via the
-// per-arm cards in `cards/expression/`. Round-trip preservation
-// becomes structural: every kind has a card that round-trips its
-// AST shape verbatim, and the kind-replace menu always preserves
+// Round-trip preservation is structural: every ValueExpression kind
+// has a card that round-trips its AST shape verbatim via the per-arm
+// cards in `cards/expression/`, and the kind-replace menu preserves
 // the operand-shape twin pairs (`date-coerce` ↔ `datetime-coerce`)
 // so a kind swap doesn't drop authored content.
 

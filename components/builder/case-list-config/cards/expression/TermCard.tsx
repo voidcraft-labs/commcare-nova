@@ -13,14 +13,9 @@
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
 //
-// The card is the ValueExpression-side analogue of Task 2's stub
-// `ValueExpressionPicker`'s Term-only branch. The difference: the
-// stub also routed non-Term ValueExpressions through a HigherOrderBadge
-// because it couldn't dispatch on non-Term kinds. Here, the
-// `ExpressionPicker` shell dispatches on every kind via the registry,
-// so this card edits ONLY Term-shaped values — non-Term arms route
-// through their own dedicated cards (ArithCard / IfCard / etc.) at
-// the `ExpressionPicker` shell's dispatch.
+// The card edits ONLY Term-shaped values — non-Term ValueExpression
+// arms route through their own dedicated cards (ArithCard / IfCard /
+// etc.) at the `ExpressionPicker` shell's registry-driven dispatch.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";

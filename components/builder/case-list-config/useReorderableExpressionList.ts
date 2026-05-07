@@ -10,10 +10,10 @@
 // (per-container monitor scoped by nodeKey, ref-stash so the monitor
 // effect deps stay [containerKey], custom drag preview via
 // `setCustomNativeDragPreview`, adjacency suppression so the preview
-// doesn't flicker into the source's slot). Triplicating the 150-line
-// shape across three cards was the rejected alternative — any
-// divergence on a CR fix produces inconsistent behavior across
-// surfaces. This module is the single edit site.
+// doesn't flicker into the source's slot). Centralizing here keeps
+// the three call sites (concat / coalesce / switch) structurally
+// identical — a behavior change lands in one place rather than
+// drifting across three near-duplicates.
 //
 // Two pieces:
 //

@@ -137,10 +137,13 @@ interface ComparisonCardProps {
  *     Replace affordance, so the authored expression round-trips
  *     without destruction.
  *   - operator — kind discriminator (eq / neq / gt / lt / lte / gte).
- *   - `right` — typed value via `LiteralValueInput` keyed off the
- *     left's property data type, OR a Term-shaped ValueExpression
- *     via the picker mode toggle. Higher-order arms route through
- *     `ValueExpressionPicker`'s read-only badge.
+ *   - `right` — `ValueExpression`. The card mounts an
+ *     `ExpressionPicker` shell at the slot, dispatching every
+ *     ValueExpression kind (term / arith / if / count / coalesce /
+ *     etc.) through the registry-driven per-arm cards. Authors swap
+ *     kinds via the picker's "Change" menu; nested operands recurse
+ *     through the same shell. The picker's own `CardShell` footer
+ *     surfaces inline errors at the slot path.
  */
 export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	// Left-side errors render via the picker's `invalid` prop +
