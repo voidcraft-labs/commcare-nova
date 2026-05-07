@@ -289,13 +289,38 @@ SHIPPED 2026-05-07 in commits `c5c0543c` (initial feat) → `17977de1` (CR fix-p
 Final state: 3529 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
-### Task 9: SA tools
+### Task 9: SA tools — SHIPPED
 
-**Files:** `lib/agent/tools/case-list-config/*.ts`, tests.
+SHIPPED 2026-05-07 in commits `27d7b58a` (initial feat) → `a072a922` (CR fix-pass: tighten schema discriminated-union check + close test coverage gaps + correct filter description) → `219e9ce1` (final polish: symmetric chat+MCP parity tests + pin setCaseListFilter init-on-absent-clear behavior) on branch `feat/case-list-search`.
 
-One tool per surface: `setCaseListColumns`, `setCaseListFilter`, `setCaseListSort`, `setCalculatedColumns`, `setCaseListSearchInputs`. Each accepts the typed AST shape via Zod (no strings). The structured-output schema constraint (≤8 optional fields per array item from CLAUDE.md) lives at the case-list level — the typed AST schemas come from the shared `lib/domain/predicate` source, never inlined into tool defs.
+**What landed:**
 
-Tests: schema parse via `scripts/test-schema.ts`; each tool's effect on the doc verified via integration test against a fixture blueprint.
+Five SA tools at `lib/agent/tools/case-list-config/`, one per case-list-config surface:
+- `setCaseListColumns` — replaces `caseListConfig.columns` with typed `Column[]` (all 7 column kinds via the discriminated union).
+- `setCaseListFilter` — sets/clears `caseListConfig.filter` via `Predicate | null`. Description steers the SA toward `null` for clearing (the canonical clear shape) over a `match-all` filter (a non-empty filter expressing "match every case" as a value).
+- `setCaseListSort` — replaces `caseListConfig.sort` with typed `SortKey[]`.
+- `setCalculatedColumns` — replaces `caseListConfig.calculatedColumns` with typed `CalculatedColumn[]`.
+- `setCaseListSearchInputs` — replaces `caseListConfig.searchInputs` with typed `SearchInputDef[]`.
+
+Each tool's input schema accepts the typed AST shape via Zod (no strings). All schemas pulled from `lib/domain/predicate` and `lib/domain/modules` — never inlined. The implementer empirically verified that tool-input mode accepts `oneOf` + `$ref` natively (vs structured-output mode which rejects them); `scripts/test-schema.ts` was extended to cover both compiler paths.
+
+**Tools wired into both surfaces:** chat-side `sharedTools` registry at `lib/agent/solutionsArchitect.ts` and MCP `SHARED_TOOLS` manifest at `lib/mcp/server.ts` (with snake_case wire names per MCP convention). Cross-surface parity tests pin that all five tools emit identical mutation batches through both contexts.
+
+**Schema exports.** `lib/domain/modules.ts` flipped `calculatedColumnSchema`, `sortKeySchema`, `searchInputDefSchema` from package-private to exported so the SA-tool layer can consume them.
+
+**Persistence path.** Tool execute() bodies route through the existing `updateModuleMutations` → `ctx.recordMutations` pattern. Mutations land via `applyBlueprintChange` (Plan 3 Task 1's saga) on the MCP path; chat path stays fire-and-forget per the SSE timing model. The tool layer is ctx-shape-agnostic; the saga distinction lives at the context level.
+
+**Init shape.** When `caseListConfig` is undefined on the module before the mutation, each tool initializes via `emptyCaseListConfig()` (every required slot present-and-empty; `filter`/`detailColumns` absent). Pinned by per-tool init tests in all five test files.
+
+**Existing tool surfaces untouched** per `feedback_never_touch_agent.md`. `updateModule.case_list_columns` legacy `{field, header}[]` shape stays; the dual-tool overlap (legacy lossy-flatten vs typed AST preservation) is acknowledged as a deferred item per spec line 173. Future authorized session can either remove the legacy fields or reword the description; this work is out of scope without explicit permission.
+
+**Schema-compiler ceiling.** Per-array-item optional counts verified concretely: `setCaseListColumns` 0/0/0/0/0/0/0 across all 7 column-kind arms; `setCaseListSort` 0; `setCalculatedColumns` 1; `setCaseListSearchInputs` 5. All comfortably under the 8-optional ceiling. The schema test's per-arm walker reads `oneOf ?? anyOf ?? [items]` (correctly handles Zod 4's `discriminatedUnion` lowering to `oneOf`), resolves one `$ref` hop, and asserts `armsChecked > 0` to prevent silent vacuous-pass regressions.
+
+**Hard constraints honored:** AST schemas from `lib/domain/predicate` + `lib/domain/modules` (never inlined). Typed builders for AST construction. `applyBlueprintChange` for persistence (MCP path). No process/forward-projection comments. No `void <id>;` suppressions.
+
+**Tests (52 in this task's surface):** schema parse via `scripts/test-schema.ts opus` (live API verification covering all 5 tools), per-tool integration tests asserting effect on the doc, idempotency tests, round-trip tests, module-not-found error tests, `caseListConfig` initialization tests for every tool, cross-surface chat+MCP parity tests for every tool, `setCaseListFilter` `Predicate | null` semantics with the materialize-on-absent-clear edge case pinned. Two rounds of fresh-CR review uncovered a schema-test silent-skip bug (tool-input mode emits `oneOf` not `anyOf`), an init-coverage gap, a misleading wire-format detail in the filter description, and partial-coverage drift on the parity tests.
+
+Final state: 3585 tests pass, 14 skipped, 0 failed; `npx tsc --noEmit` clean; `npm run lint` clean.
 
 
 ### Task 10: Validator rules
