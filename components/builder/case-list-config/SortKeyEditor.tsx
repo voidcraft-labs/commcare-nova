@@ -180,10 +180,14 @@ export function SortKeyEditor({
 					] as const;
 				}
 				if (resolved.state === "missing") {
+					// Discriminate on the source's typed `kind` directly
+					// rather than round-tripping through the display-shaped
+					// `kindLabel` string. The discriminated union is the
+					// canonical contract; keeping this gate coupled to it
+					// means renaming `kindLabel` for visual reasons can
+					// never accidentally widen the noun branch.
 					const noun =
-						resolved.kindLabel === "Property"
-							? "property"
-							: "calculated column";
+						key.source.kind === "property" ? "property" : "calculated column";
 					return [
 						`Sort source "${resolved.displayLabel}" is no longer a declared ${noun}.`,
 					] as const;
@@ -191,13 +195,18 @@ export function SortKeyEditor({
 				// `state === "resolved"`. Calculated sources skip the
 				// type-mismatch gate (any type admitted); property
 				// sources gate against the property-type compatibility
-				// table.
+				// table. By this point `resolved.dataType` is always the
+				// `effectiveDataType(property)` non-undefined string —
+				// the empty / missing arms returned earlier and
+				// `effectiveDataType` falls back to `"text"` for
+				// un-annotated properties — so no fallback is needed in
+				// the message body.
 				if (key.source.kind === "calculated") return [] as const;
 				const allowed = applicableSortTypes(resolved.dataType);
 				if (allowed.includes(key.type)) return [] as const;
 				const labelList = allowed.map((t) => SORT_TYPE_LABELS[t]).join(", ");
 				return [
-					`${SORT_TYPE_LABELS[key.type]} comparison isn't valid for ${resolved.dataType ?? "untyped"} properties; pick ${labelList}.`,
+					`${SORT_TYPE_LABELS[key.type]} comparison isn't valid for ${resolved.dataType} properties; pick ${labelList}.`,
 				] as const;
 			}),
 		[value, resolvedPerRow],
@@ -382,8 +391,11 @@ function resolveSource(
 	calculatedColumns: readonly CalculatedColumn[],
 ): ResolvedSource {
 	if (source.kind === "property") {
-		const ct = caseTypes.find((c) => c.name === currentCaseType);
-		const property = ct?.properties.find((p) => p.name === source.property);
+		// Empty-string check before the property lookup — an empty
+		// source name has no chance of matching anything in the
+		// case-type's `properties` array, so the find() would always
+		// miss; ordering the empty guard first short-circuits the
+		// scan.
 		if (source.property === "") {
 			return {
 				state: "empty",
@@ -393,6 +405,8 @@ function resolveSource(
 				monospaceLabel: false,
 			};
 		}
+		const ct = caseTypes.find((c) => c.name === currentCaseType);
+		const property = ct?.properties.find((p) => p.name === source.property);
 		if (property === undefined) {
 			return {
 				state: "missing",
@@ -410,7 +424,9 @@ function resolveSource(
 			monospaceLabel: true,
 		};
 	}
-	const calcCol = calculatedColumns.find((c) => c.id === source.columnId);
+	// Same ordering on the calculated arm — empty-string columnId
+	// can't match any list entry, so the find() runs only when the
+	// columnId is non-empty.
 	if (source.columnId === "") {
 		return {
 			state: "empty",
@@ -420,6 +436,7 @@ function resolveSource(
 			monospaceLabel: false,
 		};
 	}
+	const calcCol = calculatedColumns.find((c) => c.id === source.columnId);
 	if (calcCol === undefined) {
 		return {
 			state: "missing",
@@ -662,6 +679,12 @@ function SourcePicker({
 		return ct?.properties ?? [];
 	}, [caseTypes, currentCaseType]);
 
+	// Section headers ("Properties" / "Calculated columns") only
+	// render when both classes are on offer. With one class alone,
+	// the header reads as decoration above an unambiguous list.
+	const showSectionHeaders =
+		properties.length > 0 && calculatedColumns.length > 0;
+
 	// Trigger icon follows the discriminator regardless of
 	// resolution. A `"missing"` state recolors the icon to error
 	// red but keeps the kind shape so the user sees what kind of
@@ -734,9 +757,16 @@ function SourcePicker({
 					style={{ minWidth: "var(--anchor-width)", maxHeight: 320 }}
 				>
 					<Menu.Popup className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto`}>
+						{/* Section headers are organizational — they only earn
+						    their visual weight when both source classes are
+						    present and the user needs a divider to navigate
+						    between them. With only one class on offer, the
+						    header reads as decoration. */}
 						{properties.length > 0 && (
 							<>
-								<SectionHeader label="Properties" icon={tablerDatabase} />
+								{showSectionHeaders && (
+									<SectionHeader label="Properties" icon={tablerDatabase} />
+								)}
 								{properties.map((p) => {
 									const isActive =
 										value.kind === "property" && value.property === p.name;
@@ -779,10 +809,12 @@ function SourcePicker({
 						)}
 						{calculatedColumns.length > 0 && (
 							<>
-								<SectionHeader
-									label="Calculated columns"
-									icon={tablerMathFunction}
-								/>
+								{showSectionHeaders && (
+									<SectionHeader
+										label="Calculated columns"
+										icon={tablerMathFunction}
+									/>
+								)}
 								{calculatedColumns.map((c) => {
 									const isActive =
 										value.kind === "calculated" && value.columnId === c.id;

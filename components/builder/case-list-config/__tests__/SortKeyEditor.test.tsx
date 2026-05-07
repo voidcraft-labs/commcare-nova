@@ -431,13 +431,20 @@ describe("SortKeyEditor — drag handle wiring", () => {
 	});
 });
 
-describe("SortKeyEditor — reorder rebuild contract", () => {
-	it("reordering produces a sort-key array in the new order", () => {
-		// Construct the new order via the public builder and assert
-		// the emitted shape parses cleanly. The editor's onReorder
-		// passes the spliced array straight through to `onChange` —
-		// per-entry references are preserved so `nodeId(key)`-keyed
-		// React state survives the reorder.
+describe("SortKeyEditor — schema-valid reorder shape", () => {
+	// Pragmatic-drag-and-drop's monitor flow can't be driven via
+	// `fireEvent` (it depends on native pointer / drag events that
+	// JSDOM / happy-dom don't simulate end-to-end). The same
+	// limitation applies across `ConcatCard` / `CoalesceCard` /
+	// `SwitchCard`'s test suites — they pin schema-side guarantees on
+	// arrays produced via the public builder rather than driving the
+	// editor's reorder flow. This test follows that pattern: it
+	// asserts that a manually-rearranged SortKey array (matching what
+	// `useReorderableList`'s `onReorder` would hand back) parses
+	// cleanly through the schema. The editor's "splice and pass
+	// through" rebuild contract is empirically traversed by every
+	// other test in this file that mutates `value` on render.
+	it("a rearranged sort-key array parses cleanly through the schema", () => {
 		const a = sortKey(propertySortSource("dob"), "date", "asc");
 		const b = sortKey(propertySortSource("age"), "integer", "desc");
 		const c = sortKey(propertySortSource("name"), "plain", "asc");
