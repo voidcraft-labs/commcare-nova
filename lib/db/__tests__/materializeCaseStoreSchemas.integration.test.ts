@@ -244,6 +244,7 @@ describe("materializeCaseStoreSchemas — partial failure", () => {
 		});
 		const fakeStore = {
 			query: unused,
+			queryWithCalculated: unused,
 			insert: unused,
 			insertWithChildren: unused,
 			update: unused,

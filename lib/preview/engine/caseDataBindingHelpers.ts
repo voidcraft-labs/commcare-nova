@@ -27,12 +27,13 @@ import {
 	type JsonValue,
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { eq, literal, prop } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type {
 	LoadCaseDataResult,
+	LoadCaseListPreviewResult,
 	LoadCasesResult,
 	PopulateSampleCasesResult,
 	SubmissionMutation,
@@ -85,6 +86,165 @@ export async function readCases(
 	});
 	if (rows.length === 0) return { kind: "empty" };
 	return { kind: "rows", rows };
+}
+
+/**
+ * Default row count for the case-list authoring surface's live
+ * preview. The preview is a "what does my list look like?" check
+ * — it doesn't need to render every row, but it does need enough
+ * to communicate the case-list's authored shape (sort order,
+ * filter narrowing, calculated-column values per row). 30 mirrors
+ * `SAMPLE_CASE_DEFAULT_COUNT` from the sample-data populate path
+ * so the two surfaces feel cohesive when the user populates and
+ * then previews.
+ */
+export const PREVIEW_CASE_DEFAULT_LIMIT = 30;
+
+/**
+ * Read case-list authoring-surface live-preview rows for the bound
+ * tenant. Routes through `caseStore.queryWithCalculated` so the
+ * caller's `caseListConfig.calculatedColumns` are evaluated at the
+ * SQL layer rather than reconstructed in TypeScript.
+ *
+ * The case-list's `filter` slot is owned by the Filters-section
+ * editor — the Display section consumes only the columns + sort +
+ * calculated-columns slots. This helper threads the filter through
+ * verbatim so a caller composing the full `CaseListConfig` (a
+ * case-list-config panel mounting both sections) gets predicate
+ * narrowing for free; for the Display-section preview specifically,
+ * the predicate slot is undefined and the case-store query falls
+ * through unfiltered.
+ *
+ * Typed-error mapping mirrors `mapPopulateSampleCasesError` for
+ * consistency: missing-case-type and schema-not-synced get
+ * dedicated arms so the client surface can re-resolve / await the
+ * sync rather than render a wrapped invariant message.
+ */
+export async function readCaseListPreview(
+	store: CaseStore,
+	args: {
+		appId: string;
+		caseType: string;
+		blueprint: BlueprintDoc;
+		caseListConfig: CaseListConfig;
+		limit?: number;
+	},
+): Promise<LoadCaseListPreviewResult> {
+	const limit = args.limit ?? PREVIEW_CASE_DEFAULT_LIMIT;
+	// Index the calculated columns by id so the per-key sort lookup
+	// runs in constant time. A duplicate id here would silently let
+	// the second occurrence overwrite the first's projection (and
+	// the sort lookup); the editor's uniqueness gate prevents this
+	// upstream, so the duplicate-id arm is structurally unreachable
+	// at this call site.
+	const calculatedById = new Map(
+		args.caseListConfig.calculatedColumns.map((c) => [c.id, c]),
+	);
+	const rows = await store.queryWithCalculated({
+		appId: args.appId,
+		caseType: args.caseType,
+		blueprint: args.blueprint,
+		calculated: args.caseListConfig.calculatedColumns,
+		// Filter belongs to the Filters section's editor; the slot
+		// flows through here so a host mounting both sections gets
+		// the predicate narrowing without a parallel call site.
+		// For the Display-section preview (where the parent supplies
+		// a config carrying only columns + sort + calculatedColumns),
+		// `filter` is undefined and the case-store query falls
+		// through unfiltered.
+		predicate: args.caseListConfig.filter,
+		// Sort the preview rows the same way the runtime would. Each
+		// `SortKey.source` lifts into a `ValueExpression`:
+		//   - Property sources → `term(prop(caseType, name))`. The
+		//     Postgres compiler emits a typed JSONB read; ORDER BY
+		//     applies the comparator the case-store's `SortKey.direction`
+		//     selects.
+		//   - Calculated sources → the matching calculated column's
+		//     `expression` verbatim. Postgres's planner CSE-folds the
+		//     redundant evaluation across SELECT + ORDER BY against
+		//     identical expressions, so the runtime cost is one
+		//     evaluation per row.
+		// A calculated-source sort referencing an unknown columnId
+		// (the editor allows transient stale references during
+		// authoring) falls back to a literal-null expression. The
+		// editor's `valid: false` gate prevents the host from firing
+		// the preview while sort references are unresolved, so this
+		// fallback is structurally unreachable in the live preview
+		// path; it exists as a safe no-op rather than a throw to
+		// keep the helper resilient if a future caller bypasses the
+		// gate.
+		sort: args.caseListConfig.sort.flatMap((key) => {
+			const expression = sortKeyToExpression(
+				key.source,
+				args.caseType,
+				calculatedById,
+			);
+			if (expression === null) return [];
+			return [{ direction: key.direction, expression }];
+		}),
+		limit,
+	});
+	if (rows.length === 0) return { kind: "empty" };
+	return { kind: "rows", rows };
+}
+
+/**
+ * Map errors from `readCaseListPreview` to typed result arms. The
+ * three typed errors get dedicated arms so the live-preview client
+ * surface can re-resolve / await the sync rather than render an
+ * undifferentiated error message. Generic Errors fall through to
+ * the `error` arm.
+ */
+export function mapCaseListPreviewError(
+	err: unknown,
+): LoadCaseListPreviewResult {
+	if (err instanceof CaseTypeNotInBlueprintError) {
+		return { kind: "missing-case-type", caseType: err.caseType };
+	}
+	if (err instanceof SchemaNotSyncedError) {
+		return { kind: "schema-not-synced", caseType: err.caseType };
+	}
+	return {
+		kind: "error",
+		message: err instanceof Error ? err.message : "Failed to load preview.",
+	};
+}
+
+/**
+ * Resolve a `SortKey.source` (the case-list-config's discriminated
+ * union over property / calculated-column references) to the
+ * `ValueExpression` the case-store's `SortKey.expression` slot
+ * accepts. The case-store's sort interface is expression-rooted (so
+ * authors can sort by typed reads or computed values uniformly);
+ * the case-list-config's sort interface is source-discriminated (so
+ * the editor renders a property picker vs a calculated-column
+ * reference). This helper is the seam between the two.
+ *
+ * Property sources lift to `term(prop(caseType, name))`. Calculated
+ * sources resolve through the supplied `calculatedById` map and
+ * return the matching column's `expression` verbatim. An unresolved
+ * calculated-source reference returns `null`; the caller drops the
+ * key from the sort list rather than queueing a partial / nonsense
+ * sort.
+ *
+ * Returning `null` (vs throwing) keeps the helper safe to call
+ * during authoring transitions — the editor's validity gate is the
+ * primary defense against this shape reaching the wire.
+ */
+function sortKeyToExpression(
+	source: import("@/lib/domain").SortKeySource,
+	caseType: string,
+	calculatedById: ReadonlyMap<string, import("@/lib/domain").CalculatedColumn>,
+): import("@/lib/domain/predicate").ValueExpression | null {
+	if (source.kind === "property") {
+		return {
+			kind: "term",
+			term: { kind: "prop", caseType, property: source.property },
+		};
+	}
+	const calc = calculatedById.get(source.columnId);
+	if (calc === undefined) return null;
+	return calc.expression;
 }
 
 /**

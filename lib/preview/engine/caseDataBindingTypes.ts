@@ -19,17 +19,42 @@
 import type {
 	CasePropertyFailure,
 	CaseRow,
+	CaseRowWithCalculated,
 	JsonObject,
 } from "@/lib/case-store";
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
-// import path for the binding's types.
-export type { CaseRow };
+// import path for the binding's types. `CaseRowWithCalculated`
+// rides the same surface for the case-list live-preview path
+// (`loadCaseListPreviewAction`).
+export type { CaseRow, CaseRowWithCalculated };
 
 /** Result of loading every case row for a case type. */
 export type LoadCasesResult =
 	| { kind: "rows"; rows: ReadonlyArray<CaseRow> }
 	| { kind: "empty" }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/**
+ * Result of loading the case-list authoring-surface live preview.
+ * Mirrors `LoadCasesResult` but the `rows` arm carries
+ * `CaseRowWithCalculated` so per-row evaluated calculated columns
+ * surface in the preview's table cells.
+ *
+ * `empty` and `error` arms keep the same shape as `LoadCasesResult`
+ * so the client renderer dispatches uniformly across both paths.
+ * The authoring surface treats `empty` as "no cases yet, hint to
+ * generate sample data via the running-app view" — the live preview
+ * does NOT expose the sample-data populate action itself per the
+ * task spec (the action belongs to the running-app authoring
+ * surface; duplicating it here would fork UX).
+ */
+export type LoadCaseListPreviewResult =
+	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }
+	| { kind: "empty" }
+	| { kind: "missing-case-type"; caseType: string }
+	| { kind: "schema-not-synced"; caseType: string }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 

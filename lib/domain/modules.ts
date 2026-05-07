@@ -359,6 +359,41 @@ const calculatedColumnSchema = z.object({
 	sort: sortConfigSchema.optional(),
 });
 export type CalculatedColumn = z.infer<typeof calculatedColumnSchema>;
+/** Per-column sort config — surfaced from the `CalculatedColumn.sort`
+ *  slot and the `SortKey`-side `(type, direction)` pair. Sourced from
+ *  the schema so consumers narrowing on the field stay in lockstep
+ *  with `sortConfigSchema`. */
+export type SortConfig = z.infer<typeof sortConfigSchema>;
+
+/**
+ * Constructs a calculated column. The `id` slot is the stable
+ * identifier sort keys reference (per the `SortKey.source.calculated`
+ * arm) and the live-preview projection labels each computed value
+ * by; the `header` slot is the case-list column heading. The
+ * `expression` is the AST the wire / SQL emitters lower into a
+ * derived per-row value. `sort` is the optional per-column sort
+ * config — when present, the runtime can sort the case list by the
+ * calculated value without recomputing per row.
+ *
+ * Routes the structural assembly through one builder so every site
+ * that constructs a CalculatedColumn (case-list-config editor,
+ * migration script, SA tools wiring, test helpers) carries the same
+ * key-order and the same handling of the optional `sort` slot —
+ * setting `sort: undefined` would round-trip as a present-with-
+ * undefined key under Zod's default strip mode and break equality
+ * assertions like `expect(parsed).toEqual(input)`. Builder omits
+ * the key when no sort is supplied.
+ */
+export function calculatedColumn(
+	id: string,
+	header: string,
+	expression: import("./predicate/types").ValueExpression,
+	sort?: SortConfig,
+): CalculatedColumn {
+	return sort === undefined
+		? { id, header, expression }
+		: { id, header, expression, sort };
+}
 
 const sortKeySourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("property"), property: z.string() }),

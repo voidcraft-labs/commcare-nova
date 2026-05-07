@@ -56,10 +56,12 @@ import {
 	applySurveyMutation,
 	caseRowDisplayValue,
 	caseRowToFormPreload,
+	mapCaseListPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
 	pickBlueprintDoc,
 	readCaseData,
+	readCaseListPreview,
 	readCases,
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
@@ -815,6 +817,122 @@ describe("mapPopulateSampleCasesError", () => {
 });
 
 // ---------------------------------------------------------------
+// `readCaseListPreview` + `mapCaseListPreviewError`
+// ---------------------------------------------------------------
+//
+// The case-list authoring-surface live-preview helpers route through
+// `caseStore.queryWithCalculated`. The integration tests here pin
+// the discriminated-union return shapes the live preview's UI
+// dispatches on — the empty arm, the rows arm with calculated
+// projection, and the typed-error mapping (mirrors the
+// `mapPopulateSampleCasesError` pattern).
+
+import {
+	type CaseListConfig,
+	calculatedColumn,
+	plainColumn,
+} from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
+
+function makeCaseListConfig(
+	overrides: Partial<CaseListConfig> = {},
+): CaseListConfig {
+	return {
+		columns: [],
+		sort: [],
+		calculatedColumns: [],
+		searchInputs: [],
+		...overrides,
+	};
+}
+
+describe("readCaseListPreview", () => {
+	it("returns the empty arm when no rows exist", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		const result = await readCaseListPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn("name", "Name")],
+			}),
+		});
+		expect(result.kind).toBe("empty");
+	});
+
+	it("returns the rows arm with the calculated map populated", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		// Calculated column emits a literal — predictable shape that
+		// pins the rows-arm contract without exercising the AST
+		// compiler's per-arm semantics here (the SQL contract test
+		// covers that surface).
+		const result = await readCaseListPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint,
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn("name", "Name")],
+				calculatedColumns: [
+					calculatedColumn("note", "Note", term(literal("hello"))),
+				],
+			}),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.calculated.note).toBe("hello");
+	});
+});
+
+describe("mapCaseListPreviewError", () => {
+	// Mirrors `mapPopulateSampleCasesError` shape — the helper is
+	// the catch-block delegate for the Server Action and translates
+	// case-store typed errors into the structured arm shape the live-
+	// preview consumer dispatches on.
+
+	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm", () => {
+		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
+		const result = mapCaseListPreviewError(err);
+		expect(result).toEqual({ kind: "missing-case-type", caseType: "patient" });
+	});
+
+	it("maps SchemaNotSyncedError to the schema-not-synced arm", () => {
+		const err = new SchemaNotSyncedError("app-1", "patient");
+		const result = mapCaseListPreviewError(err);
+		expect(result).toEqual({ kind: "schema-not-synced", caseType: "patient" });
+	});
+
+	it("falls through to the generic error arm for an unrelated Error", () => {
+		const err = new Error("connection refused");
+		const result = mapCaseListPreviewError(err);
+		expect(result.kind).toBe("error");
+		if (result.kind !== "error") return;
+		expect(result.message).toBe("connection refused");
+	});
+
+	it("falls through to the generic error arm with a default message for non-Error throws", () => {
+		const result = mapCaseListPreviewError("some string");
+		expect(result.kind).toBe("error");
+		if (result.kind !== "error") return;
+		expect(result.message).toBe("Failed to load preview.");
+	});
+});
+
+// ---------------------------------------------------------------
 // `applyRegistrationMutation`
 // ---------------------------------------------------------------
 
@@ -1393,6 +1511,7 @@ describe("submitFormAction", () => {
 		// surfaces loudly.
 		const stubStore = {
 			query: vi.fn(),
+			queryWithCalculated: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
 			update: vi.fn(),
@@ -1425,6 +1544,7 @@ describe("submitFormAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
+			queryWithCalculated: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
 			update: vi

@@ -12,6 +12,7 @@
 import type { Insertable, Selectable } from "kysely";
 import type {
 	BlueprintDoc,
+	CalculatedColumn,
 	CasePropertyDataType,
 	CaseType,
 } from "@/lib/domain";
@@ -21,7 +22,7 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
 import { CaseTypeNotInBlueprintError } from "./errors";
-import type { CasesTable, JsonObject } from "./sql/database";
+import type { CasesTable, JsonObject, JsonValue } from "./sql/database";
 
 // Row shapes derived from the Kysely Database type. `Selectable`
 // strips `ColumnType<S, I, U>` to the read shape; `Insertable`
@@ -107,6 +108,84 @@ export interface QueryArgs {
 }
 
 /**
+ * Arguments for `CaseStore.queryWithCalculated`. Same shape as
+ * `QueryArgs` plus the calculated-column projection list. Each
+ * column's `expression` is compiled inline as a SELECT projection
+ * keyed by the column's `id`; the result row carries a `calculated`
+ * map keyed by the same id.
+ *
+ * `blueprint` is required (not optional like `QueryArgs`) because
+ * every calculated-column expression compiles through
+ * `compileExpression`, which delegates to `compileTerm` for `prop`
+ * leaf reads — and the term compiler resolves the property's
+ * `data_type` from the case-type schema map. A calculated expression
+ * that reads no properties (`today()` / `now()` / arith over
+ * literals) would compile without a blueprint, but the typed
+ * blueprint slot is the structural defense: the slot is required
+ * upstream so the compiler stack never reaches an undefined schema
+ * map under realistic authoring.
+ */
+export interface QueryWithCalculatedArgs {
+	appId: string;
+	caseType: string;
+	blueprint: BlueprintDoc;
+	calculated: ReadonlyArray<CalculatedColumn>;
+	predicate?: Predicate;
+	sort?: SortKey[];
+	limit?: number;
+	offset?: number;
+}
+
+/**
+ * Wire-shape of a single calculated-column value as pg-driver hands
+ * it back. `JsonValue` covers `null` / string / number / boolean /
+ * arrays / nested objects; `Date` covers Postgres's `date` /
+ * `timestamptz` deserialization (per-OID typed deserializers, NOT
+ * ISO strings).
+ *
+ * Numerics are returned as strings by pg's arbitrary-precision
+ * decimal deserializer; integers come back as numbers. Both fit
+ * inside `JsonValue`. The Date arm is the only widening this union
+ * adds beyond `JsonValue` — the cell renderer in
+ * `DisplayPreview.tsx` discriminates on `instanceof Date` to format
+ * temporal values without `JSON.stringify`'s quoted-ISO output.
+ *
+ * Pinned by the contract test
+ * `lib/case-store/__tests__/storeContract.ts → "returns a Date
+ * object for a date-typed calculated expression"`; a regression
+ * would surface there.
+ */
+export type CalculatedValue = JsonValue | Date;
+
+/**
+ * Result row shape for `queryWithCalculated`. Folds the calculated
+ * map ONTO the row rather than returning a sidecar array — sidecar
+ * arrays couple by index, and any future filter / sort transform
+ * applied to one half would silently misalign the two. One row,
+ * one calculated map, never desyncs.
+ *
+ * The `calculated` map is keyed by the calculated column's `id`
+ * (as supplied in `QueryWithCalculatedArgs.calculated[i].id`); a
+ * calculated column whose expression evaluates to SQL NULL emits
+ * `id → null` (NOT omitted from the map). Consumers can therefore
+ * distinguish "column absent from the query" (key not in map) from
+ * "column evaluated to null" (`map[id] === null`).
+ *
+ * Duplicate-id contract: when two `calculated` entries share the
+ * same `id`, the projection emits one column keyed by the shared
+ * id and the second occurrence's value silently overwrites the
+ * first's at result-row deserialization time. The
+ * `CalculatedColumnEditor` validates id uniqueness across siblings
+ * upstream so the SQL projection never reaches that shape — the
+ * defense lives at the editor's display-vs-validity parity gate
+ * rather than in this contract; the SQL layer trusts the upstream
+ * gate.
+ */
+export type CaseRowWithCalculated = CaseRow & {
+	readonly calculated: Readonly<Record<string, CalculatedValue>>;
+};
+
+/**
  * The three change-shape arms `applySchemaChange` runs per-row
  * migrations for. Spec § "Schema migration policy" (lines 309-340).
  *
@@ -175,6 +254,31 @@ export interface CaseStore {
 	 * timestamp prefix.
 	 */
 	query(args: QueryArgs): Promise<CaseRow[]>;
+
+	/**
+	 * Predicate-driven SELECT with calculated-column projection.
+	 * Same semantics as `query` plus per-row evaluation of every
+	 * calculated column's expression at the SQL layer — each
+	 * `CalculatedColumn.expression` compiles through
+	 * `compileExpression` and lands in the SELECT keyed by
+	 * `aliasFor(column.id)`. The result rows fold the evaluated
+	 * values into the row's `calculated` map.
+	 *
+	 * Postgres is the live runtime; calculated-column evaluation
+	 * happens in the same SELECT as the row scan rather than
+	 * post-processing in TypeScript. A future second evaluator
+	 * would create a parity-tracking burden the project explicitly
+	 * rules out at `feedback_max_subset_no_dimagi_litter.md`.
+	 *
+	 * The empty `calculated` arm behaves like `query` plus an empty
+	 * `calculated: {}` map per row. Calling with a long calculated
+	 * list creates one column per entry; Postgres has no per-row
+	 * value-budget on SELECT projections, but consumers should keep
+	 * the count proportional to the case list's authored shape.
+	 */
+	queryWithCalculated(
+		args: QueryWithCalculatedArgs,
+	): Promise<CaseRowWithCalculated[]>;
 
 	/**
 	 * Insert one case row. Validates `properties` against the

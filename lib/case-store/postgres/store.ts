@@ -63,13 +63,16 @@ import type {
 } from "../sql/database";
 import type {
 	ApplySchemaChangeArgs,
+	CalculatedValue,
 	CaseInsert,
 	CaseRow,
+	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
 	GenerateSampleDataArgs,
 	MigrationReport,
 	QueryArgs,
+	QueryWithCalculatedArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 } from "../store";
@@ -169,6 +172,133 @@ export class PostgresCaseStore implements CaseStore {
 		}
 
 		return await qb.execute();
+	}
+
+	async queryWithCalculated(
+		args: QueryWithCalculatedArgs,
+	): Promise<CaseRowWithCalculated[]> {
+		const ctx = this.buildPredicateContext({
+			db: this.db,
+			appId: args.appId,
+			caseType: args.caseType,
+			schemas: buildCaseTypeMap(args.blueprint),
+		});
+		const exprCtx = expressionContextFor(ctx);
+
+		// Per-row alias for each calculated column. The alias matches
+		// the column's `id` verbatim so the result-row map keys back to
+		// the authored id without an indirection step. Unsafe identifiers
+		// (whitespace, special characters) are protected by Postgres's
+		// double-quoting at the Kysely layer; the only structural risk
+		// is collision on duplicate ids, which the editor's uniqueness
+		// gate prevents upstream.
+		//
+		// `selectAll("c")` first so the row carries every `cases`
+		// column, then chain `.select(eb => ...)` per calculated column
+		// for the projection. The Kysely fluent surface admits arbitrary
+		// `Expression<unknown>` projections via `eb(expression).as(alias)`.
+		let qb = this.db
+			.selectFrom("cases as c")
+			.selectAll("c")
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.where("c.owner_id", "=", this.ownerId);
+
+		// Project each calculated column. The Kysely query builder
+		// accepts `(eb) => AliasedExpression` — passing the
+		// `compileExpression` result through `.as(column.id)` aliases
+		// it; the row-deserializer threads the typed value into the
+		// per-id slot at execution time.
+		for (const column of args.calculated) {
+			const expr = compileExpression(column.expression, exprCtx);
+			qb = qb.select(expr.as(column.id));
+		}
+
+		if (args.predicate !== undefined) {
+			qb = qb.where(compilePredicate(args.predicate, ctx));
+		}
+
+		if (args.sort !== undefined) {
+			for (const key of args.sort) {
+				const expr = compileExpression(key.expression, exprCtx);
+				qb = qb.orderBy(expr, key.direction);
+			}
+		}
+
+		if (args.limit !== undefined) {
+			qb = qb.limit(args.limit);
+		}
+		if (args.offset !== undefined) {
+			qb = qb.offset(args.offset);
+		}
+
+		// `qb.execute()` returns row objects that carry both the
+		// `selectAll("c")` columns AND the per-calculated-column aliases
+		// at the top level. Reshape each row into `CaseRow & { calculated }`
+		// by partitioning the keys: every calculated id moves into the
+		// `calculated` map; the rest stays at the row root.
+		const rows = (await qb.execute()) as Array<
+			CaseRow & Record<string, unknown>
+		>;
+
+		// Materialize the calculated-id allowlist once outside the row
+		// loop so the per-row partition is O(rows × calc-cols) rather
+		// than O(rows × all-keys × calc-cols). The Set membership check
+		// runs in constant time.
+		const calculatedIds = new Set(args.calculated.map((c) => c.id));
+
+		return rows.map((row) => {
+			const calculated: Record<string, CalculatedValue> = {};
+			// Postgres returns calculated-column NULL as JS `null`; the
+			// `CalculatedValue` union admits `null`. Non-null typed
+			// values come back per pg's per-OID deserializer:
+			//   - text → string
+			//   - integer → number
+			//   - numeric → string (pg's arbitrary-precision decimal
+			//     deserializer)
+			//   - boolean → boolean
+			//   - date / timestamptz → Date object (NOT ISO string)
+			//   - jsonb → object / array
+			// The contract test for the date arm at
+			// `lib/case-store/__tests__/storeContract.ts` pins the Date
+			// shape; the renderer in `DisplayPreview.tsx` discriminates
+			// on `instanceof Date` to format the temporal value without
+			// `JSON.stringify`'s quoted-ISO output.
+			for (const id of calculatedIds) {
+				// `Object.prototype.hasOwnProperty.call` guards against
+				// the rare case where Postgres elides the alias from the
+				// row (zero-row scan against a calculated SELECT can in
+				// theory return undefined under certain pg-driver
+				// versions); the explicit guard keeps the map clean of
+				// `undefined`-typed slots.
+				if (Object.hasOwn(row, id)) {
+					calculated[id] = row[id] as CalculatedValue;
+				} else {
+					// Defensive fall-through: treat missing alias as null.
+					// Documented contract from the interface JSDoc says
+					// "expression evaluates to SQL NULL → id → null"; an
+					// elided alias is functionally equivalent at the
+					// consumer layer (renderer reads the same blank
+					// value).
+					calculated[id] = null;
+				}
+			}
+
+			// Strip the calculated keys from the row's top-level shape
+			// so the consumer's `row.calculated[id]` is the only path to
+			// each evaluated value. Without the strip, both
+			// `row[id]` and `row.calculated[id]` would carry the same
+			// value and a future sort/filter that mutates one would
+			// silently drift from the other.
+			const cleaned = { ...row } as Record<string, unknown>;
+			for (const id of calculatedIds) {
+				delete cleaned[id];
+			}
+			return {
+				...(cleaned as unknown as CaseRow),
+				calculated,
+			};
+		});
 	}
 
 	async insert(args: {

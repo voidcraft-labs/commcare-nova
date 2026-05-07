@@ -30,13 +30,16 @@ export type {
 } from "./sql/database";
 export type {
 	ApplySchemaChangeArgs,
+	CalculatedValue,
 	CaseInsert,
 	CaseRow,
+	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
 	GenerateSampleDataArgs,
 	MigrationReport,
 	QueryArgs,
+	QueryWithCalculatedArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 	SortKey,

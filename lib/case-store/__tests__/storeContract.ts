@@ -49,12 +49,16 @@
 
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
+import { calculatedColumn } from "@/lib/domain";
 import {
 	ancestorPath,
+	arith,
 	gt,
 	literal,
 	prop,
 	subcasePath,
+	term,
+	today,
 } from "@/lib/domain/predicate/builders";
 import { CaseNotFoundError, SchemaNotSyncedError } from "../errors";
 import type { CaseStore } from "../store";
@@ -1659,6 +1663,294 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				traversedTotal += children.length;
 			}
 			expect(traversedTotal).toBe(5);
+		});
+
+		// -----------------------------------------------------------
+		// queryWithCalculated — calculated-column projection
+		// -----------------------------------------------------------
+		//
+		// The case-list authoring-surface live preview routes through
+		// `queryWithCalculated` so each `CalculatedColumn.expression`
+		// evaluates at the SQL layer rather than reconstructed in
+		// TypeScript. The contract pins:
+		//
+		//   1. Every projected column lands on the result row's
+		//      `calculated` map, keyed by the column's `id`.
+		//   2. SQL NULL surfaces as JS `null` (the JsonValue union's
+		//      null arm), NOT as omitted from the map. Consumers can
+		//      distinguish "column absent from request" (key not in
+		//      map) from "column evaluated to null" (`map[id] === null`).
+		//   3. The empty-`calculated` arm behaves like `query` with an
+		//      empty `calculated: {}` map per row — the projection is
+		//      additive, not destructive.
+		//   4. Predicate / sort / limit / offset arguments compose with
+		//      calculated-column projection (the same arguments the
+		//      live preview threads).
+
+		it("projects calculated columns onto the result row's `calculated` map", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+
+			// `age + 1` exercises the arith arm, the term-via-prop leaf
+			// reader, and the literal cast — three independent compiler
+			// surfaces in one expression. The cast on each operand is
+			// the same `data_type: "int"` shape the editor emits.
+			const ageNextYear = arith(
+				"+",
+				term(prop("patient", "age")),
+				term({ kind: "literal", value: 1, data_type: "int" }),
+			);
+
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [
+					calculatedColumn("age_next_year", "Next year", ageNextYear),
+				],
+			});
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			if (row === undefined) throw new Error("expected one row");
+			// Postgres returns the int-typed arithmetic result as a
+			// JS number through pg-driver's per-OID deserializer.
+			expect(Number(row.calculated.age_next_year)).toBe(31);
+			// The row still carries the `cases`-side columns verbatim.
+			expect(row.case_id).toBe(PATIENT_ALICE_ID);
+			expect(row.properties).toEqual({ name: "Alice", age: 30 });
+		});
+
+		it("emits null for a calculated expression that evaluates to SQL NULL", async () => {
+			// A calculated column whose expression resolves to NULL
+			// must appear in the result map keyed by its id with
+			// JS `null` value — NOT omitted. Consumers depend on the
+			// "key always present" invariant to distinguish "column
+			// absent from request" (key absent) from "evaluated to null"
+			// (key present, value null).
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+
+			// `term(literal(null))` produces a SQL NULL constant.
+			const nullExpr = term({ kind: "literal", value: null });
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [calculatedColumn("nothing", "Nothing", nullExpr)],
+			});
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			if (row === undefined) throw new Error("expected one row");
+			// Key present, value null.
+			expect("nothing" in row.calculated).toBe(true);
+			expect(row.calculated.nothing).toBeNull();
+		});
+
+		it("emits an empty calculated map when no calculated columns are supplied", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [],
+			});
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			if (row === undefined) throw new Error("expected one row");
+			expect(row.calculated).toEqual({});
+			// The cases-side columns still come through.
+			expect(row.case_id).toBe(PATIENT_ALICE_ID);
+		});
+
+		it("composes calculated projection with predicate filtering and sort", async () => {
+			// Two rows; one passes the predicate, the other doesn't.
+			// Sort by age desc; the matched row's calculated value
+			// surfaces correctly. Pins the cross-feature composition
+			// the live-preview path relies on.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Bob", age: 40 }),
+				},
+			});
+
+			const ageNextYear = arith(
+				"+",
+				term(prop("patient", "age")),
+				term({ kind: "literal", value: 1, data_type: "int" }),
+			);
+
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [
+					calculatedColumn("age_next_year", "Next year", ageNextYear),
+				],
+				predicate: gt(prop("patient", "age"), literal(30)),
+				sort: [
+					{
+						direction: "desc",
+						expression: term(prop("patient", "age")),
+					},
+				],
+			});
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			if (row === undefined) throw new Error("expected one row");
+			expect(row.case_id).toBe(PATIENT_BOB_ID);
+			expect(Number(row.calculated.age_next_year)).toBe(41);
+		});
+
+		it("does not leak calculated-column aliases onto the row's top-level shape", async () => {
+			// The reshape step strips the per-id aliases from the row's
+			// top level after extracting them into `calculated`. Without
+			// the strip, a sort/filter callback could read the aliased
+			// value off the row root rather than the canonical
+			// `calculated` map and the two paths would silently drift.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [
+					calculatedColumn(
+						"alias_under_test",
+						"Alias",
+						term({ kind: "literal", value: "x" }),
+					),
+				],
+			});
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			if (row === undefined) throw new Error("expected one row");
+			// Top-level row carries no extra alias key.
+			expect("alias_under_test" in row).toBe(false);
+			// The calculated map carries the value.
+			expect(row.calculated.alias_under_test).toBe("x");
+		});
+
+		it("emits an empty rows array when the case-type has no cases", async () => {
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [calculatedColumn("today_iso", "Today", today())],
+			});
+			expect(rows).toEqual([]);
+		});
+
+		it("returns a Date object for a date-typed calculated expression", async () => {
+			// Pin the pg-driver deserialization shape for date-typed
+			// calculated columns. `today()` compiles to `now()::date` in
+			// the SQL emitter, and pg's per-OID deserializer returns the
+			// `date` column as a JS `Date` object — NOT an ISO string.
+			// The renderer in `DisplayPreview.tsx` discriminates on
+			// `value instanceof Date` so the cell formatting handles
+			// both the string and Date arms cleanly. Without this
+			// contract test, a future emitter change to a string-shaped
+			// date would surface as a silent renderer regression that
+			// no test catches.
+			const store = await options.factory(OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+			const rows = await store.queryWithCalculated({
+				appId: APP_ID,
+				caseType: "patient",
+				blueprint,
+				calculated: [calculatedColumn("today_iso", "Today", today())],
+			});
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			if (row === undefined) throw new Error("expected one row");
+			// The value must be present on the calculated map.
+			expect("today_iso" in row.calculated).toBe(true);
+			// pg-driver returns date columns as Date objects. The
+			// renderer special-cases `instanceof Date`. Pinning the
+			// shape protects the contract — a future change to the
+			// emitter that returns a string here would break the
+			// cell renderer's date formatting.
+			const value = row.calculated.today_iso;
+			expect(value instanceof Date).toBe(true);
 		});
 	});
 }

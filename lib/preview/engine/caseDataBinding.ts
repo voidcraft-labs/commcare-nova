@@ -12,21 +12,24 @@
 
 import { getSession } from "@/lib/auth-utils";
 import { withOwnerContext } from "@/lib/case-store";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
 	applyCloseMutation,
 	applyFollowupMutation,
 	applyRegistrationMutation,
 	applySurveyMutation,
+	mapCaseListPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
 	readCaseData,
+	readCaseListPreview,
 	readCases,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
 import type {
 	LoadCaseDataResult,
+	LoadCaseListPreviewResult,
 	LoadCasesResult,
 	PopulateSampleCasesResult,
 	SubmissionMutation,
@@ -84,6 +87,44 @@ export async function populateSampleCasesAction(
 		return await seedSampleCases(store, { appId, caseType, blueprint });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
+	}
+}
+
+/**
+ * Load case-list authoring-surface live-preview rows. Resolves the
+ * request's session, constructs a tenant-scoped `CaseStore` via
+ * `withOwnerContext(session.user.id)`, and delegates to
+ * `readCaseListPreview` which routes through
+ * `caseStore.queryWithCalculated` so calculated columns evaluate at
+ * the SQL layer.
+ *
+ * The action accepts the full `CaseListConfig` so a host mounting
+ * both the Display section and the Filters section gets predicate
+ * narrowing for free without a parallel call site. Display-section-
+ * only callers pass a config whose `filter` slot is undefined.
+ *
+ * Authoring-surface contract: the caller MUST suppress the action
+ * while any sub-editor reports `valid: false`. An invalid AST
+ * reaching `compileExpression` would throw at the SQL layer; the
+ * editor's aggregated validity gate is the primary defense, and
+ * the typed-error arms surface only the structural failures the
+ * gate cannot catch (missing case type after a stale blueprint
+ * snapshot, schema-not-synced after a chat completion in flight).
+ */
+export async function loadCaseListPreviewAction(args: {
+	appId: string;
+	caseType: string;
+	blueprint: BlueprintDoc;
+	caseListConfig: CaseListConfig;
+	limit?: number;
+}): Promise<LoadCaseListPreviewResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await withOwnerContext(session.user.id);
+		return await readCaseListPreview(store, args);
+	} catch (err) {
+		return mapCaseListPreviewError(err);
 	}
 }
 
