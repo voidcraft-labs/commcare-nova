@@ -1,8 +1,10 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerListDetails from "@iconify-icons/tabler/list-details";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
@@ -64,6 +66,30 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 				<SavedCheck visible={saved} />
 			</div>
 
+			{/*
+			 * Case List affordance card.
+			 *
+			 * Surfaces only for case-typed modules — registers the
+			 * authoring entry-point for the module's case list (which
+			 * lives at /build/[id]/{moduleUuid}/cases). Visually
+			 * violet-gradient + violet-pill icon so the card reads as
+			 * a different KIND of affordance from the gray-toned form
+			 * rows beneath it: this configures the case list, not a
+			 * form to open.
+			 *
+			 * The status density (column / filter / search-input
+			 * counts) mirrors the workspace's section-header lines —
+			 * users see the same vocabulary on both sides of the
+			 * navigation jump.
+			 */}
+			{hasCase && moduleUuid ? (
+				<CaseListCard
+					moduleUuid={moduleUuid}
+					caseType={mod.caseType ?? ""}
+					onClick={() => navigate.openCaseList(moduleUuid)}
+				/>
+			) : null}
+
 			<div className="space-y-2">
 				{forms.map((form, fIdx) => {
 					const icon = formTypeIcons[form.type];
@@ -107,5 +133,81 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 				})}
 			</div>
 		</div>
+	);
+}
+
+// ── Case List affordance ─────────────────────────────────────────
+
+interface CaseListCardProps {
+	readonly moduleUuid: Uuid;
+	readonly caseType: string;
+	readonly onClick: () => void;
+}
+
+/**
+ * Violet-gradient affordance card that mounts above the form list
+ * for case-typed modules. The card opens the case-list authoring
+ * workspace at /build/[id]/{moduleUuid}/cases. Status density
+ * mirrors the workspace's section-header lines — the user sees
+ * the same column / filter / search-input counts on both surfaces.
+ *
+ * Lives inside ModuleScreen.tsx because its data dependencies
+ * (single module shallow-read against the doc store) are tightly
+ * scoped to this screen and there's no other consumer.
+ */
+function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
+	const { columnCount, hasFilter, searchInputCount } = useBlueprintDocShallow(
+		(s) => {
+			const mod = s.modules[moduleUuid];
+			const config = mod?.caseListConfig;
+			return {
+				// Plain + calculated columns both render rows in the case
+				// list display; the status line aggregates both for parity
+				// with the workspace's Display section header.
+				columnCount: config
+					? config.columns.length + config.calculatedColumns.length
+					: 0,
+				hasFilter: config?.filter !== undefined,
+				searchInputCount: config?.searchInputs.length ?? 0,
+			};
+		},
+	);
+
+	const columnText = `${columnCount} ${columnCount === 1 ? "column" : "columns"}`;
+	const filterText = hasFilter ? "1 filter" : "no filter";
+	const searchText = `${searchInputCount} search ${searchInputCount === 1 ? "input" : "inputs"}`;
+
+	return (
+		<motion.button
+			initial={{ opacity: 0, y: 12 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+			onClick={onClick}
+			className="w-full flex items-center gap-3 p-4 rounded-lg bg-gradient-to-r from-nova-violet/[0.08] to-transparent border border-nova-violet/[0.2] hover:border-nova-violet/[0.4] hover:from-nova-violet/[0.12] transition-all duration-200 cursor-pointer text-left group"
+		>
+			{/* Violet pill icon — visually distinguishes the affordance
+			 *  from gray-toned form rows. */}
+			<div className="p-2 rounded-md bg-nova-violet/[0.15] border border-nova-violet/[0.3] shrink-0">
+				<Icon
+					icon={tablerListDetails}
+					width="20"
+					height="20"
+					className="text-nova-violet-bright"
+				/>
+			</div>
+			<div className="flex-1 min-w-0">
+				<div className="text-base font-display font-medium text-nova-text">
+					Case List
+				</div>
+				<div className="text-xs text-nova-text-muted mt-0.5">
+					{`${columnText} · ${filterText} · ${searchText}`}
+				</div>
+			</div>
+			{/* Case-type badge — monospace pill so the user immediately
+			 *  knows which case-type's case list this affordance opens. */}
+			<span className="px-2 py-0.5 rounded text-[11px] font-mono bg-nova-violet/[0.12] text-nova-violet-bright border border-nova-violet/[0.25]">
+				{caseType}
+			</span>
+		</motion.button>
 	);
 }
