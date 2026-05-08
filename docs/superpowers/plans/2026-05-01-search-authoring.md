@@ -506,6 +506,41 @@ Landed across three commits: `f10a82e6` (initial schema + 9 tests) → `4915690f
 
 **Next:** Task 2 — Claim section UI.
 
+### Task 2 — Claim section UI — 2026-05-08
+
+Landed across six commits: `fa6ef683` (initial ClaimSection + 8 tests) → `a8de7358` (extract `PredicateSlotCard` primitive; refactor `FiltersSection` + `ClaimSection` to use it) → `27d3bbcb` (relocate `useValidityPropagator` from `components/builder/case-list-config/useInnerValidityShadow.ts` to `components/builder/shared/useInnerValidityShadow.ts`; 8 consumer import-path updates) → `0440b471` (doc-only cleanup of stale path references post-relocation) → `083a1e79` (CR-round-1 cleanup: snapshot consumer lists reframed as scope descriptions, filter-branded action icons swapped to generic glyphs, `expectedType="text"` wired on the blacklist editor, round-trip test split into per-invariant blocks, preservation test added) → `286703c5` (CR-round-2 cleanup: wire-narration dropped from authoring-voice surfaces in Task 2 scope).
+
+**Final shape:**
+
+- `components/builder/case-search-config/ClaimSection.tsx` (NEW) — three sub-controls authoring `mod.caseSearchConfig`'s claim cluster: claim condition (mounts `<PredicateSlotCard>`), don't-claim-already-owned toggle (default `false`), blacklisted owner IDs (collapsed-by-default `<ExpressionCardEditor>` with `expectedType="text"`). The blacklist editor stays mounted unconditionally when the slot is defined; collapse toggles visibility via the `hidden` attribute, not unmount, so backend-loaded invalid expressions surface their type-check verdict on first render. The `nextConfig` helper seeds `{ dontClaimAlreadyOwned: false }` on first edit so the parent never sees a partial config that fails strict parse, and spreads unrelated slots so a per-slot mutator doesn't lose the rest. Section validity = `predicateValid && (!blacklistPresent || expressionValid)`; the toggle is always valid.
+
+- `components/builder/shared/PredicateSlotCard.tsx` (NEW) — extracted shared primitive owning the "optional `Predicate` slot with section-header chrome + add-clear affordance + slot-presence body switch" shape. Two consumers at landing time: `FiltersSection`'s filter slot, `ClaimSection`'s claim-condition slot. Add affordance emits `matchAll()`; clear emits `undefined` (matches the schema's `.optional()` slot type). Mounts `<PredicateCardEditor>` when the slot is defined; threads validity through `useValidityPropagator` with a slot-presence short-circuit (`!slotPresent || predicateValid`). Action-button glyphs are generic `tabler/plus` + `tabler/x` so the primitive isn't filter-branded.
+
+- `components/builder/shared/useInnerValidityShadow.ts` (MOVED via `git mv`) — relocated from `components/builder/case-list-config/`. Eight consumers across two workspaces (`FiltersSection`, `DisplaySection`, `SearchInputsSection`, `ColumnEditor`, `ExpressionCardEditor`, `PredicateCardEditor`, `ClaimSection`, `PredicateSlotCard`) import from the new shared/ home. The `useValidityPropagator` hook + the `useInnerValidityShadow` (WeakMap-backed sibling for per-row validity) are the canonical validity-propagation utilities for any editor with an `onValidityChange` prop.
+
+- `components/builder/case-list-config/FiltersSection.tsx` (REFACTORED) — chrome moved into the `PredicateSlotCard` primitive; the section shrank from 249 to 142 lines. The section's existing observable behavior is preserved (top-level wrapper + status-density line + preview affordance stay).
+
+- `components/builder/CLAUDE.md` (UPDATED) — new "shared primitives" content describes `PredicateSlotCard`'s role-and-shape (not a snapshot consumer list), the `useInnerValidityShadow` hook home, and how the case-list-config workspace section consumes both. The case-list-config section's `useValidityPropagator` references now point at the shared/ home.
+
+**Test count:** 3858 / 3858 green across 227 test files (deterministic two runs). +3 from Task 2's introduction (ClaimSection +8, PredicateSlotCard +8, FiltersSection unchanged at 8 — the round-trip test split added 2; the preservation test added 1).
+
+**Acceptance gates landed:**
+
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean.
+- `npm test` 3858 / 14 skipped.
+- Drift sweeps clean: zero `case-list-config/useInnerValidityShadow` references after the relocation; zero `tablerFilter` glyphs in the cross-section primitive or the inline blacklist chrome; zero `Today's consumers|Currently used by` snapshot lists in `shared/`; zero `wire emitter|wire layer` references in the Task 2-scope authoring-voice surfaces (the cross-layer wire-coordination comments in `DisplaySection` and `SearchInputsSection` stay — they name load-bearing contracts the authoring code's correctness depends on).
+
+**Deltas from the planned shape:**
+
+The plan's literal file list named `ClaimSection.tsx` + tests. The supervisor expanded scope mid-loop, applying the first-duplication rule to extract `PredicateSlotCard` (FiltersSection had the duplicate chrome shape) and the no-scope-excuses rule to relocate `useValidityPropagator` to its right cross-family home. Both expansions were structurally justified and the implementer correctly stress-tested a third over-broad expansion (a workspace-wide grep that would have stripped load-bearing wire-coordination comments in DisplaySection and SearchInputsSection). The corrected discipline: gratuitous wire-narration in authoring-voice surfaces violates Rule 9; load-bearing wire-contract comments where the authoring code's correctness depends on the wire's order/shape stay (tightened phrasing if needed).
+
+**Acknowledged structural debt:** `PredicateCardEditor` itself wasn't relocated to `shared/` — its transitive import graph (~25-30 files: `cards/ChildPredicateEditor` → all 13 predicate cards → `editorContext` + `path` + `editorSchemas` + `expressionEditorSchemas` + `ExpressionCardEditor` + `primitives/`) is a half-directory rename, not a Task 2 follow-up commit. Tracked at the supervisor's task list as a separate item slated to land between Plan 4 Task 12 (workspace mount) and Task 13 (integration test). The `OptionalSlotCard<T>` generalization that would unify `PredicateSlotCard`'s chrome with `ClaimSection`'s inline `ValueExpression` blacklist chrome is part of the same reorg's scope.
+
+**Whole-repo build state:** green throughout. Task 2's deliverables compose into Task 12's workspace shell when that lands.
+
+**Next:** Task 3 — Display section UI.
+
 ## Foundation followups — 2026-05-08
 
 Task 1's CR loop surfaced a structural asymmetry: `caseSearchConfigSchema` shipped with `.strict()` while every other Zod schema in `lib/domain/` and `lib/agent/tools/` defaulted to Zod's strip behavior. The reshape's strip-as-tolerance argument ("legacy v0/v1 fields might still flow through") was invalid in production: Plan 5's pre-deploy migration step (`scripts/migrate-case-list-schema-reshape.ts --write`) runs BEFORE the v2 code deploys, so by the time any v2 schema parses a doc, every doc is already v2 with no legacy fields. Strip-as-tolerance was a defensive overbuild that violated the project's "Strong typing everywhere" rule.
