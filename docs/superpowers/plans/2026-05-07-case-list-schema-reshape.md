@@ -609,3 +609,91 @@ Landed across three commits: `0c276568` (initial reshape) → `4e81a04d` (CR fix
 **Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (preview screens, scripts, integration tests). Tasks 7-9 bring each surface to green.
 
 **Next:** Reshape Task 7 — Preview heading + calculated column rendering.
+
+### Task 7 — Preview heading + calculated column rendering — 2026-05-08
+
+Landed at commit `62cd1776`.
+
+**Preview changes:**
+- `components/preview/screens/CaseListScreen.tsx` — heading uses `mod?.name ?? "Cases"` (was `firstFormName`). Display columns filtered by `column.visibleInList ?? true`. Calculated columns evaluate via `evaluateColumnValue(column, row)` — the helper reads `row.calculated[column.uuid]` for calc arms and `caseRowDisplayValue(row, column.field)` for display arms.
+- `lib/preview/engine/caseDataBindingHelpers.ts` — `readCases` calc-aware (passes calc columns through to `store.query`). New `evaluateColumnValue` helper. New `buildCaseStoreSortKeys` (v2 per-column sort with priority + tie-break to source-array index).
+- `lib/preview/engine/caseDataBinding.ts` — `loadCasesAction` accepts `{appId, caseType, blueprint?, caseListConfig?}`.
+- `lib/preview/engine/caseDataBindingTypes.ts` — `LoadCasesResult.rows` widens to `CaseRowWithCalculated[]`.
+- `lib/preview/hooks/useCaseDataBinding.ts` — `useCases` threads `blueprint` + `caseListConfig`.
+
+**Tests:** new `components/preview/screens/__tests__/CaseListScreen.test.tsx` covers heading source, visibility filter (false hides), default-visibility (absent slot ≡ visible), calc cell rendering, calc-cell-empty fallback. Existing `caseDataBinding.test.ts` migrated to v2 fixture shape.
+
+**Acceptance gate landed:** lint clean for the 7 staged files; 73 / 73 green across the new + updated test files. The implementer adapted to the in-flight case-store API tightening (lower onto the `store.query(...)` unified shape) — see audit-followup commits below for the case-store work.
+
+---
+
+## Audit-driven follow-ups — 2026-05-08
+
+Mid-Task-7 review surfaced a structural smell: every `CaseStore` interface method declared `BlueprintDoc` parameters when the actual dependency was narrower. The user halted Task 7 and demanded a family audit + fix. The follow-ups landed in three commits.
+
+### Case-store API tightening — 2026-05-08
+
+Commits: `e071a285` (initial reshape) → `61707c30` (CR round 1 fix-pass — 5 issues) → `9c3862f2` (drift-sweep round 2 — 4 stale-symbol references).
+
+**API changes (`lib/case-store/store.ts`):**
+- **`query` collapses with `queryWithCalculated`.** ONE method `query(args: QueryArgs): Promise<CaseRowWithCalculated[]>`. Always returns `CaseRowWithCalculated[]` (empty `calculated: {}` map per row when `calculated` array is absent / empty).
+- `QueryArgs.caseTypeSchemas?: ReadonlyMap<string, CaseType>` replaces `blueprint?: BlueprintDoc`. Optional; required when predicate / sort / calculated reads a case property.
+- `QueryArgs.calculated?: ReadonlyArray<CalculatedColumn>` is the optional calc-column projection.
+- `count.caseTypeSchemas?` replaces `blueprint?` (same shape).
+- `applySchemaChange.caseTypeSchemas: ReadonlyMap<string, CaseType>` (REQUIRED) replaces `blueprint: BlueprintDoc`. Internal lookup uses `caseTypeSchemas.get(caseType)`; throws `CaseTypeNotInBlueprintError` on absent.
+- `generateSampleData.caseType: CaseType` + `resetSampleData.caseType: CaseType` accept the FULL definition (was: blueprint + name string). The heuristic generator uses `caseType.name`, `caseType.parent_type`, `caseType.properties` directly.
+- `findCaseTypeOrThrow` deleted from the case-store layer (live throw paths: `applySchemaChange`'s schema-map check + the running-app preview's `caseDataBindingHelpers.resolveCaseTypeOrThrow`).
+- `buildCaseTypeMap(blueprint)` retained as the at-boundary `BlueprintDoc → ReadonlyMap<string, CaseType>` converter.
+
+**Consumer updates threaded through:**
+- `lib/preview/engine/caseDataBindingHelpers.ts::readCases` — single `store.query(...)` call. The widening band-aid (`{ ...row, calculated: {} }`) is gone.
+- `lib/db/applyBlueprintChange.ts` + `lib/db/materializeCaseStoreSchemas.ts` — pass `caseTypeSchemas: buildCaseTypeMap(blueprint)`.
+- `lib/case-store/sample/{generator,heuristic}.ts` — accept `caseType: CaseType`.
+- `lib/case-store/withOwnerContext.ts`, `lib/case-store/index.ts` — barrel + factory align with new interface.
+
+**Test updates:**
+- 8 test files migrated to new API shape (`storeContract.ts`, `postgres/store.test.ts`, `sample/heuristic.test.ts`, two `lib/db` integration tests, `caseDataBinding.test.ts`, `mutations-fields.test.ts`, `generationLifecycle.test.ts`).
+- New contract test in `storeContract.ts` asserts `applySchemaChange` rejects with `CaseTypeNotInBlueprintError` on empty `caseTypeSchemas` map.
+- `mutations-fields.test.ts` extracted `asNonCalculatedColumn` helper for the calc-arm narrowing pattern (first-duplication rule).
+
+**Pre-existing latent fixes that surfaced under whole-graph tsc:**
+- `lib/domain/modules.ts::simpleSearchInputDef` — chained generic helper calls were widening `T extends Record<string, unknown>` to `Record<string, unknown>` on the second call, breaking the return type. Inlined the body; deleted the now-unused `withSimpleSearchInputSlots` helper.
+- `lib/preview/engine/caseDataBindingHelpers.ts` — added `CaseRowWithCalculated` to the import list (Task 7 implementer used the type but missed the import).
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- lib/case-store lib/preview lib/db lib/doc lib/generation` — 1023 passing, 14 skipped (deterministic two runs).
+- Sweeps clean: zero `queryWithCalculated` references, zero `findCaseTypeOrThrow` references in code (only historical-narrative hits in plan SHIPPED blocks), zero `(blueprint, caseType, seed)` tuple references in code.
+
+### blueprintHelpers Pattern A + Pattern G voice — 2026-05-08
+
+Commit: `b3153e38`.
+
+The family audit caught the same Pattern A leak in `lib/agent/blueprintHelpers.ts` — all 8 atomic-op mutation builders (`addColumnMutation` etc. + 4 search-input parallels) declared `doc: BlueprintDoc` (a fat container) when their actual dependency was one `Module`. Empirical proof: every SA tool's `execute` already resolved `mod = doc.modules[moduleUuid]` itself, then DISCARDED `mod` and passed `(doc, moduleUuid, ...)` to the helper, which RE-RESOLVED. Double-lookup in shipped code.
+
+**Builder narrowing:**
+- 8 atomic-op builders + `updateModuleMutations` narrowed from `(doc: BlueprintDoc, moduleUuid: Uuid, ...)` → `(mod: Module, ...)`. Module-not-found defense removed from helpers — lives at the SA tool boundary.
+- 8 SA tool `execute` paths in `lib/agent/tools/case-list-config/` updated to `(mod, ...)` calls.
+- `lib/agent/tools/updateModule.ts` added explicit pre-mutation `doc.modules[moduleUuid]` lookup (the only tool outside `case-list-config/` that calls `updateModuleMutations`).
+
+**Voice fixes (Pattern G):**
+- `components/builder/case-list-config/cards/column/IntervalThresholdRow.tsx` file header — present-tense rewrite; v1 kind names (`time-since-until`, `late-flag`) and v1 slot names removed.
+- `components/builder/case-list-config/primitives/BlurCommitTextInput.tsx` file header — present-tense rewrite; consumer enumeration matches actual current call sites.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- lib/agent components/builder/case-list-config` — 546 passing across 50 test files (deterministic two runs).
+- `rg "doc\.modules\[moduleUuid\]" lib/agent/blueprintHelpers.ts` — zero hits inside the 8 atomic-op builders.
+- CR round 1 verdict: Approved (one minor flagged-as-future `moduleNotFoundResult` first-duplication observation across 9 case-list-config tools + `updateModule.ts` — recorded as a future supervisor-pass item).
+
+### Plan-state correction
+
+Tasks 1-6 SHIPPED state already accounts for the v2 schema. The audit-driven follow-ups CORRECT specific seams that survived the per-task review chain:
+- The Task 2 SHIPPED block describes `lib/case-store/store.ts` accepting a `BlueprintDoc` parameter — that description is now obsolete; the API at HEAD takes `caseTypeSchemas: ReadonlyMap<string, CaseType>` per the audit.
+- The Task 5 SHIPPED block describes mutation builders with `(doc, moduleUuid, ...)` shape — now `(mod, ...)`.
+
+Future fresh-session supervisors reading the SHIPPED blocks should treat the audit-followup section above as the authoritative current-state for the case-store API + blueprintHelpers shape.
+
+---
+
+**Next:** Reshape Task 8 — Migration script v2 (v0+v1 → v2).
