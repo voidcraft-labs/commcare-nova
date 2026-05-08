@@ -18,7 +18,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import {
 	loadCaseDataAction,
 	loadCasesAction,
@@ -46,15 +46,26 @@ type LoadingState<T extends { kind: string }> =
  * call it after `populateSampleCasesAction` returns to refresh
  * the table). `undefined` for either id keeps the hook in `idle`
  * — same shape `useFormEngine` uses for `formUuid`.
+ *
+ * Optional `blueprint` + `caseListConfig` thread through to the
+ * Server Action so calc-arm columns surface materialized values
+ * on each row's `calculated[uuid]` slot. Per-column sort directives
+ * order the rows the same way CCHQ would; the optional `filter`
+ * narrows the population. Hooks bound to the running-app case
+ * list pass both; hooks loading raw rows for non-list-view consumers
+ * (case-loading form lookups) leave them undefined and get the
+ * unchanged shape.
  */
 export function useCases(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
+	blueprint?: BlueprintDoc;
+	caseListConfig?: CaseListConfig;
 }): {
 	state: LoadingState<LoadCasesResult>;
 	reload: () => void;
 } {
-	const { appId, caseType } = args;
+	const { appId, caseType, blueprint, caseListConfig } = args;
 	const [state, setState] = useState<LoadingState<LoadCasesResult>>({
 		kind: "idle",
 	});
@@ -75,7 +86,7 @@ export function useCases(args: {
 		 * failure, RSC serialization error at the boundary) to the
 		 * `error` arm — without it, the hook would stick on
 		 * `loading` forever. */
-		loadCasesAction(appId, caseType)
+		loadCasesAction({ appId, caseType, blueprint, caseListConfig })
 			.then((result) => {
 				if (cancelled) return;
 				setState(result);
@@ -90,7 +101,7 @@ export function useCases(args: {
 		return () => {
 			cancelled = true;
 		};
-	}, [appId, caseType, reloadKey]);
+	}, [appId, caseType, blueprint, caseListConfig, reloadKey]);
 
 	const reload = useCallback(() => {
 		setReloadKey((n) => n + 1);

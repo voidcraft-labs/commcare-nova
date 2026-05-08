@@ -45,15 +45,34 @@ import type {
 // the `{ kind: "error" }` arm so an unhandled throw never tears
 // down Next's RSC tree.
 
-export async function loadCasesAction(
-	appId: string,
-	caseType: string,
-): Promise<LoadCasesResult> {
+/**
+ * Load every case row of a case type for the running-app view.
+ *
+ * The running-app case list renders the module's authored
+ * `caseListConfig.columns`, including `kind: "calculated"` columns
+ * — `readCases` threads each calc-arm column's expression into the
+ * single `caseStore.query` call so calc expressions evaluate at
+ * the SQL layer. Sort directives on each column thread through
+ * `buildCaseStoreSortKeys` so the running-app rows arrive in the
+ * same order CCHQ would render them.
+ *
+ * The args are optional. Callers without a `caseListConfig`
+ * (registration / case-loading-form lookups, ad-hoc row inspection)
+ * receive rows with an empty `calculated: {}` map per row —
+ * `evaluateColumnValue` reads cleanly because any calc-keyed
+ * lookup returns `undefined`.
+ */
+export async function loadCasesAction(args: {
+	appId: string;
+	caseType: string;
+	blueprint?: BlueprintDoc;
+	caseListConfig?: CaseListConfig;
+}): Promise<LoadCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await withOwnerContext(session.user.id);
-		return await readCases(store, { appId, caseType });
+		return await readCases(store, args);
 	} catch (err) {
 		return {
 			kind: "error",
@@ -100,8 +119,7 @@ export async function populateSampleCasesAction(
  * request's session, constructs a tenant-scoped `CaseStore` via
  * `withOwnerContext(session.user.id)`, and delegates to
  * `readCaseListPreview` which routes through
- * `caseStore.queryWithCalculated` so calculated columns evaluate at
- * the SQL layer.
+ * `caseStore.query` so calculated columns evaluate at the SQL layer.
  *
  * The action accepts the full `CaseListConfig` so a host mounting
  * both the Display section and the Filters section gets predicate
@@ -220,7 +238,7 @@ export async function loadCaseListPreviewAction(args: {
  * full matching count. Resolves the request's session, constructs
  * a tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`,
  * and delegates to `readFilterPreview` which routes through
- * `caseStore.queryWithCalculated` (row sample) + `caseStore.count`
+ * `caseStore.query` (row sample) + `caseStore.count`
  * (totality figure) — both compile the same predicate through the
  * same stack so the count + row-list pair is internally consistent.
  *

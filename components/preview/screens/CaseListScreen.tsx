@@ -3,13 +3,13 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useFirstFormForModule } from "@/lib/doc/hooks/useFirstFormForModule";
 import {
-	caseRowDisplayValue,
+	evaluateColumnValue,
 	pickBlueprintDoc,
 } from "@/lib/preview/engine/caseDataBindingHelpers";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -26,10 +26,18 @@ interface CaseListScreenProps {
 }
 
 /**
- * Case list screen. Subscribes to `useCases({appId, caseType})`
- * and renders one of `loading` / `empty` / `rows` /
- * `unauthenticated` / `error` arms. Empty case-type is a button,
- * not an error.
+ * Case list screen. Subscribes to `useCases` against the module's
+ * authored `caseListConfig` and renders one of `loading` / `empty` /
+ * `rows` / `unauthenticated` / `error` arms. Empty case-type is a
+ * button, not an error.
+ *
+ * The heading reads from `mod.name` — the module IS the case-list
+ * title in v2 (no separate title slot). The visible columns are
+ * those with `column.visibleInList ?? true`; the running-app sees
+ * the same set the wire's short-detail emission carries. Each cell
+ * routes through `evaluateColumnValue` so calc-arm columns surface
+ * their `row.calculated[uuid]` value alongside non-calc kinds'
+ * property reads.
  */
 export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const loc = useLocation();
@@ -43,27 +51,38 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	/** The case list always opens into the module's first form (the case-loading form). */
 	const firstForm = useFirstFormForModule(moduleUuid);
 	const firstFormUuid = firstForm?.uuid;
-	const firstFormName = firstForm?.name;
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
-	// Display columns only — search-only columns declare a property
-	// as searchable without rendering a row in the preview table.
-	const columns = (mod?.caseListConfig?.columns ?? []).filter(
-		(col) => col.kind !== "search-only",
+	const caseListConfig = mod?.caseListConfig;
+	const columns = useMemo(
+		() =>
+			(caseListConfig?.columns ?? []).filter(
+				(col) => col.visibleInList ?? true,
+			),
+		[caseListConfig?.columns],
+	);
+
+	// `pickBlueprintDoc` strips action methods + non-schema keys off the doc-store
+	// state so the projection survives Next's RSC serializer. The action call
+	// below threads the same projection through to the case-store's compiler
+	// stack, which reads `caseTypes` for property data-type resolution.
+	const blueprint = useMemo(
+		() => pickBlueprintDoc(docApi.getState()),
+		[docApi.getState],
 	);
 
 	const { state, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
+		blueprint,
+		caseListConfig,
 	});
 
-	/** `pickBlueprintDoc` projects the doc-store state to a Server-Action-serializable shape (action methods would reject at the RSC boundary). `getState()` doesn't subscribe. */
 	const populate = usePopulateSampleCases({
 		appId,
 		caseType: caseType?.name,
-		blueprint:
-			state.kind === "empty" ? pickBlueprintDoc(docApi.getState()) : undefined,
+		blueprint: state.kind === "empty" ? blueprint : undefined,
 	});
 
 	const [populateStatus, setPopulateStatus] = useState<
@@ -138,7 +157,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		<>
 			<div className="flex items-center gap-2 mb-1">
 				<h2 className="text-lg font-display font-semibold text-nova-text">
-					{firstFormName ?? "Cases"}
+					{mod?.name ?? "Cases"}
 				</h2>
 			</div>
 			<p className="text-sm text-nova-text-muted mb-4">
@@ -237,7 +256,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 						<tr className="bg-pv-surface">
 							{columns.map((col) => (
 								<th
-									key={`${col.header}-${col.field}`}
+									key={col.uuid}
 									className="text-left px-4 py-2.5 font-medium text-pv-accent-bright border-b border-pv-input-border"
 								>
 									{col.header}
@@ -259,10 +278,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 							>
 								{columns.map((col) => (
 									<td
-										key={`${col.header}-${col.field}`}
+										key={col.uuid}
 										className="px-4 py-2 text-nova-text-secondary border-b border-pv-input-border/50"
 									>
-										{caseRowDisplayValue(row, col.field)}
+										{evaluateColumnValue(col, row)}
 									</td>
 								))}
 							</motion.tr>

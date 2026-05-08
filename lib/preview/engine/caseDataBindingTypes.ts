@@ -29,9 +29,15 @@ import type {
 // (`loadCaseListPreviewAction`).
 export type { CaseRow, CaseRowWithCalculated };
 
-/** Result of loading every case row for a case type. */
+/**
+ * Result of loading every case row for a case type. The `rows` arm
+ * carries `CaseRowWithCalculated` so calc-arm columns surface their
+ * SQL-projected values on `row.calculated[uuid]` — `evaluateColumnValue`
+ * reads the slot directly. Callers without a `caseListConfig` (raw-
+ * row consumers) get an empty `calculated: {}` map per row.
+ */
 export type LoadCasesResult =
-	| { kind: "rows"; rows: ReadonlyArray<CaseRow> }
+	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }
 	| { kind: "empty" }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };

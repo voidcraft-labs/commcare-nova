@@ -30,6 +30,7 @@
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	buildCaseTypeMap,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CasePropertyFailure,
@@ -201,14 +202,21 @@ function makeStore(ownerId: string): CaseStore {
 /**
  * Seed the case-type's JSON Schema so subsequent inserts pass
  * AJV validation. Mirrors the shape the contract harness uses —
- * one call per test body before the first `insert`.
+ * one call per test body before the first `insert`. Builds the
+ * `caseTypeSchemas` map at the call boundary so the test reuses
+ * the same `BlueprintDoc → ReadonlyMap<string, CaseType>` lift the
+ * production helpers run.
  */
 async function seedSchema(
 	store: CaseStore,
 	blueprint: BlueprintDoc,
 	caseType: string,
 ): Promise<void> {
-	await store.applySchemaChange({ appId: APP_ID, caseType, blueprint });
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType,
+		caseTypeSchemas: buildCaseTypeMap(blueprint),
+	});
 }
 
 /**
@@ -830,23 +838,39 @@ describe("mapPopulateSampleCasesError", () => {
 // `mapPopulateSampleCasesError` pattern).
 
 import {
+	asUuid,
 	type CaseListConfig,
 	calculatedColumn,
 	plainColumn,
 } from "@/lib/domain";
 import { eq, gt, literal, prop, term } from "@/lib/domain/predicate";
 
+/**
+ * Build a v2 `CaseListConfig` snapshot. The schema collapses to
+ * three slots — `columns` (carrying display + sort + calc +
+ * visibility), optional `filter`, and `searchInputs`. Tests
+ * override `columns` (and occasionally `filter`) per case; the
+ * baseline empty arrays cover the rest.
+ */
 function makeCaseListConfig(
 	overrides: Partial<CaseListConfig> = {},
 ): CaseListConfig {
 	return {
 		columns: [],
-		sort: [],
-		calculatedColumns: [],
 		searchInputs: [],
 		...overrides,
 	};
 }
+
+/**
+ * Stable per-test column uuids. Synthetic IDs satisfy the schema's
+ * `Uuid` brand without requiring a fresh `crypto.randomUUID()` per
+ * column — assertions that read `row.calculated[uuid]` reuse the
+ * same constant. The rendered string respects the 8-4-4-4-12
+ * grouping the schema accepts.
+ */
+const NAME_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000001");
+const NOTE_CALC_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000002");
 
 describe("readCaseListPreview", () => {
 	it("returns the empty arm when no rows exist", async () => {
@@ -858,7 +882,7 @@ describe("readCaseListPreview", () => {
 			caseType: "patient",
 			blueprint,
 			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn("name", "Name")],
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 			}),
 		});
 		expect(result.kind).toBe("empty");
@@ -881,22 +905,29 @@ describe("readCaseListPreview", () => {
 		// Calculated column emits a literal — predictable shape that
 		// pins the rows-arm contract without exercising the AST
 		// compiler's per-arm semantics here (the SQL contract test
-		// covers that surface).
+		// covers that surface). v2 lifts calc into the `columns`
+		// union; the case-store keys each row's `calculated` map by
+		// the calc column's `uuid`, so the assertion reads the slot
+		// at `NOTE_CALC_COLUMN_UUID`.
 		const result = await readCaseListPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
 			blueprint,
 			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn("name", "Name")],
-				calculatedColumns: [
-					calculatedColumn("note", "Note", term(literal("hello"))),
+				columns: [
+					plainColumn(NAME_COLUMN_UUID, "name", "Name"),
+					calculatedColumn(
+						NOTE_CALC_COLUMN_UUID,
+						"Note",
+						term(literal("hello")),
+					),
 				],
 			}),
 		});
 		expect(result.kind).toBe("rows");
 		if (result.kind !== "rows") return;
 		expect(result.rows).toHaveLength(1);
-		expect(result.rows[0]?.calculated.note).toBe("hello");
+		expect(result.rows[0]?.calculated[NOTE_CALC_COLUMN_UUID]).toBe("hello");
 	});
 });
 
@@ -1621,8 +1652,6 @@ describe("loadCaseListPreviewAction", () => {
 			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
 			caseListConfig: {
 				columns: "not an array",
-				sort: [],
-				calculatedColumns: [],
 				searchInputs: [],
 			} as unknown as Parameters<
 				typeof loadCaseListPreviewAction
@@ -1670,12 +1699,7 @@ describe("loadCaseListPreviewAction", () => {
 			} as unknown as Parameters<
 				typeof loadCaseListPreviewAction
 			>[0]["blueprint"],
-			caseListConfig: {
-				columns: [],
-				sort: [],
-				calculatedColumns: [],
-				searchInputs: [],
-			},
+			caseListConfig: makeCaseListConfig(),
 		});
 		expect(result.kind).toBe("invalid-blueprint");
 		if (result.kind !== "invalid-blueprint") return;
@@ -1698,8 +1722,6 @@ describe("loadCaseListPreviewAction", () => {
 			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
 			caseListConfig: {
 				columns: "not an array",
-				sort: [],
-				calculatedColumns: [],
 				searchInputs: [],
 			} as unknown as Parameters<
 				typeof loadCaseListPreviewAction
@@ -1730,7 +1752,7 @@ describe("readFilterPreview", () => {
 			caseType: "patient",
 			blueprint,
 			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn("name", "Name")],
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 			}),
 		});
 		// Single `rows` arm covers both populated and empty success
@@ -1768,7 +1790,7 @@ describe("readFilterPreview", () => {
 			caseType: "patient",
 			blueprint,
 			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn("name", "Name")],
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 			}),
 		});
 		expect(result.kind).toBe("rows");
@@ -1812,7 +1834,7 @@ describe("readFilterPreview", () => {
 			caseType: "patient",
 			blueprint,
 			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn("name", "Name")],
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 				filter: gt(prop("patient", "age"), literal(30)),
 			}),
 		});
@@ -1848,16 +1870,20 @@ describe("readFilterPreview", () => {
 			caseType: "patient",
 			blueprint,
 			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn("name", "Name")],
-				calculatedColumns: [
-					calculatedColumn("note", "Note", term(literal("hello"))),
+				columns: [
+					plainColumn(NAME_COLUMN_UUID, "name", "Name"),
+					calculatedColumn(
+						NOTE_CALC_COLUMN_UUID,
+						"Note",
+						term(literal("hello")),
+					),
 				],
 				filter: eq(prop("patient", "name"), literal("Alice")),
 			}),
 		});
 		expect(result.kind).toBe("rows");
 		if (result.kind !== "rows") return;
-		expect(result.rows[0]?.calculated.note).toBe("hello");
+		expect(result.rows[0]?.calculated[NOTE_CALC_COLUMN_UUID]).toBe("hello");
 		expect(result.totalCount).toBe(1);
 	});
 });
@@ -1920,8 +1946,6 @@ describe("loadFilterPreviewAction", () => {
 			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
 			caseListConfig: {
 				columns: "not an array",
-				sort: [],
-				calculatedColumns: [],
 				searchInputs: [],
 			} as unknown as Parameters<
 				typeof loadFilterPreviewAction
@@ -1957,12 +1981,7 @@ describe("loadFilterPreviewAction", () => {
 			} as unknown as Parameters<
 				typeof loadFilterPreviewAction
 			>[0]["blueprint"],
-			caseListConfig: {
-				columns: [],
-				sort: [],
-				calculatedColumns: [],
-				searchInputs: [],
-			},
+			caseListConfig: makeCaseListConfig(),
 		});
 		expect(result.kind).toBe("invalid-blueprint");
 		if (result.kind !== "invalid-blueprint") return;
@@ -1973,11 +1992,10 @@ describe("loadFilterPreviewAction", () => {
 		// Pins the session-first ordering: an unauthenticated
 		// request short-circuits BEFORE the Zod parse. The ordering
 		// matches `loadCaseListPreviewAction` and every other action
-		// in the file. Match Task 6's discipline — passing a
-		// deliberately malformed `caseListConfig` here would fail
-		// `invalid-config` if the parse ran first; the test asserts
-		// `unauthenticated` to confirm the session check beats the
-		// parse to the punch.
+		// in the file. Passing a deliberately malformed
+		// `caseListConfig` here would fail `invalid-config` if the
+		// parse ran first; the test asserts `unauthenticated` to
+		// confirm the session check beats the parse to the punch.
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce(null);
 
@@ -1988,8 +2006,6 @@ describe("loadFilterPreviewAction", () => {
 			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
 			caseListConfig: {
 				columns: "not an array",
-				sort: [],
-				calculatedColumns: [],
 				searchInputs: [],
 			} as unknown as Parameters<
 				typeof loadFilterPreviewAction

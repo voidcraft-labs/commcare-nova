@@ -16,18 +16,26 @@
 // strings.
 
 import {
+	buildCaseTypeMap,
+	type CalculatedValue,
 	type CaseInsert,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CaseRow,
 	type CaseStore,
+	type SortKey as CaseStoreSortKey,
 	CaseTypeNotInBlueprintError,
 	type CaseUpdate,
 	type JsonObject,
 	type JsonValue,
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
-import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseListConfig,
+	CaseType,
+	Column,
+} from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -74,16 +82,45 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 }
 
 /**
- * Read every row of a case type for the bound tenant. `empty`
- * surfaces the "Generate sample data" affordance.
+ * Read every row of a case type for the bound tenant, projecting
+ * each `caseListConfig.columns` calc-arm column's expression as a
+ * SELECT slot. `empty` surfaces the "Generate sample data"
+ * affordance.
+ *
+ * The running-app case-list shows the live module's
+ * `caseListConfig.columns`, including `kind: "calculated"` columns.
+ * Per the case-store contract calc values are SQL-projected once
+ * per row, keyed by `column.uuid`, and surface on
+ * `row.calculated[uuid]` — the running-app preview reads the slot
+ * directly through `evaluateColumnValue`. No AST evaluator runs on
+ * the JS side.
+ *
+ * `caseListConfig` + `blueprint` are both optional: callers without
+ * a config (registration forms loading raw rows for inspection)
+ * pass neither and receive rows with empty `calculated: {}` maps;
+ * callers with a config thread the columns + filter + sort into
+ * the single `store.query(...)` call. `caseTypeSchemas` flows from
+ * the supplied `blueprint` so predicate / sort / calculated-column
+ * compilation resolves typed property reads.
  */
 export async function readCases(
 	store: CaseStore,
-	args: { appId: string; caseType: string },
+	args: {
+		appId: string;
+		caseType: string;
+		blueprint?: BlueprintDoc;
+		caseListConfig?: CaseListConfig;
+	},
 ): Promise<LoadCasesResult> {
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
+		caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+		predicate: args.caseListConfig?.filter,
+		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
+		calculated: args.caseListConfig?.columns.filter(
+			(col) => col.kind === "calculated",
+		),
 	});
 	if (rows.length === 0) return { kind: "empty" };
 	return { kind: "rows", rows };
@@ -103,18 +140,19 @@ export const PREVIEW_CASE_DEFAULT_LIMIT = 30;
 
 /**
  * Read case-list authoring-surface live-preview rows for the bound
- * tenant. Routes through `caseStore.queryWithCalculated` so the
- * caller's `caseListConfig.calculatedColumns` are evaluated at the
- * SQL layer rather than reconstructed in TypeScript.
+ * tenant. Threads each `kind: "calculated"` column's expression
+ * into `store.query` so it evaluates at the SQL layer rather than
+ * reconstructed in TypeScript.
  *
- * The case-list's `filter` slot is owned by the Filters-section
- * editor — the Display section consumes only the columns + sort +
- * calculated-columns slots. This helper threads the filter through
- * verbatim so a caller composing the full `CaseListConfig` (a
- * case-list-config panel mounting both sections) gets predicate
- * narrowing for free; for the Display-section preview specifically,
- * the predicate slot is undefined and the case-store query falls
- * through unfiltered.
+ * The v2 `caseListConfig` collapses display, sort, calc, and
+ * visibility onto a single `columns` array — calc-arm columns are
+ * the calculated projection; per-column `sort` directives surface
+ * via `buildCaseStoreSortKeys`; the optional `filter` slot threads
+ * through verbatim. A host mounting both the Display section and
+ * the Filters section gets predicate narrowing for free; the
+ * Display-section preview alone passes the same config through and
+ * the underlying query falls through unfiltered when `filter` is
+ * undefined.
  *
  * Typed-error mapping mirrors `mapPopulateSampleCasesError` for
  * consistency: missing-case-type and schema-not-synced get
@@ -132,57 +170,15 @@ export async function readCaseListPreview(
 	},
 ): Promise<LoadCaseListPreviewResult> {
 	const limit = args.limit ?? PREVIEW_CASE_DEFAULT_LIMIT;
-	// Index the calculated columns by id so the per-key sort lookup
-	// runs in constant time. A duplicate id here would silently let
-	// the second occurrence overwrite the first's projection (and
-	// the sort lookup); the editor's uniqueness gate prevents this
-	// upstream, so the duplicate-id arm is structurally unreachable
-	// at this call site.
-	const calculatedById = new Map(
-		args.caseListConfig.calculatedColumns.map((c) => [c.id, c]),
-	);
-	const rows = await store.queryWithCalculated({
+	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
-		blueprint: args.blueprint,
-		calculated: args.caseListConfig.calculatedColumns,
-		// Filter belongs to the Filters section's editor; the slot
-		// flows through here so a host mounting both sections gets
-		// the predicate narrowing without a parallel call site.
-		// For the Display-section preview (where the parent supplies
-		// a config carrying only columns + sort + calculatedColumns),
-		// `filter` is undefined and the case-store query falls
-		// through unfiltered.
+		caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+		calculated: args.caseListConfig.columns.filter(
+			(col) => col.kind === "calculated",
+		),
 		predicate: args.caseListConfig.filter,
-		// Sort the preview rows the same way the runtime would. Each
-		// `SortKey.source` lifts into a `ValueExpression`:
-		//   - Property sources → `term(prop(caseType, name))`. The
-		//     Postgres compiler emits a typed JSONB read; ORDER BY
-		//     applies the comparator the case-store's `SortKey.direction`
-		//     selects.
-		//   - Calculated sources → the matching calculated column's
-		//     `expression` verbatim. Postgres's planner CSE-folds the
-		//     redundant evaluation across SELECT + ORDER BY against
-		//     identical expressions, so the runtime cost is one
-		//     evaluation per row.
-		// A calculated-source sort referencing an unknown columnId
-		// (the editor allows transient stale references during
-		// authoring) falls back to a literal-null expression. The
-		// editor's `valid: false` gate prevents the host from firing
-		// the preview while sort references are unresolved, so this
-		// fallback is structurally unreachable in the live preview
-		// path; it exists as a safe no-op rather than a throw to
-		// keep the helper resilient if a future caller bypasses the
-		// gate.
-		sort: args.caseListConfig.sort.flatMap((key) => {
-			const expression = sortKeyToExpression(
-				key.source,
-				args.caseType,
-				calculatedById,
-			);
-			if (expression === null) return [];
-			return [{ direction: key.direction, expression }];
-		}),
+		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
 	});
 	if (rows.length === 0) return { kind: "empty" };
@@ -224,11 +220,11 @@ export const FILTER_PREVIEW_DEFAULT_LIMIT = 10;
 
 /**
  * Read Filters-section authoring-surface live-preview rows + the
- * full matching count. Routes through `caseStore.queryWithCalculated`
+ * full matching count. Threads calc-arm columns into `store.query`
  * for the row sample (so calculated columns evaluate inline at the
- * SQL layer) and `caseStore.count` for the totality figure — both
- * compile the same predicate through the same stack so the count
- * + row-list pair is internally consistent.
+ * SQL layer) and pairs with `store.count` for the totality figure
+ * — both compile the same predicate through the same stack so the
+ * count + row-list pair is internally consistent.
  *
  * The two SELECTs run sequentially (no transaction needed for an
  * authoring-time preview): rows first (cheap, limited) then count
@@ -260,34 +256,26 @@ export async function readFilterPreview(
 	},
 ): Promise<LoadFilterPreviewResult> {
 	const limit = args.limit ?? FILTER_PREVIEW_DEFAULT_LIMIT;
-	const calculatedById = new Map(
-		args.caseListConfig.calculatedColumns.map((c) => [c.id, c]),
-	);
 
-	// Row sample. `queryWithCalculated` so the table preview's
-	// calculated cells render the same shape the Display preview
-	// shows. The filter-section preview is a "results that pass the
-	// filter" view, so the predicate slot is the load-bearing arg
-	// here — `caseListConfig.filter` flows through verbatim.
-	const rows = await store.queryWithCalculated({
+	// Build the schema map once — both reads share the same
+	// `caseTypeSchemas` value so the predicate compilation is
+	// guaranteed to resolve property data types identically.
+	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
+
+	// Row sample. The filter-section preview is a "results that pass
+	// the filter" view, so the predicate slot is the load-bearing
+	// arg here — `caseListConfig.filter` flows through verbatim. The
+	// calc-arm projection mirrors the Display preview's shape so
+	// table cells render uniformly.
+	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
-		blueprint: args.blueprint,
-		calculated: args.caseListConfig.calculatedColumns,
+		caseTypeSchemas,
+		calculated: args.caseListConfig.columns.filter(
+			(col) => col.kind === "calculated",
+		),
 		predicate: args.caseListConfig.filter,
-		// Same sort interpretation as `readCaseListPreview` — the
-		// rows the user sees ordered the way the case list itself
-		// would order them. `sortKeyToExpression` lifts each
-		// `SortKey.source` to a `ValueExpression` via builders.
-		sort: args.caseListConfig.sort.flatMap((key) => {
-			const expression = sortKeyToExpression(
-				key.source,
-				args.caseType,
-				calculatedById,
-			);
-			if (expression === null) return [];
-			return [{ direction: key.direction, expression }];
-		}),
+		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
 	});
 
@@ -298,7 +286,7 @@ export async function readFilterPreview(
 	const totalCount = await store.count({
 		appId: args.appId,
 		caseType: args.caseType,
-		blueprint: args.blueprint,
+		caseTypeSchemas,
 		predicate: args.caseListConfig.filter,
 	});
 
@@ -330,44 +318,67 @@ export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
 }
 
 /**
- * Resolve a `SortKey.source` (the case-list-config's discriminated
- * union over property / calculated-column references) to the
- * `ValueExpression` the case-store's `SortKey.expression` slot
- * accepts. The case-store's sort interface is expression-rooted (so
- * authors can sort by typed reads or computed values uniformly);
- * the case-list-config's sort interface is source-discriminated (so
- * the editor renders a property picker vs a calculated-column
- * reference). This helper is the seam between the two.
+ * Build the case-store `SortKey[]` array from a v2 `CaseListConfig`.
+ * Sort directives in the v2 schema live on each column directly via
+ * the optional `column.sort: { direction, priority }` slot — there
+ * is no top-level `sort` array. Columns with `sort` set become
+ * directives; the array sorts by `priority` ascending with explicit
+ * tie-break to source-array index so the column appearing earlier
+ * in `caseListConfig.columns` wins on equal priority. The tie-break
+ * rule binds at every layer (saga / preview / wire) — see
+ * `lib/commcare/suite/case-list/sortKeys.ts::buildSortDirectives`,
+ * which the wire emitter binds to the same shape.
  *
- * Property sources lift to `term(prop(caseType, name))`. Calculated
- * sources resolve through the supplied `calculatedById` map and
- * return the matching column's `expression` verbatim. An unresolved
- * calculated-source reference returns `null`; the caller drops the
- * key from the sort list rather than queueing a partial / nonsense
- * sort.
+ * Each survivor's expression lifts based on column kind:
+ *   - non-calc kinds → `term(prop(caseType, column.field))`. The
+ *     case-store's term compiler resolves `data_type` from the
+ *     supplied blueprint's case-type schema and emits the typed
+ *     JSONB read; ORDER BY then applies the comparator the
+ *     case-store's `SortKey.direction` selects.
+ *   - calc kind → the column's `expression` verbatim. Postgres's
+ *     planner CSE-folds the redundant evaluation across SELECT +
+ *     ORDER BY against identical expressions, so the runtime cost
+ *     is one evaluation per row.
  *
- * Returning `null` (vs throwing) keeps the helper safe to call
- * during authoring transitions — the editor's validity gate is the
- * primary defense against this shape reaching the wire.
+ * `caseListConfig === undefined` (the running-app raw-rows path)
+ * returns an empty array — the caller's downstream `query` call
+ * falls through to the case-store's default insertion order.
  */
-function sortKeyToExpression(
-	source: import("@/lib/domain").SortKeySource,
+function buildCaseStoreSortKeys(
+	caseListConfig: CaseListConfig | undefined,
 	caseType: string,
-	calculatedById: ReadonlyMap<string, import("@/lib/domain").CalculatedColumn>,
-): import("@/lib/domain/predicate").ValueExpression | null {
-	if (source.kind === "property") {
-		// Route through `term(prop(...))` rather than constructing the
-		// AST node by hand — every domain mutation in the codebase
-		// flows through builders so the constructed shape stays in
-		// lockstep with the schema. A future required field on
-		// `propertyRefSchema` would surface here as a
-		// builder-signature change rather than a silently-rotting raw
-		// literal.
-		return term(prop(caseType, source.property));
+): CaseStoreSortKey[] {
+	if (caseListConfig === undefined) return [];
+
+	type Survivor = { readonly column: Column; readonly index: number };
+	const survivors: Survivor[] = [];
+	for (let i = 0; i < caseListConfig.columns.length; i++) {
+		const column = caseListConfig.columns[i];
+		if (column.sort === undefined) continue;
+		survivors.push({ column, index: i });
 	}
-	const calc = calculatedById.get(source.columnId);
-	if (calc === undefined) return null;
-	return calc.expression;
+	if (survivors.length === 0) return [];
+
+	const sorted = [...survivors].sort((a, b) => {
+		const ap = a.column.sort?.priority ?? 0;
+		const bp = b.column.sort?.priority ?? 0;
+		if (ap !== bp) return ap - bp;
+		return a.index - b.index;
+	});
+
+	return sorted.flatMap(({ column }) => {
+		const sortConfig = column.sort;
+		if (sortConfig === undefined) return [];
+		// Calc-arm column: the column's own `expression` is the sort
+		// key. Non-calc kinds carry a flat `field` slot; the case-
+		// store's term compiler reads its data_type from the bound
+		// blueprint's case-type schema.
+		const expression =
+			column.kind === "calculated"
+				? column.expression
+				: term(prop(caseType, column.field));
+		return [{ direction: sortConfig.direction, expression }];
+	});
 }
 
 /**
@@ -414,19 +425,49 @@ export async function readCaseData(
  * rows. The seed composes from `Date.now()` so back-to-back
  * populates produce different rows; tests needing reproducibility
  * call `CaseStore.generateSampleData` directly with a fixed seed.
+ *
+ * Resolves the `CaseType` from the supplied blueprint at the
+ * boundary; the case-store's `generateSampleData` reads from the
+ * definition directly (property declarations, optional
+ * `parent_type`). A blueprint that omits the requested case type
+ * surfaces as `CaseTypeNotInBlueprintError`, mapped by the catch
+ * block in the calling action.
  */
 export async function seedSampleCases(
 	store: CaseStore,
 	args: { appId: string; caseType: string; blueprint: BlueprintDoc },
 ): Promise<PopulateSampleCasesResult> {
+	const caseType = resolveCaseTypeOrThrow(
+		args.blueprint,
+		args.appId,
+		args.caseType,
+	);
 	const result = await store.generateSampleData({
 		appId: args.appId,
-		caseType: args.caseType,
+		caseType,
 		count: SAMPLE_CASE_DEFAULT_COUNT,
 		seed: `${Date.now()}`,
-		blueprint: args.blueprint,
 	});
 	return { kind: "ok", inserted: result.inserted };
+}
+
+/**
+ * Look up a `CaseType` definition by name in the supplied blueprint.
+ * Throws `CaseTypeNotInBlueprintError` when the case type is absent
+ * — same shape as the case-store's `applySchemaChange` throw, so
+ * the typed-error mapper at the action boundary handles both
+ * uniformly.
+ */
+function resolveCaseTypeOrThrow(
+	blueprint: BlueprintDoc,
+	appId: string,
+	caseTypeName: string,
+): CaseType {
+	const found = blueprint.caseTypes?.find((c) => c.name === caseTypeName);
+	if (!found) {
+		throw new CaseTypeNotInBlueprintError(appId, caseTypeName);
+	}
+	return found;
 }
 
 /**
@@ -508,6 +549,53 @@ export function caseRowDisplayValue(row: CaseRow, field: string): string {
 	const value = row.properties[field];
 	if (value === undefined) return "";
 	return jsonValueToString(value);
+}
+
+/**
+ * String coercion for a calculated cell value. The case-store's
+ * `queryWithCalculated` returns each value typed per the SQL
+ * expression's resolved Postgres type — text / integer / numeric /
+ * boolean / Date (date or timestamptz) / JSONB. The running-app
+ * preview surfaces all six shapes as a single text cell.
+ *
+ * `Date` instances pass through `toISOString()` so the table
+ * doesn't render the Date object's default string form.
+ * `null` / `undefined` collapse to `""` so the cell is empty
+ * rather than showing the literal "null". Other JSON shapes
+ * (string / number / boolean / array / object) route through
+ * `jsonValueToString`, which already handles the same coercion
+ * the form-engine preload uses.
+ */
+function calculatedValueToString(value: CalculatedValue | undefined): string {
+	if (value === undefined) return "";
+	if (value instanceof Date) return value.toISOString();
+	return jsonValueToString(value);
+}
+
+/**
+ * Read a column's display value off a `CaseRowWithCalculated`,
+ * dispatching on the column's discriminator. Calc-arm columns
+ * resolve through `row.calculated[column.uuid]` — the case-store's
+ * `queryWithCalculated` projects each calc expression into the
+ * SELECT keyed by uuid, and the running-app preview reads the slot
+ * directly. Non-calc kinds read the case property named by
+ * `column.field` through the shared `caseRowDisplayValue` helper
+ * so reserved-scalar resolution + JSONB coercion stay consistent
+ * across every consumer.
+ *
+ * Returns the empty string for any kind whose slot is absent
+ * (empty calc map, missing JSONB key, missing reserved scalar).
+ * Callers render the empty string as an empty cell, the same shape
+ * a row with a never-set property has produced since pre-v2.
+ */
+export function evaluateColumnValue(
+	column: Column,
+	row: CaseRowWithCalculated,
+): string {
+	if (column.kind === "calculated") {
+		return calculatedValueToString(row.calculated[column.uuid]);
+	}
+	return caseRowDisplayValue(row, column.field);
 }
 
 // ---------------------------------------------------------------
