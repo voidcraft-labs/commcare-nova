@@ -3,7 +3,7 @@
 // Composes the case-list authoring surface's Filters section. Owns
 // the always-on filter slot of the `CaseListConfig` (`filter:
 // Predicate?`) — when present, the predicate narrows every read of
-// the case list at the wire layer. The section composes:
+// the case list. The section composes:
 //
 //   1. `<PredicateSlotCard>` — header chrome + add/clear affordance
 //      + the predicate editor body. The shared primitive owns the
@@ -83,7 +83,7 @@ export interface FiltersSectionProps {
  * type-check pass. The section caches the verdict locally so it
  * can both propagate to its parent AND gate `FiltersPreview` (the
  * preview pauses on invalid filters so it doesn't query against a
- * predicate the wire layer would reject).
+ * predicate that fails type-checking).
  */
 export function FiltersSection({
 	value,
@@ -121,7 +121,7 @@ export function FiltersSection({
 			<PredicateSlotCard
 				icon={tablerFilter}
 				title="Filter"
-				description="Always-on predicate that narrows the case list at the wire layer."
+				description="Always-on predicate that narrows the case list shown to the user."
 				addLabel="Add filter"
 				clearLabel="Clear filter"
 				value={value.filter}

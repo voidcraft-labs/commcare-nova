@@ -298,13 +298,11 @@ export function ClaimSection({
 					// validity verdict keeps reaching the section
 					// across collapse toggles.
 					//
-					// `expectedType="text"` narrows the type-checker's
-					// top-level expectation — the slot's downstream
-					// wire emitter consumes the expression as a
-					// space-separated string of owner IDs, so any
-					// expression resolving to a non-text type is
-					// rejected at authoring time rather than at the
-					// validator pass.
+					// `expectedType="text"` narrows the type checker's
+					// top-level expectation to text. The value is
+					// interpreted as a space-separated list of owner
+					// IDs, so a non-text expression is rejected at
+					// authoring time rather than at the validator pass.
 					<div
 						hidden={!blacklistOpen}
 						className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3 space-y-2"
