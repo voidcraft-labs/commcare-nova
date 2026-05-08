@@ -3,42 +3,30 @@
 // Composes the case-list authoring surface's Filters section. Owns
 // the always-on filter slot of the `CaseListConfig` (`filter:
 // Predicate?`) — when present, the predicate narrows every read of
-// the case list at the wire layer. The section mounts:
+// the case list at the wire layer. The section composes:
 //
-//   1. The `PredicateCardEditor` for the active filter.
-//   2. An "Add filter" affordance when the slot is undefined.
-//   3. A "Clear filter" affordance when the slot is defined.
-//   4. The `FiltersPreview` panel below — sampled rows + total
-//      matching count.
+//   1. `<PredicateSlotCard>` — header chrome + add/clear affordance
+//      + the predicate editor body. The shared primitive owns the
+//      slot-presence body switch and the validity short-circuit.
+//   2. The `FiltersPreview` panel below — sampled rows + total
+//      matching count, gated on the live filter validity so the
+//      preview pauses while the predicate doesn't type-check.
 //
 // Symmetric with the Display section: this section accepts the
 // FULL `CaseListConfig` and only mutates the `filter` slot; every
 // other slot flows through unchanged. A parent composing the full
 // panel mounts both sections against the same `CaseListConfig`
 // source-of-truth so each section's edits compose cleanly.
-//
-// Default predicate for the "Add filter" affordance is
-// `match-all()` — surfaces immediately as a "always true" sentinel
-// card with the kind-replacement menu in its kebab so the user's
-// first interaction is "what kind of filter do I want?" rather
-// than "fill in this comparison." A comparison-card scaffold
-// would surface `valid: false` immediately because the literal-
-// vs-property type-check hasn't been satisfied; match-all stays
-// `valid: true` so the user can switch to the operator they want
-// without seeing a false-error state pre-emptively.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerFilter from "@iconify-icons/tabler/filter";
-import tablerFilterPlus from "@iconify-icons/tabler/filter-plus";
-import tablerFilterX from "@iconify-icons/tabler/filter-x";
 import { useState } from "react";
+import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
-import { matchAll, type Predicate } from "@/lib/domain/predicate";
+import type { Predicate, SearchInputDecl } from "@/lib/domain/predicate";
 import { type FilterPreviewStats, FiltersPreview } from "./FiltersPreview";
-import { PredicateCardEditor } from "./PredicateCardEditor";
 import { useValidityPropagator } from "./useInnerValidityShadow";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -85,17 +73,17 @@ export interface FiltersSectionProps {
 // ── Top-level component ───────────────────────────────────────────
 
 /**
- * Composes the case-list Filters section. Renders the section
- * header (with the "Add filter" / "Clear filter" affordance), the
- * active filter editor when present, and the live-preview panel.
+ * Composes the case-list Filters section. Renders the
+ * `PredicateSlotCard` for the filter slot + the live-preview panel
+ * beneath it.
  *
- * Validity contract: when `value.filter === undefined`, the section
- * reports `valid: true` (no filter ≡ always true ≡ trivially
- * valid). When the slot is defined, the section forwards the
- * predicate editor's verdict verbatim. The transition (defined →
- * undefined via "Clear filter") explicitly resets the inner
- * verdict to `true` so a stale `false` from the prior predicate
- * doesn't leak past the clear.
+ * Validity contract: forwarded verbatim from the inner
+ * `PredicateSlotCard` — `true` when the slot is undefined or the
+ * predicate type-checks, `false` when the predicate fails its
+ * type-check pass. The section caches the verdict locally so it
+ * can both propagate to its parent AND gate `FiltersPreview` (the
+ * preview pauses on invalid filters so it doesn't query against a
+ * predicate the wire layer would reject).
  */
 export function FiltersSection({
 	value,
@@ -107,113 +95,42 @@ export function FiltersSection({
 	onValidityChange,
 	onPreviewStats,
 }: FiltersSectionProps) {
-	// Inner predicate-editor verdict. Default `true` — when
-	// `value.filter` is undefined, the editor is unmounted and the
-	// verdict stays trivially true. When the slot is defined, the
-	// editor's onValidityChange overrides this.
-	const [predicateValid, setPredicateValid] = useState(true);
+	// Cached verdict from the slot card. Default `true` because the
+	// card fires its first verdict on mount; before the first effect
+	// tick the section hasn't seen a verdict yet, and reporting
+	// invalid would briefly disable the parent's save button on an
+	// empty-slot mount.
+	const [isValid, setIsValid] = useState(true);
 
-	const filterPresent = value.filter !== undefined;
-	// When the slot is undefined, the section is trivially valid
-	// regardless of `predicateValid`'s stash. When the slot is
-	// defined, defer to `predicateValid`. Without the slot-presence
-	// short-circuit, a stale `false` left behind by a cleared
-	// predicate would leak past the clear.
-	const isValid = !filterPresent || predicateValid;
-
-	// Standardized parent-validity propagation — fires on mount + on
-	// every transition, ref-stashed inside the helper against fresh-
-	// each-render parent callback identity.
+	// Forward the cached verdict to the section's parent on every
+	// transition. The slot card already ref-stashes its own
+	// onValidityChange via `useValidityPropagator`; this propagator
+	// runs against the section's own parent callback, which lives
+	// at a different identity each render.
 	useValidityPropagator({ isValid, onValidityChange });
 
-	// ── Per-slot mutators ──
-	const setFilter = (next: Predicate | undefined) => {
+	// Routes the slot card's onChange back into the full
+	// CaseListConfig — updates only the `filter` slot, every other
+	// slot flows through unchanged.
+	const handleFilterChange = (next: Predicate | undefined) => {
 		onChange({ ...value, filter: next });
-	};
-	const addFilter = () => {
-		// Default seed: `match-all()` sentinel. The kind-replacement
-		// menu inside `PredicateCardEditor` (via `ChildPredicateEditor`)
-		// lets the user swap in any concrete operator on first
-		// interaction. Routes through the `matchAll` builder rather
-		// than constructing the AST literal by hand — every domain
-		// mutation in the codebase flows through builders so the
-		// constructed shape stays in lockstep with the schema.
-		setFilter(matchAll());
-	};
-	const clearFilter = () => {
-		// The structural defense for the cleared-state validity
-		// verdict is the `!filterPresent || predicateValid` short-
-		// circuit in `isValid` above — when the slot is undefined
-		// the section reports `valid: true` regardless of the inner
-		// `predicateValid` shadow. The next "Add filter" mount
-		// starts with a `match-all()` seed which type-checks as
-		// valid; the inner editor's first verdict overrides any
-		// stale shadow before the mount-time `useEffect` fires.
-		setFilter(undefined);
 	};
 
 	return (
 		<div className="space-y-3">
-			{/* Section header. Renders the section's title + the
-			    add/clear affordance on the right. The header chrome
-			    mirrors the Display section's sub-section shape so the
-			    Filters section sits visually parallel with the
-			    Display section's sub-sections in the case-list-config
-			    panel. */}
-			<header className="flex items-baseline gap-2">
-				<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
-				<Icon
-					icon={tablerFilter}
-					width="14"
-					height="14"
-					className="text-nova-violet-bright/80 self-center"
-				/>
-				<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-					Filter
-				</h3>
-				<span className="ml-1 text-[10px] text-nova-text-muted/70">
-					Always-on predicate that narrows the case list at the wire layer.
-				</span>
-				<div className="ml-auto">
-					{filterPresent ? (
-						<button
-							type="button"
-							onClick={clearFilter}
-							className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
-							aria-label="Clear filter"
-						>
-							<Icon icon={tablerFilterX} width="11" height="11" />
-							<span>Clear filter</span>
-						</button>
-					) : null}
-				</div>
-			</header>
-
-			{/* Editor body — either the predicate editor (slot
-			    defined) or the empty-state add affordance (slot
-			    undefined). The two arms are mutually exclusive. */}
-			{value.filter !== undefined ? (
-				<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
-					<PredicateCardEditor
-						value={value.filter}
-						onChange={(next) => setFilter(next)}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
-						onValidityChange={setPredicateValid}
-					/>
-				</div>
-			) : (
-				<button
-					type="button"
-					onClick={addFilter}
-					className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-					aria-label="Add filter"
-				>
-					<Icon icon={tablerFilterPlus} width="12" height="12" />
-					<span>Add filter</span>
-				</button>
-			)}
+			<PredicateSlotCard
+				icon={tablerFilter}
+				title="Filter"
+				description="Always-on predicate that narrows the case list at the wire layer."
+				addLabel="Add filter"
+				clearLabel="Clear filter"
+				value={value.filter}
+				onChange={handleFilterChange}
+				caseTypes={caseTypes}
+				currentCaseType={currentCaseType}
+				knownInputs={knownInputs}
+				onValidityChange={setIsValid}
+			/>
 
 			{/* Live-preview panel. Reads the full `CaseListConfig`
 			    via the shared `loadFilterPreviewAction` Server Action

@@ -6,7 +6,9 @@
 //
 //   1. `claimCondition: Predicate?` — when present, the runtime
 //      claims a case only if the predicate evaluates true; absent ≡
-//      "always claim on selection." Edited via `PredicateCardEditor`.
+//      "always claim on selection." Mounted via the shared
+//      `<PredicateSlotCard>` primitive — the same primitive
+//      `FiltersSection` consumes for `caseListConfig.filter`.
 //   2. `dontClaimAlreadyOwned: boolean` — when true, the runtime
 //      skips the claim step on cases the user already owns (avoids
 //      a redundant claim API call when re-opening an owned case
@@ -32,7 +34,8 @@
 // trivially true when their slots are absent) and `false` otherwise.
 // Slot-presence short-circuits — both for the predicate and the
 // blacklist — defend against stale `false` shadows leaking past a
-// clear, mirroring the FiltersSection contract.
+// clear, mirroring the contract `PredicateSlotCard` already
+// provides for the claim-condition arm.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -45,18 +48,17 @@ import tablerHandStop from "@iconify-icons/tabler/hand-stop";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import { useState } from "react";
 import { useValidityPropagator } from "@/components/builder/case-list-config/useInnerValidityShadow";
+import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
+import { Toggle } from "@/components/ui/Toggle";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {
 	literal,
-	matchAll,
 	type Predicate,
 	type SearchInputDecl,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { Toggle } from "../../ui/Toggle";
 import { ExpressionCardEditor } from "../case-list-config/ExpressionCardEditor";
-import { PredicateCardEditor } from "../case-list-config/PredicateCardEditor";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -113,10 +115,10 @@ function nextConfig(
 
 /**
  * Composes the claim cluster of the case-search authoring surface.
- * Renders three independent sub-controls — claim condition, the
- * already-owned guard toggle, and the blacklisted-owner-IDs
- * expression — and aggregates their validity verdicts for the parent's
- * save gate.
+ * Renders three independent sub-controls — claim condition (via
+ * `PredicateSlotCard`), the already-owned guard toggle, and the
+ * blacklisted-owner-IDs expression — and aggregates their validity
+ * verdicts for the parent's save gate.
  */
 export function ClaimSection({
 	value,
@@ -126,14 +128,21 @@ export function ClaimSection({
 	knownInputs = [],
 	onValidityChange,
 }: ClaimSectionProps) {
-	// Inner verdicts. Default `true` — when the corresponding slot is
-	// undefined, the matching editor is unmounted and the verdict
-	// stays trivially true (the slot-presence short-circuit below
-	// drops it from the section's aggregate anyway). When the slot
-	// is defined, the editor's `onValidityChange` overrides this on
-	// its first effect tick — for the blacklist arm this fires on
-	// initial mount whether or not the collapse is open, since the
-	// editor stays mounted across collapse toggles.
+	// Inner verdicts. The predicate verdict is the value
+	// `PredicateSlotCard` reports via its `onValidityChange`
+	// callback — the primitive already applies its own
+	// slot-presence short-circuit, so this state always carries the
+	// effective verdict for the claim-condition arm. The expression
+	// verdict mirrors that contract but is sourced from the
+	// `ExpressionCardEditor` directly (no value-expression slot
+	// primitive yet).
+	//
+	// Default `true` — when the corresponding slot is undefined the
+	// section's slot-presence short-circuit drops the verdict from
+	// the aggregate anyway. For the blacklist arm, the editor stays
+	// mounted whenever the slot is defined (the collapse only
+	// toggles visibility), so the verdict fires on initial mount
+	// regardless of collapse state.
 	const [predicateValid, setPredicateValid] = useState(true);
 	const [expressionValid, setExpressionValid] = useState(true);
 
@@ -142,41 +151,29 @@ export function ClaimSection({
 	// flips the state; collapsed view shows only the header chrome.
 	const [blacklistOpen, setBlacklistOpen] = useState(false);
 
-	const claimCondition = value?.claimCondition;
 	const dontClaimAlreadyOwned = value?.dontClaimAlreadyOwned ?? false;
 	const blacklist = value?.blacklistedOwnerIds;
-
-	const claimConditionPresent = claimCondition !== undefined;
 	const blacklistPresent = blacklist !== undefined;
 
-	// Slot-presence short-circuits — when a slot is undefined, that
-	// sub-control is trivially valid regardless of the inner shadow.
-	// Without the short-circuit, a stale `false` left behind by a
-	// cleared editor would leak past the clear; mirrors the
-	// FiltersSection contract.
-	const sectionValid =
-		(!claimConditionPresent || predicateValid) &&
-		(!blacklistPresent || expressionValid);
+	// Slot-presence short-circuit for the blacklist arm — when the
+	// slot is undefined, that sub-control is trivially valid
+	// regardless of `expressionValid`'s stash. The
+	// `PredicateSlotCard` primitive applies the equivalent
+	// short-circuit internally for the claim-condition arm.
+	const sectionValid = predicateValid && (!blacklistPresent || expressionValid);
 
 	// Standardized parent-validity propagation — fires on mount + on
 	// every transition, ref-stashed inside the helper against fresh-
 	// each-render parent callback identity.
 	useValidityPropagator({ isValid: sectionValid, onValidityChange });
 
-	// ── Claim-condition mutators ──
-	const setClaimCondition = (next: Predicate | undefined) => {
+	// ── Claim-condition mutator ──
+	// `PredicateSlotCard` owns add/clear semantics — Add seeds
+	// `matchAll()` and Clear emits `undefined`. The section's
+	// callback just routes the slot-card's emission into the
+	// `caseSearchConfig` writer.
+	const handleClaimCondition = (next: Predicate | undefined) => {
 		onChange(nextConfig(value, { claimCondition: next }));
-	};
-	const addClaimCondition = () => {
-		// `match-all()` sentinel — surfaces the kind-replacement menu
-		// in the predicate card's kebab so the author's first
-		// interaction picks an operator rather than filling in a
-		// scaffolded comparison. Routes through the typed builder so
-		// the constructed shape is in lockstep with the schema.
-		setClaimCondition(matchAll());
-	};
-	const clearClaimCondition = () => {
-		setClaimCondition(undefined);
 	};
 
 	// ── Toggle mutator ──
@@ -206,66 +203,23 @@ export function ClaimSection({
 	return (
 		<div className="space-y-6">
 			{/* ── Claim condition sub-control ──
-			    Header carries the title + an add/clear affordance on
-			    the right. The chrome (header + add/clear + slot-
-			    presence body switch) is materially identical to
-			    `FiltersSection`'s — both surface a single optional
-			    `Predicate` slot. A future shared "predicate slot
-			    card" primitive would unify both; inlining for now
-			    since refactoring `FiltersSection` is out of scope. */}
-			<div className="space-y-3">
-				<header className="flex items-baseline gap-2">
-					<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
-					<Icon
-						icon={tablerHandStop}
-						width="14"
-						height="14"
-						className="text-nova-violet-bright/80 self-center"
-					/>
-					<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-						Claim condition
-					</h3>
-					<span className="ml-1 text-[10px] text-nova-text-muted/70">
-						When set, the runtime claims a case only if this evaluates true.
-					</span>
-					<div className="ml-auto">
-						{claimConditionPresent ? (
-							<button
-								type="button"
-								onClick={clearClaimCondition}
-								className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
-								aria-label="Clear claim condition"
-							>
-								<Icon icon={tablerFilterX} width="11" height="11" />
-								<span>Clear</span>
-							</button>
-						) : null}
-					</div>
-				</header>
-
-				{claimCondition !== undefined ? (
-					<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
-						<PredicateCardEditor
-							value={claimCondition}
-							onChange={(next) => setClaimCondition(next)}
-							caseTypes={caseTypes}
-							currentCaseType={currentCaseType}
-							knownInputs={knownInputs}
-							onValidityChange={setPredicateValid}
-						/>
-					</div>
-				) : (
-					<button
-						type="button"
-						onClick={addClaimCondition}
-						className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-						aria-label="Add claim condition"
-					>
-						<Icon icon={tablerFilterPlus} width="12" height="12" />
-						<span>Add claim condition</span>
-					</button>
-				)}
-			</div>
+			    Delegated wholesale to `PredicateSlotCard`. The
+			    primitive owns the header chrome, the add/clear
+			    affordances, the seed (`matchAll()` on Add), and the
+			    slot-presence validity short-circuit. */}
+			<PredicateSlotCard
+				icon={tablerHandStop}
+				title="Claim condition"
+				description="When set, the runtime claims a case only if this evaluates true."
+				addLabel="Add claim condition"
+				clearLabel="Clear claim condition"
+				value={value?.claimCondition}
+				onChange={handleClaimCondition}
+				caseTypes={caseTypes}
+				currentCaseType={currentCaseType}
+				knownInputs={knownInputs}
+				onValidityChange={setPredicateValid}
+			/>
 
 			{/* ── Don't-claim-already-owned toggle ──
 			    The toggle sits in its own row; no add/clear chrome
