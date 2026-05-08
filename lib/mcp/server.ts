@@ -53,6 +53,8 @@ import { reorderSearchInputsTool } from "@/lib/agent/tools/case-list-config/reor
 import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
+import { setCaseSearchClaimTool } from "@/lib/agent/tools/case-search-config/setCaseSearchClaim";
+import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
@@ -133,6 +135,12 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "set_case_list_filter", tool: setCaseListFilterTool },
 	{ name: "update_case_list_column", tool: updateCaseListColumnTool },
 	{ name: "update_search_input", tool: updateSearchInputTool },
+	/* Case-search-config wholesale mutations — one tool per cluster.
+	 * Cross-binding contract: search inputs are NOT authored through
+	 * these tools (they live on `caseListConfig.searchInputs` and use
+	 * the case-list-config search-input quartet above). */
+	{ name: "set_case_search_claim", tool: setCaseSearchClaimTool },
+	{ name: "set_case_search_display", tool: setCaseSearchDisplayTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
 	{ name: "validate_app", tool: validateAppTool },

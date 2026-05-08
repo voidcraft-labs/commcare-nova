@@ -43,6 +43,8 @@ import { reorderSearchInputsTool } from "./tools/case-list-config/reorderSearchI
 import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilter";
 import { updateCaseListColumnTool } from "./tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInput";
+import { setCaseSearchClaimTool } from "./tools/case-search-config/setCaseSearchClaim";
+import { setCaseSearchDisplayTool } from "./tools/case-search-config/setCaseSearchDisplay";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
@@ -331,6 +333,17 @@ export function createSolutionsArchitect(
 		updateSearchInput: wrapMutating(updateSearchInputTool),
 		removeSearchInput: wrapMutating(removeSearchInputTool),
 		reorderSearchInputs: wrapMutating(reorderSearchInputsTool),
+
+		// ── Case-search config mutations ──────────────────────────────
+		// Two wholesale tools — one per cluster of `caseSearchConfig`.
+		// `setCaseSearchClaim` owns the claim flow; `setCaseSearchDisplay`
+		// owns the search-screen labels. Search inputs themselves remain
+		// on `caseListConfig.searchInputs` (cross-bound with the case-list
+		// search affordance) and are authored through the existing case-
+		// list-config family — these two tools never touch them.
+
+		setCaseSearchClaim: wrapMutating(setCaseSearchClaimTool),
+		setCaseSearchDisplay: wrapMutating(setCaseSearchDisplayTool),
 
 		// ── Validation ────────────────────────────────────────────────
 

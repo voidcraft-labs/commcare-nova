@@ -28,7 +28,8 @@
  *     `addCaseListColumn`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `addSearchInput`, `updateSearchInput`,
- *     `removeSearchInput`, `reorderSearchInputs`.
+ *     `removeSearchInput`, `reorderSearchInputs`,
+ *     `setCaseSearchClaim`, `setCaseSearchDisplay`.
  */
 import "dotenv/config";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -44,6 +45,8 @@ import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reo
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
+import { setCaseSearchClaimTool } from "../lib/agent/tools/case-search-config/setCaseSearchClaim";
+import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
 
 /**
  * Discriminated union of the two compiler paths. The structured-
@@ -148,6 +151,22 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: reorderSearchInputsTool.inputSchema,
 		prompt:
 			"Use reorderSearchInputs on module 0 with the order [22222222-2222-2222-2222-222222222222, 11111111-1111-1111-1111-111111111111].",
+	},
+	{
+		mode: "tool-input",
+		name: "setCaseSearchClaim",
+		description: setCaseSearchClaimTool.description,
+		schema: setCaseSearchClaimTool.inputSchema,
+		prompt:
+			"Use setCaseSearchClaim on module 0 to clear the claim condition (null), set dontClaimAlreadyOwned to true, and clear the blacklisted owner ids (null).",
+	},
+	{
+		mode: "tool-input",
+		name: "setCaseSearchDisplay",
+		description: setCaseSearchDisplayTool.description,
+		schema: setCaseSearchDisplayTool.inputSchema,
+		prompt:
+			"Use setCaseSearchDisplay on module 0 to set the searchScreenTitle to 'Find a patient' and clear every other display slot (null).",
 	},
 ];
 

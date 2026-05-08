@@ -22,10 +22,14 @@
  *     an entry. `uuid` is omitted from each arm; the tool mints it on
  *     `add` and looks it up on `update`.
  *   - `newUuid` — uuid mint helper.
+ *
+ * The `moduleNotFoundResult` helper is consumed by every case-list-
+ * config tool; its definition lives at `tools/shared/` because more
+ * than one SA tool family uses it. The re-export below preserves the
+ * existing import path inside this family.
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
 import {
 	type CaseListConfig,
 	type Column,
@@ -35,7 +39,12 @@ import {
 	searchInputDefSchema,
 	type Uuid,
 } from "@/lib/domain";
-import type { MutatingToolResult } from "../common";
+
+// `moduleNotFoundResult` is shared across SA tool families (the
+// case-list-config quartet here, the case-search-config tools, …) so
+// it lives at `tools/shared/`. The re-export below keeps every existing
+// case-list-config consumer's import path stable on the relocation.
+export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
@@ -314,48 +323,4 @@ export function reorderByUuid<T extends { uuid: Uuid }>(
 		next.push(item);
 	}
 	return { ok: true, items: next };
-}
-
-// ── Module-not-found result helper ──────────────────────────────────
-//
-// Every case-list-config tool ranges over `doc.moduleOrder[moduleIndex]`
-// and `doc.modules[moduleUuid]` before mutating; both lookups can miss
-// when the SA passes an out-of-range index or a stale snapshot. The
-// no-op error result is structurally identical across the nine tools —
-// only the per-tool action verb-phrase ("add a case list column",
-// "set the case list filter", …) and the caller's typed result union
-// differ. Centralizing the shape here keeps the SA-facing message
-// uniform across the family and means a future error-shape edit lands
-// in one place rather than nine.
-//
-// Returns a `MutatingToolResult<R | { error: string }>` so the call
-// site can pin its specific success result type while letting this
-// helper supply the typed `error` arm.
-
-/**
- * Construct the canonical no-op `MutatingToolResult` returned when
- * `moduleIndex` resolves to neither a uuid in `doc.moduleOrder` nor a
- * module in `doc.modules`. The mutation list is empty + the doc is
- * threaded through unchanged so the SA's working state stays in sync
- * with the tool's no-op outcome.
- *
- * `actionPhrase` names the verb-phrase the tool was attempting (e.g.
- * `"add a case list column"`, `"set the case list filter"`); it lands
- * in the SA-facing message verbatim. The hint at the end nudges the
- * SA toward `getModule`'s projection — the canonical recovery path
- * for an out-of-range or stale `moduleIndex`.
- */
-export function moduleNotFoundResult<R>(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-	actionPhrase: string,
-): MutatingToolResult<R | { error: string }> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to ${actionPhrase} on module index ${moduleIndex}. Found no module at that index. Look at \`getModule\`'s projection for valid indices.`,
-		},
-	};
 }

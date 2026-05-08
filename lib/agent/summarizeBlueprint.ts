@@ -9,6 +9,7 @@
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
+	CaseSearchConfig,
 	Column,
 	Module,
 	SearchInputDef,
@@ -141,6 +142,45 @@ function formatSearchInput(input: SearchInputDef): string {
 	return `${input.uuid}: ${body}`;
 }
 
+/**
+ * Summarize a module's case-search config in one line so a fresh-
+ * session SA reading the edit-mode prompt can confirm the claim cluster
+ * shape and which display labels are set without a `getModule` round-
+ * trip. Returns `undefined` when the module has no case-search config
+ * — caller concatenates only when a section was produced.
+ *
+ * Output shape:
+ *
+ *   `case_search: claim={kind|none} display={titleSet,subtitleSet,…}`
+ *
+ * Claim cluster summary: the predicate's `kind` if a `claimCondition`
+ * is set, otherwise `"none"`. The `dontClaimAlreadyOwned` flag is
+ * appended verbatim. Display cluster summary: comma-separated list of
+ * the slot names that are non-undefined; `none` when every slot is
+ * cleared (rare — one-liner pinned at this width keeps the prompt
+ * cheap).
+ */
+function summarizeCaseSearch(mod: Module): string | undefined {
+	const config = mod.caseSearchConfig;
+	if (config === undefined) return undefined;
+	const claimKind = config.claimCondition?.kind ?? "none";
+	const claimSummary = `claim={kind:${claimKind}, dontClaimAlreadyOwned:${config.dontClaimAlreadyOwned}${config.blacklistedOwnerIds !== undefined ? ", blacklistedOwnerIds:set" : ""}}`;
+	const displaySlots: Array<keyof CaseSearchConfig> = [
+		"searchScreenTitle",
+		"searchScreenSubtitle",
+		"emptyListText",
+		"searchButtonLabel",
+		"searchAgainButtonLabel",
+		"searchButtonDisplayCondition",
+	];
+	const setSlots = displaySlots.filter((slot) => config[slot] !== undefined);
+	const displaySummary =
+		setSlots.length === 0
+			? "display={none}"
+			: `display={${setSlots.join(", ")}}`;
+	return `    case_search: ${claimSummary} ${displaySummary}`;
+}
+
 /** Summarize a module: name, case type, forms. */
 function summarizeModule(
 	doc: BlueprintDoc,
@@ -155,6 +195,8 @@ function summarizeModule(
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(caseList);
+	const caseSearch = summarizeCaseSearch(mod);
+	if (caseSearch) sections.push(caseSearch);
 	const formUuids = doc.formOrder[moduleUuid] ?? [];
 	const forms = formUuids
 		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))

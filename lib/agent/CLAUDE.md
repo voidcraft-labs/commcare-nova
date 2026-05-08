@@ -43,9 +43,9 @@ SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }
 
 ## Two tool groups: generation + shared
 
-Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`, `setCaseListFilter`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`, `setCaseListFilter`, `setCaseSearchClaim`, `setCaseSearchDisplay`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
 
-Case list authoring is the responsibility of the case-list-config tools — `updateModule` is name-only and `createModule` does NOT accept any case-list shape; the SA configures the case list in a follow-up call after the module exists. This keeps the typed `Column` and `SearchInputDef` discriminated unions end-to-end on every authoring path.
+Case list authoring is the responsibility of the case-list-config tools — `updateModule` is name-only and `createModule` does NOT accept any case-list shape; the SA configures the case list in a follow-up call after the module exists. Case-search authoring is the parallel responsibility of the case-search-config tools (`setCaseSearchClaim` / `setCaseSearchDisplay`). This keeps the typed `Column` / `SearchInputDef` / `CaseSearchConfig` shapes end-to-end on every authoring path.
 
 ### Case-list authoring — atomic ops + uuid handles
 
@@ -58,6 +58,19 @@ The `caseListConfig` shape has three slots — `columns`, `filter?`, `searchInpu
 The `update*` tools accept the full body shape (kind + per-kind required fields + common optional slots) — partial-patch shapes don't fit the 8-optional ceiling on the column union (the interval arm alone has six per-kind fields), and switching between `simple` / `advanced` search-input arms requires a different field set anyway.
 
 The case-list-config tools accept the typed AST shape directly via Zod — `Column`, `Predicate`, `SearchInputDef` — pulled from `lib/domain/predicate` and `lib/domain/modules`. The atomic ops route their array-walk + mutation emission through `addColumnMutation` / `updateColumnMutation` / `removeColumnMutation` / `reorderColumnsMutation` (and the search-input parallels) in `lib/agent/blueprintHelpers.ts`. Those builders compose the pure generic primitives (`replaceByUuid` / `removeByUuid` / `reorderByUuid`) that live alongside the SA-boundary input schemas (`columnInputSchema`, `searchInputDefInputSchema`, both with `uuid` omitted) at `tools/case-list-config/shared.ts`. The two-layer split keeps the array-walk primitives reusable by any non-SA consumer (UI mutation, test fixture) that operates on the same `{ uuid }[]` shape — `blueprintHelpers.ts` owns the agent-specific `Mutation[]` builders.
+
+### Case-search authoring — wholesale per cluster
+
+The `caseSearchConfig` shape is a settings bag, not an addressable list, so its tool surface is two wholesale-replace tools rather than atomic ops:
+
+- **`setCaseSearchClaim`** owns the claim cluster: `claimCondition` (predicate gating the claim), `dontClaimAlreadyOwned` (already-owned guard), `blacklistedOwnerIds` (value expression naming hidden owners).
+- **`setCaseSearchDisplay`** owns the display cluster: `searchScreenTitle`, `searchScreenSubtitle`, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`, `searchButtonDisplayCondition`.
+
+Each tool replaces its own cluster in one call and preserves the other cluster byte-identically — strip-and-rebuild over the snapshot, layered with the input. Wholesale-with-`null`-clears semantic mirrors `setCaseListFilter`: every cluster slot is required-and-nullable on the SA boundary; `null` clears, non-null sets. That keeps the per-tool optional count at zero (well under the Anthropic 8-optional ceiling) and removes the "absent vs null" ambiguity the SA would otherwise have to resolve.
+
+Cross-binding rule — search inputs themselves stay on `caseListConfig.searchInputs` (one source of truth across both screens). Author them through the case-list-config search-input quartet (`addSearchInput` / `updateSearchInput` / `removeSearchInput` / `reorderSearchInputs`), never inside the case-search-config tools. The case-search-config tools intentionally do not carry a `searchInputs` slot.
+
+The case-search-config tools accept the typed AST shape directly via Zod — `Predicate`, `ValueExpression` — pulled from `lib/domain/predicate`. The wholesale tools emit a single `updateModule` mutation patching `caseSearchConfig` via `updateModuleMutations`. The shared `moduleNotFoundResult` helper (used by every module-addressing SA tool family) lives at `tools/shared/moduleNotFoundResult.ts` so both families consume one Elm-style error shape; `tools/case-list-config/shared.ts` re-exports it for the existing case-list-config call sites.
 
 ## Shared-tool return contract
 

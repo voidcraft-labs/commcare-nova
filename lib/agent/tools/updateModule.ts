@@ -6,7 +6,12 @@
  * `updateCaseListColumn` / `removeCaseListColumn` /
  * `reorderCaseListColumns`, the matching search-input quartet, and the
  * wholesale `setCaseListFilter`) — those preserve the typed `Column`
- * and `SearchInputDef` discriminated unions end-to-end.
+ * and `SearchInputDef` discriminated unions end-to-end. Case-search
+ * authoring lives on the parallel case-search-config family
+ * (`setCaseSearchClaim` for the claim cluster + `setCaseSearchDisplay`
+ * for the display cluster) — wholesale-replace tools rather than
+ * atomic ops, since `caseSearchConfig` is a settings bag, not an
+ * addressable list.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
