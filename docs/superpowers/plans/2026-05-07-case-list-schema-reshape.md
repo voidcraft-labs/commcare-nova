@@ -697,3 +697,43 @@ Future fresh-session supervisors reading the SHIPPED blocks should treat the aud
 ---
 
 **Next:** Reshape Task 8 — Migration script v2 (v0+v1 → v2).
+
+### Task 8 — Migration script v2 (v0 + v1 → v2) — 2026-05-08
+
+Landed across three commits: `0921bf34` (initial implementation) → `35cde701` (CR fix-pass — `--dry-run` default + `--write` opt-in) → `5aa46818` (CR voice fix-pass — drop transitional "deleted v0→v1 script" framing).
+
+**Migration script:**
+- DELETED: `scripts/migrate-case-list-config.ts` + its test (the v0 → v1 predecessor; safety patterns survive in spirit at the new script).
+- NEW: `scripts/migrate-case-list-schema-reshape.ts` (1258 lines). Three-way `classifyModuleVersion` decision tree: v2-skipped (with stricter zero-v1-only-keys check) / v0 → v2 / v1 → v2 / corrupt.
+- NEW: `scripts/__tests__/migrate-case-list-schema-reshape.test.ts` (1480 lines). 53 tests covering every transformation arm, header-collision INFO logging, idempotency, corrupt-input handling, dry-run integrity, `--app-id` filter, CLI flag semantics.
+
+**v0 → v2 arm.** Reads `mod.caseListColumns` + `mod.caseDetailColumns`. Builds unified column set with `kind: "plain"` + visibility flags derived from the legacy parallel-array membership. Header-collision INFO log when same `field` has different `caseListColumns` vs `caseDetailColumns` headers (the list header wins). Order: legacy list first, then detail-only. Filter / searchInputs start empty. Legacy keys deleted from output module.
+
+**v1 → v2 arm.** Inline `legacyV1ConfigSchema` (parse-only). Maps columns (`searchOnly` → `plain` + `visibleInList: false`; `time-since-until` / `late-flag` → `interval` with `display: "always"|"flag"` + `text` slot). Distributes `sort[]` onto columns with priority from array order. Calc columns become `kind: "calculated"`. `detailColumns[]` distributes visibility flags. Search inputs route to discriminated union (`xpath` set → advanced; `xpath`-less + property → simple; corrupt input warns + drops).
+
+**Safety contract** (inherited in spirit from the prior `f3be407d` safety fix-pass):
+- `--dry-run` is the **default**. `--write` is the explicit opt-in for live writes. `--dry-run` is preserved as a no-op for explicit-flag invocations.
+- `--app-id` filter for surgical-retry / single-app investigation.
+- Status / `deleted_at` Firestore filter.
+- Per-app try/catch isolates failures (one bad app doesn't abort the run).
+- Per-doc OUTPUT validates against new `caseListConfigSchema` before writing.
+- Verbose progress logging including per-doc source-version tag (`v0` / `v1` / `v2-skipped` / `corrupt`).
+- Non-zero exit when `failedCount > 0` (corrupt modules) or `caseListConfigSchema.safeParse` failures occur.
+
+**Dev tools:**
+- `scripts/inspect-app.ts` rebuilt for v2 column shape (one column table per module with `kind`, `List`, `Detail`, `source` columns; `(expression)` for calc, `field` for others).
+- `scripts/lib/blueprint-stats.ts` reshaped: drops `caseListColumnCount` / `caseDetailColumnCount` / legacy `calculatedColumns` array reads; gains `columnCount`, `visibleInListCount`, `visibleInDetailCount`, `calculatedColumns`, `intervalColumns`. Quality-flag heuristics use the new fields.
+- `scripts/test-schema.ts` UNCHANGED (already on v2 from Task 5).
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- scripts` — 53 / 53 (deterministic two runs).
+- `npx tsc --noEmit` clean for migration + tests + dev tools (only outstanding error is `__tests__/integration/case-list-authoring.test.ts`, Task 9 owns).
+- `npx tsx scripts/migrate-case-list-schema-reshape.ts --help` shows the dry-run-default contract clearly.
+- Sweeps clean: zero line-number citations, zero "deleted v0→v1 script" framings, zero forward-projection / migration commentary in JSDoc.
+
+**Deltas from the planned shape:** the v2-idempotency check requires zero v1-only keys (stricter than plan-letter "v2 parse → skip") to close a real hole — empty-array v1 docs would pass v2 strict-strip parse otherwise. Documented inline at `classifyModuleVersion`.
+
+**Whole-repo build state:** still intentionally broken on `__tests__/integration/case-list-authoring.test.ts`. Task 9 brings whole-repo to green.
+
+**Next:** Reshape Task 9 — Integration test rewrite.
