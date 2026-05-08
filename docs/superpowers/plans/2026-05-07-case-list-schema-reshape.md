@@ -779,3 +779,47 @@ Landed across three commits: `800c8082` (integration test rewrite) → `f9f1becb
 - The bundle-leak fix was unplanned but mandatory — the fix split a server-only helper file into a client-safe pair following the canonical Next.js pattern.
 
 **Next:** Reshape Task 10 — Docs + spec + plan sync (FINAL).
+
+### Task 10 — Docs + spec + plan sync — 2026-05-08
+
+Landed as the final task of the reshape. Doc-only commit: zero code changes outside the listed CLAUDE.md surfaces.
+
+**Files touched:**
+- `docs/superpowers/specs/2026-04-30-case-list-search-design.md` — case-list-config UI three-section description rewritten to v2 (one columns array carrying display + sort + calc + visibility, six-kind discriminated union with `interval` and `calculated` arms, discriminated `SearchInputDef` simple / advanced, `predicate` authoring vocabulary in place of wire-vocabulary `xpath`). Expression-AST overview line aligned to the merged `interval` kind. V1-IN feature list aligned to v2 column kinds + per-column visibility + column-mounted sort. The V1-IN coverage list's feature scope is unchanged — every wire feature still emits; only the shape description updates.
+- `docs/superpowers/plans/2026-05-01-case-list-authoring.md` (Plan 3) — top-of-doc note flags the schema is no longer current and links to the reshape plan. RESHAPED 2026-05-08 footer at the bottom names the reshape plan as the authoritative current-state source. Per-task SHIPPED blocks stay verbatim as historical record.
+- `docs/superpowers/plans/2026-05-01-search-authoring.md` (Plan 4) — top-of-doc re-baseline note enumerates which tasks must re-baseline against the v2 `caseListConfig` shape before implementer dispatch (Tasks 1, 2, 5, 6, 8, 9, 11) and which do not (Tasks 3, 4, 7, 10, 12, 13). The Task 1 inline `customSortProperties: SortKey[]` field in `caseSearchConfig` is explicitly flagged: the v2 column-mounted shape is canonical for Nova authoring, but `caseSearchConfig` has no Column equivalent so the implementer chooses between mirror-or-justify-divergence rather than the v1 shape carrying forward by default.
+- `docs/superpowers/plans/2026-05-01-running-app-search-execution.md` (Plan 5) — same shape: top-of-doc re-baseline note enumerating Tasks 1, 2, 3, 6 as v2-shape-touching and Tasks 4, 5, 7 as schema-shape-agnostic.
+- `lib/commcare/CLAUDE.md` — case-list emission section added under "Key design decisions". Names the suite/case-list/ orchestrator + per-kind emitter split, the column-mounted sort with derived comparator types and three explicit `"plain"` fallback shapes, the six-kind discriminated union with `interval` merge and `calculated` as a kind, per-surface visibility filtering at `shortDetail` / `longDetail`, and the structural elimination of the `findSortKey` silent-drop bug class.
+- `components/builder/CLAUDE.md` — case-list-config workspace section added after BuilderProvider. Names the three sticky-headed sections, the per-column `ColumnAffordancesRow` mounted in `CardShell.kindAccent` (uniform across all six kinds), the priority pill stack at the top of `DisplaySection` for drag-to-reorder, the `IntervalCard` merging the former two kinds with `display` discriminator, the discriminated `SearchInputsSection` UI, the `useValidityPropagator` adoption across six editors, and the `caseDataBindingClient.ts` / `caseDataBindingHelpers.ts` split with `import "server-only"` defense for the preview surface.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- Doc-only diff. No code changes outside the CLAUDE.md surfaces.
+- Sweep `rg ":[0-9]+(-[0-9]+)?"` against the touched files — zero new line-number citations in committed prose. Existing citations against unchanging upstream sources (CCHQ Python source already line-cited in spec text; AST file structure citations) survived the edit unchanged.
+- Sweep `rg "SortKey\b|calculatedColumns\b|detailColumns\b|searchOnlyColumn\b|searchOnly\b|time-since-until\b|late-flag\b|xpath\b"` against the touched non-history files — only references in the form "the previous v1 shape had X, the v2 shape moves it to Y" survive (the spec's `caseListConfig` collapse description and the per-column sort note that contrast v1 → v2 explicitly; the case-store runtime `SortKey` interface at `lib/case-store/store.ts` is unrelated to authoring shape and the spec's `CaseStore.query` signature reference stays correct). Plan 3 SHIPPED blocks contain v1 shape references that are exempt from the sweep — they are frozen historical record.
+
+**Whole-repo build state: GREEN.** Reshape complete. The branch's HEAD ships:
+- v2 `caseListConfig` schema with three slots (`columns`, `filter?`, `searchInputs`).
+- Six-kind discriminated `Column` union — `plain`, `date`, `phone`, `id-mapping`, `interval` (merged display modes), `calculated`. Every column carries `uuid`, optional `sort: { direction, priority }`, optional `visibleInList?` / `visibleInDetail?`.
+- Discriminated `SearchInputDef` union — `kind: "simple"` (property + mode + via) and `kind: "advanced"` (free-form `predicate` AST). Common slots `uuid`, `name`, `label`, `type`, `default?` on both arms.
+- Eight atomic-op SA tools (`addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`) plus the unchanged `setCaseListFilter`. Each `add` mints a `uuid` and surfaces it; each `update` / `remove` consumes `uuid` as the addressing key.
+- Wire emitters with column-mounted sort, derived comparator types (three explicit fallback shapes for `undefined` / `ANY_TYPE` / unmapped `ResolvedType`), per-surface visibility filtering, and inline `<variable name="calculated_property">` template for calculated columns.
+- UI workspace with sticky violet-railed sections, per-column `ColumnAffordancesRow` (visibility + sort affordance + priority badge), drag-to-reorder priority pill stack, `IntervalCard` merging the former kinds, discriminated `SearchInputsSection` with per-row simple↔advanced conversion, `useValidityPropagator` standardized across six editors.
+- Module-name preview heading (`mod?.name ?? "Cases"`) replacing the buggy `firstFormName ?? "Cases"`. Calculated columns evaluate via `evaluateColumnValue` against case rows.
+- Migration script handles v0 → v2 + v1 → v2 in one pass with three-way idempotency, header-collision INFO logging, per-arm corrupt-input WARN handling, and `--dry-run` default + `--write` opt-in.
+- 3831 / 3831 tests passing across 227 test files; `npx tsc --noEmit` clean across the whole repo; `npm run build` generates all 23 routes; `npm run lint` green.
+- Client bundle no longer leaks `@google-cloud/cloud-sql-connector` through the preview helper graph; `caseDataBindingClient.ts` is the client-safe surface, `caseDataBindingHelpers.ts` carries `import "server-only"`.
+
+The structural smells the reshape closed:
+- `findSortKey` silent-drop bug class — eliminated. Sort lives on the column itself; mismatched-source bug shape impossible.
+- Calculated columns referenced through a parallel-array cross-reference — eliminated. Calc is a column kind on the same union.
+- Dead `detailColumns` schema slot — gone. Per-surface visibility is a per-column flag.
+- `searchOnlyColumn` kind costume on a visibility flag — gone. Search-only is `visibleInList: false`.
+- Wire-vocabulary `xpath` slot on authoring SearchInputDef — renamed to `predicate` on the discriminated `advanced` arm.
+- Author-named `SortKey.type` — gone. Comparator type derives from the column's data type or expression result type at wire emission.
+- Columns lacking `uuid` (asymmetric with `Field.uuid`) — gone. Every column carries `uuid` for UI identity, drag/reorder, AST references.
+- Near-duplicate `time-since-until` + `late-flag` kinds — merged into `interval` with `display` discriminator.
+- `SearchInputDef` two parallel ways to express the predicate (`(property, mode, via)` vs `xpath`) — discriminated into `simple` / `advanced` arms, mutually-exclusive optional slots no longer a smell.
+- Preview heading rendering `firstFormName` instead of module name — fixed.
+
+**Branch state at end-of-reshape:** `feat/case-list-search` at HEAD. Whole-repo green (`npm run lint` + `npx tsc --noEmit` + `npm run build` + `npm test`). Doc-only fix-passes welcome before merge; no code work remains in scope.

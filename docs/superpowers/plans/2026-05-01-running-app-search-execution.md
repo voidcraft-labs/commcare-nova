@@ -2,6 +2,21 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **RE-BASELINE 2026-05-08 — `caseListConfig` was reshaped after Plan 3 SHIPPED.** The schema this plan composes against is now v2 (see [`2026-05-07-case-list-schema-reshape.md`](./2026-05-07-case-list-schema-reshape.md)). Any task touching `caseListConfig` / `Column` / `SearchInputDef` shape MUST re-baseline against the v2 shape before implementer dispatch — the reshape moved sort onto each column (no parallel `SortKey[]` array), added per-column visibility flags (`visibleInList?` / `visibleInDetail?`), made calculated columns a kind on the unified column union, and discriminated `SearchInputDef` into `kind: "simple"` / `kind: "advanced"` arms.
+>
+> Tasks requiring re-baseline before dispatch:
+>
+> - **Task 1** (Case-list binding — `caseListBinding.ts`). Translates `caseListConfig` + search-input values into `CaseStore.query(...)`. The v2 shape's column-mounted sort + discriminated search inputs change the binding's input shape: sort directives are gathered from each column's `sort` slot (priority-ordered with tie-break to source-array index — the rule binds at saga, preview, and wire layers); search inputs feed predicate context per arm (`kind: "simple"` builds the predicate from property + mode + via; `kind: "advanced"` lowers the `predicate` directly).
+> - **Task 2** (Case-list screen — `CaseListScreen.tsx` at the new `components/builder/preview/` path). Plan 3 Task 7 of the reshape already shipped the v2 surface (per-column sort + visibility-filtered display, calculated-column inline rendering, module-name heading). This task replaces the existing `components/preview/screens/CaseListScreen.tsx` with the builder-context running-app rendering — the v2 column shape is the input.
+> - **Task 3** (Split-screen search). The sidebar's `SearchInputForm` consumes the discriminated `SearchInputDef` union: simple-arm rows render property + mode + via inputs; advanced-arm rows render the compiled predicate result against a structured input (advanced-arm authoring shape doesn't surface the property → mode → via decomposition).
+> - **Task 6** (Plan 5 integration test). Composes the v2-touching tasks above; re-baselines naturally as those tasks do.
+>
+> Tasks NOT requiring re-baseline:
+>
+> - **Task 4** (Form running-app write-through wiring) — operates on `engine.computeSubmissionMutation()` + `submitFormAction` which are case-store-shaped, not authoring-shaped. The v2 reshape did not change form-submission semantics.
+> - **Task 5** (Generate / Reset sample data UI) — wires Plan 2's case-store actions; case-store interface unaffected by the v2 reshape.
+> - **Task 7** (PreviewSurface shell + mount site). Reshape Task 7 (preview heading + calculated column rendering) already shipped the v2 surface end-to-end on the existing live `CaseListScreen.tsx` — Plan 5 Task 7's "replace `CaseListScreen` in the live-mode arm" pattern is structurally aligned with the v2 shape today. The shell + mount-site work itself is schema-shape-agnostic.
+
 **Status:** Plan 5 of 5. Depends on Plans 1, 2, 3, 4 (full prior stack). After Plan 5 ships, the flipbook's running-app view executes searches end-to-end against the typed case data, and forms write through `CaseStore` so the user can walk through full registration → search → followup workflows on the same `cases` rows the editor inspects.
 
 **Goal:** Wire Plans 1-4 into the running-app view of the flipbook. The case-list screen integrates the AST → Kysely compiler. The case-search screen renders as split-screen with inline filter — the canonical web-apps shape, which is Nova's authoring target. Forms write through `CaseStore` so subsequent searches see new cases. "Generate sample data" / "Reset sample data" buttons wire Plan 2's actions to the UI.

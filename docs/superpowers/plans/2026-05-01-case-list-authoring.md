@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use frontend-design and superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **RESHAPED 2026-05-08 — schema below is no longer current.** A 2026-05-07 supervisor audit found CCHQ-shape leaks (parallel `sort` / `calculatedColumns` / `detailColumns` arrays, `searchOnlyColumn` kind, `xpath` slot on search inputs, near-duplicate `time-since-until` + `late-flag` kinds) and Nova-internal asymmetries (columns lacked `uuid`, sort wasn't column-mounted) shipped through Plan 3. The reshape — see [`2026-05-07-case-list-schema-reshape.md`](./2026-05-07-case-list-schema-reshape.md) — collapsed `caseListConfig` to three slots (`columns`, `filter?`, `searchInputs`), gave every column a `uuid` plus optional `sort: { direction, priority }` and `visibleInList?` / `visibleInDetail?` flags, merged the time-since-until + late-flag kinds into one `interval` kind with a `display: "always" | "flag"` discriminator, made calculated columns a kind on the same union, and discriminated `SearchInputDef` into `kind: "simple"` / `kind: "advanced"` arms (renaming the wire-vocabulary `xpath` slot to authoring-vocabulary `predicate`). The reshape plan is the authoritative current schema source. The per-task SHIPPED blocks below stay verbatim as historical record of what landed at the time, but the schema details inside them (column kind list, parallel `sort` array, `searchOnlyColumn` kind, `xpath` slot on `SearchInputDef`) describe v1 — read against HEAD, not against the SHIPPED text.
+
 **Status:** Plan 3 of 5. Depends on Plan 1 (Foundation) and Plan 2 (Case data layer). Independent of Plans 4 and 5 — Plan 4 (search authoring) is ordered after this for review momentum, not architectural dependency.
 
 **Goal:** Ship the full case-list authoring experience end-to-end. Module schema migration to typed columns + always-on filter + calculated columns. Case-list-config builder UI: Display section (columns + sort + calculated columns) + Filters section (typed Predicate AST cards) + Search Inputs section. SA tools accept typed AST. Validator rules including field-kind-vs-property-type. Wire emission for case-list short detail + long detail. After Plan 3 ships, users can author typed case lists end-to-end including preview rendering against Plan 2's `CaseStore`.
@@ -705,3 +707,9 @@ Execute the migration in a dry-run against prod Firestore; review diff; execute 
 ## Plan shape
 
 The bulk of work is in the card-based UI (Tasks 2 + 3, the predicate and expression card editors) — the typed predicate / expression UX is the user-facing differentiator. Tasks 6, 7, 8 compose the three sections of the case-list config panel. Tasks 9, 10 ship the SA tools and validator rules. Tasks 11, 12, 13 emit suite XML for the case list nodeset + short detail + long detail. Task 14 is the integration test; Task 15 is the operator-run migration.
+
+---
+
+## RESHAPED 2026-05-08 — schema reshape SHIPPED
+
+The 2026-05-07 supervisor audit (CCHQ shape leaks + Nova-internal asymmetries) drove the reshape that landed in 2026-05-08. The current `caseListConfig` schema, SA tool surface, validator rules, wire emitters, UI workspace, preview rendering, migration script, and integration tests live in the state described by the reshape plan: [`2026-05-07-case-list-schema-reshape.md`](./2026-05-07-case-list-schema-reshape.md). Plan 3's Task 15 (legacy v0 → v1 migration) was absorbed into the reshape's Task 8 — one v0 → v2 + v1 → v2 migration replaces the two-step plan, with no operator-level coordination across migrations. The reshape plan is the authoritative source for the shipped state of every surface this plan touched.

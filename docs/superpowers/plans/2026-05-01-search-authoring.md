@@ -2,6 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **RE-BASELINE 2026-05-08 — `caseListConfig` was reshaped after Plan 3 SHIPPED.** The schema this plan composes against is now v2 (see [`2026-05-07-case-list-schema-reshape.md`](./2026-05-07-case-list-schema-reshape.md)). Any task touching `Column` / `SearchInputDef` / sort shape MUST re-baseline against the v2 `caseListConfig` shape before implementer dispatch — the reshape changed `searchInputs` to a discriminated `kind: "simple"` / `kind: "advanced"` union, moved sort onto each column (no parallel `SortKey[]` array), made calculated columns a kind on the unified column union, and replaced the `searchInputDef.xpath` slot with the discriminated `predicate` slot on the advanced arm.
+>
+> Tasks requiring re-baseline before dispatch:
+>
+> - **Task 1** (`caseSearchConfig` schema). The inline `customSortProperties?: SortKey[]` field below was authored before the reshape; the reshape's column-mounted sort pattern is the canonical Nova authoring shape, but `caseSearchConfig`'s sort surface is a separate schema (case-search has no Column equivalent — sort is on properties, not on display columns). The Task 1 implementer must explicitly choose between mirroring v2's column-mounted shape or justifying divergence based on the case-search domain. Don't carry the v1 SortKey shape forward by default.
+> - **Task 2** (DefaultFilters UI). The default-filter editor references search inputs by name; the v2 shape is a discriminated union so the input-ref picker must consume both arms.
+> - **Task 5** (Search Inputs cross-section binding). Plan 3's `SearchInputsSection` is now discriminated UI (simple-row vs advanced-row + per-row "convert to advanced/simple" affordance). The case-search-config's mount of the same component must consume the v2 shape.
+> - **Task 6** (SA tools). Tool input schemas accept the typed AST; the v2 search-input shape is a discriminated union so each tool's input schema must reflect both arms. The eight-optional-fields ceiling still applies.
+> - **Task 8** (`<remote-request>` emission). The wire emitter consumes `caseListConfig.searchInputs` to build the `<query>/<prompt>` blocks; both `kind: "simple"` (property + mode + via) and `kind: "advanced"` (predicate-driven) need wire emission paths. The advanced arm's `predicate` lowers through Plan 1's CSQL emitter directly, where the simple arm's predicate is built from (property, mode, via).
+> - **Task 9** (Search prompts emission). Each `SearchInputDef` becomes a `<prompt>` element; the v2 discriminated union changes the per-arm shape — simple-arm prompts derive from `(property, mode, via)`, advanced-arm prompts have no per-arm property reference and pull the predicate's compiled wire form.
+> - **Task 11** (Validator rules). `searchInputReferences` reads the discriminated arm; `defaultFilterTypeCheck` operates on the v2 `caseListConfig.filter` shape (unchanged by the reshape) but the predicate type checker now sees discriminated search-input refs.
+>
+> Tasks NOT requiring re-baseline:
+>
+> - **Tasks 3, 4** (Claim section UI, Display section UI) — operate on `caseSearchConfig`-only slots that the reshape didn't touch.
+> - **Task 7** (Platform-aware compilation decision tree) — the `inlineSearch` / `splitScreen` / `autoLaunch` / `defaultSearch` decision tree reads `searchInputs.length` only; the v2 discriminated union doesn't change array length semantics.
+> - **Task 10** (Claim emission) — wire-shape only, no v2-shape consumption.
+> - **Task 12** (Plan 4 integration test) — re-baselines naturally as it composes the v2-touching tasks above.
+> - **Task 13** (CaseSearchConfigPanel + mount site) — pure shell + mount-site work, schema-shape-agnostic.
+
 **Status:** Plan 4 of 5. Depends on Plan 1 (Foundation), Plan 2 (Case data layer), and Plan 3 (Case list authoring). Plan 5 (Running-app search execution) depends on this.
 
 **Goal:** Ship the case-search authoring experience end-to-end. Module schema for default filters + claim condition + display labels (search inputs already shipped in Plan 3 because they're shared between the case-list inline-search experience and the search-config experience). Search-config builder UI: Default Filters section (typed Predicate AST) + Claim section + Display section. SA tools accept typed AST. Platform-aware compilation logic (split-screen / skip-to-results / search-first fallback). Wire emission for `<remote-request>` + `<query>` + `<post>` (claim) + `<datum>` (case-id selection) + `<stack>`.

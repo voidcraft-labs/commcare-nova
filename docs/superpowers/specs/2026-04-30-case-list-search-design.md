@@ -56,7 +56,7 @@ The two stores share no record identity. Blueprint mutations don't reference cas
 CommCare authoring requires two distinct AST families that share Term shapes but produce different result types:
 
 - **Predicate AST** — produces a boolean. Used in case-list filter, default search filter, post-ES search filter, claim condition, search-button display condition, the `required` assertion on a search input.
-- **Expression AST** — produces a typed value. Used in calculated columns (display values), sort calculations (sort key derivation), search-input default values, the late-flag column's date argument, the time-since/until column's date argument, ID Mapping's source value.
+- **Expression AST** — produces a typed value. Used in calculated columns (display values), sort calculations (sort key derivation), search-input default values, the interval column's date argument (the kind covers both relative-display and threshold-flag UX), ID Mapping's source value.
 
 The v1 of this spec collapsed calculated columns onto the Predicate AST. That was a category error: calculated columns return values, not booleans. Splitting into two families lets each carry the operators that make sense for it (`if` / `switch` / `concat` / `arith` / `count` are Expression-only; `compare` / `exists` / `match-all` are Predicate-only) and lets the type checker validate that an expression appears where an expression is expected.
 
@@ -439,16 +439,20 @@ The author never makes a per-platform decision. The compiler picks the closest C
 
 ### Case list config UI — three sections, all AST-backed
 
-1. **Display** — columns, sort, calculated columns.
-   - Columns have a `kind` discriminator (Plain, Date, Time Since/Until, Phone Number, ID Mapping, Late Flag, Search Only) and per-kind config.
-   - **Calculated columns carry a ValueExpression AST node** (not a Predicate AST — the v1 fix).
-   - Sort keys reference Terms or ValueExpressions with type discrimination (Plain / Date / Integer / Decimal).
+`caseListConfig` collapses to three slots: `columns: Column[]`, `filter?: Predicate`, `searchInputs: SearchInputDef[]`. Each column carries display + sort + calc + visibility on itself — there is no parallel `sort` array, no parallel `calculatedColumns` array, no parallel `detailColumns` array. The authoring layer is column-mounted; the wire layer reads from the same column shape.
+
+1. **Display** — `caseListConfig.columns`, the unified column array.
+   - Columns are a discriminated union over six kinds: `plain`, `date`, `phone`, `id-mapping`, `interval` (covers both relative-interval and threshold-flag UX through one `display: "always" | "flag"` discriminator), and `calculated` (a `ValueExpression` AST node — calculated columns are a column kind, not a parallel array).
+   - Each column carries a `uuid` (UI identity, drag/reorder handle, AST references), an optional `sort: { direction, priority }` (per-column sort directive — sort lives on the column itself, not in a parallel `SortKey[]` array), and optional `visibleInList?` / `visibleInDetail?` flags (absent ≡ visible). "Search-only" semantics — declared and wire-emitted but hidden from the case list — are expressed as `visibleInList: false`, not as a separate column kind.
+   - The wire-emission comparator type for each column's sort is derived (not authored): non-calculated columns use `applicableSortTypes(propertyDataType)[0]`; calculated columns use the result type of the column's expression. Three failure shapes route to comparator type `plain`.
 2. **Filters** — always-on filter, expressed as a single Predicate AST.
    - Authored via composable cards: AND/OR groups, comparison cards, set-membership cards, distance cards, relational cards (`exists`/`missing`/`count`).
    - Cards type-check against the case-type schema at construction.
    - The same Predicate compiles to both the case-list filter and the search default filter at wire emission time. The author writes it once; the two surfaces cannot diverge by construction.
-3. **Search inputs** — list of search input definitions.
-   - Type (text / select / date / date-range / barcode), label, optional default value (a ValueExpression), optional XPath the input compiles to (a Predicate for advanced cases).
+3. **Search inputs** — discriminated `simple` / `advanced` union.
+   - Common slots on every arm: `uuid`, `name`, `label`, `type` (text / select / date / date-range / barcode), optional `default` ValueExpression.
+   - `kind: "simple"` carries `(property, mode?, via?)` — the wire layer builds the predicate from the targeted property + mode + optional relation walk. `property` is required on this arm.
+   - `kind: "advanced"` carries a `predicate: Predicate` AST — the wire layer emits the predicate verbatim. No `xpath` slot at the authoring layer; "predicate" is the authoring vocabulary, "XPath" is the wire-format vocabulary.
 
 No textarea anywhere. No string editing. No `_xpath_query` magic-string surfaces.
 
@@ -482,12 +486,12 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 - Aggregation: `count`
 
 **Wire emission:**
-- Case-list short-detail columns with format kinds: Plain, Date, Time Since/Until, Phone Number, ID Mapping, Late Flag, Search Only
-- Calculated columns (Expression AST → wire)
+- Case-list short-detail columns over the six column kinds — Plain, Date, Phone, ID Mapping, Interval (relative-interval / threshold-flag UX, dispatched by `display`), Calculated (Expression AST → wire)
+- "Search-only" wire emission for any column with `visibleInList: false` (the column emits as a hidden short-detail field while staying available for sort + index purposes)
 - Case list filter (Predicate AST → wire)
-- Case list sort (multi-key; types Plain / Date / Integer / Decimal; sort calculation via Expression AST)
-- Case detail long-detail columns (same kinds)
-- Search input properties (text, select, date, date-range, barcode)
+- Case list sort (multi-key; per-column `sort: { direction, priority }`; comparator types Plain / Date / Integer / Decimal derived at wire emission from each column's data type or calculated expression's result type)
+- Case detail long-detail columns over the same six kinds, filtered by `visibleInDetail`
+- Search inputs over both arms: `kind: "simple"` (property + mode + via) and `kind: "advanced"` (free-form predicate); widget types text / select / date / date-range / barcode
 - Default search filters (Predicate AST → CSQL)
 - Custom sort properties (incl. `commcare_search_score` as a separate "sort by relevance" toggle, not an AST term)
 - Search screen title, subtitle, empty-list text
