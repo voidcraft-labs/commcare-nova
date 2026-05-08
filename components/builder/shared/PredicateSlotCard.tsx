@@ -44,7 +44,7 @@ import tablerFilterPlus from "@iconify-icons/tabler/filter-plus";
 import tablerFilterX from "@iconify-icons/tabler/filter-x";
 import { useState } from "react";
 import { PredicateCardEditor } from "@/components/builder/case-list-config/PredicateCardEditor";
-import { useValidityPropagator } from "@/components/builder/case-list-config/useInnerValidityShadow";
+import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";

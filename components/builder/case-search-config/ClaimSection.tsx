@@ -47,8 +47,8 @@ import tablerForbid from "@iconify-icons/tabler/forbid";
 import tablerHandStop from "@iconify-icons/tabler/hand-stop";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import { useState } from "react";
-import { useValidityPropagator } from "@/components/builder/case-list-config/useInnerValidityShadow";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
+import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import { Toggle } from "@/components/ui/Toggle";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {

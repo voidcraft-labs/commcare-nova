@@ -41,6 +41,7 @@
 
 "use client";
 import { useMemo } from "react";
+import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -53,7 +54,6 @@ import {
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
-import { useValidityPropagator } from "./useInnerValidityShadow";
 
 interface ExpressionCardEditorProps {
 	/** Current AST. */

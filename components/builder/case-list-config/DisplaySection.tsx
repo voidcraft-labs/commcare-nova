@@ -47,6 +47,10 @@ import tablerSortDescending from "@iconify-icons/tabler/sort-descending";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useMemo, useState } from "react";
 import {
+	useInnerValidityShadow,
+	useValidityPropagator,
+} from "@/components/builder/shared/useInnerValidityShadow";
+import {
 	type CaseListConfig,
 	type CaseType,
 	type Column,
@@ -56,10 +60,6 @@ import {
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { ColumnEditor } from "./ColumnEditor";
 import { DisplayPreview } from "./DisplayPreview";
-import {
-	useInnerValidityShadow,
-	useValidityPropagator,
-} from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
 import { newUuid } from "./uuid";
 

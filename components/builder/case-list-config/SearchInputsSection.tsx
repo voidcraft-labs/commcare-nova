@@ -39,6 +39,10 @@ import tablerSelect from "@iconify-icons/tabler/select";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useMemo, useRef } from "react";
 import {
+	useInnerValidityShadow,
+	useValidityPropagator,
+} from "@/components/builder/shared/useInnerValidityShadow";
+import {
 	advancedSearchInputDef,
 	applicableSearchModes,
 	type CaseProperty,
@@ -87,10 +91,6 @@ import { BlurCommitTextInput } from "./primitives/BlurCommitTextInput";
 import { InlineError } from "./primitives/CardShell";
 import { PropertyRefPicker } from "./primitives/PropertyRefPicker";
 import { RelationPathBuilder } from "./primitives/RelationPathBuilder";
-import {
-	useInnerValidityShadow,
-	useValidityPropagator,
-} from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
 import { newUuid } from "./uuid";
 

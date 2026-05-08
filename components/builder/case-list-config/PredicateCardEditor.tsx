@@ -32,6 +32,7 @@
 
 "use client";
 import { useMemo } from "react";
+import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -43,7 +44,6 @@ import {
 import { ChildPredicateEditor } from "./cards/ChildPredicateEditor";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
-import { useValidityPropagator } from "./useInnerValidityShadow";
 
 interface PredicateCardEditorProps {
 	/** Current AST. */

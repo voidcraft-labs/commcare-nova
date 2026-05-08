@@ -24,10 +24,10 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useState } from "react";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
+import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import type { Predicate, SearchInputDecl } from "@/lib/domain/predicate";
 import { type FilterPreviewStats, FiltersPreview } from "./FiltersPreview";
-import { useValidityPropagator } from "./useInnerValidityShadow";
 
 // ── Public types ──────────────────────────────────────────────────
 
