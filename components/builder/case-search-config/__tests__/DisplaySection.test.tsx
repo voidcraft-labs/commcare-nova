@@ -210,6 +210,34 @@ describe("DisplaySection — per-slot edits", () => {
 			dontClaimAlreadyOwned: false,
 		});
 	});
+
+	it("does not emit onChange when focusing and blurring an empty input on an undefined config", () => {
+		// Pins the "no-op on never-set" contract on
+		// `OptionalTextRow`'s `onEmpty` arm. Without the
+		// `value !== undefined` gate, `useCommitField`'s
+		// "delete on empty" semantic fires `onCommit(undefined)` on a
+		// focus-blur-without-typing gesture, which `nextConfig` would
+		// turn into `{ dontClaimAlreadyOwned: false }` — transitioning
+		// `caseSearchConfig` from absent to present-with-default for
+		// a "I clicked on this and looked away" interaction. That's a
+		// spurious autosave + an undo-history entry the user never
+		// asked for; this test fails the regression class loudly.
+		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		render(
+			<DisplaySection
+				value={undefined}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+
+		const input = screen.getByLabelText("Title") as HTMLInputElement;
+		fireEvent.focus(input);
+		fireEvent.blur(input);
+
+		expect(onChange).not.toHaveBeenCalled();
+	});
 });
 
 // ── Validity propagation ──────────────────────────────────────────

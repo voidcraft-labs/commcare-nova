@@ -20,9 +20,8 @@
 //   6. `searchButtonDisplayCondition: Predicate?` — when present,
 //      gates the search button's visibility (the runtime hides the
 //      button until the predicate evaluates true). Mounted via the
-//      shared `<PredicateSlotCard>` primitive — the same primitive
-//      the Filters and Claim sections consume for their optional
-//      predicate slots.
+//      shared `<PredicateSlotCard>` primitive, which owns the chrome
+//      for any optional Predicate slot.
 //
 // The five text slots have no validity beyond empty-vs-set; an
 // empty string clears the slot (the per-key setter writes
@@ -128,11 +127,26 @@ function OptionalTextRow({
 	// `onSave: string -> void` with `onEmpty: () -> void` for the
 	// "empty commit" path — exactly the empty-string-clears semantic
 	// the schema's `optional()` slots want.
+	//
+	// The `onEmpty` arm gates on `value !== undefined`. When the slot
+	// started absent, an empty commit (focus-blur without typing,
+	// Esc on an empty input) has nothing to clear — emitting
+	// `onCommit(undefined)` would route through `nextConfig` and
+	// transition `caseSearchConfig` from absent to
+	// `{ dontClaimAlreadyOwned: false }`, persisting the schema
+	// default and writing an undo-history entry the user never
+	// asked for. The hook's contract is "delete on empty"; this
+	// site needs "no-op on never-set" — when the slot started
+	// absent and ends absent, no parent emit fires.
 	const { draft, setDraft, ref, handleFocus, handleBlur, handleKeyDown } =
 		useCommitField({
 			value: value ?? "",
 			onSave: (next) => onCommit(next),
-			onEmpty: () => onCommit(undefined),
+			onEmpty: () => {
+				if (value !== undefined) {
+					onCommit(undefined);
+				}
+			},
 			multiline: markdown,
 		});
 
