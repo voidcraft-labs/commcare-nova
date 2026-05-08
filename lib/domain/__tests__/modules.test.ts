@@ -74,7 +74,7 @@ describe("moduleSchema — caseListConfig presence", () => {
 		expect(parsed.success).toBe(true);
 	});
 
-	it("strips unknown top-level caseListColumns / caseDetailColumns keys — typed result omits them", () => {
+	it("strips unknown top-level keys", () => {
 		// `moduleSchema` declares only the slots the runtime reads;
 		// any other top-level key strips silently so consumers parsing
 		// through `moduleSchema` cannot accidentally reach undeclared
@@ -84,14 +84,21 @@ describe("moduleSchema — caseListConfig presence", () => {
 			id: "patients",
 			name: "Patients",
 			caseType: "patient",
+			__unknown_a: "alpha",
+			__unknown_b: { nested: 42 },
+			__unknown_c: ["mixed", "shapes", 99],
+			// One legacy slot named inline as a regression backstop —
+			// confirms a real-world untypable-name doesn't smuggle past
+			// the strip.
 			caseListColumns: [{ field: "name", header: "Name" }],
-			caseDetailColumns: [{ field: "phone", header: "Phone" }],
 		});
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
 			const data = parsed.data as Record<string, unknown>;
+			expect(data.__unknown_a).toBeUndefined();
+			expect(data.__unknown_b).toBeUndefined();
+			expect(data.__unknown_c).toBeUndefined();
 			expect(data.caseListColumns).toBeUndefined();
-			expect(data.caseDetailColumns).toBeUndefined();
 		}
 	});
 });
@@ -105,7 +112,7 @@ describe("caseListConfigSchema — three-slot shape", () => {
 		expect(parsed.success).toBe(true);
 	});
 
-	it("strips unknown top-level slots (sort / calculatedColumns / detailColumns)", () => {
+	it("strips unknown top-level keys", () => {
 		// `caseListConfigSchema` declares three slots — `columns`,
 		// `filter?`, `searchInputs`. Any other top-level key strips
 		// silently so consumers reading through the schema cannot
@@ -113,23 +120,20 @@ describe("caseListConfigSchema — three-slot shape", () => {
 		const parsed = caseListConfigSchema.safeParse({
 			columns: [],
 			searchInputs: [],
-			sort: [
-				{
-					source: { kind: "property", property: "name" },
-					type: "plain",
-					direction: "asc",
-				},
-			],
-			calculatedColumns: [
-				{ id: "anon", header: "Anon", expression: { kind: "today" } },
-			],
+			__unknown_a: "alpha",
+			__unknown_b: { nested: 42 },
+			__unknown_c: ["mixed", "shapes", 99],
+			// One legacy slot named inline as a regression backstop —
+			// confirms a real-world array-shaped key doesn't smuggle
+			// past the strip.
 			detailColumns: [{ kind: "plain", field: "phone", header: "Phone" }],
 		});
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
 			const data = parsed.data as Record<string, unknown>;
-			expect(data.sort).toBeUndefined();
-			expect(data.calculatedColumns).toBeUndefined();
+			expect(data.__unknown_a).toBeUndefined();
+			expect(data.__unknown_b).toBeUndefined();
+			expect(data.__unknown_c).toBeUndefined();
 			expect(data.detailColumns).toBeUndefined();
 		}
 	});
@@ -416,8 +420,8 @@ describe("Column.sort — column-level sort directive", () => {
 		// The tie-break rule (display order in `caseListConfig.columns`)
 		// binds at the saga / preview / wire layers. The schema does
 		// not enforce uniqueness — transient editor states (undo,
-		// partial save, migration) might transiently collide and the
-		// schema must not reject them.
+		// partial save) might transiently collide and the schema must
+		// not reject them.
 		const config = {
 			columns: [
 				plainColumn(u(1), "a", "A", {

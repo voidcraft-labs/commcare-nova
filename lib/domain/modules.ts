@@ -9,8 +9,8 @@
 //
 //   - `columns: Column[]` — display + sort + calc + visibility, all
 //     here. Each column carries its own `uuid` (UI identity, drag /
-//     reorder handle, AST references), an optional `sort` (Notion-
-//     style direction + priority on the column itself), and optional
+//     reorder handle, AST references), an optional `sort` (per-
+//     column direction + priority on the column itself), and optional
 //     `visibleInList` / `visibleInDetail` flags (absent ≡ visible).
 //   - `filter?: Predicate` — single optional always-on predicate
 //     applied to every row before display.
@@ -52,8 +52,8 @@ import { type Uuid, uuidSchema } from "./uuid";
 // tie-break to display order in `caseListConfig.columns` — that
 // rule binds at the saga, preview, and wire-emission layers; the
 // editor maintains uniqueness on save, but the tie-break exists for
-// transient (undo / partial-save) and migration states. No layer
-// assumes uniqueness.
+// transient (undo / partial-save) editor states. No layer assumes
+// uniqueness.
 //
 // The comparator type (lexicographic / numeric / date / decimal)
 // is NOT authored here — wire emission derives it from the case
