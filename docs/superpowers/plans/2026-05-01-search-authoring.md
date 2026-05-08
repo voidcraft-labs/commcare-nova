@@ -148,7 +148,7 @@ Notable schema decisions:
 - **No `customSorts` / `sortByRelevance` slots.** `caseListConfig.columns[*].sort` is the single source for display sort; the wire emitter projects identical `<sort>` blocks onto both `m{N}_case_short` and `m{N}_search_short` (Task 7). Nova never emits `<data key="commcare_sort">` (the ES retrieval-sort override); ES's default `_score` ranking is in effect for fuzzy / phonetic match results.
 - **`searchInputs` does NOT live here.** It stays on `mod.caseListConfig.searchInputs` per Plan 3 + the v2 reshape, shared between the case-list inline-search experience and the case-search-config workspace.
 
-Schema is `z.object({ ... }).strict()` with all-optional fields except `dontClaimAlreadyOwned` (boolean default `false` at the schema level).
+Schema is `z.object({ ... }).strict()` with all-optional fields except `dontClaimAlreadyOwned`, which is `z.boolean()` (required at the schema level — no default; the panel UI initializes the field as `false` when first creating `caseSearchConfig`, so the persisted shape always carries the boolean).
 
 **Tests:** schema parse round-trip; required-field gate (`dontClaimAlreadyOwned`); optional fields stripped when undefined; `caseSearchConfig: undefined` round-trips as the absent-slot shape on the Module.
 
@@ -479,3 +479,76 @@ Plan 4's weight is dominated by the wire emitter (Tasks 7-10) and the platform-a
 - `lib/db/applyBlueprintChange.ts` — touches `caseTypes` only.
 - `lib/commcare/session.ts` — touches `caseListConfig.filter` only (which Plan 4 reuses, doesn't reshape).
 - `lib/commcare/suite/case-list/nodesetFilter.ts` — case-list nodeset filter slot is unchanged; Plan 4 adds the search-side `<data key="_xpath_query">` emission separately.
+
+## SHIPPED
+
+### Task 1 — `caseSearchConfig` schema — 2026-05-08
+
+Landed across three commits: `f10a82e6` (initial schema + 9 tests) → `4915690f` (CR round-1 fix-pass — JSDoc rewritten in authoring voice; dropped the `<data key="blacklist">` XML literal from `blacklistedOwnerIds`'s field comment; trimmed the schema header) → `86f7e18d` (CR round-2 fix-pass — dropped wire-emission narration from header + `blacklistedOwnerIds` test comment; renamed historical CCHQ-leak field names in the strict-rejection test to `__unknown_a/_b/_c`).
+
+**Final shape:**
+- `caseSearchConfigSchema` is `z.object({ ... }).strict()` with 9 fields. `dontClaimAlreadyOwned: z.boolean()` is required at the schema level (no default); other fields are optional (`claimCondition`, `blacklistedOwnerIds` for claim; six display labels for the display cluster).
+- `caseSearchConfig: caseSearchConfigSchema.optional()` added to `moduleSchema` — modules without case-search authoring don't carry the slot.
+- `CaseSearchConfig` type derived via `z.infer<>`. Re-exported through `lib/domain/index.ts`'s wildcard barrel — no explicit edit needed.
+- No builder helper added (matches the existing `caseListConfig` pattern, which has no top-level builder).
+
+**Test count:** 564 / 564 green in `lib/domain` (8 new tests for caseSearchConfig: full-populated round-trip, minimal round-trip, missing-required rejection, type-error rejection, strict-mode unknown-key rejection, explicit-undefined optional handling, module-without-slot, module-with-both-configs).
+
+**Acceptance gates landed:**
+- `npm run lint -- lib/domain` clean.
+- `npm test -- lib/domain` green (deterministic two runs).
+- `npx tsc --noEmit` clean (purely additive change — no consumer breakage).
+- Sweeps clean: zero line-number citations, zero CCHQ-leak field name references, zero external-doc references.
+
+**Deltas from the planned shape:** none structural. Voice/clarity iterations across two CR rounds shaped the JSDoc + test comments to match the project's authoring-vs-wire-emission separation.
+
+**Whole-repo build state:** green throughout (the schema addition is purely additive; consumers ignore the new optional slot until Task 12 mounts the workspace).
+
+**Next:** Task 2 — Claim section UI.
+
+## Foundation followups — 2026-05-08
+
+Task 1's CR loop surfaced a structural asymmetry: `caseSearchConfigSchema` shipped with `.strict()` while every other Zod schema in `lib/domain/` and `lib/agent/tools/` defaulted to Zod's strip behavior. The reshape's strip-as-tolerance argument ("legacy v0/v1 fields might still flow through") was invalid in production: Plan 5's pre-deploy migration step (`scripts/migrate-case-list-schema-reshape.ts --write`) runs BEFORE the v2 code deploys, so by the time any v2 schema parses a doc, every doc is already v2 with no legacy fields. Strip-as-tolerance was a defensive overbuild that violated the project's "Strong typing everywhere" rule.
+
+Three commits land the foundation cleanup:
+
+### Strict alignment — commits `25894d51` + `2a7fdae0`
+
+- `25894d51` — `refactor(domain): align all schemas to .strict()`. 97 `.strict()` additions across 27 production files: every `z.object({...})` in `lib/domain/modules.ts`, `lib/domain/predicate/types.ts`, `lib/domain/blueprint.ts`, `lib/domain/forms.ts`, `lib/domain/fields/base.ts`, `lib/domain/fields/repeat.ts`, and `lib/agent/tools/**/*.ts`. `.extend()` and `.omit()` propagate strictness, so per-kind columns / per-kind fields / `omit({ uuid: true })`-derived input schemas all inherit strictness without restating.
+
+  Two existing strip-tests reversed to strict-rejection tests: `moduleSchema — rejects unknown top-level keys` and `caseListConfigSchema — three-slot shape::rejects unknown top-level keys`. 44 test failures surfaced from three consumer call sites that were using `parse()` as a "projection / strip-by-validation" mechanism — addressed in the next commit.
+
+- `2a7fdae0` — `fix(domain): replace strip-as-projection with explicit key filter`. Three consumers fixed:
+  - `lib/preview/engine/caseDataBindingClient.ts::pickBlueprintDoc` — replaced `blueprintDocSchema.parse(state)` with `pickByKeys(state, BLUEPRINT_DOC_KEYS)` (precomputed key set) + explicit `fieldParent` re-attach. The Server Actions in `caseDataBinding.ts` re-validate at the wire boundary; the projection step is now pure projection, not validation-as-projection.
+  - `lib/domain/fields/index.ts::reconcileFieldForKind` — replaced the spread-then-`fieldSchema.safeParse` strip pattern with `pickFieldKeysForKind` (per-kind valid-key dispatcher backed by `fieldKindKeySets` and, for repeat targets, `repeatVariantKeySets`).
+  - `lib/doc/mutations/fields.ts::updateField` reducer — replaced the spread-then-`fieldSchema.safeParse` strip pattern with `applyFieldPatch` (introduced as an explicit merge-then-filter helper).
+
+  Shared primitive: `pickByKeys(source, allowedKeys)` exported from `lib/domain/fields/index.ts` — used by both `pickBlueprintDoc` (BlueprintDoc projection) and `pickFieldKeysForKind` (per-kind field projection). First-duplication discipline applied; one helper, two consumers.
+
+### Mutation-type tightening — commits `7127f66a` + `87803b32`
+
+`applyFieldPatch` (introduced in `2a7fdae0`) was a runtime workaround for a loose type: `FieldPatch` was a union-wide partial that allowed any field variant's keys on any field's patch. The user's instinct: tighten the type so TypeScript catches the misuse at compile time, dropping the runtime helper.
+
+- `7127f66a` — `refactor(doc): discriminate updateField mutation by targetKind`. The `updateField` mutation now carries `targetKind: K` as a discriminator; its `patch` slot is typed as `Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>`. The Zod `mutationSchema` mirrors the type: the `kind: "updateField"` arm is a nested `z.discriminatedUnion("targetKind", ...)` over per-kind patch shapes (one schema per kind in `fieldPatchSchemaByKind`).
+
+  12 call sites updated to pass `targetKind` explicitly: `useBlueprintMutations.updateField`, `updateFieldMutations` agent helper, six fix functions in `lib/commcare/validator/fixes.ts`, four UI components, and the `editField` agent tool. Every site already had the field's kind in scope, so the migration was a single argument addition per site.
+
+  Reducer rewrite at `lib/doc/mutations/fields.ts::updateField`: reads `mut.targetKind` first, fires Elm-style warn + no-op if `field.kind !== mut.targetKind` (stale-mutation guard for parallel `convertField` races), spread-merges through `pickFieldKeysForKind` for the repeat-mode-switch cleanup case TypeScript can't narrow at the type level, then validates via `fieldSchema.safeParse`.
+
+  `applyFieldPatch` deleted; `pickFieldKeysForKind` retained for the repeat sub-discriminator case (which TypeScript can't narrow because repeat is itself a discriminated union nested inside `Field`).
+
+  Tests: 3838 → 3839 (one added — pinning the repeat-mode-switch cleanup path); the "strips keys not valid for the target kind" test pivoted to "skips a stale patch when the field's kind drifted from targetKind."
+
+- `87803b32` — `refactor(domain): extract FieldPatchFor + partialOf, tighten pickByKeys`. CR-flagged first-duplication violation: the literal `Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>` appeared at 8 distinct sites. Extracted as `FieldPatchFor<K>` next to `fieldPatchSchemaByKind` (paired type-level + runtime-schema for the same shape). All 8 sites replaced; UI inline `as unknown as Partial<Omit<...>>` triple-casts collapsed to `as FieldPatchFor<F["kind"]>`.
+
+  Two minor polish items folded into the same commit: a `partialOf` helper for the 18 `.omit({ uuid: true, kind: true }).partial()` repetitions inside `fieldPatchSchemaByKind` (with explicit return-type annotation to preserve per-variant key sets), and `pickByKeys`'s generic signature tightened from `Record<string, unknown> → Record<string, unknown>` to `<T extends Record<string, unknown>>(source: T, ...) => Partial<T>` — removing the `as unknown as Record<string, unknown>` cast at `pickBlueprintDoc`'s call site.
+
+**Compile-time guarantee.** The CR verified the type tightening empirically: a temp file constructing three intentionally-bad mutations (`{ targetKind: "hidden", patch: { label } }`, `{ targetKind: "text", patch: { subtype } }`, missing `targetKind`) all failed `tsc --noEmit` with precise per-arm error messages. The inferred patch shape for the `hidden` arm omits `label`; the `text` arm includes `validate`, `validate_msg`, `calculate`. `partialOf`'s explicit return-type annotation preserves the per-variant key set rather than collapsing to `Record<string, never>`.
+
+**Final state:**
+- `applyFieldPatch` deleted; `rg "applyFieldPatch" lib components` returns zero hits.
+- `Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>` literal eliminated; `rg "Partial<Omit<Extract<Field" lib components` returns zero hits.
+- 3839 tests passing across 227 files.
+- `npm run lint`, `npx tsc --noEmit`, `npm run build` all green.
+
+**Why this section, not its own plan.** The reshape's pattern (`docs/superpowers/plans/2026-05-07-case-list-schema-reshape.md`'s "Audit-driven follow-ups" section) is the precedent: foundation fixes that surface during a plan's CR loop and that the supervisor lands as their own commits stay attached to the plan as followups, not as a separate plan. This section documents the four foundation commits so a fresh-session supervisor reading Plan 4 sees the foundation that Plan 4's later tasks compose against.
