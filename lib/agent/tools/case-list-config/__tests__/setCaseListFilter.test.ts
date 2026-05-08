@@ -1,16 +1,21 @@
 /**
  * Behavioral tests for `setCaseListFilter`.
  *
- * Drives the tool through `GenerationContext`. Five contract checks:
+ * Drives the tool through `GenerationContext`. Coverage:
  *
  *   1. Effect on the doc — the supplied `Predicate` lands on the
  *      module's `caseListConfig.filter` slot.
- *   2. `null` clears the filter (key omitted on the persisted doc).
- *   3. Idempotency — two identical set-then-set calls produce
+ *   2. Set returns `{ message, kind }` with the predicate's
+ *      discriminator surfaced structurally so the SA reads the kind
+ *      without parsing prose.
+ *   3. `null` clears the filter (key omitted on the persisted doc)
+ *      and returns `{ message, kind: "cleared" }`.
+ *   4. Idempotency — two identical set-then-set calls produce
  *      equivalent final state.
- *   4. Round-trip — recursive predicate operators (and / or / not /
+ *   5. Round-trip — recursive predicate operators (and / or / not /
  *      between / exists) survive without corruption.
- *   5. Module-not-found — out-of-range index returns `{ error }`.
+ *   6. Module-not-found — out-of-range index returns an Elm-style
+ *      `{ error }` mirroring the atomic-op family voice.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +61,25 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig?.filter).toEqual(filter);
 	});
 
+	it("surfaces the predicate kind in the structured result on a set", async () => {
+		// Mirrors the atomic-op family's `{ message, uuid }` contract:
+		// the SA reads the predicate's discriminator off `result.kind`
+		// rather than parsing it back out of the prose message.
+		const { doc, ctx } = makeCaseListFixture();
+		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
+
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter },
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) {
+			throw new Error(`unexpected error: ${result.result.error}`);
+		}
+		expect(result.result.kind).toBe("eq");
+		expect(result.result.message).toContain("eq");
+	});
+
 	it("clears the filter when null is passed", async () => {
 		// Seed a filter, then null-clear it.
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
@@ -84,6 +108,12 @@ describe("setCaseListFilter", () => {
 		// The schema treats absent as "no filter"; the persisted shape
 		// must NOT carry an explicit `filter: undefined` key.
 		expect(finalConfig && "filter" in finalConfig).toBe(false);
+		// Structured success carries the literal `"cleared"` kind so
+		// the SA branches on the outcome without parsing the message.
+		if ("error" in result.result) {
+			throw new Error(`unexpected error: ${result.result.error}`);
+		}
+		expect(result.result.kind).toBe("cleared");
 	});
 
 	it("preserves columns and search inputs when setting filter", async () => {
@@ -175,7 +205,7 @@ describe("setCaseListFilter", () => {
 		);
 	});
 
-	it("returns an error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await setCaseListFilterTool.execute(
 			{ moduleIndex: 99, filter: null },
@@ -184,7 +214,14 @@ describe("setCaseListFilter", () => {
 		);
 
 		expect(result.mutations).toEqual([]);
-		expect(result.result).toEqual({ error: "Module 99 not found" });
+		if (!("error" in result.result)) {
+			throw new Error("expected error result");
+		}
+		// Voice mirrors the atomic-op family — "Tried to <X>. Found
+		// no <Y>. Look at <Z>."
+		expect(result.result.error).toContain("Tried to set the case list filter");
+		expect(result.result.error).toContain("module 99");
+		expect(result.result.error).toContain("Found no module");
 	});
 
 	it("initializes the caseListConfig when the module has none", async () => {

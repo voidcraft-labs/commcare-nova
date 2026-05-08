@@ -287,8 +287,8 @@ export function updateModuleMutations(
 // Failure returns expose the underlying predicate (uuid not found,
 // length mismatch, duplicate, unknown) so the SA can repair its call.
 //
-// Other (non-SA) consumers — UI mutations, future migration scripts —
-// destructure the same shape and surface their own error UI.
+// Other (non-SA) consumers — UI mutations — destructure the same
+// shape and surface their own error UI.
 //
 // The array-walk primitives (`replaceByUuid` / `removeByUuid` /
 // `reorderByUuid`) live in `tools/case-list-config/shared.ts` because

@@ -14,9 +14,8 @@
  *
  * The atomic ops route their array-walk + error-shaping through the
  * `addColumnMutation` / `addSearchInputMutation` family in
- * `lib/agent/blueprintHelpers.ts` — the same builders any non-SA caller
- * (UI mutation, future migration script) reuses. This file owns the
- * SA-boundary inputs:
+ * `lib/agent/blueprintHelpers.ts` — the same builders any non-SA
+ * caller (UI mutation) reuses. This file owns the SA-boundary inputs:
  *
  *   - `columnInputSchema` / `searchInputDefInputSchema` — the
  *     discriminated-union shapes the SA passes when adding or updating
@@ -155,11 +154,11 @@ export function baseCaseListConfig(mod: Module): CaseListConfig {
 //
 // Pure generic primitives over `{ uuid: Uuid }[]` arrays — the same
 // shape every case-list-config slot's atomic op walks (columns,
-// search-inputs, and any future case-list-shaped array). Reused by
-// the `addColumnMutation` / `addSearchInputMutation` family in
-// `lib/agent/blueprintHelpers.ts` and available to UI mutations,
-// migration scripts, and test fixtures that operate on the same
-// `{ uuid }[]` shape.
+// search-inputs, any other case-list-shaped array). Reused by the
+// `addColumnMutation` / `addSearchInputMutation` family in
+// `lib/agent/blueprintHelpers.ts` and available to non-SA consumers
+// (UI mutations, test fixtures) that operate on the same `{ uuid }[]`
+// shape.
 //
 // Each helper returns a tagged result the caller destructures: success
 // → `{ ok: true, items }` carrying the post-mutation array; failure →
