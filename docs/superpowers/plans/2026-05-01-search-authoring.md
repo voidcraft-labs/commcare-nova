@@ -541,6 +541,60 @@ The plan's literal file list named `ClaimSection.tsx` + tests. The supervisor ex
 
 **Next:** Task 3 — Display section UI.
 
+### Task 3 — Display section UI — 2026-05-08
+
+Landed across two commits: `4c71b1f4` (initial DisplaySection + tests + extracted `nextConfig` shared helper; 21 tests in case-search-config + ClaimSection refactored to import the shared helper) → `30708a55` (CR round-1 fix-pass: spurious-emit no-op gate on focus-blur of an undefined slot + consumer-snapshot rewording in the file header).
+
+**Final shape:**
+
+- `components/builder/case-search-config/DisplaySection.tsx` (NEW) — six controls authoring `mod.caseSearchConfig`'s display cluster: five optional text slots (`searchScreenTitle`, `searchScreenSubtitle` with markdown affordance, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`) routed through a local `OptionalTextRow` primitive, plus `searchButtonDisplayCondition` mounted via the shared `<PredicateSlotCard>` primitive. Section-overall validity = `(!searchButtonDisplayConditionPresent || predicateValid)`; the five text slots are always valid (string slot, no validation states). Empty-string-clears: when a text input value transitions to `""`, the `nextConfig` setter writes `undefined` so strict-parse drops the slot.
+
+- `components/builder/case-search-config/OptionalTextRow` (local primitive inside DisplaySection.tsx) — five-slot row primitive built on `useCommitField`. Single-line `<input>` for plain text slots; `<textarea>` + a "Markdown" badge + live `<PreviewMarkdown>` panel when the `markdown` flag is set. `useId()` + `htmlFor` for label-input binding so `getByLabelText` resolves correctly in tests. The `onEmpty` callback gates on `value !== undefined` — focus-blur-without-typing AND Esc-on-empty are no-ops when the slot was never set, so a passive interaction can't trigger a spurious autosave write or undo-history entry.
+
+- `components/builder/case-search-config/nextConfig.ts` (NEW) — extracted shared helper consumed by both ClaimSection (refactored to import) and DisplaySection. Accepts `(current: CaseSearchConfig | undefined, patch: Partial<CaseSearchConfig>)` and returns a fully-formed `CaseSearchConfig` with `dontClaimAlreadyOwned: false` seeded when `current` is undefined. Spread order is `...base, ...patch` so untouched siblings flow through every per-slot mutator. First-duplication discipline applied on the second consumer.
+
+- `components/builder/case-search-config/ClaimSection.tsx` (MODIFIED) — drops the inline `nextConfig` helper, imports from the shared location.
+
+**Markdown affordance choice:** the `searchScreenSubtitle` slot uses textarea + live `<PreviewMarkdown>` rather than the project's TipTap-based `InlineTextEditor`. The TipTap editor is a heavyweight WYSIWYG primitive scoped for inline label/hint editing in the form preview — wrong shape for an authoring-side multi-line markdown text slot. The fallback path (textarea + live preview + a "Markdown" badge near the label) matches the spec's stated fallback and reads cleanly in the workspace.
+
+**Test count:** 3869 / 3869 green across 227 test files (deterministic two runs). +11 from Task 3's introduction (DisplaySection has 10 tests; ClaimSection's 11 tests pass post-refactor). +1 from the round-1 fix-pass's spurious-emit regression test.
+
+**Acceptance gates landed:**
+
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean.
+- `npm test` 3869 / 14 skipped.
+- Drift sweeps clean: zero `wire emitter|wire layer|wire emit` references in the Task 3-scope authoring-voice surfaces, zero `Today's consumers|Currently used by|Consumers right now|Filters and Claim sections|sections consume` snapshot lists, zero line-number citations in committed comments, zero `Plan 4|Plan N|spec section|SHIPPED` references.
+
+**Deltas from the planned shape:**
+
+The plan listed only `DisplaySection.tsx` + tests. The supervisor scope expanded to extract `nextConfig` (first-duplication on the second consumer of the helper) and a local `OptionalTextRow` primitive that owns the five text-slot chrome. Both expansions were structurally justified by the project's discipline rules.
+
+**Whole-repo build state:** green throughout. Task 3's deliverables compose into Task 12's workspace shell when that lands.
+
+**Next:** Task 4 — Embed Search Inputs section (cross-binding test).
+
+## Audit followups — Task 3 — 2026-05-08
+
+Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
+
+### Family fix — commit `1674c4a0`
+
+`fix(builder): no-op on focus-blur-of-empty for never-set text slots — family fix`. Applies the same `value !== undefined` gate that Task 3's `OptionalTextRow` got to two more consumers of `useCommitField`'s `onEmpty` callback:
+
+- `components/builder/editor/fields/TextEditor.tsx::handleEmpty` — gated.
+- `components/builder/editor/fields/XPathEditor.tsx::clearValidateMsg` — split into two conditionally-fired arms: slot-clear gated on `validateMsg !== undefined`, `setAddingMsg(false)` always fires.
+
+**Path B (consumer-level fix) chosen** after the implementer traced an obstruction with Path A (primitive-level gate at `EditableText`): XPathEditor's `clearValidateMsg` bundles a UI-state cleanup arm (closes the "Add Validation Message" editor) that MUST fire unconditionally even when the slot was never set. A primitive-level gate would block both arms uniformly and leave the editor mounted forever after a passive Add-then-cancel gesture. Path B fixes each consumer's specific semantic correctly.
+
+**Family completeness sweep:** every direct `useCommitField` consumer audited. `FieldHeader` uses the hook for the field-id input with no `onEmpty` (not affected). `InlineField` uses `required` rather than `onEmpty` (different shape, not affected). No non-`useCommitField` consumers with the same shape exist (`XPathField`'s CodeMirror editor uses Cmd/Ctrl+Enter explicit save, not focus-blur autosave).
+
+**Tests:** 5 new regression tests across two new test files (`__tests__/TextEditor.test.tsx` 3 tests + `__tests__/XPathEditor.test.tsx` 2 tests) pinning the split-cleanup invariant at XPathEditor and the no-op-on-never-set + clear-emits-undefined contracts at TextEditor.
+
+**Test count:** 3869 → 3874 passing (+5 from the new tests). Lint + typecheck clean.
+
+**Branch tip after the family fix:** `1674c4a0`.
+
 ## Foundation followups — 2026-05-08
 
 Task 1's CR loop surfaced a structural asymmetry: `caseSearchConfigSchema` shipped with `.strict()` while every other Zod schema in `lib/domain/` and `lib/agent/tools/` defaulted to Zod's strip behavior. The reshape's strip-as-tolerance argument ("legacy v0/v1 fields might still flow through") was invalid in production: Plan 5's pre-deploy migration step (`scripts/migrate-case-list-schema-reshape.ts --write`) runs BEFORE the v2 code deploys, so by the time any v2 schema parses a doc, every doc is already v2 with no legacy fields. Strip-as-tolerance was a defensive overbuild that violated the project's "Strong typing everywhere" rule.
