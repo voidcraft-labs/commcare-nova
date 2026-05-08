@@ -572,7 +572,47 @@ The plan listed only `DisplaySection.tsx` + tests. The supervisor scope expanded
 
 **Whole-repo build state:** green throughout. Task 3's deliverables compose into Task 12's workspace shell when that lands.
 
-**Next:** Task 4 — Embed Search Inputs section (cross-binding test).
+**Next:** Task 4 — Embed Search Inputs section (cross-binding test). Task 4 sits AFTER Task 12 in execution order despite its lower task ID — Task 4 verifies a contract Task 12 establishes; the executor follows dependencies, not numbers.
+
+### Task 5 — SA tools (claim + display) — 2026-05-08
+
+Landed at commit `4f97c7da`. Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) Approved with three observation-only Minors.
+
+**Final shape:**
+
+- `lib/agent/tools/case-search-config/setCaseSearchClaim.ts` (NEW) — wholesale-replace tool for the claim cluster (`claimCondition`, `dontClaimAlreadyOwned`, `blacklistedOwnerIds`). Slots are `.nullable()` (NOT `.optional()`) — required-and-nullable shape mirrors `setCaseListFilter` exactly. Optional-count-zero on the schema; well under the Anthropic 8-optional ceiling. Mutation tag `module:M:caseSearch:claim`. Structured success carries `claimConditionKind: Predicate["kind"] | "cleared"` discriminator.
+
+- `lib/agent/tools/case-search-config/setCaseSearchDisplay.ts` (NEW) — wholesale-replace tool for the display cluster (six text + predicate slots). Same `.nullable()` pattern. Mutation tag `module:M:caseSearch:display`. Structured success carries `displaySlotsSet: readonly DisplaySlotName[]` (a list, not a single discriminator — six independent slots warrant a list). Bootstrap-default seeding (`dontClaimAlreadyOwned: false`) gates on `mod.caseSearchConfig === undefined` so a display-only edit on a fresh module produces a strict-parse-valid config without overwriting an existing toggle value.
+
+- `lib/agent/tools/case-search-config/shared.ts` (NEW) — `snapshotCaseSearchConfig(mod: Module): CaseSearchConfig | undefined` helper (Pattern A) + Zod input schemas for both tools.
+
+- `lib/agent/tools/shared/moduleNotFoundResult.ts` (NEW) — first-duplication relocation. Helper moved from `lib/agent/tools/case-list-config/shared.ts` BEFORE adding the second consumer. The case-list-config `shared.ts` now re-exports from the new shared/ location so the 9 existing case-list-config tool import paths stay stable.
+
+- Registration sweep complete: `solutionsArchitect.ts` (chat surface), `lib/mcp/server.ts` (MCP parity, `set_case_search_claim` + `set_case_search_display`), `getModule.ts` projection includes `case_search_config: mod.caseSearchConfig ?? null`, `summarizeBlueprint.ts` adds `summarizeCaseSearch` (one-line per-module rendering of claim + display state), `prompts.ts` INITIAL_BUILD step names the new tools + cross-binding rule (search inputs stay on `caseListConfig.searchInputs`, never inside case-search tools), `updateModule.ts` JSDoc parallel reference, `lib/agent/CLAUDE.md` documents the new family, `scripts/test-schema.ts` registers both tools in the live-API harness.
+
+- Tests: 25 new tests across 4 new test files. Coverage includes happy path + structured-success discriminator + null-clears semantic (keys omitted, not undefined) + cross-cluster preservation (sibling cluster survives byte-identically) + fresh-module bootstrap + module-not-found Elm-style error + cross-surface parity (chat + MCP produce structurally-identical mutation batches).
+
+**Test count:** 3899 → 3913 (final count after the supplemental tests in `__tests__/moduleNotFoundResult.test.ts` and the schema structural-defense file). The implementer's commit body reported +25 across 4 files; the actual baseline-to-final delta is 3874 → 3913 (+39) when measured against `081c829e`.
+
+**Acceptance gates landed:**
+
+- `npm run lint` clean (1020 files).
+- `npx tsc --noEmit` clean.
+- `npm test` 3913 / 14 skipped.
+- Drift sweeps clean: zero `Today's consumers|Currently used by|Consumers right now` snapshot lists, zero `Plan 4|Plan N|spec section|SHIPPED` references, zero line-number citations in committed comments, zero wire-emit narration in the schema-touching tool surfaces.
+
+**Deltas from the planned shape:**
+
+The plan listed `setCaseSearchClaim` + `setCaseSearchDisplay` + `setCaseSearchDefaultFilters` + `setCaseSearchCustomSorts` (4 tools) at the time the spec was first drafted; the 2026-05-08 reshape dropped `defaultFilters` / `customSorts` / `sortByRelevance` from the schema, leaving 2 tools. The reshape's drop is consistent across schema (Task 1) → SA tools (Task 5) → wire emission (Tasks 8-10). Plan 5 was synced for the same drop.
+
+**CR round-1 observation-only Minors (none blocking):**
+1. Commit body's test-count delta cited as `+25` against the 3874 baseline; actual delta is `+39` to 3913. Captured here in the SHIPPED block at the correct count.
+2. `setCaseSearchDisplay`'s rebuild logic types the temporary as `Record<DisplaySlotName, unknown>`. A more precise type (`Record<DisplaySlotName, string | Predicate | null>`) is possible; current shape's only op is `!== null` so the loose type doesn't bite at runtime. Acceptable as-is.
+3. The conditional-spread fan-out across six display slots could refactor to a loop. Current explicit form mirrors `setCaseListFilter`'s exact pattern for family parity. Stylistic, not blocking.
+
+**Whole-repo build state:** green throughout.
+
+**Next:** Task 6 — Platform-aware compilation decision tree (running in parallel with this plan-sync).
 
 ## Audit followups — Task 3 — 2026-05-08
 
