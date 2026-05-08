@@ -10,15 +10,20 @@
 // Each column kind has its own render path. The runtime / wire-
 // emit layers handle the same logic against the live engine; the
 // preview reads off the already-loaded `CaseRow` and applies a
-// best-effort formatter that mirrors the runtime's intent. Date /
-// phone / id-mapping / late-flag formatting is intentionally
+// best-effort formatter that mirrors the runtime's intent.
+// Date / phone / id-mapping / interval formatting is intentionally
 // simple here — the goal is "what does this look like", not
 // "exact wire parity". The preview pins the column's authored
 // shape; small format drift against CCHQ's runtime is acceptable
 // for an authoring-time preview.
+//
+// Calculated columns project their result through the case-store's
+// `queryWithCalculated` SELECT slot; the value lands on
+// `row.calculated[col.uuid]` per the v2 case-store contract. The
+// dispatcher reads the slot and routes through `renderCalculatedCell`.
 
 "use client";
-import type { CalculatedValue, CaseRow } from "@/lib/case-store";
+import type { CalculatedValue, CaseRowWithCalculated } from "@/lib/case-store";
 import type { Column } from "@/lib/domain";
 import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingHelpers";
 
@@ -30,41 +35,48 @@ import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingHelpers
  * The exhaustive `switch` forces a branch per kind — adding a
  * new column kind to the discriminated union surfaces here as a
  * type error first, not a silent rendering regression.
+ *
+ * Calculated arm reads `row.calculated[column.uuid]` — the case-
+ * store's `queryWithCalculated` keys results by the column's uuid
+ * (the wire-side stable handle). Other arms read the case property
+ * named by `column.field` via the shared display-value helper.
  */
 export function renderColumnCell(
 	column: Column,
-	row: CaseRow,
+	row: CaseRowWithCalculated,
 ): React.ReactNode {
-	const raw = caseRowDisplayValue(row, column.field);
 	switch (column.kind) {
-		case "plain":
+		case "plain": {
+			const raw = caseRowDisplayValue(row, column.field);
 			return <span>{raw || "—"}</span>;
-		case "phone":
+		}
+		case "phone": {
 			// Phone column renders as a tappable link in the runtime.
 			// The preview shows the raw value with monospace styling
 			// to communicate "this is a phone-typed column" without
 			// pretending to format an arbitrary international number.
+			const raw = caseRowDisplayValue(row, column.field);
 			return raw ? <span className="font-mono">{raw}</span> : <span>—</span>;
-		case "date":
+		}
+		case "date": {
 			// The runtime applies the column's `pattern` via CCHQ's
 			// format-date function. The preview tries an ISO parse
 			// and renders the JS-formatted local date as a best-
 			// effort fallback; un-parseable values show raw.
-			return <span>{formatDateBestEffort(raw, column.pattern)}</span>;
-		case "time-since-until":
-			return <span>{formatTimeSinceBestEffort(raw, column)}</span>;
-		case "late-flag":
-			return <span>{formatLateFlagBestEffort(raw, column)}</span>;
+			const raw = caseRowDisplayValue(row, column.field);
+			return <span>{formatDateBestEffort(raw)}</span>;
+		}
+		case "interval": {
+			const raw = caseRowDisplayValue(row, column.field);
+			return <span>{formatIntervalBestEffort(raw, column)}</span>;
+		}
 		case "id-mapping": {
+			const raw = caseRowDisplayValue(row, column.field);
 			const match = column.mapping.find((entry) => entry.value === raw);
 			return <span>{match?.label ?? raw ?? "—"}</span>;
 		}
-		case "search-only":
-			// Search-only columns aren't displayed; the parent filters
-			// them out before reaching the cell renderer. This branch
-			// is structurally unreachable but kept for exhaustivity —
-			// the discriminated union forces a branch per kind.
-			return null;
+		case "calculated":
+			return renderCalculatedCell(row.calculated[column.uuid]);
 	}
 }
 
@@ -132,12 +144,8 @@ export function renderCalculatedCell(
  * CCHQ wire-format parity — the wire emitter applies the column's
  * `pattern` via Postgres's `to_char`. Falls back to the raw value
  * when the parse fails so authoring continues unimpeded.
- *
- * The `_pattern` parameter is unused at the rendering layer; the
- * preview's locale-format shape is the chosen approximation. The
- * full pattern lives on the column for the wire emitter to honor.
  */
-function formatDateBestEffort(raw: string, _pattern: string): string {
+function formatDateBestEffort(raw: string): string {
 	if (!raw) return "—";
 	const parsed = new Date(raw);
 	if (Number.isNaN(parsed.getTime())) return raw;
@@ -145,54 +153,35 @@ function formatDateBestEffort(raw: string, _pattern: string): string {
 }
 
 /**
- * Best-effort time-since renderer. The runtime computes
- * `(today() - propValue)` in the column's unit and surfaces the
- * displayLabel when the threshold is exceeded. The preview shows
- * the raw value's relative interval ("3 days ago") without the
- * threshold-exceeded label — the goal is to communicate the column
- * kind, not replicate the runtime exactly.
+ * Best-effort interval renderer. Dispatches on the column's
+ * `display` discriminator:
+ *
+ *   - `"always"` — render the relative interval ("3 days ago").
+ *     The `text` slot's runtime decoration on threshold-exceeded
+ *     rows is omitted in the preview — "this is an interval column"
+ *     is the communication goal.
+ *   - `"flag"` — render the `text` slot when the interval has
+ *     crossed the threshold; otherwise empty cell.
+ *
+ * The threshold is interpreted in the column's unit; the preview
+ * uses approximate calendar conversions (1 week = 7 days, 1 month
+ * = 30 days, 1 year = 365 days) so the user sees the row's
+ * approximate state. The wire layer's exact calendar arithmetic is
+ * the runtime authority.
  */
-function formatTimeSinceBestEffort(
+function formatIntervalBestEffort(
 	raw: string,
-	column: Extract<Column, { kind: "time-since-until" }>,
+	column: Extract<Column, { kind: "interval" }>,
 ): string {
-	if (!raw) return "—";
+	if (!raw) return column.display === "flag" ? "" : "—";
 	const parsed = new Date(raw);
-	if (Number.isNaN(parsed.getTime())) return raw;
+	if (Number.isNaN(parsed.getTime())) {
+		return column.display === "flag" ? "" : raw;
+	}
 	const now = new Date();
 	const diffMs = now.getTime() - parsed.getTime();
 	const dayMs = 1000 * 60 * 60 * 24;
-	const diffDays = Math.floor(Math.abs(diffMs) / dayMs);
-	const sign = diffMs < 0 ? "in " : "";
-	const past = diffMs >= 0 ? " ago" : "";
-	const value =
-		column.unit === "weeks"
-			? Math.floor(diffDays / 7)
-			: column.unit === "months"
-				? Math.floor(diffDays / 30)
-				: column.unit === "years"
-					? Math.floor(diffDays / 365)
-					: diffDays;
-	return `${sign}${value} ${column.unit}${past}`;
-}
-
-/**
- * Best-effort late-flag renderer. The runtime surfaces
- * `flagDisplayValue` when the date property exceeds the threshold;
- * the preview applies the same logic locally so the column's
- * authored shape is visible.
- */
-function formatLateFlagBestEffort(
-	raw: string,
-	column: Extract<Column, { kind: "late-flag" }>,
-): string {
-	if (!raw) return "";
-	const parsed = new Date(raw);
-	if (Number.isNaN(parsed.getTime())) return "";
-	const now = new Date();
-	const diffMs = now.getTime() - parsed.getTime();
-	const dayMs = 1000 * 60 * 60 * 24;
-	const diffDays = Math.floor(diffMs / dayMs);
+	const diffDaysAbs = Math.floor(Math.abs(diffMs) / dayMs);
 	const thresholdDays =
 		column.unit === "weeks"
 			? column.threshold * 7
@@ -201,5 +190,19 @@ function formatLateFlagBestEffort(
 				: column.unit === "years"
 					? column.threshold * 365
 					: column.threshold;
-	return diffDays > thresholdDays ? column.flagDisplayValue : "";
+	if (column.display === "flag") {
+		return Math.floor(diffMs / dayMs) > thresholdDays ? column.text : "";
+	}
+	// `display === "always"` — render the relative interval.
+	const sign = diffMs < 0 ? "in " : "";
+	const past = diffMs >= 0 ? " ago" : "";
+	const value =
+		column.unit === "weeks"
+			? Math.floor(diffDaysAbs / 7)
+			: column.unit === "months"
+				? Math.floor(diffDaysAbs / 30)
+				: column.unit === "years"
+					? Math.floor(diffDaysAbs / 365)
+					: diffDaysAbs;
+	return `${sign}${value} ${column.unit}${past}`;
 }

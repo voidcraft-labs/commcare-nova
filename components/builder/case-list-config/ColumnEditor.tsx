@@ -8,28 +8,30 @@
 //      schema. The shared property pickers (`PropertyPicker` from
 //      `primitives/`) read `caseTypes` / `currentCaseType` from
 //      this provider, so column cards plug into the same context
-//      machinery the predicate / expression editors use. Column
-//      editing has no relation walks and no search-input bindings,
-//      so the validity index is built directly from the per-kind
-//      applicability check rather than a recursive walker — but
-//      the provider is still the right context type since the
-//      pickers' contract is "read the active case-type from
-//      here."
+//      machinery the predicate / expression editors use. Calculated
+//      columns rely on the same provider for their nested
+//      `ExpressionCardEditor` mount.
 //
-//   2. Computes the kind-vs-property-type applicability error
-//      list for the current `value`. The kind's
-//      `applicableForProperty(...)` predicate against the resolved
-//      property is the structural gate; mismatches surface as
-//      inline errors next to the field picker AND propagate to
-//      the parent's `onValidityChange` so the surrounding save
+//   2. Computes the kind-vs-property-type applicability error list
+//      for the current `value`. Calculated columns skip this check
+//      entirely — they have no `field`, so per-property
+//      applicability doesn't apply. Mismatches surface as inline
+//      errors next to the field picker AND propagate to the
+//      parent's `onValidityChange` so the surrounding save
 //      affordance can gate.
 //
 //   3. Wraps the matched card in a `CardShell` styled to match
 //      the predicate / expression cards (frosted glass, violet
 //      accent, kebab-less header for the top-level mount). The
-//      shell also surfaces a kind-replace menu that swaps the
-//      column's `kind` while preserving `field` + `header` —
-//      the two slots every kind shares.
+//      shell surfaces three pieces of chrome:
+//        - kind-replace menu (swap kinds while preserving header)
+//        - per-column visibility toggles (list / detail)
+//        - per-column sort affordance (direction toggle + priority
+//          badge)
+//      All three live in the shell rather than inside per-kind
+//      cards because they bind to slots (`sort`, `visibleInList`,
+//      `visibleInDetail`) every kind shares — including the
+//      field-less calculated arm.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -37,19 +39,20 @@ import { Icon } from "@iconify/react/offline";
 import { useEffect, useMemo, useRef } from "react";
 import type { CaseType, Column, ColumnKind } from "@/lib/domain";
 import {
+	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
-	lateFlagColumn,
+	intervalColumn,
 	phoneColumn,
 	plainColumn,
-	searchOnlyColumn,
-	timeSinceUntilColumn,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 import {
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import { ColumnAffordancesRow } from "./cards/column/ColumnAffordancesRow";
 import {
 	type ColumnCardSchema,
 	type ColumnEditContext,
@@ -66,9 +69,9 @@ import { CardShell } from "./primitives/CardShell";
  * provider. The column editor surfaces applicability errors via
  * the `errors` prop on each card (NOT through the
  * `useEditorErrorsAt` lookup the predicate / expression editors
- * use), so the index is unused — but the provider's contract
- * requires one. Pinning a single empty Map avoids re-allocating
- * a fresh map on every render.
+ * use), so the index is unused at this level. Calculated columns'
+ * inner `ExpressionCardEditor` builds its own validity index
+ * downstream — this one only governs the column-card pickers.
  */
 const EMPTY_VALIDITY_INDEX = new Map<string, readonly string[]>();
 
@@ -89,6 +92,20 @@ interface ColumnEditorProps {
 	 */
 	readonly currentCaseType: string;
 	/**
+	 * Total number of columns in the current list whose `sort` slot
+	 * is set. Drives the `ColumnAffordancesRow`'s priority
+	 * assignment for a freshly-toggled sort — the new column lands
+	 * at the end of the existing priority order so the user's first
+	 * sorted column is the primary.
+	 */
+	readonly sortedColumnCount: number;
+	/**
+	 * The column's resolved sort priority position among its sorted
+	 * peers (1-based). `undefined` when the column isn't sorted.
+	 * Drives the priority badge in `ColumnAffordancesRow`.
+	 */
+	readonly sortPriorityPosition: number | undefined;
+	/**
 	 * Surfaces the boolean validity verdict to the parent on
 	 * every onChange. The parent gates its save affordance on
 	 * this. The editor does not gate the onChange itself —
@@ -100,14 +117,17 @@ interface ColumnEditorProps {
 /**
  * Top-level Column card editor. The dispatch shell handles every
  * column kind via the registry; this file's job is the
- * applicability check, the kind-replace menu, and the context
- * plumbing into the shared `PredicateEditProvider`.
+ * applicability check, the kind-replace + visibility + sort
+ * affordances, and the context plumbing into the shared
+ * `PredicateEditProvider`.
  */
 export function ColumnEditor({
 	value,
 	onChange,
 	caseTypes,
 	currentCaseType,
+	sortedColumnCount,
+	sortPriorityPosition,
 	onValidityChange,
 }: ColumnEditorProps) {
 	const ctx = useMemo<ColumnEditContext>(
@@ -115,15 +135,13 @@ export function ColumnEditor({
 		[caseTypes, currentCaseType],
 	);
 
-	// Per-kind applicability check. The schema's
-	// `applicableForProperty` predicate decides whether the
-	// resolved property's data type is admissible for the kind;
-	// mismatches surface inline next to the field picker. The
-	// kind's `applicabilityRequirement` string names the
-	// requirement in the inline hint — kinds with no requirement
-	// (Plain / ID-Mapping / Search-Only) never reach this branch
-	// because their applicability check always returns true.
+	// Per-kind applicability check. Calculated columns have no
+	// `field` slot to validate, so the check is skipped. For every
+	// other kind, the schema's `applicableForProperty` predicate
+	// against the resolved property is the structural gate;
+	// mismatches surface inline next to the field picker.
 	const applicabilityErrors = useMemo(() => {
+		if (value.kind === "calculated") return [] as const;
 		const property = resolveColumnProperty(ctx, value.field);
 		const schema = columnCardSchemas[value.kind];
 		if (schema.applicableForProperty(property)) return [] as const;
@@ -135,10 +153,10 @@ export function ColumnEditor({
 		] as const;
 	}, [ctx, value]);
 
-	// Propagate the validity verdict to the parent. Same
-	// ref-stash pattern as the predicate / expression editors —
-	// keeps a fresh-each-render parent callback identity from
-	// tripping the effect on non-transitions.
+	// Propagate the validity verdict to the parent. Same ref-stash
+	// pattern as the predicate / expression editors — keeps a fresh-
+	// each-render parent callback identity from tripping the effect
+	// on non-transitions.
 	const onValidityChangeRef = useRef(onValidityChange);
 	onValidityChangeRef.current = onValidityChange;
 	const isValid = applicabilityErrors.length === 0;
@@ -176,7 +194,19 @@ export function ColumnEditor({
 				icon={schema.icon}
 				label={schema.label}
 				kindAccent={
-					<KindReplaceMenu currentValue={value} onChange={onChange} ctx={ctx} />
+					<span className="inline-flex items-center gap-2">
+						<KindReplaceMenu
+							currentValue={value}
+							onChange={onChange}
+							ctx={ctx}
+						/>
+						<ColumnAffordancesRow
+							value={value}
+							onChange={onChange}
+							sortedColumnCount={sortedColumnCount}
+							sortPriorityPosition={sortPriorityPosition}
+						/>
+					</span>
 				}
 			>
 				<Component
@@ -198,120 +228,140 @@ interface KindReplaceMenuProps {
 
 /**
  * Map a kind to the field-and-header-preserving rebuild for the
- * target kind. Every column kind carries `field: string` and
- * `header: string`, so a kind swap can ALWAYS preserve those two
- * slots verbatim — non-twin transitions reset the kind-specific
- * extras (date pattern, threshold, mapping table, etc.) to the
- * target schema's defaults.
+ * target kind. The five non-calc kinds carry `field: string`, so a
+ * kind swap among them ALWAYS preserves the field verbatim — non-
+ * twin transitions reset the kind-specific extras (date pattern,
+ * threshold, mapping table) to the target schema's defaults.
  *
- * Returns the rebuilt column for every transition. Routes through
- * the per-kind builder so the constructed shape always matches
- * the schema; ad-hoc literals would drift if the schema's per-arm
- * shape ever changed. The target schema's `defaultValue(...)`
- * factory provides the kind-specific extras (calling
- * `defaultValue` and overwriting `field` + `header` would discard
- * the factory's chosen extras after they were just computed —
- * inverting through builders avoids the redundant pass).
+ * Calculated columns have no `field`. Swapping FROM calc into a
+ * field-bearing kind seeds the new column's field via the target
+ * schema's default-value factory; swapping TO calc drops the
+ * field entirely. Header is preserved on every transition. The
+ * column's `uuid` and optional common slots (`sort`,
+ * `visibleInList`, `visibleInDetail`) thread through verbatim —
+ * they're identity / surface-visibility shape, not kind-specific.
  */
 function preservedColumnSwap(
 	currentValue: Column,
 	targetKind: ColumnKind,
 	ctx: ColumnEditContext,
 ): Column {
-	const { field, header } = currentValue;
+	const { uuid, header } = currentValue;
+	const slots = {
+		sort: currentValue.sort,
+		visibleInList: currentValue.visibleInList,
+		visibleInDetail: currentValue.visibleInDetail,
+	};
+	// Field source: the current value's field if the source has one;
+	// otherwise the target schema's default-picked field.
+	const sourceField = "field" in currentValue ? currentValue.field : "";
+
 	switch (targetKind) {
 		case "plain":
-			return plainColumn(field, header);
+			return plainColumn(
+				uuid,
+				sourceField || pickFieldFromTarget(ctx, "plain"),
+				header,
+				slots,
+			);
 		case "phone":
-			return phoneColumn(field, header);
-		case "search-only":
-			return searchOnlyColumn(field, header);
+			return phoneColumn(
+				uuid,
+				sourceField || pickFieldFromTarget(ctx, "phone"),
+				header,
+				slots,
+			);
 		case "date": {
-			// Twin: the source is already a date column → preserve the
+			// Twin: source is already a date column → preserve the
 			// pattern verbatim. Otherwise fall back to the target
 			// schema's default pattern.
 			const seed = columnCardSchemas.date.defaultValue(ctx);
 			const pattern =
 				currentValue.kind === "date" ? currentValue.pattern : seed.pattern;
-			return dateColumn(field, header, pattern);
+			return dateColumn(
+				uuid,
+				sourceField || seed.field,
+				header,
+				pattern,
+				slots,
+			);
 		}
 		case "id-mapping": {
 			// Twin: source is already id-mapping → preserve the table.
 			const mapping =
 				currentValue.kind === "id-mapping" ? currentValue.mapping : [];
-			return idMappingColumn(field, header, mapping);
+			return idMappingColumn(
+				uuid,
+				sourceField || pickFieldFromTarget(ctx, "id-mapping"),
+				header,
+				mapping,
+				slots,
+			);
 		}
-		case "time-since-until": {
-			// Twin pair: time-since-until ↔ late-flag share
-			// `(threshold, unit)` — preserve the pair when the source
-			// is either kind. The text slot (`displayLabel`) seeds from
-			// the target schema's default for non-twin sources or the
-			// source's own value when the kinds match.
-			const seed = columnCardSchemas["time-since-until"].defaultValue(ctx);
-			if (currentValue.kind === "time-since-until") {
-				return timeSinceUntilColumn(
-					field,
+		case "interval": {
+			// Twin: source is already interval → preserve every
+			// kind-specific extra (threshold, unit, display, text).
+			// Non-twin sources seed the extras from the target schema's
+			// default factory.
+			const seed = columnCardSchemas.interval.defaultValue(ctx);
+			if (currentValue.kind === "interval") {
+				return intervalColumn(
+					uuid,
+					currentValue.field,
 					header,
 					currentValue.threshold,
 					currentValue.unit,
-					currentValue.displayLabel,
+					currentValue.display,
+					currentValue.text,
+					slots,
 				);
 			}
-			if (currentValue.kind === "late-flag") {
-				return timeSinceUntilColumn(
-					field,
-					header,
-					currentValue.threshold,
-					currentValue.unit,
-					seed.displayLabel,
-				);
-			}
-			return timeSinceUntilColumn(
-				field,
+			return intervalColumn(
+				uuid,
+				sourceField || seed.field,
 				header,
 				seed.threshold,
 				seed.unit,
-				seed.displayLabel,
+				seed.display,
+				seed.text,
+				slots,
 			);
 		}
-		case "late-flag": {
-			const seed = columnCardSchemas["late-flag"].defaultValue(ctx);
-			if (currentValue.kind === "late-flag") {
-				return lateFlagColumn(
-					field,
-					header,
-					currentValue.threshold,
-					currentValue.unit,
-					currentValue.flagDisplayValue,
-				);
-			}
-			if (currentValue.kind === "time-since-until") {
-				return lateFlagColumn(
-					field,
-					header,
-					currentValue.threshold,
-					currentValue.unit,
-					seed.flagDisplayValue,
-				);
-			}
-			return lateFlagColumn(
-				field,
-				header,
-				seed.threshold,
-				seed.unit,
-				seed.flagDisplayValue,
-			);
+		case "calculated": {
+			// Twin: source is already calculated → preserve the
+			// expression verbatim. Non-twin sources seed an empty-
+			// string literal expression — the same shape the schema's
+			// `defaultValue` factory uses, kept inline here so a kind
+			// swap doesn't pull a fresh uuid via the factory.
+			const expression =
+				currentValue.kind === "calculated"
+					? currentValue.expression
+					: term(literal(""));
+			return calculatedColumn(uuid, header, expression, slots);
 		}
 	}
 }
 
+/** Pick the target schema's default field for a non-calc kind. The
+ *  default factory mints a uuid we don't want here (the kind swap
+ *  preserves the source's uuid), so the helper invokes the factory
+ *  and discards everything but the field. */
+function pickFieldFromTarget(
+	ctx: ColumnEditContext,
+	target: Exclude<ColumnKind, "calculated">,
+): string {
+	const seed = columnCardSchemas[target].defaultValue(ctx);
+	return seed.field;
+}
+
 /**
  * Menu that replaces the current card's column kind with another.
- * Every kind transition preserves `field` + `header` (every kind
- * shares both slots); kind-specific extras (date pattern,
- * threshold, mapping table) are preserved across structural-twin
- * transitions and reset to the target schema's defaults
- * otherwise.
+ * Every kind transition preserves `header` (every kind shares the
+ * slot); kind-specific extras (date pattern, threshold, mapping
+ * table, expression) are preserved across structural-twin
+ * transitions and reset to the target schema's defaults otherwise.
+ * The `uuid` and optional common slots (`sort`, `visibleInList`,
+ * `visibleInDetail`) thread through verbatim.
  *
  * Inapplicable kinds (per the schema's `applicableForProperty`
  * predicate against the current resolved property) render with
@@ -320,7 +370,9 @@ function preservedColumnSwap(
  * The applicability gate de-emphasizes structurally inadvisable
  * authoring without locking the author out (the inline error
  * surface and parent save affordance handle the structural
- * rejection).
+ * rejection). Calculated columns have no field, so the
+ * applicability gate is skipped — every kind appears at full
+ * opacity when the source is calc.
  */
 function KindReplaceMenu({
 	currentValue,
@@ -328,7 +380,10 @@ function KindReplaceMenu({
 	ctx,
 }: KindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const property = resolveColumnProperty(ctx, currentValue.field);
+	const property =
+		currentValue.kind === "calculated"
+			? undefined
+			: resolveColumnProperty(ctx, currentValue.field);
 	const currentKind = currentValue.kind;
 
 	const replaceWith = <K extends ColumnKind>(schema: ColumnCardSchema<K>) => {
@@ -374,7 +429,14 @@ function KindReplaceMenu({
 					>
 						{columnCardSchemaList.map((s, i) => {
 							const isCurrent = s.kind === currentKind;
-							const isApplicable = s.applicableForProperty(property);
+							// Calculated source has no property; every target kind
+							// stays at full opacity. Otherwise consult the
+							// per-target schema's applicability predicate against
+							// the current property.
+							const isApplicable =
+								currentValue.kind === "calculated"
+									? true
+									: s.applicableForProperty(property);
 							const last = columnCardSchemaList.length - 1;
 							const corners =
 								i === 0 && i === last

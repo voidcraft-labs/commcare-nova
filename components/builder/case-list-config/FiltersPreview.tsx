@@ -37,12 +37,11 @@ import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { CaseListConfig } from "@/lib/domain";
+import type { CaseListConfig, Column } from "@/lib/domain";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingHelpers";
 import type { LoadFilterPreviewResult } from "@/lib/preview/engine/caseDataBindingTypes";
-import { renderCalculatedCell, renderColumnCell } from "./columnCellRenderer";
-import { nodeId } from "./nodeIdentity";
+import { renderColumnCell } from "./columnCellRenderer";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -129,12 +128,13 @@ export function FiltersPreview({
 		}
 	}, [state]);
 
-	// Display columns only — `search-only` columns declare a
-	// property as searchable without rendering a row. Same filter
-	// the Display preview applies; centralizing it here keeps the
-	// row-rendering shape consistent across both preview surfaces.
-	const displayColumns = useMemo(
-		() => caseListConfig.columns.filter((col) => col.kind !== "search-only"),
+	// Visible columns — every column with `visibleInList ?? true`.
+	// The schema treats absent slots as visible; only columns with
+	// an explicit `visibleInList: false` are filtered out. Mirrors
+	// the Display preview's filter so the two preview surfaces
+	// agree on which columns the runtime case list will render.
+	const visibleColumns = useMemo(
+		() => caseListConfig.columns.filter((col) => col.visibleInList ?? true),
 		[caseListConfig.columns],
 	);
 
@@ -302,18 +302,15 @@ export function FiltersPreview({
 		);
 	}
 
-	const hasAnyColumns =
-		displayColumns.length > 0 || caseListConfig.calculatedColumns.length > 0;
-
-	if (!hasAnyColumns) {
+	if (visibleColumns.length === 0) {
 		return (
 			<div className="space-y-2">
 				{countCard}
 				<PreviewMessage
 					icon={tablerEye}
 					tone="muted"
-					title="No columns configured"
-					body="Add a column or calculated column to render the row preview."
+					title="No columns visible in the case list"
+					body="Add a column or set an existing column's list visibility to render the row preview."
 				/>
 			</div>
 		);
@@ -327,26 +324,12 @@ export function FiltersPreview({
 					<table className="w-full text-[11px]">
 						<thead>
 							<tr className="bg-nova-surface/40">
-								{displayColumns.map((col) => (
+								{visibleColumns.map((col) => (
 									<th
-										key={nodeId(col)}
+										key={col.uuid}
 										className="text-left px-3 py-2 font-medium text-nova-text border-b border-white/[0.06] whitespace-nowrap"
 									>
-										<HeaderLabel
-											label={col.header || col.field || "(unnamed)"}
-											icon={tablerColumns}
-										/>
-									</th>
-								))}
-								{caseListConfig.calculatedColumns.map((col) => (
-									<th
-										key={nodeId(col)}
-										className="text-left px-3 py-2 font-medium text-nova-text border-b border-white/[0.06] whitespace-nowrap"
-									>
-										<HeaderLabel
-											label={col.header || col.id || "(unnamed)"}
-											icon={tablerMathFunction}
-										/>
+										<HeaderLabel column={col} />
 									</th>
 								))}
 							</tr>
@@ -365,20 +348,12 @@ export function FiltersPreview({
 										rIdx % 2 === 0 ? "bg-transparent" : "bg-nova-surface/20"
 									}`}
 								>
-									{displayColumns.map((col) => (
+									{visibleColumns.map((col) => (
 										<td
-											key={nodeId(col)}
-											className="px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04]"
+											key={col.uuid}
+											className={`px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04] ${col.kind === "calculated" ? "font-mono" : ""}`}
 										>
 											{renderColumnCell(col, row)}
-										</td>
-									))}
-									{caseListConfig.calculatedColumns.map((col) => (
-										<td
-											key={nodeId(col)}
-											className="px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04] font-mono"
-										>
-											{renderCalculatedCell(row.calculated[col.id])}
 										</td>
 									))}
 								</motion.tr>
@@ -463,8 +438,7 @@ function CountCard({ totalCount, filterApplied }: CountCardProps) {
 // ── Header label ──────────────────────────────────────────────────
 
 interface HeaderLabelProps {
-	readonly label: string;
-	readonly icon: React.ComponentProps<typeof Icon>["icon"];
+	readonly column: Column;
 }
 
 /**
@@ -474,8 +448,17 @@ interface HeaderLabelProps {
  * the row sample in the configured sort order but doesn't surface
  * the sort chrome itself (that lives in the Display section's
  * preview).
+ *
+ * The leading icon distinguishes calculated columns (math function
+ * glyph) from the field-bearing kinds (text glyph) so the user
+ * reads the column origin at-a-glance.
  */
-function HeaderLabel({ label, icon }: HeaderLabelProps) {
+function HeaderLabel({ column }: HeaderLabelProps) {
+	const isCalc = column.kind === "calculated";
+	const icon = isCalc ? tablerMathFunction : tablerColumns;
+	const label = isCalc
+		? column.header || "(unnamed)"
+		: column.header || column.field || "(unnamed)";
 	return (
 		<span className="inline-flex items-center gap-1.5">
 			<Icon

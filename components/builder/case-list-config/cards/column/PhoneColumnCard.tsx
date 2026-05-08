@@ -30,8 +30,10 @@ export function PhoneColumnCard({
 	onChange,
 	errors,
 }: PhoneColumnCardProps) {
-	const setField = (next: string) => onChange(phoneColumn(next, value.header));
-	const setHeader = (next: string) => onChange(phoneColumn(value.field, next));
+	const setField = (next: string) =>
+		onChange(phoneColumn(value.uuid, next, value.header, slotsFrom(value)));
+	const setHeader = (next: string) =>
+		onChange(phoneColumn(value.uuid, value.field, next, slotsFrom(value)));
 	return (
 		<ColumnFieldRow
 			field={value.field}
@@ -42,4 +44,18 @@ export function PhoneColumnCard({
 			errors={errors}
 		/>
 	);
+}
+
+/** Re-extract the column's optional common slots so each builder call
+ *  threads through them verbatim. */
+function slotsFrom(value: Extract<Column, { kind: "phone" }>): {
+	sort?: typeof value.sort;
+	visibleInList?: typeof value.visibleInList;
+	visibleInDetail?: typeof value.visibleInDetail;
+} {
+	return {
+		sort: value.sort,
+		visibleInList: value.visibleInList,
+		visibleInDetail: value.visibleInDetail,
+	};
 }

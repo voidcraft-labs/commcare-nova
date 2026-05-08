@@ -12,9 +12,8 @@
 //     pattern edit must not drop the header).
 //   - The builder routing each card uses (every onChange must
 //     route through the typed `dateColumn(...)` /
-//     `timeSinceUntilColumn(...)` / `lateFlagColumn(...)` /
-//     `phoneColumn(...)` builder so the emitted AST stays in
-//     lockstep with the schema).
+//     `intervalColumn(...)` / `phoneColumn(...)` builder so the
+//     emitted AST stays in lockstep with the schema).
 //
 // Tests focus on the kind-specific text inputs (display labels,
 // flag values) and threshold inputs. Pattern selection /
@@ -23,13 +22,13 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
 	type Column,
 	dateColumn,
-	lateFlagColumn,
+	intervalColumn,
 	phoneColumn,
-	timeSinceUntilColumn,
 } from "@/lib/domain";
 import { ColumnEditor } from "../../../ColumnEditor";
 
@@ -42,6 +41,8 @@ const PATIENT: CaseType = {
 		{ name: "last_visit", label: "Last visit", data_type: "datetime" },
 	],
 };
+
+const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
 
 /** Render the editor and return the most-recent emitted Column.
  *  Trips the input via `focus → change → blur`; the BlurCommit
@@ -59,6 +60,8 @@ function emitFromEdit(
 			onChange={onChange}
 			caseTypes={[PATIENT]}
 			currentCaseType="patient"
+			sortedColumnCount={0}
+			sortPriorityPosition={undefined}
 		/>,
 	);
 	editFn(onChange);
@@ -68,7 +71,7 @@ function emitFromEdit(
 
 describe("DateColumnCard — pattern edits", () => {
 	it("clicking a preset commits the preset's pattern verbatim", () => {
-		const value = dateColumn("dob", "Birthday", "%d-%b-%Y");
+		const value = dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y");
 		const next = emitFromEdit(value, () => {
 			fireEvent.click(screen.getByRole("button", { name: /^short$/i }));
 		});
@@ -80,9 +83,7 @@ describe("DateColumnCard — pattern edits", () => {
 	});
 
 	it("editing the custom pattern blur-commits the new pattern", () => {
-		// Start from a custom pattern so the free-text input is
-		// rendered (preset branches hide it).
-		const value = dateColumn("dob", "Birthday", "%d-%b-%Y");
+		const value = dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y");
 		const next = emitFromEdit(value, () => {
 			const input = screen.getByLabelText(
 				"Custom date pattern",
@@ -98,76 +99,116 @@ describe("DateColumnCard — pattern edits", () => {
 	});
 });
 
-describe("TimeSinceUntilCard — extras edits", () => {
-	it("editing the display label blur-commits the new value", () => {
-		const value = timeSinceUntilColumn("dob", "Age", 7, "days", "Old");
+describe("IntervalCard — extras edits (always-display)", () => {
+	it("editing the decoration text blur-commits via intervalColumn", () => {
+		const value = intervalColumn(
+			TEST_UUID,
+			"dob",
+			"Age",
+			7,
+			"days",
+			"always",
+			"Old",
+		);
 		const next = emitFromEdit(value, () => {
-			const input = screen.getByLabelText("Display label") as HTMLInputElement;
+			const input = screen.getByLabelText(
+				/Decoration when overdue/i,
+			) as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "Aged out" } });
 			fireEvent.blur(input);
 		});
-		if (next.kind !== "time-since-until")
-			throw new Error("expected time-since-until");
+		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.field).toBe("dob");
 		expect(next.header).toBe("Age");
 		expect(next.threshold).toBe(7);
 		expect(next.unit).toBe("days");
-		expect(next.displayLabel).toBe("Aged out");
+		expect(next.display).toBe("always");
+		expect(next.text).toBe("Aged out");
 	});
 
-	it("editing the threshold blur-commits the new number", () => {
-		const value = timeSinceUntilColumn("dob", "Age", 7, "days", "Old");
+	it("editing the threshold preserves the rest of the slots", () => {
+		const value = intervalColumn(
+			TEST_UUID,
+			"dob",
+			"Age",
+			7,
+			"days",
+			"always",
+			"Old",
+		);
 		const next = emitFromEdit(value, () => {
 			const input = screen.getByLabelText("Threshold") as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "30" } });
 			fireEvent.blur(input);
 		});
-		if (next.kind !== "time-since-until")
-			throw new Error("expected time-since-until");
+		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.threshold).toBe(30);
 		expect(next.unit).toBe("days");
+		expect(next.display).toBe("always");
+		expect(next.text).toBe("Old");
 	});
 });
 
-describe("LateFlagCard — flagDisplayValue edit", () => {
-	it("editing the flag value blur-commits the new value", () => {
-		const value = lateFlagColumn("dob", "Status", 30, "days", "Overdue");
+describe("IntervalCard — extras edits (flag-display)", () => {
+	it("editing the flag text blur-commits via intervalColumn", () => {
+		const value = intervalColumn(
+			TEST_UUID,
+			"dob",
+			"Status",
+			30,
+			"days",
+			"flag",
+			"Overdue",
+		);
 		const next = emitFromEdit(value, () => {
-			const input = screen.getByLabelText(
-				"Flag display value",
-			) as HTMLInputElement;
+			const input = screen.getByLabelText(/Flag text/i) as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "OVERDUE!" } });
 			fireEvent.blur(input);
 		});
-		if (next.kind !== "late-flag") throw new Error("expected late-flag");
+		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.field).toBe("dob");
 		expect(next.header).toBe("Status");
 		expect(next.threshold).toBe(30);
 		expect(next.unit).toBe("days");
-		expect(next.flagDisplayValue).toBe("OVERDUE!");
+		expect(next.display).toBe("flag");
+		expect(next.text).toBe("OVERDUE!");
 	});
 
-	it("editing the threshold preserves field+header+unit+flagValue", () => {
-		const value = lateFlagColumn("dob", "Status", 30, "days", "Overdue");
+	it("editing the threshold preserves field+header+unit+text", () => {
+		const value = intervalColumn(
+			TEST_UUID,
+			"dob",
+			"Status",
+			30,
+			"days",
+			"flag",
+			"Overdue",
+		);
 		const next = emitFromEdit(value, () => {
+			// `IntervalThresholdRow` aria-labels its numeric input as
+			// "Threshold" regardless of the visible label (which flips
+			// "Threshold"/"Late after" by display mode). Match against
+			// the aria-label so the test stays pinned to a stable
+			// accessibility property.
 			const input = screen.getByLabelText("Threshold") as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "14" } });
 			fireEvent.blur(input);
 		});
-		if (next.kind !== "late-flag") throw new Error("expected late-flag");
+		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.threshold).toBe(14);
 		expect(next.unit).toBe("days");
-		expect(next.flagDisplayValue).toBe("Overdue");
+		expect(next.display).toBe("flag");
+		expect(next.text).toBe("Overdue");
 	});
 });
 
 describe("PhoneColumnCard — header edit", () => {
 	it("editing the header blur-commits the new value via phoneColumn", () => {
-		const value = phoneColumn("phone", "Phone");
+		const value = phoneColumn(TEST_UUID, "phone", "Phone");
 		const next = emitFromEdit(value, () => {
 			const input = screen.getByLabelText("Column header") as HTMLInputElement;
 			input.focus();

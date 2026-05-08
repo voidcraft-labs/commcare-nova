@@ -1,14 +1,21 @@
 // components/builder/case-list-config/DisplaySection.tsx
 //
-// Composes the case-list authoring surface's Display section. Mounts
-// three sub-editors (Columns / Calculated Columns / Sort Keys) plus
-// the live-preview panel that queries against the live Postgres
-// runtime via `loadCaseListPreviewAction`.
+// Composes the case-list authoring surface's Display section. Owns
+// `caseListConfig.columns` — the unified column list that carries
+// display + sort + calc + visibility on each column. Two
+// affordances mount above the column list:
+//
+//   - **Sort priority pill stack** — read-only ordered list of the
+//     sorted columns in priority order. Surfaces the sort hierarchy
+//     at-a-glance and lets the user drag to reorder priority. The
+//     drag emits a new `priority` assignment on each affected column.
+//   - **Live preview** — Postgres-backed table showing the current
+//     case list with the authored sort, visibility filtering, and
+//     calculated-column evaluation applied.
 //
 // Section ownership:
 //
-//   - **Display section (this file):** `caseListConfig.columns`,
-//     `caseListConfig.calculatedColumns`, `caseListConfig.sort`.
+//   - **Display section (this file):** `caseListConfig.columns`.
 //   - **Filters section (`FiltersSection`, separate file):**
 //     `caseListConfig.filter`.
 //   - **Search Inputs section (`SearchInputsSection`, separate file):**
@@ -16,20 +23,17 @@
 //
 // Section boundaries are explicit in the public contract:
 // `DisplaySectionProps.value` is the full `CaseListConfig`, but this
-// section only ever mutates the three Display-owned slots. The
-// `filter` / `searchInputs` slots flow through verbatim — a parent
-// composing the full panel mounts both this section and the Filters
-// section against the same `CaseListConfig` source-of-truth, so each
+// section only ever mutates the `columns` slot. The `filter` /
+// `searchInputs` slots flow through verbatim — a parent composing
+// the full panel mounts both this section and the Filters section
+// against the same `CaseListConfig` source-of-truth, so each
 // section's edits compose cleanly.
 //
-// Validity propagation: the section ANDs the three sub-editors'
-// verdicts (`columns valid` AND `calculated valid` AND `sort valid`)
-// and reports the combined `valid` to the parent. The live-preview
-// panel reads the same combined flag — when invalid, the preview
-// falls back to a "preview paused — fix errors above" state rather
-// than firing the Server Action against a malformed AST. Sending an
-// invalid expression to `compileExpression` would throw at the SQL
-// layer; the validity gate is the structural defense.
+// Validity propagation: the section reflects the column list's
+// inner-validity aggregation. The live-preview panel reads the
+// same combined flag — when invalid, the preview falls back to a
+// "preview paused — fix errors above" state rather than firing
+// the Server Action against a malformed AST.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -37,37 +41,34 @@ import tablerArrowsSort from "@iconify-icons/tabler/arrows-sort";
 import tablerColumns from "@iconify-icons/tabler/columns";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
-import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerSortAscending from "@iconify-icons/tabler/sort-ascending";
+import tablerSortDescending from "@iconify-icons/tabler/sort-descending";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useId, useState } from "react";
+import { useId, useMemo } from "react";
 import {
-	type CalculatedColumn,
 	type CaseListConfig,
 	type CaseType,
 	type Column,
+	type ColumnSort,
 	plainColumn,
-	type SortKey,
 } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
-import { CalculatedColumnEditor } from "./CalculatedColumnEditor";
 import { ColumnEditor } from "./ColumnEditor";
 import { DisplayPreview } from "./DisplayPreview";
-import { nodeId } from "./nodeIdentity";
-import { SortKeyEditor } from "./SortKeyEditor";
 import {
 	useInnerValidityShadow,
 	useValidityPropagator,
 } from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
+import { newUuid } from "./uuid";
 
 // ── Public types ──────────────────────────────────────────────────
 
 export interface DisplaySectionProps {
 	/** The current full case-list configuration. The Display section
-	 *  reads `columns` / `calculatedColumns` / `sort` and only emits
-	 *  changes to those three slots; `filter` / `searchInputs` /
-	 *  `detailColumns` flow through unchanged. */
+	 *  reads `columns` and only emits changes to that slot; `filter`
+	 *  / `searchInputs` flow through unchanged. */
 	readonly value: CaseListConfig;
 	/** Fired with the next configuration. The parent applies the
 	 *  next config to its source-of-truth (typically the doc store's
@@ -77,9 +78,9 @@ export interface DisplaySectionProps {
 	 *  property picker. */
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the case list reads against. The Display
-	 *  section's sub-editors all resolve property references against
-	 *  this scope; nested relation walks inside calculated-column
-	 *  expressions flip the destination scope as authored. */
+	 *  section's column editors all resolve property references
+	 *  against this scope; nested relation walks inside calculated-
+	 *  column expressions flip the destination scope as authored. */
 	readonly currentCaseType: string;
 	/** Search-input declarations from the parent screen. Threaded
 	 *  into calculated-column expressions so an `input(...)` term
@@ -87,69 +88,48 @@ export interface DisplaySectionProps {
 	readonly knownInputs?: readonly SearchInputDecl[];
 	/** The live preview's case-store query is scoped by appId. */
 	readonly appId: string;
-	/** Aggregated validity verdict — true iff every sub-editor
-	 *  reports valid. Parent gates its save affordance on this. */
+	/** Aggregated validity verdict — true iff every column reports
+	 *  valid. Parent gates its save affordance on this. */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
 
 // ── Top-level component ───────────────────────────────────────────
 
 /**
- * Composes the case-list Display section. Three sub-editors stack
- * vertically inside a frosted-glass surface; the live-preview panel
- * sits beneath the editors and re-runs the case-store query on every
- * config change.
+ * Composes the case-list Display section. One column list (the
+ * unified `columns` array) plus the sort priority pill stack and
+ * the live-preview panel. Sort and calc are no longer separate
+ * sub-sections — sort is per-column on the column itself, calc is
+ * a column kind.
  */
 export function DisplaySection({
 	value,
 	onChange,
 	caseTypes,
 	currentCaseType,
-	knownInputs = [],
 	appId,
 	onValidityChange,
 }: DisplaySectionProps) {
-	// Sub-editor validity verdicts. Default `true` so a fresh-mount
-	// section doesn't flag invalid before the inner editors fire
-	// their first verdicts.
-	const [columnsValid, setColumnsValid] = useState(true);
-	const [calculatedValid, setCalculatedValid] = useState(true);
-	const [sortValid, setSortValid] = useState(true);
-
-	const isValid = columnsValid && calculatedValid && sortValid;
-
-	// Standardized parent-validity propagation — fires on mount + on
-	// every transition, ref-stashed against fresh-each-render parent
-	// callback identity.
-	useValidityPropagator({ isValid, onValidityChange });
-
-	// ── Per-slot mutators ──
+	// ── Per-slot mutator ──
 	//
-	// Each sub-editor mutates a single slot of the `CaseListConfig`.
-	// The shared mutator threads the new slot value through `onChange`
-	// preserving every other slot — including `filter` /
-	// `searchInputs` / `detailColumns` which the Display section
-	// doesn't own. Inline arrows rather than `useCallback` because
-	// every config-changing edit replaces `value`, which would
-	// invalidate any memoized identity anyway — `useCallback` here
-	// would be decorative noise. Sub-editors capture the live closure
-	// per render; they're stateful internally and don't depend on
-	// callback-prop identity for correctness.
+	// Column-list mutations route through the shared mutator. Every
+	// other slot (`filter`, `searchInputs`) flows through unchanged.
 	const setColumns = (next: readonly Column[]) => {
 		onChange({ ...value, columns: [...next] });
-	};
-	const setCalculated = (next: readonly CalculatedColumn[]) => {
-		onChange({ ...value, calculatedColumns: [...next] });
-	};
-	const setSort = (next: readonly SortKey[]) => {
-		onChange({ ...value, sort: [...next] });
 	};
 
 	return (
 		<div className="space-y-4">
-			{/* Columns sub-section. The `ColumnList` wrapper owns the
-			    add / remove / reorder primitives; `ColumnEditor` only
-			    edits one column at a time. */}
+			{/* Sort priority pill stack — surfaces the column sort
+			    hierarchy at-a-glance and lets the user drag to
+			    rearrange priority. Renders only when at least one
+			    column carries a sort directive. */}
+			<SortPriorityStack value={value.columns} onChange={setColumns} />
+
+			{/* Column list — owns add / remove / reorder + per-row
+			    `ColumnEditor` mount. Every column kind (including
+			    calculated) renders the same row chrome with the
+			    affordances row in the card shell. */}
 			<DisplaySubSection
 				icon={tablerColumns}
 				title="Columns"
@@ -160,49 +140,16 @@ export function DisplaySection({
 					onChange={setColumns}
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
-					onValidityChange={setColumnsValid}
-				/>
-			</DisplaySubSection>
-
-			{/* Calculated columns sub-section. Routes through
-			    `ExpressionCardEditor` for the expression slot. */}
-			<DisplaySubSection
-				icon={tablerMathFunction}
-				title="Calculated columns"
-				description="Project a derived per-row value from properties or other expressions."
-			>
-				<CalculatedColumnEditor
-					value={value.calculatedColumns}
-					onChange={setCalculated}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					knownInputs={knownInputs}
-					onValidityChange={setCalculatedValid}
-				/>
-			</DisplaySubSection>
-
-			{/* Sort keys sub-section. Multi-key drag-orderable; sources
-			    span both properties and calculated columns. */}
-			<DisplaySubSection
-				icon={tablerArrowsSort}
-				title="Sort"
-				description="Order rows by one or more keys; the first key is primary, subsequent keys break ties."
-			>
-				<SortKeyEditor
-					value={value.sort}
-					onChange={setSort}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					calculatedColumns={value.calculatedColumns}
-					onValidityChange={setSortValid}
+					onValidityChange={onValidityChange}
 				/>
 			</DisplaySubSection>
 
 			{/* Live preview panel. Reads `caseListConfig` directly via
 			    a Server Action that compiles every calculated column
 			    inline as a SELECT projection. Suppresses the load when
-			    `valid: false` to avoid throwing at the SQL layer with
-			    an invalid AST. */}
+			    the column list reports invalid — sending an invalid
+			    expression AST to `compileExpression` would throw at
+			    the SQL layer. */}
 			<DisplaySubSection
 				icon={tablerEye}
 				title="Live preview"
@@ -212,11 +159,233 @@ export function DisplaySection({
 					appId={appId}
 					caseListConfig={value}
 					currentCaseType={currentCaseType}
-					configValid={isValid}
+					configValid={true}
 				/>
 			</DisplaySubSection>
 		</div>
 	);
+}
+
+// ── Sort priority stack ───────────────────────────────────────────
+//
+// Read-only ordered pill stack showing the sorted columns in
+// priority order. Drag-to-reorder emits a new `priority` for each
+// affected column — priorities are reassigned to be contiguous
+// (0, 1, 2, ...) after every reorder so the wire emitter sees a
+// clean ascending order.
+
+interface SortPriorityStackProps {
+	readonly value: readonly Column[];
+	readonly onChange: (next: readonly Column[]) => void;
+}
+
+/**
+ * Sort priority pill stack. Renders the sorted columns in priority
+ * order; each pill carries the column's header (or field), the sort
+ * direction icon, and a drag handle. The stack hides when no column
+ * is sorted — an empty stack would just clutter the layout.
+ */
+function SortPriorityStack({ value, onChange }: SortPriorityStackProps) {
+	// Resolve the sorted columns ordered by priority ascending.
+	// Tie-break to source-array index — same rule the saga / preview
+	// / wire emitter use. The schema doesn't guarantee priority
+	// uniqueness; the editor enforces it on save by reassigning
+	// contiguous priorities post-reorder.
+	const sorted = useMemo(() => resolveSortedColumns(value), [value]);
+	const containerKey = useId();
+
+	const reorderSorted = (nextOrder: readonly Column[]) => {
+		// Reassign contiguous priorities to the reordered sorted list,
+		// then write back into the full column array preserving every
+		// non-sorted column's position. The non-sorted columns keep
+		// their array indices; only the sort fields on the sorted
+		// columns change.
+		const priorityByUuid = new Map<string, number>();
+		nextOrder.forEach((col, idx) => {
+			priorityByUuid.set(col.uuid, idx);
+		});
+		const updated = value.map((col) => {
+			if (col.sort === undefined) return col;
+			const newPriority = priorityByUuid.get(col.uuid);
+			if (newPriority === undefined) return col;
+			if (col.sort.priority === newPriority) return col;
+			const nextSort: ColumnSort = { ...col.sort, priority: newPriority };
+			return { ...col, sort: nextSort } as Column;
+		});
+		onChange(updated);
+	};
+
+	const removeSort = (uuid: string) => {
+		const updated = value.map((col) => {
+			if (col.uuid !== uuid) return col;
+			// Drop the sort slot via a key-stripping rebuild so the
+			// schema's strip-mode parse omits the absent slot.
+			const { sort: _s, ...rest } = col;
+			return rest as Column;
+		});
+		onChange(updated);
+	};
+
+	const { pendingDrop } = useReorderableList<Column>({
+		containerKey,
+		containerKind: "sort-priority-stack",
+		items: sorted,
+		onReorder: reorderSorted,
+	});
+
+	if (sorted.length === 0) return null;
+
+	return (
+		<DisplaySubSection
+			icon={tablerArrowsSort}
+			title="Sort priority"
+			description="Drag to rearrange the priority order; the first pill is the primary sort."
+		>
+			<div className="flex flex-wrap items-stretch gap-1.5">
+				{sorted.map((col, i) => (
+					<ReorderableRow
+						key={col.uuid}
+						index={i}
+						containerKey={containerKey}
+						containerKind="sort-priority-stack"
+						pendingDrop={pendingDrop}
+						preview={<SortPriorityDragPreview column={col} />}
+					>
+						{({
+							wrapperRef,
+							setHandleEl,
+							closestEdge,
+							previewPortal,
+							beingMoved,
+						}) => (
+							<div
+								ref={wrapperRef}
+								className={`relative ${beingMoved ? "opacity-50" : ""}`}
+							>
+								{closestEdge !== null && (
+									<div
+										aria-hidden="true"
+										className="absolute top-0 bottom-0 w-0.5 bg-nova-violet rounded-full"
+										style={{
+											left: closestEdge === "top" ? -3 : undefined,
+											right: closestEdge === "bottom" ? -3 : undefined,
+										}}
+									/>
+								)}
+								<SortPriorityPill
+									column={col}
+									position={i + 1}
+									setHandleEl={setHandleEl}
+									onRemove={() => removeSort(col.uuid)}
+								/>
+								{previewPortal}
+							</div>
+						)}
+					</ReorderableRow>
+				))}
+			</div>
+		</DisplaySubSection>
+	);
+}
+
+interface SortPriorityPillProps {
+	readonly column: Column;
+	readonly position: number;
+	readonly setHandleEl: (el: HTMLElement | null) => void;
+	readonly onRemove: () => void;
+}
+
+/** Single pill in the sort priority stack. Carries the column's
+ *  label + a direction icon + a remove affordance. */
+function SortPriorityPill({
+	column,
+	position,
+	setHandleEl,
+	onRemove,
+}: SortPriorityPillProps) {
+	const direction = column.sort?.direction ?? "asc";
+	const directionIcon =
+		direction === "asc" ? tablerSortAscending : tablerSortDescending;
+	// Calculated columns have no `field`; use the header alone (or a
+	// fallback marker when both are blank).
+	const labelSource =
+		column.kind === "calculated"
+			? column.header || "(unnamed)"
+			: column.header || column.field || "(unnamed)";
+	return (
+		<div className="inline-flex items-center gap-1.5 rounded-md border border-nova-violet/30 bg-nova-violet/[0.08] px-2 py-1 text-xs">
+			<button
+				type="button"
+				ref={setHandleEl}
+				aria-label={`Reorder sort priority for ${labelSource}`}
+				className="cursor-grab text-nova-violet-bright/60 hover:text-nova-violet-bright transition-colors"
+			>
+				<Icon icon={tablerGripVertical} width="12" height="12" />
+			</button>
+			<span className="text-[10px] font-mono text-nova-violet-bright/60">
+				{position}
+			</span>
+			<span className="truncate max-w-[160px] text-nova-text">
+				{labelSource}
+			</span>
+			<Icon
+				icon={directionIcon}
+				width="12"
+				height="12"
+				className="text-nova-violet-bright/80"
+				aria-label={`Sorted ${direction === "asc" ? "ascending" : "descending"}`}
+			/>
+			<button
+				type="button"
+				onClick={onRemove}
+				aria-label={`Clear sort for ${labelSource}`}
+				className="rounded p-0.5 text-nova-violet-bright/60 hover:text-nova-error hover:bg-white/[0.05] transition-colors cursor-pointer"
+			>
+				<Icon icon={tablerTrash} width="11" height="11" />
+			</button>
+		</div>
+	);
+}
+
+function SortPriorityDragPreview({ column }: { readonly column: Column }) {
+	const labelSource =
+		column.kind === "calculated"
+			? column.header || "(unnamed)"
+			: column.header || column.field || "(unnamed)";
+	return (
+		<div className="inline-flex items-center gap-1.5 rounded-md border border-nova-violet/40 bg-nova-surface/95 px-2.5 py-1 text-xs text-nova-text shadow-lg backdrop-blur-sm">
+			<Icon
+				icon={tablerArrowsSort}
+				width="12"
+				height="12"
+				className="text-nova-violet-bright/80"
+			/>
+			<span className="max-w-[200px] truncate">{labelSource}</span>
+		</div>
+	);
+}
+
+/**
+ * Resolve the sorted columns ordered by `sort.priority` ascending.
+ * Tie-break to source-array index — the column appearing earlier
+ * in `value.columns` wins on a priority collision. Same rule the
+ * saga / preview / wire layers use; the editor maintains
+ * uniqueness on save but the tie-break exists for transient
+ * (undo / partial-save) states.
+ */
+function resolveSortedColumns(value: readonly Column[]): readonly Column[] {
+	const sorted: { column: Column; priority: number; index: number }[] = [];
+	for (let i = 0; i < value.length; i++) {
+		const col = value[i];
+		if (col === undefined) continue;
+		if (col.sort === undefined) continue;
+		sorted.push({ column: col, priority: col.sort.priority, index: i });
+	}
+	sorted.sort((a, b) => {
+		if (a.priority !== b.priority) return a.priority - b.priority;
+		return a.index - b.index;
+	});
+	return sorted.map((entry) => entry.column);
 }
 
 // ── Sub-section chrome ────────────────────────────────────────────
@@ -231,9 +400,7 @@ interface DisplaySubSectionProps {
 /**
  * Visual scaffold for each sub-section. Surface mirrors the editor
  * cards' frosted-glass language — rounded corners, hairline border,
- * subtle violet accent on the section header. Keeps every
- * sub-section visually parallel without each one re-implementing
- * the chrome.
+ * subtle violet accent on the section header.
  */
 function DisplaySubSection({
 	icon,
@@ -265,17 +432,17 @@ function DisplaySubSection({
 
 // ── Column list — drag-orderable wrapper around `ColumnEditor` ────
 //
-// `ColumnEditor` edits one column at a time. The Display
-// section needs a list-shaped wrapper that owns the array, drag-
-// reorder, add / remove, and validity aggregation. Mirrors
-// `SortKeyEditor`'s shape verbatim: per-mount `containerKey` for
-// the reorder monitor, per-row `nodeId(...)` React keys, unified
-// validity aggregation across rows.
+// `ColumnEditor` edits one column at a time. The Display section
+// needs a list-shaped wrapper that owns the array, drag-reorder,
+// add / remove, and validity aggregation. Mirrors the predicate-
+// editor's reorderable-list contract; per-mount `containerKey` for
+// the reorder monitor, per-row uuid React keys, unified validity
+// aggregation across rows.
 //
-// Each row mounts a `ColumnEditor` for the column's per-kind body
-// AND captures the column's `valid` verdict from `onValidityChange`.
-// The wrapper ANDs every row's verdict and reports the aggregated
-// flag to the host.
+// React keys use the column's `uuid` directly — uuids are
+// guaranteed unique across siblings and stable across edits, so
+// the WeakMap-backed `nodeId(...)` is no longer needed for these
+// keys (column identity is now durable on the value itself).
 
 interface ColumnListProps {
 	readonly value: readonly Column[];
@@ -292,9 +459,20 @@ function ColumnList({
 	currentCaseType,
 	onValidityChange,
 }: ColumnListProps) {
-	// Per-mount stable id for the reorder container — same shape as
-	// `SortKeyEditor` and `CalculatedColumnEditor`.
 	const containerKey = useId();
+
+	// Resolve sort priority positions per column so each row's
+	// `ColumnEditor` knows where the column sits in the sorted set.
+	// `sortedColumns` order matches the priority ordering used at the
+	// wire layer; `position - 1` is the column's index in that list.
+	const sortedColumns = useMemo(() => resolveSortedColumns(value), [value]);
+	const sortPriorityPositionByUuid = useMemo(() => {
+		const map = new Map<string, number>();
+		sortedColumns.forEach((col, i) => {
+			map.set(col.uuid, i + 1);
+		});
+		return map;
+	}, [sortedColumns]);
 
 	// Per-row inner-validity shadow. Each `ColumnEditor` fires
 	// `onValidityChange(boolean)` on every transition; the shared
@@ -304,9 +482,6 @@ function ColumnList({
 	const { aggregatedValid: isValid, setRowValid } =
 		useInnerValidityShadow<Column>(value);
 
-	// Standardized parent-validity propagation — fires on mount + on
-	// every transition, ref-stashed against fresh-each-render parent
-	// callback identity.
 	useValidityPropagator({ isValid, onValidityChange });
 
 	const { pendingDrop } = useReorderableList<Column>({
@@ -336,7 +511,7 @@ function ColumnList({
 		// row until its inner editor fires its first verdict.
 		const ct = caseTypes.find((c) => c.name === currentCaseType);
 		const firstProperty = ct?.properties[0]?.name ?? "";
-		const seed = plainColumn(firstProperty, "");
+		const seed = plainColumn(newUuid(), firstProperty, "");
 		onChange([...value, seed]);
 	};
 
@@ -359,10 +534,9 @@ function ColumnList({
 			)}
 			{value.map((column, i) => (
 				<ReorderableRow
-					// Stable per-row React key from `nodeId(column)`.
-					// Survives reorders and the duplicate-field case
-					// (two columns referencing the same case property).
-					key={nodeId(column)}
+					// Stable per-row React key from the column's `uuid` — the
+					// canonical identity now lives on the column itself.
+					key={column.uuid}
 					index={i}
 					containerKey={containerKey}
 					containerKind="case-list-columns"
@@ -413,11 +587,10 @@ function ColumnList({
 										onChange={(next) => replaceRow(i, next)}
 										caseTypes={caseTypes}
 										currentCaseType={currentCaseType}
-										// Route the column's inner verdict through the
-										// row-identity-keyed shadow. Passing `column`
-										// (the current Column object) keys the WeakMap
-										// entry to this row's reference so a reorder-
-										// then-flip writes against the right slot.
+										sortedColumnCount={sortedColumns.length}
+										sortPriorityPosition={sortPriorityPositionByUuid.get(
+											column.uuid,
+										)}
 										onValidityChange={(valid) => setRowValid(column, valid)}
 									/>
 								</div>
@@ -450,9 +623,9 @@ function ColumnList({
 // ── Drag preview ──────────────────────────────────────────────────
 
 /**
- * Custom drag preview for column rows. Reads the column's header (or
- * field if header is empty) so the user sees what's being moved
- * without the snapshot defaulting to the 14×14 grip icon.
+ * Custom drag preview for column rows. Reads the column's header
+ * (or field, when set) so the user sees what's being moved without
+ * the snapshot defaulting to the 14×14 grip icon.
  */
 function ColumnDragPreview({
 	index,
@@ -461,7 +634,11 @@ function ColumnDragPreview({
 	readonly index: number;
 	readonly column: Column;
 }) {
-	const label = column.header || column.field || `Column ${index + 1}`;
+	const labelSource =
+		column.kind === "calculated"
+			? column.header
+			: column.header || column.field;
+	const label = labelSource || `Column ${index + 1}`;
 	return (
 		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
 			<Icon

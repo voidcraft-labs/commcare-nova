@@ -4,7 +4,7 @@
 // current `CaseListConfig` and renders a tabular view of how the
 // case list would appear with sample data — same `cases` rows the
 // running-app view would render, queried through the case-store's
-// new `queryWithCalculated` method so calculated columns evaluate
+// `queryWithCalculated` method so calculated columns evaluate
 // inline at the SQL layer.
 //
 // Authoring contract: the preview suppresses its load while the
@@ -12,23 +12,26 @@
 // AST to `compileExpression` would throw at the SQL layer; the
 // validity gate is the structural defense rather than a hint.
 //
-// Empty-state contract: per the task spec + advisor guidance, this
-// is the AUTHORING surface — the preview does NOT expose the
-// "Generate sample data" affordance (that lives at the running-app
-// view's `CaseListScreen` per the no-preview-mode foundation lock
-// at `feedback_no_preview_mode.md`). When no cases exist, the
-// preview shows an instructional empty state pointing the author
-// at the running-app view; populating sample data there reflects
-// here on the next reload.
+// Empty-state contract: this is the AUTHORING surface — the
+// preview does NOT expose the "Generate sample data" affordance
+// (that lives at the running-app view's `CaseListScreen` per the
+// no-preview-mode foundation lock at
+// `feedback_no_preview_mode.md`). When no cases exist, the preview
+// shows an instructional empty state pointing the author at the
+// running-app view; populating sample data there reflects here on
+// the next reload.
 //
-// Sort indicator: the preview renders sort arrows on column headers
-// based on the authored `caseListConfig.sort` slot. The sort state
+// Visibility filter: only columns where `visibleInList ?? true`
+// render in the preview's table — the schema's "absent slot ≡
+// visible" contract drives the default. Columns with explicit
+// `visibleInList: false` do NOT appear; they exist on the case
+// detail surface (when `visibleInDetail ?? true`).
+//
+// Sort indicator: the preview renders sort arrows on column
+// headers based on each column's own `sort` slot. The sort state
 // is pure render-time derivation from props — clicking a column
-// does NOT mutate the sort (the SortKeyEditor is the only sort
-// mutator). Without this contract, a click-to-sort affordance would
-// fork the sort state between the preview and the editor, and the
-// editor's `valid: false` gate would lose its single source of
-// truth.
+// header does NOT mutate the sort (the per-column affordances row
+// in `ColumnEditor` is the only sort mutator).
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -41,12 +44,11 @@ import tablerSortDescending from "@iconify-icons/tabler/sort-descending";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { CaseListConfig } from "@/lib/domain";
+import type { CaseListConfig, Column } from "@/lib/domain";
 import { loadCaseListPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingHelpers";
 import type { LoadCaseListPreviewResult } from "@/lib/preview/engine/caseDataBindingTypes";
-import { renderCalculatedCell, renderColumnCell } from "./columnCellRenderer";
-import { nodeId } from "./nodeIdentity";
+import { renderColumnCell } from "./columnCellRenderer";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -54,7 +56,7 @@ export interface DisplayPreviewProps {
 	readonly appId: string;
 	readonly caseListConfig: CaseListConfig;
 	readonly currentCaseType: string;
-	/** Aggregated validity verdict from the parent's sub-editors.
+	/** Aggregated validity verdict from the parent's column list.
 	 *  When `false`, the preview suppresses the load and renders
 	 *  the "preview paused — fix errors above" state. */
 	readonly configValid: boolean;
@@ -96,43 +98,31 @@ export function DisplayPreview({
 }: DisplayPreviewProps) {
 	const docApi = useBlueprintDocApi();
 
-	// Reload key — increments when any of the props the preview
-	// depends on changes. Pinning to a single counter (rather than
-	// running effects per-prop) keeps the load cycle deterministic
-	// and easy to reason about.
 	const [state, setState] = useState<PreviewState>({ kind: "idle" });
 
-	// Display columns only — `search-only` columns declare a property
-	// as searchable without rendering a row. The preview filters them
-	// out at the render layer (the underlying data still loads).
-	const displayColumns = useMemo(
-		() => caseListConfig.columns.filter((col) => col.kind !== "search-only"),
+	// Visible columns — every column with `visibleInList ?? true`.
+	// The schema treats absent slots as visible; only columns with
+	// an explicit `visibleInList: false` are filtered out. The
+	// underlying data still loads (the case-store reads every
+	// column's expression / property regardless of visibility); the
+	// preview's filter is purely a render-layer concern.
+	const visibleColumns = useMemo(
+		() => caseListConfig.columns.filter((col) => col.visibleInList ?? true),
 		[caseListConfig.columns],
 	);
 
-	// Sort indicator lookup — for each property column, find the
-	// matching `SortKey` (if any) so the column header renders the
-	// sort direction icon. Calculated-column sort indicators apply
-	// to calculated-column header cells; the lookup keys differ
-	// (property field vs calculated id) so the helper resolves both.
-	const sortIndicatorByPropertyField = useMemo(() => {
+	// Sort indicator lookup — for each column with a sort directive,
+	// stash its direction so the column header can render the
+	// matching arrow icon. Keyed by uuid — the canonical column
+	// identity that survives reorders + renames.
+	const sortDirectionByUuid = useMemo(() => {
 		const map = new Map<string, "asc" | "desc">();
-		for (const key of caseListConfig.sort) {
-			if (key.source.kind === "property") {
-				map.set(key.source.property, key.direction);
-			}
+		for (const col of caseListConfig.columns) {
+			if (col.sort === undefined) continue;
+			map.set(col.uuid, col.sort.direction);
 		}
 		return map;
-	}, [caseListConfig.sort]);
-	const sortIndicatorByCalculatedId = useMemo(() => {
-		const map = new Map<string, "asc" | "desc">();
-		for (const key of caseListConfig.sort) {
-			if (key.source.kind === "calculated") {
-				map.set(key.source.columnId, key.direction);
-			}
-		}
-		return map;
-	}, [caseListConfig.sort]);
+	}, [caseListConfig.columns]);
 
 	// Trigger the action whenever the config / validity / case-type
 	// changes. The `cancelled` flag handles the in-flight cancellation
@@ -144,9 +134,6 @@ export function DisplayPreview({
 		}
 		let cancelled = false;
 		setState({ kind: "loading" });
-		// Project the doc once, at action-firing time. `getState()`
-		// is non-subscribing; the effect already retriggers on every
-		// dep change.
 		const blueprint = pickBlueprintDoc(docApi.getState());
 		loadCaseListPreviewAction({
 			appId,
@@ -297,16 +284,14 @@ export function DisplayPreview({
 
 	// `state.kind === "rows"` — render the table.
 	const rows = state.rows;
-	const hasAnyColumns =
-		displayColumns.length > 0 || caseListConfig.calculatedColumns.length > 0;
 
-	if (!hasAnyColumns) {
+	if (visibleColumns.length === 0) {
 		return (
 			<PreviewMessage
 				icon={tablerEye}
 				tone="muted"
-				title="No columns configured"
-				body="Add a column or calculated column to render the preview."
+				title="No columns visible in the case list"
+				body="Add a column or set an existing column's list visibility to render the preview."
 			/>
 		);
 	}
@@ -317,37 +302,14 @@ export function DisplayPreview({
 				<table className="w-full text-[11px]">
 					<thead>
 						<tr className="bg-nova-surface/40">
-							{/* Column / calculated-column React keys use
-							    `nodeId(col)` — the same WeakMap-backed identity
-							    helper every other case-list-config surface uses
-							    for stable per-row keys. A `field:header` /
-							    `id` composite would collide on degenerate
-							    authoring shapes (two columns referencing the
-							    same property + same header, two calculated
-							    columns sharing an id mid-edit). The
-							    `nodeId(...)` identity survives every authoring
-							    transition the editor admits. */}
-							{displayColumns.map((col) => (
+							{visibleColumns.map((col) => (
 								<th
-									key={nodeId(col)}
+									key={col.uuid}
 									className="text-left px-3 py-2 font-medium text-nova-text border-b border-white/[0.06] whitespace-nowrap"
 								>
 									<HeaderLabel
-										label={col.header || col.field || "(unnamed)"}
-										icon={tablerColumns}
-										sortDirection={sortIndicatorByPropertyField.get(col.field)}
-									/>
-								</th>
-							))}
-							{caseListConfig.calculatedColumns.map((col) => (
-								<th
-									key={nodeId(col)}
-									className="text-left px-3 py-2 font-medium text-nova-text border-b border-white/[0.06] whitespace-nowrap"
-								>
-									<HeaderLabel
-										label={col.header || col.id || "(unnamed)"}
-										icon={tablerMathFunction}
-										sortDirection={sortIndicatorByCalculatedId.get(col.id)}
+										column={col}
+										sortDirection={sortDirectionByUuid.get(col.uuid)}
 									/>
 								</th>
 							))}
@@ -367,20 +329,12 @@ export function DisplayPreview({
 									rIdx % 2 === 0 ? "bg-transparent" : "bg-nova-surface/20"
 								}`}
 							>
-								{displayColumns.map((col) => (
+								{visibleColumns.map((col) => (
 									<td
-										key={nodeId(col)}
-										className="px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04]"
+										key={col.uuid}
+										className={`px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04] ${col.kind === "calculated" ? "font-mono" : ""}`}
 									>
 										{renderColumnCell(col, row)}
-									</td>
-								))}
-								{caseListConfig.calculatedColumns.map((col) => (
-									<td
-										key={nodeId(col)}
-										className="px-3 py-1.5 text-nova-text-secondary border-b border-white/[0.04] font-mono"
-									>
-										{renderCalculatedCell(row.calculated[col.id])}
 									</td>
 								))}
 							</motion.tr>
@@ -398,19 +352,23 @@ export function DisplayPreview({
 // ── Header label ──────────────────────────────────────────────────
 
 interface HeaderLabelProps {
-	readonly label: string;
-	readonly icon: React.ComponentProps<typeof Icon>["icon"];
+	readonly column: Column;
 	readonly sortDirection?: "asc" | "desc";
 }
 
 /**
  * Column header label. Renders the column's title plus a sort
- * indicator chip when the column is part of the authored sort.
- * The icon distinguishes plain columns (text) from calculated
- * columns (math function) so the user reads the column origin
- * at-a-glance.
+ * indicator chip when the column carries a sort directive. The
+ * leading icon distinguishes calculated columns (math function
+ * glyph) from the field-bearing kinds (text glyph) so the user
+ * reads the column origin at-a-glance.
  */
-function HeaderLabel({ label, icon, sortDirection }: HeaderLabelProps) {
+function HeaderLabel({ column, sortDirection }: HeaderLabelProps) {
+	const isCalc = column.kind === "calculated";
+	const icon = isCalc ? tablerMathFunction : tablerColumns;
+	const label = isCalc
+		? column.header || "(unnamed)"
+		: column.header || column.field || "(unnamed)";
 	return (
 		<span className="inline-flex items-center gap-1.5">
 			<Icon

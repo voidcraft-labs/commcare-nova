@@ -9,19 +9,18 @@
 // `ColumnKind` union without a parallel entry here is a compile-
 // time error, so the editor can never silently bypass a kind.
 //
-// Why per-kind entries: a card COMPONENT in `cards/column/` always
-// owns one kind, but each kind needs its own picker entry (label,
-// icon, default-value, applicability gate) so the kind-replace
-// menu reads correctly. Sharing components across kinds is purely
-// a code-organization choice; the registry's per-kind keying
-// preserves the exhaustivity check independent of file layout.
+// Six kinds — `plain`, `date`, `phone`, `id-mapping`, `interval`,
+// `calculated`. The `interval` kind dispatches on its own
+// `display: "always" | "flag"` discriminator; one card body covers
+// both modes. The `calculated` kind has no `field` slot — the
+// expression IS the source — so its card body skips the field
+// picker and mounts `ExpressionCardEditor` directly.
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
-import tablerClockCog from "@iconify-icons/tabler/clock-cog";
-import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerHourglass from "@iconify-icons/tabler/hourglass";
 import tablerListNumbers from "@iconify-icons/tabler/list-numbers";
+import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPhone from "@iconify-icons/tabler/phone";
 import tablerTextSize from "@iconify-icons/tabler/text-size";
 import type { ComponentType } from "react";
@@ -29,32 +28,32 @@ import type { CaseProperty, CaseType } from "@/lib/domain";
 import {
 	type Column,
 	type ColumnKind,
+	calculatedColumn,
 	dateColumn,
 	effectiveDataType,
 	idMappingColumn,
+	intervalColumn,
 	isDateTyped,
 	isTextShaped,
-	lateFlagColumn,
 	phoneColumn,
 	plainColumn,
-	searchOnlyColumn,
-	timeSinceUntilColumn,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
+import { CalculatedColumnCard } from "./cards/column/CalculatedColumnCard";
 import { DateColumnCard } from "./cards/column/DateColumnCard";
 import { IdMappingCard } from "./cards/column/IdMappingCard";
-import { LateFlagCard } from "./cards/column/LateFlagCard";
+import { IntervalCard } from "./cards/column/IntervalCard";
 import { PhoneColumnCard } from "./cards/column/PhoneColumnCard";
 import { PlainColumnCard } from "./cards/column/PlainColumnCard";
-import { SearchOnlyCard } from "./cards/column/SearchOnlyCard";
-import { TimeSinceUntilCard } from "./cards/column/TimeSinceUntilCard";
+import { newUuid } from "./uuid";
 
 /**
  * Minimum context every `defaultValue(...)` factory and
  * `applicableForProperty(...)` predicate consumes. The case-list
  * column editor always reads against the module's own case type
  * (no relation walks at the column level — those live inside
- * `calculatedColumn.expression`), so the context is shallow:
- * the available case-types and the originating scope.
+ * `calculated.expression`), so the context is shallow: the available
+ * case-types and the originating scope.
  *
  * Symmetric in spirit to `PredicateEditContext` /
  * `ExpressionEditContext` but minus the `knownInputs` slot — column
@@ -76,18 +75,16 @@ export interface ColumnEditContext {
  * adding a kind without an entry breaks the build.
  *
  * `applicableForProperty(property)` decides whether the kind can
- * meaningfully render the supplied case property. Late Flag /
- * Date / Time-Since-Until require date-typed properties; Phone is
- * text-shaped only; Plain / ID-Mapping / Search-Only accept any.
- * The kind-replace menu and the inline-validity surface both read
- * the predicate; an `undefined` property (no `field` selected yet
- * or the field references a missing property) returns `true` so
- * the kind picker stays open while the user is choosing.
+ * meaningfully render the supplied case property. Date / Interval
+ * require date-typed properties; Phone is text-shaped only; Plain /
+ * ID-Mapping accept any. Calculated has no `field` and so always
+ * applies regardless of property — the kind picker stays open
+ * across every property choice.
  *
  * `applicabilityRequirement` names the kind's property-type
  * requirement in human-readable form. Surfaces in the inline
  * mismatch hint when `applicableForProperty(...)` returns false
- * — e.g. "Late Flag columns require a date-typed property; "name"
+ * — e.g. "Interval columns require a date-typed property; "name"
  * is text." For kinds that accept any property, the field is
  * `null` (no requirement, no hint to render).
  */
@@ -101,12 +98,15 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 		readonly onChange: (next: Column) => void;
 		readonly ctx: ColumnEditContext;
 		/**
-		 * Inline error rows surfaced beneath the card's field
-		 * picker. The top-level `ColumnEditor` runs the kind-vs-
-		 * property-type applicability check and threads the resulting
-		 * messages through this prop; cards forward the array to
-		 * their `ColumnFieldRow` so the message renders next to the
-		 * offending picker.
+		 * Inline error rows surfaced beneath the card's field picker.
+		 * The top-level `ColumnEditor` runs the kind-vs-property-type
+		 * applicability check and threads the resulting messages
+		 * through this prop; cards forward the array to their
+		 * `ColumnFieldRow` so the message renders next to the
+		 * offending picker. Calculated cards have no field picker —
+		 * they receive errors but never render them (the parent's
+		 * outer-shell error footer surfaces operator-level
+		 * diagnostics).
 		 */
 		readonly errors?: readonly string[];
 	}>;
@@ -121,41 +121,37 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 
 // ── Property applicability ────────────────────────────────────────
 //
-// Per-kind property compatibility. The case-list column kinds
-// fall into three families:
+// Per-kind property compatibility. The case-list column kinds fall
+// into three families:
 //
-//   - **Date-typed only** — Date, Time-Since-Until, Late Flag.
-//     Their wire emitters compute calendar arithmetic against the
-//     property's value; a non-date property would silently
-//     misformat / produce nonsense thresholds.
-//   - **Text-shaped** — Phone. The wire emitter renders the
-//     value as a tappable telephone link; numeric-typed phone
-//     numbers are valid CCHQ practice but the runtime tap binding
-//     expects a string. Un-annotated properties fall back to
-//     `text` per the type checker's `data_type ?? "text"`
-//     convention (encoded by `lib/domain/casePropertyTypes.ts`).
-//   - **Universal** — Plain, ID-Mapping, Search-Only. Any
-//     property surface is acceptable — the column either renders
-//     the raw value (Plain), looks it up in a value→label table
-//     (ID-Mapping), or declares searchability without rendering
-//     (Search-Only).
+//   - **Date-typed** — Date, Interval. Their wire emitters compute
+//     calendar arithmetic against the property's value; a non-date
+//     property would silently misformat / produce nonsense thresholds.
+//   - **Text-shaped** — Phone. The wire emitter renders the value as
+//     a tappable telephone link; numeric-typed phone numbers are
+//     valid CCHQ practice but the runtime tap binding expects a
+//     string. Un-annotated properties fall back to `text` per the
+//     type checker's `data_type ?? "text"` convention.
+//   - **Universal** — Plain, ID-Mapping, Calculated. Plain renders
+//     the raw value; ID-Mapping looks up via a value→label table;
+//     Calculated has no field at all (the expression is the source).
 //
 // `undefined` from the caller (no property selected yet, or the
 // field references a property the case type doesn't declare)
-// short-circuits to `true` so the kind picker stays open while
-// the user is choosing. The picker's own `(unknown)` icon and
-// the editor's per-kind applicability error surface the missing-
-// property condition; the kind menu stays permissive.
+// short-circuits to `true` so the kind picker stays open while the
+// user is choosing.
 
-/** Plain / ID-Mapping / Search-Only — accept every property. */
+/** Plain / ID-Mapping / Calculated — accept every property
+ *  (Calculated has no field but the predicate is still consulted
+ *  by the kind-replace menu, so it must return true unconditionally). */
 function applicableForAny(_: CaseProperty | undefined): boolean {
 	return true;
 }
 
-/** Date / Time-Since-Until / Late Flag — require a date-typed
- *  property. Permissive when the field slot is unset so the kind
- *  picker stays available; the inline-validity surface catches
- *  the mismatch once a field is chosen. */
+/** Date / Interval — require a date-typed property. Permissive when
+ *  the field slot is unset so the kind picker stays available; the
+ *  inline-validity surface catches the mismatch once a field is
+ *  chosen. */
 function applicableForDate(property: CaseProperty | undefined): boolean {
 	if (property === undefined) return true;
 	return isDateTyped(property);
@@ -170,12 +166,11 @@ function applicableForText(property: CaseProperty | undefined): boolean {
 
 // ── Default-value seeds ───────────────────────────────────────────
 //
-// Each `defaultValue(ctx)` picks a sensible first property from
-// the `currentCaseType` matching the kind's applicability. When
-// no property qualifies, the seed emits an empty `field` — the
-// column-add UI surfaces an inline error from the type checker
-// so the user knows to either pick a property or remove the
-// column.
+// Each `defaultValue(ctx)` picks a sensible first property from the
+// `currentCaseType` matching the kind's applicability. When no
+// property qualifies, the seed emits an empty `field` — the column-
+// add UI surfaces an inline error from the type checker so the user
+// knows to either pick a property or remove the column.
 
 function pickFirstProperty(
 	ctx: ColumnEditContext,
@@ -221,7 +216,7 @@ export const columnCardSchemas: {
 		icon: tablerTextSize,
 		description: "Render the property value as plain text",
 		component: PlainColumnCard,
-		defaultValue: (ctx) => plainColumn(pickFirstAny(ctx), ""),
+		defaultValue: (ctx) => plainColumn(newUuid(), pickFirstAny(ctx), ""),
 		applicableForProperty: applicableForAny,
 		applicabilityRequirement: null,
 	},
@@ -231,18 +226,8 @@ export const columnCardSchemas: {
 		icon: tablerCalendarStats,
 		description: "Format a date / datetime property with a preset pattern",
 		component: DateColumnCard,
-		defaultValue: (ctx) => dateColumn(pickFirstDate(ctx), "", "%Y-%m-%d"),
-		applicableForProperty: applicableForDate,
-		applicabilityRequirement: "a date-typed property",
-	},
-	"time-since-until": {
-		kind: "time-since-until",
-		label: "Time since / until",
-		icon: tablerHourglass,
-		description: "Render a relative interval against the property's date",
-		component: TimeSinceUntilCard,
 		defaultValue: (ctx) =>
-			timeSinceUntilColumn(pickFirstDate(ctx), "", 7, "days", ""),
+			dateColumn(newUuid(), pickFirstDate(ctx), "", "%Y-%m-%d"),
 		applicableForProperty: applicableForDate,
 		applicabilityRequirement: "a date-typed property",
 	},
@@ -252,7 +237,7 @@ export const columnCardSchemas: {
 		icon: tablerPhone,
 		description: "Render the property as a tappable phone link",
 		component: PhoneColumnCard,
-		defaultValue: (ctx) => phoneColumn(pickFirstText(ctx), ""),
+		defaultValue: (ctx) => phoneColumn(newUuid(), pickFirstText(ctx), ""),
 		applicableForProperty: applicableForText,
 		applicabilityRequirement: "a text-typed property",
 	},
@@ -262,28 +247,38 @@ export const columnCardSchemas: {
 		icon: tablerListNumbers,
 		description: "Look up a label for each property value",
 		component: IdMappingCard,
-		defaultValue: (ctx) => idMappingColumn(pickFirstAny(ctx), "", []),
+		defaultValue: (ctx) =>
+			idMappingColumn(newUuid(), pickFirstAny(ctx), "", []),
 		applicableForProperty: applicableForAny,
 		applicabilityRequirement: null,
 	},
-	"late-flag": {
-		kind: "late-flag",
-		label: "Late flag",
-		icon: tablerClockCog,
-		description: "Show a flag when the date property exceeds a threshold",
-		component: LateFlagCard,
+	interval: {
+		kind: "interval",
+		label: "Interval",
+		icon: tablerHourglass,
+		description:
+			"Show a relative interval against a date property; flag overdue rows",
+		component: IntervalCard,
 		defaultValue: (ctx) =>
-			lateFlagColumn(pickFirstDate(ctx), "", 7, "days", "Overdue"),
+			intervalColumn(
+				newUuid(),
+				pickFirstDate(ctx),
+				"",
+				7,
+				"days",
+				"always",
+				"",
+			),
 		applicableForProperty: applicableForDate,
 		applicabilityRequirement: "a date-typed property",
 	},
-	"search-only": {
-		kind: "search-only",
-		label: "Search-only",
-		icon: tablerEyeOff,
-		description: "Declare the property as searchable without displaying it",
-		component: SearchOnlyCard,
-		defaultValue: (ctx) => searchOnlyColumn(pickFirstAny(ctx), ""),
+	calculated: {
+		kind: "calculated",
+		label: "Calculated",
+		icon: tablerMathFunction,
+		description: "Project a derived per-row value from an expression",
+		component: CalculatedColumnCard,
+		defaultValue: () => calculatedColumn(newUuid(), "", term(literal(""))),
 		applicableForProperty: applicableForAny,
 		applicabilityRequirement: null,
 	},
@@ -302,6 +297,9 @@ export const columnCardSchemaList: readonly ColumnCardSchema<ColumnKind>[] =
  * the field references a property the case type doesn't declare
  * — the inline-validity surface uses this to render an "Unknown
  * property" hint without blocking the kind picker.
+ *
+ * Calculated columns have no `field` slot; callers must guard
+ * before invoking this on a calculated value.
  */
 export function resolveColumnPropertyDataType(
 	ctx: ColumnEditContext,
@@ -322,6 +320,9 @@ export function resolveColumnPropertyDataType(
  * is empty. The applicability predicate accepts `undefined` as
  * "no opinion" so the kind picker stays available while the user
  * is choosing a property.
+ *
+ * Calculated columns have no `field` slot; callers must guard
+ * before invoking this on a calculated value.
  */
 export function resolveColumnProperty(
 	ctx: ColumnEditContext,

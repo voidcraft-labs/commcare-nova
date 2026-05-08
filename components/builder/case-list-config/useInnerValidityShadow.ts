@@ -4,12 +4,11 @@
 // host inner sub-editors per row. Today's consumers:
 //
 //   - `ColumnList` (in `DisplaySection.tsx`) — `Column` rows hosting
-//     `ColumnEditor`'s applicability verdict.
-//   - `CalculatedColumnEditor` — `CalculatedColumn` rows hosting an
-//     `ExpressionCardEditor` per row.
+//     `ColumnEditor`'s applicability verdict + the inner
+//     `ExpressionCardEditor` for calculated-arm columns.
 //   - `SearchInputsSection` — `SearchInputDef` rows hosting
 //     `ExpressionCardEditor` (default-value) +
-//     `PredicateCardEditor` (advanced xpath) per row.
+//     `PredicateCardEditor` (advanced predicate) per row.
 //
 // Each surface has the same lifecycle: each row's inner editor fires
 // `onValidityChange(boolean)` on every transition; the host AGGREGATES

@@ -1,12 +1,13 @@
 // components/builder/case-list-config/cards/column/ColumnFieldRow.tsx
 //
-// Shared "field + header" row used by every column card. The
-// pairing surfaces on every `ColumnKind` (the column schema's
-// `field: string` + `header: string` are required on every arm),
-// so factoring the row keeps the per-card body focused on the
-// kind-specific extras (date pattern, threshold, mapping table,
-// etc.) rather than re-implementing the same two inputs seven
-// times.
+// Shared "field + header" row used by the field-bearing column
+// cards (`plain`, `date`, `phone`, `id-mapping`, `interval`). The
+// `calculated` arm has no `field` slot — the expression is the
+// source — so it skips this row and renders header + expression
+// directly. Factoring the field/header pair keeps the per-card
+// body focused on the kind-specific extras (date pattern,
+// threshold, mapping table) rather than re-implementing the same
+// two inputs five times.
 //
 // Wraps:
 //   - Property picker (`PropertyPicker`) constrained by the kind's
@@ -46,9 +47,9 @@ interface ColumnFieldRowProps {
 	/** Fired when the user commits a new header on blur. */
 	readonly onHeaderChange: (next: string) => void;
 	/** Optional dropdown filter narrowing the picker's content
-	 *  (text-shaped for Phone, date-typed for Date / Late Flag /
-	 *  Time-Since-Until). Plain / ID-Mapping / Search-Only pass
-	 *  no filter so every property surfaces. */
+	 *  (text-shaped for Phone, date-typed for Date / Interval).
+	 *  Plain / ID-Mapping pass no filter so every property
+	 *  surfaces. */
 	readonly propertyFilter?: (p: CaseProperty) => boolean;
 	/** Inline error rows surfaced beneath the picker — typically
 	 *  the kind-vs-property-type applicability mismatch hint. */

@@ -1,64 +1,31 @@
 // components/builder/case-list-config/SearchInputsSection.tsx
 //
-// Drag-orderable list of `SearchInputDef` rows. Each row owns:
+// Drag-orderable list of `SearchInputDef` rows. The schema's
+// discriminated union splits authoring into two arms:
 //
-//   - `name` — programmatic identifier (`instance('search-input')/
-//     input/field[@name='X']`). Validated for non-empty + uniqueness
-//     across siblings.
-//   - `label` — author-facing widget label. Validated for non-empty.
-//   - `type` — widget kind picker (text / select / date / date-range
-//     / barcode). Sourced from `SEARCH_INPUT_TYPES`.
-//   - `property` — optional case property the input targets, picked
-//     through the shared `PropertyRefPicker` (mode `property-only`).
-//     Absent when the input is "advanced" — every predicate flows
-//     through `xpath`.
-//   - `via` — optional relation walk to a destination case type,
-//     edited through the shared `RelationPathBuilder`. The builder
-//     defaults to `selfPath()` UI-side, but `searchInputDef(...)`
-//     omits the slot when the path is `self`-shaped so round-trip
-//     equality against persisted documents that omitted the slot
-//     stays intact.
-//   - `mode` — optional explicit search mode picker. Filtered by the
-//     `(type, property data type)` matrix from `applicableSearchModes`
-//     + `SEARCH_MODE_PROPERTY_TYPES`.
-//   - `default` — optional default-value `ValueExpression`, edited
-//     through `ExpressionCardEditor`. The expected type derives from
-//     the input's `type` (date / date-range → `date`; barcode → `text`;
-//     text → `text`; select declines an expectedType because the
-//     property's `data_type` is the better signal).
-//   - `xpath` — optional advanced `Predicate`, edited through
-//     `PredicateCardEditor`. When present, the wire layer uses it
-//     verbatim and ignores the `(property, mode)`-derived predicate;
-//     the editor surfaces this via an "Advanced override" banner +
-//     by hiding the property + mode pickers.
+//   - `kind: "simple"` — `(property, mode, via)` triple. The wire
+//     layer derives the predicate from the targeted property + the
+//     mode + the optional relation walk.
+//   - `kind: "advanced"` — author-defined `predicate` AST. The wire
+//     layer emits the predicate verbatim; this row mounts a
+//     `PredicateCardEditor`.
 //
-// Mirrors `CalculatedColumnEditor`'s shape: per-mount `containerKey`
-// for the reorder monitor, per-row `nodeId(...)` React keys
-// (WeakMap-backed survival across reorders), unified `resolveRows`
-// helper consumed by both inline-error rendering AND the editor's
-// `valid` aggregation so display and validity propagation share a
-// single source of truth — display/validity asymmetry is structurally
-// impossible (per `feedback_always_in_valid_state.md`).
+// Each row carries a "Convert to advanced" / "Convert to simple"
+// affordance that flips the discriminator. Converting to advanced
+// seeds the predicate from the row's current property + mode (or
+// `match-all()` when no property is set); converting back to simple
+// drops the predicate and re-exposes the property + mode pickers.
 //
-// **Hard validation** for type-coupling. Per `feedback_always_in_valid_state.md`,
-// a search input declared on a property whose `data_type` doesn't
-// satisfy the picked `(type, mode)` pair flips `valid: false` rather
-// than surfacing a soft warning. The umbrella principle: Nova rejects
-// CCHQ's "save broken, fix later" gauntlet. The user sees inline
-// red diagnostics + the parent's save affordance gates correctly.
-//
-// **Cross-input references in default / xpath.** Each row's
-// `ExpressionCardEditor` / `PredicateCardEditor` receives a
-// `knownInputs` derived from the OTHER rows. A row can reference any
-// sibling input via `input("other_name")` without the type checker
-// rejecting the reference; self-references are excluded so the row's
-// own name doesn't shadow itself mid-edit (and the user authoring a
-// fresh row with a not-yet-named input doesn't see spurious "input
-// not declared" errors during the per-keystroke draft phase).
+// Common slots — `uuid`, `name`, `label`, `type`, `default?` — live
+// on both arms. Per-row inline diagnostics surface for empty / dup
+// names, empty labels, and (on the simple arm) `(type, mode,
+// property)` type-coupling mismatches. The advanced arm bypasses
+// type-coupling — its predicate AST has its own type checker.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
@@ -72,6 +39,7 @@ import tablerSelect from "@iconify-icons/tabler/select";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useMemo, useRef } from "react";
 import {
+	advancedSearchInputDef,
 	applicableSearchModes,
 	type CaseProperty,
 	type CaseType,
@@ -89,7 +57,8 @@ import {
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
-	searchInputDef,
+	type SimpleSearchInputDef,
+	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
 import {
@@ -113,7 +82,6 @@ import {
 } from "@/lib/styles";
 import { ExpressionCardEditor } from "./ExpressionCardEditor";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
-import { nodeId } from "./nodeIdentity";
 import { PredicateCardEditor } from "./PredicateCardEditor";
 import { BlurCommitTextInput } from "./primitives/BlurCommitTextInput";
 import { InlineError } from "./primitives/CardShell";
@@ -124,6 +92,7 @@ import {
 	useValidityPropagator,
 } from "./useInnerValidityShadow";
 import { ReorderableRow, useReorderableList } from "./useReorderableList";
+import { newUuid } from "./uuid";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -135,28 +104,20 @@ export interface SearchInputsSectionProps {
 	readonly onChange: (next: readonly SearchInputDef[]) => void;
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the case list runs against. Property pickers
-	 *  scope here at the top level; relation walks (`via`) navigate
-	 *  to other case types. */
+	 *  scope here at the top level; relation walks (`via` on the
+	 *  simple arm) navigate to other case types. */
 	readonly currentCaseType: string;
 	/** Surfaces the editor's overall validity to the parent. The
 	 *  aggregated verdict combines:
 	 *    - per-row `name` non-empty + unique among siblings.
 	 *    - per-row `label` non-empty.
-	 *    - per-row type-coupling (type vs property's data type;
-	 *      mode vs property's data type).
+	 *    - simple-arm `(type, mode, property)` type-coupling.
 	 *    - per-row inner `default` expression validity (when present).
-	 *    - per-row inner `xpath` predicate validity (when present). */
+	 *    - advanced-arm `predicate` validity. */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
 
 // ── Display labels ────────────────────────────────────────────────
-//
-// Centralized author-facing labels for each `SearchInputType` and
-// `SearchInputMode`. The schema's enum values are wire-shaped
-// (`date-range`, `multi-select-contains`); the picker UI shows
-// human-friendly labels keyed off the same enum. Keeping the labels
-// in one place keeps the trigger label, the menu items, and any
-// inline error vocabulary aligned.
 
 const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
 	text: "Text",
@@ -185,11 +146,6 @@ const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 };
 
 // ── Per-mode builder lookup ───────────────────────────────────────
-//
-// The picker emits the canonical builder shape for each mode. The
-// `multi-select-contains` arm requires a quantifier; the other arms
-// are zero-arg. Routing every emission through the builder keeps the
-// constructed shape in lockstep with `searchInputModeSchema`.
 
 function buildMode(
 	kind: SearchInputMode["kind"],
@@ -217,21 +173,18 @@ function buildMode(
 //
 // One helper computes per-row `{ nameState, labelEmpty,
 // typeCouplingErrors }` and is consumed by BOTH the inline-error
-// chrome on the row AND the editor's `valid` aggregation. Two
-// independent computations is the failure mode
-// `feedback_always_in_valid_state.md` rules out; centralizing here
-// keeps display chrome and validity propagation in lockstep.
+// chrome on the row AND the editor's `valid` aggregation —
+// display chrome and validity propagation share one source of
+// truth.
 
 type NameState =
 	/** Non-empty + unique among siblings. */
 	| { kind: "ok" }
 	/** Empty string — the user hasn't named the input yet. */
 	| { kind: "empty" }
-	/** Duplicate against an earlier index. First occurrence at
-	 *  `firstIndex` wins; this row's name flags. The wire layer
-	 *  binds inputs by name into the `instance('search-input')`
-	 *  document, so a duplicate name would silently overwrite the
-	 *  first occurrence's binding at evaluation. */
+	/** Duplicate against an earlier index — first occurrence wins.
+	 *  The wire layer binds inputs by name, so duplicates would
+	 *  silently overwrite. */
 	| { kind: "duplicate"; firstIndex: number };
 
 interface ResolvedRow {
@@ -239,22 +192,15 @@ interface ResolvedRow {
 	readonly labelEmpty: boolean;
 	/** Type-coupling diagnostics — empty when the picked
 	 *  `(type, mode)` pair is admissible against the targeted
-	 *  property's `data_type`. Per `feedback_always_in_valid_state.md`
-	 *  the verdict flips `valid: false` whenever this list is
-	 *  non-empty (no soft "warning" tier). */
+	 *  property's `data_type`. Always empty for `kind: "advanced"`
+	 *  (the predicate AST owns property resolution). */
 	readonly typeCouplingErrors: readonly string[];
 }
 
 /**
  * Resolve every row's status against the sibling list + the editor's
- * `caseTypes` + `currentCaseType` context. The "first-occurrence
- * wins" rule on duplicate names matches the wire layer's binding
- * behavior — `input("name")` resolves to the first declaration in
- * the search-input list.
- *
- * Building the `firstIndexByName` map up-front keeps the per-row
- * pass O(n) rather than O(n²) — without the precomputed index, each
- * row's sibling scan would re-sweep the full list.
+ * `caseTypes` + `currentCaseType` context. Builds the
+ * `firstIndexByName` map up-front so the per-row pass stays O(n).
  */
 function resolveRows(
 	value: readonly SearchInputDef[],
@@ -270,8 +216,6 @@ function resolveRows(
 		}
 	}
 	return value.map((row, i) => {
-		// Name state: empty → `empty`; duplicate against an earlier
-		// index → `duplicate`; otherwise → `ok`.
 		let nameState: NameState;
 		if (row.name === "") {
 			nameState = { kind: "empty" };
@@ -284,13 +228,11 @@ function resolveRows(
 			}
 		}
 
-		// Type-coupling diagnostics. The xpath-override branch hides
-		// the property + mode pickers entirely (the runtime ignores
-		// `(property, mode)` when `xpath` is present), so the per-
-		// property type-coupling check is also bypassed there.
+		// Advanced arm bypasses type-coupling — the predicate AST owns
+		// property resolution + has its own type checker.
 		const typeCouplingErrors =
-			row.xpath !== undefined
-				? []
+			row.kind === "advanced"
+				? ([] as const)
 				: computeTypeCouplingErrors(
 						row,
 						resolveProperty(caseTypes, row, currentCaseType),
@@ -306,30 +248,15 @@ function resolveRows(
 
 /**
  * Resolve the targeted property reference against the `caseTypes`
- * graph. Returns the `CaseProperty` object when the row's `property`
- * names a declared property on the row's effective scope (the `via`
- * walk's destination, or `currentCaseType` when no walk is set),
- * else `undefined`.
- *
- * The `via`-walk destination is approximated here: the editor's
- * `RelationPathBuilder` only emits canonical single-step
- * `ancestorPath` / `subcasePath` / `selfPath` shapes, and the type-
- * coupling check needs a destination case-type to resolve the
- * property against. For `selfPath()` the destination is the row's
- * scope (`currentCaseType`); for `ancestor` / `subcase` walks the
- * destination resolves through the case-type graph — but since the
- * editor's relation builder doesn't surface destination scope
- * inline AND the wire layer's per-mode property-type gate is the
- * runtime authority, the editor falls back to `currentCaseType`
- * when the destination can't be resolved structurally.
+ * graph. Only the simple arm carries a `property`; the advanced arm
+ * encodes property references inside its `predicate` AST.
  */
 function resolveProperty(
 	caseTypes: readonly CaseType[],
-	row: SearchInputDef,
+	row: SimpleSearchInputDef,
 	currentCaseType: string,
 ): CaseProperty | undefined {
-	if (row.property === undefined || row.property === "") return undefined;
-	// Walk destination resolution.
+	if (row.property === "") return undefined;
 	const destinationCaseType = resolveDestinationCaseType(
 		caseTypes,
 		row.via,
@@ -340,24 +267,13 @@ function resolveProperty(
 }
 
 /**
- * Resolve a relation walk's destination case type given the editor's
- * `caseTypes` graph + the row's `currentCaseType` anchor:
- *
- *   - Absent / `self` → `currentCaseType` (no walk).
- *   - `ancestor` (single-step canonical shape from the editor) →
- *     the `parent_type` of the current case type (CCHQ's standard
- *     parent walk); falls back to `currentCaseType` when the case
- *     type doesn't declare a `parent_type`.
- *   - `subcase` (single-step canonical shape) → currentCaseType.
- *     The editor's single-step shape doesn't surface the
- *     destination qualifier; the wire layer's per-mode property-
- *     type gate is the runtime authority for stricter resolution.
- *   - `any-relation` / multi-hop / qualified shapes — the editor's
- *     `RelationPathBuilder` doesn't emit these (they route through
- *     the read-only badge + Replace affordance); the case is
- *     unreachable from the editor's emit path but kept defensible
- *     here against persisted documents from external authoring
- *     surfaces.
+ * Resolve a relation walk's destination case type. Mirrors the
+ * predicate editor's destination resolution: `self` stays at the
+ * row's anchor, `ancestor` walks one parent step, `subcase` /
+ * `any-relation` fall back to the row's anchor (the editor's
+ * single-step `RelationPathBuilder` doesn't surface destination
+ * qualifiers; the wire layer's per-mode property-type gate is the
+ * runtime authority for stricter resolution).
  */
 function resolveDestinationCaseType(
 	caseTypes: readonly CaseType[],
@@ -369,19 +285,10 @@ function resolveDestinationCaseType(
 		case "self":
 			return currentCaseType;
 		case "ancestor": {
-			// Walk one step via the case type's `parent_type`. The
-			// editor's `RelationPathBuilder` emits single-step ancestor
-			// walks only; multi-hop walks route through the read-only
-			// badge surface.
 			const ct = caseTypes.find((c) => c.name === currentCaseType);
 			return ct?.parent_type ?? currentCaseType;
 		}
 		case "subcase":
-			// The editor's single-step subcase walk doesn't surface a
-			// destination-qualifier slot. The wire layer's per-mode
-			// property-type gate is the runtime authority; the editor
-			// falls back to `currentCaseType` for the type-coupling
-			// approximation here.
 			return currentCaseType;
 		case "any-relation":
 			return currentCaseType;
@@ -389,42 +296,19 @@ function resolveDestinationCaseType(
 }
 
 /**
- * Compute the type-coupling diagnostics for a single row given the
- * targeted property's `CaseProperty` (when resolvable). Three
- * orthogonal checks combine:
- *
- *   1. Widget-kind vs property data-type — the input's `type` admits
- *      a closed set of property `data_type`s per
- *      `SEARCH_INPUT_TYPE_PROPERTY_TYPES`. A `barcode` input declared
- *      on an `int` property is structurally meaningless.
- *
- *   2. Mode vs property data-type — the input's `mode` (when set)
- *      admits a closed set of property `data_type`s per
- *      `SEARCH_MODE_PROPERTY_TYPES`. A `fuzzy` mode declared on an
- *      `int` property is structurally meaningless.
- *
- *   3. Mode vs widget-kind — the picked `mode` must appear in the
- *      `applicableSearchModes(type)` table. The editor's mode picker
- *      filters by this table, so this check is normally satisfied
- *      by construction; the redundant gate here covers persisted
- *      documents that drifted (e.g. a saved `(date, fuzzy)` pair
- *      authored before the table was tightened).
- *
- * No diagnostics fire when the property is unresolved (row has no
- * `property` set, or the property is missing from the case type) —
- * the user is mid-edit, and the empty-property case has its own
- * per-slot signal at the picker. The xpath-override branch (handled
- * upstream in `resolveRows`) bypasses every type-coupling check.
+ * Compute the type-coupling diagnostics for a single simple-arm row
+ * given the targeted property's `CaseProperty` (when resolvable).
+ * Three orthogonal checks combine: widget-kind vs property data-type,
+ * mode vs property data-type, mode vs widget-kind (covers persisted
+ * docs that drifted past the editor's own picker filtering).
  */
 function computeTypeCouplingErrors(
-	row: SearchInputDef,
+	row: SimpleSearchInputDef,
 	property: CaseProperty | undefined,
 ): readonly string[] {
 	const errors: string[] = [];
 
-	// Mode vs widget-kind gate. Read first so a saved `(date, fuzzy)`
-	// pair surfaces the mismatch even when the property is unresolved
-	// — the gate doesn't depend on the property at all.
+	// Mode vs widget-kind gate.
 	if (row.mode !== undefined) {
 		const modeKind = row.mode.kind;
 		const applicable = applicableSearchModes(row.type);
@@ -438,16 +322,10 @@ function computeTypeCouplingErrors(
 		}
 	}
 
-	// Property-anchored gates. Skip when the property is unresolved
-	// — the user is mid-edit, the picker surfaces its own placeholder,
-	// and the parent-section's empty-property signal handles the gate
-	// at the right level.
+	// Property-anchored gates. Skip when property is unresolved.
 	if (property === undefined) return errors;
-
 	const dataType = effectiveDataType(property);
 
-	// Widget-kind vs property data-type. `undefined` in the table
-	// means unrestricted (the kind admits every data type).
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
 	if (typeAllowList !== undefined && !typeAllowList.includes(dataType)) {
 		errors.push(
@@ -455,8 +333,6 @@ function computeTypeCouplingErrors(
 		);
 	}
 
-	// Mode vs property data-type. `undefined` means the mode is
-	// unrestricted (e.g. `exact` admits every data type).
 	if (row.mode !== undefined) {
 		const modeAllowList = SEARCH_MODE_PROPERTY_TYPES[row.mode.kind];
 		if (modeAllowList !== undefined && !modeAllowList.includes(dataType)) {
@@ -469,17 +345,6 @@ function computeTypeCouplingErrors(
 	return errors;
 }
 
-/**
- * Decide whether a resolved row carries any structural error. A
- * row is "ok" when the name is non-empty + unique among siblings AND
- * the label is non-empty AND the type-coupling errors are empty.
- *
- * Returns a boolean rather than a list of strings — the inline-error
- * chrome renders the per-slot messages directly off the structured
- * `ResolvedRow` fields, so a parallel string vocabulary here would
- * be a second source of truth that drifts. The `valid` aggregation
- * reads only the boolean; the renderer reads the structured shape.
- */
 function rowHasStructuralError(resolved: ResolvedRow): boolean {
 	if (resolved.nameState.kind !== "ok") return true;
 	if (resolved.labelEmpty) return true;
@@ -489,29 +354,12 @@ function rowHasStructuralError(resolved: ResolvedRow): boolean {
 
 // ── knownInputs derivation ────────────────────────────────────────
 //
-// Each row's inner `ExpressionCardEditor` / `PredicateCardEditor`
-// receives the SIBLING rows' search-input declarations as
-// `knownInputs`. This lets a row's `default` / `xpath` reference any
-// other input via `input("other_name")` without the type checker
-// rejecting the reference.
-//
-// Self-references are excluded so the row's own name doesn't shadow
-// itself mid-edit. A row that's still being authored (empty name,
-// just-typed name, etc.) doesn't see its own freshly-typed name as
-// "input not declared in scope" before the user tabs out — but it
-// also doesn't see its own name as a valid binding (the runtime
-// can't bind an input to itself; the wire layer surfaces a
-// reference-cycle error).
-//
-// `data_type` derivation per input type:
-//   - `text` / `barcode` → `text` (the input serializes as a
-//     plain string).
-//   - `date` / `date-range` → `date` (the input emits a typed date
-//     literal).
-//   - `select` → falls back to the targeted property's `data_type`
-//     (`single_select` / `multi_select`); `text` if the property
-//     isn't resolvable. The wire layer hands selects through as
-//     their option-value string at the wire boundary.
+// Each row's inner editor sees the SIBLING rows' search-input
+// declarations. Lets a row's `default` / advanced predicate
+// reference any other input via `input("other_name")` without the
+// type checker rejecting the reference. Self-references are
+// excluded so a row authoring its own name doesn't see spurious
+// "input not declared" errors during the per-keystroke draft phase.
 
 function deriveSearchInputDecl(
 	row: SearchInputDef,
@@ -526,19 +374,18 @@ function deriveSearchInputDecl(
 		case "date-range":
 			return { name: row.name, data_type: "date" };
 		case "select": {
-			// Selects derive their declared `data_type` from the
-			// targeted property when resolvable. Falls back to `text`
-			// when the property isn't set / isn't declared — same
-			// fallback the type-checker uses for un-annotated
-			// properties.
+			// Selects derive the declared `data_type` from the targeted
+			// property when resolvable; falls back to `text`. Only the
+			// simple arm has a property to consult; advanced rows fall
+			// straight through to text.
+			if (row.kind !== "simple") {
+				return { name: row.name, data_type: "text" };
+			}
 			const property = resolveProperty(caseTypes, row, currentCaseType);
 			if (property === undefined) {
 				return { name: row.name, data_type: "text" };
 			}
 			const dataType = effectiveDataType(property);
-			// Narrow to the select-typed shapes; otherwise default to
-			// `text` (the input still serializes as a string at the
-			// wire boundary).
 			if (dataType === "single_select" || dataType === "multi_select") {
 				return { name: row.name, data_type: dataType };
 			}
@@ -547,12 +394,6 @@ function deriveSearchInputDecl(
 	}
 }
 
-/**
- * Compute the `knownInputs` array each row's inner editor sees:
- * every sibling row's declaration except this row's own. The
- * derived `data_type` follows the per-type fallback rules in
- * `deriveSearchInputDecl`.
- */
 function computeKnownInputsForRow(
 	rows: readonly SearchInputDef[],
 	rowIndex: number,
@@ -569,23 +410,7 @@ function computeKnownInputsForRow(
 	return decls;
 }
 
-// ── Default-value expectedType ────────────────────────────────────
-//
-// The `expectedType` threaded into each row's `default` editor lets
-// the inner type checker fire its own "Expected X; resolves to Y"
-// diagnostic alongside the row-level type-coupling check.
-//
-//   - `text` / `barcode` → `text`. The wire layer serializes the
-//     default as a plain string.
-//   - `date` / `date-range` → `date`. The wire layer emits a typed
-//     date literal at evaluation.
-//   - `select` → undefined. The select's value type depends on the
-//     targeted property's `data_type` (`single_select` /
-//     `multi_select`), which is the better signal — the inner
-//     editor's literal slot picks the type from there. Threading
-//     `text` here would force every select default to type-check
-//     as `text`, which is a wire-layer truth but not the editing
-//     truth.
+// ── Default-value expectedType + seed ─────────────────────────────
 
 function expectedTypeForDefault(
 	type: SearchInputType,
@@ -602,18 +427,6 @@ function expectedTypeForDefault(
 	}
 }
 
-// ── Default-value seed ────────────────────────────────────────────
-//
-// When the user clicks "Add default value", the default-value slot
-// seeds with a per-type-appropriate expression so the inner editor
-// surfaces a meaningful starting point rather than an empty literal:
-//
-//   - `date` / `date-range` → `today()` (the project-timezone ISO
-//     date constant — the canonical date-typed seed).
-//   - `text` / `barcode` / `select` → `term(literal(""))` (an
-//     empty-string literal lift, the same shape
-//     `CalculatedColumnEditor` uses for fresh expression rows).
-
 function seedDefaultExpression(type: SearchInputType): ValueExpression {
 	switch (type) {
 		case "date":
@@ -629,13 +442,9 @@ function seedDefaultExpression(type: SearchInputType): ValueExpression {
 // ── Top-level editor ──────────────────────────────────────────────
 
 /**
- * Drag-orderable list of `SearchInputDef` rows. Composes the per-
- * row editor surface + an "Add search input" affordance + the
- * validity propagation contract. Mutations route through the
- * `searchInputDef(...)` builder so the constructed shape stays in
- * lockstep with `searchInputDefSchema` (and the optional-slot
- * omission semantics — `via: selfPath()` collapses to absent —
- * apply uniformly).
+ * Drag-orderable list of `SearchInputDef` rows. Each row's
+ * arm-specific body switches on `kind: "simple"` / `kind:
+ * "advanced"`.
  */
 export function SearchInputsSection({
 	value,
@@ -644,16 +453,8 @@ export function SearchInputsSection({
 	currentCaseType,
 	onValidityChange,
 }: SearchInputsSectionProps) {
-	// Per-mount stable id for the reorder container. The editor's
-	// `value` is a plain array (no envelope object to use as a
-	// `nodeId(...)` lookup key); a per-mount UUID gives the monitor
-	// a stable scope across re-renders without coupling to the
-	// array reference.
 	const containerKey = useId();
 
-	// Resolve every row's status once per render. The unified pass
-	// feeds both the inline-error chrome AND the editor's `valid`
-	// aggregation.
 	const resolvedPerRow = useMemo(
 		() => resolveRows(value, caseTypes, currentCaseType),
 		[value, caseTypes, currentCaseType],
@@ -664,16 +465,9 @@ export function SearchInputsSection({
 		[resolvedPerRow],
 	);
 
-	// Per-row inner-editor validity. Each row's `default` / `xpath`
-	// editors fire `onValidityChange(boolean)` on every transition;
-	// the shared `useInnerValidityShadow` hook maintains a row-
-	// identity-keyed `WeakMap<SearchInputDef, boolean>` so a
-	// reorder-then-flip never races against a stale index slot.
 	const { aggregatedValid: innerAggregatedValid, setRowValid } =
 		useInnerValidityShadow<SearchInputDef>(value);
 
-	// Aggregated section-level verdict — every row's structural
-	// errors empty AND the shadow's inner aggregation true.
 	const isValid = useMemo(() => {
 		for (let i = 0; i < value.length; i++) {
 			if (hasStructuralErrorPerRow[i] === true) return false;
@@ -681,12 +475,8 @@ export function SearchInputsSection({
 		return innerAggregatedValid;
 	}, [value, hasStructuralErrorPerRow, innerAggregatedValid]);
 
-	// Standardized parent-validity propagation — fires on mount + on
-	// every transition, ref-stashed against fresh-each-render parent
-	// callback identity.
 	useValidityPropagator({ isValid, onValidityChange });
 
-	// Reorder wiring — per-container monitor scoped to `containerKey`.
 	const { pendingDrop } = useReorderableList<SearchInputDef>({
 		containerKey,
 		containerKind: "search-inputs",
@@ -694,50 +484,27 @@ export function SearchInputsSection({
 		onReorder: (next) => onChange(next),
 	});
 
-	// ── Mutators ──
-	//
-	// Every mutation rebuilds the affected row via
-	// `searchInputDef(...)`. The builder's optional-slot omission
-	// semantics keep round-trip equality intact across edits.
-
 	const replaceRow = (index: number, next: SearchInputDef) => {
 		onChange(value.map((r, i) => (i === index ? next : r)));
 	};
 
 	const removeRow = (index: number) => {
-		// The row-identity-keyed shadow auto-collects entries when the
-		// removed row's reference leaves React state — no manual
-		// "drop this index" cleanup needed. The new `value` array
-		// excludes the removed row, the next aggregation walks only
-		// surviving rows, and the WeakMap entry is unreachable.
 		onChange(value.filter((_, i) => i !== index));
 	};
 
 	const appendRow = () => {
-		// Generate the fresh name at click time, NOT during render.
-		// `crypto.randomUUID()` inside a render path would explode
-		// the WeakMap-backed `nodeId(...)` identity (every render
-		// emits a new name, every render emits a new key). The
+		// Default seed: simple-arm text input with a fresh uuid + a
+		// readable auto-generated name. The user renames at will; the
 		// `input_` prefix distinguishes auto-generated names from
-		// author-renamed ones at-a-glance; the suffix is the v4
-		// short-form (8 hex digits) so the name stays readable.
+		// hand-authored ones at-a-glance. The 8-hex-digit suffix keeps
+		// the name readable while staying unique.
 		const freshName = `input_${crypto.randomUUID().slice(0, 8)}`;
-		// Default seed: text type, fresh name, empty label, no
-		// property / mode / via / default / xpath. The
-		// `searchInputDef(...)` builder omits every absent optional
-		// slot so the seed parses through `safeParse(...).toEqual(input)`.
-		// The shadow's "missing entry → trivially valid" default
-		// covers the fresh row until its inner editors fire their
-		// first verdicts.
-		const seed = searchInputDef(freshName, "", "text");
+		const seed = simpleSearchInputDef(newUuid(), freshName, "", "text", "");
 		onChange([...value, seed]);
 	};
 
 	return (
 		<div className="space-y-3">
-			{/* Section header — title + add affordance. Mirrors the
-			    visual chrome of `FiltersSection` so the case-list-config
-			    panel reads as one consistent surface. */}
 			<header className="flex items-baseline gap-2">
 				<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
 				<Icon
@@ -757,12 +524,6 @@ export function SearchInputsSection({
 			<div className="space-y-1.5">
 				{value.length === 0 && <EmptyState />}
 				{value.map((row, i) => {
-					// Fall back to a structurally-valid resolved row when
-					// the array length is mid-transition (defensive — the
-					// `useMemo` rebuilds on every `value` change so the
-					// fallback is unreachable in practice, but TypeScript
-					// can't prove the array indexing returns non-undefined
-					// without the guard).
 					const resolved = resolvedPerRow[i] ?? {
 						nameState: { kind: "ok" } as const,
 						labelEmpty: row.label === "",
@@ -777,13 +538,7 @@ export function SearchInputsSection({
 					);
 					return (
 						<ReorderableRow
-							// Stable per-row React key from the WeakMap-backed
-							// `nodeId(row)` — the reorder hook splices existing
-							// element references into the new array order, so
-							// per-row identity persists across drag-drop AND
-							// across the duplicate-name case (where a
-							// `key={row.name}` would collide).
-							key={nodeId(row)}
+							key={row.uuid}
 							index={i}
 							containerKey={containerKey}
 							containerKind="search-inputs"
@@ -821,11 +576,6 @@ export function SearchInputsSection({
 										knownInputs={knownInputs}
 										onChange={(next) => replaceRow(i, next)}
 										onRemove={() => removeRow(i)}
-										// Route the row's combined inner verdict through
-										// the row-identity-keyed shadow. Passing `row`
-										// (the current SearchInputDef object) keys the
-										// WeakMap entry to this row's reference so a
-										// reorder-then-flip writes against the right slot.
 										onInnerValidityChange={(valid) => setRowValid(row, valid)}
 										setHandleEl={setHandleEl}
 									/>
@@ -882,13 +632,9 @@ interface SearchInputRowProps {
 	readonly knownInputs: readonly SearchInputDecl[];
 	readonly onChange: (next: SearchInputDef) => void;
 	readonly onRemove: () => void;
-	/** Combined `default` + `xpath` validity verdict for the row.
-	 *  Fired with `false` when EITHER the default-value editor OR the
-	 *  xpath editor reports invalid; `true` only when both report
-	 *  valid (or aren't mounted). The combination collapses two
-	 *  sub-editors into one signal so the section's aggregated
-	 *  validity stays index-keyed without a per-sub-editor shadow
-	 *  matrix. */
+	/** Combined `default` + `predicate` validity verdict. Fired with
+	 *  `false` when EITHER inner editor reports invalid; `true` only
+	 *  when both report valid (or aren't mounted). */
 	readonly onInnerValidityChange: (valid: boolean) => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 }
@@ -907,106 +653,123 @@ function SearchInputRow({
 	setHandleEl,
 }: SearchInputRowProps) {
 	// Track each inner editor's verdict separately so the row can
-	// AND them at every transition. Mirrors the section-level
-	// shadow-array shape; a single combined boolean would lose the
-	// "which editor flipped" signal that's the right thing to thread
-	// up.
+	// AND them at every transition. Only one of (default, predicate)
+	// is mounted at a time depending on `kind`, but the two refs
+	// keep the AND operation simple — a missing editor's ref stays
+	// at its `true` default and doesn't drag the verdict down.
 	const defaultValidRef = useRef(true);
-	const xpathValidRef = useRef(true);
+	const predicateValidRef = useRef(true);
 	const propagateValidity = () => {
-		onInnerValidityChange(defaultValidRef.current && xpathValidRef.current);
+		onInnerValidityChange(defaultValidRef.current && predicateValidRef.current);
 	};
 
-	// ── Mutators ──
-	//
-	// Each mutator rebuilds the row via the `searchInputDef(...)`
-	// builder. The builder's optional-slot omission semantics keep
-	// the constructed shape's optional slots aligned with the
-	// schema's "absent ≡ ..." contracts.
+	// ── Common-slot mutators ──
 
-	const setName = (name: string) => {
-		onChange(rebuildRow(value, { name }));
-	};
-	const setLabel = (label: string) => {
-		onChange(rebuildRow(value, { label }));
-	};
+	const setName = (name: string) => onChange(rebuildRow(value, { name }));
+	const setLabel = (label: string) => onChange(rebuildRow(value, { label }));
 	const setType = (type: SearchInputType) => {
-		// Type change resets the `mode` slot ONLY when the current
-		// mode is no longer admissible against the new type. Without
-		// the gate, switching from `text` to `select` and back would
-		// silently drop the user's previously-picked `fuzzy` mode;
-		// keeping the mode when admissible preserves authoring intent.
-		const applicable = applicableSearchModes(type);
-		const keepMode =
-			value.mode !== undefined && applicable.includes(value.mode.kind);
-		onChange(
-			rebuildRow(value, {
-				type,
-				...(keepMode ? {} : { mode: undefined }),
-			}),
-		);
-	};
-	const setProperty = (property: string) => {
-		onChange(rebuildRow(value, { property }));
-	};
-	// Remove the property reference from the row. The `via` slot is
-	// PRESERVED across the remove — a user removing the property
-	// hasn't necessarily abandoned the relation walk, so re-adding a
-	// property keeps the previously-authored walk on the new
-	// reference. The schema admits this shape (both `property` and
-	// `via` are independent optionals); the wire layer handles
-	// "via without property" by falling through to the xpath
-	// derivation when no property is targeted.
-	const removeProperty = () => {
-		onChange(rebuildRow(value, { property: undefined }));
-	};
-	const setVia = (via: RelationPath) => {
-		onChange(rebuildRow(value, { via }));
-	};
-	const setMode = (mode: SearchInputMode | undefined) => {
-		onChange(rebuildRow(value, { mode }));
+		// Only the simple arm carries a `mode`. When type changes on
+		// the simple arm and the new type narrows the admitted modes
+		// past the current one, drop the mode so the saved doc stays
+		// admissible against `applicableSearchModes(type)`.
+		if (value.kind === "simple") {
+			const applicable = applicableSearchModes(type);
+			const keepMode =
+				value.mode !== undefined && applicable.includes(value.mode.kind);
+			onChange(
+				rebuildRow(value, {
+					type,
+					...(keepMode ? {} : { mode: undefined }),
+				}),
+			);
+			return;
+		}
+		onChange(rebuildRow(value, { type }));
 	};
 	const setDefault = (next: ValueExpression | undefined) => {
-		// Reset the inner verdict to `true` when the slot becomes
-		// undefined — the editor unmounts and the stale `false` left
-		// behind by a clearing edit would otherwise leak past the
-		// clear (same shape `FiltersSection` uses for its slot-
-		// presence guard).
 		if (next === undefined) {
 			defaultValidRef.current = true;
 			propagateValidity();
 		}
 		onChange(rebuildRow(value, { default: next }));
 	};
-	const setXpath = (next: Predicate | undefined) => {
-		if (next === undefined) {
-			xpathValidRef.current = true;
-			propagateValidity();
-		}
-		onChange(rebuildRow(value, { xpath: next }));
+
+	// ── Simple-arm mutators (no-op when row is advanced) ──
+
+	const setProperty = (property: string) => {
+		if (value.kind !== "simple") return;
+		onChange(rebuildRow(value, { property }));
+	};
+	const setVia = (via: RelationPath) => {
+		if (value.kind !== "simple") return;
+		onChange(rebuildRow(value, { via }));
+	};
+	const setMode = (mode: SearchInputMode | undefined) => {
+		if (value.kind !== "simple") return;
+		onChange(rebuildRow(value, { mode }));
 	};
 
-	const xpathPresent = value.xpath !== undefined;
-	const propertyPresent = value.property !== undefined;
-	const viaForBuilder = value.via ?? selfPath();
+	// ── Advanced-arm mutators (no-op when row is simple) ──
 
-	// The row owns one `PredicateEditProvider` so the property +
-	// relation pickers it mounts directly (`PropertyRefPicker`,
-	// indirectly the `PropertyPicker` via `usePredicateEditContext`)
-	// resolve case types + known inputs from a real context. The
-	// row's `validityIndex` is empty — the row's validation surfaces
-	// inline through `resolved.typeCouplingErrors` rather than via
-	// the predicate-card path-keyed map. Inner sub-editors
-	// (`ExpressionCardEditor`, `PredicateCardEditor`) mount their
-	// own providers below this one and replace the context for
-	// their own subtrees, so this provider only governs the row-
-	// level pickers.
-	// `knownInputs` and `caseTypes` are recomputed by the parent on
-	// every render anyway; wrapping them in `useMemo([...arr])` would
-	// allocate a fresh array each render AND memoize nothing. Pass
-	// the readonly arrays straight through — `PredicateEditProvider`
-	// accepts `readonly`. The validity-index is the only memoized
-	// value; its `[]` dep makes the singleton-shape meaningful.
+	const setPredicate = (next: Predicate) => {
+		if (value.kind !== "advanced") return;
+		onChange(
+			advancedSearchInputDef(
+				value.uuid,
+				value.name,
+				value.label,
+				value.type,
+				next,
+				{ default: value.default },
+			),
+		);
+	};
+
+	// ── Arm conversion ──
+	//
+	// "Convert to advanced" replaces the row with an advanced arm,
+	// seeding the predicate from the simple arm's current property +
+	// mode (when set) or `match-all()` otherwise. The `via` slot
+	// drops here — the predicate AST encodes relation walks inside
+	// its own structure when needed.
+	//
+	// "Convert to simple" replaces the row with a simple arm,
+	// dropping the predicate. The new arm's property is empty (the
+	// user picks one); mode and via reset to default. The
+	// predicate's structure isn't reverse-engineered into a
+	// (property, mode, via) triple — the conversion is a fresh
+	// start on the simple arm.
+
+	const convertToAdvanced = () => {
+		if (value.kind !== "simple") return;
+		const seedPredicate = seedAdvancedPredicate(value, currentCaseType);
+		predicateValidRef.current = true;
+		onChange(
+			advancedSearchInputDef(
+				value.uuid,
+				value.name,
+				value.label,
+				value.type,
+				seedPredicate,
+				{ default: value.default },
+			),
+		);
+	};
+	const convertToSimple = () => {
+		if (value.kind !== "advanced") return;
+		predicateValidRef.current = true;
+		onChange(
+			simpleSearchInputDef(
+				value.uuid,
+				value.name,
+				value.label,
+				value.type,
+				"",
+				{ default: value.default },
+			),
+		);
+	};
+
 	const emptyValidityIndex = useMemo(() => buildValidityIndex([]), []);
 
 	return (
@@ -1024,7 +787,6 @@ function SearchInputRow({
 						: "border-white/[0.04]",
 				].join(" ")}
 			>
-				{/* Position badge + drag handle. */}
 				<div className="flex flex-col items-center gap-1 pt-0.5">
 					<button
 						type="button"
@@ -1042,11 +804,11 @@ function SearchInputRow({
 					</span>
 				</div>
 
-				{/* Body — all the row's pickers + sub-editors. */}
 				<div className="min-w-0 flex-1 space-y-2">
-					{/* Name / label / type — top row. Three columns on wide
-				    screens; stacks on narrow. */}
-					<div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-1.5">
+					{/* Name / label / type / convert affordance — top row.
+					    The convert button switches the row's kind in
+					    place; its label flips to match the destination. */}
+					<div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-1.5">
 						<div className="block">
 							<div className="block text-[10px] uppercase tracking-widest text-nova-text-muted/60 mb-1">
 								Name
@@ -1093,133 +855,45 @@ function SearchInputRow({
 								rowIndex={index}
 							/>
 						</div>
+						<div className="block self-end">
+							<ConvertArmButton
+								kind={value.kind}
+								onConvert={
+									value.kind === "simple" ? convertToAdvanced : convertToSimple
+								}
+								rowIndex={index}
+							/>
+						</div>
 					</div>
 
-					{/* xpath-override branch — when the row carries an xpath
-				    predicate, the wire layer ignores the (property, mode)
-				    derivation entirely. The editor surfaces this via an
-				    "Advanced override" banner + by hiding the property +
-				    mode pickers. The user sees one clear narrative
-				    rather than two parallel filters fighting silently. */}
-					{xpathPresent ? (
-						<div className="rounded-md border border-amber-300/15 bg-amber-300/[0.04] px-2 py-1.5 text-[10px] text-amber-300/80">
-							Advanced override active — the predicate below replaces the
-							property + mode derivation.
-						</div>
+					{/* Per-arm body. */}
+					{value.kind === "simple" ? (
+						<SimpleArmBody
+							row={value}
+							rowIndex={index}
+							currentCaseType={currentCaseType}
+							typeCouplingInvalid={resolved.typeCouplingErrors.length > 0}
+							onSetProperty={setProperty}
+							onSetVia={setVia}
+							onSetMode={setMode}
+						/>
 					) : (
-						<>
-							{/* Property + mode pickers. The relation-walk
-						    builder mounts only when the user has chosen
-						    a property (the walk is meaningless without
-						    a property to read at the destination). */}
-							<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-								<div className="flex items-center gap-1.5">
-									<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60">
-										Property
-									</span>
-									{propertyPresent ? (
-										<button
-											type="button"
-											onClick={removeProperty}
-											className="ml-auto text-[10px] uppercase tracking-wider text-nova-text-muted/50 hover:text-nova-error transition-colors cursor-pointer"
-											aria-label="Remove property reference"
-										>
-											Remove
-										</button>
-									) : null}
-								</div>
-								{propertyPresent ? (
-									<div className="space-y-1.5">
-										<PropertyRefPicker
-											mode="property-only"
-											// The `via` slot is OWNED by the sibling
-											// `RelationPathBuilder` below, NOT by this picker.
-											// Pass a self-shaped `prop(...)` (omitting `via`)
-											// so the picker stays in its property-dropdown
-											// surface across every authoring state — including
-											// rows whose row-level `via` is a non-self walk.
-											// Threading `value.via` here would route every
-											// non-self walk through `PropertyRefPicker`'s
-											// "Property via relation walk" badge, which
-											// replaces the property dropdown with a Replace
-											// affordance and blocks property edits on the
-											// canonical authoring flow. The picker's
-											// property-only mode is the right surface for
-											// property edits; the walk surface lives one row
-											// down.
-											value={prop(currentCaseType, value.property ?? "")}
-											onChange={(nextRef) => {
-												// Property-only mode emits a canonical `prop()`
-												// ref with no `via` slot (the picker doesn't
-												// see / edit `via` here); the row's `via` is
-												// authored independently via the
-												// `RelationPathBuilder` below. Apply only the
-												// property-name change.
-												onChange(
-													rebuildRow(value, { property: nextRef.property }),
-												);
-											}}
-											ariaLabel={`Search input ${index + 1} property`}
-										/>
-										<div className="flex items-center gap-2">
-											<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60 shrink-0">
-												Walk
-											</span>
-											<div className="flex-1 min-w-0">
-												<RelationPathBuilder
-													value={viaForBuilder}
-													onChange={setVia}
-												/>
-											</div>
-										</div>
-									</div>
-								) : (
-									<button
-										type="button"
-										onClick={() => setProperty("")}
-										className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-										aria-label="Add property reference"
-									>
-										<Icon icon={tablerPlus} width="11" height="11" />
-										<span>Add property</span>
-									</button>
-								)}
-							</div>
-
-							{/* Mode picker — applicable modes filtered by
-						    `(type, property data type)`. Always rendered;
-						    the picker's "Default" entry clears the slot so
-						    the wire layer picks the per-type default. */}
-							<div className="flex items-center gap-2">
-								<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60 shrink-0">
-									Mode
-								</span>
-								<div className="flex-1 min-w-0">
-									<ModePicker
-										value={value.mode}
-										type={value.type}
-										onChange={setMode}
-										invalid={resolved.typeCouplingErrors.length > 0}
-										rowIndex={index}
-									/>
-								</div>
-							</div>
-						</>
+						<AdvancedArmBody
+							value={value.predicate}
+							caseTypes={caseTypes}
+							currentCaseType={currentCaseType}
+							knownInputs={knownInputs}
+							onChange={setPredicate}
+							onValidityChange={(valid) => {
+								predicateValidRef.current = valid;
+								propagateValidity();
+							}}
+						/>
 					)}
 
-					{/* Type-coupling diagnostics — render BELOW the type /
-				    property / mode pickers so the user sees the
-				    diagnostic next to the inputs that drove it. The
-				    diagnostics flip `valid: false` (per
-				    `feedback_always_in_valid_state.md`); the renderer
-				    treats them as full errors, not soft warnings. */}
 					<InlineError errors={resolved.typeCouplingErrors} />
 
-					{/* Default-value sub-editor. Collapsed by default;
-				    expands to mount `ExpressionCardEditor` when the
-				    user clicks Add. The expected-type prop helps the
-				    inner editor's type checker fire its own diagnostic
-				    alongside the row-level type-coupling check. */}
+					{/* Default-value sub-editor (both arms). */}
 					<DefaultValueSlot
 						value={value.default}
 						inputType={value.type}
@@ -1233,28 +907,8 @@ function SearchInputRow({
 							propagateValidity();
 						}}
 					/>
-
-					{/* Advanced xpath sub-editor. Collapsed by default;
-				    expands to mount `PredicateCardEditor` when the
-				    user clicks Add. When the slot is present, the
-				    property + mode pickers above are hidden (the
-				    predicate replaces the (property, mode)
-				    derivation). */}
-					<XpathSlot
-						value={value.xpath}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
-						rowIndex={index}
-						onChange={setXpath}
-						onValidityChange={(valid) => {
-							xpathValidRef.current = valid;
-							propagateValidity();
-						}}
-					/>
 				</div>
 
-				{/* Remove button — trailing-aligned. */}
 				<button
 					type="button"
 					onClick={onRemove}
@@ -1268,13 +922,180 @@ function SearchInputRow({
 	);
 }
 
+// ── Convert-arm button ────────────────────────────────────────────
+
+interface ConvertArmButtonProps {
+	readonly kind: SearchInputDef["kind"];
+	readonly onConvert: () => void;
+	readonly rowIndex: number;
+}
+
+/**
+ * Single button that flips the row's discriminator. Label and aria
+ * text adjust to the destination arm so the affordance reads as
+ * "what you're switching to" rather than "what you're switching
+ * from".
+ */
+function ConvertArmButton({
+	kind,
+	onConvert,
+	rowIndex,
+}: ConvertArmButtonProps) {
+	const targetLabel = kind === "simple" ? "advanced" : "simple";
+	return (
+		<button
+			type="button"
+			onClick={onConvert}
+			aria-label={`Convert search input ${rowIndex + 1} to ${targetLabel}`}
+			title={`Convert to ${targetLabel}`}
+			className="inline-flex items-center gap-1 px-2 py-1.5 text-[11px] rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+		>
+			<Icon icon={tablerArrowsExchange} width="11" height="11" />
+			<span>To {targetLabel}</span>
+		</button>
+	);
+}
+
+// ── Simple arm body ───────────────────────────────────────────────
+
+interface SimpleArmBodyProps {
+	readonly row: SimpleSearchInputDef;
+	readonly rowIndex: number;
+	readonly currentCaseType: string;
+	readonly typeCouplingInvalid: boolean;
+	readonly onSetProperty: (property: string) => void;
+	readonly onSetVia: (via: RelationPath) => void;
+	readonly onSetMode: (mode: SearchInputMode | undefined) => void;
+}
+
+/**
+ * Body for `kind: "simple"` rows. Property picker (with relation
+ * walk builder) + mode picker. The simple arm's `property` slot is
+ * required by the schema — there's no escape hatch on this arm
+ * (a property-less input belongs on the advanced arm).
+ */
+function SimpleArmBody({
+	row,
+	rowIndex,
+	currentCaseType,
+	typeCouplingInvalid,
+	onSetProperty,
+	onSetVia,
+	onSetMode,
+}: SimpleArmBodyProps) {
+	const viaForBuilder = row.via ?? selfPath();
+	return (
+		<>
+			<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
+				<div className="flex items-center gap-1.5">
+					<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60">
+						Property
+					</span>
+				</div>
+				<PropertyRefPicker
+					mode="property-only"
+					value={prop(currentCaseType, row.property)}
+					onChange={(nextRef) => onSetProperty(nextRef.property)}
+					ariaLabel={`Search input ${rowIndex + 1} property`}
+				/>
+				<div className="flex items-center gap-2">
+					<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60 shrink-0">
+						Walk
+					</span>
+					<div className="flex-1 min-w-0">
+						<RelationPathBuilder value={viaForBuilder} onChange={onSetVia} />
+					</div>
+				</div>
+			</div>
+
+			<div className="flex items-center gap-2">
+				<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60 shrink-0">
+					Mode
+				</span>
+				<div className="flex-1 min-w-0">
+					<ModePicker
+						value={row.mode}
+						type={row.type}
+						onChange={onSetMode}
+						invalid={typeCouplingInvalid}
+						rowIndex={rowIndex}
+					/>
+				</div>
+			</div>
+		</>
+	);
+}
+
+// ── Advanced arm body ─────────────────────────────────────────────
+
+interface AdvancedArmBodyProps {
+	readonly value: Predicate;
+	readonly caseTypes: readonly CaseType[];
+	readonly currentCaseType: string;
+	readonly knownInputs: readonly SearchInputDecl[];
+	readonly onChange: (next: Predicate) => void;
+	readonly onValidityChange: (valid: boolean) => void;
+}
+
+/**
+ * Body for `kind: "advanced"` rows. Renders the
+ * `PredicateCardEditor` for the row's `predicate` slot. The
+ * predicate AST encodes property references, relation walks, and
+ * input bindings inline — the simple arm's pickers are inapplicable
+ * here.
+ */
+function AdvancedArmBody({
+	value,
+	caseTypes,
+	currentCaseType,
+	knownInputs,
+	onChange,
+	onValidityChange,
+}: AdvancedArmBodyProps) {
+	return (
+		<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
+			<div className="text-[10px] uppercase tracking-widest text-nova-text-muted/60">
+				Predicate
+			</div>
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={caseTypes}
+				currentCaseType={currentCaseType}
+				knownInputs={knownInputs}
+				onValidityChange={onValidityChange}
+			/>
+		</div>
+	);
+}
+
+/**
+ * Seed an advanced-arm predicate from a simple-arm row. When the
+ * simple arm carries a property, the seed is `prop(...) eq ''` so
+ * the user immediately sees a meaningful predicate they can edit;
+ * when the simple arm has no property, fall back to `match-all()`
+ * — the canonical always-true sentinel used elsewhere as the empty
+ * predicate seed. The constructed shape parses through the
+ * predicate schema's `eq`-arm `comparisonSchema`.
+ */
+function seedAdvancedPredicate(
+	row: SimpleSearchInputDef,
+	currentCaseType: string,
+): Predicate {
+	if (row.property === "") return matchAll();
+	return {
+		kind: "eq",
+		left: term(prop(currentCaseType, row.property)),
+		right: term(literal("")),
+	};
+}
+
 // ── Row rebuild helper ────────────────────────────────────────────
 //
-// Single shape every per-slot mutator routes through. Threads each
-// surviving slot through `searchInputDef(...)` so the optional-slot
-// omission semantics apply uniformly — passing `undefined` for an
-// optional slot omits the key from the output (matches the schema's
-// strip-mode parse).
+// Single shape every per-slot mutator routes through. The simple +
+// advanced arms have different per-arm slots; the helper preserves
+// the row's existing arm and threads the patch through the matching
+// builder so the output shape stays in lockstep with the schema.
 
 interface RowPatch {
 	readonly name?: string;
@@ -1284,34 +1105,31 @@ interface RowPatch {
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
 	readonly default?: ValueExpression | undefined;
-	readonly xpath?: Predicate | undefined;
 }
 
-/**
- * Rebuild a row by overlaying the patch on the existing row's slots.
- * Routes through `searchInputDef(...)` so:
- *
- *   - The constructed shape's key order is canonical.
- *   - `via: selfPath()` collapses to absent at the wire layer.
- *   - Every absent optional slot is structurally absent, not
- *     present-with-undefined.
- *
- * The patch's `undefined` values resolve to "clear the slot" — the
- * builder's optional-slot omission then drops the key entirely.
- * Slots not mentioned in the patch carry through verbatim from
- * `value`.
- */
 function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
-	const property = "property" in patch ? patch.property : value.property;
-	const via = "via" in patch ? patch.via : value.via;
-	const mode = "mode" in patch ? patch.mode : value.mode;
+	if (value.kind === "simple") {
+		const property = "property" in patch ? patch.property : value.property;
+		const via = "via" in patch ? patch.via : value.via;
+		const mode = "mode" in patch ? patch.mode : value.mode;
+		const dflt = "default" in patch ? patch.default : value.default;
+		return simpleSearchInputDef(
+			value.uuid,
+			patch.name ?? value.name,
+			patch.label ?? value.label,
+			patch.type ?? value.type,
+			property ?? "",
+			{ via, mode, default: dflt },
+		);
+	}
 	const dflt = "default" in patch ? patch.default : value.default;
-	const xpath = "xpath" in patch ? patch.xpath : value.xpath;
-	return searchInputDef(
+	return advancedSearchInputDef(
+		value.uuid,
 		patch.name ?? value.name,
 		patch.label ?? value.label,
 		patch.type ?? value.type,
-		{ property, via, mode, default: dflt, xpath },
+		value.predicate,
+		{ default: dflt },
 	);
 }
 
@@ -1414,17 +1232,6 @@ interface ModePickerProps {
 	readonly rowIndex: number;
 }
 
-/**
- * Search-mode picker. The applicable-mode set comes from the type;
- * the `multi-select-contains` arm exposes a nested quantifier toggle
- * (`any` ↔ `all`). The "Default" item clears the slot so the wire
- * layer picks the per-type default.
- *
- * Inapplicable modes never appear in the menu (the editor's matrix
- * scopes the menu items per type). Stale persisted modes carry the
- * trigger's red error chrome via `invalid`; the diagnostic surfaces
- * inline below the row.
- */
 function ModePicker({
 	value,
 	type,
@@ -1483,8 +1290,6 @@ function ModePicker({
 						style={{ minWidth: "var(--anchor-width)" }}
 					>
 						<Menu.Popup className={MENU_POPUP_CLS}>
-							{/* Default — clears the slot. The wire layer
-							    picks the per-type default at evaluation. */}
 							<Menu.Item
 								onClick={() => onChange(undefined)}
 								className={`rounded-t-xl ${MENU_ITEM_CLS} ${
@@ -1553,8 +1358,6 @@ function ModePicker({
 					</Menu.Positioner>
 				</Menu.Portal>
 			</Menu.Root>
-			{/* Quantifier toggle — only visible for `multi-select-contains`.
-			    Renders as a tight `any`/`all` segmented control. */}
 			{isMultiSelect && (
 				<QuantifierToggle
 					value={value.quantifier}
@@ -1574,13 +1377,6 @@ interface QuantifierToggleProps {
 	readonly rowIndex: number;
 }
 
-/**
- * Two-state segmented toggle for the `multi-select-contains` mode's
- * quantifier. `any` (∃) — match if at least one of the values is
- * present; `all` (∀) — match only when every value is present.
- * Clicking the inactive segment flips the quantifier; clicking the
- * active one is a no-op.
- */
 function QuantifierToggle({
 	value,
 	onChange,
@@ -1593,13 +1389,6 @@ function QuantifierToggle({
 				? "bg-nova-violet/15 text-nova-violet-bright"
 				: "text-nova-text-muted hover:text-nova-text",
 		].join(" ");
-	// `<fieldset>` is the semantic group element for a related set of
-	// form controls per ARIA's group-pattern recommendation; the
-	// inline-flex / overflow-hidden classes reset the browser's
-	// default fieldset chrome (border, padding, min-width:auto). The
-	// `<legend>` carries the assistive-tech-readable name; `sr-only`
-	// hides it visually so the segmented-control chrome stays the
-	// only visual cue while AT users get the group label.
 	return (
 		<fieldset className="inline-flex rounded-md border border-white/[0.06] bg-nova-deep/50 overflow-hidden p-0 m-0 min-w-0">
 			<legend className="sr-only">
@@ -1638,14 +1427,6 @@ interface DefaultValueSlotProps {
 	readonly onValidityChange: (valid: boolean) => void;
 }
 
-/**
- * Default-value slot. Renders an "Add default value" affordance when
- * the slot is undefined; mounts `ExpressionCardEditor` when defined.
- * The inner editor receives an `expectedType` derived from the
- * input's `type` so its type checker fires native "Expected X;
- * resolves to Y" diagnostics on top of the row-level type-coupling
- * check.
- */
 function DefaultValueSlot({
 	value,
 	inputType,
@@ -1698,83 +1479,8 @@ function DefaultValueSlot({
 	);
 }
 
-// ── Xpath slot ────────────────────────────────────────────────────
-
-interface XpathSlotProps {
-	readonly value: Predicate | undefined;
-	readonly caseTypes: readonly CaseType[];
-	readonly currentCaseType: string;
-	readonly knownInputs: readonly SearchInputDecl[];
-	readonly rowIndex: number;
-	readonly onChange: (next: Predicate | undefined) => void;
-	readonly onValidityChange: (valid: boolean) => void;
-}
-
-/**
- * Advanced xpath predicate slot. Renders an "Add advanced filter"
- * affordance when the slot is undefined; mounts `PredicateCardEditor`
- * when defined. The default seed is `match-all()` — the same
- * always-true sentinel `FiltersSection` uses, surfacing immediately
- * with the kind-replacement menu so the user's first interaction is
- * "what kind of filter?" rather than "fill in this comparison."
- */
-function XpathSlot({
-	value,
-	caseTypes,
-	currentCaseType,
-	knownInputs,
-	rowIndex,
-	onChange,
-	onValidityChange,
-}: XpathSlotProps) {
-	if (value === undefined) {
-		return (
-			<button
-				type="button"
-				onClick={() => onChange(matchAll())}
-				className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				aria-label={`Add advanced filter for search input ${rowIndex + 1}`}
-			>
-				<Icon icon={tablerPlus} width="11" height="11" />
-				<span>Add advanced filter</span>
-			</button>
-		);
-	}
-	return (
-		<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-			<div className="flex items-center gap-1.5">
-				<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60">
-					Advanced filter
-				</span>
-				<button
-					type="button"
-					onClick={() => onChange(undefined)}
-					className="ml-auto text-[10px] uppercase tracking-wider text-nova-text-muted/50 hover:text-nova-error transition-colors cursor-pointer"
-					aria-label={`Remove advanced filter for search input ${rowIndex + 1}`}
-				>
-					Remove
-				</button>
-			</div>
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={caseTypes}
-				currentCaseType={currentCaseType}
-				knownInputs={knownInputs}
-				onValidityChange={onValidityChange}
-			/>
-		</div>
-	);
-}
-
 // ── Drag preview ──────────────────────────────────────────────────
 
-/**
- * Custom drag preview rendered in place of the browser's default
- * source snapshot. Mirrors `CalculatedColumnDragPreview` —
- * the browser would otherwise snapshot the 14×14 grip icon, leaving
- * the user blind to what's being moved.
- */
 function SearchInputDragPreview({
 	index,
 	row,

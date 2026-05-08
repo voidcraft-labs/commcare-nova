@@ -60,11 +60,29 @@ export function DateColumnCard({
 	errors,
 }: DateColumnCardProps) {
 	const setField = (next: string) =>
-		onChange(dateColumn(next, value.header, value.pattern));
+		onChange(
+			dateColumn(
+				value.uuid,
+				next,
+				value.header,
+				value.pattern,
+				slotsFrom(value),
+			),
+		);
 	const setHeader = (next: string) =>
-		onChange(dateColumn(value.field, next, value.pattern));
+		onChange(
+			dateColumn(
+				value.uuid,
+				value.field,
+				next,
+				value.pattern,
+				slotsFrom(value),
+			),
+		);
 	const setPattern = (next: string) =>
-		onChange(dateColumn(value.field, value.header, next));
+		onChange(
+			dateColumn(value.uuid, value.field, value.header, next, slotsFrom(value)),
+		);
 
 	return (
 		<div className="space-y-2">
@@ -88,4 +106,18 @@ export function DateColumnCard({
 			</div>
 		</div>
 	);
+}
+
+/** Re-extract the column's optional common slots so each builder call
+ *  threads through them verbatim. */
+function slotsFrom(value: Extract<Column, { kind: "date" }>): {
+	sort?: typeof value.sort;
+	visibleInList?: typeof value.visibleInList;
+	visibleInDetail?: typeof value.visibleInDetail;
+} {
+	return {
+		sort: value.sort,
+		visibleInList: value.visibleInList,
+		visibleInDetail: value.visibleInDetail,
+	};
 }

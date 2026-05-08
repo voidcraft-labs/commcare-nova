@@ -21,6 +21,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
 	type Column,
@@ -28,6 +29,8 @@ import {
 	idMappingColumn,
 } from "@/lib/domain";
 import { ColumnEditor } from "../../../ColumnEditor";
+
+const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
 
 const PATIENT: CaseType = {
 	name: "patient",
@@ -52,7 +55,7 @@ function lastEmittedColumn(onChange: ReturnType<typeof vi.fn>): Column {
 
 describe("IdMappingCard — table mutations", () => {
 	it("Add mapping appends an empty entry", () => {
-		const value = idMappingColumn("status", "Status", [
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "active", label: "Active" },
 		]);
 		const onChange = vi.fn();
@@ -62,6 +65,8 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		fireEvent.click(screen.getByRole("button", { name: /add mapping/i }));
@@ -74,7 +79,7 @@ describe("IdMappingCard — table mutations", () => {
 	});
 
 	it("Move down swaps adjacent entries", () => {
-		const value = idMappingColumn("status", "Status", [
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "a", label: "Alpha" },
 			{ value: "b", label: "Beta" },
 		]);
@@ -85,6 +90,8 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		// Two move-down buttons rendered (one per entry); the last
@@ -103,7 +110,7 @@ describe("IdMappingCard — table mutations", () => {
 	});
 
 	it("Move up swaps adjacent entries", () => {
-		const value = idMappingColumn("status", "Status", [
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "a", label: "Alpha" },
 			{ value: "b", label: "Beta" },
 		]);
@@ -114,6 +121,8 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		const moveUpButtons = screen.getAllByRole("button", {
@@ -131,7 +140,7 @@ describe("IdMappingCard — table mutations", () => {
 	});
 
 	it("Remove drops the entry from the table", () => {
-		const value = idMappingColumn("status", "Status", [
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "a", label: "Alpha" },
 			{ value: "b", label: "Beta" },
 		]);
@@ -142,6 +151,8 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		const removeButtons = screen.getAllByRole("button", {
@@ -154,20 +165,22 @@ describe("IdMappingCard — table mutations", () => {
 	});
 
 	it("Empty mapping table renders the no-entries hint", () => {
-		const value = idMappingColumn("status", "Status", []);
+		const value = idMappingColumn(TEST_UUID, "status", "Status", []);
 		const { container } = render(
 			<ColumnEditor
 				value={value}
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(container.textContent).toMatch(/no entries/i);
 	});
 
 	it("Editing a value commits on blur", () => {
-		const value = idMappingColumn("status", "Status", [
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "old", label: "Old" },
 		]);
 		const onChange = vi.fn();
@@ -177,6 +190,8 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		const valueInput = screen.getByLabelText(
@@ -196,7 +211,7 @@ describe("IdMappingCard — table mutations", () => {
 	});
 
 	it("Editing a label commits on blur", () => {
-		const value = idMappingColumn("status", "Status", [
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "active", label: "Old label" },
 		]);
 		const onChange = vi.fn();
@@ -206,6 +221,8 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				sortedColumnCount={0}
+				sortPriorityPosition={undefined}
 			/>,
 		);
 		const labelInput = screen.getByLabelText(

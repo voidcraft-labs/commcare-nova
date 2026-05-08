@@ -24,6 +24,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseRowWithCalculated } from "@/lib/case-store";
+import { asUuid } from "@/lib/doc/types";
 import { type CaseListConfig, plainColumn } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 
@@ -68,12 +69,12 @@ const APP_ID = "app-filters-preview-test";
 function makeConfig(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
 	return {
 		columns: [],
-		sort: [],
-		calculatedColumns: [],
 		searchInputs: [],
 		...overrides,
 	};
 }
+
+const FIXTURE_COL_NAME_UUID = asUuid("00000000-0000-0000-0000-000000000c01");
 
 /**
  * Build a fixture case row for the preview table assertions.
@@ -118,7 +119,7 @@ afterEach(() => {
 describe("FiltersPreview — paused state", () => {
 	it("suppresses the action and renders 'preview paused' when filterValid is false", () => {
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 		});
 		render(
 			<FiltersPreview
@@ -138,7 +139,7 @@ describe("FiltersPreview — paused state", () => {
 describe("FiltersPreview — empty state", () => {
 	it("renders the no-filter empty message + count when no filter is applied", async () => {
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: undefined,
 		});
 		render(
@@ -160,7 +161,7 @@ describe("FiltersPreview — empty state", () => {
 
 	it("renders the filter-applied empty message when no rows pass the filter", async () => {
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: eq(prop("patient", "status"), literal("active")),
 		});
 		render(
@@ -200,7 +201,7 @@ describe("FiltersPreview — rows + count", () => {
 			totalCount: 5,
 		});
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: eq(prop("patient", "status"), literal("active")),
 		});
 		render(
@@ -231,7 +232,7 @@ describe("FiltersPreview — rows + count", () => {
 describe("FiltersPreview — editing the filter updates the result count", () => {
 	it("retriggers the action when caseListConfig changes between renders", async () => {
 		const baseConfig = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: undefined,
 		});
 		const { rerender } = render(
@@ -251,7 +252,7 @@ describe("FiltersPreview — editing the filter updates the result count", () =>
 		// — pins the "editing the filter updates the result count
 		// and visible rows" contract.
 		const filteredConfig = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: eq(prop("patient", "status"), literal("active")),
 		});
 		rerender(
@@ -272,7 +273,7 @@ describe("FiltersPreview — editing the filter updates the result count", () =>
 		// must re-fire when the filter slot transitions from
 		// defined to undefined so the "all cases" count surfaces.
 		const filteredConfig = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: eq(prop("patient", "status"), literal("active")),
 		});
 		const { rerender } = render(
@@ -299,7 +300,7 @@ describe("FiltersPreview — editing the filter updates the result count", () =>
 			totalCount: 3,
 		});
 		const clearedConfig = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: undefined,
 		});
 		rerender(
@@ -326,7 +327,7 @@ describe("FiltersPreview — invalid-config arm", () => {
 			message: "filter: expected predicate, received string",
 		});
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 		});
 		render(
 			<FiltersPreview
@@ -354,7 +355,7 @@ describe("FiltersPreview — invalid-blueprint arm", () => {
 			message: "appId: expected string, received number",
 		});
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 		});
 		render(
 			<FiltersPreview
@@ -382,7 +383,7 @@ describe("FiltersPreview — error arm", () => {
 			message: "connection refused",
 		});
 		const config = makeConfig({
-			columns: [plainColumn("name", "Name")],
+			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 		});
 		render(
 			<FiltersPreview

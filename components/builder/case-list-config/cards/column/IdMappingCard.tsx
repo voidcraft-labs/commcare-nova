@@ -46,12 +46,23 @@ interface IdMappingCardProps {
 }
 
 export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
+	const slots = {
+		sort: value.sort,
+		visibleInList: value.visibleInList,
+		visibleInDetail: value.visibleInDetail,
+	};
 	const setField = (next: string) =>
-		onChange(idMappingColumn(next, value.header, value.mapping));
+		onChange(
+			idMappingColumn(value.uuid, next, value.header, value.mapping, slots),
+		);
 	const setHeader = (next: string) =>
-		onChange(idMappingColumn(value.field, next, value.mapping));
+		onChange(
+			idMappingColumn(value.uuid, value.field, next, value.mapping, slots),
+		);
 	const setMapping = (next: readonly IdMappingEntry[]) =>
-		onChange(idMappingColumn(value.field, value.header, next));
+		onChange(
+			idMappingColumn(value.uuid, value.field, value.header, next, slots),
+		);
 
 	const updateEntry = (index: number, patch: Partial<IdMappingEntry>) => {
 		const next = value.mapping.map((entry, i) =>

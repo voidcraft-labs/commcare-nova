@@ -17,7 +17,11 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import { type CaseListConfig, type CaseType, plainColumn } from "@/lib/domain";
+
+const FIXTURE_COL_UUID = asUuid("00000000-0000-0000-0000-000000000b01");
+
 import {
 	eq,
 	gt,
@@ -86,9 +90,7 @@ const CASE_TYPES = [PATIENT];
 
 function makeConfig(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
 	return {
-		columns: [plainColumn("name", "Name")],
-		sort: [],
-		calculatedColumns: [],
+		columns: [plainColumn(FIXTURE_COL_UUID, "name", "Name")],
 		searchInputs: [],
 		...overrides,
 	};
@@ -156,8 +158,6 @@ describe("FiltersSection — add filter", () => {
 		expect(next?.filter).toEqual({ kind: "match-all" });
 		// Every other slot survives unchanged.
 		expect(next?.columns).toEqual(config.columns);
-		expect(next?.sort).toEqual(config.sort);
-		expect(next?.calculatedColumns).toEqual(config.calculatedColumns);
 		expect(next?.searchInputs).toEqual(config.searchInputs);
 	});
 });
@@ -188,8 +188,6 @@ describe("FiltersSection — clear filter", () => {
 		// A future change to `clearFilter` that drops the spread on
 		// the clear path would surface here as a regression.
 		expect(next?.columns).toEqual(config.columns);
-		expect(next?.sort).toEqual(config.sort);
-		expect(next?.calculatedColumns).toEqual(config.calculatedColumns);
 		expect(next?.searchInputs).toEqual(config.searchInputs);
 	});
 });

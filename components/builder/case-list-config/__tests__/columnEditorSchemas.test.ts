@@ -40,11 +40,10 @@ describe("columnCardSchemas — registry exhaustivity", () => {
 		const expected: ReadonlySet<Column["kind"]> = new Set([
 			"plain",
 			"date",
-			"time-since-until",
 			"phone",
 			"id-mapping",
-			"late-flag",
-			"search-only",
+			"interval",
+			"calculated",
 		]);
 		const actual = new Set(Object.keys(columnCardSchemas));
 		expect(actual).toEqual(expected);
@@ -72,8 +71,8 @@ describe("columnCardSchemas — applicableForProperty", () => {
 		expect(schema.applicableForProperty(noProperty)).toBe(true);
 	});
 
-	it("Date / Time-Since-Until / Late Flag require date properties", () => {
-		const dateKinds = ["date", "time-since-until", "late-flag"] as const;
+	it("Date / Interval require date properties", () => {
+		const dateKinds = ["date", "interval"] as const;
 		for (const k of dateKinds) {
 			const schema = columnCardSchemas[k];
 			expect(schema.applicableForProperty(dateProp)).toBe(true);
@@ -92,12 +91,17 @@ describe("columnCardSchemas — applicableForProperty", () => {
 		expect(schema.applicableForProperty(noProperty)).toBe(true);
 	});
 
-	it("ID Mapping / Search-Only accept any property", () => {
-		for (const k of ["id-mapping", "search-only"] as const) {
-			const schema = columnCardSchemas[k];
-			expect(schema.applicableForProperty(dateProp)).toBe(true);
-			expect(schema.applicableForProperty(textProp)).toBe(true);
-			expect(schema.applicableForProperty(noProperty)).toBe(true);
-		}
+	it("ID Mapping accepts any property", () => {
+		const schema = columnCardSchemas["id-mapping"];
+		expect(schema.applicableForProperty(dateProp)).toBe(true);
+		expect(schema.applicableForProperty(textProp)).toBe(true);
+		expect(schema.applicableForProperty(noProperty)).toBe(true);
+	});
+
+	it("Calculated accepts any property — calc has no field, the predicate is permissive", () => {
+		const schema = columnCardSchemas.calculated;
+		expect(schema.applicableForProperty(dateProp)).toBe(true);
+		expect(schema.applicableForProperty(textProp)).toBe(true);
+		expect(schema.applicableForProperty(noProperty)).toBe(true);
 	});
 });

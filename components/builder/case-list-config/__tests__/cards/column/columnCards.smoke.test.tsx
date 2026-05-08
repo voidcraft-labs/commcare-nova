@@ -82,6 +82,8 @@ describe("column cards smoke — mount via ColumnEditor", () => {
 					onChange={() => {}}
 					caseTypes={ctx.caseTypes}
 					currentCaseType={ctx.currentCaseType}
+					sortedColumnCount={0}
+					sortPriorityPosition={undefined}
 				/>,
 			);
 			expect(container.firstElementChild).not.toBeNull();

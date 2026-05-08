@@ -16,12 +16,11 @@
 //
 // Status density per section is bound LIVE to the doc store via
 // shallow selectors. Counts and presence flags update in the same
-// render pass as any blueprint mutation — no debouncing, no
-// derived caching, no `useMemo` on simple counts. The workspace
-// itself owns no transient state for static counts; edits flow
-// through `useBlueprintMutations().updateModule(...)` against the
-// module's `caseListConfig` slot. The filter section header is the
-// one exception: live filter-preview match counts come from
+// render pass as any blueprint mutation. The workspace itself owns
+// no transient state for static counts; edits flow through
+// `useBlueprintMutations().updateModule(...)` against the module's
+// `caseListConfig` slot. The filter section header is the one
+// exception: live filter-preview match counts come from
 // FiltersPreview's existing Server Action load, threaded up via
 // the `onPreviewStats` callback so the header doesn't fire a
 // duplicate query.
@@ -47,9 +46,9 @@ import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
+	type Column,
 	plainColumn,
-	type SearchInputDef,
-	searchInputDef,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { useAppId } from "@/lib/session/hooks";
@@ -58,6 +57,7 @@ import { DisplaySection } from "./DisplaySection";
 import type { FilterPreviewStats } from "./FiltersPreview";
 import { FiltersSection } from "./FiltersSection";
 import { SearchInputsSection } from "./SearchInputsSection";
+import { newUuid } from "./uuid";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -93,8 +93,8 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 		caseType,
 		config,
 		columnCount,
-		sortKeyCount,
-		firstSortKey,
+		sortedColumnCount,
+		firstSortedColumn,
 		hasFilter,
 		filter,
 		searchInputCount,
@@ -138,16 +138,20 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 	const handleAddFirstColumn = useCallback(() => {
 		handleConfigChange({
 			...config,
-			columns: [...config.columns, plainColumn(firstProperty, "")],
+			columns: [...config.columns, plainColumn(newUuid(), firstProperty, "")],
 		});
 	}, [handleConfigChange, config, firstProperty]);
 	const handleAddFirstFilter = useCallback(() => {
 		handleConfigChange({ ...config, filter: matchAll() });
 	}, [handleConfigChange, config]);
 	const handleAddFirstSearchInput = useCallback(() => {
-		const seed: SearchInputDef = searchInputDef("input_1", "", "text", {
-			property: firstProperty,
-		});
+		const seed = simpleSearchInputDef(
+			newUuid(),
+			"input_1",
+			"",
+			"text",
+			firstProperty,
+		);
 		handleConfigChange({
 			...config,
 			searchInputs: [...config.searchInputs, seed],
@@ -160,8 +164,8 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 	// not when the parent re-renders.
 	const displayStatus = buildDisplayStatus({
 		columnCount,
-		sortKeyCount,
-		firstSortKey,
+		sortedColumnCount,
+		firstSortedColumn,
 	});
 	// Filter conditions are derived from the predicate AST — `and`
 	// / `or` count their direct clauses; sentinels (`match-all` /
@@ -191,8 +195,8 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 			{/*
 			 * Section: Display.
 			 *
-			 * Owns columns / calculatedColumns / sort. The status
-			 * line summarizes total column count + the primary sort.
+			 * Owns the unified columns array. The status line
+			 * summarizes total column count + the primary sort.
 			 */}
 			<section>
 				<CaseListSectionHeader title="Display" status={displayStatus} />
@@ -378,8 +382,8 @@ function EmptyStateCard({
 
 interface DisplayStatusInput {
 	readonly columnCount: number;
-	readonly sortKeyCount: number;
-	readonly firstSortKey: CaseListConfig["sort"][number] | undefined;
+	readonly sortedColumnCount: number;
+	readonly firstSortedColumn: Column | undefined;
 }
 
 /**
@@ -394,25 +398,27 @@ function buildDisplayStatus(input: DisplayStatusInput): string {
 		return "No columns yet — add columns to define what users see in the case list.";
 	}
 	const columnText = `${input.columnCount} ${input.columnCount === 1 ? "column" : "columns"}`;
-	if (input.sortKeyCount === 0 || !input.firstSortKey) {
+	if (input.sortedColumnCount === 0 || !input.firstSortedColumn) {
 		return `${columnText} · no sort`;
 	}
-	const sortLabel = describeSortKey(input.firstSortKey);
+	const sortLabel = describeSortedColumn(input.firstSortedColumn);
 	const tieBreakers =
-		input.sortKeyCount > 1
-			? ` (+${input.sortKeyCount - 1} tiebreaker${input.sortKeyCount > 2 ? "s" : ""})`
+		input.sortedColumnCount > 1
+			? ` (+${input.sortedColumnCount - 1} tiebreaker${input.sortedColumnCount > 2 ? "s" : ""})`
 			: "";
 	return `${columnText} · sorted by ${sortLabel}${tieBreakers}`;
 }
 
-/** Compact one-line description for a single sort key. The arrow
- *  glyph mirrors the convention used elsewhere in the editor. */
-function describeSortKey(key: CaseListConfig["sort"][number]): string {
+/** Compact one-line description for the primary-sort column. The
+ *  arrow glyph mirrors the convention used elsewhere in the editor.
+ *  Calculated columns surface their header (the only authored
+ *  identity); other kinds prefer their field name (the wire-form
+ *  property the sort comparator binds to). */
+function describeSortedColumn(column: Column): string {
 	const sourceLabel =
-		key.source.kind === "property"
-			? key.source.property
-			: `calc:${key.source.columnId}`;
-	const directionGlyph = key.direction === "asc" ? "↑" : "↓";
+		column.kind === "calculated" ? column.header || "calculated" : column.field;
+	const direction = column.sort?.direction ?? "asc";
+	const directionGlyph = direction === "asc" ? "↑" : "↓";
 	return `${sourceLabel} ${directionGlyph}`;
 }
 
@@ -459,14 +465,6 @@ interface FilterStatusInput {
  *     doesn't flicker on every load tick).
  *   - Filter present, preview load resolved →
  *     "{N} condition(s) · {totalCount} cases match".
- *
- * `LoadFilterPreviewResult.totalCount` is the count of cases
- * passing the active filter — the same value the FiltersPreview
- * body's count card surfaces, sourced from the same Server Action
- * call. The spec calls for "{matchCount} of {totalCount}" but the
- * action carries only `totalCount` (cases passing the filter); the
- * unfiltered total would require a second query. The deferred
- * "of {unfilteredTotal}" half is a Plan-level addition.
  */
 function buildFilterStatus(input: FilterStatusInput): string {
 	if (!input.hasFilter) return "No filter — all cases shown.";
