@@ -737,3 +737,45 @@ Landed across three commits: `0921bf34` (initial implementation) → `35cde701` 
 **Whole-repo build state:** still intentionally broken on `__tests__/integration/case-list-authoring.test.ts`. Task 9 brings whole-repo to green.
 
 **Next:** Reshape Task 9 — Integration test rewrite.
+
+### Task 9 — Integration test rewrite + bundle-leak fix + naming cleanup — 2026-05-08
+
+Landed across three commits: `800c8082` (integration test rewrite) → `f9f1becb` (client-bundle-leak fix — split helpers + `import "server-only"` defense + vitest alias) → `c39307db` (rename `caseDataBindingPure.ts` → `caseDataBindingClient.ts` to name the bundle boundary, not the runtime property).
+
+**Integration test (`__tests__/integration/case-list-authoring.test.ts`):**
+- 21 / 21 passing. Coverage matches the plan's bullet list block-for-block:
+  - End-to-end SA atomic ops with uuid threading (add → update → remove → reorder), unknown-uuid Elm error.
+  - Wire emission: sort-on-column, calculated column inline `<variable name="calculated_property">`, long-detail no-sort, visibility filtering, `.ccz` packaging.
+  - Three calc-fallback arms (`undefined` / `ANY_TYPE` / `SEQUENCE_TYPE`) — separate `it()` blocks pin each shape.
+  - Discriminated SearchInputDef simple ↔ advanced round-trip + orphan-reference validator error.
+  - Validator rejection (well-formed clean, unknown column field, mode-vs-type mismatch).
+  - Three-layer sort tie-break (saga / preview / wire) — three independent assertions on one fixture.
+  - Migration v0 → v2 fixture via `migrateAppBlueprint`.
+  - Postgres preview round-trip with predicate + sort + calc projections.
+- `setupPerTestDatabase` used only where transactions are needed; pure-pipeline arms skip the per-test cost.
+
+**Client-bundle leak fix:**
+- Pre-existing leak: `@google-cloud/cloud-sql-connector` + `google-auth-library` graph leaked into the client bundle through `caseDataBindingHelpers.ts`'s `buildCaseTypeMap` value-import. Trace: client component → `caseDataBindingHelpers` (server-side) → `@/lib/case-store` barrel → `withOwnerContext` → `connection.ts` → `cloud-sql-connector`.
+- Fix: split helpers into a client-bundle-safe surface (`caseDataBindingClient.ts`) + a server-only surface (`caseDataBindingHelpers.ts` with `import "server-only"` marker).
+- Pure projections + typed-error mappers landed in `caseDataBindingClient.ts`. Server I/O helpers stayed in `caseDataBindingHelpers.ts`.
+- Five client components routed value imports through `caseDataBindingClient.ts`; type imports through `caseDataBindingTypes.ts` (which re-exports `CalculatedValue`, `JsonValue`, `JsonObject` for client-safe access).
+- `vitest.config.ts` aliases `server-only` → its shipped `empty.js` shim (vitest doesn't honor the `react-server` export condition).
+- `package.json` adds `server-only ^0.0.1` runtime dependency.
+
+**Naming cleanup:**
+- `caseDataBindingPure.ts` → `caseDataBindingClient.ts` via `git mv` (history preserved at 89% similarity). The "Pure" name was CS-jargon describing a runtime property; the actual load-bearing fact is the client/server bundle boundary. Rename names the boundary directly. Memory rule saved at `feedback_no_runtime_property_names.md`.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npx tsc --noEmit` clean — ZERO errors anywhere in the repo.
+- `npm run build` green (all 23 routes generated).
+- `npm test` — 3831 / 3831 passing across 227 test files (deterministic two consecutive runs).
+- Sweeps clean: zero `caseDataBindingPure` references, zero "pure helpers" / "pure file" voice in `lib/preview/`, zero line-number citations, zero forward-projection.
+
+**Whole-repo build state: GREEN.** All consumer surfaces are on v2 shape. The reshape work is structurally complete; only docs + spec sync (Task 10) remains.
+
+**Deltas from the planned shape:**
+- Task 9 added a structural test for the search-input rename **orphan-reference** path (validator error) but skipped the auto-rewrite arm — auto-rewrite is not shipped (the plan's smell #9 explicitly acknowledged rename-rewrite cost is the accepted Field-shape pattern).
+- The bundle-leak fix was unplanned but mandatory — the fix split a server-only helper file into a client-safe pair following the canonical Next.js pattern.
+
+**Next:** Reshape Task 10 — Docs + spec + plan sync (FINAL).
