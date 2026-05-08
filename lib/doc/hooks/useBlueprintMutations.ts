@@ -3,8 +3,10 @@
  *
  * Every consumer that edits a module, form, or field calls this hook
  * and dispatches via the returned action object. All signatures take
- * uuid-first parameters and domain types (`Field`, `Form`, `Module`,
- * `FieldPatch`).
+ * uuid-first parameters and domain types (`Field`, `Form`, `Module`).
+ * `updateField` is per-kind: callers pass the target field's `kind` so
+ * the patch type narrows to that variant's partial shape — see the
+ * method signature below for the contract.
  *
  * Internally, each method:
  *   1. Reads the CURRENT doc snapshot via `store.getState()` (not the
@@ -45,7 +47,6 @@ import {
 	type ConnectType,
 	type Field,
 	type FieldKind,
-	type FieldPatch,
 	type Form,
 	type Module,
 } from "@/lib/domain";
@@ -141,15 +142,20 @@ export interface BlueprintMutations {
 	 * Update fields on an existing field entity. Callers pass `undefined` for
 	 * any field value to clear it — no `null` coercion needed.
 	 *
-	 * The patch type is `FieldPatch` — a union-wide partial that permits
-	 * any known property across Field variants. Because `Field` is a
-	 * discriminated union, `Partial<Omit<Field, "uuid">>` would reject
-	 * literals like `{ label: "..." }` (some variants have no `label`).
-	 * `FieldPatch` is the union of every variant's partial, which captures
-	 * what the reducer actually allows: merge any recognized scalar property
-	 * without changing the kind.
+	 * The signature takes the target field's `kind` as a generic parameter
+	 * (`targetKind`) and types `patch` against that variant's schema-
+	 * declared properties. A patch with a key the kind doesn't carry — e.g.
+	 * `{ label }` against a hidden field, which has no `label` — is a
+	 * compile error at the call site rather than a silently-dropped key at
+	 * runtime. The reducer reads `targetKind` to discriminate the patch
+	 * against the field's current kind; a patch built for a kind the field
+	 * has since converted away from is treated as stale and skipped.
 	 */
-	updateField: (uuid: Uuid, patch: FieldPatch) => void;
+	updateField: <K extends FieldKind>(
+		uuid: Uuid,
+		targetKind: K,
+		patch: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>,
+	) => void;
 	removeField: (uuid: Uuid) => void;
 	renameField: (uuid: Uuid, newId: string) => FieldRenameResult;
 	moveField: (
@@ -359,18 +365,27 @@ export function useBlueprintMutations(): BlueprintMutations {
 				return uuid;
 			},
 
-			updateField(uuid, patch) {
+			updateField(uuid, targetKind, patch) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
-					warnUnresolved("updateField", { uuid });
+					warnUnresolved("updateField", { uuid, targetKind });
 					return;
 				}
+				// `targetKind` + `patch` are typed against the same variant via
+				// the generic, so the spread into the mutation literal lands on
+				// the discriminated `updateField` arm without further narrowing.
+				// The intermediate cast is required because TypeScript can't
+				// match the generic `K` back to the union of literal-keyed arms
+				// in `Mutation` — at the value level the shape is structurally
+				// identical, but TS treats the union arms as distinct types
+				// rather than a parameterized one.
 				store.getState().applyMany([
 					{
 						kind: "updateField",
 						uuid,
+						targetKind,
 						patch,
-					},
+					} as Mutation,
 				]);
 			},
 

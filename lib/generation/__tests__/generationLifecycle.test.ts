@@ -310,6 +310,7 @@ describe("generation lifecycle (end-to-end)", () => {
 				{
 					kind: "updateField",
 					uuid: Q_NAME_UUID,
+					targetKind: "text",
 					patch: { label: "Patient Full Name" },
 				},
 			],

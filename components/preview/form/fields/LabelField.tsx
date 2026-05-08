@@ -1,7 +1,7 @@
 "use client";
 import { useMemo } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { FieldPatch, LabelField as LabelFieldEntity } from "@/lib/domain";
+import type { LabelField as LabelFieldEntity } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useEditMode } from "@/lib/session/hooks";
@@ -30,16 +30,19 @@ export function LabelField({
 	/* Inline save callback — null in live/test mode so the TextEditable
 	 * below falls back to read-only. In edit mode returns a stable
 	 * `(field, value) => void` that coerces empty strings to undefined
-	 * (an unset property) and commits through the doc store. */
+	 * (an unset property) and commits through the doc store. The
+	 * patch's `property` arg is a runtime key (the TextEditable's
+	 * `fieldType` axis), so we cast back to the label kind's partial
+	 * shape — every key TextEditable can save (`label`) is declared on
+	 * `LabelField`, so the runtime contract holds. */
 	const saveField = useMemo<
 		((field: string, value: string) => void) | null
 	>(() => {
 		if (!isEditMode) return null;
 		return (property, value) => {
-			const patch = {
+			updateField(field.uuid, "label", {
 				[property]: value === "" ? undefined : value,
-			} as FieldPatch;
-			updateField(field.uuid, patch);
+			} as Partial<Omit<LabelFieldEntity, "uuid" | "kind">>);
 		};
 	}, [isEditMode, field.uuid, updateField]);
 

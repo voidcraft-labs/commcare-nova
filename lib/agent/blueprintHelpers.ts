@@ -679,18 +679,26 @@ export function renameFieldMutations(
 }
 
 /** Patch arbitrary fields on a field entity. The `Field` union is
- *  discriminated by `kind`; the patch must match the specific kind's
- *  shape. Narrowing callers (SA `editField` tool, inspect panel) are
- *  responsible for constructing a valid patch — the reducer parses the
- *  merged shape against `fieldSchema` and rejects patches that don't
- *  satisfy the target kind. */
-export function updateFieldMutations(
+ *  discriminated by `kind`; the helper takes the target kind as an
+ *  explicit generic so the patch type narrows to that variant's
+ *  partial shape. A patch with a key the kind doesn't carry is a
+ *  compile error at the call site. The reducer also parses the
+ *  merged shape against `fieldSchema` to catch bad value types on
+ *  legitimate keys. */
+export function updateFieldMutations<K extends FieldKind>(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
-	patch: Partial<Omit<Field, "uuid">>,
+	targetKind: K,
+	patch: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>,
 ): Mutation[] {
 	if (doc.fields[fieldUuid] === undefined) return [];
-	return [{ kind: "updateField", uuid: fieldUuid, patch }];
+	// The mutation literal's structural shape matches the per-kind
+	// `updateField` arm, but the generic `K` doesn't widen back to a
+	// concrete arm of the discriminated union — cast through `Mutation`
+	// to align the shape with the union at the value level.
+	return [
+		{ kind: "updateField", uuid: fieldUuid, targetKind, patch } as Mutation,
+	];
 }
 
 // ── Mutation builders — scaffold ────────────────────────────────────────

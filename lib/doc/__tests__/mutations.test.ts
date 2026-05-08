@@ -196,6 +196,7 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({
 				kind: "updateField",
 				uuid: fieldUuid,
+				targetKind: "text",
 				patch: { label: "Updated Label", hint: "Enter name" },
 			});
 		});
@@ -205,6 +206,7 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({
 				kind: "updateField",
 				uuid: fieldUuid,
+				targetKind: "text",
 				patch: {},
 			});
 		});

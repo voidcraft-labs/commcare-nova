@@ -2,9 +2,9 @@ import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
-	applyFieldPatch,
 	fieldSchema,
 	getConvertibleTypes,
+	pickFieldKeysForKind,
 	reconcileFieldForKind,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -180,24 +180,42 @@ export function applyFieldMutation(
 		case "updateField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
-			// `FieldPatch` is a union-wide partial — at the type level it allows
-			// any variant's keys, so a `{ label: "x" }` patch against a
-			// HiddenField (which has no `label`) compiles fine and `Object.assign`
-			// would silently install the stray key. `applyFieldPatch` filters the
-			// patch to the field's current variant before merging, dropping any
-			// stray key at the runtime boundary. The subsequent parse becomes a
-			// real validation step — a value of the wrong type on a legitimate
-			// key surfaces as an error rather than being silently ignored.
-			const merged = applyFieldPatch(field, mut.patch);
+			// Identity + kind guard. `mut.targetKind` is the kind the caller
+			// constructed the patch against. If the field's actual kind has
+			// drifted (e.g. a `convertField` ran between mutation construction
+			// and dispatch in a parallel batch), the patch's allowed keys no
+			// longer match the field — skip the stale mutation rather than
+			// merging keys that don't apply to the current kind.
+			if (field.kind !== mut.targetKind) {
+				console.warn(
+					`updateField: skipped a stale patch for ${mut.uuid} — the patch was built for a "${mut.targetKind}" field, but the field is now a "${field.kind}". The field probably converted kind between when this update was queued and when it ran. Re-read the field, rebuild the patch, and try again.`,
+				);
+				return;
+			}
+			// Spread-merge the patch onto the current entity, then filter
+			// the result through `pickFieldKeysForKind` before parsing. The
+			// type-level discriminator on `targetKind` catches cross-kind
+			// patches at compile time, but the repeat kind has an inner
+			// `repeat_mode` discriminator the per-kind partial schema can't
+			// guard: a patch that switches `count_bound → user_controlled`
+			// leaves the previous mode's `repeat_count` key in the spread,
+			// and the strict per-variant schema would reject it. The
+			// filter dispatches on the merged result's `repeat_mode` so a
+			// mode-switch picks up the destination variant's key set,
+			// dropping the stale slot. For non-repeat kinds the filter is
+			// a tight no-op (the picked key set covers every key the merge
+			// can carry) — defense-in-depth without a meaningful cost.
+			const spread = { ...field, ...mut.patch };
+			const merged = pickFieldKeysForKind(spread, mut.targetKind);
 			const result = fieldSchema.safeParse(merged);
 			if (!result.success) {
-				// A patch that fails the schema after filtering is a programmer
-				// error — log with the exact issues so the offending call site is
-				// easy to locate, then skip the update rather than throwing from
+				// A patch that fails the schema is a programmer error — log
+				// with the exact issues so the offending call site is easy
+				// to locate, then skip the update rather than throwing from
 				// inside an Immer reducer (a throw would propagate up through
 				// `store.applyMany()` and crash the surrounding render).
 				console.warn(
-					`updateField: patch rejected for ${mut.uuid} (kind=${field.kind})`,
+					`updateField: a patch for ${mut.uuid} (kind=${field.kind}) didn't fit the field's schema and was skipped. The merged shape failed validation — check that every patch value is the right type for its key.`,
 					{ patch: mut.patch, issues: result.error.issues },
 				);
 				return;

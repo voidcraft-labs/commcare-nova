@@ -27,7 +27,7 @@ import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { FieldPatch, Uuid } from "@/lib/domain";
+import type { Field, Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -60,18 +60,25 @@ export const FieldRow = memo(function FieldRow({
 	const { updateField } = useBlueprintMutations();
 	/* Inline save for TextEditable — null outside edit mode so the inline
 	 * editor falls back to read-only. Empty string coerces to undefined so
-	 * clearing a property removes it rather than storing an empty value. */
+	 * clearing a property removes it rather than storing an empty value.
+	 * The closure captures the field's `kind` so the patch type narrows to
+	 * the correct variant — TextEditable's `fieldType` axis only saves
+	 * scalar text keys (`label`, `hint`) that the kind's schema declares
+	 * for any kind that renders an editable label/hint at this row, so
+	 * the runtime contract holds. */
+	const fieldKind = q?.kind;
 	const saveField = useMemo<
 		((field: string, value: string) => void) | null
 	>(() => {
-		if (mode !== "edit") return null;
+		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
-			const patch = {
+			updateField(uuid, fieldKind, {
 				[property]: value === "" ? undefined : value,
-			} as FieldPatch;
-			updateField(uuid, patch);
+			} as Partial<
+				Omit<Extract<Field, { kind: typeof fieldKind }>, "uuid" | "kind">
+			>);
 		};
-	}, [mode, uuid, updateField]);
+	}, [mode, uuid, fieldKind, updateField]);
 
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]

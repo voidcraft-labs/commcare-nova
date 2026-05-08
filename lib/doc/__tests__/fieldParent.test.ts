@@ -625,10 +625,9 @@ describe("after renameField / updateField (structural noop)", () => {
 			{
 				kind: "updateField",
 				uuid: FLD_A,
-				patch: { label: "Updated Label" } as Parameters<
-					typeof store.getState.arguments
-				>[0],
-			} as Mutation,
+				targetKind: "text",
+				patch: { label: "Updated Label" },
+			},
 		]);
 		assertFieldParentInvariants(result);
 	});

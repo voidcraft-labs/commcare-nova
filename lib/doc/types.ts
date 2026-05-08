@@ -16,6 +16,7 @@ import {
 	CONNECT_TYPES,
 	caseTypeSchema,
 	fieldKinds,
+	fieldPatchSchemaByKind,
 	fieldSchema,
 	formSchema,
 	moduleSchema,
@@ -32,21 +33,50 @@ import {
 //
 // The update-*/patch variants for modules and forms use
 // `.omit({ uuid: true }).partial()` on the underlying entity schema to
-// express "any subset of mutable properties."
+// express "any subset of mutable properties." The `updateField` variant
+// is per-kind: a discriminated union of one arm per `targetKind`, each
+// arm typing its `patch` slot against that kind's schema-declared
+// properties. This is the type-level guard that makes a patch with a
+// stray key (e.g. `{ label }` against a hidden field) a compile error
+// at every call site rather than a silently-dropped key at runtime.
 
 const moduleUpdatePatchSchema = moduleSchema.omit({ uuid: true }).partial();
 const formUpdatePatchSchema = formSchema.omit({ uuid: true }).partial();
-// Field patch: an arbitrary subset of mutable field properties. The
-// `updateField` reducer narrowly validates the merged result against
-// `fieldSchema` (the per-kind discriminated union), which is where
-// shape enforcement actually lives — so this schema only guarantees
-// "it's a plain JSON object with string keys" at the event-log layer.
-// Building a Zod union of per-kind partials here would couple the log
-// schema to the kind set and push a wider-than-intended object type
-// to `Mutation["patch"]` callers; a record of unknown is both simpler
-// and honest about the fact that kind-specific validation happens
-// later in the pipeline.
-const fieldPatchSchema = z.record(z.string(), z.unknown());
+
+/**
+ * Per-`targetKind` arms for the `updateField` mutation. Each arm
+ * carries the `targetKind` literal as a sub-discriminator and types its
+ * `patch` slot against that kind's partial schema. These arms compose
+ * into a `z.discriminatedUnion("kind", ...)` arm whose `kind` literal is
+ * `"updateField"` — the outer `mutationSchema` selects the
+ * `updateField` arm by `kind`, and TypeScript / Zod further discriminate
+ * on `targetKind` to pick the correct patch shape.
+ *
+ * Built from `fieldKinds.map(...)` so adding a new field kind extends
+ * both the `Field` union (via `fieldKinds` + `fieldRegistry`) and the
+ * `updateField` arm set in lockstep — no per-kind list to maintain
+ * separately. The `as const` cast pins the literal `kind` to
+ * `"updateField"` (Zod literals erase to `string` in the array's
+ * element type without it).
+ */
+type UpdateFieldArm = {
+	[K in (typeof fieldKinds)[number]]: z.ZodObject<{
+		kind: z.ZodLiteral<"updateField">;
+		uuid: typeof uuidSchema;
+		targetKind: z.ZodLiteral<K>;
+		patch: (typeof fieldPatchSchemaByKind)[K];
+	}>;
+}[(typeof fieldKinds)[number]];
+
+const updateFieldArms = fieldKinds.map(
+	(targetKind) =>
+		z.object({
+			kind: z.literal("updateField"),
+			uuid: uuidSchema,
+			targetKind: z.literal(targetKind),
+			patch: fieldPatchSchemaByKind[targetKind],
+		}) as UpdateFieldArm,
+) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
 export const mutationSchema = z.discriminatedUnion("kind", [
 	// Module
@@ -121,11 +151,12 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		newId: z.string().min(1),
 	}),
 	z.object({ kind: z.literal("duplicateField"), uuid: uuidSchema }),
-	z.object({
-		kind: z.literal("updateField"),
-		uuid: uuidSchema,
-		patch: fieldPatchSchema,
-	}),
+	// `updateField` is itself a per-`targetKind` discriminated union — see
+	// `updateFieldArms` above. Zod v4 supports nesting one
+	// `discriminatedUnion` inside another, which keeps both layers as
+	// O(1) literal-keyed dispatch (kind → updateField → targetKind)
+	// rather than falling back to a generic union scan.
+	z.discriminatedUnion("targetKind", updateFieldArms),
 	z.object({
 		kind: z.literal("convertField"),
 		uuid: uuidSchema,

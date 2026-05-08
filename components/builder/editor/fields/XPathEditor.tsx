@@ -22,7 +22,7 @@ import { useFormLintContext } from "@/components/builder/editor/fields/useFormLi
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field, FieldPatch } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	XPathStringKeys,
@@ -92,27 +92,36 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 
 	// `validate_msg` doesn't flow through the generic `onChange` (that
 	// prop is scoped to `keyName`). Dispatch via the doc-mutation API
-	// directly so the message writes to the same field entity.
+	// directly so the message writes to the same field entity. The
+	// editor only mounts when `keyName === "validate"`, which is true
+	// exclusively on kinds whose schema declares `validate_msg`. The
+	// `as` cast widens the literal-key patch back to the kind's partial
+	// shape — TS can't prove `validate_msg` belongs on `F` from inside
+	// this generic body.
 	const { updateField } = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
 		(next: string) => {
-			updateField(field.uuid, {
+			updateField(field.uuid, field.kind, {
 				validate_msg: next === "" ? undefined : next,
-			} as FieldPatch);
+			} as unknown as Partial<
+				Omit<Extract<Field, { kind: F["kind"] }>, "uuid" | "kind">
+			>);
 			setAddingMsg(false);
 		},
-		[updateField, field.uuid],
+		[updateField, field.uuid, field.kind],
 	);
 
 	// Empty commit clears the message through the same patch path.
 	// Cancelling a brand-new add also drops the pending flag so the
 	// Add pill reappears.
 	const clearValidateMsg = useCallback(() => {
-		updateField(field.uuid, {
+		updateField(field.uuid, field.kind, {
 			validate_msg: undefined,
-		} as FieldPatch);
+		} as unknown as Partial<
+			Omit<Extract<Field, { kind: F["kind"] }>, "uuid" | "kind">
+		>);
 		setAddingMsg(false);
-	}, [updateField, field.uuid]);
+	}, [updateField, field.uuid, field.kind]);
 
 	return (
 		<div>

@@ -167,6 +167,7 @@ describe("updateField", () => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("a"),
+				targetKind: "text",
 				patch: { label: "Patient Name", required: "true" },
 			});
 		});
@@ -175,11 +176,12 @@ describe("updateField", () => {
 		expect(next.fields[Q("a")]?.id).toBe("name"); // Preserved
 	});
 
-	it("strips keys not valid for the target kind (hidden + label)", () => {
-		// HiddenField has no `label` in its schema. A `FieldPatch` is a
-		// union-wide partial, so this patch compiles; at runtime the reducer
-		// must reject / strip the stray key rather than silently installing
-		// it on the entity.
+	it("skips a stale patch when the field's kind drifted from targetKind", () => {
+		// Stale-mutation case: `targetKind` was captured against the field's
+		// kind at the time the mutation was queued, but the field has since
+		// been converted (or the wrong kind was supplied). The reducer must
+		// recognize the drift and skip the patch rather than merging keys
+		// that don't belong to the current kind.
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -195,17 +197,60 @@ describe("updateField", () => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("h"),
-				// `label` is not part of HiddenField. `calculate` IS — that part
-				// of the patch is legitimate and should apply.
-				patch: { label: "oops", calculate: "2" } as Record<string, string>,
+				// `targetKind: "text"` doesn't match the field's actual kind
+				// ("hidden") — the reducer warns and no-ops. The compile-time
+				// guard prevents this from being a typical authoring mistake;
+				// the runtime guard catches the parallel-batch race where a
+				// `convertField` lands between queue and dispatch.
+				targetKind: "text",
+				patch: { label: "oops", calculate: "2" },
+			});
+		});
+		expect(warn).toHaveBeenCalled();
+		warn.mockRestore();
+		// Field unchanged — original calculate preserved.
+		expect(asField(next.fields[Q("h")])?.calculate).toBe("1");
+		expect(next.fields[Q("h")]?.kind).toBe("hidden");
+	});
+
+	it("drops stale mode-specific keys when repeat_mode changes", () => {
+		// Mode-switch on a repeat field: count_bound → user_controlled.
+		// `repeat_count` lives only on count_bound; user_controlled rejects
+		// it (the variant schemas are strict). The reducer must end up with
+		// a clean user_controlled field — not skip the patch with a parse
+		// failure because the spread-merged object still carries the
+		// stale `repeat_count` key.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("r")]: {
+					uuid: Q("r"),
+					id: "r",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "5",
+				} as Field,
+			},
+			fieldOrder: { [F("1")]: [Q("r")] },
+		};
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateField",
+				uuid: Q("r"),
+				targetKind: "repeat",
+				patch: { repeat_mode: "user_controlled" },
 			});
 		});
 		warn.mockRestore();
-		// `label` was stripped; `calculate` was applied.
-		expect(asField(next.fields[Q("h")])?.label).toBeUndefined();
-		expect(asField(next.fields[Q("h")])?.calculate).toBe("2");
-		// Kind preserved.
-		expect(next.fields[Q("h")]?.kind).toBe("hidden");
+		const r = next.fields[Q("r")] as
+			| (Field & {
+					repeat_mode: string;
+					repeat_count?: string;
+			  })
+			| undefined;
+		expect(r?.repeat_mode).toBe("user_controlled");
+		expect("repeat_count" in (r ?? {})).toBe(false);
 	});
 
 	it("is a no-op and warns when the merged result fails schema validation", () => {
@@ -222,8 +267,12 @@ describe("updateField", () => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("a"),
+				targetKind: "text",
 				// Force an invalid value for a required field (not a string).
-				patch: { label: 42 } as unknown as Record<string, string>,
+				// The TS shape on the new mutation requires per-kind partial,
+				// so cast through `unknown` to inject the bad value at
+				// runtime — the reducer's `safeParse` is what we're testing.
+				patch: { label: 42 } as unknown as Partial<{ label: string }>,
 			});
 		});
 		expect(warn).toHaveBeenCalled();

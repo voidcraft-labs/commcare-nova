@@ -27,7 +27,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field, FieldPatch } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
 import type { EditorSectionName } from "./useEntryActivation";
@@ -63,16 +63,31 @@ export function FieldEditorSection<F extends Field>({
 
 	// Generic setter: write exactly one key on this field, then notify
 	// the activation hook so it can clear pending state on empty-commit.
-	// `FieldPatch` is the union-wide partial — the reducer merges known
-	// scalar props and ignores the rest.
+	// The field's `kind` discriminates the patch type — every per-key
+	// editor in this section is mounted only when the schema entry's
+	// `visible(field)` returns true, so `key` is always a property the
+	// kind's schema declares. The cast on `updateField`'s patch arg
+	// folds the generic key/value pair back to the variant's partial
+	// shape; TypeScript can't infer the per-arm patch shape from a
+	// single-key literal whose key is `K extends keyof F` because each
+	// per-kind arm sees `K` distributively.
 	const setKey = useCallback(
 		<K extends keyof F & string>(key: K, value: F[K]) => {
-			updateField(field.uuid, {
+			// `unknown` widening: the runtime patch shape is a single
+			// arbitrary key/value pair, but the hook's type-level patch
+			// shape is per-kind partial; TS can't bridge a generic `K
+			// extends keyof F` to a specific arm of the discriminated
+			// union. Every editor that mounts here is gated on
+			// `entry.visible(field)`, so `key` is always a property the
+			// kind's schema declares.
+			updateField(field.uuid, field.kind, {
 				[key]: value,
-			} as FieldPatch);
+			} as unknown as Partial<
+				Omit<Extract<Field, { kind: F["kind"] }>, "uuid" | "kind">
+			>);
 			onCommit(key, value);
 		},
-		[updateField, field.uuid, onCommit],
+		[updateField, field.uuid, field.kind, onCommit],
 	);
 
 	// Section contributes nothing — let the panel skip the card chrome.

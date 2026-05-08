@@ -290,9 +290,14 @@ export const editFieldTool = {
 			if (Object.keys(fieldUpdates).length > 0) {
 				const patch = editPatchToFieldPatch(fieldUpdates);
 				if (Object.keys(patch).length > 0) {
+					// `afterRename.field.kind` is the kind after any
+					// just-applied conversion — pass it as `targetKind` so
+					// the mutation discriminates against the post-convert
+					// shape, not the pre-convert kind from `resolved.field`.
 					const updateMuts = updateFieldMutations(
 						workingDoc,
 						afterRename.field.uuid,
+						afterRename.field.kind,
 						patch,
 					);
 					if (updateMuts.length > 0) {

@@ -198,11 +198,10 @@ type RepeatMode = "user_controlled" | "count_bound" | "query_bound";
  * before validation. Per-variant key sets live in
  * `repeatVariantKeySets`.
  *
- * Used by the explicit key-projection consumers — `reconcileFieldForKind`
- * (when changing a field's kind) and `updateField`'s reducer (when
- * applying a partial patch). Both filter the candidate object to the
- * destination schema's keys before parsing, so the parse step is a real
- * validation rather than a tolerant strip.
+ * Used by `reconcileFieldForKind` to filter a candidate field-shaped
+ * object down to the destination kind's schema keys before parsing —
+ * dropping properties the destination kind doesn't declare so the parse
+ * step is a real validation step rather than a tolerant strip.
  */
 const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	text: new Set(Object.keys(textFieldSchema.shape)),
@@ -273,12 +272,19 @@ export function pickByKeys(
  * the umbrella (every-variant) key set when the mode hasn't been chosen
  * yet. Returns a fresh object — never mutates the source.
  *
- * The dispatch is private to this module so the per-kind key tables stay
- * the single source of truth for "what does this kind accept" — every
- * consumer that needs the projection goes through `reconcileFieldForKind`
- * or the `updateField` reducer, which call this helper.
+ * Two consumers:
+ *   - `reconcileFieldForKind`: projects a field into a different kind's
+ *     shape during a `convertField` mutation, dropping source-kind keys
+ *     the destination doesn't declare.
+ *   - The `updateField` reducer: drops stale mode-specific keys when a
+ *     repeat-kind patch switches `repeat_mode`. The type-level patch
+ *     guard catches cross-kind misuse at compile time, but it can't
+ *     reach into the repeat union's `repeat_mode` discriminator — a
+ *     spread `{ ...countBound, repeat_mode: "user_controlled" }`
+ *     leaves `repeat_count` behind, which the strict per-variant schema
+ *     would reject. Filtering here is the targeted runtime cleanup.
  */
-function pickFieldKeysForKind(
+export function pickFieldKeysForKind(
 	source: Record<string, unknown>,
 	toKind: FieldKind,
 ): Record<string, unknown> {
@@ -401,56 +407,57 @@ export function reconcileFieldForKind(
 }
 
 /**
- * Merge a partial-field patch onto an existing field, then filter the
- * merged result to the keys the field's current kind accepts. Returns
- * the candidate object — the caller validates against `fieldSchema` so
- * that an invalid value on a legitimate key surfaces as a parse error
- * rather than being silently ignored.
+ * Per-kind partial-patch schemas, keyed by `FieldKind`.
  *
- * Filters AFTER the merge (not just the patch) so any stray keys are
- * dropped regardless of which side of the merge introduced them — both
- * a patch with a key that doesn't apply to the field's variant and an
- * existing field carrying a key its variant doesn't declare collapse to
- * the same clean candidate. `FieldPatch` is a union-wide partial that
- * allows any variant's keys at the type level, so this runtime guard
- * is what keeps the reducer's invariant intact.
+ * Each entry validates the `patch` slot of a kind-discriminated
+ * `updateField` mutation: any subset of the kind's schema-declared
+ * properties, with `uuid` and `kind` forbidden (identity and
+ * discriminant are immutable for the lifetime of a field entity).
+ * The reducer reads `mut.targetKind` to pick the matching schema —
+ * a patch with a key the target kind doesn't declare is rejected at
+ * compile time by the discriminated `UpdateFieldMutation` shape, and
+ * the runtime parse here is a defense-in-depth check on event-log
+ * replay where the producer might be a different version of the app.
  *
- * For repeat fields the filter dispatches on the merged result's
- * `repeat_mode` (so a patch that changes the mode picks up the new
- * variant's key set) — each variant's specific keys (`repeat_count`
- * for count-bound, `data_source` for query-bound) are preserved.
+ * Repeat is the one kind whose schema is a `discriminatedUnion` over
+ * `repeat_mode`; we union the three variants' partial shapes so a
+ * patch can carry any mode-specific key (`repeat_count`,
+ * `data_source`) alongside the optional `repeat_mode` discriminator.
+ * The reducer merges the patch onto the existing repeat field and
+ * lets the full `fieldSchema.safeParse` enforce mode-vs-keys
+ * coherence (a patch that switches mode without supplying the new
+ * mode's required keys surfaces as a parse failure rather than a
+ * stray-key drop).
  */
-export function applyFieldPatch(
-	field: Field,
-	patch: Record<string, unknown>,
-): Record<string, unknown> {
-	const merged: Record<string, unknown> = {
-		...(field as unknown as Record<string, unknown>),
-		...patch,
-	};
-	return pickFieldKeysForKind(merged, field.kind);
-}
-
-/**
- * Union-wide patch type for field entities.
- *
- * `Partial<Omit<Field, "uuid">>` is intuitive but useless here: because
- * `Field` is a discriminated union where different variants carry different
- * properties (e.g. `HiddenField` has no `label`), a plain object literal
- * like `{ label: "..." }` fails to satisfy `Partial<HiddenField>`, and TS
- * rejects the patch even though `Object.assign` handles it fine at runtime.
- *
- * `FieldPatch` resolves this by taking the union of every variant's partial
- * shape. A literal that matches ANY variant's partial will satisfy the
- * union, which is exactly the contract the reducer enforces (it never
- * changes `kind`, only merges known scalar properties).
- *
- * The `uuid` and `kind` fields are excluded — identity and discriminant are
- * immutable for the lifetime of a field entity.
- */
-export type FieldPatch = {
-	[K in FieldKind]: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>;
-}[FieldKind];
+export const fieldPatchSchemaByKind = {
+	text: textFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	int: intFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	decimal: decimalFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	date: dateFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	time: timeFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	datetime: datetimeFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	single_select: singleSelectFieldSchema
+		.omit({ uuid: true, kind: true })
+		.partial(),
+	multi_select: multiSelectFieldSchema
+		.omit({ uuid: true, kind: true })
+		.partial(),
+	geopoint: geopointFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	image: imageFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	audio: audioFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	video: videoFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	barcode: barcodeFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	signature: signatureFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	label: labelFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	hidden: hiddenFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	secret: secretFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	group: groupFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	repeat: z.union([
+		userControlledRepeatSchema.omit({ uuid: true, kind: true }).partial(),
+		countBoundRepeatSchema.omit({ uuid: true, kind: true }).partial(),
+		queryBoundRepeatSchema.omit({ uuid: true, kind: true }).partial(),
+	]),
+} as const satisfies { [K in FieldKind]: z.ZodTypeAny };
 
 export type { SelectOption } from "./base";
 // Re-export the shared option shape (used by single_select + multi_select,

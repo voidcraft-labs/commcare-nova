@@ -134,6 +134,7 @@ describe("EngineController", () => {
 				{
 					kind: "updateField",
 					uuid: Q1_UUID,
+					targetKind: "text",
 					patch: { relevant: "false()" },
 				},
 			]);

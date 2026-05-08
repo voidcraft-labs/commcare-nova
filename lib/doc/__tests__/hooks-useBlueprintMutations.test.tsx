@@ -237,7 +237,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.updateField(Q_A, { label: "Renamed" });
+			result.current.mutations.updateField(Q_A, "text", { label: "Renamed" });
 		});
 
 		// Cast to a loose variant-agnostic shape to read `label` — the domain
@@ -1102,7 +1102,7 @@ describe("useBlueprintMutations", () => {
 		expect(() => {
 			act(() => {
 				// Bogus uuids should all silently no-op.
-				result.current.mutations.updateField(asUuid("bogus-uuid"), {
+				result.current.mutations.updateField(asUuid("bogus-uuid"), "text", {
 					label: "x",
 				});
 				result.current.mutations.removeField(asUuid("bogus-uuid"));
