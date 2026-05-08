@@ -718,7 +718,9 @@ describe("mapPopulateSampleCasesError", () => {
 		// catch path through the real error-thrower.
 		const store = makeStore(OWNER_A);
 		// Blueprint declares `household` only; the seed call asks
-		// for `patient`, which trips `findCaseTypeOrThrow`.
+		// for `patient`, which trips `resolveCaseTypeOrThrow` in
+		// `seedSampleCases`'s blueprint resolution before it forwards
+		// to `store.generateSampleData`.
 		const blueprint = buildBlueprint([
 			{
 				name: "household",
@@ -727,8 +729,8 @@ describe("mapPopulateSampleCasesError", () => {
 		]);
 		// No schema sync at all for any case type — but the throw
 		// is `CaseTypeNotInBlueprintError`, NOT `SchemaNotSyncedError`,
-		// because the blueprint check runs at the top of the
-		// generator's `generate()` (before any schema lookup).
+		// because the blueprint resolution runs before any schema
+		// lookup.
 		try {
 			await seedSampleCases(store, {
 				appId: APP_ID,

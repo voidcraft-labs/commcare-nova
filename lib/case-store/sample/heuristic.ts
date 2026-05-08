@@ -1,7 +1,7 @@
 // lib/case-store/sample/heuristic.ts
 //
 // `HeuristicCaseGenerator` — the shipped `SampleCaseGenerator`.
-// Schema-driven, deterministic per `(blueprint, caseType, seed)`.
+// Schema-driven, deterministic per `(appId, caseType.name, seed)`.
 // Per-`data_type` dispatch with a property-name heuristic that
 // picks a matching pool variant (e.g. `name` → names pool,
 // `address` → address pool, `age` → uniform 15-80, etc.); pools
@@ -100,9 +100,10 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 
 /**
  * Module-level reference date for date-range pools. Pinned so the
- * same `(blueprint, caseType, seed)` yields the same output without
- * any clock read. Bumping this shifts every `dob` / `registration`
- * / `recent-event` value; snapshot-style tests would re-baseline.
+ * same `(appId, caseType.name, seed)` yields the same output
+ * without any clock read. Bumping this shifts every `dob` /
+ * `registration` / `recent-event` value; snapshot-style tests
+ * would re-baseline.
  */
 const REFERENCE_DATE = new Date("2026-05-01T00:00:00.000Z");
 

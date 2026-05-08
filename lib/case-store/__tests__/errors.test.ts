@@ -10,10 +10,14 @@
 //   - `CasePropertiesValidationError(appId, caseType, failures)` —
 //     carries the structured per-field AJV failure list as a public
 //     field so API routes catch and re-emit it.
-//   - `CaseTypeNotInBlueprintError(appId, caseType)` — surfaces from
-//     `findCaseTypeOrThrow` when the supplied blueprint snapshot
-//     omits the requested case type. Server Actions on the
-//     running-app view map to a `missing-case-type` result arm.
+//   - `CaseTypeNotInBlueprintError(appId, caseType)` — surfaces
+//     from two production throw sites: the case-store's
+//     `applySchemaChange` (when the supplied `caseTypeSchemas`
+//     map omits the requested case type) and the running-app
+//     view's `caseDataBindingHelpers.resolveCaseTypeOrThrow`
+//     (when the supplied `BlueprintDoc` snapshot omits it).
+//     Server Actions on the running-app view map to a
+//     `missing-case-type` result arm.
 //   - `SchemaNotSyncedError(appId, caseType)` — surfaces from
 //     `getValidator` when no `case_type_schemas` row exists for
 //     `(appId, caseType)`. Server Actions map to a

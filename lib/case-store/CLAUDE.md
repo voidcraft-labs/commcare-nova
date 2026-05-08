@@ -24,7 +24,7 @@ JS evaluator, no parity tests.
   plus the Cloud SQL connection layer.
 - **`sample/`** — the `SampleCaseGenerator` interface and
   `HeuristicCaseGenerator` (the shipped implementation; stateless,
-  deterministic per `(blueprint, caseType, seed)`).
+  deterministic per `(appId, caseType.name, seed)`).
 - **`sql/`** — the AST → Kysely compiler stack. Contract +
   composition shape documented in `sql/CLAUDE.md`.
 - **`schema.sql`** + **`migrations/`** — the source-of-truth case-
@@ -88,10 +88,16 @@ arms:
   `(appId, caseType)` pair stays in `err.message` for server-side
   logs but does NOT surface in the response body.
 - `CaseTypeNotInBlueprintError(appId, caseType)` — surfaces from
-  `findCaseTypeOrThrow` when the supplied blueprint snapshot
-  carries no entry for the case type. Server Actions on the
-  running-app view map it to a `missing-case-type` arm so the
-  consumer re-resolves against fresh state.
+  two production throw sites: `PostgresCaseStore.applySchemaChange`
+  (when the supplied `caseTypeSchemas` map omits the requested
+  name — the case-store's authoritative case-type resolution
+  path) and `caseDataBindingHelpers.resolveCaseTypeOrThrow` (the
+  running-app preview layer's seed-sample-cases helper resolves
+  a `CaseType` definition out of the supplied `BlueprintDoc`
+  snapshot before forwarding to `CaseStore.generateSampleData`).
+  Server Actions on the running-app view map it to a
+  `missing-case-type` arm so the consumer re-resolves against
+  fresh state.
 - `SchemaNotSyncedError(appId, caseType)` — surfaces from
   `getValidator` when no `case_type_schemas` row exists for the
   pair. Server Actions map to a `schema-not-synced` arm.
@@ -260,7 +266,7 @@ at the blueprint layer.
 
 ## Sample-data — `HeuristicCaseGenerator`
 
-Stateless, deterministic. Same `(blueprint, caseType, seed)`
+Stateless, deterministic. Same `(appId, caseType.name, seed)`
 tuple yields the same row sequence on every call. Per-`data_type`
 pools live under `./sample/pools/`.
 
