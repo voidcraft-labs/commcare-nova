@@ -38,6 +38,7 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
 import type { BlueprintDoc, Column } from "@/lib/domain";
+import { pickByKeys } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type {
 	CalculatedValue,
@@ -51,26 +52,46 @@ import type {
 } from "./caseDataBindingTypes";
 
 /**
+ * The keys `blueprintDocSchema` declares — the persisted shape Server
+ * Actions accept. Computed once at module load by reading
+ * `blueprintDocSchema.shape` so `pickBlueprintDoc` (called from React
+ * render paths on every state change) doesn't re-walk the schema each
+ * call.
+ *
+ * Single source of truth: the Zod schema. Add a property to
+ * `blueprintDocSchema` and it surfaces in this set automatically.
+ */
+const BLUEPRINT_DOC_KEYS: ReadonlySet<string> = new Set(
+	Object.keys(blueprintDocSchema.shape),
+);
+
+/**
  * Project a `BlueprintDoc` (or superset like the doc store's
  * `BlueprintDocState`) down to the wire-serializable shape Server
  * Actions accept — every schema field plus `fieldParent`, nothing
- * else. The doc store carries action methods alongside data
- * fields; passing raw state into an action would throw at React's
- * RSC serializer.
+ * else. The doc store carries action methods (`applyMany`,
+ * `beginAgentWrite`, `endAgentWrite`, `load`) alongside data fields;
+ * passing raw state into a Server Action would throw at React's RSC
+ * serializer.
  *
- * `blueprintDocSchema.parse(state)` runs Zod's default
- * `.strip()` mode, dropping unknown keys (action methods, any
- * other extras). `fieldParent` re-attaches from the input because
- * it's an in-memory `BlueprintDoc` extension the schema doesn't
- * declare (rebuilt from `fieldOrder` on load, never persisted).
- * Single source of truth: the Zod schema. New `blueprintDocSchema`
- * fields surface in the projection automatically.
+ * Filters the source by the keys the schema declares, then re-attaches
+ * `fieldParent` from the input — `fieldParent` is the in-memory reverse
+ * index, rebuilt from `fieldOrder` on load and never persisted, so the
+ * schema doesn't declare it. The explicit per-key filter is what makes
+ * this projection (rather than a tolerant strip-via-parse): every
+ * unknown key is dropped at the boundary, every known key is preserved
+ * verbatim, and the doc-store invariants guarantee the remaining values
+ * are already valid for the schema.
  */
 export function pickBlueprintDoc<T extends BlueprintDoc>(
 	state: T,
 ): BlueprintDoc {
+	const picked = pickByKeys(
+		state as unknown as Record<string, unknown>,
+		BLUEPRINT_DOC_KEYS,
+	);
 	return {
-		...blueprintDocSchema.parse(state),
+		...(picked as Omit<BlueprintDoc, "fieldParent">),
 		fieldParent: state.fieldParent,
 	};
 }
