@@ -521,3 +521,44 @@ Landed across two commits: `c8e3a8c5` (initial reshape) → `5583f335` (doc-only
 **Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (SA tools, UI, preview, scripts, integration tests). Tasks 5-9 bring each surface to green.
 
 **Next:** Reshape Task 5 — SA tools (atomic ops + uuid surfacing).
+
+### Task 5 — SA tools (atomic ops + uuid surfacing) — 2026-05-07
+
+Landed across five commits: `7bc33244` (initial reshape — 8 atomic tools + helpers + summary + prompts) → `485dbfbf` (CR fix-pass — relocate array-walk helpers into `shared.ts`) → `156052f5` (CR fix-pass — `setCaseListFilter` Elm voice + structured success type) → `b3917905` (CR fix-pass — hoist `stampColumnUuid` / `stampSearchInputUuid` + tighten `SetCaseListFilterKind` + drop v1 banner) → `b9ac468d` (CR fix-pass — consolidate `snapshotCaseListConfig` to one definition).
+
+**Tool surface — final:**
+- DELETED 4 wholesale tools: `setCaseListSort`, `setCalculatedColumns`, `setCaseListColumns`, `setCaseListSearchInputs` (and their tests).
+- NEW 8 atomic tools at `lib/agent/tools/case-list-config/` — `addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`. Each `add` mints a fresh `uuid` and surfaces it in both the structured `result.uuid` field AND the success message. `update` / `remove` consume the uuid as the addressing key. `reorder` takes the full `uuid[]` representing new order.
+- `setCaseListFilter` UNCHANGED in wholesale-Predicate shape; voice and result type aligned to family standard. `SetCaseListFilterKind = Predicate["kind"] | "cleared"` (precise typing, no `string`).
+
+**Two-layer helper split:**
+- `lib/agent/tools/case-list-config/shared.ts` owns generic array-walk primitives (`replaceByUuid`, `removeByUuid`, `reorderByUuid` over `<T extends { uuid: Uuid }>`), uuid-stamp casts (`stampColumnUuid`, `stampSearchInputUuid`), the `snapshotCaseListConfig` helper, the `columnInputSchema` / `searchInputDefInputSchema` (per-arm `.omit({ uuid: true })`), `uuidInputSchema` (JSON-Schema-safe boundary type), and `newUuid`.
+- `lib/agent/blueprintHelpers.ts` owns 8 agent-specific `Mutation[]` builders (`addColumnMutation` etc.) that thread arrays through the shared primitives.
+
+**Read-side uuid surfacing (critical for fresh-session resume):**
+- `summarizeBlueprint.ts` emits every column + search-input uuid in the SA-facing module summary.
+- `getModule.ts` returns `mod.caseListConfig` verbatim (uuids surface by virtue of v2 schema).
+- `searchBlueprint.ts` adds `case_list_column` and `search_input` match types, each carrying entry `uuid` + module `containerUuid`. The `detailColumns` walk is gone.
+
+**Prompt + docs:**
+- `prompts.ts` system-prompt updated: 9-tool surface named, uuid-handle pattern explained.
+- `updateModule.ts` name-only; JSDoc references atomic-op family.
+- `lib/mcp/server.ts` registration parity with SA registry.
+- `lib/agent/CLAUDE.md` documents the atomic-ops + uuid-handle pattern + the two-layer helper split.
+
+**Elm-style error voice landed everywhere.** Every tool error return follows "Tried to X. Found no Y. Look at Z." shape. The reorder helper's three failure predicates (length mismatch, duplicate uuid, unknown uuid) each get tailored messages.
+
+**Historical event-log compatibility verified.** No chat-replay path executes against the live tool registry by name; the 4 deleted tool names survive as inert string display in event-log roundtrip fixtures.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- lib/agent lib/doc lib/mcp` — 572 / 572 green across 61 test files (deterministic two runs).
+- `npm test -- lib/agent/tools/case-list-config/__tests__/schema.test.ts` — 25 / 25 (Anthropic 8-optional-ceiling structural defense).
+- All 9 tool input schemas lower cleanly through `z.toJSONSchema`.
+- Sweeps clean: zero line-number citations, zero forward-projection ("future migration" / "Plan N") in code, zero `should not` / `must not` / `Invariant violated` framings.
+
+**Deltas from the planned shape:** none structural. Multiple voice-and-abstraction iterations against the standing rules; final state matches plan intent + family voice + canonical pattern.
+
+**Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (UI workspace, preview, scripts, integration tests). Tasks 6-9 bring each surface to green.
+
+**Next:** Reshape Task 6 — UI workspace + ColumnEditor.
