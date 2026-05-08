@@ -109,15 +109,25 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 		[updateField, field.uuid, field.kind],
 	);
 
-	// Empty commit clears the message through the same patch path.
-	// Cancelling a brand-new add also drops the pending flag so the
-	// Add pill reappears.
+	// Empty commit on the validation-message editor. Two arms with
+	// different conditionality:
+	//   - Slot clear is gated on `validate_msg !== undefined`. A
+	//     focus-blur-without-typing or Esc-on-empty gesture on a
+	//     never-set message slot has nothing to clear; firing the
+	//     removal patch unconditionally would stamp an undo-history
+	//     entry for a passive interaction the user never asked for.
+	//   - Add-pill state reset (`setAddingMsg(false)`) fires
+	//     unconditionally. The user backing out of "Add Validation
+	//     Message" must always close the editor and bring the pill
+	//     back, regardless of whether the slot had a value to clear.
 	const clearValidateMsg = useCallback(() => {
-		updateField(field.uuid, field.kind, {
-			validate_msg: undefined,
-		} as unknown as FieldPatchFor<F["kind"]>);
+		if (validateMsg !== undefined) {
+			updateField(field.uuid, field.kind, {
+				validate_msg: undefined,
+			} as unknown as FieldPatchFor<F["kind"]>);
+		}
 		setAddingMsg(false);
-	}, [updateField, field.uuid, field.kind]);
+	}, [updateField, field.uuid, field.kind, validateMsg]);
 
 	return (
 		<div>

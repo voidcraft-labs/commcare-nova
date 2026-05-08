@@ -17,6 +17,16 @@ import type {
  *     via `onChange(undefined)`. The reducer treats `undefined` as a
  *     removal patch; persisting `""` would leave stale empty strings
  *     on the field.
+ *   - Empty commits on a key whose value is already `undefined` are
+ *     no-ops. `useCommitField`'s "delete on empty" path fires
+ *     `onEmpty` for any focus-blur-without-typing or Esc-on-empty
+ *     gesture; without the gate that maps to a redundant
+ *     `onChange(undefined)` write — a passive interaction would
+ *     stamp an undo-history entry the user never asked for. The
+ *     gate is consumer-local (not at the EditableText primitive)
+ *     because the primitive's `onEmpty` contract serves consumers
+ *     whose callbacks bundle UI-state cleanup arms that must fire
+ *     unconditionally — gating at the primitive would block those.
  *
  * The `K extends OptionalStringKeys<F>` constraint pins `K` to keys
  * whose declared type is exactly `string | undefined`. That makes
@@ -45,8 +55,11 @@ export function TextEditor<F extends Field, K extends OptionalStringKeys<F>>(
 	);
 
 	const handleEmpty = useCallback(() => {
+		// Skip the dispatch when the key is already absent — there is
+		// nothing to clear. See the file header for the full rationale.
+		if (value === undefined) return;
 		onChange(undefined as F[K]);
-	}, [onChange]);
+	}, [onChange, value]);
 
 	return (
 		<EditableText
