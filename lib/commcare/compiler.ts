@@ -91,13 +91,19 @@ export function compileCcz(
 		//
 		// Both surfaces emit through typed emitters at
 		// `@/lib/commcare/suite/case-list/{shortDetail,longDetail}.ts`,
-		// which walk `module.caseListConfig` directly (the typed
-		// `Column` discriminated union, sort keys, calculated columns,
-		// optional `detailColumns` long-detail override) and return
-		// both the suite-XML fragment and the locale-id → header-string
-		// map the runtime renders against. The HQ-JSON projection on
+		// which walk `module.caseListConfig.columns` directly (the typed
+		// `Column` discriminated union with per-column sort directives,
+		// calculated arms, and visibility flags) and return both the
+		// suite-XML fragment and the locale-id → header-string map the
+		// runtime renders against. The HQ-JSON projection on
 		// `hqMod.case_details` is no longer consulted here; the typed
 		// emitters own the wire shape end-to-end.
+		//
+		// `doc` threads through to the short-detail emitter so the
+		// per-column sort comparator type can resolve from the case
+		// property's declared `data_type` (or the calculated column's
+		// expression's resolved result type). The long-detail emitter
+		// accepts `doc` for API symmetry but doesn't read it.
 		//
 		// Both detail blocks resolve their `<title>` through CCHQ's
 		// built-in `cchq.case` locale (registered with
@@ -108,11 +114,19 @@ export function compileCcz(
 		// `cchq.case` at the app-strings layer (Nova has no such
 		// authoring surface today).
 		if (caseType) {
-			const shortEmission = emitShortDetail({ module: mod, moduleIndex: mIdx });
+			const shortEmission = emitShortDetail({
+				module: mod,
+				moduleIndex: mIdx,
+				doc,
+			});
 			suiteDetails.push(shortEmission.xml);
 			Object.assign(appStrings, shortEmission.strings);
 
-			const longEmission = emitLongDetail({ module: mod, moduleIndex: mIdx });
+			const longEmission = emitLongDetail({
+				module: mod,
+				moduleIndex: mIdx,
+				doc,
+			});
 			suiteDetails.push(longEmission.xml);
 			Object.assign(appStrings, longEmission.strings);
 		}

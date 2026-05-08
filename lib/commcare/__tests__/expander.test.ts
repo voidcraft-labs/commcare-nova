@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { asUuid } from "@/lib/domain";
+import { asUuid, plainColumn } from "@/lib/domain";
 
 // Shared fixtures used across the main expander cases below. Each test
 // outside this block constructs its own fixture inline to keep the
@@ -1599,23 +1599,37 @@ describe("case detail (long) view", () => {
 		expect(longCols[0].field).toBe("case_name");
 	});
 
-	it("uses explicit case_detail_columns for long detail when provided", () => {
+	it("uses visibleInList / visibleInDetail flags to surface a wider long detail", () => {
+		// `case_name` shows in both surfaces (defaults). `age` and
+		// `dob` carry `visibleInList: false` so the short detail
+		// hides them; the long detail still renders all three.
+		const caseNameCol = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000001"),
+			"case_name",
+			"Name",
+		);
+		const ageCol = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000002"),
+			"age",
+			"Age",
+			{ visibleInList: false },
+		);
+		const dobCol = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000003"),
+			"dob",
+			"Date of Birth",
+			{ visibleInList: false },
+		);
 		const doc = buildDoc({
 			appName: "D",
 			modules: [
 				{
 					name: "M",
 					caseType: "c",
-					caseListConfig: caseListConfig(
-						[{ field: "case_name", header: "Name" }],
-						{
-							detailColumns: [
-								{ field: "case_name", header: "Full Name" },
-								{ field: "age", header: "Age" },
-								{ field: "dob", header: "Date of Birth" },
-							],
-						},
-					),
+					caseListConfig: {
+						columns: [caseNameCol, ageCol, dobCol],
+						searchInputs: [],
+					},
 					forms: [
 						{
 							name: "F",
@@ -1637,9 +1651,15 @@ describe("case detail (long) view", () => {
 			],
 		});
 		const hq = expandDoc(doc);
+		const shortCols = hq.modules[0].case_details.short.columns;
 		const longCols = hq.modules[0].case_details.long.columns;
+		// Short detail: only `case_name` (the default-visible column).
+		expect(shortCols.length).toBe(1);
+		expect(shortCols[0].field).toBe("case_name");
+		// Long detail: all three columns, in source-array order.
 		expect(longCols.length).toBe(3);
-		expect(longCols[0].header.en).toBe("Full Name");
+		expect(longCols[0].field).toBe("case_name");
+		expect(longCols[1].field).toBe("age");
 		expect(longCols[2].field).toBe("dob");
 	});
 });

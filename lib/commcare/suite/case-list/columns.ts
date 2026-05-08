@@ -1,17 +1,16 @@
 // lib/commcare/suite/case-list/columns.ts
 //
-// Per-`Column` and per-`CalculatedColumn` `<field>` block emission
-// for the suite-XML case-list detail. Each column produces one
-// `<field>` element matching CCHQ's wire vocabulary at
+// Per-`Column` `<field>` block emission for the suite-XML case-list
+// detail. Each column produces one `<field>` element matching CCHQ's
+// wire vocabulary at
 // `commcare-hq/corehq/apps/app_manager/detail_screen.py` —
 // per-format-class XPath templates pin the per-kind display +
-// sort behavior. The same emitters service both detail surfaces
+// sort behavior. The same emitter services both detail surfaces
 // (short + long); per-surface divergences (locale-id substring,
-// `<sort>` block presence, `<template form="phone">` on long-only,
-// `search-only` skip on long-only) flow through the
-// `CaseListEmitContext.detailKind` discriminator.
+// `<sort>` block presence, `<template form="phone">` on long-only)
+// flow through the `CaseListEmitContext.detailKind` discriminator.
 //
-// The seven Nova column kinds map to CCHQ formats as follows:
+// The six Nova column kinds map to CCHQ formats as follows:
 //
 //   - `plain`             → CCHQ `detail_screen.py::Plain` format.
 //     Bare property reference; the runtime renders the case
@@ -26,20 +25,6 @@
 //     concat-fallback). Sort uses raw `{xpath}` (mirrors CCHQ's
 //     `Date.SORT_XPATH_FUNCTION = "{xpath}"`) so ISO-string
 //     lexicographic ordering matches calendar order.
-//
-//   - `time-since-until`  → CCHQ `detail_screen.py::TimeAgo`
-//     format wrapped with an overdue-label branch. CCHQ's base
-//     shape is
-//     `if({xpath} = '', '', string(int((today() - date({xpath})) div <divisor>)))`
-//     where `<divisor>` is the days-equivalent of one unit (year =
-//     365.25, month = 365.25/12, week = 7, day = 1, per
-//     `commcare-hq/corehq/apps/app_manager/static/app_manager/js/details/utils.js::module.TIME_AGO`).
-//     The overdue branch wraps that in
-//     `if(today() - date({xpath}) > <thresholdDays>, '<displayLabel>', <baseShape>)`
-//     so the runtime surfaces the author's overdue text past the
-//     threshold and the integer interval otherwise. CCHQ's stock
-//     `TimeAgo` has no overdue branch — Nova adds one. Sort uses
-//     raw `{xpath}`.
 //
 //   - `phone`             → CCHQ `detail_screen.py::Phone` format.
 //     Same XPath as `plain`; the divergence between the two
@@ -64,56 +49,53 @@
 //     trims the leading whitespace from the join's empty-arm
 //     fall-throughs. Sort uses raw `{xpath}`.
 //
-//   - `late-flag`         → CCHQ `detail_screen.py::LateFlag`
-//     format. Wire shape:
-//     `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <thresholdDays>, '<flag>', ''))`.
-//     CCHQ hardcodes the flag string to `'*'`; Nova authors it
-//     via `flagDisplayValue`. CCHQ's wire shape emits the flag
-//     for the absent-property case AND the overdue case, leaving
-//     the cell empty only when the date is present and within
-//     threshold. Sort uses raw `{xpath}`.
+//   - `interval`          → merges CCHQ's `TimeAgo` + `LateFlag`
+//     formats under one Nova kind. The `display` discriminator
+//     dispatches the cell shape:
 //
-//   - `search-only`       → CCHQ `detail_screen.py::Invisible`
-//     format (which inherits `HideShortColumn` →
-//     `HideShortHeaderColumn`). On short detail, wire shape: a
-//     `<field>` with `width="0"` on both `<header>` and
-//     `<template>` so the runtime hides the column from the case
-//     list while preserving the property as a sort / search
-//     target. On long detail, the column emits NO `<field>` at
-//     all — Nova's authoring vocabulary defines `search-only` as
-//     a search/filter target with no display affordance, and the
-//     case-detail screen has no search/filter affordance. The
-//     orchestrator handles the skip; the per-Column emitter
-//     returns `undefined` to signal the absence.
+//       - `display: "always"` — always show the relative interval.
+//         Wraps CCHQ's
+//         `detail_screen.py::TimeAgo.XPATH_FUNCTION =
+//         "if({xpath} = '', '', string(int((today() - date({xpath})) div <divisor>)))"`
+//         with an overdue-text branch that surfaces `text` past the
+//         threshold and the integer interval otherwise. CCHQ's
+//         stock `TimeAgo` has no overdue branch — Nova adds one.
 //
-// Calculated columns ride a separate emit path in `emitCalculatedColumnField`
-// — the `<template>` body wraps `$calculated_property` around the
-// inline value-expression emission, mirroring CCHQ's
-// `useXpathExpression` branch in
-// `detail_screen.py::FormattedDetailColumn.template`.
+//       - `display: "flag"` — render `text` only when the threshold
+//         is exceeded; otherwise the cell is empty. Mirrors CCHQ's
+//         `detail_screen.py::LateFlag.XPATH_FUNCTION =
+//         "if({xpath} = '', '*', if(today() - date({xpath}) > <threshold>, '*', ''))"`
+//         with the author's `text` substituting for CCHQ's
+//         hard-coded `'*'`. The CCHQ shape surfaces the flag for
+//         the absent-property case AND the overdue case, leaving
+//         the cell empty only when the date is present and within
+//         threshold.
+//
+//     Sort uses raw `{xpath}` for both arms.
+//
+//   - `calculated`        → CCHQ `useXpathExpression` branch in
+//     `detail_screen.py::FormattedDetailColumn.template`. The
+//     `<template>` body wraps `$calculated_property` around an
+//     inline `<variable name="calculated_property">` block
+//     carrying the lowered ValueExpression XPath. The `<header>`
+//     resolves through the `case_calculated_property_<position>`
+//     locale convention per
+//     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
+//     `useXpathExpression` substitution. No `field` slot — the
+//     expression is the source.
 //
 // `<sort>` block emission is detail-surface-aware. Short detail
-// emits sort blocks for both property-rooted and calculated
-// columns when `caseListConfig.sort` (or `CalculatedColumn.sort`)
-// targets them. Long detail emits no `<sort>` blocks for the
+// emits sort blocks for every column whose uuid keys into
+// `ctx.sortByUuid`. Long detail emits no `<sort>` blocks for the
 // non-nodeset case, matching CCHQ's
 // `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
 // short-circuit on `self.detail.display != 'short'`.
 
-import type {
-	CalculatedColumn,
-	Column,
-	SortDirection,
-	SortType,
-} from "@/lib/domain";
+import type { Column } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { quoteLiteral } from "../../predicate/stringQuoting";
 import { escapeXml } from "../../xml";
-import {
-	emitCalculatedSortBlock,
-	emitSortBlock,
-	findSortKey,
-} from "./sortKeys";
+import { emitSortBlock } from "./sortKeys";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -135,9 +117,10 @@ const DETAIL_KIND_LOCALE_TYPE: Readonly<Record<DetailKind, string>> = {
 
 /**
  * Days-equivalent divisor for each `TimeSinceUnit` arm. Shared by
- * both `time-since-until` (renders the integer interval count)
- * and `late-flag` (compares a day delta against a threshold). The
- * canonical values come from CCHQ's authoring UI module at
+ * both `interval` arms — `display: "always"` renders the integer
+ * interval count, `display: "flag"` compares a day delta against a
+ * threshold. The canonical values come from CCHQ's authoring UI
+ * module at
  * `commcare-hq/corehq/apps/app_manager/static/app_manager/js/details/utils.js::module.TIME_AGO`:
  *
  *     module.TIME_AGO = {
@@ -147,11 +130,11 @@ const DETAIL_KIND_LOCALE_TYPE: Readonly<Record<DetailKind, string>> = {
  *         day: 1,
  *     };
  *
- * The values are the SAME divisor regardless of the column kind —
- * `time-ago`'s wire formula emits the divisor verbatim into the
- * XPath; `late-flag`'s threshold-in-days computation multiplies
- * the user-authored unit count by the same divisor. Centralising
- * here keeps the two emitters bit-identical on unit math.
+ * The values are the SAME divisor regardless of the display arm —
+ * the always-display arm emits the divisor verbatim into the
+ * XPath; the flag-display arm's threshold-in-days computation
+ * multiplies the user-authored unit count by the same divisor.
+ * Centralising here keeps the two arms bit-identical on unit math.
  *
  * The fractional `30.4375` (month) emits via `formatTimeAgoDivisor`
  * below — JavaScript's `String(365.25 / 12)` produces
@@ -180,7 +163,8 @@ function formatTimeAgoDivisor(divisor: number): string {
 }
 
 /**
- * Header-locale-id composer. Matches CCHQ's
+ * Header-locale-id composer for property-rooted columns. Matches
+ * CCHQ's
  * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`,
  * whose `@pattern('m%d.%s.%s_%s_%d.header')` decorator + body
  * f-string produce
@@ -188,13 +172,12 @@ function formatTimeAgoDivisor(divisor: number): string {
  * where `column.model` is `'case'` for case-detail columns and
  * `detail_type` is `case_short` / `case_long` per
  * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`.
- * The `column.id + 1` step keys the suffix to the global
- * 1-based position of the column within its detail (regular
- * columns + calculated columns share the count).
+ * The `column.id + 1` step keys the suffix to the global 1-based
+ * position of the column within its detail.
  *
- * The 1-based index disambiguates duplicate-property columns
+ * The 1-based position disambiguates duplicate-property columns
  * (the same property rendered through two different format
- * kinds, e.g. plain text + late-flag).
+ * kinds, e.g. plain text + interval).
  */
 function detailHeaderLocaleId(
 	detailKind: DetailKind,
@@ -211,10 +194,8 @@ function detailHeaderLocaleId(
  * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`
  * — the `useXpathExpression` branch substitutes the literal
  * `calculated_property` for the field segment so the locale id
- * reads `case_calculated_property_<position>.header`.
- * The position is the global 1-based slot in the detail; the
- * orchestrator passes `regularColumnCount + calcIndex + 1` so
- * the count continues across the regular-column pass.
+ * reads `case_calculated_property_<position>.header`. The position
+ * is the global 1-based slot in the detail.
  */
 function detailCalculatedHeaderLocaleId(
 	detailKind: DetailKind,
@@ -310,45 +291,13 @@ function emitCalculatedTemplateBlock(calcXpath: string): string {
 	].join("\n");
 }
 
-/**
- * Build a hidden `<header>` / `<template>` pair for a search-only
- * column. CCHQ's `detail_screen.py::Invisible` format inherits
- * this hide-on-short behavior across two parent classes:
- *   - `commcare-hq/corehq/apps/app_manager/detail_screen.py::HideShortHeaderColumn.header`
- *     overrides `header` to return an empty `<text/>` with
- *     `width=template_width` on short detail.
- *   - `commcare-hq/corehq/apps/app_manager/detail_screen.py::HideShortColumn.template_width`
- *     extends `HideShortHeaderColumn` and overrides
- *     `template_width` to return `0` on short detail.
- * `detail_screen.py::Invisible` inherits both. The combined effect
- * on short detail is a `<header width="0"><text/></header>` plus
- * a `<template width="0">` body — the runtime collapses the
- * column visually while keeping the property in the case-list's
- * indexable schema.
- */
-function emitHiddenFieldBody(xpathFunction: string): string {
-	return [
-		`      <header width="0">`,
-		`        <text/>`,
-		`      </header>`,
-		`      <template width="0">`,
-		`        <text>`,
-		`          <xpath function="${escapeXml(xpathFunction)}"/>`,
-		`        </text>`,
-		`      </template>`,
-	].join("\n");
-}
-
 // ============================================================
 // Per-kind XPath builders
 // ============================================================
 //
 // Each helper takes the column's `field` (raw property name) and
 // any per-kind config, and returns the wire-form XPath the
-// `<template>` slot consumes. Sort XPaths are emitted separately
-// (they always read the raw `field` for date / time-since-until
-// / late-flag arms; for plain / phone / id-mapping the sort and
-// display XPaths are identical).
+// `<template>` slot consumes.
 
 /**
  * Plain text column display XPath — bare property reference.
@@ -378,48 +327,85 @@ function dateDisplayXpath(field: string, pattern: string): string {
 }
 
 /**
- * Time-since-until column display XPath. Wraps CCHQ's `time-ago`
- * shape with an overdue-label branch:
+ * `display: "always"` interval-column XPath. Wraps CCHQ's
+ * `time-ago` shape with an overdue-text branch:
  *
  *     if({xpath} = '', '',
- *        if(today() - date({xpath}) > <thresholdDays>, '<label>',
+ *        if(today() - date({xpath}) > <thresholdDays>, '<text>',
  *           string(int((today() - date({xpath})) div <divisor>))))
  *
  * The `today() - date({xpath})` delta is in days; `thresholdDays`
  * is the user-authored `threshold` × the unit's days-equivalent
- * divisor. The integer-interval display divides the same delta
- * by the divisor and floors via `int(...)` to render whole-unit
- * counts (e.g. "3" for "3 weeks"). The empty-string outer guard
- * keeps absent values blank (CCHQ's stock `time-ago` shape).
+ * divisor. The integer-interval display divides the same delta by
+ * the divisor and floors via `int(...)` to render whole-unit counts
+ * (e.g. "3" for "3 weeks"). The empty-string outer guard keeps
+ * absent values blank (CCHQ's stock `time-ago` shape).
  *
- * `displayLabel` routes through `quoteLiteral` so an embedded
- * `'` flips to concat-fallback rather than producing broken
- * XPath.
+ * `text` routes through `quoteLiteral` so an embedded `'` flips to
+ * concat-fallback rather than producing broken XPath.
  */
-function timeSinceUntilDisplayXpath(args: {
+function intervalAlwaysXpath(args: {
 	readonly field: string;
 	readonly threshold: number;
 	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
-	readonly displayLabel: string;
+	readonly text: string;
 }): string {
 	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
 	const thresholdDays = args.threshold * divisor;
 	const divisorWire = formatTimeAgoDivisor(divisor);
 	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
-	const labelLiteral = quoteLiteral(args.displayLabel, "case-list-filter");
+	const labelLiteral = quoteLiteral(args.text, "case-list-filter");
 	const intervalShape = `string(int((today() - date(${args.field})) div ${divisorWire}))`;
 	const overdueShape = `if(today() - date(${args.field}) > ${thresholdWire}, ${labelLiteral}, ${intervalShape})`;
 	return `if(${args.field} = '', '', ${overdueShape})`;
 }
 
 /**
- * Phone column display XPath. CCHQ's
- * `detail_screen.py::Phone` format inherits
- * `XPATH_FUNCTION = "{xpath}"` from the base
+ * `display: "flag"` interval-column XPath. Mirrors CCHQ's
+ * `detail_screen.py::LateFlag.XPATH_FUNCTION`:
+ *
+ *     if({xpath} = '', '<text>', if(today() - date({xpath}) > <thresholdDays>, '<text>', ''))
+ *
+ * CCHQ hardcodes the flag string to `'*'`; Nova substitutes the
+ * author's `text` via `quoteLiteral`. The CCHQ shape surfaces the
+ * flag in TWO conditions: the property is absent OR the property
+ * is present and the day delta exceeds the threshold. The cell is
+ * blank only when the property is present and within threshold.
+ *
+ * `thresholdDays` is `threshold` × the unit's days-equivalent
+ * divisor; CCHQ's wire shape stores the threshold pre-multiplied
+ * (the authoring UI computes `threshold_in_days` from a separate
+ * unit picker and persists only the day count).
+ *
+ * Header rendering diverges from CCHQ. CCHQ's
+ * `detail_screen.py::LateFlag` extends
+ * `detail_screen.py::HideShortHeaderColumn`, which hides the
+ * header on short detail. Nova emits a normal `<header>` with the
+ * author's `header` text routed through the standard locale-id
+ * pattern — the column has its own header label in the Nova
+ * authoring surface so the runtime renders that label rather than
+ * CCHQ's hidden-header magic.
+ */
+function intervalFlagXpath(args: {
+	readonly field: string;
+	readonly threshold: number;
+	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
+	readonly text: string;
+}): string {
+	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
+	const thresholdDays = args.threshold * divisor;
+	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
+	const flagLiteral = quoteLiteral(args.text, "case-list-filter");
+	return `if(${args.field} = '', ${flagLiteral}, if(today() - date(${args.field}) > ${thresholdWire}, ${flagLiteral}, ''))`;
+}
+
+/**
+ * Phone column display XPath. CCHQ's `detail_screen.py::Phone`
+ * format inherits `XPATH_FUNCTION = "{xpath}"` from the base
  * `FormattedDetailColumn` — both detail surfaces emit a bare
  * property reference here. The per-surface divergence
- * (`<template form="phone">` on long, bare `<template>` on
- * short) lives at the `<template>` element level via
+ * (`<template form="phone">` on long, bare `<template>` on short)
+ * lives at the `<template>` element level via
  * `emitTemplateBlock`'s `form` parameter, not in the XPath.
  */
 function phoneDisplayXpath(field: string): string {
@@ -466,132 +452,41 @@ function idMappingDisplayXpath(
 	return `replace(join(' ', ${arms.join(", ")}), '\\s+', ' ')`;
 }
 
-/**
- * Late-flag column display XPath. CCHQ's
- * `detail_screen.py::LateFlag` format emits:
- *
- *     if({xpath} = '', '*', if(today() - date({xpath}) > <thresholdDays>, '*', ''))
- *
- * CCHQ hardcodes the flag string to `'*'`; Nova substitutes the
- * author's `flagDisplayValue` via `quoteLiteral`. The CCHQ shape
- * surfaces the flag in TWO conditions: the property is absent OR
- * the property is present and the day delta exceeds the
- * threshold. The cell is blank only when the property is present
- * and within threshold.
- *
- * `thresholdDays` is `threshold` × the unit's days-equivalent
- * divisor; CCHQ's wire shape stores the threshold pre-multiplied
- * (the authoring UI computes `threshold_in_days` from a separate
- * unit picker and persists only the day count).
- *
- * Header rendering diverges from CCHQ. CCHQ's
- * `detail_screen.py::LateFlag` extends
- * `detail_screen.py::HideShortHeaderColumn`, which hides the
- * header on short detail and emits
- * `<header width="11%"><text/></header>` (canonical fixture:
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
- * under `<detail id="m0_case_short">/<field>` for `late-flag`).
- * Nova emits a normal `<header>` with the author's `header` text
- * routed through the standard locale-id pattern — the late-flag
- * column has its own header label in the Nova authoring surface
- * (the column-editor field is exposed alongside `flagDisplayValue`),
- * so the runtime renders that label rather than CCHQ's hidden-
- * header magic. The decision is grounded in
- * `feedback_dont_inherit_cchq_ux_at_authoring_layer.md`: CCHQ's
- * authoring surface (header-must-be-hidden-for-this-format) is
- * not a wire constraint and Nova's authoring layer chooses to
- * surface a normal header instead.
- */
-function lateFlagDisplayXpath(args: {
-	readonly field: string;
-	readonly threshold: number;
-	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
-	readonly flagDisplayValue: string;
-}): string {
-	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
-	const thresholdDays = args.threshold * divisor;
-	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
-	const flagLiteral = quoteLiteral(args.flagDisplayValue, "case-list-filter");
-	return `if(${args.field} = '', ${flagLiteral}, if(today() - date(${args.field}) > ${thresholdWire}, ${flagLiteral}, ''))`;
-}
-
 // ============================================================
 // Per-Column dispatcher
 // ============================================================
 
 /**
- * The displayed-column subset of the `Column` discriminated
- * union. `search-only` is the one kind that never reaches the
- * display + sort resolution path because its `<field>` body is a
- * hidden width=0 stub; every other kind goes through
- * `resolveColumnXpaths`.
+ * Resolve the display XPath for a property-rooted column. Calc
+ * columns ride the inline-variable template path and don't route
+ * through this helper.
  */
-type DisplayedColumn = Exclude<Column, { kind: "search-only" }>;
-
-/**
- * Resolve the display + sort XPath pair for a displayed column.
- * Two values because CCHQ's per-format design splits them — date
- * / time-since-until / late-flag display a transformed value but
- * sort by the raw property (so ISO-string lexicographic order
- * matches calendar order, and so an overdue-flagged row sorts
- * by its actual date rather than by the flag string). For
- * plain / phone / id-mapping the two XPaths are identical.
- *
- * Search-only is excluded from the input type — that path skips
- * this resolver entirely (see `emitColumnField`'s search-only
- * branch) because the hidden body has no slot for either xpath.
- */
-function resolveColumnXpaths(column: DisplayedColumn): {
-	readonly display: string;
-	readonly sort: string;
-} {
+function propertyDisplayXpath(
+	column: Exclude<Column, { kind: "calculated" }>,
+): string {
 	switch (column.kind) {
 		case "plain":
-			return {
-				display: plainDisplayXpath(column.field),
-				sort: column.field,
-			};
+			return plainDisplayXpath(column.field);
 		case "date":
-			return {
-				display: dateDisplayXpath(column.field, column.pattern),
-				sort: column.field,
-			};
-		case "time-since-until":
-			return {
-				display: timeSinceUntilDisplayXpath({
-					field: column.field,
-					threshold: column.threshold,
-					unit: column.unit,
-					displayLabel: column.displayLabel,
-				}),
-				sort: column.field,
-			};
+			return dateDisplayXpath(column.field, column.pattern);
 		case "phone":
-			return {
-				display: phoneDisplayXpath(column.field),
-				sort: column.field,
-			};
+			return phoneDisplayXpath(column.field);
 		case "id-mapping":
-			return {
-				display: idMappingDisplayXpath(column.field, column.mapping),
-				sort: column.field,
-			};
-		case "late-flag":
-			return {
-				display: lateFlagDisplayXpath({
-					field: column.field,
-					threshold: column.threshold,
-					unit: column.unit,
-					flagDisplayValue: column.flagDisplayValue,
-				}),
-				sort: column.field,
-			};
-		default: {
-			const _exhaustive: never = column;
-			throw new Error(
-				`emitColumn: unhandled DisplayedColumn kind ${String(_exhaustive)}`,
-			);
-		}
+			return idMappingDisplayXpath(column.field, column.mapping);
+		case "interval":
+			return column.display === "always"
+				? intervalAlwaysXpath({
+						field: column.field,
+						threshold: column.threshold,
+						unit: column.unit,
+						text: column.text,
+					})
+				: intervalFlagXpath({
+						field: column.field,
+						threshold: column.threshold,
+						unit: column.unit,
+						text: column.text,
+					});
 	}
 }
 
@@ -609,7 +504,7 @@ function resolveColumnXpaths(column: DisplayedColumn): {
  * layer.
  */
 function templateFormFor(
-	column: DisplayedColumn,
+	column: Exclude<Column, { kind: "calculated" }>,
 	detailKind: DetailKind,
 ): string | undefined {
 	if (column.kind === "phone" && detailKind === "long") return "phone";
@@ -617,54 +512,56 @@ function templateFormFor(
 }
 
 /**
- * Emit one `<field>` block for a regular (property-rooted) column.
- * The position is 1-based — the surrounding orchestrator passes
- * the column's index plus 1 so the locale-id suffix matches CCHQ's
- * `detail_column_header_locale` convention.
+ * Resolve a column's `<sort>` block (or absence thereof). On short
+ * detail, looks up the column's uuid in `ctx.sortByUuid`; on long
+ * detail, always returns `undefined` — CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
+ * short-circuits when `self.detail.display != 'short'` (modulo
+ * nodeset-column tabs not modelled in `caseListConfig`), and the
+ * canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
+ * carries zero `<sort>` blocks despite a multi-key sort on the
+ * parent module's short detail.
+ */
+function resolveSortXml(
+	column: Column,
+	ctx: CaseListEmitContext,
+): string | undefined {
+	if (ctx.detailKind === "long") return undefined;
+	const directive = ctx.sortByUuid.get(column.uuid);
+	if (directive === undefined) return undefined;
+	return emitSortBlock(directive);
+}
+
+/**
+ * Emit one `<field>` block for a column. The `position` is 1-based
+ * — the surrounding orchestrator passes the column's source-array
+ * index plus 1 so the locale-id suffix matches CCHQ's
+ * `detail_column_header_locale` convention. Position is keyed off
+ * the source-array index (config-time), NOT a render-time visible-
+ * column counter — toggling `visibleInList` / `visibleInDetail`
+ * doesn't churn locale ids.
  *
- * Three return shapes:
- *
- *   - `undefined` — the column doesn't produce a `<field>` on
- *     this surface. Today's only path is `search-only` on long
- *     detail (per `DetailKind`'s authoring-vocabulary contract).
- *     The orchestrator skips the result; the 1-based position
- *     counter still advances for the skipped slot, matching
- *     CCHQ's `column.id`-keyed numbering convention.
- *   - hidden `<field>` — `search-only` on short detail uses
- *     `emitHiddenFieldBody` (`width="0"` header + template pair)
- *     without a `<sort>` block. The `<field>` exists only so the
- *     property is declared at the detail layer for downstream
- *     search-input emission to bind against.
- *   - normal `<field>` — every other kind uses the standard
- *     `<header>` / `<template>` pair, may carry a `<template>`
- *     `form` attribute (long-detail phone columns), and may
- *     carry a `<sort>` block on short detail when a key in
- *     `ctx.sort` targets the column's property. Long detail emits
- *     no `<sort>` blocks regardless of `ctx.sort` content.
+ * The dispatch routes calculated columns through the inline-
+ * variable template path (CCHQ's `useXpathExpression` branch); every
+ * other kind goes through the standard `<header>` / `<template>`
+ * pair. May carry a `<template>` `form` attribute (long-detail
+ * phone columns) and may carry a `<sort>` block on short detail
+ * when the column's uuid keys into `ctx.sortByUuid`. Long detail
+ * emits no `<sort>` blocks regardless of `ctx.sortByUuid` content.
  */
 export function emitColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
-}): CaseListEmission | undefined {
+}): CaseListEmission {
 	const { column, position, ctx } = args;
 
-	// Search-only columns split by detail surface. Long detail
-	// emits no field for them — Nova's authoring vocabulary
-	// defines `search-only` as a search/filter target with no
-	// display affordance, and the case-detail screen has no
-	// search/filter affordance.
-	if (column.kind === "search-only") {
-		if (ctx.detailKind === "long") return undefined;
-		const xml = `    <field>\n${emitHiddenFieldBody(column.field)}\n    </field>`;
-		return { xml, strings: {} };
+	if (column.kind === "calculated") {
+		return emitCalculatedField({ column, position, ctx });
 	}
 
-	// Every other kind goes through the displayed-column
-	// resolver. Narrowing on the search-only short-circuit above
-	// is enough for TypeScript to admit `column` as
-	// `DisplayedColumn` here.
-	const xpaths = resolveColumnXpaths(column);
+	const displayXpath = propertyDisplayXpath(column);
 	const headerLocaleId = detailHeaderLocaleId(
 		ctx.detailKind,
 		ctx.moduleIndex,
@@ -673,58 +570,20 @@ export function emitColumnField(args: {
 	);
 	const headerXml = emitHeaderBlock(headerLocaleId);
 	const templateXml = emitTemplateBlock(
-		xpaths.display,
+		displayXpath,
 		templateFormFor(column, ctx.detailKind),
 	);
-	const sortXml = resolvePropertySortXml(column, xpaths.sort, ctx);
+	const sortXml = resolveSortXml(column, ctx);
 	const parts = [`    <field>`, headerXml, templateXml];
 	if (sortXml !== undefined) parts.push(sortXml);
 	parts.push(`    </field>`);
-	const xml = parts.join("\n");
 
 	return {
-		xml,
+		xml: parts.join("\n"),
 		strings: {
 			[headerLocaleId]: column.header,
 		},
 	};
-}
-
-/**
- * Resolve a property-rooted column's `<sort>` block (or absence
- * thereof). On short detail, walks `ctx.sort` for a
- * property-source key matching the column's `field` and emits
- * the wire-shape `<sort>` block when one matches. On long detail,
- * always returns `undefined` — CCHQ's
- * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
- * short-circuits when `self.detail.display != 'short'` (modulo
- * nodeset-column tabs not modelled in `caseListConfig`), and the
- * canonical fixture
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
- * has zero `<sort>` blocks despite a multi-key sort on the parent
- * module's short detail.
- *
- * Restricted to `DisplayedColumn` because search-only columns
- * never reach this resolver — their emit path short-circuits in
- * `emitColumnField` before sort resolution.
- */
-function resolvePropertySortXml(
-	column: DisplayedColumn,
-	sortXpath: string,
-	ctx: CaseListEmitContext,
-): string | undefined {
-	if (ctx.detailKind === "long") return undefined;
-	const match = findSortKey(ctx.sort, {
-		kind: "property",
-		property: column.field,
-	});
-	if (match === undefined) return undefined;
-	return emitSortBlock({
-		order: match.order,
-		direction: match.key.direction,
-		type: match.key.type,
-		xpathFunction: sortXpath,
-	});
 }
 
 /**
@@ -734,23 +593,25 @@ function resolvePropertySortXml(
  * resolves through the `case_calculated_property_<position>`
  * locale convention.
  *
- * Position math mirrors the regular-column case — 1-based, used
- * for the locale id's collision-disambiguation suffix.
- *
  * The strings map carries the calc's `header` text under its
  * computed locale id so `app_strings.txt` carries the rendered
  * header at runtime. CCHQ's stock convention has the same shape
  * (per `id_strings.py::detail_column_header_locale`, with the
  * `column.useXpathExpression` branch substituting the literal
  * `calculated_property` for the property name).
+ *
+ * Sort routing is identical to property-rooted columns: short
+ * detail looks up the column's uuid in `ctx.sortByUuid` and the
+ * directive carries the inline-variable shape; long detail emits
+ * no `<sort>` block.
  */
-export function emitCalculatedColumnField(args: {
-	readonly calculated: CalculatedColumn;
+function emitCalculatedField(args: {
+	readonly column: Extract<Column, { kind: "calculated" }>;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
-	const { calculated, position, ctx } = args;
-	const calcXpath = emitOnDeviceExpression(calculated.expression);
+	const { column, position, ctx } = args;
+	const calcXpath = emitOnDeviceExpression(column.expression);
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
 		ctx.detailKind,
 		ctx.moduleIndex,
@@ -758,83 +619,16 @@ export function emitCalculatedColumnField(args: {
 	);
 	const headerXml = emitHeaderBlock(headerLocaleId);
 	const templateXml = emitCalculatedTemplateBlock(calcXpath);
+	const sortXml = resolveSortXml(column, ctx);
 
-	const parts: string[] = [`    <field>`, headerXml, templateXml];
-
-	// Sort resolution for calculated columns is short-detail-only.
-	// Long detail emits no `<sort>` blocks per the same CCHQ rule
-	// `resolvePropertySortXml` documents
-	// (`detail_screen.py::FormattedDetailColumn.sort_node`
-	// short-circuits on `self.detail.display != 'short'`); the
-	// canonical fixture
-	// `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml::<detail id="m0_case_long">`
-	// carries three calculated-property fields with zero `<sort>`
-	// blocks.
-	//
-	// Within the short-detail branch, two paths the schema admits:
-	//
-	//   1. A module-level sort key targets the calc by id
-	//      (`SortKey.source.kind === "calculated"`). The calc
-	//      participates in the multi-key sort and its `<sort>`
-	//      block carries the 1-based `order` attribute matching
-	//      the key's position in `caseListConfig.sort`.
-	//   2. The calc carries its own `sort` slot
-	//      (`CalculatedColumn.sort`) — a per-column sort config
-	//      that doesn't enter the module-level array. The wire
-	//      layer emits `<sort>` WITHOUT an `order` attribute,
-	//      matching CCHQ's per-format-default sort shape: the
-	//      canonical fixture
-	//      `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml`
-	//      under `<detail id="m0_case_short">` carries a second
-	//      `birthdate` field whose `<sort type="string">` block
-	//      has no `order` attribute. The runtime treats no-order
-	//      `<sort>` blocks as per-column defaults that the
-	//      multi-sort UI surfaces alongside the explicit keys.
-	//
-	// A module-level key wins over a calc-local sort when both
-	// are authored — the module-level array is the canonical
-	// multi-key spec.
-	if (ctx.detailKind === "short") {
-		const moduleSortMatch = findSortKey(ctx.sort, {
-			kind: "calculated",
-			id: calculated.id,
-		});
-		if (moduleSortMatch !== undefined) {
-			parts.push(
-				emitCalculatedSortBlock({
-					order: moduleSortMatch.order,
-					direction: moduleSortMatch.key.direction,
-					type: moduleSortMatch.key.type,
-					calcXpath,
-				}),
-			);
-		} else if (calculated.sort !== undefined) {
-			parts.push(
-				emitCalculatedSortBlock({
-					order: undefined,
-					direction: calculated.sort.direction,
-					type: calculated.sort.type,
-					calcXpath,
-				}),
-			);
-		}
-	}
-
+	const parts = [`    <field>`, headerXml, templateXml];
+	if (sortXml !== undefined) parts.push(sortXml);
 	parts.push(`    </field>`);
 
 	return {
 		xml: parts.join("\n"),
 		strings: {
-			[headerLocaleId]: calculated.header,
+			[headerLocaleId]: column.header,
 		},
 	};
 }
-
-/**
- * Re-export the `SortType` / `SortDirection` enums purely as a
- * convenience for callers that compose sort blocks from values
- * sourced through this module's surface (e.g. test fixtures).
- * Both types are pure type-level imports under
- * `verbatimModuleSyntax`.
- */
-export type { SortDirection, SortType };

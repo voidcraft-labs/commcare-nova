@@ -1,19 +1,10 @@
 // lib/commcare/suite/case-list/longDetail.ts
 //
 // Suite-XML emission for the case-list long detail —
-// `<detail id="m{n}_case_long">`. Walks `module.caseListConfig`
-// in two passes (regular source-list columns, then calculated
-// columns) and concatenates one `<field>` per displayed column
-// into the surrounding `<detail>` shell.
-//
-// Source list resolution: the long detail's columns come from
-// `caseListConfig.detailColumns` if present, falling back to
-// `caseListConfig.columns` otherwise. The schema declares
-// `detailColumns` as the optional long-detail override —
-// authoring "no separate long detail" mirrors the short
-// detail's column list. Calculated columns share a single
-// authoring slot (`caseListConfig.calculatedColumns`); both
-// surfaces render the same calc list.
+// `<detail id="m{n}_case_long">`. Walks
+// `module.caseListConfig.columns`, filters by `column.visibleInDetail`
+// (absent ≡ visible), and concatenates one `<field>` per surviving
+// column into the surrounding `<detail>` shell.
 //
 // Per-column wire shape lives in `columns.ts`. Long-detail
 // divergences flow through the `CaseListEmitContext.detailKind`
@@ -22,25 +13,27 @@
 //   - Locale ids carry the `case_long` substring per CCHQ's
 //     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
 //     helper.
+//
 //   - `<sort>` blocks are suppressed on the non-nodeset long
 //     detail per CCHQ's
 //     `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
 //     short-circuit. The canonical fixture
 //     `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
-//     confirms zero `<sort>` blocks despite a multi-key sort
-//     active on the parent module's short detail.
+//     confirms zero `<sort>` blocks despite a multi-key sort active
+//     on the parent module's short detail.
+//
 //   - `phone` columns emit `<template form="phone">` per
 //     `detail_screen.py::Phone.template_form` — verified at
 //     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml::<detail id="m0_case_long">`'s
 //     phone field.
-//   - `search-only` columns produce no `<field>` (Nova's
-//     authoring vocabulary defines them as a search/filter
-//     target with no display affordance; the case-detail screen
-//     has no search/filter affordance). The 1-based position
-//     counter still advances for the skipped slot, matching
-//     CCHQ's `column.id` convention which keys off the source
-//     array's index regardless of which surfaces actually emit
-//     a field.
+//
+// Position counter convention: the 1-based position passed to the
+// per-column header-locale composer is the column's source-array
+// index plus one. The visibility filter affects which fields render,
+// not their position numbers — toggling `visibleInDetail` doesn't
+// churn locale ids. Mirrors CCHQ's
+// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
+// `column.id`-keyed numbering convention.
 //
 // The emitter does NOT register the `<title>` text into
 // app_strings — `cchq.case` is CCHQ's built-in locale with a
@@ -50,27 +43,47 @@
 // blocks display a consistent runtime title without app-strings
 // entries.
 
-import type { Module } from "@/lib/domain";
-import { emitCalculatedColumnField, emitColumnField } from "./columns";
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { emitColumnField } from "./columns";
+import type { ResolvedSortDirective } from "./sortKeys";
 import type { CaseListEmission, CaseListEmitContext } from "./types";
 
 /**
- * Compose the suite-XML `<detail>` block for one module's case-
- * list long detail. Returns the concatenated XML plus the
- * locale-id → header-string map the surrounding compiler
- * threads into `app_strings.txt`.
+ * Empty sort-directive map for long-detail emission. The long-detail
+ * surface emits no `<sort>` blocks regardless of authored sort
+ * directives, so wiring a sort lookup map at this layer would just
+ * burn cycles for an answer the per-column emitter ignores. The
+ * `CaseListEmitContext` shape carries the slot uniformly across
+ * surfaces; long detail passes this empty map and the per-column
+ * emitter's long-detail short-circuit guards the unused lookup.
+ */
+const EMPTY_SORT_DIRECTIVES: ReadonlyMap<Uuid, ResolvedSortDirective> =
+	new Map();
+
+/**
+ * Compose the suite-XML `<detail>` block for one module's case-list
+ * long detail. Returns the concatenated XML plus the locale-id →
+ * header-string map the surrounding compiler threads into
+ * `app_strings.txt`.
  *
- * When `module.caseListConfig` is absent OR the module has no
- * case type, the emitter returns a minimal title-only
- * `<detail>` block. The validator's `columnReferences` rule
- * (and its sibling rules) gate non-empty configs against
- * presence of `mod.caseType`, so a populated config without a
- * case type would fail validation upstream — the absence-arm
- * here is the structural fallback.
+ * `doc` is accepted as part of the uniform per-detail emission
+ * surface — both short and long detail emitters take the same
+ * triple `(module, moduleIndex, doc)`. Long detail doesn't read it
+ * (no sort directives, no per-property type lookup needed for the
+ * non-nodeset case) but the symmetry simplifies the compiler's
+ * call site.
+ *
+ * When `module.caseListConfig` is absent OR the module has no case
+ * type, the emitter returns a minimal title-only `<detail>` block.
+ * The validator's `columnReferences` rule (and its sibling rules)
+ * gate non-empty configs against presence of `mod.caseType`, so a
+ * populated config without a case type would fail validation
+ * upstream — the absence-arm here is the structural fallback.
  */
 export function emitLongDetail(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
+	readonly doc: BlueprintDoc;
 }): CaseListEmission {
 	const { module: mod, moduleIndex } = args;
 	const detailId = `m${moduleIndex}_case_long`;
@@ -90,61 +103,29 @@ export function emitLongDetail(args: {
 	const config = mod.caseListConfig;
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
-		sort: config.sort,
+		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
 	};
-
-	// Source list resolution per the schema's authoring contract:
-	// `detailColumns` is the optional long-detail override. When
-	// present, it replaces the short-detail's column list. When
-	// absent, the long detail mirrors the short detail. Falling
-	// back to `columns` keeps the case-detail screen populated by
-	// default; authors who want a different long-detail layout
-	// supply `detailColumns`.
-	const sourceColumns = config.detailColumns ?? config.columns;
 
 	const fields: string[] = [];
 	const strings: Record<string, string> = {};
 
-	// Pass 1 — regular columns. Position is 1-based, consumed by
-	// the per-column header-locale composer. The 1-based counter
-	// advances for every source-array slot, including skipped
-	// search-only-on-long entries — `emitColumnField` returns
-	// `undefined` for those, the orchestrator skips the
-	// concatenation, and the next column's position is `i + 2`
-	// rather than `previous + 1`. The convention matches CCHQ's
-	// `id_strings.py::detail_column_header_locale` whose
-	// `column.id + 1` reads the source-array index (config-time)
-	// rather than a render-time visible-column counter.
-	for (let i = 0; i < sourceColumns.length; i++) {
+	// Walk every column in source-array order. Position is 1-based
+	// against the source array — the 1-based counter advances for
+	// every slot, including columns hidden from this surface, so the
+	// header-locale suffix matches CCHQ's
+	// `id_strings.py::detail_column_header_locale` convention which
+	// keys off `column.id` (the source-array index regardless of
+	// visibility).
+	for (let i = 0; i < config.columns.length; i++) {
+		const column = config.columns[i];
+		// Visibility filter: absent slot ≡ visible. The schema
+		// preserves the slot's presence so the editor can distinguish
+		// "user explicitly toggled off" from "user never toggled".
+		if (column.visibleInDetail === false) continue;
 		const emission = emitColumnField({
-			column: sourceColumns[i],
+			column,
 			position: i + 1,
-			ctx,
-		});
-		if (emission === undefined) continue;
-		fields.push(emission.xml);
-		Object.assign(strings, emission.strings);
-	}
-
-	// Pass 2 — calculated columns. Position continues the global
-	// 1-based count from the regular-column pass, including
-	// skipped slots: a calc at index 0 receives
-	// `position = sourceColumns.length + 1`. CCHQ's
-	// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`
-	// computes the suffix as `column.id + 1` where `column.id`
-	// is the global per-detail position across regular AND calc
-	// columns; the canonical fixture
-	// `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
-	// renders three calc fields under `<detail id="m0_case_long">`
-	// at locale ids `case_calculated_property_10/11/12.header`,
-	// continuing the count after the (regular-and-skipped) source
-	// columns.
-	const regularCount = sourceColumns.length;
-	for (let i = 0; i < config.calculatedColumns.length; i++) {
-		const emission = emitCalculatedColumnField({
-			calculated: config.calculatedColumns[i],
-			position: regularCount + i + 1,
 			ctx,
 		});
 		fields.push(emission.xml);

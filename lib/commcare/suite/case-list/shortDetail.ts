@@ -1,78 +1,83 @@
 // lib/commcare/suite/case-list/shortDetail.ts
 //
 // Suite-XML emission for the case-list short detail —
-// `<detail id="m{n}_case_short">`. Walks `module.caseListConfig`
-// in two passes and concatenates one `<field>` per Column /
-// CalculatedColumn into the surrounding `<detail>` shell.
+// `<detail id="m{n}_case_short">`. Walks
+// `module.caseListConfig.columns`, filters by `column.visibleInList`
+// (absent ≡ visible), and concatenates one `<field>` per surviving
+// column into the surrounding `<detail>` shell.
 //
 // The `<detail>` shell carries:
 //
-//   - `id="m{moduleIndex}_case_short"` — the canonical short-
-//     detail identifier CCHQ binds entries against. CCHQ's
+//   - `id="m{moduleIndex}_case_short"` — the canonical short-detail
+//     identifier CCHQ binds entries against. CCHQ's
 //     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
 //     helper returns the same `m{module.id}_{detail_type}` shape;
 //     the surrounding entry's `detail-select="m0_case_short"`
 //     attribute references this id.
+//
 //   - `<title>` referencing `<locale id="cchq.case"/>` — CCHQ's
 //     built-in case-detail title locale, registered with
 //     `default="Case"` at
 //     `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`.
 //     No app-strings entry needed; the runtime resolves the
 //     fallback.
-//   - One `<field>` per displayed `Column`, in
+//
+//   - One `<field>` per column where `visibleInList ?? true`, in
 //     `caseListConfig.columns` order.
-//   - One `<field>` per `CalculatedColumn`, in
-//     `caseListConfig.calculatedColumns` order, AFTER the regular
-//     columns. CCHQ's wire convention places calc fields at the
-//     end of the field list; the canonical fixture
-//     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
-//     renders three calc fields under
-//     `<detail id="m0_case_long">` whose locale ids are
-//     `case_calculated_property_10/11/12.header` — continuing the
-//     count after the regular columns.
 //
-// Search-only columns route through their own emit path that
-// produces a `width="0"` `<field>` body — the column stays
-// declared at the detail layer so search-input emission can
-// bind against it, but the runtime hides it from the visible
-// case list.
+// Per-column sort directives are resolved once by
+// `sortKeys.ts::buildSortDirectives(mod, doc)` and threaded through
+// the per-column emitter via `CaseListEmitContext.sortByUuid`. The
+// per-column emitter looks up its directive by `column.uuid` and
+// emits the matching `<sort>` block on short detail.
 //
-// The emitter does NOT register the `<title>` text into
-// app_strings — `cchq.case` is CCHQ's built-in locale with a
-// runtime fallback. Authors who want to override the title
-// register `cchq.case` themselves at the app-strings layer
-// (Nova has no such authoring surface today; the runtime
-// fallback is the rendered title).
+// Position counter convention: the 1-based position passed to the
+// per-column header-locale composer is the column's source-array
+// index plus one. The visibility filter affects which fields render,
+// not their position numbers — toggling `visibleInList` doesn't
+// churn locale ids. Mirrors CCHQ's
+// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
+// `column.id`-keyed numbering convention.
 //
-// Calculated columns share the regular columns' `<sort>` lookup
-// path through `findSortKey` — a sort key whose
-// `source.kind === "calculated"` targets the calc by id and
-// the wire layer routes the matching key into the calc's
-// inline-variable sort block.
+// The emitter does NOT register the `<title>` text into app_strings
+// — `cchq.case` is CCHQ's built-in locale with a runtime fallback.
+// Authors who want to override the title register `cchq.case`
+// themselves at the app-strings layer (Nova has no such authoring
+// surface today; the runtime fallback is the rendered title).
 
-import type { Module } from "@/lib/domain";
-import { emitCalculatedColumnField, emitColumnField } from "./columns";
+import type { BlueprintDoc, Module } from "@/lib/domain";
+import { emitColumnField } from "./columns";
+import { buildSortDirectives } from "./sortKeys";
 import type { CaseListEmission, CaseListEmitContext } from "./types";
 
 /**
- * Compose the suite-XML `<detail>` block for one module's case-
- * list short detail. Returns the concatenated XML plus the
- * locale-id → header-string map the surrounding compiler
- * threads into `app_strings.txt`.
+ * Compose the suite-XML `<detail>` block for one module's case-list
+ * short detail. Returns the concatenated XML plus the locale-id →
+ * header-string map the surrounding compiler threads into
+ * `app_strings.txt`.
  *
- * When `module.caseListConfig` is absent OR the module has no
- * case type, the emitter returns a minimal title-only
- * `<detail>` block. The validator's `columnReferences` rule
- * (and its sibling rules) gate non-empty configs against
- * presence of `mod.caseType`, so a populated config without a
- * case type would fail validation upstream — the absence-arm
- * here is the structural fallback.
+ * `doc` is the source `BlueprintDoc`. The emitter consults it for
+ * two reasons: (1) `buildSortDirectives` walks the doc's case-type
+ * declarations to resolve the comparator type for property-rooted
+ * sort directives, (2) `buildSortDirectives` runs the predicate AST
+ * type checker against the same admission set as the validator
+ * (declared properties + writer-derived + standard) for calculated-
+ * column sort directives. Tests that don't exercise sort behavior
+ * pass an empty doc.
+ *
+ * When `module.caseListConfig` is absent OR the module has no case
+ * type, the emitter returns a minimal title-only `<detail>` block.
+ * The validator's `columnReferences` rule (and its sibling rules)
+ * gate non-empty configs against presence of `mod.caseType`, so a
+ * populated config without a case type would fail validation
+ * upstream — the absence-arm here is the structural fallback.
  */
 export function emitShortDetail(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
+	readonly doc: BlueprintDoc;
 }): CaseListEmission {
-	const { module: mod, moduleIndex } = args;
+	const { module: mod, moduleIndex, doc } = args;
 	const detailId = `m${moduleIndex}_case_short`;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
@@ -90,48 +95,29 @@ export function emitShortDetail(args: {
 	const config = mod.caseListConfig;
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
-		sort: config.sort,
+		sortByUuid: buildSortDirectives(mod, doc),
 		detailKind: "short",
 	};
 
 	const fields: string[] = [];
 	const strings: Record<string, string> = {};
 
-	// Pass 1 — regular columns. Position is 1-based, consumed by
-	// the per-column header-locale composer. `emitColumnField`
-	// can return `undefined` to signal a column that produces no
-	// `<field>` on this surface; on short detail every `Column`
-	// arm produces a field, so the `undefined` branch is
-	// structurally unreachable here. The check stays in place so
-	// the orchestrator's contract with the per-column emitter is
-	// uniform across surfaces.
+	// Walk every column in source-array order. Position is 1-based
+	// against the source array — the 1-based counter advances for
+	// every slot, including columns hidden from this surface, so the
+	// header-locale suffix matches CCHQ's
+	// `id_strings.py::detail_column_header_locale` convention which
+	// keys off `column.id` (the source-array index regardless of
+	// visibility).
 	for (let i = 0; i < config.columns.length; i++) {
+		const column = config.columns[i];
+		// Visibility filter: absent slot ≡ visible. The schema
+		// preserves the slot's presence so the editor can distinguish
+		// "user explicitly toggled off" from "user never toggled".
+		if (column.visibleInList === false) continue;
 		const emission = emitColumnField({
-			column: config.columns[i],
+			column,
 			position: i + 1,
-			ctx,
-		});
-		if (emission === undefined) continue;
-		fields.push(emission.xml);
-		Object.assign(strings, emission.strings);
-	}
-
-	// Pass 2 — calculated columns. Position continues the global
-	// 1-based count from the regular-column pass: a calc at index
-	// 0 receives `position = config.columns.length + 1`. CCHQ's
-	// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`
-	// computes the suffix as `column.id + 1` where `column.id` is
-	// the global per-detail position across regular AND calc
-	// columns; the canonical fixture
-	// `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml`
-	// renders three calc fields under `<detail id="m0_case_long">`
-	// at locale ids `case_calculated_property_10/11/12.header`,
-	// continuing the count after nine regular-column entries.
-	const regularCount = config.columns.length;
-	for (let i = 0; i < config.calculatedColumns.length; i++) {
-		const emission = emitCalculatedColumnField({
-			calculated: config.calculatedColumns[i],
-			position: regularCount + i + 1,
 			ctx,
 		});
 		fields.push(emission.xml);

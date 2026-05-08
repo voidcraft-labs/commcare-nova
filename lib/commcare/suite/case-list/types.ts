@@ -2,13 +2,15 @@
 //
 // Shared structural types for the case-list detail emitter stack.
 // Two orchestrators (`shortDetail.ts`, `longDetail.ts`) walk
-// `module.caseListConfig` and dispatch per-`Column` /
-// per-`CalculatedColumn` slots through `columns.ts`; sort-key
-// resolution flows through `sortKeys.ts`. Keeping the cross-module
-// shapes here lets each emitter import only the type it needs
-// without circling back through the orchestrator.
+// `module.caseListConfig.columns` and dispatch per-`Column` slots
+// through `columns.ts`; the per-column sort-directive lookup map
+// is built once by `sortKeys.ts::buildSortDirectives` and threaded
+// through the context. Keeping the cross-module shapes here lets
+// each emitter import only the type it needs without circling
+// back through the orchestrator.
 
-import type { SortKey } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
+import type { ResolvedSortDirective } from "./sortKeys";
 
 /**
  * The two-component result every emitter at this layer hands back.
@@ -42,36 +44,27 @@ export interface CaseListEmission {
  *     `detail_type` set to `case_short` / `case_long` per the
  *     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
  *     helper.
+ *
  *   - **`<sort>` block presence.** Short detail emits `<sort>`
- *     blocks for both property-rooted and calculated columns when
- *     `caseListConfig.sort` (or `CalculatedColumn.sort`) targets
- *     them. Long detail emits NO `<sort>` blocks for the
- *     non-nodeset case — CCHQ's
+ *     blocks for every column that carries `column.sort`. Long
+ *     detail emits NO `<sort>` blocks for the non-nodeset case —
+ *     CCHQ's
  *     `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
  *     short-circuits when `self.detail.display != 'short'` unless
- *     the column rides on a related-case-tab nodeset (the
- *     schema's `caseListConfig.detailColumns` carries no nodeset
- *     binding). The canonical fixture
+ *     the column rides on a related-case-tab nodeset. The canonical
+ *     fixture
  *     `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
- *     confirms: four `<field>` blocks, zero `<sort>` blocks,
- *     despite the parent module carrying a multi-key sort that
- *     surfaces fully on `<detail id="m0_case_short">`.
+ *     confirms zero `<sort>` blocks despite a multi-key sort active
+ *     on the parent module's short detail.
+ *
  *   - **Phone template `form` attribute.** CCHQ's
  *     `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`
  *     returns `'phone'` only on the long detail. The short
  *     detail's phone column emits a bare `<template>`; the long
  *     detail's phone column emits `<template form="phone">`,
- *     which the runtime renders as a tappable-link affordance.
- *     Verified at
+ *     verified at
  *     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml::<detail id="m0_case_long">`
  *     where the phone field's `<template>` carries `form="phone"`.
- *
- * `search-only` columns also diverge per Nova's authoring-layer
- * choice: the long detail emits no field for them. The
- * `search-only` kind's authoring intent is a search/filter
- * target with no case-list display affordance — the case-detail
- * screen has no search/filter affordance, so the kind has no
- * purpose there.
  */
 export type DetailKind = "short" | "long";
 
@@ -82,22 +75,25 @@ export type DetailKind = "short" | "long";
  * parent module's index or which detail surface they're
  * composing for.
  *
- *   - `moduleIndex` is the 0-based index of the module in
- *     `doc.moduleOrder`. Composes the surrounding `<detail>`
- *     block id (`m{moduleIndex}_case_<short|long>`) per CCHQ's
+ *   - `moduleIndex` — 0-based index of the module in
+ *     `doc.moduleOrder`. Composes the surrounding `<detail>` block
+ *     id (`m{moduleIndex}_case_<short|long>`) per CCHQ's
  *     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
  *     helper, and feeds the per-column header-locale composer.
- *   - `sort` is the module's sort-key array. Per-column emitters
- *     resolve the matching key via `findSortKey(sort, target)`
- *     (in `sortKeys.ts`) on short detail; long detail ignores
- *     the array per the `DetailKind`-described divergence above.
- *     Passing it uniformly keeps the context shape symmetric
- *     across surfaces.
- *   - `detailKind` selects between the two surfaces' divergent
+ *
+ *   - `sortByUuid` — resolved sort directives keyed by
+ *     `column.uuid`. Built once per module by
+ *     `sortKeys.ts::buildSortDirectives` and threaded through here.
+ *     Per-column emitters look up their directive in O(1) without
+ *     walking the array. Long detail's emitter ignores the map per
+ *     the `DetailKind`-described divergence above; passing it
+ *     uniformly keeps the context shape symmetric across surfaces.
+ *
+ *   - `detailKind` — selects between the two surfaces' divergent
  *     emission behaviors.
  */
 export interface CaseListEmitContext {
 	readonly moduleIndex: number;
-	readonly sort: readonly SortKey[];
+	readonly sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly detailKind: DetailKind;
 }

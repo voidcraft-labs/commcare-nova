@@ -28,6 +28,7 @@ import { toHqWorkflow } from "@/lib/commcare/session";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	type Column,
 	defaultPostSubmit,
 	type FormLink,
 	type Uuid,
@@ -170,30 +171,36 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 		});
 
 		// Case detail columns: short (case list) + long (detail view).
-		// When an explicit long column set is absent AND short columns
-		// exist, the long view mirrors the short view — CommCare requires
-		// at least one long column for modules with cases. Without any
-		// short columns either, produce an empty detail pair.
+		// CommCare requires at least one long column for modules with
+		// cases; without any columns at all on the source list, the
+		// detail pair produces an empty list and the surrounding
+		// `hasCases` guard supplies the empty-detail fallback.
 		//
-		// Search-only columns are filtered out at emission time: they
-		// declare a property as searchable without rendering a column,
-		// and the suite-XML `<detail>` block has no slot for that —
-		// the wire emission for search-input indices is owned by
-		// downstream tasks in the case-list-authoring plan.
-		const displayedColumns = (mod.caseListConfig?.columns ?? []).filter(
-			(col) => col.kind !== "search-only",
+		// Two filters apply at the HQ-JSON projection layer:
+		//
+		//   - Visibility — short detail keeps columns where
+		//     `visibleInList ?? true`; long detail keeps columns where
+		//     `visibleInDetail ?? true`. Absent ≡ visible per the
+		//     schema's documented invariant.
+		//
+		//   - Calculated columns — calc columns have no `field` slot
+		//     (their expression is the source). The HQ-JSON
+		//     `case_details` shape carries `(field, header)` pairs only,
+		//     so calc columns are excluded from this projection. The
+		//     suite-XML emitter owns calc-column emission via the
+		//     inline-variable template path; the HQ-JSON layer is the
+		//     legacy projection retained for HQ's import surface.
+		const allColumns = mod.caseListConfig?.columns ?? [];
+		const projectableColumns = allColumns.filter(
+			(col): col is Exclude<Column, { kind: "calculated" }> =>
+				col.kind !== "calculated",
 		);
-		const shortColumns = displayedColumns.map((col) =>
-			detailColumn(col.field, col.header),
-		);
-		const longSource = mod.caseListConfig?.detailColumns;
-		const longColumns = longSource
-			? longSource
-					.filter((col) => col.kind !== "search-only")
-					.map((col) => detailColumn(col.field, col.header))
-			: mod.caseListConfig?.columns
-				? shortColumns
-				: undefined;
+		const shortColumns = projectableColumns
+			.filter((col) => col.visibleInList !== false)
+			.map((col) => detailColumn(col.field, col.header));
+		const longColumns = projectableColumns
+			.filter((col) => col.visibleInDetail !== false)
+			.map((col) => detailColumn(col.field, col.header));
 		const caseDetails = hasCases
 			? detailPair(shortColumns, longColumns)
 			: detailPair([]);
