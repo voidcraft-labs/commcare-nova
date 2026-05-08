@@ -231,25 +231,24 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Calculated-column aliases are EMITTED with a fixed prefix so
 		// they cannot collide with any `cases` column the
-		// `selectAll("c")` projection emits. Without the prefix, an
-		// author typing a reserved column name (`case_name`,
-		// `case_id`, `case_type`, `owner_id`, `status`, `app_id`,
-		// `opened_on`, `closed_on`, `modified_on`, `parent_case_id`,
-		// `properties`) into the calculated-column id field would
+		// `selectAll("c")` projection emits. Without the prefix, a
+		// caller supplying a uuid string that matches a reserved
+		// column name (`case_name`, `case_id`, `case_type`,
+		// `owner_id`, `status`, `app_id`, `opened_on`, `closed_on`,
+		// `modified_on`, `parent_case_id`, `properties`) would
 		// silently corrupt the row's actual scalar value: Postgres
 		// allows duplicate output names; pg-driver's row-object
 		// deserializer keeps the LAST occurrence (the calculated
-		// expression's value); the reshape's `delete cleaned[id]` then
-		// wipes the original column. Real data loss in one keystroke.
+		// expression's value); the reshape's `delete cleaned[uuid]`
+		// then wipes the original column. Real data loss in one
+		// composition mistake.
 		//
 		// The prefix sits below the wire — consumers receive the
-		// authored `id` verbatim on `row.calculated[id]`. The editor's
-		// id-uniqueness gate covers ONE collision class (duplicate ids
-		// across siblings); this prefix covers the other (collision
-		// against reserved `cases` columns). A pinned contract test in
+		// column's `uuid` verbatim on `row.calculated[uuid]`. A
+		// pinned contract test in
 		// `lib/case-store/__tests__/storeContract.ts` exercises every
-		// reserved column id to confirm the row's scalar survives
-		// unaltered.
+		// reserved column name as a calculated uuid to confirm the
+		// row's scalar survives unaltered.
 		//
 		// `__nova_calc__` is sufficiently improbable as a `cases`
 		// column name that the prefix-protected partition stays
@@ -258,52 +257,50 @@ export class PostgresCaseStore implements CaseStore {
 		// Python's name-mangling convention — visually flags
 		// "internal infrastructure, do not collide."
 		const ALIAS_PREFIX = "__nova_calc__";
-		const aliasFor = (id: string) => `${ALIAS_PREFIX}${id}`;
+		const aliasFor = (uuid: string) => `${ALIAS_PREFIX}${uuid}`;
 
-		// Belt-and-suspenders id validation. Editor's validity gate
-		// catches both classes upstream under normal authoring flow,
-		// but programmatic surfaces (fixtures, SA tools, future
-		// composers) might not honor the gate.
+		// Belt-and-suspenders uuid validation. Two failure shapes a
+		// programmatic caller (fixtures, SA tools, future composers)
+		// could produce that Postgres would silently corrupt:
 		//
-		//   1. **Empty-string id.** Postgres rejects an empty-string
+		//   1. **Empty-string uuid.** Postgres rejects an empty-string
 		//      identifier in the SELECT alias; without this guard the
 		//      failure mode is a wrapped invariant message at run time.
 		//   2. **63-byte alias overflow.** Postgres SILENTLY truncates
 		//      identifiers longer than 63 bytes (`NAMEDATALEN - 1`).
-		//      The wire alias `__nova_calc__<id>` (13 bytes of prefix)
-		//      gets truncated; the downstream `Object.hasOwn(row, alias)`
-		//      lookup uses the FULL pre-truncation alias and misses,
-		//      falling through to `null`. Net effect: a calculated
-		//      value whose authored id pushes the alias over the cap
-		//      silently emits as `null` for every row, with no editor
-		//      feedback. Two ids matching in the truncation prefix
-		//      collide on the same alias. Mirrors the
-		//      `indexName` defense at the bottom of this file — same
-		//      Postgres invariant, same throw-with-compiler-bug-shape
-		//      response.
+		//      The wire alias `__nova_calc__<uuid>` (13 bytes of
+		//      prefix) gets truncated; the downstream
+		//      `Object.hasOwn(row, alias)` lookup uses the FULL pre-
+		//      truncation alias and misses, falling through to `null`.
+		//      Net effect: a calculated value whose uuid pushes the
+		//      alias over the cap silently emits as `null` for every
+		//      row. Two uuids matching in the truncation prefix
+		//      collide on the same alias. Mirrors the `indexName`
+		//      defense at the bottom of this file — same Postgres
+		//      invariant, same throw-with-compiler-bug-shape response.
 		//
 		// Reject early with the canonical compiler-bug shape so the
-		// caller surfaces the authoring contract violation instead of
-		// a silent null-row or a wrapped pg parser error.
+		// caller surfaces the contract violation instead of a silent
+		// null-row or a wrapped pg parser error.
 		for (const column of args.calculated) {
-			if (column.id === "") {
+			if (column.uuid === "") {
 				throw new Error(
 					compilerBugMessage({
 						where: "case-store.PostgresCaseStore.queryWithCalculated",
-						invariant: "a calculated column carried an empty-string id",
+						invariant: "a calculated column carried an empty-string uuid",
 						detail:
-							"Calculated columns project as SELECT aliases; Postgres rejects an empty alias and the row partition step relies on a non-empty key. The CalculatedColumnEditor's validity gate flags empty ids upstream — reaching this throw means a non-editor caller bypassed the gate. Hint: Zod-parse the case-list config at the request boundary to catch the violation before it reaches the SQL layer.",
+							"Calculated columns project as SELECT aliases; Postgres rejects an empty alias and the row partition step relies on a non-empty key. Hint: Zod-parse the case-list config at the request boundary to catch the violation before it reaches the SQL layer.",
 					}),
 				);
 			}
-			const alias = aliasFor(column.id);
+			const alias = aliasFor(column.uuid);
 			if (Buffer.byteLength(alias, "utf8") > 63) {
 				throw new Error(
 					compilerBugMessage({
 						where: "case-store.PostgresCaseStore.queryWithCalculated",
 						invariant: `composed calculated alias \`${alias}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
 						detail:
-							"Postgres silently truncates identifiers at 63 bytes. The downstream row-partition step uses the FULL pre-truncation alias to read each calculated value; a truncated wire-side alias would miss the lookup and the projection would silently emit `null` for every row. Two ids matching in the truncation prefix would collide on the same alias.\n\nThe CalculatedColumnEditor's id-uniqueness gate is the upstream defense; reaching this throw means a non-editor caller bypassed the gate. Hint: shorten the calculated-column id at the authoring layer (the alias is `__nova_calc__<id>`, so the id itself must be ≤ 50 bytes).",
+							"Postgres silently truncates identifiers at 63 bytes. The downstream row-partition step uses the FULL pre-truncation alias to read each calculated value; a truncated wire-side alias would miss the lookup and the projection would silently emit `null` for every row. Two uuids matching in the truncation prefix would collide on the same alias. Hint: the alias is `__nova_calc__<uuid>`, so the uuid itself must be ≤ 50 bytes.",
 					}),
 				);
 			}
@@ -323,7 +320,7 @@ export class PostgresCaseStore implements CaseStore {
 		// Project each calculated column under its prefixed alias.
 		for (const column of args.calculated) {
 			const expr = compileExpression(column.expression, exprCtx);
-			qb = qb.select(expr.as(aliasFor(column.id)));
+			qb = qb.select(expr.as(aliasFor(column.uuid)));
 		}
 
 		if (args.predicate !== undefined) {
@@ -348,9 +345,9 @@ export class PostgresCaseStore implements CaseStore {
 		// `selectAll("c")` columns AND the per-calculated-column
 		// PREFIXED aliases at the top level. Reshape each row into
 		// `CaseRow & { calculated }` by reading each prefixed alias
-		// into the calculated map under the unprefixed authored id,
-		// then stripping the prefixed slot from the row's top-level
-		// shape. The cases-side scalar columns flow through untouched
+		// into the calculated map under the column's uuid, then
+		// stripping the prefixed slot from the row's top-level shape.
+		// The cases-side scalar columns flow through untouched
 		// because the prefix puts the calculated slots in a disjoint
 		// keyspace.
 		const rows = (await qb.execute()) as Array<
@@ -360,11 +357,12 @@ export class PostgresCaseStore implements CaseStore {
 		// Materialize the alias allowlist once outside the row loop so
 		// the per-row partition is O(rows × calc-cols) rather than
 		// O(rows × all-keys × calc-cols). Each entry pairs the wire
-		// alias (`__nova_calc__<id>`) with the consumer-facing id
-		// (`<id>`) so the loop body needs no extra string ops per row.
+		// alias (`__nova_calc__<uuid>`) with the consumer-facing key
+		// (the column's `uuid`) so the loop body needs no extra
+		// string ops per row.
 		const calcAliases = args.calculated.map((c) => ({
-			alias: aliasFor(c.id),
-			id: c.id,
+			alias: aliasFor(c.uuid),
+			uuid: c.uuid,
 		}));
 
 		return rows.map((row) => {
@@ -384,26 +382,26 @@ export class PostgresCaseStore implements CaseStore {
 			// shape; the renderer in `DisplayPreview.tsx` discriminates
 			// on `instanceof Date` to format the temporal value without
 			// `JSON.stringify`'s quoted-ISO output.
-			for (const { alias, id } of calcAliases) {
+			for (const { alias, uuid } of calcAliases) {
 				// `Object.hasOwn` guards against the rare case where
 				// Postgres elides the alias from the row; the explicit
 				// guard keeps the map clean of `undefined`-typed slots.
 				if (Object.hasOwn(row, alias)) {
-					calculated[id] = row[alias] as CalculatedValue;
+					calculated[uuid] = row[alias] as CalculatedValue;
 				} else {
 					// Defensive fall-through: treat missing alias as null.
 					// Documented contract from the interface JSDoc says
-					// "expression evaluates to SQL NULL → id → null"; an
-					// elided alias is functionally equivalent at the
+					// "expression evaluates to SQL NULL → uuid → null";
+					// an elided alias is functionally equivalent at the
 					// consumer layer (renderer reads the same blank
 					// value).
-					calculated[id] = null;
+					calculated[uuid] = null;
 				}
 			}
 
 			// Strip the prefixed-alias keys from the row's top-level
-			// shape so the consumer's `row.calculated[id]` is the only
-			// path to each evaluated value. The cases-side scalar
+			// shape so the consumer's `row.calculated[uuid]` is the
+			// only path to each evaluated value. The cases-side scalar
 			// columns (`case_name`, `case_id`, etc.) survive verbatim
 			// because the prefix puts the calculated slots in a
 			// disjoint keyspace — the strip touches ONLY the prefixed

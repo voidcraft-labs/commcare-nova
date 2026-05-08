@@ -12,6 +12,7 @@ import type { Field, Form, Module } from "@/lib/domain";
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
 const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
+const C = (s: string) => asUuid(`col${s}-0000-0000-0000-000000000000`);
 
 /**
  * Build a Field fixture for tests.
@@ -742,13 +743,10 @@ function docWithTwoModulesAndForms(): BlueprintDoc {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
-						{ kind: "plain", field: "age", header: "Age" },
-						{ kind: "plain", field: "name", header: "Name" },
+						{ uuid: C("xage"), kind: "plain", field: "age", header: "Age" },
+						{ uuid: C("xname"), kind: "plain", field: "name", header: "Name" },
 					],
-					sort: [],
-					calculatedColumns: [],
 					searchInputs: [],
-					detailColumns: [{ kind: "plain", field: "age", header: "Age" }],
 				},
 			} as Module,
 			[M("Y")]: {
@@ -757,9 +755,9 @@ function docWithTwoModulesAndForms(): BlueprintDoc {
 				name: "ModY",
 				caseType: "household",
 				caseListConfig: {
-					columns: [{ kind: "plain", field: "age", header: "Age" }],
-					sort: [],
-					calculatedColumns: [],
+					columns: [
+						{ uuid: C("yage"), kind: "plain", field: "age", header: "Age" },
+					],
 					searchInputs: [],
 				},
 			} as Module,
@@ -860,7 +858,7 @@ describe("renameField case-property cascade", () => {
 		expect(asField(next.fields[Q("ref")])?.relevant).toBe("#case/age_1 > 0");
 	});
 
-	it("rewrites caseListConfig.columns and detailColumns on matching modules only", () => {
+	it("rewrites caseListConfig.columns on matching modules only", () => {
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {
 			...base,
@@ -878,15 +876,168 @@ describe("renameField case-property cascade", () => {
 			});
 		});
 
-		// Module X (caseType: patient) columns rewritten.
+		// Module X (caseType: patient) columns rewritten. The `field`
+		// slot rewrites in place; the column's `uuid` survives the
+		// rename so undo / drag-reorder identity stays stable.
 		const modX = next.modules[M("X")];
-		expect(modX?.caseListConfig?.columns[0]?.field).toBe("age_1");
-		expect(modX?.caseListConfig?.columns[1]?.field).toBe("name");
-		expect(modX?.caseListConfig?.detailColumns?.[0]?.field).toBe("age_1");
+		const xCols = modX?.caseListConfig?.columns ?? [];
+		expect(xCols[0]).toMatchObject({
+			uuid: C("xage"),
+			field: "age_1",
+			header: "Age",
+		});
+		expect(xCols[1]).toMatchObject({
+			uuid: C("xname"),
+			field: "name",
+		});
 
 		// Module Y (caseType: household) columns untouched.
 		const modY = next.modules[M("Y")];
 		expect(modY?.caseListConfig?.columns[0]?.field).toBe("age");
+	});
+
+	it("preserves a column's sort + visibility slots across a field-rename rewrite", () => {
+		// The rewrite mutates `column.field` in place; every other slot
+		// the column carries (`uuid`, `sort`, `visibleInList`,
+		// `visibleInDetail`) must survive verbatim. Without the in-
+		// place-on-the-field-slot guarantee, a future regression that
+		// reconstructs the column object would silently drop the
+		// optional slots and undo / preview state would diverge.
+		const start: BlueprintDoc = {
+			appId: "test",
+			appName: "A",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[M("X")]: {
+					uuid: M("X"),
+					id: "m_x",
+					name: "ModX",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							{
+								uuid: C("xage"),
+								kind: "plain",
+								field: "age",
+								header: "Age",
+								sort: { direction: "asc", priority: 0 },
+								visibleInList: true,
+								visibleInDetail: false,
+							},
+						],
+						searchInputs: [],
+					},
+				} as Module,
+			},
+			forms: {
+				[F("1")]: { uuid: F("1"), name: "F1", type: "followup" } as Form,
+			},
+			fields: {
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
+			},
+			moduleOrder: [M("X")],
+			formOrder: { [M("X")]: [F("1")] },
+			fieldOrder: { [F("1")]: [Q("src")] },
+			fieldParent: {},
+		};
+
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "renameField",
+				uuid: Q("src"),
+				newId: "age_1",
+			});
+		});
+
+		const col = next.modules[M("X")]?.caseListConfig?.columns[0];
+		expect(col).toEqual({
+			uuid: C("xage"),
+			kind: "plain",
+			field: "age_1",
+			header: "Age",
+			sort: { direction: "asc", priority: 0 },
+			visibleInList: true,
+			visibleInDetail: false,
+		});
+	});
+
+	it("skips calculated columns during the field-rename rewrite", () => {
+		// Calculated columns have no `field` slot — the expression is
+		// the source — so they must not be touched by the property-
+		// name-as-string rewrite path. This loop only walks the
+		// column-level `field` slot; the calc arm is skipped without
+		// contributing to `columnsRewritten`.
+		const start: BlueprintDoc = {
+			appId: "test",
+			appName: "A",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[M("X")]: {
+					uuid: M("X"),
+					id: "m_x",
+					name: "ModX",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							{
+								uuid: C("xcalc"),
+								kind: "calculated",
+								header: "Computed",
+								expression: {
+									kind: "term",
+									term: { kind: "literal", value: 1, data_type: "int" },
+								},
+							},
+							{
+								uuid: C("xage"),
+								kind: "plain",
+								field: "age",
+								header: "Age",
+							},
+						],
+						searchInputs: [],
+					},
+				} as Module,
+			},
+			forms: {
+				[F("1")]: { uuid: F("1"), name: "F1", type: "followup" } as Form,
+			},
+			fields: {
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
+			},
+			moduleOrder: [M("X")],
+			formOrder: { [M("X")]: [F("1")] },
+			fieldOrder: { [F("1")]: [Q("src")] },
+			fieldParent: {},
+		};
+
+		let result: FieldRenameMeta | undefined;
+		const next = produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "renameField",
+				uuid: Q("src"),
+				newId: "age_1",
+			}) as FieldRenameMeta;
+		});
+
+		const cols = next.modules[M("X")]?.caseListConfig?.columns ?? [];
+		// Calculated column survives unchanged.
+		expect(cols[0]).toMatchObject({
+			uuid: C("xcalc"),
+			kind: "calculated",
+			header: "Computed",
+		});
+		// Plain column rewritten.
+		expect(cols[1]).toMatchObject({
+			uuid: C("xage"),
+			kind: "plain",
+			field: "age_1",
+		});
+		// Counter reflects the single rewritten plain column; the
+		// calculated arm was skipped without contributing to the count.
+		expect(result?.columnsRewritten).toBe(1);
 	});
 
 	it("renames peer fields that declare the same (id, case_property_on) pair", () => {
@@ -1137,10 +1288,13 @@ describe("renameField case-property cascade", () => {
 						columns: [
 							// This column belongs to "patient", NOT "visit" — must
 							// remain untouched by a visit.date_of_visit rename.
-							{ kind: "plain", field: "date_of_visit", header: "Visit Date" },
+							{
+								uuid: C("hostvd"),
+								kind: "plain",
+								field: "date_of_visit",
+								header: "Visit Date",
+							},
 						],
-						sort: [],
-						calculatedColumns: [],
 						searchInputs: [],
 					},
 				} as Module,
@@ -1152,10 +1306,13 @@ describe("renameField case-property cascade", () => {
 					caseType: "visit",
 					caseListConfig: {
 						columns: [
-							{ kind: "plain", field: "date_of_visit", header: "Visit Date" },
+							{
+								uuid: C("tgtvd"),
+								kind: "plain",
+								field: "date_of_visit",
+								header: "Visit Date",
+							},
 						],
-						sort: [],
-						calculatedColumns: [],
 						searchInputs: [],
 					},
 				} as Module,

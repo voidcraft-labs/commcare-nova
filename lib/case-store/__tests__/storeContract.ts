@@ -1670,16 +1670,17 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 		//
 		// The case-list authoring-surface live preview routes through
-		// `queryWithCalculated` so each `CalculatedColumn.expression`
+		// `queryWithCalculated` so each calc-arm column's `expression`
 		// evaluates at the SQL layer rather than reconstructed in
 		// TypeScript. The contract pins:
 		//
 		//   1. Every projected column lands on the result row's
-		//      `calculated` map, keyed by the column's `id`.
+		//      `calculated` map, keyed by the column's `uuid`.
 		//   2. SQL NULL surfaces as JS `null` (the JsonValue union's
 		//      null arm), NOT as omitted from the map. Consumers can
 		//      distinguish "column absent from request" (key not in
-		//      map) from "column evaluated to null" (`map[id] === null`).
+		//      map) from "column evaluated to null"
+		//      (`map[uuid] === null`).
 		//   3. The empty-`calculated` arm behaves like `query` with an
 		//      empty `calculated: {}` map per row — the projection is
 		//      additive, not destructive.
@@ -1897,7 +1898,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			// Calculated expression — `age + 1`. Same shape the
-			// CalculatedColumnEditor authoring path produces.
+			// calc-arm column editor produces.
 			const ageNextYear = arith(
 				"+",
 				term(prop("patient", "age")),
@@ -2035,18 +2036,20 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// Reserved-column collision protection
 		// -----------------------------------------------------------
 		//
-		// Pre-fix repro: an author types `case_name` (or any other
-		// reserved `cases` column name) into a calculated-column id.
-		// Postgres allows duplicate output names; pg-driver keeps the
-		// LAST occurrence; the row's actual `case_name` becomes the
-		// calculated value; the reshape's strip-step then deletes the
-		// slot entirely. Real data loss in one keystroke.
+		// Pre-fix repro: a programmatic caller supplies a calculated-
+		// column uuid that matches a reserved `cases` column name
+		// (e.g. `case_name`). Postgres allows duplicate output names;
+		// pg-driver keeps the LAST occurrence; the row's actual
+		// `case_name` becomes the calculated value; the reshape's
+		// strip-step then deletes the slot entirely. Real data loss
+		// in one composition mistake.
 		//
 		// Post-fix: calculated aliases are emitted under a fixed
-		// `__nova_calc__<id>` prefix. The wire and the consumer-facing
-		// key live in disjoint keyspaces, so the row's reserved column
-		// survives unaltered AND the calculated value lands on
-		// `row.calculated[id]` under the authored id.
+		// `__nova_calc__<uuid>` prefix. The wire and the consumer-
+		// facing key live in disjoint keyspaces, so the row's
+		// reserved column survives unaltered AND the calculated
+		// value lands on `row.calculated[uuid]` under the column's
+		// uuid.
 		//
 		// Test sweeps every reserved column the case-store carries
 		// at the row level, plus `app_id` (excluded from the user-
@@ -2054,7 +2057,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// `properties` slot. A regression to non-prefixed aliasing
 		// would fail this test on multiple discovered slots.
 
-		const RESERVED_COLLISION_IDS = [
+		const RESERVED_COLLISION_UUIDS = [
 			"case_name",
 			"case_id",
 			"case_type",
@@ -2068,8 +2071,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			"properties",
 		] as const;
 
-		for (const collisionId of RESERVED_COLLISION_IDS) {
-			it(`preserves the row's \`${collisionId}\` column when a calculated id collides`, async () => {
+		for (const collisionUuid of RESERVED_COLLISION_UUIDS) {
+			it(`preserves the row's \`${collisionUuid}\` column when a calculated uuid collides`, async () => {
 				const store = await options.factory(OWNER_A);
 				const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 				await seedSchema(store, blueprint, "patient");
@@ -2093,22 +2096,22 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					caseType: "patient",
 					blueprint,
 					calculated: [
-						calculatedColumn(collisionId, "Header", term(literal(SENTINEL))),
+						calculatedColumn(collisionUuid, "Header", term(literal(SENTINEL))),
 					],
 				});
 				expect(rows).toHaveLength(1);
 				const row = rows[0];
 				if (row === undefined) throw new Error("expected one row");
 
-				// Calculated value lands on the calculated map under
-				// the authored id.
-				expect(row.calculated[collisionId]).toBe(SENTINEL);
+				// Calculated value lands on the calculated map keyed by
+				// the column's uuid.
+				expect(row.calculated[collisionUuid]).toBe(SENTINEL);
 
 				// Row's scalar column survives unaltered. Per-slot
 				// expected values mirror the inserted row above; the
 				// `properties` slot reads the JSONB document; the
 				// nullable timestamps stay null.
-				switch (collisionId) {
+				switch (collisionUuid) {
 					case "case_name":
 						expect(row.case_name).toBe(DEFAULT_CASE_NAME);
 						break;
@@ -2152,14 +2155,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 		}
 
-		it("rejects an empty-string calculated id with a typed compiler-bug throw", async () => {
-			// Belt-and-suspenders: editor's validity gate should
-			// prevent an empty id from reaching the action, but a
-			// programmatic caller (fixtures, SA tools, future surfaces)
-			// might bypass the gate. The store rejects the empty id
-			// with the canonical compiler-bug message shape rather
-			// than letting Postgres reject an empty SELECT alias and
-			// leak its parser error.
+		it("rejects an empty-string calculated uuid with a typed compiler-bug throw", async () => {
+			// Belt-and-suspenders: a programmatic caller (fixtures, SA
+			// tools, future surfaces) could supply an empty-string
+			// uuid. The store rejects it with the canonical compiler-
+			// bug message shape rather than letting Postgres reject an
+			// empty SELECT alias and leak its parser error.
 			const store = await options.factory(OWNER_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
@@ -2171,34 +2172,34 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					blueprint,
 					calculated: [calculatedColumn("", "Header", term(literal("x")))],
 				}),
-			).rejects.toThrowError(/empty-string id/);
+			).rejects.toThrowError(/empty-string uuid/);
 		});
 
-		it("rejects a calculated id whose composed alias exceeds Postgres' 63-byte cap", async () => {
+		it("rejects a calculated uuid whose composed alias exceeds Postgres' 63-byte cap", async () => {
 			// Postgres silently truncates identifiers at
 			// `NAMEDATALEN - 1` (63 bytes). The composed wire alias
-			// is `__nova_calc__<id>` — 13 bytes of prefix, so any
-			// id ≥ 51 bytes pushes the alias over the cap. Without
+			// is `__nova_calc__<uuid>` — 13 bytes of prefix, so any
+			// uuid ≥ 51 bytes pushes the alias over the cap. Without
 			// this guard, truncation kicks in: the downstream row-
 			// partition step uses the FULL pre-truncation alias for
 			// the lookup, misses, and silently emits `null` for
-			// every row. The id under test is 60 bytes (alias 73
+			// every row. The uuid under test is 60 bytes (alias 73
 			// bytes total — safely past the cap).
 			//
-			// Mirrors the empty-id rejection test above and the
+			// Mirrors the empty-uuid rejection test above and the
 			// `indexName` defense pattern at the bottom of
 			// `lib/case-store/postgres/store.ts`.
 			const store = await options.factory(OWNER_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
-			const overlongId = "x".repeat(60);
+			const overlongUuid = "x".repeat(60);
 			await expect(
 				store.queryWithCalculated({
 					appId: APP_ID,
 					caseType: "patient",
 					blueprint,
 					calculated: [
-						calculatedColumn(overlongId, "Header", term(literal("x"))),
+						calculatedColumn(overlongUuid, "Header", term(literal("x"))),
 					],
 				}),
 			).rejects.toThrowError(/exceeds Postgres' 63-byte identifier cap/);

@@ -12,9 +12,9 @@
 import type { Insertable, Selectable } from "kysely";
 import type {
 	BlueprintDoc,
-	CalculatedColumn,
 	CasePropertyDataType,
 	CaseType,
+	Column,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -23,6 +23,17 @@ import type {
 } from "@/lib/domain/predicate/types";
 import { CaseTypeNotInBlueprintError } from "./errors";
 import type { CasesTable, JsonObject, JsonValue } from "./sql/database";
+
+/**
+ * Calculated-column projection arm — the `kind: "calculated"` slice of
+ * the authoring `Column` discriminated union. The case-store's
+ * `queryWithCalculated` accepts arrays of this arm directly so callers
+ * pass the same column entries the editor authors without an
+ * intermediate shape conversion. The `uuid` is the SELECT alias key
+ * (`__nova_calc__<uuid>`); the `expression` is the per-row
+ * `ValueExpression` the SQL emitter compiles into a projection.
+ */
+export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
 
 // Row shapes derived from the Kysely Database type. `Selectable`
 // strips `ColumnType<S, I, U>` to the read shape; `Insertable`
@@ -184,56 +195,54 @@ export type CalculatedValue = JsonValue | Date;
  * applied to one half would silently misalign the two. One row,
  * one calculated map, never desyncs.
  *
- * The `calculated` map is keyed by the calculated column's `id`
- * (as supplied in `QueryWithCalculatedArgs.calculated[i].id`); a
+ * The `calculated` map is keyed by the calculated column's `uuid`
+ * (the column-level identity slot every `Column` arm carries); a
  * calculated column whose expression evaluates to SQL NULL emits
- * `id → null` (NOT omitted from the map). Consumers can therefore
- * distinguish "column absent from the query" (key not in map) from
- * "column evaluated to null" (`map[id] === null`).
+ * `uuid → null` (NOT omitted from the map). Consumers can
+ * therefore distinguish "column absent from the query" (key not
+ * in map) from "column evaluated to null" (`map[uuid] === null`).
  *
  * Two collision classes the projection must handle:
  *
- *   1. **Calculated id vs `cases` column collision.** An author
- *      can type a reserved column name (`case_name`, `case_id`,
- *      `case_type`, `owner_id`, `status`, `app_id`, `opened_on`,
- *      `closed_on`, `modified_on`, `parent_case_id`, `properties`)
- *      into the calculated-column id field. Without protection,
- *      Postgres allows duplicate output names; pg-driver's row
- *      deserializer keeps the LAST occurrence (the calculated
- *      expression's value); the row's actual scalar value is
- *      silently corrupted. `PostgresCaseStore.queryWithCalculated`
- *      defends structurally by emitting calculated aliases under
- *      a fixed `__nova_calc__<id>` prefix in the SELECT, then
+ *   1. **Calculated uuid vs `cases` column collision.** A
+ *      programmatic caller could supply a uuid string that matches
+ *      a reserved column name (`case_name`, `case_id`, `case_type`,
+ *      `owner_id`, `status`, `app_id`, `opened_on`, `closed_on`,
+ *      `modified_on`, `parent_case_id`, `properties`). Without
+ *      protection, Postgres allows duplicate output names; pg-
+ *      driver's row deserializer keeps the LAST occurrence (the
+ *      calculated expression's value); the row's actual scalar
+ *      value is silently corrupted.
+ *      `PostgresCaseStore.queryWithCalculated` defends structurally
+ *      by emitting calculated aliases under a fixed
+ *      `__nova_calc__<uuid>` prefix in the SELECT, then
  *      unprefixing during the row partition — the wire and the
  *      consumer-facing key live in disjoint keyspaces, so this
- *      collision class is impossible regardless of the author's
- *      chosen id.
+ *      collision class is impossible regardless of the supplied
+ *      uuid.
  *
- *   2. **Duplicate id across siblings.** When two `calculated`
- *      entries share the same `id`, the SELECT emits two columns
- *      under the same `__nova_calc__<id>` alias; pg-driver keeps
+ *   2. **Duplicate uuid across siblings.** When two `calculated`
+ *      entries share the same `uuid`, the SELECT emits two columns
+ *      under the same `__nova_calc__<uuid>` alias; pg-driver keeps
  *      the last and the second occurrence's value overwrites the
- *      first's. The `CalculatedColumnEditor` validates id
- *      uniqueness across siblings upstream — the display-vs-
- *      validity parity gate flags duplicates before they reach
- *      the action — so the SQL layer trusts the upstream gate for
- *      this class.
+ *      first's. Column uuids are generated fresh per add and
+ *      preserved across edits, so the authoring layer never
+ *      produces siblings with a duplicate uuid; the SQL layer
+ *      trusts that upstream invariant for this class.
  *
  *   3. **Alias overflow past Postgres' 63-byte identifier cap.**
  *      Postgres silently truncates identifiers at
  *      `NAMEDATALEN - 1` (63 bytes). The composed alias
- *      `__nova_calc__<id>` (13 bytes of prefix) gets truncated
- *      when `id` pushes the total over the cap; the row-partition
- *      step uses the FULL pre-truncation alias to read each
- *      calculated value, misses the truncated wire-side key, and
- *      silently emits `null` for every row. Two ids matching in
- *      the truncation prefix collide on the same wire alias.
- *      `queryWithCalculated` defends with a pre-projection byte-
- *      length check that throws a `compilerBugMessage` naming
- *      the over-cap alias — same shape as the `indexName` defense
- *      under `applySchemaChange`. The editor's id-uniqueness gate
- *      is the upstream cover; this throw catches programmatic
- *      surfaces that bypass the gate.
+ *      `__nova_calc__<uuid>` (13 bytes of prefix) gets truncated
+ *      when `uuid` pushes the total over the cap; the row-
+ *      partition step uses the FULL pre-truncation alias to read
+ *      each calculated value, misses the truncated wire-side key,
+ *      and silently emits `null` for every row. Two uuids
+ *      matching in the truncation prefix would collide on the
+ *      same wire alias. `queryWithCalculated` defends with a pre-
+ *      projection byte-length check that throws a
+ *      `compilerBugMessage` naming the over-cap alias — same
+ *      shape as the `indexName` defense under `applySchemaChange`.
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;
@@ -329,10 +338,10 @@ export interface CaseStore {
 	 * Predicate-driven SELECT with calculated-column projection.
 	 * Same semantics as `query` plus per-row evaluation of every
 	 * calculated column's expression at the SQL layer — each
-	 * `CalculatedColumn.expression` compiles through
-	 * `compileExpression` and lands in the SELECT keyed by
-	 * `aliasFor(column.id)`. The result rows fold the evaluated
-	 * values into the row's `calculated` map.
+	 * column's `expression` compiles through `compileExpression`
+	 * and lands in the SELECT keyed by `aliasFor(column.uuid)`.
+	 * The result rows fold the evaluated values into the row's
+	 * `calculated` map keyed by the same uuid.
 	 *
 	 * Postgres is the live runtime; calculated-column evaluation
 	 * happens in the same SELECT as the row scan rather than

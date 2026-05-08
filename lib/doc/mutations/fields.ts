@@ -66,9 +66,10 @@ export interface MoveFieldResult {
  *     they represented the same case property (same `id` + same
  *     `case_property_on`) in a different form. Those are authoritative peers
  *     of the renamed field, not references to it.
- *   - `columnsRewritten` — number of `caseListConfig.columns` /
- *     `caseListConfig.detailColumns` entries on matching modules
- *     whose `field` value was updated.
+ *   - `columnsRewritten` — number of `caseListConfig.columns`
+ *     entries on matching modules whose `field` value was
+ *     updated. Calculated columns have no `field` slot and are
+ *     skipped during the rewrite.
  *   - `catalogEntryRenamed` — `true` iff `doc.caseTypes[caseType].properties[]`
  *     had a matching entry renamed. The catalog is the authoritative list
  *     of known case properties for the XPath linter, `#case/` chip
@@ -798,27 +799,24 @@ function cascadeCasePropertyRename(
 		if (!mod || mod.caseType !== caseType) continue;
 
 		// Columns: the structured config carries display columns
-		// (`columns`) and an optional long-detail override
-		// (`detailColumns`); both arrays touch each entry in place on
-		// the draft. The count reflects column cells, not modules,
-		// so a module with two stale column refs contributes two.
-		// Every column kind in the discriminated union carries the
-		// same `field` slot, so the rename touches every kind
-		// uniformly without per-kind branching.
+		// in a single `columns` array; the rewrite walks every
+		// entry in place on the draft. The count reflects column
+		// cells, not modules, so a module with two stale column
+		// refs contributes two.
+		//
+		// Five of the six column kinds (`plain`, `date`, `phone`,
+		// `id-mapping`, `interval`) carry a `field` slot pointing at
+		// a case-property name; the rename rewrites those in place.
+		// `calculated` columns have no `field` slot — the
+		// expression is the source — and are skipped here; this
+		// loop is the property-name-as-string rewrite only.
 		const config = mod.caseListConfig;
 		if (config) {
 			for (const col of config.columns) {
+				if (col.kind === "calculated") continue;
 				if (col.field === oldId) {
 					col.field = newId;
 					columnsRewritten++;
-				}
-			}
-			if (Array.isArray(config.detailColumns)) {
-				for (const col of config.detailColumns) {
-					if (col.field === oldId) {
-						col.field = newId;
-						columnsRewritten++;
-					}
 				}
 			}
 		}
