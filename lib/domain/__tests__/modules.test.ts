@@ -822,14 +822,11 @@ describe("caseListConfigSchema — populated round-trip", () => {
 
 describe("caseSearchConfigSchema — claim flow + display labels", () => {
 	it("round-trips a fully-populated config (every slot set)", () => {
-		// Exercises every authored slot: claim condition + already-owned
-		// guard + blacklisted owner ids + the five display labels + the
-		// search-button display condition. The CCHQ-shape leaks the slot
-		// rejects (`defaultFilters` / `customSorts` / `sortByRelevance`)
-		// are not part of the shape — `caseListConfig.filter` and
-		// `caseListConfig.columns[*].sort` are the single sources, and the
-		// wire emitter projects them onto the search-side blocks at
-		// emission.
+		// Round-trips every authored slot: `claimCondition`,
+		// `dontClaimAlreadyOwned`, `blacklistedOwnerIds`, the five
+		// display labels, and `searchButtonDisplayCondition`. The
+		// `toEqual(config)` assertion pins that the schema's strip-mode
+		// parse preserves all nine slots without drift.
 		const config: CaseSearchConfig = {
 			claimCondition: { kind: "match-all" },
 			dontClaimAlreadyOwned: true,
@@ -880,11 +877,13 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 	});
 
 	it("rejects unknown top-level keys (.strict())", () => {
-		// `caseSearchConfigSchema` is `.strict()` — unknown keys reject at
-		// parse rather than strip. The CCHQ-shape leaks the slot
-		// deliberately omits (`defaultFilters` / `customSorts` /
-		// `sortByRelevance`) hit this rejection if a persisted document
-		// or migration path tries to reintroduce them.
+		// The schema is `.strict()`, so unknown keys reject at parse
+		// rather than strip silently. This is the backstop for keys the
+		// schema deliberately doesn't carry — `defaultFilters`,
+		// `customSorts`, and `sortByRelevance` all live on
+		// `caseListConfig` instead, and a persisted document or
+		// migration path that tries to reintroduce them on the search
+		// config fails parse rather than getting silently dropped.
 		const parsed = caseSearchConfigSchema.safeParse({
 			dontClaimAlreadyOwned: false,
 			defaultFilters: [{ kind: "match-all" }],
