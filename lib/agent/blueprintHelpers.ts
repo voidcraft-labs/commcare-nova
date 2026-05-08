@@ -40,6 +40,11 @@ import type {
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { Scaffold } from "./scaffoldSchemas";
+import {
+	removeByUuid,
+	reorderByUuid,
+	replaceByUuid,
+} from "./tools/case-list-config/shared";
 
 // ── Positional lookup helpers ───────────────────────────────────────────
 
@@ -274,16 +279,23 @@ export function updateModuleMutations(
 
 // ── Mutation builders — case list config ────────────────────────────────
 //
-// One pair of helpers per case-list slot — `caseListConfig.columns`
-// and `caseListConfig.searchInputs`. Each pair (`add`, `update`,
-// `remove`, `reorder`) returns a tagged result the SA tool surface
-// destructures: success → `Mutation[]` ready to record; failure →
-// Elm-style error string the tool forwards verbatim. Failure returns
-// expose the underlying predicate (uuid not found, length mismatch,
-// duplicate, unknown, missing) so the SA can repair its call.
+// One quartet of helpers per case-list slot — `caseListConfig.columns`
+// and `caseListConfig.searchInputs`. Each quartet (`add`, `update`,
+// `remove`, `reorder`) returns a tagged `CaseListMutationResult`: on
+// success, `{ ok: true, mutations }` ready to record; on failure,
+// `{ error }` carrying an Elm-style string the tool forwards verbatim.
+// Failure returns expose the underlying predicate (uuid not found,
+// length mismatch, duplicate, unknown) so the SA can repair its call.
 //
 // Other (non-SA) consumers — UI mutations, future migration scripts —
 // destructure the same shape and surface their own error UI.
+//
+// The array-walk primitives (`replaceByUuid` / `removeByUuid` /
+// `reorderByUuid`) live in `tools/case-list-config/shared.ts` because
+// they're pure generic utilities over `{ uuid: Uuid }[]` arrays —
+// reusable by anything that walks a case-list-shaped array. The
+// builders in this file produce `Mutation[]` for the saga, which is
+// agent-specific.
 
 /**
  * Tagged result of a case-list-config mutation builder. The success
@@ -314,91 +326,6 @@ function snapshotCaseListConfig(mod: Module): {
 		searchInputs: [...config.searchInputs],
 		...(config.filter !== undefined && { filter: config.filter }),
 	};
-}
-
-/**
- * Replace the entry whose `uuid` matches `targetUuid` with `replacement`.
- * Returns the post-mutation array as a fresh copy on success, or an
- * Elm-style error message naming the missing uuid.
- */
-function replaceByUuid<T extends { uuid: Uuid }>(
-	items: readonly T[],
-	targetUuid: Uuid,
-	replacement: T,
-	entityLabel: string,
-): { ok: true; items: T[] } | { error: string } {
-	const index = items.findIndex((item) => item.uuid === targetUuid);
-	if (index < 0) {
-		return {
-			error: `Tried to update ${entityLabel} ${targetUuid}. Found no entry with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
-		};
-	}
-	const next = items.slice();
-	next[index] = replacement;
-	return { ok: true, items: next };
-}
-
-/**
- * Drop the entry whose `uuid` matches `targetUuid`. Returns the post-
- * mutation array on success, or an Elm-style error naming the missing
- * uuid.
- */
-function removeByUuid<T extends { uuid: Uuid }>(
-	items: readonly T[],
-	targetUuid: Uuid,
-	entityLabel: string,
-): { ok: true; items: T[] } | { error: string } {
-	const index = items.findIndex((item) => item.uuid === targetUuid);
-	if (index < 0) {
-		return {
-			error: `Tried to remove ${entityLabel} ${targetUuid}. Found no entry with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
-		};
-	}
-	const next = items.slice();
-	next.splice(index, 1);
-	return { ok: true, items: next };
-}
-
-/**
- * Reorder the array to match `requestedOrder`. The sequence must be a
- * permutation of the current uuids — every existing uuid present, no
- * duplicates, no unknowns. Four failure arms surface predictably so
- * the caller can repair its request.
- */
-function reorderByUuid<T extends { uuid: Uuid }>(
-	items: readonly T[],
-	requestedOrder: readonly Uuid[],
-	entityLabel: string,
-): { ok: true; items: T[] } | { error: string } {
-	if (requestedOrder.length !== items.length) {
-		return {
-			error: `Tried to reorder ${entityLabel}s. Found ${items.length} entries on the module but the request supplied ${requestedOrder.length} uuids. Try a uuid array that contains every existing uuid exactly once.`,
-		};
-	}
-	const seen = new Set<Uuid>();
-	for (const uuid of requestedOrder) {
-		if (seen.has(uuid)) {
-			return {
-				error: `Tried to reorder ${entityLabel}s. Found duplicate uuid ${uuid} in the requested order. Try a uuid array with each existing uuid listed exactly once.`,
-			};
-		}
-		seen.add(uuid);
-	}
-	const byUuid = new Map<Uuid, T>();
-	for (const item of items) {
-		byUuid.set(item.uuid, item);
-	}
-	const next: T[] = [];
-	for (const uuid of requestedOrder) {
-		const item = byUuid.get(uuid);
-		if (item === undefined) {
-			return {
-				error: `Tried to reorder ${entityLabel}s. Found unknown uuid ${uuid} in the requested order — that uuid is not present on the module. Look at getModule's projection for the current uuids.`,
-			};
-		}
-		next.push(item);
-	}
-	return { ok: true, items: next };
 }
 
 /**

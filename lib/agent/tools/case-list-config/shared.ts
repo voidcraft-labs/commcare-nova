@@ -150,3 +150,119 @@ export function emptyCaseListConfig(): CaseListConfig {
 export function baseCaseListConfig(mod: Module): CaseListConfig {
 	return mod.caseListConfig ?? emptyCaseListConfig();
 }
+
+// ── Uuid-keyed array helpers ────────────────────────────────────────
+//
+// Pure generic primitives over `{ uuid: Uuid }[]` arrays — the same
+// shape every case-list-config slot's atomic op walks (columns,
+// search-inputs, and any future case-list-shaped array). Reused by
+// the `addColumnMutation` / `addSearchInputMutation` family in
+// `lib/agent/blueprintHelpers.ts` and available to UI mutations,
+// migration scripts, and test fixtures that operate on the same
+// `{ uuid }[]` shape.
+//
+// Each helper returns a tagged result the caller destructures: success
+// → `{ ok: true, items }` carrying the post-mutation array; failure →
+// `{ error }` with an Elm-style message naming the missing / unknown
+// uuid plus a recovery hint. The agent layer forwards the error string
+// verbatim to the SA; the UI layer surfaces its own affordance against
+// the same predicate.
+
+/**
+ * Tagged result of a uuid-keyed array operation. `ok` carries the
+ * post-mutation array as a fresh copy; `error` carries a single
+ * human-readable error string the caller forwards.
+ */
+export type ArrayOpResult<T> = { ok: true; items: T[] } | { error: string };
+
+/**
+ * Replace the entry whose `uuid` matches `targetUuid` with `replacement`.
+ * Returns a fresh array on success; returns an Elm-style error naming
+ * the missing uuid + a recovery hint on failure. `entityLabel` is the
+ * human-readable noun the caller wants in error text (e.g. `"case list
+ * column"`, `"search input"`).
+ */
+export function replaceByUuid<T extends { uuid: Uuid }>(
+	items: readonly T[],
+	targetUuid: Uuid,
+	replacement: T,
+	entityLabel: string,
+): ArrayOpResult<T> {
+	const index = items.findIndex((item) => item.uuid === targetUuid);
+	if (index < 0) {
+		return {
+			error: `Tried to update ${entityLabel} ${targetUuid}. Found no entry with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
+		};
+	}
+	const next = items.slice();
+	next[index] = replacement;
+	return { ok: true, items: next };
+}
+
+/**
+ * Drop the entry whose `uuid` matches `targetUuid`. Returns a fresh
+ * array on success; returns an Elm-style error naming the missing uuid
+ * + a recovery hint on failure.
+ */
+export function removeByUuid<T extends { uuid: Uuid }>(
+	items: readonly T[],
+	targetUuid: Uuid,
+	entityLabel: string,
+): ArrayOpResult<T> {
+	const index = items.findIndex((item) => item.uuid === targetUuid);
+	if (index < 0) {
+		return {
+			error: `Tried to remove ${entityLabel} ${targetUuid}. Found no entry with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
+		};
+	}
+	const next = items.slice();
+	next.splice(index, 1);
+	return { ok: true, items: next };
+}
+
+/**
+ * Reorder the array to match `requestedOrder`. The sequence must be a
+ * permutation of the current uuids — every existing uuid present, no
+ * duplicates, no unknowns. Three failure arms surface predictably so
+ * the caller can repair its request:
+ *
+ *   - Length mismatch (different cardinality) — names expected vs
+ *     actual count.
+ *   - Duplicate uuid in the request — names the duplicate.
+ *   - Unknown uuid (not in the source array) — names the unknown uuid.
+ */
+export function reorderByUuid<T extends { uuid: Uuid }>(
+	items: readonly T[],
+	requestedOrder: readonly Uuid[],
+	entityLabel: string,
+): ArrayOpResult<T> {
+	if (requestedOrder.length !== items.length) {
+		return {
+			error: `Tried to reorder ${entityLabel}s. Found ${items.length} entries on the module but the request supplied ${requestedOrder.length} uuids. Try a uuid array that contains every existing uuid exactly once.`,
+		};
+	}
+	const seen = new Set<Uuid>();
+	for (const uuid of requestedOrder) {
+		if (seen.has(uuid)) {
+			return {
+				error: `Tried to reorder ${entityLabel}s. Found duplicate uuid ${uuid} in the requested order. Try a uuid array with each existing uuid listed exactly once.`,
+			};
+		}
+		seen.add(uuid);
+	}
+	const byUuid = new Map<Uuid, T>();
+	for (const item of items) {
+		byUuid.set(item.uuid, item);
+	}
+	const next: T[] = [];
+	for (const uuid of requestedOrder) {
+		const item = byUuid.get(uuid);
+		if (item === undefined) {
+			return {
+				error: `Tried to reorder ${entityLabel}s. Found unknown uuid ${uuid} in the requested order — that uuid is not present on the module. Look at getModule's projection for the current uuids.`,
+			};
+		}
+		next.push(item);
+	}
+	return { ok: true, items: next };
+}
