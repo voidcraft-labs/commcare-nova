@@ -40,7 +40,7 @@
 // every mutation path refuses the last-row removal).
 
 "use client";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -53,6 +53,7 @@ import {
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
+import { useValidityPropagator } from "./useInnerValidityShadow";
 
 interface ExpressionCardEditorProps {
 	/** Current AST. */
@@ -131,18 +132,12 @@ export function ExpressionCardEditor({
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
-	// Propagate the validity verdict to the parent. The effect fires
-	// on mount and on every subsequent `isValid` transition; the
-	// `onValidityChange` callback is stashed in a ref so a fresh-
-	// each-render parent callback identity doesn't trip the effect on
-	// non-transitions. Render-time write keeps the ref current before
-	// the effect phase runs.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition. The helper ref-stashes the callback so a
+	// fresh-each-render parent identity doesn't trip the effect on
+	// non-transitions.
 	const isValid = errors.length === 0;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	useValidityPropagator({ isValid, onValidityChange });
 
 	return (
 		<PredicateEditProvider

@@ -98,9 +98,9 @@ export interface DisplaySectionProps {
 /**
  * Composes the case-list Display section. One column list (the
  * unified `columns` array) plus the sort priority pill stack and
- * the live-preview panel. Sort and calc are no longer separate
- * sub-sections — sort is per-column on the column itself, calc is
- * a column kind.
+ * the live-preview panel. Sort lives on each column's `sort` slot;
+ * calculated columns are a `kind: "calculated"` arm of the unified
+ * `Column` union.
  *
  * Validity propagation: the column list aggregates per-row inner
  * verdicts (kind-vs-property applicability + calc-arm
@@ -478,10 +478,9 @@ function DisplaySubSection({
 // the reorder monitor, per-row uuid React keys, unified validity
 // aggregation across rows.
 //
-// React keys use the column's `uuid` directly — uuids are
-// guaranteed unique across siblings and stable across edits, so
-// the WeakMap-backed `nodeId(...)` is no longer needed for these
-// keys (column identity is now durable on the value itself).
+// React keys use the column's `uuid` directly — uuids are unique
+// among siblings and stable across edits, so column identity is
+// durable on the value itself.
 
 interface ColumnListProps {
 	readonly value: readonly Column[];

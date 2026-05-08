@@ -36,7 +36,7 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { CaseType, Column, ColumnKind } from "@/lib/domain";
 import {
 	calculatedColumn,
@@ -63,6 +63,7 @@ import {
 } from "./columnEditorSchemas";
 import { PredicateEditProvider } from "./editorContext";
 import { CardShell } from "./primitives/CardShell";
+import { useValidityPropagator } from "./useInnerValidityShadow";
 
 /**
  * Module-scoped empty validity-index passed to the predicate
@@ -153,16 +154,12 @@ export function ColumnEditor({
 		] as const;
 	}, [ctx, value]);
 
-	// Propagate the validity verdict to the parent. Same ref-stash
-	// pattern as the predicate / expression editors — keeps a fresh-
-	// each-render parent callback identity from tripping the effect
-	// on non-transitions.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition. The helper ref-stashes the callback so a
+	// fresh-each-render parent identity doesn't trip the effect on
+	// non-transitions.
 	const isValid = applicabilityErrors.length === 0;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	useValidityPropagator({ isValid, onValidityChange });
 
 	const schema = columnCardSchemas[value.kind];
 	// Discriminated-union dispatch: each registry entry's

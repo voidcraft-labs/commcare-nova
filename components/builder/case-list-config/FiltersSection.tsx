@@ -33,12 +33,13 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerFilterPlus from "@iconify-icons/tabler/filter-plus";
 import tablerFilterX from "@iconify-icons/tabler/filter-x";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { type FilterPreviewStats, FiltersPreview } from "./FiltersPreview";
 import { PredicateCardEditor } from "./PredicateCardEditor";
+import { useValidityPropagator } from "./useInnerValidityShadow";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -120,14 +121,10 @@ export function FiltersSection({
 	// predicate would leak past the clear.
 	const isValid = !filterPresent || predicateValid;
 
-	// Same ref-stash pattern as the sub-editors — keeps a fresh-each-
-	// render parent callback from tripping the effect on
-	// non-transitions.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed inside the helper against fresh-
+	// each-render parent callback identity.
+	useValidityPropagator({ isValid, onValidityChange });
 
 	// ── Per-slot mutators ──
 	const setFilter = (next: Predicate | undefined) => {

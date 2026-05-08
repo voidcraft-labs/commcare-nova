@@ -5,30 +5,36 @@
 // DisplaySection composition tests covering:
 //
 //   - **Round-trip:** mount with a populated `CaseListConfig`, verify
-//     the column list + sort priority pill stack render. Sort and
-//     calc are no longer separate sub-sections — sort is per-column
-//     on the column itself, calc is a column kind in the unified
-//     `columns` array.
+//     the column list + sort priority pill stack render. Sort lives
+//     on each column's `sort` slot; calculated columns are a
+//     `kind: "calculated"` arm of the unified `Column` union.
 //   - **Validity aggregation:** the section reports `valid: false`
 //     iff any column reports invalid; `valid: true` only when all
 //     columns pass.
 //   - **Preview validity gate:** when the column list reports
 //     invalid, the embedded `DisplayPreview` enters its paused
-//     state and the case-store action does NOT fire. Mirrors
-//     `FiltersSection`'s preview-paused contract; without the gate
-//     an invalid calc-arm expression flows into `compileExpression`
-//     at the SQL layer and surfaces a raw error arm.
+//     state and the case-store action stops firing once the verdict
+//     propagates. Mirrors `FiltersSection`'s preview-paused contract;
+//     the structural defense for an invalid calc-arm expression
+//     flowing into `compileExpression` at the SQL layer.
 //   - **Slot ownership:** edits to the columns slot emit through
 //     `onChange` with the other slots (`filter` / `searchInputs`)
 //     preserved.
-//   - **Reorder-then-flip regression backstop:** the inner-validity
-//     shadow keys per-column references via WeakMap so a reorder
-//     followed by an applicability fix propagates correctly.
+//   - **Reorder + applicability fix propagation:** the inner-
+//     validity shadow keys per-column references via WeakMap so the
+//     aggregation walks the right verdict slot for each column even
+//     after a reorder.
 //
 // The Server Action `loadCaseListPreviewAction` is mocked at the
 // module boundary so the tests don't require a Postgres harness.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import {
@@ -237,18 +243,13 @@ describe("DisplaySection — validity aggregation", () => {
 
 // ── Preview validity gate ────────────────────────────────────────
 //
-// Pre-fix: the section hardcoded `configValid={true}` on the
-// `DisplayPreview`, so an invalid calc-arm expression would fire
-// `loadCaseListPreviewAction` and reach `compileExpression` at the
-// SQL layer (which throws). The structural defense is the
-// preview's `configValid` prop — the section must aggregate the
-// column list's verdict and thread it through, mirroring
-// `FiltersSection`'s `filterValid={isValid}` pattern.
-//
-// This test pins the contract: an invalid column (Date kind on a
-// text-typed property) flips the column list's verdict, the
-// section threads `false` into `DisplayPreview`, and the preview
-// renders its paused state instead of firing the action.
+// Pins the gate: an invalid column flips the column-list verdict
+// to false; the section threads it into `DisplayPreview` as
+// `configValid`; the preview enters its paused state instead of
+// firing the action against an invalid expression AST. Mirrors
+// `FiltersSection`'s `filterValid={isValid}` shape; the structural
+// defense for an invalid calculated-column expression flowing into
+// `compileExpression` at the SQL layer (which throws).
 
 describe("DisplaySection — preview validity gate", () => {
 	it("threads the column-list verdict into DisplayPreview's configValid", async () => {
@@ -256,44 +257,63 @@ describe("DisplaySection — preview validity gate", () => {
 		// fails → ColumnList aggregates `valid: false` → section
 		// threads `false` into `DisplayPreview` → the preview enters
 		// its paused state.
-		const PATIENT_DOB_AS_TEXT: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "dob", label: "Date of birth", data_type: "text" },
-			],
-		};
-		const config = makeConfig({
-			columns: [dateColumn(COL_A_UUID, "dob", "DOB", "%Y-%m-%d")],
-		});
-		render(
-			<DisplaySection
-				value={config}
-				onChange={() => {}}
-				caseTypes={[PATIENT_DOB_AS_TEXT]}
-				currentCaseType="patient"
-				appId={APP_ID}
-			/>,
-		);
-		// Preview surfaces the paused state once the column-list
-		// verdict propagates to `false`. The earlier "preview paused"
-		// shape is the gate's tell — without the wire, the preview
-		// would stay in a "loading → empty" cycle and never surface
-		// the paused branch.
-		await waitFor(() => {
-			expect(screen.getByText(/preview paused/i)).toBeDefined();
-		});
-		// The fresh-mount default is `valid: true`; the action may
-		// fire once before the column's first verdict flips through.
-		// What the gate prevents is REPEATED loads on a stale invalid
-		// state — verify by snapshotting the call count after the
-		// paused state lands, then waiting briefly + asserting the
-		// count hasn't grown.
-		const callsAtPause = vi.mocked(loadCaseListPreviewAction).mock.calls.length;
-		await new Promise<void>((r) => setTimeout(r, 50));
-		expect(vi.mocked(loadCaseListPreviewAction).mock.calls.length).toBe(
-			callsAtPause,
-		);
+		//
+		// `vi.useFakeTimers({ shouldAdvanceTime: true })` keeps the
+		// real-time queue running for `waitFor`'s internal polling while
+		// letting the test advance virtual time deterministically for
+		// the post-paused settle window. Without `shouldAdvanceTime`,
+		// `waitFor` would hang because `setTimeout`-backed polls never
+		// fire. The setting is documented at vitest's `useFakeTimers`
+		// API; same shape elsewhere in this repo (see
+		// `lib/ui/__tests__/useCommitField.test.tsx` for the canonical
+		// fake-timer setup, minus the `shouldAdvanceTime` flag because
+		// that test uses `renderHook` rather than `waitFor`).
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			const PATIENT_DOB_AS_TEXT: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "dob", label: "Date of birth", data_type: "text" },
+				],
+			};
+			const config = makeConfig({
+				columns: [dateColumn(COL_A_UUID, "dob", "DOB", "%Y-%m-%d")],
+			});
+			render(
+				<DisplaySection
+					value={config}
+					onChange={() => {}}
+					caseTypes={[PATIENT_DOB_AS_TEXT]}
+					currentCaseType="patient"
+					appId={APP_ID}
+				/>,
+			);
+			// Preview surfaces the paused state once the column-list
+			// verdict propagates to `false`. The "preview paused" shape
+			// is the gate's tell — without the wire, the preview would
+			// stay in a "loading → empty" cycle and never surface the
+			// paused branch.
+			await waitFor(() => {
+				expect(screen.getByText(/preview paused/i)).toBeDefined();
+			});
+			// The fresh-mount default is `valid: true`; the action may
+			// fire once before the column's first verdict flips through.
+			// What the gate prevents is REPEATED loads on a stale invalid
+			// state — verify by snapshotting the call count after the
+			// paused state lands, advancing virtual time, and asserting
+			// the count hasn't grown.
+			const callsAtPause = vi.mocked(loadCaseListPreviewAction).mock.calls
+				.length;
+			act(() => {
+				vi.advanceTimersByTime(50);
+			});
+			expect(vi.mocked(loadCaseListPreviewAction).mock.calls.length).toBe(
+				callsAtPause,
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("fires the action and stays out of paused state when every column is valid", async () => {
@@ -316,14 +336,14 @@ describe("DisplaySection — preview validity gate", () => {
 	});
 });
 
-// ── Reorder-then-flip regression backstop ────────────────────────
+// ── Reorder + applicability fix propagation ─────────────────────
 //
-// Pre-fix: ColumnList's inner-validity shadow was an index-keyed
-// boolean array. After a reorder, an inner-flip on the moved
-// column would write against the column's NEW index — which was
-// occupied by a different column's stale verdict — and the
-// aggregation would silently no-op. With WeakMap-keyed shadows
-// the flip propagates correctly.
+// Pins ColumnList's inner-validity contract under reorder: each
+// row's inner verdict is keyed by the column's reference identity
+// (WeakMap), not its array index. A reorder followed by an
+// applicability fix writes against the moved column's reference,
+// the aggregation walks the right slot, and the flip propagates
+// to the parent's `onValidityChange` correctly.
 
 describe("DisplaySection — reorder-then-flip propagation", () => {
 	it("propagates valid:true after column reorder + applicability fix", async () => {

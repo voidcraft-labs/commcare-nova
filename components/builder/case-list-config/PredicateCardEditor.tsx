@@ -30,7 +30,7 @@
 // just the inner card.
 
 "use client";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -42,6 +42,7 @@ import {
 import { ChildPredicateEditor } from "./cards/ChildPredicateEditor";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
+import { useValidityPropagator } from "./useInnerValidityShadow";
 
 interface PredicateCardEditorProps {
 	/** Current AST. */
@@ -112,22 +113,14 @@ export function PredicateCardEditor({
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
-	// Propagate the validity verdict to the parent. The effect
-	// fires on mount and on every subsequent `isValid` transition;
-	// downstream consumers (the Filter-section save button) gate
-	// on this and need the initial-mount fire so the parent's
-	// save state initializes correctly. The `onValidityChange`
-	// callback is stashed in a ref so a fresh-each-render parent
-	// callback identity doesn't trip the effect on non-transitions
-	// — same pattern `AndOrBody` uses for the monitor's
-	// `onChange` ref. Render-time write keeps the ref current
-	// before the effect phase runs.
-	const onValidityChangeRef = useRef(onValidityChange);
-	onValidityChangeRef.current = onValidityChange;
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition. Downstream consumers (the Filter-section save
+	// button) gate on this and need the initial-mount fire so the
+	// parent's save state initializes correctly. The helper ref-
+	// stashes the callback internally so a fresh-each-render parent
+	// identity doesn't trip the effect on non-transitions.
 	const isValid = errors.length === 0;
-	useEffect(() => {
-		onValidityChangeRef.current?.(isValid);
-	}, [isValid]);
+	useValidityPropagator({ isValid, onValidityChange });
 
 	return (
 		<PredicateEditProvider
