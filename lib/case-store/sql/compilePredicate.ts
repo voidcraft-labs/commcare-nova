@@ -411,15 +411,13 @@ function quantifierToOperator(
 /**
  * Per-`MatchMode` dispatch:
  * - `starts-with` → `starts_with(prop::text, value)` (case-sensitive
- *   to match CCHQ's `PROPERTY_VALUE_EXACT` index per
- *   `case_search.py:312-323`).
+ *   to match CCHQ's `case_property_starts_with` index path).
  * - `fuzzy` → pg_trgm `%` similarity. Threshold is
  *   `pg_trgm.similarity_threshold` (Postgres GUC, default 0.3).
  * - `phonetic` → fuzzystrmatch `dmetaphone` equality. Double
  *   Metaphone is more discriminating than Soundex.
  * - `fuzzy-date` → digit-permutation `IN (...)` matching CCHQ's
- *   `date_permutations` at
- *   `query_functions.py:101-113`.
+ *   `query_functions.py::date_permutations`.
  */
 function compileMatch(
 	pred: Extract<Predicate, { kind: "match" }>,
@@ -529,8 +527,8 @@ function compilePropertyAsText(
 
 /**
  * `fuzzy-date` match — emit `prop IN (perm1, ...)` over the
- * digit-permutation set. Mirrors CCHQ's `date_permutations` at
- * `corehq/apps/case_search/xpath_functions/query_functions.py:116-140`.
+ * digit-permutation set. Mirrors CCHQ's
+ * `corehq/apps/case_search/xpath_functions/query_functions.py::date_permutations`.
  * Throws on inputs that don't parse as `YYYY-MM-DD` so an empty
  * permutation set never produces `<prop> IN ()` (a Postgres syntax
  * error).

@@ -9,8 +9,7 @@
 //     is well-formed.
 //   - Required extensions installed (`pg_trgm`, `fuzzystrmatch`,
 //     `postgis`).
-//   - Schema seeded (three tables with the columns the spec
-//     specifies).
+//   - Schema seeded with the four case-store tables.
 //   - INSERT + SELECT round-trip succeeds against the live
 //     engine.
 //   - Per-test rollback isolation: a sentinel row inserted here
@@ -78,7 +77,7 @@ describe("case-store harness — extensions", () => {
 // -- Schema ---------------------------------------------------------
 
 describe("case-store harness — schema", () => {
-	test("seeds the four case-store tables with spec columns", async ({
+	test("seeds the four case-store tables with the expected columns", async ({
 		pgClient,
 	}) => {
 		// `information_schema.columns` is the portable inspector for
@@ -92,7 +91,6 @@ describe("case-store harness — schema", () => {
 		// `cases_quarantine` is the failed-migration sink the
 		// `applySchemaChange` orchestration writes to; its shape is
 		// `cases` columns plus `quarantine_reason` + `quarantined_at`.
-		// Spec § "Schema migration policy" lines 309-340.
 		const result = await pgClient.query<{
 			table_name: string;
 			column_name: string;

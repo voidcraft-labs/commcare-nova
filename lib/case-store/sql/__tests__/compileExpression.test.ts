@@ -2,9 +2,9 @@
 //
 // Compile-only acceptance tests for the Expression compiler.
 //
-// The compiler covers fifteen `ValueExpression` arms — the AST's
-// value-bearing union from `lib/domain/predicate/types.ts:1796-1845`.
-// Each test wraps the compiled expression in a `select(... .as("v"))`
+// The compiler covers every arm of the `ValueExpression` union
+// declared in `lib/domain/predicate/types.ts`. Each test wraps the
+// compiled expression in a `select(... .as("v"))`
 // call against a `DummyDriver`-backed Kysely instance and inspects
 // the resulting SQL string and parameter list. This shape catches
 // arm-dispatch regressions, missing operator tokens, and wrong cast
@@ -304,12 +304,12 @@ describe("compileExpression — arith arm", () => {
 // Postgres's `concat(...)` function treats NULL inputs as empty
 // strings (verified at
 // `https://www.postgresql.org/docs/18/functions-string.html#FUNCTIONS-STRING-OTHER`).
-// This NULL-tolerant behavior matches the type checker's spec at
-// `lib/domain/predicate/typeChecker.ts:1525-1526` ("each part casts
-// to text at evaluation, so no per-part type rule beyond
-// resolution") and aligns with the on-device emitter's `concat(...)`
-// dispatch. The `||` operator (string concat infix) propagates NULL
-// instead and would diverge from the AST's spec.
+// This NULL-tolerant behavior matches the type checker's `concat`
+// rule (each part casts to text at evaluation, so there is no
+// per-part type rule beyond resolution) and aligns with the
+// on-device emitter's `concat(...)` dispatch. The `||` operator
+// (string concat infix) propagates NULL instead, so the SQL
+// compiler picks `concat(...)` to keep the three runtimes aligned.
 
 describe("compileExpression — concat arm", () => {
 	it("emits concat(...) for a multi-part concat", () => {
@@ -423,8 +423,8 @@ describe("compileExpression — if arm", () => {
 // planner does not deduplicate non-idempotent operands across CASE
 // arms). Each `cases[].when` is a Literal compared by equality;
 // `fallback` is the no-match value. `switch` does NOT carry a
-// Predicate (each `when` is a literal, per `switchCaseSchema` in
-// `types.ts:867-871`), so it does not need the predicate thunk.
+// Predicate (each `when` is a literal in the AST schema), so it
+// does not need the predicate thunk.
 
 describe("compileExpression — switch arm", () => {
 	it("emits CASE <on> WHEN <when> THEN <then> ... ELSE <fallback> END (simple CASE form)", () => {
@@ -686,9 +686,9 @@ describe("compileExpression — format-date arm", () => {
 // ---------------------------------------------------------------
 //
 // `unwrap-list` resolves to the type checker's `_sequence`
-// sentinel (per `lib/domain/predicate/typeChecker.ts:1545`); no AST
-// operator on the Predicate side or the Expression side consumes a
-// sequence (`in.values` and `multi-select-contains.values` stay
+// sentinel; no AST operator on the Predicate side or the
+// Expression side consumes a sequence (`in.values` and
+// `multi-select-contains.values` stay
 // literal-only). The CSQL hoist pass routes the arm into
 // `selected-any(prop, unwrap-list(...))` at the wire-emission
 // boundary; that path does not flow through the SQL compiler.

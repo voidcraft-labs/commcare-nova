@@ -1,6 +1,6 @@
 // __tests__/integration/case-list-authoring.test.ts
 //
-// End-to-end coverage for the v2 case-list authoring surface. Each
+// End-to-end coverage for the case-list authoring surface. Each
 // `describe(...)` block exercises one cross-layer contract a single
 // per-layer unit test cannot capture:
 //
@@ -18,9 +18,9 @@
 //   - Sort-priority tie-break uniformity: the same fixture hits the
 //     same display-order tie-break at the saga (doc state), preview
 //     (case-store sort projection), and wire (`<sort> @order`) layers.
-//   - Migration v0 → v2: legacy `caseListColumns` + `caseDetailColumns`
-//     parallel arrays migrate to one v2 columns array with correct
-//     visibility flags and header-collision resolution.
+//   - Migration coverage: the upgrade script (legacy parallel arrays
+//     → unified columns array) lands the right visibility flags and
+//     resolves header collisions.
 //   - Postgres testcontainer round-trip: predicate filter, sort with
 //     mixed direction + types, calculated-column projection — all
 //     against a real Postgres engine via `setupPerTestDatabase`.
@@ -684,10 +684,10 @@ describe("wire emission", () => {
 
 // =================================================================
 // 4. Calc-column comparator-type fallback — three separate tests,
-//    one per failure shape. The plan's wording is explicit: "Three
-//    failure shapes route to comparator type `plain`. Tested
-//    explicitly with three separate test cases — one per failure
-//    shape — to prevent the implementation collapsing them."
+//    one per failure shape. Three failure shapes route to comparator
+//    type `plain` (`undefined`, `ANY_TYPE`, and a `ResolvedType`
+//    with no comparator mapping); pinning each shape with its own
+//    test prevents an implementation that collapses them.
 // =================================================================
 
 describe("calc-column comparator-type fallback", () => {
@@ -882,12 +882,12 @@ describe("SearchInputDef discriminated round-trip", () => {
 });
 
 // =================================================================
-// 6. Search-input rename + orphan validator surface — the rename
-//    cost is the existing Field-shape pattern's accepted cost
-//    (smell #9 acknowledgment in the plan). Renaming a search
-//    input by `name` does NOT auto-rewrite predicate references;
-//    an orphan reference in `caseListConfig.filter` surfaces as
-//    `CASE_LIST_FILTER_TYPE_ERROR` via the predicate type checker.
+// 6. Search-input rename + orphan validator surface. Renaming a
+//    search input by `name` does NOT auto-rewrite predicate
+//    references; an orphan reference in `caseListConfig.filter`
+//    surfaces as `CASE_LIST_FILTER_TYPE_ERROR` via the predicate
+//    type checker. The rename pays the same cross-reference cost
+//    Field renames pay, by design.
 // =================================================================
 
 describe("search-input rename — orphan reference surfaces validator error", () => {
@@ -1105,12 +1105,13 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 	}
 
 	it("preserves the user-authored priority on both columns (saga layer)", async () => {
-		// The saga layer is the SA's atomic-op mutation builders.
-		// The plan's contract: the saga preserves the user's
-		// explicit priority intent — collisions are NOT silently
-		// renumbered. After two `updateCaseListColumn` calls each
-		// setting `priority: 0`, both columns survive at priority 0
-		// in `caseListConfig.columns`.
+		// The saga layer is the SA's atomic-op mutation builders. It
+		// preserves the user's explicit priority intent — collisions
+		// are NOT silently renumbered, because every priority-handling
+		// layer below (preview, wire emitter) sorts by priority +
+		// source-index tie-break. After two `updateCaseListColumn`
+		// calls each setting `priority: 0`, both columns survive at
+		// priority 0 in `caseListConfig.columns`.
 		const { ctx } = makeTestContext({ appId: APP_ID });
 		const startDoc = buildDoc({
 			appId: APP_ID,

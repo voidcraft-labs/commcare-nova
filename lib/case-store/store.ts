@@ -244,7 +244,7 @@ export type CaseRowWithCalculated = CaseRow & {
 
 /**
  * The three change-shape arms `applySchemaChange` runs per-row
- * migrations for. Spec § "Schema migration policy".
+ * migrations for.
  *
  *   - `rename(from, to)` — JSONB key rename in one UPDATE.
  *   - `retype(fromType, toType)` — per-row cast attempt; cast

@@ -31,12 +31,12 @@
  *      The saga skips `applySchemaChange` entirely and just commits
  *      the Firestore blueprint write.
  *
- * Case-type removals between snapshots produce no entry. Per the
- * spec's "Schema migration policy" table (existing values for
- * removed properties remain in JSONB until next write of the row,
- * then dropped), the case-store's `case_type_schemas` row stays in
- * place; the runtime never reads a schema for a case type that's
- * no longer in the blueprint, so the orphaned row is harmless.
+ * Case-type removals between snapshots produce no entry. Existing
+ * values for removed properties remain in JSONB until the next
+ * write of the row, at which point they're dropped; the case-
+ * store's `case_type_schemas` row stays in place because the
+ * runtime never reads a schema for a case type the blueprint no
+ * longer references, so the orphaned row is harmless.
  *
  * Case-type additions produce one schema-sync-only entry so the
  * `case_type_schemas` row materializes the moment the blueprint

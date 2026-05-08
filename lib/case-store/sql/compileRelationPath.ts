@@ -1,8 +1,8 @@
 // lib/case-store/sql/compileRelationPath.ts
 //
 // Compile a `RelationPath` to an aliased Kysely subquery.
-// `RelationPath` (`lib/domain/predicate/types.ts:291-321`) has
-// four arms — `self`, `ancestor`, `subcase`, `any-relation`:
+// `RelationPath` (`lib/domain/predicate/types.ts::RelationPath`)
+// has four arms — `self`, `ancestor`, `subcase`, `any-relation`:
 //
 // - `self` — no traversal; callers read off the anchor directly.
 // - `ancestor` — chain of `case_indices` + `cases` joins, one per

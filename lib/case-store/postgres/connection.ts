@@ -172,9 +172,8 @@ export function readCaseStoreEnvConfig(
 				"requires all three: `NOVA_DB_NAME`, `NOVA_DB_USER`,",
 				"`NOVA_DB_INSTANCE_CONNECTION_NAME`.",
 				"",
-				"Hint: re-run the `gcloud run services update` command from Phase 6 of",
-				"`docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md`",
-				"to wire the missing variable on the deployed revision.",
+				"Hint: re-run the `gcloud run services update` command that wires",
+				"the Cloud SQL env vars onto the live revision.",
 			].join("\n"),
 		);
 	}

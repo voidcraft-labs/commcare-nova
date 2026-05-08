@@ -138,10 +138,10 @@ describe("classifyCaseTypeChanges — property-surface diffs (no hint)", () => {
 	});
 
 	it("emits one schema-sync-only entry when a property is removed", () => {
-		// Per the spec's "Property removed" policy, existing values
-		// for the removed property remain in JSONB until next write.
-		// The schema-sync entry regenerates the JSON Schema (no
-		// longer references the property) + emits the index DDL diff
+		// Existing values for the removed property remain in JSONB
+		// until the next write of the row, then drop. The schema-
+		// sync entry regenerates the JSON Schema (no longer
+		// references the property) and emits the index DDL diff
 		// (drops the removed property's expression index).
 		const reduced: CaseType = {
 			name: "patient",

@@ -182,16 +182,16 @@ describe("Database.cases", () => {
 
 		expect(compiled.sql).toContain('insert into "cases"');
 		expect(compiled.sql).toContain('"properties"');
-		// 11 columns, 11 placeholders. (`case_name` is a top-level
-		// scalar column in addition to the ten pre-Plan-2-fix-pass
-		// columns; see `lib/case-store/sql/database.ts` for the
-		// full per-column rationale.)
+		// 11 columns, 11 placeholders. `case_name` is a top-level
+		// scalar column alongside the ten reserved-scalar columns;
+		// see `lib/case-store/sql/database.ts` for the full per-
+		// column rationale.
 		expect(compiled.parameters).toHaveLength(11);
 	});
 
-	it("exposes the spec's column shape via Selectable<CasesTable>", () => {
+	it("exposes the schema column shape via Selectable<CasesTable>", () => {
 		// Type-level assertion: `Selectable<CasesTable>` matches
-		// the spec column-by-column. The `_typecheck` value is
+		// the schema column-by-column. The `_typecheck` value is
 		// never read at runtime; the assignment failing TypeScript
 		// compilation is the test.
 		type SelectedRow = Selectable<CasesTable>;
@@ -262,7 +262,7 @@ describe("Database.case_type_schemas", () => {
 		expect(compiled.sql).toContain('"case_type"');
 	});
 
-	it("exposes the spec's column shape via Selectable<CaseTypeSchemasTable>", () => {
+	it("exposes the schema column shape via Selectable<CaseTypeSchemasTable>", () => {
 		type SelectedRow = Selectable<CaseTypeSchemasTable>;
 		const _typecheck: SelectedRow = {
 			app_id: "app-uuid",
@@ -345,7 +345,7 @@ describe("Database.case_indices", () => {
 		void _invalid;
 	});
 
-	it("exposes the spec's column shape via Selectable<CaseIndicesTable>", () => {
+	it("exposes the schema column shape via Selectable<CaseIndicesTable>", () => {
 		type SelectedRow = Selectable<CaseIndicesTable>;
 		const _typecheck: SelectedRow = {
 			case_id: "child-uuid",
@@ -394,7 +394,7 @@ describe("Database.cases_quarantine", () => {
 		expect(compiled.parameters).toHaveLength(12);
 	});
 
-	it("exposes the spec's column shape via Selectable<CasesQuarantineTable>", () => {
+	it("exposes the schema column shape via Selectable<CasesQuarantineTable>", () => {
 		type SelectedRow = Selectable<CasesQuarantineTable>;
 		// Type-level assertion: every column reachable, with the
 		// quarantine-specific additions (`quarantine_reason`,

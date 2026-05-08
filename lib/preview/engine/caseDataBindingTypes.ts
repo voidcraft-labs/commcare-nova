@@ -66,9 +66,9 @@ export type LoadCasesResult =
  * so the client renderer dispatches uniformly across both paths.
  * The authoring surface treats `empty` as "no cases yet, hint to
  * generate sample data via the running-app view" — the live preview
- * does NOT expose the sample-data populate action itself per the
- * task spec (the action belongs to the running-app authoring
- * surface; duplicating it here would fork UX).
+ * does NOT expose the sample-data populate action itself; that
+ * action lives only on the running-app authoring surface, so
+ * duplicating it here would fork UX.
  */
 export type LoadCaseListPreviewResult =
 	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }

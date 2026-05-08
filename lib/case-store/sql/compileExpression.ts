@@ -405,9 +405,9 @@ function compileSwitch(
  * <where-pred>])`. Tenant filtering lives in `compileRelationPath`;
  * the outer `COUNT(*)` doesn't need a separate filter because
  * every row reaching it is already tenant-scoped. `count(self)`
- * is rejected at the type-checker layer (`checkRelationalQuantifier`
- * at `lib/domain/predicate/typeChecker.ts:1015-1030`); reaching
- * `self` here is a type-checker bypass.
+ * is rejected at the type-checker layer
+ * (`lib/domain/predicate/typeChecker.ts::checkRelationalQuantifier`);
+ * reaching `self` here is a type-checker bypass.
  */
 function compileCount(
 	via: RelationPath,

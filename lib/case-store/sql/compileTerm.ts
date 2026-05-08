@@ -355,8 +355,7 @@ function scalarColumnRef(
 
 /**
  * Resolve the destination case-type name a `RelationPath` reaches.
- * Mirrors `checkRelationPath` in
- * `lib/domain/predicate/typeChecker.ts:1080-1232`.
+ * Mirrors `lib/domain/predicate/typeChecker.ts::checkRelationPath`.
  *
  * Ancestor walks chain `parent_type` hops; subcase / any-relation
  * find the case type whose `parent_type` matches the origin
@@ -483,9 +482,10 @@ function resolveDestinationCaseType(
 
 /**
  * Resolve the declared `data_type`. Absent `data_type` defaults to
- * `text` (matching `jsonSchema.ts:144-148`) so the cast mapping
- * stays consistent across both consumers. Missing case types or
- * undeclared properties are type-checker bypasses.
+ * `text` (matching `lib/domain/predicate/jsonSchema.ts`'s default)
+ * so the cast mapping stays consistent across both consumers.
+ * Missing case types or undeclared properties are type-checker
+ * bypasses.
  */
 function lookupDataType(
 	caseType: string,

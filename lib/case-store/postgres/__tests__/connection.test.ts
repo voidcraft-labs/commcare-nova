@@ -111,10 +111,13 @@ describe("readCaseStoreEnvConfig", () => {
 		);
 	});
 
-	it("references the runbook in the error message so an operator can re-run Phase 6", () => {
+	it("hints at the gcloud command an operator runs to wire the missing variable", () => {
+		// The throw points the operator at the recovery path
+		// (`gcloud run services update`) so the failure message names
+		// the action, not just the absent state.
 		const env: Record<string, string> = {};
 		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			/2026-05-02-plan-2-task-0-cloud-sql-provisioning\.md/,
+			/gcloud run services update/,
 		);
 	});
 });

@@ -1159,8 +1159,8 @@ interface ProcessAppOutcome {
  *
  *   - **Corrupt modules** — recognized at classification time, NOT a
  *     thrown exception. The function logs WARN, skips the write,
- *     and returns `failed: true`. Matches the plan's WARN-level
- *     contract for corrupt-module classification.
+ *     and returns `failed: true`. The two-tier WARN-vs-ERROR split
+ *     keeps unparseable inputs visible without aborting the run.
  *   - **Unforeseen exceptions** — output-safeParse failure or
  *     Firestore write rejection. These propagate through the
  *     promise rejection lane; the caller's `try / catch` handles

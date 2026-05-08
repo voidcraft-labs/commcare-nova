@@ -5,8 +5,8 @@
 // `PropertyRefPicker` for non-Term LEFT-slot shapes and Term-arm
 // shapes that aren't canonical property references (multi-hop walks,
 // non-prop Terms). The full ValueExpression editor (`ExpressionPicker`)
-// no longer routes through this badge — its registry-driven dispatch
-// edits every kind directly via the per-arm cards.
+// edits every kind directly via the per-arm cards and does not need
+// this badge.
 //
 // Round-trip preservation principle: any time a picker can't edit
 // the authored shape directly, it renders this badge plus an

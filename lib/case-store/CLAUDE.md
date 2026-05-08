@@ -410,10 +410,10 @@ endpoint differently.
 
 `--allow-dirty` suppresses Atlas's empty-database precondition
 check. Production has the postgis-managed `tiger` and `topology`
-schemas pre-installed (Task 0 runbook §Phase 5); the flag relaxes
-that check without affecting Atlas's `atlas_schema_revisions`
-ledger as the version source. Concurrent Cloud Run instance
-startups serialize via Atlas's Postgres advisory lock
+schemas pre-installed at provisioning time; the flag relaxes that
+check without affecting Atlas's `atlas_schema_revisions` ledger as
+the version source. Concurrent Cloud Run instance startups
+serialize via Atlas's Postgres advisory lock
 (`atlas_migrate_execute`).
 
 ### Checking prod migration state
@@ -448,19 +448,19 @@ The case-store's compiler stack depends on three extensions:
 - `postgis` — `match(mode: within-distance)` (`ST_GeogFromText`
   + `ST_DWithin`).
 
-All three are installed at provisioning time per the Task 0
-runbook §Phase 5; the testcontainers harness installs the same
-set via its container's superuser before atlas runs. There is no
-runtime verification gate — missing extensions surface as
-`function does not exist` failures at the first compiler-emitted
-query against them.
+All three are installed at provisioning time on the live Cloud
+SQL instance; the testcontainers harness installs the same set via
+its container's superuser before atlas runs. There is no runtime
+verification gate — missing extensions surface as `function does
+not exist` failures at the first compiler-emitted query against
+them.
 
 `CREATE EXTENSION` requires `cloudsqlsuperuser` on production,
 and atlas runs as the IAM-authenticated runtime SA which does not
-have superuser. The split (extensions installed at provisioning
-under `postgres` superuser; schema migrations applied under the
-runtime SA via atlas) lives at the runbook layer; the
-testcontainer harness mirrors the split.
+have superuser. So extensions install once at provisioning time
+under the `postgres` superuser, and schema migrations apply at
+every Cloud Run startup under the runtime SA via atlas. The
+testcontainer harness mirrors the same split.
 
 ## Testcontainers harness
 
@@ -573,16 +573,12 @@ ever observe per-file boots in `docker ps`, that's a regression
 — file a fix against `globalSetup.ts`'s container-singleton
 contract.
 
-## Spec source
+## DDL is dual-sourced — schema.sql + database.ts
 
-All DDL is sourced from
-`docs/superpowers/specs/2026-04-30-case-list-search-design.md` §
-"Storage layer for cases" — Schema subsection (the four base
-tables + indexes) and § "Schema migration policy" (the
-`cases_quarantine` shape). Two surfaces stay in lockstep:
+Two surfaces describe the same DDL and must stay in lockstep:
 
-1. `lib/case-store/schema.sql` (the desired-state source atlas
-   reads to autogenerate the migrations directory).
+1. `lib/case-store/schema.sql` (the desired-state DDL atlas reads
+   to autogenerate the migrations directory).
 2. `sql/database.ts` (the Kysely type contract).
 
 Any change to one requires updating the other in the same change.

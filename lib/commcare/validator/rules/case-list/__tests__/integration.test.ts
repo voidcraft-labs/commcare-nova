@@ -99,8 +99,9 @@ describe("case-list validator — cross-rule integration", () => {
 
 	it("emits one error per writer for cross-form kind disagreement", () => {
 		// Two forms write to the same `(case_type, property_name)` tuple
-		// with conflicting kinds. The spec contract: one error per
-		// writer in the disagreeing set.
+		// with conflicting kinds. The contract is one error per
+		// writer in the disagreeing set so each form names itself
+		// in the validator output.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [

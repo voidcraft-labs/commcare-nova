@@ -413,8 +413,7 @@ function CountCard({ totalCount, filterApplied }: CountCardProps) {
 				{/* "All N cases" prefix on the no-filter copy reads as
 				    "every case is visible"; the filter-applied copy
 				    drops the prefix so "5 cases pass" reads as a
-				    discrete count. The leading "All" cue is the
-				    spec's chosen phrasing for the no-filter state. */}
+				    discrete count. */}
 				{!filterApplied && (
 					<span className="text-[11px] text-nova-text-muted/80">All</span>
 				)}

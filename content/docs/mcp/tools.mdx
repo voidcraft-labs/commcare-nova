@@ -26,22 +26,37 @@ These are the tools the Nova MCP server exposes. You don't call them directly â€
 
 ## Building a new app from a description
 
-These three cover the cold-start phase of a build: name the app, lay out its modules, set up the case lists. Once they're done, your agent moves into the editing tools below to fill in fields.
+These two cover the cold-start phase of a build: name the app, then lay out its modules, forms, and fields. Once they're done, your agent moves into the editing tools below for everything else.
 
 | Tool | What it does |
 |---|---|
 | `generate_schema` | Set the app name and case-type catalog. First step. |
-| `generate_scaffold` | Define the module + form structure. Run after `generate_schema`. |
-| `add_module` | Configure case-list and case-detail columns for one module. Run for each module after the scaffold lands. |
+| `generate_scaffold` | Define the module + form + field structure. Run after `generate_schema`. |
 
 ## Working on modules
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module. |
-| `update_module` | Rename, change case type, or update list/detail columns. |
+| `create_module` | Add a new module. Configure its case list afterward via the case-list tools below. |
+| `update_module` | Rename a module. |
 | `remove_module` | Delete a module. |
-| `get_module` | Show details for one module. |
+| `get_module` | Show details for one module, including the structured case-list config. |
+
+## Working on the case list
+
+A module's case list is the screen that lists existing cases and the search bar that filters them. Each case-list configuration has three slots: the columns shown in the list, an optional filter predicate, and the search inputs the user types into.
+
+| Tool | What it does |
+|---|---|
+| `add_case_list_column` | Add one column to the case list (plain / date / phone / id-mapping / interval / calculated). |
+| `update_case_list_column` | Replace a column's body, addressed by the column's uuid. |
+| `remove_case_list_column` | Remove one column by uuid. |
+| `reorder_case_list_columns` | Reorder columns by passing the desired uuid sequence. |
+| `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
+| `add_search_input` | Add one search input (simple property bind or advanced predicate). |
+| `update_search_input` | Replace a search input's body, addressed by the input's uuid. |
+| `remove_search_input` | Remove one search input by uuid. |
+| `reorder_search_inputs` | Reorder search inputs by passing the desired uuid sequence. |
 
 ## Working on forms
 

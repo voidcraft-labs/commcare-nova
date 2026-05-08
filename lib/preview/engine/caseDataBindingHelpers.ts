@@ -44,9 +44,10 @@ import type {
 } from "./caseDataBindingTypes";
 
 /**
- * Default row count for `populateSampleCasesAction`. Spec § sample
- * data pins 30. Exported so tests using `seedSampleCases`
- * directly match production.
+ * Default row count for `populateSampleCasesAction`. 30 rows is
+ * enough to fill the running-app list with variety without making
+ * the bulk-insert noticeable. Exported so tests using
+ * `seedSampleCases` directly match production.
  */
 export const SAMPLE_CASE_DEFAULT_COUNT = 30;
 
@@ -117,15 +118,15 @@ export const PREVIEW_CASE_DEFAULT_LIMIT = 30;
  * into `store.query` so it evaluates at the SQL layer rather than
  * reconstructed in TypeScript.
  *
- * The v2 `caseListConfig` collapses display, sort, calc, and
- * visibility onto a single `columns` array — calc-arm columns are
- * the calculated projection; per-column `sort` directives surface
- * via `buildCaseStoreSortKeys`; the optional `filter` slot threads
+ * `caseListConfig` collapses display, sort, calc, and visibility
+ * onto a single `columns` array — calc-arm columns are the
+ * calculated projection; per-column `sort` directives surface via
+ * `buildCaseStoreSortKeys`; the optional `filter` slot threads
  * through verbatim. A host mounting both the Display section and
  * the Filters section gets predicate narrowing for free; the
- * Display-section preview alone passes the same config through and
- * the underlying query falls through unfiltered when `filter` is
- * undefined.
+ * Display-section preview alone passes the same config through
+ * and the underlying query falls through unfiltered when `filter`
+ * is undefined.
  *
  * `caseTypeSchemas` is the term compiler's data-type-resolution
  * dependency — the helper accepts the narrow shape directly so the
@@ -253,14 +254,15 @@ export async function readFilterPreview(
 }
 
 /**
- * Build the case-store `SortKey[]` array from a v2 `CaseListConfig`.
- * Sort directives in the v2 schema live on each column directly via
- * the optional `column.sort: { direction, priority }` slot — there
- * is no top-level `sort` array. Columns with `sort` set become
- * directives; the array sorts by `priority` ascending with explicit
- * tie-break to source-array index so the column appearing earlier
- * in `caseListConfig.columns` wins on equal priority. The tie-break
- * rule binds at every layer (saga / preview / wire) — see
+ * Build the case-store `SortKey[]` array from a `CaseListConfig`.
+ * Sort directives live on each column directly via the optional
+ * `column.sort: { direction, priority }` slot — there is no
+ * top-level `sort` array. Columns with `sort` set become
+ * directives; the array sorts by `priority` ascending with
+ * explicit tie-break to source-array index so the column
+ * appearing earlier in `caseListConfig.columns` wins on equal
+ * priority. The tie-break rule binds at every layer (saga /
+ * preview / wire) — see
  * `lib/commcare/suite/case-list/sortKeys.ts::buildSortDirectives`,
  * which the wire emitter binds to the same shape.
  *

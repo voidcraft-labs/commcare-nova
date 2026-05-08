@@ -166,8 +166,8 @@ function calculatedValueToString(value: CalculatedValue | undefined): string {
  *
  * Returns the empty string for any kind whose slot is absent
  * (empty calc map, missing JSONB key, missing reserved scalar).
- * Callers render the empty string as an empty cell, the same shape
- * a row with a never-set property has produced since pre-v2.
+ * Callers render the empty string as an empty cell, the same
+ * shape a row with a never-set property produces.
  */
 export function evaluateColumnValue(
 	column: Column,

@@ -211,10 +211,13 @@ describe("compileRelationPath — ancestor (two hop)", () => {
 	});
 
 	it("applies the tenant filter on every joined `cases` row, not just the leaf", () => {
-		// Risk #1 of the spec depends on tenant scoping being
-		// structurally enforced rather than caller-disciplined.
-		// Two-hop walk = two intermediate `cases` joins; the tenant
-		// filter parameters must appear once per joined `cases` row.
+		// Cross-tenant exposure depends on tenant scoping being
+		// structurally enforced rather than caller-disciplined: a
+		// missing filter on any intermediate `cases` join would let
+		// a relation walk reach a row outside the bound owner's
+		// tenant. Two-hop walk = two intermediate `cases` joins, so
+		// the tenant filter parameters must appear once per joined
+		// `cases` row.
 		const compiled = compileRelationPath(
 			ancestorPath(relationStep("parent"), relationStep("host")),
 			makeCtx(),
