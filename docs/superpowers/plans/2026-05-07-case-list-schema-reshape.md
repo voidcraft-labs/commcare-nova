@@ -492,3 +492,32 @@ Landed at commit `fb31f4b6`. Spec review clean; CR round 1 returned "Approved. S
 **Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (wire emitters, SA tools, UI, preview, scripts, integration tests). Tasks 4-9 bring each surface to green.
 
 **Next:** Reshape Task 4 — Wire emitters.
+
+### Task 4 — Wire emitters — 2026-05-07
+
+Landed across two commits: `c8e3a8c5` (initial reshape) → `5583f335` (doc-only fix — file-header helper-name citation).
+
+**Wire-emitter changes:**
+- `sortKeys.ts` REWRITTEN. New surface: `applicableSortTypes(dataType)` (the table relocated from `lib/domain`), `resolveColumnSortType` (with three explicit `"plain"` fallback shapes for `undefined` / `ANY_TYPE` / unmapped `ResolvedType`), `buildSortDirectives(mod, doc)` returning `ReadonlyMap<Uuid, ResolvedSortDirective>`, `emitSortBlock(directive)` dispatching on `kind: "property" | "calculated"`. Sort comparator: `priority` ascending; explicit tie-break to source-array index (lowest column index wins).
+- `columns.ts` collapsed to one `emitColumnField` dispatcher. Six arms: `plain`, `date`, `phone`, `id-mapping`, `interval` (dispatches on `column.display`), `calculated`. Calculated arm emits CCHQ inline-`<variable name="calculated_property">` template — verified against `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.template`'s `useXpathExpression` branch. The `DisplayedColumn` exclusion type removed; no excluded kind anymore.
+- `shortDetail.ts` filters by `visibleInList ?? true`; threads sort directives.
+- `longDetail.ts` filters by `visibleInDetail ?? true`; passes empty sort map (CCHQ doesn't emit `<sort>` blocks on long detail).
+- `types.ts`: `CaseListEmitContext.sort` removed; `sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>` added.
+- `expander.ts` drops `detailColumns` access entirely; HQ-JSON projection filters by visibility AND excludes calc columns (HQ-JSON has no calc-column slot — only suite XML does).
+- `compiler.ts` threads `doc` through `emitShortDetail` / `emitLongDetail` (calc-column comparator-type derivation needs the case-types context).
+- `nodesetFilter.ts` UNCHANGED (filter slot unchanged).
+- `session.ts` UNCHANGED (filter slot unchanged).
+
+**Three calc-column comparator-type fallback tests** are pinned by three separate `it()` blocks under three separate `describe()` blocks: `undefined` via unresolvable `prop`, `ANY_TYPE` via `term(literal(null))`, unmapped `ResolvedType` via `unwrapList(...)` producing `SEQUENCE_TYPE`.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- lib/commcare` — 856 / 856 green (deterministic two runs).
+- `npx tsc --noEmit` clean for in-scope files.
+- Sweeps clean: zero line-number citations, zero references to deleted slots/kinds (`detailColumns` / `searchOnly` / `sortKey` / `propertySortSource` / `calculatedColumns` / `time-since-until` / `late-flag`), zero stale throw-message patterns.
+
+**Deltas from the planned shape:** none. The `<variable name="calculated_property">` inline-template choice for the calc arm is the verified CCHQ shape, not an interpretation.
+
+**Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (SA tools, UI, preview, scripts, integration tests). Tasks 5-9 bring each surface to green.
+
+**Next:** Reshape Task 5 — SA tools (atomic ops + uuid surfacing).
