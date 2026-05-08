@@ -30,9 +30,11 @@ import { describe, expect, it } from "vitest";
 import {
 	type AdvancedSearchInputDef,
 	advancedSearchInputDef,
+	type CaseSearchConfig,
 	type Column,
 	calculatedColumn,
 	caseListConfigSchema,
+	caseSearchConfigSchema,
 	columnSchema,
 	dateColumn,
 	idMappingColumn,
@@ -815,5 +817,135 @@ describe("caseListConfigSchema — populated round-trip", () => {
 		const parsed = caseListConfigSchema.safeParse(config);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(config);
+	});
+});
+
+describe("caseSearchConfigSchema — claim flow + display labels", () => {
+	it("round-trips a fully-populated config (every slot set)", () => {
+		// Exercises every authored slot: claim condition + already-owned
+		// guard + blacklisted owner ids + the five display labels + the
+		// search-button display condition. The CCHQ-shape leaks the slot
+		// rejects (`defaultFilters` / `customSorts` / `sortByRelevance`)
+		// are not part of the shape — `caseListConfig.filter` and
+		// `caseListConfig.columns[*].sort` are the single sources, and the
+		// wire emitter projects them onto the search-side blocks at
+		// emission.
+		const config: CaseSearchConfig = {
+			claimCondition: { kind: "match-all" },
+			dontClaimAlreadyOwned: true,
+			// `blacklistedOwnerIds` is a `ValueExpression`; the `term` arm
+			// wraps a `Term` (here a string literal) so the AST flows
+			// through the wire emitter as a single value-expression node.
+			blacklistedOwnerIds: {
+				kind: "term",
+				term: { kind: "literal", value: "owner-a owner-b" },
+			},
+			searchScreenTitle: "Search for a patient",
+			searchScreenSubtitle: "Use **fuzzy** match for partial names",
+			emptyListText: "No matching patients",
+			searchButtonLabel: "Search",
+			searchAgainButtonLabel: "Search again",
+			searchButtonDisplayCondition: { kind: "match-all" },
+		};
+		const parsed = caseSearchConfigSchema.safeParse(config);
+		expect(parsed.success).toBe(true);
+		if (parsed.success) expect(parsed.data).toEqual(config);
+	});
+
+	it("round-trips a minimal config (only the required slot set)", () => {
+		// `dontClaimAlreadyOwned` is the only required slot; this is the
+		// shape the UI persists when an author first creates the
+		// caseSearchConfig and hasn't filled in any optional slot.
+		const config: CaseSearchConfig = {
+			dontClaimAlreadyOwned: false,
+		};
+		const parsed = caseSearchConfigSchema.safeParse(config);
+		expect(parsed.success).toBe(true);
+		if (parsed.success) expect(parsed.data).toEqual(config);
+	});
+
+	it("rejects a config missing dontClaimAlreadyOwned", () => {
+		// `dontClaimAlreadyOwned` carries no schema-level default; a
+		// persisted document missing the slot is a parse failure rather
+		// than silently coerced to a default value.
+		const parsed = caseSearchConfigSchema.safeParse({});
+		expect(parsed.success).toBe(false);
+	});
+
+	it("rejects a non-boolean dontClaimAlreadyOwned", () => {
+		const parsed = caseSearchConfigSchema.safeParse({
+			dontClaimAlreadyOwned: "yes",
+		});
+		expect(parsed.success).toBe(false);
+	});
+
+	it("rejects unknown top-level keys (.strict())", () => {
+		// `caseSearchConfigSchema` is `.strict()` — unknown keys reject at
+		// parse rather than strip. The CCHQ-shape leaks the slot
+		// deliberately omits (`defaultFilters` / `customSorts` /
+		// `sortByRelevance`) hit this rejection if a persisted document
+		// or migration path tries to reintroduce them.
+		const parsed = caseSearchConfigSchema.safeParse({
+			dontClaimAlreadyOwned: false,
+			defaultFilters: [{ kind: "match-all" }],
+		});
+		expect(parsed.success).toBe(false);
+	});
+
+	it("admits explicit `undefined` for an optional slot", () => {
+		// Zod's strip-mode parse preserves the key for an explicitly-
+		// passed `undefined` (the typed result still reports
+		// `claimCondition === undefined`); this test pins that the schema
+		// accepts the input shape that an editor reset to "absent" might
+		// produce, rather than rejecting it as a missing required slot.
+		const parsed = caseSearchConfigSchema.safeParse({
+			dontClaimAlreadyOwned: true,
+			claimCondition: undefined,
+		});
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			expect(parsed.data.claimCondition).toBeUndefined();
+		}
+	});
+});
+
+describe("moduleSchema — caseSearchConfig presence", () => {
+	it("parses a module without caseSearchConfig", () => {
+		// Module without the slot — every existing module documents this
+		// absent state, and the schema must accept it cleanly so the slot
+		// stays purely additive.
+		const parsed = moduleSchema.safeParse({
+			uuid: u(1),
+			id: "patients",
+			name: "Patients",
+			caseType: "patient",
+		});
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			const data = parsed.data as Record<string, unknown>;
+			expect(data.caseSearchConfig).toBeUndefined();
+			expect(Object.hasOwn(data, "caseSearchConfig")).toBe(false);
+		}
+	});
+
+	it("parses a module with caseSearchConfig + caseListConfig together", () => {
+		const parsed = moduleSchema.safeParse({
+			uuid: u(1),
+			id: "patients",
+			name: "Patients",
+			caseType: "patient",
+			caseListConfig: { columns: [], searchInputs: [] },
+			caseSearchConfig: {
+				dontClaimAlreadyOwned: false,
+				searchScreenTitle: "Search for a patient",
+			},
+		});
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			expect(parsed.data.caseSearchConfig).toEqual({
+				dontClaimAlreadyOwned: false,
+				searchScreenTitle: "Search for a patient",
+			});
+		}
 	});
 });

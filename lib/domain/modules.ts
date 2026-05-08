@@ -863,6 +863,63 @@ export const caseListConfigSchema = z.object({
 });
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
+// ── CaseSearchConfig ─────────────────────────────────────────────
+//
+// The structured case-search configuration. Carries only the search-
+// only authoring concerns that have no parallel on the case list:
+// the claim flow (claim condition / already-owned guard / blacklisted
+// owner ids) and the search-screen display labels. The two surfaces a
+// caller might expect to see here — display sort and the always-on
+// filter — are deliberately absent: Nova's `caseListConfig` is the
+// single source for both, and the wire emitter projects them onto the
+// search-side blocks at emission time. `searchInputs` is also absent
+// for the same reason — they live on `caseListConfig.searchInputs`
+// and the case-search-config workspace cross-binds against that
+// array.
+//
+// `dontClaimAlreadyOwned` is required at the schema layer; the UI
+// initializes it as `false` when first creating `caseSearchConfig`.
+// Every other slot is optional: the absent shape is the meaningful
+// "user hasn't authored this yet" state, and the wire emitter applies
+// per-slot defaults when the slot is empty.
+//
+// `.strict()` rejects unknown top-level keys at the schema layer.
+// The slot's three CCHQ-shape leaks (`defaultFilters` / `customSorts`
+// / `sortByRelevance`) are not part of the shape; structural
+// rejection makes any persisted document carrying them a parse
+// failure rather than silently dropping the keys at the strip layer.
+
+export const caseSearchConfigSchema = z
+	.object({
+		// Claim flow.
+		// `claimCondition` absent ≡ claim happens unconditionally on case
+		// selection from search results. When present, it gates the claim:
+		// claim fires only if the predicate evaluates true.
+		claimCondition: predicateSchema.optional(),
+		// When true, the wire emits a guard that skips the claim if the
+		// user already owns the case — avoids redundant claim API calls
+		// when a search-results selection re-opens a case the user owns.
+		dontClaimAlreadyOwned: z.boolean(),
+		// Space-separated list of owner IDs whose cases are excluded from
+		// the search-results scope at retrieval time. Wire form:
+		// `<data key="blacklist" ref="..."/>`.
+		blacklistedOwnerIds: valueExpressionSchema.optional(),
+
+		// Display labels for the search screen. The runtime renders the
+		// subtitle through a markdown formatter; the others are plain
+		// text. `searchButtonDisplayCondition` hides the search button
+		// when the predicate evaluates false (used for "search" buttons
+		// that should disappear once the form has executed once).
+		searchScreenTitle: z.string().optional(),
+		searchScreenSubtitle: z.string().optional(),
+		emptyListText: z.string().optional(),
+		searchButtonLabel: z.string().optional(),
+		searchAgainButtonLabel: z.string().optional(),
+		searchButtonDisplayCondition: predicateSchema.optional(),
+	})
+	.strict();
+export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
+
 // ── Module ───────────────────────────────────────────────────────
 
 export const moduleSchema = z.object({
@@ -873,6 +930,7 @@ export const moduleSchema = z.object({
 	caseListOnly: z.boolean().optional(),
 	purpose: z.string().optional(),
 	caseListConfig: caseListConfigSchema.optional(),
+	caseSearchConfig: caseSearchConfigSchema.optional(),
 });
 export type Module = z.infer<typeof moduleSchema>;
 
