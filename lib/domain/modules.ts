@@ -42,10 +42,10 @@ import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
 //
-// Column-level sort (Notion / Linear / Airtable shape): a column
-// optionally carries its own sort direction + priority. The sort
-// runtime applies columns in ascending `priority` order — `priority:
-// 0` is the primary sort, subsequent priorities act as tiebreakers.
+// Column-level sort: a column optionally carries its own sort
+// direction + priority. The sort runtime applies columns in
+// ascending `priority` order — `priority: 0` is the primary sort,
+// subsequent priorities act as tiebreakers.
 //
 // `priority` is a non-negative integer (the schema's `int().min(0)`
 // rejects negatives at parse). Two columns at the same priority
@@ -64,20 +64,10 @@ export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 
 /**
- * Sort comparator types referenced at the wire-emission layer.
- *
- *   - `plain` — lexicographic comparison (the safe default for any
- *     unresolved or text-shaped property).
- *   - `date` — calendar comparison; ISO 8601 strings are also
- *     order-preserving under lexicographic sort.
- *   - `integer` / `decimal` — numeric comparison; the runtime casts
- *     stored values through the corresponding numeric type.
- *
- * The enum stays exported from `lib/domain` because the wire-
- * emission layer at `lib/commcare/suite/case-list/sortKeys.ts`
- * binds against it. The data-type → SortType mapping table moves
- * with the wire emitter (it's a wire-emission concern; authoring
- * never needs to author a type).
+ * Sort comparator types — `plain` (lexicographic) / `date`
+ * (calendar) / `integer` / `decimal` (numeric). Wire emitters
+ * select the comparator from a column's resolved data type;
+ * authoring never names one directly.
  */
 export const SORT_TYPES = ["plain", "date", "integer", "decimal"] as const;
 export type SortType = (typeof SORT_TYPES)[number];
@@ -96,7 +86,7 @@ export const columnSortSchema = z.object({
 });
 export type ColumnSort = z.infer<typeof columnSortSchema>;
 
-// ── Time-since-until shared enum ─────────────────────────────────
+// ── Interval-column units ────────────────────────────────────────
 
 /**
  * Interval-column unit set. Single source of truth for both the
@@ -113,19 +103,15 @@ export type TimeSinceUnit = (typeof TIME_SINCE_UNITS)[number];
 /**
  * Display dispatch for `interval` columns:
  *
- *   - `"interval"` — always show the relative interval (e.g. "3
+ *   - `"always"` — always show the relative interval (e.g. "3
  *     days ago"). The threshold + unit drive an "is this overdue?"
  *     decision the runtime can surface in the cell.
  *   - `"flag"` — only show `text` when the threshold is exceeded;
  *     otherwise the cell is empty. Used for "overdue" / "follow-up
  *     needed" signal columns where the absence-of-flag is itself
  *     the typical state.
- *
- * The single `interval` kind dispatches on this slot — both
- * variants share the same `(threshold, unit)` mechanics; only the
- * cell render differs.
  */
-export const INTERVAL_DISPLAYS = ["interval", "flag"] as const;
+export const INTERVAL_DISPLAYS = ["always", "flag"] as const;
 export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
 
 // ── Common column-slot helpers ───────────────────────────────────
@@ -222,7 +208,7 @@ const idMappingColumnSchema = columnBase.extend({
  * property's date value. The `display` slot dispatches the cell
  * shape:
  *
- *   - `"interval"` — always show the relative interval (e.g. "3
+ *   - `"always"` — always show the relative interval (e.g. "3
  *     days ago"). `text` is the runtime label that decorates
  *     "overdue" cells when the threshold is exceeded.
  *   - `"flag"` — only show `text` when the threshold is exceeded;
@@ -301,21 +287,18 @@ export interface ColumnCommonSlots {
 	readonly visibleInDetail?: boolean;
 }
 
-/**
- * Spreads the common optional slots onto a column object only when
- * present. Avoids leaking `key: undefined` shapes that would fail
- * `toEqual` round-trip assertions. The internal write-target is
- * typed as a mutable mirror of `ColumnCommonSlots` (the interface's
- * `readonly` modifiers are part of the consumer-facing surface; the
- * builder owns construction and writes through a mutable view
- * before returning the readonly-typed result).
- */
+/** Mutable mirror of `ColumnCommonSlots` for builder-internal writes. */
 type WritableColumnCommonSlots = {
 	sort?: ColumnSort;
 	visibleInList?: boolean;
 	visibleInDetail?: boolean;
 };
 
+/**
+ * Spreads the common optional slots onto a column object only when
+ * present. Avoids leaking `key: undefined` shapes that would fail
+ * `toEqual` round-trip assertions.
+ */
 function withCommonSlots<T extends Record<string, unknown>>(
 	base: T,
 	slots: ColumnCommonSlots,
@@ -418,7 +401,7 @@ export function idMappingEntry(value: string, label: string): IdMappingEntry {
  * Constructs an interval column. `display` selects between the two
  * cell shapes:
  *
- *   - `"interval"` — always show the relative interval; `text`
+ *   - `"always"` — always show the relative interval; `text`
  *     decorates the cell when the threshold is exceeded.
  *   - `"flag"` — only show `text` when the threshold is exceeded;
  *     otherwise empty cell.
@@ -534,8 +517,7 @@ const searchInputModeSchema = z.discriminatedUnion("kind", [
 ]);
 export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 
-// Common slots present on every SearchInputDef arm. Shared via an
-// object so the discriminated arms below extend one base.
+// Common slots present on every SearchInputDef arm.
 const searchInputCommon = z.object({
 	uuid: uuidSchema,
 	name: z.string(),
@@ -655,7 +637,14 @@ export function multiSelectContainsMode(
 // The builder treats both as omit so a saved doc that omitted the
 // slot round-trips equal to a freshly-built one.
 
-interface SimpleSearchInputSlots {
+/** Shared optional slot — both SearchInputDef arms accept a
+ *  `default` value expression that seeds the input's initial state
+ *  (e.g. `today()` for date-typed inputs). */
+interface SearchInputCommonSlots {
+	readonly default?: ValueExpression;
+}
+
+interface SimpleSearchInputSlots extends SearchInputCommonSlots {
 	/** Optional relation walk to a destination case type. `selfPath()`
 	 *  is structurally equivalent to absent and the builder omits the
 	 *  key in that case. */
@@ -664,15 +653,41 @@ interface SimpleSearchInputSlots {
 	 *  picks the per-`type` default (text → exact, date-range → range,
 	 *  etc.). */
 	readonly mode?: SearchInputMode;
-	/** Optional default-value expression seeded into the input's
-	 *  initial state (e.g. `today()` for date-typed inputs). */
-	readonly default?: ValueExpression;
 }
 
-interface AdvancedSearchInputSlots {
-	/** Optional default-value expression seeded into the input's
-	 *  initial state. */
-	readonly default?: ValueExpression;
+/**
+ * Spreads the shared `default` slot onto a search-input object only
+ * when present — mirrors `withCommonSlots` for columns. Avoids
+ * leaking `default: undefined` shapes that would fail `toEqual`
+ * round-trip assertions.
+ */
+function withSearchInputCommonSlots<T extends Record<string, unknown>>(
+	base: T,
+	slots: SearchInputCommonSlots,
+): T & SearchInputCommonSlots {
+	const out: T & { default?: ValueExpression } = { ...base };
+	if (slots.default !== undefined) out.default = slots.default;
+	return out;
+}
+
+/**
+ * Spreads the simple-arm-only optional slots (`via`, `mode`) onto a
+ * simple search-input object only when present, with the `via.kind
+ * === "self"` carve-out: `selfPath()` is the schema's canonical
+ * "no walk" shape and `via: undefined` is structurally equivalent —
+ * both are omitted so a saved doc that omitted the slot round-trips
+ * equal to a freshly-built one.
+ */
+function withSimpleSearchInputSlots<T extends Record<string, unknown>>(
+	base: T,
+	slots: Pick<SimpleSearchInputSlots, "via" | "mode">,
+): T & Pick<SimpleSearchInputSlots, "via" | "mode"> {
+	const out: T & { via?: RelationPath; mode?: SearchInputMode } = { ...base };
+	if (slots.via !== undefined && slots.via.kind !== "self") {
+		out.via = slots.via;
+	}
+	if (slots.mode !== undefined) out.mode = slots.mode;
+	return out;
 }
 
 /**
@@ -694,27 +709,18 @@ export function simpleSearchInputDef(
 	property: string,
 	slots: SimpleSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const out: SimpleSearchInputDef = {
-		uuid,
-		kind: "simple",
-		name,
-		label,
-		type,
-		property,
-	};
-	if (slots.via !== undefined && slots.via.kind !== "self") {
-		out.via = slots.via;
-	}
-	if (slots.mode !== undefined) out.mode = slots.mode;
-	if (slots.default !== undefined) out.default = slots.default;
-	return out;
+	const base = withSearchInputCommonSlots(
+		{ uuid, kind: "simple" as const, name, label, type, property },
+		slots,
+	);
+	return withSimpleSearchInputSlots(base, slots);
 }
 
 /**
  * Constructs an advanced search input. The `predicate` body
  * replaces the simple-arm `(property, mode, via)` derivation; the
- * wire layer emits the predicate verbatim. Optional `default`
- * seeds the input's initial value.
+ * wire layer emits the predicate verbatim. The optional `default`
+ * slot seeds the input's initial value and is omitted when absent.
  */
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -722,18 +728,12 @@ export function advancedSearchInputDef(
 	label: string,
 	type: SearchInputType,
 	predicate: Predicate,
-	slots: AdvancedSearchInputSlots = {},
+	slots: SearchInputCommonSlots = {},
 ): AdvancedSearchInputDef {
-	const out: AdvancedSearchInputDef = {
-		uuid,
-		kind: "advanced",
-		name,
-		label,
-		type,
-		predicate,
-	};
-	if (slots.default !== undefined) out.default = slots.default;
-	return out;
+	return withSearchInputCommonSlots(
+		{ uuid, kind: "advanced" as const, name, label, type, predicate },
+		slots,
+	);
 }
 
 // ── Per-type / per-mode applicability ─────────────────────────────

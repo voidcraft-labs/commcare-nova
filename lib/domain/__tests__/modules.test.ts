@@ -14,7 +14,7 @@
 //   2. Every column kind round-trips through `safeParse` with a
 //      `uuid` and the per-kind required slots (the calculated arm
 //      has no `field` slot — the expression is the source).
-//   3. The `interval` kind preserves `display: "interval"` AND
+//   3. The `interval` kind preserves `display: "always"` AND
 //      `display: "flag"` arms.
 //   4. `Column.sort` round-trips with direction + priority.
 //   5. Visibility flags (`visibleInList`, `visibleInDetail`) round-
@@ -174,7 +174,7 @@ describe("columnSchema — six discriminated arms", () => {
 				header: "Last visit",
 				threshold: 7,
 				unit: "days",
-				display: "interval",
+				display: "always",
 				text: "Overdue",
 			},
 			{
@@ -193,20 +193,20 @@ describe("columnSchema — six discriminated arms", () => {
 		}
 	});
 
-	it("preserves both interval-display arms (interval + flag)", () => {
-		const intervalArm = columnSchema.safeParse({
+	it("preserves both interval-display arms (always + flag)", () => {
+		const alwaysArm = columnSchema.safeParse({
 			uuid: u(1),
 			kind: "interval",
 			field: "last_visit",
 			header: "Last visit",
 			threshold: 7,
 			unit: "days",
-			display: "interval",
+			display: "always",
 			text: "Overdue",
 		});
-		expect(intervalArm.success).toBe(true);
-		if (intervalArm.success && intervalArm.data.kind === "interval") {
-			expect(intervalArm.data.display).toBe("interval");
+		expect(alwaysArm.success).toBe(true);
+		if (alwaysArm.success && alwaysArm.data.kind === "interval") {
+			expect(alwaysArm.data.display).toBe("always");
 		}
 
 		const flagArm = columnSchema.safeParse({
@@ -526,13 +526,13 @@ describe("Column builders — helper construction", () => {
 	});
 
 	it("intervalColumn → schema round-trip on both display arms", () => {
-		const intervalArm = intervalColumn(
+		const alwaysArm = intervalColumn(
 			u(1),
 			"last_visit",
 			"Last visit",
 			7,
 			"days",
-			"interval",
+			"always",
 			"Overdue",
 		);
 		const flagArm = intervalColumn(
@@ -544,12 +544,11 @@ describe("Column builders — helper construction", () => {
 			"flag",
 			"OVERDUE",
 		);
-		const parsedInterval = columnSchema.safeParse(intervalArm);
+		const parsedAlways = columnSchema.safeParse(alwaysArm);
 		const parsedFlag = columnSchema.safeParse(flagArm);
-		expect(parsedInterval.success).toBe(true);
+		expect(parsedAlways.success).toBe(true);
 		expect(parsedFlag.success).toBe(true);
-		if (parsedInterval.success)
-			expect(parsedInterval.data).toEqual(intervalArm);
+		if (parsedAlways.success) expect(parsedAlways.data).toEqual(alwaysArm);
 		if (parsedFlag.success) expect(parsedFlag.data).toEqual(flagArm);
 	});
 
