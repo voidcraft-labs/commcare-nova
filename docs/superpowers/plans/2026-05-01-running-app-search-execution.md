@@ -59,8 +59,8 @@ export interface SearchInputValues {
   readonly values: ReadonlyMap<string, string>;
 }
 
-// Compose default-filter + per-input runtime contributions into one Predicate
-// that flows to store.query(...). Per-arm dispatch:
+// Compose per-input runtime contributions into one Predicate that flows to
+// store.query(...). Per-arm dispatch:
 //
 //   - kind: "simple" — value flows through (property, mode, via) into a per-mode
 //     comparison (eq / fuzzy / starts-with / etc.) AND'd into the composed result.
@@ -69,15 +69,18 @@ export interface SearchInputValues {
 //
 // Empty values short-circuit per the search-input default-mode contract — an
 // input whose value is "" contributes no predicate clause (per-mode behavior
-// follows the wire-emission contract Plan 4 Task 12 ships).
+// follows the wire-emission contract Plan 4 Task 10 ships).
+//
+// `caseListConfig.filter` is the unified case-list-and-search filter — it
+// composes in at the helper layer (`readCases`), not here. This function
+// adds only the per-input runtime contributions on top of the unified filter.
 export function composeRuntimeFilter(
-  defaultFilters: Predicate | undefined,
   searchInputs: ReadonlyArray<SearchInputDef>,
   inputValues: SearchInputValues,
 ): Predicate;
 ```
 
-`composeRuntimeFilter` returns a single Predicate that the case-list screen passes to `readCases` / `readCaseListPreview` as the `predicate` slot. The case-list's own `caseListConfig.filter` is composed in by the helper layer; this function adds the search-config layer (default filters + per-input contributions) on top.
+`composeRuntimeFilter` returns a single Predicate carrying just the per-input runtime contributions. The case-list screen passes the composed result through `readCases` / `readCaseListPreview`, where the helper layer AND-composes it with `caseListConfig.filter` before the predicate flows to `store.query(...)`. The unified filter is the single source for both case-list and search filtering — Plan 4's reshape eliminated the separate `caseSearchConfig.defaultFilters` slot.
 
 Tests: simple-arm `(property, mode, via)` mapping per mode (exact / fuzzy / starts-with / phonetic / fuzzy-date / range / multi-select-contains); advanced-arm `input(name)` term substitution; empty-value short-circuit per input.
 
@@ -85,7 +88,7 @@ Tests: simple-arm `(property, mode, via)` mapping per mode (exact / fuzzy / star
 
 **Files:** `lib/preview/engine/caseDataBindingHelpers.ts` (EDIT), tests.
 
-`readCases` currently takes `caseListConfig?: CaseListConfig` and threads `config?.filter` into `store.query(...)`. Extend it to accept `inputValues?: SearchInputValues`. When supplied, the helper composes `composeRuntimeFilter(caseSearchConfig.defaultFilters, caseListConfig.searchInputs, inputValues)` (or similar — verify the exact arg shape during implementation; the helper may need `caseSearchConfig` threaded in for the default filters) and AND's the result into the predicate that flows to `store.query(...)`.
+`readCases` currently takes `caseListConfig?: CaseListConfig` and threads `config?.filter` into `store.query(...)`. Extend it to accept `inputValues?: SearchInputValues`. When supplied, the helper composes `composeRuntimeFilter(caseListConfig.searchInputs, inputValues)` and AND's the result with `caseListConfig.filter` to produce the predicate that flows to `store.query(...)`. The unified filter slot is the single source for both case-list and search filtering — there is no separate "search default filter" parameter.
 
 The Server Action `loadCasesAction` accepts the typed values from the running-app surface, projects them through `pickBlueprintDoc` + `buildCaseTypeMap` (the post-pattern-A-fix shape), and forwards.
 
@@ -116,7 +119,7 @@ Tests: each `type` renders the right widget; debounced onChange fires per typed 
 
 **Files:** `components/preview/screens/CaseListScreen.tsx` (EDIT), tests.
 
-When the module's `caseListConfig.searchInputs.length > 0` AND the module has no `caseSearchConfig` (or has one that doesn't escalate to split-screen per Plan 4 Task 8's decision tree), render `<SearchInputForm />` at the top of the list. The form's onChange updates the screen's state; the screen re-runs the case-list query with the new runtime-bound predicate (debounced).
+When the module's `caseListConfig.searchInputs.length > 0` AND the module has no `caseSearchConfig` (or has one whose platform compilation does not escalate to split-screen per Plan 4 Task 6's decision tree), render `<SearchInputForm />` at the top of the list. The form's onChange updates the screen's state; the screen re-runs the case-list query with the new runtime-bound predicate (debounced).
 
 When the module has `caseSearchConfig` AND the platform compilation says split-screen, the screen escalates to `<SplitScreenSearchScreen />` (Task 5) instead of the inline filter bar.
 
@@ -128,15 +131,14 @@ Tests: inline filter bar renders when `searchInputs.length > 0` and no split-scr
 
 **Files:** `components/preview/screens/SplitScreenSearchScreen.tsx` (NEW), tests.
 
-When the module has `caseSearchConfig` AND `caseListConfig.searchInputs` (or `caseSearchConfig.defaultFilters` is non-empty), render the split-screen layout: filters in a left sidebar, results in the main panel. The sidebar mounts:
+When the module has `caseSearchConfig` AND `caseListConfig.searchInputs.length > 0`, AND Plan 4 Task 6's decision tree returns `splitScreen: true`, render the split-screen layout: filters in a left sidebar, results in the main panel. The sidebar mounts:
 - `<SearchInputForm />` (Task 3) for the inputs.
-- A collapsed read-only summary card for `caseSearchConfig.defaultFilters` ("4 default filters always apply" with an expand affordance to view; not editable from the running-app surface).
 
-The main panel renders the case-list rows (the same rendering CaseListScreen produces) against the runtime-bound predicate. Typing in the sidebar re-runs the query (debounced).
+The main panel renders the case-list rows (the same rendering CaseListScreen produces) against the runtime-bound predicate (the unified `caseListConfig.filter` AND the per-input contributions; the case-list filter is the same one the local case-list applies — there is no separate "default search filter" surfaced here).
 
 `@base-ui/react` provides the split-screen layout primitive (verify the canonical Base UI component during implementation; may use `@base-ui/react/dialog`'s split layout pattern or a plain CSS grid).
 
-Tests: typing filters results; clearing inputs reverts to default-filter-only results; collapsed default-filter card expands on click.
+Tests: typing filters results; clearing inputs reverts to filter-only results (the unified `caseListConfig.filter` still applies); split-screen renders only when Plan 4 Task 6's decision tree says so.
 
 ### Task 6: Form running-app write-through wiring
 
@@ -175,11 +177,11 @@ Tests: each button triggers the corresponding action; rendering reflects the reg
   - `screen.kind === "cases"` → render `<CaseListScreen />` (which itself escalates to `<SplitScreenSearchScreen />` per Task 5).
   - `screen.kind === "form"` → render `<FormScreen />`.
 - `components/preview/__tests__/PreviewSurface.test.tsx` (NEW).
-- `components/preview/PreviewShell.tsx` (EDIT) — live-mode dispatcher mounts `<PreviewSurface screen={screen} />` instead of the bare screen-specific component. Edit-mode dispatcher unchanged (`CaseListWorkspace` for cases, `CaseSearchConfigPanel` for search-config per Plan 4 Task 14, etc.).
+- `components/preview/PreviewShell.tsx` (EDIT) — live-mode dispatcher mounts `<PreviewSurface screen={screen} />` instead of the bare screen-specific component. Edit-mode dispatcher unchanged (`CaseListWorkspace` for cases, `CaseSearchConfigPanel` for search-config per Plan 4 Task 12, etc.).
 
 **Mount site (locked):** `PreviewSurface` mounts inside `PreviewShell` for live-mode arms. The URL schema is unchanged — the dispatcher target changes from `<CaseListScreen />` → `<PreviewSurface screen={screen} />`. After Plan 5 ships, the routing is:
 - Edit + `kind === "cases"` → `CaseListWorkspace` (Plan 3 surface, authoring).
-- Edit + `kind === "search-config"` → `CaseSearchConfigPanel` (Plan 4 surface, authoring).
+- Edit + `kind === "search-config"` → `CaseSearchConfigPanel` (Plan 4 Task 12 surface, authoring).
 - Live + `kind === "cases"` or `kind === "form"` → `PreviewSurface` (Plan 5 surface, running-app).
 
 `PreviewSurface` keeps the live-mode rendering composable: any future shared affordance (a "running app help" panel, a session inspector, etc.) lands in `PreviewSurface` once and surfaces everywhere live-mode renders.
@@ -191,13 +193,13 @@ Tests: each button triggers the corresponding action; rendering reflects the reg
 **Files:** `__tests__/integration/case-list-search-running-app.test.ts` (NEW).
 
 End-to-end against the testcontainer harness:
-- Build a fixture blueprint with full `caseListConfig` (columns + sort + searchInputs) + `caseSearchConfig` (default filters + claim + display).
+- Build a fixture blueprint with full `caseListConfig` (columns + sort + filter + searchInputs) + `caseSearchConfig` (claim + display).
 - Mount `<PreviewSurface />` against the fixture (use React Testing Library's `render` against a test-wrapped `PreviewShell`).
 - Verify the rendering matches the web-apps split-screen-with-inline-filter shape.
 - Type values into the search inputs; assert the filtered list re-renders via the runtime-bindings layer.
 - Submit a registration form via the running-app surface; assert the case persists through subsequent `CaseStore.query(...)` calls against the live Cloud SQL Postgres `cases` rows.
 - Reset sample data; assert the case-list re-queries to the regenerated rows.
-- Cover all four `WireShape` arms from Plan 4 Task 8 implicitly (the running-app surface always renders the web-apps split-screen shape regardless of platform compilation; the integration test verifies the rendering doesn't accidentally branch on platform context).
+- Cover all four `WireShape` arms from Plan 4 Task 6 implicitly (the running-app surface always renders the web-apps split-screen shape regardless of platform compilation; the integration test verifies the rendering doesn't accidentally branch on platform context).
 
 ---
 
@@ -207,7 +209,7 @@ End-to-end against the testcontainer harness:
 - 2 depends on 1 + Plan 2's `CaseStore.query(...)` shape (post-pattern-A-fix `caseTypeSchemas` parameter).
 - 3 depends on 1 + the v2 `SearchInputDef` discriminated union.
 - 4 depends on 2 + 3 + Plan 3's reshape Task 7 (the v2 `CaseListScreen` foundation).
-- 5 depends on 3 + 4 + Plan 4 Task 8 (the platform-aware decision tree).
+- 5 depends on 3 + 4 + Plan 4 Task 6 (the platform-aware decision tree).
 - 6 depends on 2 + Plan 2's `CaseStore` write methods + the form engine's `computeSubmissionMutation`.
 - 7 depends on Plan 2's `generateSampleData` / `resetSampleData` actions.
 - 8 depends on 4, 5, 6, 7 + Plan 3 reshape Task 7 (the live-mode dispatch pattern).

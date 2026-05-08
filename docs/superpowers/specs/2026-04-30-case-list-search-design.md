@@ -15,7 +15,7 @@ The work splits into three coordinated layers that ship together:
 
 1. **Foundation** — typed Predicate AST + typed Expression AST, schema-driven type checker, JSON Schema generator, three wire emitters (one per dialect), Postgres compiler.
 2. **Case list config** — columns, filters, sorts, calculated columns. Full builder UI.
-3. **Search config** — search inputs, default filters, claim flow, platform-aware compilation.
+3. **Search config** — claim flow, display labels, platform-aware compilation. Search inputs and the search default filter live on `caseListConfig` (one source for both case-list and search) — `caseSearchConfig` carries only the search-specific authoring concerns that have no case-list parallel.
 
 These ship together because the foundation gates both. Shipping case list filters and search filters with different expression dialects would re-create the cross-surface footguns CommCare has lived with for a decade.
 
@@ -420,7 +420,7 @@ The Predicate and Expression ASTs are persisted in Firestore alongside the bluep
 
 CommCare exposes four workflow modes (Normal / Search First / See More / Skip to Default Results) controlled by two orthogonal booleans on the wire (`auto_launch`, `default_search`). The booleans only meaningfully affect Web Apps; Android always shows the case list first regardless. The four modes are CCHQ's compromise between two backends and 25 years of accumulated UX choices; they are not a primitive Nova authoring should reproduce.
 
-Nova does not expose workflow modes to the author. There is no mode picker, no escape hatch, no toggle. The author configures one coherent surface (case list with optional filters, sorts, columns, search inputs, and default filters); the export adapter compiles per-platform from the configured content.
+Nova does not expose workflow modes to the author. There is no mode picker, no escape hatch, no toggle. The author configures one coherent surface (case list with optional filter, columns + per-column sort, and search inputs; plus an optional case-search config carrying claim flow + display labels); the export adapter compiles per-platform from the configured content. The case-list filter and the search default filter share one source by construction; the case-list display sort projects identically onto both wire detail blocks.
 
 **The principle:** Nova owns the authoring layer; the export layer translates to CCHQ's wire shape. CCHQ's mode picker is a CCHQ authoring-UX problem — solving it correctly there is CCHQ's job. Importing the picker into Nova replicates the underlying confusion. If a Nova-authored app produces a different (sometimes worse) UX on Web Apps than a hand-authored CCHQ app would, that's a CCHQ-side UX cost we accept rather than degrade Nova's authoring experience to match.
 
@@ -433,7 +433,7 @@ Nova does not expose workflow modes to the author. There is no mode picker, no e
 - **Web** — compilation depends on what the author configured AND deploy capability:
   - On deploys with `SPLIT_SCREEN_CASE_SEARCH` enabled, emits the modern split-screen UX (filters in sidebar, results in main panel). This is the preferred target.
   - On deploys without split-screen, emits as a normal list-first module (`auto_launch=false, default_search=false`) regardless of whether search inputs are configured. The user sees their local case list first; if they need to search, they hit the search button. This is more user-respectful than search-first because it does not force a user to fill a search form before learning whether they have any local cases at all.
-  - Skip-to-results (`auto_launch=true, default_search=true`) is emitted only when the author has configured default filters AND zero search inputs (signaling intent: "show default-filtered results immediately; the user has no inputs to type"). This is content-derived, not author-toggled.
+  - Skip-to-results (`auto_launch=true, default_search=true`) is emitted only when the author has configured `caseListConfig.filter` AND zero search inputs (signaling intent: "show filtered results immediately; the user has no inputs to type"). This is content-derived, not author-toggled.
 
 The author never makes a per-platform decision. The compiler picks the closest CCHQ-supported emission from configured content. Per-platform divergence is surfaced visually in the Platform Divergence Panel (Plan 4) — authors see at edit time what their app will look like on each platform.
 
@@ -492,8 +492,8 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 - Case list sort (multi-key; per-column `sort: { direction, priority }`; comparator types Plain / Date / Integer / Decimal derived at wire emission from each column's data type or calculated expression's result type)
 - Case detail long-detail columns over the same six kinds, filtered by `visibleInDetail`
 - Search inputs over both arms: `kind: "simple"` (property + mode + via) and `kind: "advanced"` (free-form predicate); widget types text / select / date / date-range / barcode
-- Default search filters (Predicate AST → CSQL)
-- Custom sort properties (incl. `commcare_search_score` as a separate "sort by relevance" toggle, not an AST term)
+- Search default filter — `caseListConfig.filter` (the unified Predicate AST) projects onto the search side at wire emission as `<data key="_xpath_query">` (CSQL). No separate authoring slot for "search-only filter"; the case-list filter and search default filter share one source by construction. Multiple CSQL contributions (the unified filter + every advanced-arm `searchInputs[i].predicate`) AND-compose into one `<data key="_xpath_query">` element.
+- Search-results display sort — `caseListConfig.columns[*].sort` (the unified column-mounted sort) projects onto BOTH the case-list `<detail id="m{N}_case_short">` and the search-results `<detail id="m{N}_search_short">` as identical `<sort>` blocks. No separate "custom sort properties" authoring slot; "from the user's perspective there is only one case list" is the structural principle. Nova never emits the `<data key="commcare_sort">` ES retrieval-sort override; ES default `_score` ranking is in effect for fuzzy / phonetic / starts-with match results, ensuring those queries surface their best matches in the 500-result cap regardless of display sort.
 - Search screen title, subtitle, empty-list text
 - Claim condition (Predicate AST) + `dont_claim_already_owned` toggle
 - Workflow handling (per "open question" above)
@@ -524,7 +524,7 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 - Filter / sort / calculated-column ASTs type-check against the case-type schema.
 - Search input case-property references must resolve.
 - Field-kind-vs-property-type mismatch — writers to a typed property must match the declared `data_type`. Multiple writers to the same property must agree on type.
-- "Same property in both default filter and search inputs" config error (cache file line 180).
+- "Same property in both `caseListConfig.filter` and a simple-arm `caseListConfig.searchInputs[i].property`" config error — fires only when `caseSearchConfig` is present (i.e., the module emits a `<remote-request>`). Both contributions AND-compose into one `<data key="_xpath_query">`; CCHQ's runtime treats the duplicate-property case as a config error.
 
 ## Migration
 
@@ -550,8 +550,8 @@ The Zod schema in code only has the new shape from day one of the spec landing. 
 Each gate below is a concrete blocking check that must pass before the corresponding plan task is marked complete. Each gate names the task that owns it and the action the task takes if the gate fails.
 
 - **Cloud SQL extension allowlist for `pg_trgm`, `fuzzystrmatch`, `postgis`.** Owned by Plan 2 Task 2. The task runs `gcloud sql instances describe ... --format='value(databaseFlags)'` against the provisioned instance and queries Postgres `pg_available_extensions` for the three extensions the case-store compilers depend on. All three are on Cloud SQL's documented allowlist as of the current PG 18 default; the gate is a structural check that the provisioned instance hasn't been configured to disable any of them. If any is missing, the corresponding search modes / operators are unauthorable until the instance is re-provisioned with the extension enabled.
-- **CommCare wire-level resolution of `auto_launch=true`.** Owned by Plan 4 Task 9. Before locking emission code, the task reads `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py` and confirms how `auto_launch` propagates to the suite XML for both case-search and callout contexts (different semantics).
-- **`inline_search` real wire behavior.** Owned by Plan 4 Task 9. Read `commcare-hq` source for the `inline_search` flag's effect on `instance('results')` vs `instance('results:inline')` before emitting the search-input refs.
+- **CommCare wire-level resolution of `auto_launch=true`.** Owned by Plan 4 Task 6 (`compileForPlatform`'s decision tree picks the `autoLaunch` value) and Task 8 (`<remote-request>` orchestrator emits the corresponding wire shape — recall `auto_launch` lives on the `<action>` element inside `m{N}_case_short`, NOT on `<query>`, per `commcare-hq/.../tests/data/suite/search_command_detail.xml::detail/action[@auto_launch]`). Before locking emission code, the implementer reads `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py` and confirms semantics for both case-search and callout contexts.
+- **`inline_search` real wire behavior.** Owned by Plan 4 Task 6 (decision tree) + Task 8 (`<remote-request>` emission). Reads `commcare-hq` source for the `inline_search` flag's effect on `instance('results')` vs `instance('results:inline')` before emitting the `<datum nodeset>` reference. Cite by stable name (no line numbers).
 - **`case_indices` materialization policy.** Owned by Plan 2 Task 4 (`PostgresCaseStore`'s `caseIndices.ts`). Start with Option B (direct edges only); profile after V1 ships using `EXPLAIN ANALYZE` against representative datasets; switch to Option A if the per-hop chain-of-joins cost dominates. Both options are within the same architectural commitment; the task ships with Option B. (Plan 1 Task C5 emits a chain-of-joins from the relation-path AST against whatever Plan 2 materializes — `depth = 1` on every hop keeps the SQL materialization-agnostic; the compiler does not own the materialization policy itself.)
 - **Existing apps that have columns referencing non-existent case properties.** Owned by Plan 3 Task 15. The migration script's dry-run mode reports references that don't resolve; review before running live.
 
@@ -580,7 +580,7 @@ This is foundational work that ships across five separately-reviewable, separate
 - **Plan 1 (Foundation):** Predicate AST + Expression AST + type checker + JSON Schema generator + three wire emitters + Postgres compiler + testcontainers infra.
 - **Plan 2 (Case data layer):** Cloud SQL provisioning + `PostgresCaseStore` (the only implementation) + `HeuristicCaseGenerator` + per-user `(app_id, owner_id)` isolation + extension allowlist gate. No in-memory variant; testcontainers covers test isolation.
 - **Plan 3 (Case list authoring):** Module schema + migration script + case-list config UI + SA tools + validator + wire emission for short/long detail.
-- **Plan 4 (Search authoring):** Module schema for search + search config UI + SA tools + platform-aware compilation + wire emission for `<remote-request>` + claim.
+- **Plan 4 (Search authoring):** Module schema for `caseSearchConfig` (claim + display only — filter and sort reuse `caseListConfig`) + case-search-config workspace UI + 2 wholesale SA tools + platform-aware compilation + wire emission for `<remote-request>` + claim + dual-detail block emission (`m{N}_search_short` / `m{N}_search_long` carrying identical content to the case-list detail blocks).
 - **Plan 5 (Running-app search execution):** Running-app surface (the flipbook's "using" view) + split-screen search + inline filter + form write-through. There is no separate preview lifecycle; the running-app view operates on the same `cases` rows the editor inspects.
 
 The v1 of this spec made an effort estimate that was off by ~5x for Plan 1 alone. The v2 estimates were no more reliable — agentic execution velocity and the iteration tightness of typed-AST work both make conventional day-counts misleading. Effort estimates are removed from this spec and from all five plans.
