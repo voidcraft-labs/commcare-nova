@@ -1,8 +1,9 @@
 // components/builder/case-list-config/primitives/BlurCommitTextInput.tsx
 //
-// Shared blur-commit text input. The canonical draft / commit
-// handshake used by every text slot in the case-list-config
-// editor:
+// Canonical blur-commit text primitive used by every text slot in
+// the case-list-config editor — column header inputs, id-mapping
+// table cells, interval `text` labels, search-input name + label
+// rows. The draft / commit handshake:
 //
 //   - Local `draft` state holds the in-flight edit so peer
 //     re-renders (parent's onChange propagating elsewhere, sibling
@@ -18,12 +19,10 @@
 //   - The no-op gate (`draft === value`) suppresses redundant
 //     emits on focus / blur pulses without typing.
 //
-// One primitive replaces three near-duplicates that were
-// drifting in lockstep — column-card header inputs,
-// id-mapping table cells, time-since/late-flag display labels.
 // `monospace` adds the `font-mono` class for code-shaped values
-// (id-mapping value cells, mapping codes); the chrome / padding
-// / focus ring stay identical between modes.
+// (id-mapping value cells, search-input names); the chrome /
+// padding / focus ring stay identical between modes so a polish
+// pass to the visual style lands in one place.
 
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";

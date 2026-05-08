@@ -62,7 +62,7 @@ export const addSearchInputTool = {
 
 			const uuid = newUuid();
 			const stamped = stampSearchInputUuid(searchInput, uuid);
-			const result = addSearchInputMutation(doc, moduleUuid, stamped);
+			const result = addSearchInputMutation(mod, stamped);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,

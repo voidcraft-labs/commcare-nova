@@ -1,18 +1,17 @@
 // components/builder/case-list-config/cards/column/IntervalThresholdRow.tsx
 //
-// Shared "threshold × unit" pair used by both `time-since-until`
-// and `late-flag` columns. The two kinds share the same
-// (threshold: number, unit: TimeSinceUnit) shape — pulling the row
-// out keeps both cards' bodies focused on the per-kind labels and
-// extras (Time-Since's `displayLabel`, Late Flag's
-// `flagDisplayValue`) rather than re-implementing the same
-// dropdown-plus-numeric-input pair twice.
+// Shared `(threshold, unit)` editor row for `interval` columns. The
+// numeric threshold input + unit dropdown live here so the card
+// body (`IntervalCard`) focuses on the per-display extras — the
+// `display` segmented toggle and the `text` slot whose label flips
+// between "decoration" and "flag text" — rather than re-implementing
+// the threshold-plus-unit pair inline.
 //
 // `TimeSinceUnit` is a closed enum (`days` / `weeks` / `months` /
-// `years`) declared on `lib/domain/modules.ts`; the dropdown
-// reads from its source-of-truth tuple. The numeric input
-// commits on blur with the same draft / commit pattern as
-// `LiteralValueInput`'s `NumericInput`.
+// `years`) declared on `lib/domain/modules.ts`; the dropdown reads
+// from its source-of-truth tuple. The numeric input commits on blur
+// with the same draft / commit pattern as `LiteralValueInput`'s
+// `NumericInput`.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";

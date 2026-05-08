@@ -64,11 +64,7 @@ export const reorderSearchInputsTool = {
 			const mod = doc.modules[moduleUuid];
 			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
 
-			const result = reorderSearchInputsMutation(
-				doc,
-				moduleUuid,
-				searchInputUuids,
-			);
+			const result = reorderSearchInputsMutation(mod, searchInputUuids);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,

@@ -61,11 +61,7 @@ export const removeSearchInputTool = {
 			const mod = doc.modules[moduleUuid];
 			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
 
-			const result = removeSearchInputMutation(
-				doc,
-				moduleUuid,
-				searchInputUuid,
-			);
+			const result = removeSearchInputMutation(mod, searchInputUuid);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,

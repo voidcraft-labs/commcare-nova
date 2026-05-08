@@ -79,8 +79,7 @@ export const updateSearchInputTool = {
 
 			const replacement = stampSearchInputUuid(searchInput, searchInputUuid);
 			const result = updateSearchInputMutation(
-				doc,
-				moduleUuid,
+				mod,
 				searchInputUuid,
 				replacement,
 			);

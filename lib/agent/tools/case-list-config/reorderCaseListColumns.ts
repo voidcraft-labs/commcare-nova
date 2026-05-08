@@ -66,7 +66,7 @@ export const reorderCaseListColumnsTool = {
 			const mod = doc.modules[moduleUuid];
 			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
 
-			const result = reorderColumnsMutation(doc, moduleUuid, columnUuids);
+			const result = reorderColumnsMutation(mod, columnUuids);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,

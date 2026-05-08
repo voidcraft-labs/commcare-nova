@@ -55,15 +55,29 @@ export const updateModuleTool = {
 					result: { error: `Module ${moduleIndex} not found` },
 				};
 			}
+			// Structural defense: `moduleOrder` and `modules` could in
+			// principle disagree under a partial Immer update, so the
+			// helper trusts a resolved `Module` value and the call site
+			// owns the lookup-and-check.
+			const mod = doc.modules[moduleUuid];
+			if (!mod) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: `Module ${moduleIndex} not found` },
+				};
+			}
 
-			const mutations = updateModuleMutations(doc, moduleUuid, { name });
+			const mutations = updateModuleMutations(mod, { name });
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
 
-			// Read back from the post-mutation doc so the summary reflects the
-			// values the SA can expect on a follow-up read.
-			const mod = newDoc.modules[moduleUuid];
-			if (!mod) {
+			// Read back from the post-mutation doc so the summary reflects
+			// the values the SA can expect on a follow-up read — the patch
+			// has already landed so `name` carries the new value.
+			const newMod = newDoc.modules[moduleUuid];
+			if (!newMod) {
 				return {
 					kind: "mutate" as const,
 					mutations,
@@ -75,7 +89,7 @@ export const updateModuleTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully renamed module to "${mod.name}" (index ${moduleIndex}).`,
+				result: `Successfully renamed module to "${newMod.name}" (index ${moduleIndex}).`,
 			};
 		} catch (err) {
 			return {

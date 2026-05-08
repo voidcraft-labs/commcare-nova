@@ -267,14 +267,17 @@ export function removeModuleMutations(
 	return [{ kind: "removeModule", uuid: moduleUuid }];
 }
 
-/** Patch module fields. Keys mirror the domain Module shape (camelCase). */
+/** Patch module fields. Keys mirror the domain Module shape (camelCase).
+ *
+ *  Takes the resolved `Module` directly — every caller already looks the
+ *  module up out of the doc to derive its uuid + read sibling fields, so
+ *  re-resolving inside the helper would just repeat the same map lookup.
+ *  The "module not found" defense lives at each tool's call boundary. */
 export function updateModuleMutations(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	patch: Partial<Omit<Module, "uuid">>,
 ): Mutation[] {
-	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "updateModule", uuid: moduleUuid, patch }];
+	return [{ kind: "updateModule", uuid: mod.uuid, patch }];
 }
 
 // ── Mutation builders — case list config ────────────────────────────────
@@ -284,11 +287,18 @@ export function updateModuleMutations(
 // `remove`, `reorder`) returns a tagged `CaseListMutationResult`: on
 // success, `{ ok: true, mutations }` ready to record; on failure,
 // `{ error }` carrying an Elm-style string the tool forwards verbatim.
-// Failure returns expose the underlying predicate (uuid not found,
+// Failure returns expose the array-level predicates (uuid not found,
 // length mismatch, duplicate, unknown) so the SA can repair its call.
 //
 // Other (non-SA) consumers — UI mutations — destructure the same
 // shape and surface their own error UI.
+//
+// Each builder takes the resolved `Module` directly. Every call site
+// already looks the module up out of the doc to map a `moduleIndex`
+// to a uuid and to read its sibling fields; passing `mod` straight in
+// keeps the helper from re-running the same map lookup and lets the
+// "module not found" defense live at the tool's call boundary
+// (uniformly worded, in one place per tool).
 //
 // The array-walk primitives (`replaceByUuid` / `removeByUuid` /
 // `reorderByUuid`) live in `tools/case-list-config/shared.ts` because
@@ -309,26 +319,20 @@ export type CaseListMutationResult =
 /**
  * Append one column to a module's case-list `columns` array.
  *
- * Failure arm: module not in the doc.
+ * Always succeeds — the input is the resolved `Module`, so module
+ * existence is the caller's invariant.
  */
 export function addColumnMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	column: Column,
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to add a case list column on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	return {
 		ok: true,
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: {
 					caseListConfig: { ...base, columns: [...base.columns, column] },
 				},
@@ -340,21 +344,13 @@ export function addColumnMutation(
 /**
  * Replace one column on a module's case-list, keyed by `columnUuid`.
  *
- * Failure arms: module not in the doc, columnUuid not in the module's
- * columns array.
+ * Failure arm: columnUuid not in the module's columns array.
  */
 export function updateColumnMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	columnUuid: Uuid,
 	replacement: Column,
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to update case list column ${columnUuid} on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	const op = replaceByUuid(
 		base.columns,
@@ -368,7 +364,7 @@ export function updateColumnMutation(
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: { caseListConfig: { ...base, columns: op.items } },
 			},
 		],
@@ -378,20 +374,12 @@ export function updateColumnMutation(
 /**
  * Drop one column from a module's case-list, keyed by `columnUuid`.
  *
- * Failure arms: module not in the doc, columnUuid not in the module's
- * columns array.
+ * Failure arm: columnUuid not in the module's columns array.
  */
 export function removeColumnMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	columnUuid: Uuid,
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to remove case list column ${columnUuid} on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	const op = removeByUuid(base.columns, columnUuid, "case list column");
 	if ("error" in op) return { error: op.error };
@@ -400,7 +388,7 @@ export function removeColumnMutation(
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: { caseListConfig: { ...base, columns: op.items } },
 			},
 		],
@@ -411,20 +399,13 @@ export function removeColumnMutation(
  * Reorder a module's case-list columns to match the supplied uuid
  * sequence.
  *
- * Failure arms: module not in the doc, length mismatch, duplicate
- * uuid, unknown uuid in the request.
+ * Failure arms: length mismatch, duplicate uuid, unknown uuid in the
+ * request.
  */
 export function reorderColumnsMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	order: readonly Uuid[],
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to reorder case list columns on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	const op = reorderByUuid(base.columns, order, "case list column");
 	if ("error" in op) return { error: op.error };
@@ -433,7 +414,7 @@ export function reorderColumnsMutation(
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: { caseListConfig: { ...base, columns: op.items } },
 			},
 		],
@@ -442,23 +423,16 @@ export function reorderColumnsMutation(
 
 /** Search-input parallel of `addColumnMutation`. */
 export function addSearchInputMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	searchInput: SearchInputDef,
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to add a search input on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	return {
 		ok: true,
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: {
 					caseListConfig: {
 						...base,
@@ -472,17 +446,10 @@ export function addSearchInputMutation(
 
 /** Search-input parallel of `updateColumnMutation`. */
 export function updateSearchInputMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	searchInputUuid: Uuid,
 	replacement: SearchInputDef,
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to update search input ${searchInputUuid} on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	const op = replaceByUuid(
 		base.searchInputs,
@@ -496,7 +463,7 @@ export function updateSearchInputMutation(
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: { caseListConfig: { ...base, searchInputs: op.items } },
 			},
 		],
@@ -505,16 +472,9 @@ export function updateSearchInputMutation(
 
 /** Search-input parallel of `removeColumnMutation`. */
 export function removeSearchInputMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	searchInputUuid: Uuid,
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to remove search input ${searchInputUuid} on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	const op = removeByUuid(base.searchInputs, searchInputUuid, "search input");
 	if ("error" in op) return { error: op.error };
@@ -523,7 +483,7 @@ export function removeSearchInputMutation(
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: { caseListConfig: { ...base, searchInputs: op.items } },
 			},
 		],
@@ -532,16 +492,9 @@ export function removeSearchInputMutation(
 
 /** Search-input parallel of `reorderColumnsMutation`. */
 export function reorderSearchInputsMutation(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	order: readonly Uuid[],
 ): CaseListMutationResult {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) {
-		return {
-			error: `Tried to reorder search inputs on module ${moduleUuid}. Found no module with that uuid in the doc.`,
-		};
-	}
 	const base = snapshotCaseListConfig(mod);
 	const op = reorderByUuid(base.searchInputs, order, "search input");
 	if ("error" in op) return { error: op.error };
@@ -550,7 +503,7 @@ export function reorderSearchInputsMutation(
 		mutations: [
 			{
 				kind: "updateModule",
-				uuid: moduleUuid,
+				uuid: mod.uuid,
 				patch: { caseListConfig: { ...base, searchInputs: op.items } },
 			},
 		],

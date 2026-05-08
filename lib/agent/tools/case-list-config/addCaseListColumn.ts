@@ -69,7 +69,7 @@ export const addCaseListColumnTool = {
 
 			const uuid = newUuid();
 			const stamped = stampColumnUuid(column, uuid);
-			const result = addColumnMutation(doc, moduleUuid, stamped);
+			const result = addColumnMutation(mod, stamped);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,

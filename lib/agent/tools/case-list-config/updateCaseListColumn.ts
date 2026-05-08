@@ -74,12 +74,7 @@ export const updateCaseListColumnTool = {
 			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
 
 			const replacement = stampColumnUuid(column, columnUuid);
-			const result = updateColumnMutation(
-				doc,
-				moduleUuid,
-				columnUuid,
-				replacement,
-			);
+			const result = updateColumnMutation(mod, columnUuid, replacement);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,

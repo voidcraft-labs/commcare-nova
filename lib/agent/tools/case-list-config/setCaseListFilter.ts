@@ -108,7 +108,7 @@ export const setCaseListFilterTool = {
 			const { filter: _existingFilter, ...baseWithoutFilter } = base;
 			const nextConfig =
 				filter === null ? baseWithoutFilter : { ...baseWithoutFilter, filter };
-			const mutations = updateModuleMutations(doc, moduleUuid, {
+			const mutations = updateModuleMutations(mod, {
 				caseListConfig: nextConfig,
 			});
 			const newDoc = applyToDoc(doc, mutations);

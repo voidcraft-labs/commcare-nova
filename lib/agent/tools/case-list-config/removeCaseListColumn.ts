@@ -62,7 +62,7 @@ export const removeCaseListColumnTool = {
 			const mod = doc.modules[moduleUuid];
 			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
 
-			const result = removeColumnMutation(doc, moduleUuid, columnUuid);
+			const result = removeColumnMutation(mod, columnUuid);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,
