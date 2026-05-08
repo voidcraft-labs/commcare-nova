@@ -44,8 +44,7 @@
  * migrates, and the module's output still parses. Distinct from the
  * module-level `failedCount` above.
  *
- * Safety patterns inherited from the deleted v0→v1 script's safety
- * fix-pass:
+ * Safety contract:
  *
  *   - **Dry-run is the default.** Bare invocation scans + classifies
  *     + logs without any Firestore writes; the operator must pass
@@ -871,9 +870,9 @@ export function migrateOneModule(
 //     the doc is already on the v2 shape or has no case lists at
 //     all).
 //   - Every output `caseListConfig` slot passes
-//     `caseListConfigSchema.safeParse` (the OUTPUT validation
-//     contract — same chokepoint as the deleted v0→v1 script's
-//     fix-pass).
+//     `caseListConfigSchema.safeParse` — the OUTPUT validation
+//     chokepoint that catches a structurally-broken migration arm
+//     before any Firestore write proceeds.
 //   - No module classified as `corrupt`. A corrupt module fails the
 //     whole-app write — partial-app writes mixing shapes inside one
 //     blueprint are not safe.
@@ -1023,9 +1022,9 @@ export interface MigrateOptions {
 	 *  Defaults to `true` — production data is on the v0 shape and a
 	 *  bare invocation must not mutate every live app doc. Operators
 	 *  pass `--write` (the only live-write opt-in) to flip this to
-	 *  `false` after they've reviewed the dry-run output. The CLI
-	 *  also accepts `--dry-run` as an explicit no-op so shell-history
-	 *  invocations from the predecessor script keep working. */
+	 *  `false` after they've reviewed the dry-run output. `--dry-run`
+	 *  is an explicit no-op against the new dry-run default; accepted
+	 *  so operators who pass it explicitly hit the same dry pass. */
 	readonly dryRun: boolean;
 	/** Surgical-retry path. When set, the run targets one app by id;
 	 *  the bulk apps-query filter is bypassed. */
@@ -1076,19 +1075,16 @@ const HELP_TEXT = [
 export function parseArgs(argv: readonly string[]): MigrateOptions {
 	// Dry-run is the cautious default — production data is on the v0
 	// shape and a bare invocation must not mutate every live app doc.
-	// The only opt-in to live writes is `--write`; `--dry-run` stays
-	// accepted as an explicit no-op so shell-history invocations
-	// (`--app-id=… --dry-run` from the predecessor script) keep
-	// working without operator surprise.
+	// `--write` is the only opt-in to live writes; `--dry-run` is an
+	// explicit no-op against the dry-run default, accepted so operators
+	// who pass it explicitly hit the same dry pass.
 	let dryRun = true;
 	let appId: string | undefined;
 	let help = false;
 	for (const arg of argv) {
 		if (arg === "--dry-run") {
-			// Explicit no-op against the new default. Kept for
-			// invocation compatibility — operators arriving from the
-			// deleted v0→v1 script's `--dry-run` muscle memory hit the
-			// same dry pass they expected, no behavior change.
+			// Explicit no-op against the new dry-run default; accepted
+			// so operators who pass it explicitly hit the same dry pass.
 			dryRun = true;
 			continue;
 		}

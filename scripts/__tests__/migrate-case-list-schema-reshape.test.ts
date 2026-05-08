@@ -1095,9 +1095,9 @@ describe("parseArgs", () => {
 	});
 
 	it("--dry-run is an explicit no-op against the new default", () => {
-		// Kept accepted for shell-history compatibility — operators
-		// arriving from the deleted v0→v1 script's `--dry-run` muscle
-		// memory hit the same dry pass they expected.
+		// `--dry-run` is an explicit no-op against the dry-run default;
+		// accepted so operators who pass it explicitly hit the same
+		// dry pass.
 		expect(parseArgs(["--dry-run"])).toEqual({
 			dryRun: true,
 			appId: undefined,
