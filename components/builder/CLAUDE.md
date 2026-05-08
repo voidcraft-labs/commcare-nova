@@ -190,7 +190,7 @@ Editor validity flows through the shared `useValidityPropagator` hook — see th
 `components/builder/shared/` holds primitives that more than one builder workspace consumes:
 
 - **`useInnerValidityShadow.ts`** — exports `useValidityPropagator` (the parent-validity boundary every editor with an `onValidityChange` prop consumes — handles the `useEffect([isValid]) → onValidityChangeRef.current(isValid)` pattern uniformly, eliminating the hand-rolled `onValidityChangeRef` triples that all carried the same reorder-desync bug class) and `useInnerValidityShadow` (a WeakMap-backed per-row validity shadow that auto-GCs entries when rows are removed and preserves per-row verdicts across reorder).
-- **`PredicateSlotCard`** — the optional-`Predicate` slot card (header chrome + add/clear affordance + slot-presence body switch + slot-presence validity short-circuit). `FiltersSection` (case-list-config) and `ClaimSection` (case-search-config) both compose it.
+- **`PredicateSlotCard`** — the optional-`Predicate` slot card (header chrome + add/clear affordance + slot-presence body switch + slot-presence validity short-circuit). Consumed by any section authoring surface that holds a single optional `Predicate` slot. The seed on Add is `matchAll()`; the card hard-codes generic add/remove glyphs so consumers can't accidentally brand the affordance with a surface-specific icon.
 
 New cross-workspace primitives go here so workspace packages don't import each other's chrome.
 

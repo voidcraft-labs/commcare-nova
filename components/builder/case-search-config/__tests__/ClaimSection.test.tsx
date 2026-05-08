@@ -61,7 +61,7 @@ const POPULATED_CONFIG: CaseSearchConfig = {
 // ── Round-trip ────────────────────────────────────────────────────
 
 describe("ClaimSection — round-trip", () => {
-	it("mounts with a populated config and surfaces all three sub-controls in the expected initial state", () => {
+	it("renders a populated claim-condition slot with the Clear affordance and hides the Add affordance", () => {
 		render(
 			<ClaimSection
 				value={POPULATED_CONFIG}
@@ -71,23 +71,41 @@ describe("ClaimSection — round-trip", () => {
 			/>,
 		);
 
-		// Claim condition slot is populated → the "Add claim condition"
-		// affordance is hidden, the "Clear" affordance is visible.
 		expect(screen.queryByLabelText(/^add claim condition$/i)).toBeNull();
 		expect(screen.getByLabelText(/^clear claim condition$/i)).toBeDefined();
+	});
 
-		// Toggle row reflects `dontClaimAlreadyOwned: true`. The shared
-		// `Toggle` primitive renders as `role="switch"` + `aria-checked`.
+	it("reflects `dontClaimAlreadyOwned: true` on the toggle's aria-checked attribute", () => {
+		render(
+			<ClaimSection
+				value={POPULATED_CONFIG}
+				onChange={() => {}}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+
+		// The shared `Toggle` primitive renders as
+		// `role="switch"` + `aria-checked`.
 		const toggle = screen.getByRole("switch");
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
+	});
 
-		// Blacklist defaults to collapsed-closed even when the slot
-		// is populated — the editor body stays mounted (so its
-		// validity verdict keeps firing) but visually hidden via the
-		// `hidden` attribute on the wrapper. The "Clear blacklisted
-		// owner IDs" affordance lives inside the body; we read its
-		// nearest ancestor with the `hidden` attribute as the
-		// collapse signal.
+	it("renders the blacklist sub-control with the body collapsed-closed even when the slot is populated", () => {
+		render(
+			<ClaimSection
+				value={POPULATED_CONFIG}
+				onChange={() => {}}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+
+		// Editor body stays mounted (so its validity verdict keeps
+		// firing) but visually hidden via the `hidden` attribute on
+		// the wrapper. The "Clear blacklisted owner IDs" affordance
+		// lives inside the body; we read its nearest ancestor with
+		// the `hidden` attribute as the collapse signal.
 		const clearButton = screen.getByLabelText(
 			/^clear blacklisted owner ids$/i,
 			{ selector: "button" },
@@ -140,6 +158,35 @@ describe("ClaimSection — toggle persistence", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
 			dontClaimAlreadyOwned: true,
+		});
+	});
+
+	it("preserves unrelated `caseSearchConfig` slots through a toggle mutation", () => {
+		// Pins the spread on every per-slot patch path. A future change
+		// that drops `...base` from `nextConfig`'s patch construction
+		// would surface here as a regression — the toggle would emit a
+		// config missing `searchScreenTitle` and the parent's strict
+		// parse would silently lose the display label. Picks
+		// `searchScreenTitle` as the canary because it's a sibling
+		// display slot the section never reads or writes itself.
+		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		render(
+			<ClaimSection
+				value={{
+					dontClaimAlreadyOwned: false,
+					searchScreenTitle: "Find a patient",
+				}}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("switch"));
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(onChange.mock.calls[0]?.[0]).toEqual({
+			dontClaimAlreadyOwned: true,
+			searchScreenTitle: "Find a patient",
 		});
 	});
 });

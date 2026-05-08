@@ -13,14 +13,12 @@
 //      reports `valid: true` (slot-presence short-circuit);
 //      otherwise it forwards the predicate editor's verdict.
 //
-// Today's consumers:
-//
-//   - `FiltersSection` (case-list-config) — `caseListConfig.filter`.
-//     The wrapping section adds a live preview panel beneath this
-//     card; the card owns only the editor + chrome.
-//   - `ClaimSection` (case-search-config) — `caseSearchConfig.claimCondition`.
-//     The wrapping section composes the toggle + blacklist
-//     sub-controls beside this card.
+// Consumed by any section authoring surface that holds a single
+// optional `Predicate` slot — wherever a section needs the same
+// "add a predicate / edit the predicate / clear it" affordance,
+// this card is the chrome. Wrapping sections compose siblings
+// around it (preview panels, neighbouring sub-controls) without
+// reaching inside the card's body.
 //
 // The card hard-codes the add-affordance seed to `matchAll()` — the
 // canonical "always true" sentinel for an optional Predicate slot.
@@ -40,8 +38,8 @@
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerFilterPlus from "@iconify-icons/tabler/filter-plus";
-import tablerFilterX from "@iconify-icons/tabler/filter-x";
+import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import { PredicateCardEditor } from "@/components/builder/case-list-config/PredicateCardEditor";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
@@ -180,7 +178,7 @@ export function PredicateSlotCard({
 							className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
 							aria-label={clearLabel}
 						>
-							<Icon icon={tablerFilterX} width="11" height="11" />
+							<Icon icon={tablerX} width="11" height="11" />
 							<span>{clearLabel}</span>
 						</button>
 					) : null}
@@ -208,7 +206,7 @@ export function PredicateSlotCard({
 					className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 					aria-label={addLabel}
 				>
-					<Icon icon={tablerFilterPlus} width="12" height="12" />
+					<Icon icon={tablerPlus} width="12" height="12" />
 					<span>{addLabel}</span>
 				</button>
 			)}

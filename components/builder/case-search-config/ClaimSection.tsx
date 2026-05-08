@@ -41,11 +41,11 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import tablerFilterPlus from "@iconify-icons/tabler/filter-plus";
-import tablerFilterX from "@iconify-icons/tabler/filter-x";
 import tablerForbid from "@iconify-icons/tabler/forbid";
 import tablerHandStop from "@iconify-icons/tabler/hand-stop";
+import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
+import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
@@ -297,6 +297,14 @@ export function ClaimSection({
 					// preserving the editor's mount state so its
 					// validity verdict keeps reaching the section
 					// across collapse toggles.
+					//
+					// `expectedType="text"` narrows the type-checker's
+					// top-level expectation — the slot's downstream
+					// wire emitter consumes the expression as a
+					// space-separated string of owner IDs, so any
+					// expression resolving to a non-text type is
+					// rejected at authoring time rather than at the
+					// validator pass.
 					<div
 						hidden={!blacklistOpen}
 						className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3 space-y-2"
@@ -307,6 +315,7 @@ export function ClaimSection({
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
 							knownInputs={knownInputs}
+							expectedType="text"
 							onValidityChange={setExpressionValid}
 						/>
 						<div className="flex justify-end">
@@ -316,7 +325,7 @@ export function ClaimSection({
 								className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
 								aria-label="Clear blacklisted owner IDs"
 							>
-								<Icon icon={tablerFilterX} width="11" height="11" />
+								<Icon icon={tablerX} width="11" height="11" />
 								<span>Clear</span>
 							</button>
 						</div>
@@ -333,7 +342,7 @@ export function ClaimSection({
 						className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 						aria-label="Add blacklisted owner IDs"
 					>
-						<Icon icon={tablerFilterPlus} width="12" height="12" />
+						<Icon icon={tablerPlus} width="12" height="12" />
 						<span>Add blacklisted owner IDs</span>
 					</button>
 				) : null}

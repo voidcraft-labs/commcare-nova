@@ -45,13 +45,13 @@
 //     Returns `valid: true`. Correct.
 //
 // **WeakMap, not Map.** The shadow's keys are row OBJECT REFERENCES.
-// `useReorderableList`'s splice contract preserves element references
-// across reorder (the reordered array's entries are the SAME objects,
-// just in a new order) — so the WeakMap entries survive reorder
-// unchanged. When a row is removed (`onChange` emits a new array
-// without that row), the original element becomes unreachable from
-// React state and the WeakMap auto-collects its entry. No manual
-// "remove this index" cleanup is needed; the GC handles it.
+// The reorder hook the host consumes preserves element references
+// across reorder (the reordered array's entries are the SAME
+// objects, just in a new order) — so the WeakMap entries survive
+// reorder unchanged. When a row is removed (`onChange` emits a new
+// array without that row), the original element becomes unreachable
+// from React state and the WeakMap auto-collects its entry. No
+// manual "remove this index" cleanup is needed; the GC handles it.
 //
 // Mutators rebuild the row through builders, which produce a NEW
 // object reference. The new object has no shadow entry yet, so
@@ -112,8 +112,8 @@ export function useInnerValidityShadow<T extends object>(
 	const aggregatedValid = useMemo(() => {
 		// Read the version so the dependency is explicit at the use
 		// site rather than only at the deps array. Same load-bearing-
-		// read idiom every other case-list-config editor uses for its
-		// validity aggregation.
+		// read idiom every aggregation `useMemo` in this package uses
+		// when its true dependency is a ref-mutated counter.
 		void version;
 		for (const row of rows) {
 			const verdict = shadowRef.current.get(row) ?? true;
