@@ -869,9 +869,8 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 // search-only authoring concerns: the claim flow (claim condition /
 // already-owned guard / blacklisted owner ids) and the search-screen
 // display labels. Display sort, the always-on filter, and search
-// inputs all live on `caseListConfig` as the single source — the
-// wire emitter is what projects them onto the search-side blocks at
-// emission, so this schema deliberately doesn't repeat them.
+// inputs are not duplicated here; they live on `caseListConfig` as
+// the single source for both screens.
 
 export const caseSearchConfigSchema = z
 	.object({

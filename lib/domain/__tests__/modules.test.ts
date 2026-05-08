@@ -831,8 +831,8 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 			claimCondition: { kind: "match-all" },
 			dontClaimAlreadyOwned: true,
 			// `blacklistedOwnerIds` is a `ValueExpression`; the `term` arm
-			// wraps a `Term` (here a string literal) so the AST flows
-			// through the wire emitter as a single value-expression node.
+			// wraps a `Term` (here a string literal) so the value
+			// satisfies the `ValueExpression` shape.
 			blacklistedOwnerIds: {
 				kind: "term",
 				term: { kind: "literal", value: "owner-a owner-b" },
@@ -877,16 +877,16 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 	});
 
 	it("rejects unknown top-level keys (.strict())", () => {
-		// The schema is `.strict()`, so unknown keys reject at parse
-		// rather than strip silently. This is the backstop for keys the
-		// schema deliberately doesn't carry — `defaultFilters`,
-		// `customSorts`, and `sortByRelevance` all live on
-		// `caseListConfig` instead, and a persisted document or
-		// migration path that tries to reintroduce them on the search
-		// config fails parse rather than getting silently dropped.
+		// `.strict()` rejects unknown keys at parse rather than
+		// stripping them silently. The contract holds for any unknown
+		// name, so the test inputs varied generic shapes (string,
+		// nested object, mixed array) to confirm the rejection isn't
+		// gated on a particular value type.
 		const parsed = caseSearchConfigSchema.safeParse({
 			dontClaimAlreadyOwned: false,
-			defaultFilters: [{ kind: "match-all" }],
+			__unknown_a: "alpha",
+			__unknown_b: { nested: 42 },
+			__unknown_c: ["mixed", "shapes", 99],
 		});
 		expect(parsed.success).toBe(false);
 	});
