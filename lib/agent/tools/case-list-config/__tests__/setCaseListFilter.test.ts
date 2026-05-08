@@ -280,7 +280,7 @@ describe("setCaseListFilter", () => {
 	it("initializes the caseListConfig when filter=null on a configless module", async () => {
 		// Edge case: `filter === null` on a module whose
 		// `caseListConfig` is undefined still materializes the config
-		// — the base-config fallback in `baseCaseListConfig` runs
+		// — the empty-config fallback in `snapshotCaseListConfig` runs
 		// regardless of which slot the tool is replacing, so the
 		// resulting doc carries every required array slot at empty.
 		// Pinned here because a reader could reasonably expect a

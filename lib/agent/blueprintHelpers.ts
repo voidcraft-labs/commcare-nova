@@ -38,12 +38,12 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
 import type { Scaffold } from "./scaffoldSchemas";
 import {
 	removeByUuid,
 	reorderByUuid,
 	replaceByUuid,
+	snapshotCaseListConfig,
 } from "./tools/case-list-config/shared";
 
 // ── Positional lookup helpers ───────────────────────────────────────────
@@ -305,28 +305,6 @@ export function updateModuleMutations(
 export type CaseListMutationResult =
 	| { ok: true; mutations: Mutation[] }
 	| { error: string };
-
-/**
- * Snapshot a module's `caseListConfig` with empty arrays in the unset
- * slots. Read by every case-list mutation builder so the surrounding
- * slots carry through the patch even when the module had no config
- * yet. `filter` stays absent rather than `undefined` because the
- * schema treats absence as "no filter" and a literal `undefined` would
- * round-trip as an explicit clear at the reducer's `Object.assign`.
- */
-function snapshotCaseListConfig(mod: Module): {
-	columns: Column[];
-	searchInputs: SearchInputDef[];
-	filter?: Predicate;
-} {
-	const config = mod.caseListConfig;
-	if (config === undefined) return { columns: [], searchInputs: [] };
-	return {
-		columns: [...config.columns],
-		searchInputs: [...config.searchInputs],
-		...(config.filter !== undefined && { filter: config.filter }),
-	};
-}
 
 /**
  * Append one column to a module's case-list `columns` array.

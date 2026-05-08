@@ -164,34 +164,38 @@ export function newUuid(): Uuid {
  */
 export const uuidInputSchema = z.string().min(1);
 
-// ── Snapshot helpers ────────────────────────────────────────────────
+// ── Snapshot helper ─────────────────────────────────────────────────
 
 /**
- * Empty `caseListConfig` snapshot used when a module has no config
- * yet. Three slots: `columns` and `searchInputs` start as empty
- * arrays, `filter` is omitted (the schema treats absence as "no
- * filter" — writing a literal `undefined` would round-trip as an
- * explicit clear at the reducer's `Object.assign`).
+ * Pick the existing `caseListConfig` off the supplied module entity,
+ * falling back to an empty config when the module has none. Read by
+ * every case-list-config tool — the atomic-op mutation builders in
+ * `lib/agent/blueprintHelpers.ts` and the wholesale `setCaseListFilter`
+ * tool — before applying a slot-specific patch so the surrounding
+ * slots survive the edit.
  *
- * Exposed as a builder rather than a frozen constant so each call gets
- * its own array literals — defense in depth against a tool body
- * mutating the array in place.
+ * Three-slot empty fallback: `columns` and `searchInputs` start as
+ * empty arrays, `filter` is OMITTED rather than `undefined`. The
+ * schema treats absence as "no filter," and a literal `filter:
+ * undefined` would round-trip as an explicit clear at the reducer's
+ * `Object.assign`. The non-empty path preserves the live `filter`
+ * reference when present and leaves the key absent otherwise.
+ *
+ * Returns live array references — callers that mutate must copy
+ * first. The case-list-config consumers all do: the atomic builders
+ * either spread (`[...base.columns, column]`) or thread through
+ * `replaceByUuid` / `removeByUuid` / `reorderByUuid`, each of which
+ * slices internally before splicing; `setCaseListFilter` destructures
+ * into a fresh object before patching. No consumer mutates in place.
  */
-export function emptyCaseListConfig(): CaseListConfig {
-	return { columns: [], searchInputs: [] };
-}
-
-/**
- * Pick the existing `caseListConfig` snapshot off the supplied module
- * entity, falling back to an empty config when the module has none.
- * Read by `setCaseListFilter` before applying its slot-specific
- * mutation so the surrounding slots survive the patch. The atomic-op
- * tools route through `lib/agent/blueprintHelpers.ts`'s case-list
- * mutation builders, which snapshot internally; this helper is for
- * the wholesale tools that apply their own patch shape.
- */
-export function baseCaseListConfig(mod: Module): CaseListConfig {
-	return mod.caseListConfig ?? emptyCaseListConfig();
+export function snapshotCaseListConfig(mod: Module): CaseListConfig {
+	const config = mod.caseListConfig;
+	if (config === undefined) return { columns: [], searchInputs: [] };
+	return {
+		columns: config.columns,
+		searchInputs: config.searchInputs,
+		...(config.filter !== undefined && { filter: config.filter }),
+	};
 }
 
 // ── Uuid-keyed array helpers ────────────────────────────────────────

@@ -39,7 +39,7 @@ import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { baseCaseListConfig } from "./shared";
+import { snapshotCaseListConfig } from "./shared";
 
 export const setCaseListFilterInputSchema = z.object({
 	moduleIndex: z
@@ -104,7 +104,7 @@ export const setCaseListFilterTool = {
 			// mode and break round-trip equality). Matches the
 			// optional-slot omission idiom `searchInputDef` uses for its
 			// `via` slot.
-			const base = baseCaseListConfig(mod);
+			const base = snapshotCaseListConfig(mod);
 			const { filter: _existingFilter, ...baseWithoutFilter } = base;
 			const nextConfig =
 				filter === null ? baseWithoutFilter : { ...baseWithoutFilter, filter };
