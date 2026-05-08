@@ -16,11 +16,12 @@
 //     flips the section's verdict to false; an invalid blacklist
 //     ValueExpression does the same.
 //
-// Mock surface: ClaimSection imports `useValidityPropagator` from the
-// case-list-config sibling and the `PredicateCardEditor` /
-// `ExpressionCardEditor` primitives — none of which open Server
-// Actions or doc-store reads. The test setup needs no module mocks
-// beyond the standard happy-dom environment.
+// Mock surface: ClaimSection's transitive imports are pure authoring
+// primitives — no Server Actions, no doc-store reads. The test setup
+// needs no module mocks beyond the standard happy-dom environment.
+// (Contrast with `FiltersSection.test.tsx`, which has to stub the
+// live-preview Server Action surface + `useBlueprintDocApi` because
+// the embedded `FiltersPreview` runs both on mount.)
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

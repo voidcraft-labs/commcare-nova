@@ -1,19 +1,23 @@
-// components/builder/case-list-config/useInnerValidityShadow.ts
+// components/builder/shared/useInnerValidityShadow.ts
 //
-// Shared per-row validity shadow for drag-orderable list editors that
-// host inner sub-editors per row. Today's consumers:
+// Two validity-propagation utilities every builder editor with an
+// `onValidityChange` prop reaches for:
 //
-//   - `ColumnList` (in `DisplaySection.tsx`) — `Column` rows hosting
-//     `ColumnEditor`'s applicability verdict + the inner
-//     `ExpressionCardEditor` for calculated-arm columns.
-//   - `SearchInputsSection` — `SearchInputDef` rows hosting
-//     `ExpressionCardEditor` (default-value) +
-//     `PredicateCardEditor` (advanced predicate) per row.
+//   - `useValidityPropagator` — the parent-validity boundary. Forwards
+//     the host's aggregated verdict to its parent's `onValidityChange`
+//     callback on mount + on every transition. Used by every editor
+//     and section card that exposes an `onValidityChange` prop, which
+//     is why the hook lives in `shared/` rather than in any one
+//     workspace's package.
 //
-// Each surface has the same lifecycle: each row's inner editor fires
-// `onValidityChange(boolean)` on every transition; the host AGGREGATES
-// every row's verdict via logical-AND and propagates the result to its
-// own parent via `onValidityChange(boolean)`.
+//   - `useInnerValidityShadow` — a WeakMap-keyed per-row validity
+//     shadow for drag-orderable list editors that host inner
+//     sub-editors per row. Each row's inner editor fires
+//     `onValidityChange(boolean)` on every transition; the host
+//     aggregates every row's verdict via logical-AND and propagates
+//     the result to its own parent via `useValidityPropagator`. The
+//     two utilities compose: the shadow holds the per-row state, the
+//     propagator carries the aggregate to the parent.
 //
 // **Why row identity, not index.** A naive index-keyed boolean array
 // looks "permutation-invariant" because the AND aggregation doesn't
