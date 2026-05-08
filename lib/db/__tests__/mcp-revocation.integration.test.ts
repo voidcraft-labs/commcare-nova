@@ -1,12 +1,13 @@
 /**
  * Integration test for the per-request consent lock at
- * `app/api/mcp/route.ts`. Mocks `mcpHandler` (to inject synthetic JWT
- * claims via an `x-test-jwt-claims` header — signature verification
- * is the plugin's job, not ours) and `createMcpHandler` (to return a
- * sentinel 200, bypassing the JSON-RPC dispatcher). Better Auth + the
- * emulator do everything else for real, so the route's contract —
- * happy path, revoke-then-fail, missing claims, Firestore failure —
- * is exercised against actual plugin writes.
+ * `app/api/mcp/jwt-auth.ts::handleJwtMcp`. Mocks `mcpHandler` (to
+ * inject synthetic JWT claims via an `x-test-jwt-claims` header —
+ * signature verification is the plugin's job, not ours) and
+ * `createMcpHandler` (to return a sentinel 200, bypassing the
+ * JSON-RPC dispatcher). Better Auth + the emulator do everything
+ * else for real, so the JWT path's contract — happy path,
+ * revoke-then-fail, missing claims, Firestore failure — is exercised
+ * against actual plugin writes.
  *
  * Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset.
  */
@@ -165,15 +166,22 @@ async function seedConsent(
 describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 	let auth: ReturnType<typeof createTestAuth>;
 	let db: Firestore;
-	let POST: (req: Request) => Promise<Response>;
+	let dispatchMcpAuthRequest: (req: Request) => Promise<Response>;
 
 	beforeAll(async () => {
 		initializeApp({ projectId: TEST_PROJECT_ID });
 		db = new Firestore({ projectId: TEST_PROJECT_ID, preferRest: true });
 		auth = createTestAuth(db);
-		/* Import the route AFTER the `vi.mock` calls. */
-		const route = await import("@/app/api/mcp/route");
-		POST = route.POST;
+		/* Import AFTER the `vi.mock` calls. The plugin endpoint's
+		 * dispatcher is what we drive — `app/api/mcp/route.ts` is now
+		 * a thin shim that synthesizes a Request URL and forwards to
+		 * `auth.handler`, which would route through the production
+		 * `getAuth()` singleton (not this test's auth instance) and
+		 * skip the mocked `mcpHandler`. Calling the dispatcher
+		 * directly hits the same `handleJwtMcp` → `mcpHandler` path
+		 * that production takes, intercepted by the mock above. */
+		const plugin = await import("@/app/api/mcp/auth-plugin");
+		dispatchMcpAuthRequest = plugin.dispatchMcpAuthRequest;
 	});
 
 	afterAll(async () => {
@@ -191,7 +199,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 	it("registers `mcpHandler` with both Nova scopes required", async () => {
 		/* Trigger one request so the route's module-scope `mcpHandler`
 		 * call has run and the captured options are populated. */
-		await POST(mcpRequest({ sub: "x", azp: "y" }));
+		await dispatchMcpAuthRequest(mcpRequest({ sub: "x", azp: "y" }));
 
 		expect(captured.mcpHandlerVerifyOptions).toEqual(
 			expect.objectContaining({
@@ -212,7 +220,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 		});
 		await seedConsent(auth, "user-test-1", created.client_id);
 
-		const res = await POST(
+		const res = await dispatchMcpAuthRequest(
 			mcpRequest({
 				sub: "user-test-1",
 				azp: created.client_id,
@@ -244,13 +252,13 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 			scope: "nova.read nova.write",
 		};
 
-		const before = await POST(mcpRequest(claims));
+		const before = await dispatchMcpAuthRequest(mcpRequest(claims));
 		expect(before.status).toBe(200);
 
 		const { revokeAuthorizedClient } = await import("@/lib/db/oauth-consents");
 		await revokeAuthorizedClient("user-test-1", consent.id);
 
-		const after = await POST(mcpRequest(claims));
+		const after = await dispatchMcpAuthRequest(mcpRequest(claims));
 		expect(after.status).toBe(401);
 		const wwwAuth = after.headers.get("WWW-Authenticate");
 		expect(wwwAuth).toContain('error="invalid_token"');
@@ -265,7 +273,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 	// ── Structural-token-failure paths ─────────────────────────────
 
 	it("rejects with 401 when the JWT is missing the `sub` claim", async () => {
-		const res = await POST(
+		const res = await dispatchMcpAuthRequest(
 			mcpRequest({ azp: "client-x", scope: "nova.read nova.write" }),
 		);
 		expect(res.status).toBe(401);
@@ -275,7 +283,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 	});
 
 	it("rejects with 401 when the JWT is missing the `azp` claim", async () => {
-		const res = await POST(
+		const res = await dispatchMcpAuthRequest(
 			mcpRequest({
 				sub: "user-test-1",
 				iat: Math.floor(Date.now() / 1000),
@@ -289,7 +297,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 	});
 
 	it("rejects with 401 when the JWT is missing the `iat` claim", async () => {
-		const res = await POST(
+		const res = await dispatchMcpAuthRequest(
 			mcpRequest({
 				sub: "user-test-1",
 				azp: "client-x",
@@ -311,7 +319,7 @@ describe.skipIf(!emulatorAvailable)("MCP route consent lock", () => {
 			.mockRejectedValueOnce(new Error("Firestore unavailable"));
 
 		try {
-			const res = await POST(
+			const res = await dispatchMcpAuthRequest(
 				mcpRequest({
 					sub: "user-test-1",
 					azp: "client-x",

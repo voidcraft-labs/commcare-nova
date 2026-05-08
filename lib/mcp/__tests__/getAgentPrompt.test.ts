@@ -63,7 +63,7 @@ vi.mock("../loadApp", () => ({
 /* --- Helpers --------------------------------------------------------- */
 
 /** Baseline tool context — scopes aren't inspected by the tool body. */
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 /**
  * Build a minimal-but-renderable blueprint with one module/form/field

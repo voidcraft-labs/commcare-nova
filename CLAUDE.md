@@ -28,6 +28,8 @@ npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from lib/commcare
 
 Google Cloud Run via Docker (`next.config.ts` → `output: "standalone"`).
 
+**Default `*.run.app` URL is disabled.** The service is reachable only through the three custom-domain mappings (`commcare.app`, `mcp.commcare.app`, `docs.commcare.app`). `gcloud run services describe` still lists the `*.run.app` URLs in `run.googleapis.com/urls` — they 404 in practice. Re-enable with `gcloud run services update commcare-nova --region=us-central1 --default-url` if needed for debugging.
+
 ## Architecture
 
 ### Multi-host, single service
@@ -50,6 +52,8 @@ Root `app/layout.tsx` is intentionally minimal — html/body/fonts/global CSS on
 ### Single agent, two endpoints
 
 `/api/chat` runs the chat-side `ToolLoopAgent` (the Solutions Architect): it converses, generates, and edits. One conversation = one prompt-cache window, so the SA keeps full memory of every design decision. No orchestration, no sub-agents. `/api/mcp` exposes the SA's shared tools to external MCP clients (Claude Code et al) without running its own agent loop — the external client drives the loop. Both endpoints consume one tool surface in `lib/agent/tools/`; see `lib/agent/CLAUDE.md` for the contract that lets both reuse the same domain logic.
+
+**MCP accepts two bearer shapes.** OAuth-issued JWT (browser-driven sign-in, refresh-token rotation, browser-mediated user delegation) or `sk-nova-v1-`-prefixed API keys (service-account identities, no rotation, opt-in via `/settings`). Issue #9 on the plugin proved that concurrent worktrees sharing one OAuth refresh token cascade-revoke each other; API keys are the answer for that shape. The route is mounted as a Better Auth plugin endpoint at `/api/auth/mcp` (`app/api/mcp/auth-plugin.ts`) so it sits under `auth.handler`'s `onRequestRateLimit` middleware; `app/api/mcp/route.ts` is a thin shim that synthesizes the auth-router URL from the wire request. The plugin's `dispatchMcpAuthRequest` peeks the bearer prefix and forks to JWT or API-key path; both converge on `dispatchMcpTools` so tool handlers see one `ToolContext`. Floor scopes (`nova.read` + `nova.write`) enforced at the verify layer on both paths; HQ scopes checked per-tool because they're orthogonal to read/write.
 
 **Edit vs build mode.** Two orthogonal decisions: (1) whether the app already exists picks the prompt + tool set — existing apps get editing prompt + blueprint summary + shared tools only; generation tools are never exposed in edit mode. (2) Prompt-cache window (5-min TTL) picks message strategy — within window: full history; after expiry: last-user-message only. App-exists stays false during initial generation even after modules land, so gen tools aren't stripped mid-build.
 

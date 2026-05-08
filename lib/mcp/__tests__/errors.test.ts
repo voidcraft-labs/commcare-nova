@@ -114,7 +114,7 @@ describe("toMcpErrorResult", () => {
 		 * client can show a precise re-authorization prompt without
 		 * parsing the message. */
 		const result = toMcpErrorResult(
-			new McpScopeError(SCOPES.hqWrite, "upload_app_to_hq"),
+			new McpScopeError(SCOPES.hqWrite, "upload_app_to_hq", "oauth"),
 			{ appId: "a1" },
 		);
 		expect(result.isError).toBe(true);
@@ -125,10 +125,14 @@ describe("toMcpErrorResult", () => {
 			app_id: string;
 		};
 		expect(payload.error_type).toBe("scope_missing");
+		/* Wire payload keeps the raw literal so programmatic consumers
+		 * branch on a stable token. The human-readable `message`
+		 * carries the friendly label ("HQ Write") since that's what
+		 * the user sees in their settings UI / consent screen. */
 		expect(payload.required_scope).toBe(SCOPES.hqWrite);
 		expect(payload.app_id).toBe("a1");
 		expect(payload.message).toContain("upload_app_to_hq");
-		expect(payload.message).toContain(SCOPES.hqWrite);
+		expect(payload.message).toContain("HQ Write");
 	});
 
 	it("omits app_id from a scope_missing envelope when ctx has no appId", () => {
@@ -137,7 +141,7 @@ describe("toMcpErrorResult", () => {
 		 * The field must drop out of the payload entirely, not appear
 		 * as `null`. */
 		const result = toMcpErrorResult(
-			new McpScopeError(SCOPES.hqRead, "get_hq_connection"),
+			new McpScopeError(SCOPES.hqRead, "get_hq_connection", "api-key"),
 		);
 		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
 			string,

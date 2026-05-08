@@ -63,7 +63,7 @@ function makeResult(apps: AppSummary[], nextCursor?: string): ListAppsResult {
 }
 
 /** Baseline tool context — one authenticated caller, no scopes inspected. */
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
 	vi.mocked(listApps).mockReset();

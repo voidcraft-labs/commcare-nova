@@ -135,7 +135,7 @@ function mockAppDoc(
 	};
 }
 
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
 	vi.mocked(loadApp).mockReset();

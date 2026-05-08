@@ -119,7 +119,7 @@ const FAKE_HQ_JSON = {
 	modules: [],
 } as unknown as HqApplication;
 
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();

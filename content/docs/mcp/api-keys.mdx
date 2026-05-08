@@ -1,0 +1,93 @@
+---
+title: API keys
+description: Connect a tool to Nova without going through a browser sign-in.
+---
+
+API keys are the alternative to signing into Nova through your browser. Mint one in settings, paste it into your tool's config, and it stays connected.
+
+## When to use one
+
+Use OAuth (the default) for the everyday case: a person, a browser, one tool at a time. You sign in once and the tool stays connected until you revoke it.
+
+Pick an API key when you want any of these:
+
+- An unattended pipeline that runs while you're not at the computer.
+- Multiple parallel tools or agents using the same Nova account at the same time.
+- A shared bot account that several scripts speak through.
+
+OAuth's sign-in needs a person at a browser, and parallel tools sharing one OAuth sign-in fight each other every time their connection refreshes. API keys don't have either problem.
+
+## Mint a key
+
+<Steps>
+<Step>Open [Settings → API keys](https://commcare.app/settings) on commcare.app, signed in as the account that should own the key.</Step>
+<Step>Click **+ New key** and pick a name. The name only shows up in your keys list — it doesn't affect what the key can do.</Step>
+<Step>Pick the scopes. **Read** and **Write** are required. Add the **HQ** scopes if your tool needs to upload finished apps to CommCare HQ.</Step>
+<Step>Pick an expiry. **1 year** is the default. Pick shorter if you want tighter rotation, or **Never expires** for credentials you'll rotate manually on your own schedule.</Step>
+<Step>Click **Mint key**. The next screen shows the full key once — copy it now. Nova hashes it after that, so if you lose the full value you'll have to mint a new one.</Step>
+</Steps>
+
+## Use it with Claude Code
+
+The setup depends on whether you have the [Nova plugin](../claude-code/index.mdx) installed.
+
+### With the plugin
+
+The plugin ships a Nova MCP entry that uses OAuth. To switch to API-key auth, add a user-scope override at the same URL — Claude Code matches by URL and prefers your override over the plugin's entry.
+
+```bash
+claude mcp add nova --transport http https://mcp.commcare.app/mcp \
+  --header "Authorization: Bearer ${NOVA_API_KEY}" \
+  --scope user
+```
+
+After this, your override is the one Claude Code talks to. The tool names change shape too — what used to appear as `mcp__plugin_nova_nova__*` becomes `mcp__nova__*`. If you have any scripts or skills that hardcode the old names, update them.
+
+To go back to OAuth, remove the override:
+
+```bash
+claude mcp remove nova --scope user
+```
+
+The plugin's `nova` entry comes back automatically.
+
+### Without the plugin
+
+Add the server directly. Drop a config block in your project's `.mcp.json` or a user-scope file at `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "nova": {
+      "type": "http",
+      "url": "https://mcp.commcare.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${NOVA_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Claude Code expands `${NOVA_API_KEY}` at config load, so the key stays in your shell environment or `.env` rather than getting committed.
+
+## Scopes
+
+Each key can have any combination of these:
+
+| Scope | What it grants |
+|---|---|
+| `nova.read` | List, read, and search apps in your account. **Required.** |
+| `nova.write` | Create and edit apps. **Required.** |
+| `nova.hq.read` | Look up which CommCare HQ project space your stored API key authorizes. |
+| `nova.hq.write` | Upload finished apps to CommCare HQ. |
+
+Set scopes when you mint, change them later from the kebab menu → **Edit scopes**. Read and write are the floor; nothing in Nova works without them.
+
+## Rotating and revoking
+
+Every key in the list shows when it was last used and when it expires. To rotate, mint a new key, swap it into your tool's config, then revoke the old one — there's no in-place rotation, because Nova only keeps the hash.
+
+To revoke, click the kebab on the row → **Revoke** → confirm. The next call from that key fails immediately.
+
+API keys and OAuth sign-ins are independent. Minting a key doesn't disturb any browser sign-ins on the same account, and revoking either kind doesn't touch the other.

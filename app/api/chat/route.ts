@@ -12,7 +12,7 @@ import {
 	GenerationContext,
 	MESSAGES,
 } from "@/lib/agent";
-import { resolveApiKey } from "@/lib/auth-utils";
+import { resolveAnthropicKey } from "@/lib/auth-utils";
 import {
 	createApp,
 	failApp,
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 	}
 
 	// Require authenticated session + server API key
-	const keyResult = await resolveApiKey(req);
+	const keyResult = await resolveAnthropicKey(req);
 	if (!keyResult.ok) {
 		return new Response(JSON.stringify({ error: keyResult.error }), {
 			status: keyResult.status,

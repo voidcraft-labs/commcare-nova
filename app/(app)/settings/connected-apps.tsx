@@ -11,17 +11,17 @@
 
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
+import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerPlugConnected from "@iconify-icons/tabler/plug-connected";
 import tablerShieldLock from "@iconify-icons/tabler/shield-lock";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import type { AuthorizedClient } from "@/lib/db/oauth-consents";
-import { deriveCapabilities } from "@/lib/oauth/capabilities";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import { docsLink } from "@/lib/hostnames";
 import { revokeClientAccess } from "./oauth-actions";
+import { ScopesPopover } from "./scopes-popover";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -131,7 +131,16 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 						Connected applications
 					</h2>
 					<p className="text-xs text-nova-text-muted">
-						Apps you&apos;ve granted access to Nova on your behalf
+						Apps you&apos;ve granted access to Nova on your behalf ·{" "}
+						<a
+							href={docsLink("/mcp/access")}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright/80 underline-offset-2 hover:underline"
+						>
+							Learn more
+							<Icon icon={tablerExternalLink} width="11" height="11" />
+						</a>
 					</p>
 				</div>
 			</div>
@@ -220,12 +229,24 @@ function Row({
 	return (
 		<div className="flex items-center gap-4 py-3.5">
 			<div className="min-w-0 flex-1">
-				<p className="text-sm font-medium text-nova-text truncate">
-					{clientName}
-				</p>
+				{/* Identity line: client name + permissions chip. The
+				 *   chip sits next to the name so it reads as part of
+				 *   the connected app's identity rather than as a
+				 *   metadata sibling of the authorized-date timestamp
+				 *   below. Mirrors the api-keys card so both rows on
+				 *   the settings page have identical structure. */}
+				<div className="flex items-center gap-2 min-w-0">
+					<p className="text-sm font-medium text-nova-text truncate">
+						{clientName}
+					</p>
+					<ScopesPopover
+						scopes={scopes}
+						credentialLabel="OAuth app"
+						subjectName={clientName}
+					/>
+				</div>
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-nova-text-muted">
 					<span>Authorized {formatAuthorizedAt(authorizedAt)}</span>
-					<ScopesPopover scopes={scopes} clientName={clientName} />
 				</div>
 				{/* Inline error sits under the name so it's visually
 				 *   associated with the failed action. */}
@@ -245,7 +266,14 @@ function Row({
 				</AnimatePresence>
 			</div>
 
-			<div className="shrink-0">
+			{/* Reserved-width action column. The "Revoke" idle button
+			 *  (~80px) and the `Cancel + Confirm revoke` confirming pair
+			 *  (~190px) have very different widths; without pinning the
+			 *  column to the widest state, the meta line above would
+			 *  reflow on transition. Mirrors the api-keys card's
+			 *  `min-w-[12rem]` reservation so both rows on the settings
+			 *  page stay visually stable across every state. */}
+			<div className="flex shrink-0 justify-end min-w-[12rem]">
 				<RowActions
 					consentId={consentId}
 					status={status}
@@ -255,74 +283,6 @@ function Row({
 				/>
 			</div>
 		</div>
-	);
-}
-
-// ── Scopes popover ─────────────────────────────────────────────────
-
-interface ScopesPopoverProps {
-	scopes: readonly string[];
-	clientName: string;
-}
-
-/**
- * "Permissions" pill on each row's metadata line. Hover, focus, or
- * click opens a popover with the human-friendly capability list.
- * `openOnHover` keeps the click affordance for keyboard / touch.
- *
- * Suppressed entirely when `deriveCapabilities` returns nothing —
- * no hollow pill opening an empty popover. Glass styles live on the
- * positioner per the project-wide `backdrop-filter` + `will-change`
- * constraint (see `lib/styles.ts`).
- */
-function ScopesPopover({ scopes, clientName }: ScopesPopoverProps) {
-	const capabilities = deriveCapabilities(scopes);
-	if (capabilities.length === 0) return null;
-
-	return (
-		<Popover.Root>
-			<Popover.Trigger
-				openOnHover
-				delay={150}
-				closeDelay={120}
-				aria-label={`Permissions granted to ${clientName}`}
-				className="inline-flex cursor-pointer items-center rounded-md border border-nova-violet/20 bg-nova-violet/[0.08] px-2 py-[2px] text-[11px] font-medium text-nova-violet-bright outline-none transition-all duration-150 hover:border-nova-violet/40 hover:bg-nova-violet/[0.14] focus-visible:border-nova-violet/40 focus-visible:bg-nova-violet/[0.14] focus-visible:ring-1 focus-visible:ring-nova-violet/40"
-			>
-				Permissions
-			</Popover.Trigger>
-			<Popover.Portal>
-				<Popover.Positioner
-					side="top"
-					align="start"
-					sideOffset={8}
-					className={POPOVER_POSITIONER_GLASS_CLS}
-				>
-					<Popover.Popup className={`${POPOVER_POPUP_CLS} w-64`}>
-						<div className="px-4 pt-3.5 pb-4">
-							<p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-text-muted/70">
-								This app can
-							</p>
-							<ul className="space-y-2">
-								{capabilities.map((c) => (
-									<li key={c.key} className="flex items-start gap-2.5">
-										<Icon
-											icon={c.icon}
-											width="14"
-											height="14"
-											className="mt-[3px] shrink-0 text-nova-text-muted"
-											aria-hidden
-										/>
-										<span className="text-xs leading-snug text-nova-text">
-											{c.label}
-										</span>
-									</li>
-								))}
-							</ul>
-						</div>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
 	);
 }
 

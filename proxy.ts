@@ -32,6 +32,7 @@
  *      full session validation, so a stale cookie cannot loop.
  */
 
+import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
 import { getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
 import {
@@ -41,6 +42,90 @@ import {
 	isPathAllowedOnHost,
 	normalizeHost,
 } from "@/lib/hostnames";
+
+/**
+ * Header name the proxy populates with the trusted client IP. Read by
+ * `lib/auth-utils.ts::callerIpFromHeaders` and Better Auth's rate
+ * limiter (`lib/auth.ts::ipAddressHeaders`). NOT a wire header — the
+ * proxy strips any client-supplied value before deriving its own,
+ * so anything reaching downstream code under this name is
+ * guaranteed proxy-derived.
+ */
+const TRUSTED_CLIENT_IP_HEADER = "x-nova-client-ip";
+
+/**
+ * Number of XFF entries the proxy treats as trusted (counted from the
+ * right). The deployment is Cloud Run with domain mappings — no
+ * Application Load Balancer in front, no Cloud Armor — so the only
+ * trusted hop is Google Front End's own appendage. Per Cloud
+ * Functions / Cloud Run header documentation the GFE places the real
+ * client IP in `X-Forwarded-For`; if a client supplied additional
+ * values, GFE may preserve them on the left (the spoofable region).
+ * Trim down to the rightmost entry to keep only what GFE wrote.
+ *
+ * If the deployment ever fronts the service with an external
+ * Application Load Balancer, this constant moves to 2 — ALB appends
+ * `<client-ip>, <lb-ip>` (per Google's load-balancer documentation),
+ * making the rightmost two entries the trusted suffix. Anything
+ * deeper (CDN, transparent proxy) shifts the count further. Update
+ * here whenever the deployment topology changes; the comment is the
+ * source of truth for "how many hops do we trust."
+ */
+const TRUSTED_XFF_HOPS = 1;
+
+/**
+ * Pull the trusted client IP from `X-Forwarded-For`. Takes the value
+ * `TRUSTED_XFF_HOPS` positions from the right and validates it as a
+ * real IP via Better Auth's `isValidIP`. Returns `null` when the
+ * header is absent, malformed, or the chosen position is not a valid
+ * IP — callers fall through to "no IP attribution available" rather
+ * than guessing.
+ *
+ * The leftmost (untrusted) region of XFF is what makes the raw header
+ * spoofable: a client can send any list it likes, and GFE preserves
+ * those values before its own appendage. Taking the rightmost
+ * trusted entry strips the spoofable prefix. Documented assumption:
+ * the deployment trusts exactly `TRUSTED_XFF_HOPS` entries from the
+ * right; see that constant's docblock.
+ */
+function deriveTrustedClientIp(xff: string | null): string | null {
+	if (!xff) return null;
+	const parts = xff
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	if (parts.length === 0) return null;
+	const candidate = parts[parts.length - TRUSTED_XFF_HOPS];
+	if (!candidate || !isValidIP(candidate)) return null;
+	return normalizeIP(candidate);
+}
+
+/**
+ * Build a Headers object the rest of the proxy threads through every
+ * downstream-bound `NextResponse`. Two responsibilities:
+ *
+ *   1. Strip any client-supplied `TRUSTED_CLIENT_IP_HEADER`. A request
+ *      arriving with this header set by the client would forge IP
+ *      attribution downstream — every reader treats this header as
+ *      proxy-stamped, so a client setting it themselves bypasses the
+ *      sanitization. Always delete first.
+ *   2. Set the header to the proxy-derived trusted IP when XFF is
+ *      present and parseable. When no trusted IP can be derived the
+ *      header stays absent — readers handle that as "no attribution"
+ *      (return `"unknown"` for audit logs, skip per-IP rate-limit
+ *      attribution).
+ */
+function deriveProxyHeaders(request: NextRequest): Headers {
+	const requestHeaders = new Headers(request.headers);
+	requestHeaders.delete(TRUSTED_CLIENT_IP_HEADER);
+	const trustedIp = deriveTrustedClientIp(
+		request.headers.get("x-forwarded-for"),
+	);
+	if (trustedIp) {
+		requestHeaders.set(TRUSTED_CLIENT_IP_HEADER, trustedIp);
+	}
+	return requestHeaders;
+}
 
 /**
  * Build a 404 with `Cache-Control: no-store`. Off-allowlist requests share
@@ -105,12 +190,11 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
  * rewrites, and the dev-mode docs bypass.
  */
 function attachCsp(
-	request: NextRequest,
+	requestHeaders: Headers,
 	target: { type: "next" } | { type: "rewrite"; url: URL },
 	isDev: boolean,
 ): NextResponse {
 	const { csp, nonce } = buildCsp(isDev);
-	const requestHeaders = new Headers(request.headers);
 	requestHeaders.set("x-nonce", nonce);
 	requestHeaders.set("Content-Security-Policy", csp);
 
@@ -125,6 +209,14 @@ function attachCsp(
 }
 
 export function proxy(request: NextRequest): NextResponse {
+	/* Build the sanitized request-header set ONCE at the top — every
+	 * downstream `NextResponse.next/rewrite` threads this through via
+	 * `{ request: { headers: requestHeaders } }` so the
+	 * `TRUSTED_CLIENT_IP_HEADER` is set (or absent) consistently for
+	 * route handlers, server components, and the auth router. Without
+	 * threading via the response option, Next does NOT propagate
+	 * mutations on `request.headers` to downstream handlers. */
+	const requestHeaders = deriveProxyHeaders(request);
 	const host = normalizeHost(request.headers.get("host"));
 	const classified = classifyHost(host);
 	const { pathname } = request.nextUrl;
@@ -160,10 +252,12 @@ export function proxy(request: NextRequest): NextResponse {
 			 * so it never picks up CSP headers or the auth redirect. */
 			const target = request.nextUrl.clone();
 			target.pathname = "/api/mcp";
-			return NextResponse.rewrite(target);
+			return NextResponse.rewrite(target, {
+				request: { headers: requestHeaders },
+			});
 		}
 		if (isPathAllowedExactOnHost(HOSTNAMES.mcp, pathname)) {
-			return NextResponse.next();
+			return NextResponse.next({ request: { headers: requestHeaders } });
 		}
 		return notFound();
 	}
@@ -185,7 +279,7 @@ export function proxy(request: NextRequest): NextResponse {
 		 * would mean two URLs for the same page. */
 
 		if (isPathAllowedOnHost(HOSTNAMES.docs, rawPathname)) {
-			return NextResponse.next();
+			return NextResponse.next({ request: { headers: requestHeaders } });
 		}
 		if (rawPathname === "/api" || rawPathname.startsWith("/api/")) {
 			return notFound();
@@ -198,13 +292,29 @@ export function proxy(request: NextRequest): NextResponse {
 		target.pathname = rawPathname === "/" ? "/docs" : `/docs${rawPathname}`;
 		/* Docs pages ship as HTML, so they need the same nonce-based CSP
 		 * as every other HTML response on the service. */
-		return attachCsp(request, { type: "rewrite", url: target }, isDev);
+		return attachCsp(requestHeaders, { type: "rewrite", url: target }, isDev);
 	}
 
 	if (classified === HOSTNAMES.main) {
 		/* Off-allowlist on the main host 404s before CSP/auth ever runs;
 		 * an off-allowlist path is by definition not a real route. */
 		if (!isPathAllowedOnHost(HOSTNAMES.main, pathname)) {
+			return notFound();
+		}
+		/* MCP is mounted as a Better Auth plugin endpoint at
+		 * `/api/auth/mcp` (so it inherits the auth router's
+		 * `onRequestRateLimit` middleware). The main host's allowlist
+		 * admits `/api/auth` as a prefix — needed for sign-in,
+		 * session, OAuth-provider endpoints — which would otherwise
+		 * also admit `/api/auth/mcp`, giving clients a back-door
+		 * route to MCP that bypasses the intended `mcp.commcare.app/mcp`
+		 * host boundary. Deny it explicitly. The plugin endpoint
+		 * stays reachable on its sanctioned path: `mcp.commcare.app/mcp`
+		 * rewrites internally to `/api/mcp`, the route shim
+		 * synthesizes `/api/auth/mcp` with the original wire host
+		 * preserved on the request, and Better Auth's router
+		 * dispatches it to the plugin endpoint. */
+		if (pathname === "/api/auth/mcp" || pathname === "/api/auth/mcp/") {
 			return notFound();
 		}
 		/* Fall through to the short-circuit + page handling below. */
@@ -223,7 +333,7 @@ export function proxy(request: NextRequest): NextResponse {
 	if (isDev && (pathname === "/docs" || pathname.startsWith("/docs/"))) {
 		/* Same HTML shape as the production docs response, so attach CSP
 		 * here too — keeps dev preview faithful to prod headers. */
-		return attachCsp(request, { type: "next" }, isDev);
+		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
 
 	/* ── 2. API + well-known short-circuit ───────────────────────────── */
@@ -238,7 +348,7 @@ export function proxy(request: NextRequest): NextResponse {
 		pathname.startsWith("/api/") ||
 		pathname.startsWith("/.well-known/")
 	) {
-		return NextResponse.next();
+		return NextResponse.next({ request: { headers: requestHeaders } });
 	}
 
 	/* ── 3. Pages: nonce-based CSP + optimistic auth ─────────────────── */
@@ -251,7 +361,7 @@ export function proxy(request: NextRequest): NextResponse {
 		return NextResponse.redirect(new URL("/", request.url));
 	}
 
-	return attachCsp(request, { type: "next" }, isDev);
+	return attachCsp(requestHeaders, { type: "next" }, isDev);
 }
 
 export const config = {

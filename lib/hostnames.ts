@@ -61,17 +61,37 @@ export const MCP_RESOURCE_ORIGIN = isDev
  * (slice, regex strip) in an auth context is exactly the kind of code
  * that drifts wrong under refactor.
  *
- * Exported because the MCP route's `mcp-handler` library does its own
- * `req.url` pathname matching against `${basePath}/mcp` and Next.js
- * middleware rewrites do NOT update `Request.url` — the request still
- * carries the wire path the client sent. So the route's `basePath`
- * has to track this path per environment (prod=`/mcp` wire,
- * dev=`/api/mcp` wire) or the inner handler 404s on what the OAuth
- * layer just authorized. See `app/api/mcp/route.ts`.
+ * The dev/prod split tracks the client-visible wire path:
+ * `mcp.commcare.app/mcp` in production, `localhost:3000/api/mcp` in
+ * dev (no proxy rewrite locally). This value flows into
+ * `MCP_RESOURCE_URL` (the OAuth `resource` parameter clients send,
+ * also the `aud` claim on AS-minted access tokens) and the
+ * protected-resource metadata URL below; the route shim's internal
+ * basePath plumbing is independent of this path.
  */
 export const MCP_RESOURCE_PATH = isDev ? "/api/mcp" : "/mcp";
 
 export const MCP_RESOURCE_URL = `${MCP_RESOURCE_ORIGIN}${MCP_RESOURCE_PATH}`;
+
+/**
+ * Build a URL to a docs page from app surfaces (settings cards,
+ * error states, "Learn more" links). In production the docs live on
+ * their own subdomain (`docs.commcare.app`); in dev they're served
+ * by the same Next process under `/docs/...` since there's no
+ * subdomain locally. The helper picks the right shape per
+ * environment so links don't hardcode the production URL while
+ * developers are running against localhost.
+ *
+ * Distinct from `DOCS_BASE_URL` in `lib/docs/source.ts`, which feeds
+ * fumadocs's internal sidebar/nav generation — that constant is
+ * relative-path-only and lives inside the docs subtree.
+ *
+ * `slug` should start with `/`, e.g. `/mcp/api-keys`.
+ */
+export function docsLink(slug: string): string {
+	if (isDev) return `/docs${slug}`;
+	return `https://${HOSTNAMES.docs}${slug}`;
+}
 
 /**
  * RFC 9728 protected-resource metadata URL — the value the MCP route's

@@ -1,14 +1,24 @@
+import { NOVA_MCP_SCOPE_LABELS } from "@/lib/auth-public";
+import type { AuthKind } from "./types";
+
 /**
- * OAuth scope constants + claim parsing + per-tool guard for the MCP surface.
+ * Scope constants + claim parsing + per-tool guard for the MCP surface.
  *
  * Two enforcement layers exist, picked by where each scope sits in the
  * authorization model:
  *
  *   1. **Verify-layer (route-wide).** `nova.read` and `nova.write` are
- *      required by `mcpHandler`'s `verifyAccessToken({ scopes })` config
- *      in `app/api/mcp/route.ts`. A token missing either is rejected
- *      with a 403 before any adapter runs — these are the "you can use
- *      Nova at all" floor.
+ *      required as the floor on both auth paths, sourced from
+ *      `lib/auth-public.ts::NOVA_MCP_FLOOR_SCOPES`. The JWT path
+ *      passes them to `mcpHandler`'s `verifyAccessToken({ scopes })`
+ *      config in `app/api/mcp/jwt-auth.ts`, which produces a clean
+ *      403 on failure. The API-key path checks them locally in
+ *      `app/api/mcp/api-key-auth.ts::handleApiKeyMcp` after
+ *      `verifyApiKey` succeeds, surfacing the same 403 +
+ *      `insufficient_scope` shape (RFC 6750 §3) — verifying without
+ *      passing `permissions` to the plugin lets us emit a distinct
+ *      "missing scope" error instead of the indistinguishable
+ *      "key invalid" the plugin would otherwise return.
  *   2. **Per-tool (handler-internal).** `nova.hq.read` and
  *      `nova.hq.write` are *orthogonal* to read/write — they gate access
  *      to a separate third-party system (CommCare HQ), not Nova-internal
@@ -79,50 +89,82 @@ export function parseScopes(scope: string | undefined): string[] {
 }
 
 /**
- * Thrown when the caller's access token lacks an OAuth scope a specific
- * tool requires. Parallel to `McpAccessError` and `McpInvalidInputError`:
+ * Thrown when the caller's credential lacks a scope a specific tool
+ * requires. Parallel to `McpAccessError` and `McpInvalidInputError`:
  * `toMcpErrorResult` short-circuits the generic classifier and emits
- * a deterministic `scope_missing` envelope carrying the required scope
- * so MCP clients can show a precise re-authorization prompt.
+ * a deterministic `scope_missing` envelope carrying the required
+ * scope so MCP clients can show a precise prompt to grant it.
+ *
+ * Two pieces of bearer-shape-aware copy come together here:
+ *
+ *   - **Friendly label.** The message names the scope by the label
+ *     the user sees in the UI ("HQ Read") rather than the raw
+ *     literal (`nova.hq.read`). The settings checkboxes and OAuth
+ *     consent rows both use the friendly label; leaking the raw
+ *     literal forces the user to translate.
+ *   - **Path-aware remediation.** The fix sentence branches on
+ *     `authKind` — "Re-authorize the connecting client" for OAuth,
+ *     "Edit the API key's scopes in Nova settings" for API keys. The
+ *     error knows which path produced the call (route handlers stamp
+ *     `authKind` onto `ToolContext`), so we point the user at the
+ *     surface they actually have access to instead of listing both
+ *     and making them figure out which applies.
+ *
+ * The wire payload's `required_scope` field keeps the raw literal
+ * for programmatic consumers; only the human-readable `message`
+ * field uses the friendly label.
  *
  * `app_id` is uniformly stamped onto the wire envelope by the error
  * serializer (via `ctx.appId`), so callers don't need to thread it
- * through this throw — they just `throw new McpScopeError(SCOPES.hqWrite,
- * "upload_app_to_hq")` from inside their `try` block.
+ * through this throw — they just call `assertScope(ctx,
+ * SCOPES.hqWrite, "upload_app_to_hq")` from inside their `try`
+ * block.
  */
 export class McpScopeError extends Error {
 	constructor(
 		public readonly requiredScope: Scope,
 		public readonly toolName: string,
+		public readonly authKind: AuthKind,
 	) {
+		const label = NOVA_MCP_SCOPE_LABELS[requiredScope];
+		const remediation =
+			authKind === "api-key"
+				? "Edit the API key's scopes in Nova settings to grant it."
+				: "Re-authorize the connecting client to grant it.";
 		super(
-			`Tool "${toolName}" requires the "${requiredScope}" OAuth scope, which was not granted on this access token. Re-authorize the connecting client to grant this permission.`,
+			`Tool "${toolName}" requires the "${label}" permission, which isn't granted on this credential. ${remediation}`,
 		);
 		this.name = "McpScopeError";
 	}
 }
 
 /**
- * Per-tool scope guard. Throws `McpScopeError` when the token lacks
- * `required`; resolves cleanly otherwise. The catch block wrapping the
- * tool body routes the throw through `toMcpErrorResult`, which builds
- * a `scope_missing` envelope with `app_id` stamped from `ctx.appId` —
- * uniform with every other access-failure on the wire.
+ * Per-tool scope guard. Throws `McpScopeError` when the credential
+ * lacks `required`; resolves cleanly otherwise. The catch block
+ * wrapping the tool body routes the throw through `toMcpErrorResult`,
+ * which builds a `scope_missing` envelope with `app_id` stamped from
+ * `ctx.appId` — uniform with every other access-failure on the wire.
+ *
+ * Takes the full `ToolContext` (not just the scope array) so the
+ * thrown error can read `ctx.authKind` and emit the path-specific
+ * remediation sentence. The wire payload's `required_scope` field
+ * stays the same shape across both paths; only the human-readable
+ * message branches.
  *
  * Pattern at the call site:
  *
- *   assertScope(ctx.scopes, SCOPES.hqRead, "get_hq_connection");
+ *   assertScope(ctx, SCOPES.hqRead, "get_hq_connection");
  *
- * The check should run BEFORE any data read so a missing-scope token
- * can't probe whether a record exists — same defensive ordering as the
- * ownership pre-gate in `upload_app_to_hq`.
+ * The check should run BEFORE any data read so a missing-scope
+ * credential can't probe whether a record exists — same defensive
+ * ordering as the ownership pre-gate in `upload_app_to_hq`.
  */
 export function assertScope(
-	scopes: readonly string[],
+	ctx: { scopes: readonly string[]; authKind: AuthKind },
 	required: Scope,
 	toolName: string,
 ): void {
-	if (!scopes.includes(required)) {
-		throw new McpScopeError(required, toolName);
+	if (!ctx.scopes.includes(required)) {
+		throw new McpScopeError(required, toolName, ctx.authKind);
 	}
 }

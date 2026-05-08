@@ -27,8 +27,8 @@ A typical config entry looks like:
 
 Field names vary by client — some use `url`, some `endpoint`; some need a `transport` marker. The URL is the same regardless. Check your client's docs for the exact wrapper.
 
-<Callout type="info">
-Nova's MCP server is remote and uses OAuth. If your client only supports local MCP servers (stdio) or doesn't handle OAuth, it won't work with Nova.
+<Callout type="warn">
+If you're connecting Nova from an unattended pipeline, or from several parallel agents sharing one account, OAuth will fight you — sign-ins time out, parallel sessions invalidate each other, and you'll end up signing back in repeatedly. Use [API keys](./api-keys.mdx) instead — same scopes, no browser, no expiry surprises.
 </Callout>
 
 ## Sign in

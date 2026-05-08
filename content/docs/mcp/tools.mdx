@@ -7,7 +7,7 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 ## Easy starting point
 
-`get_agent_prompt` returns Nova's own system prompt — the same one our solutions architect uses internally. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the returned text as its operating instructions. You don't have to do this — your agent can drive the tools however it wants — but starting from the prompt Nova already tunes for these tools is the fastest way to good results.
+`get_agent_prompt` returns the same instructions Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this — your agent can drive the tools however it wants — but starting from the instructions Nova already tunes for these tools is the fastest path to good results.
 
 ## Browsing apps
 
