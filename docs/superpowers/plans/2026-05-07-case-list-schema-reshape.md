@@ -461,3 +461,34 @@ Landed at commit `93c55979`. Spec review clean; CR round 1 returned "Approved. S
 **Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (validator, wire emitters, SA tools, UI, preview, scripts, integration tests). Tasks 3-9 bring each surface to green.
 
 **Next:** Reshape Task 3 — Validator rules.
+
+### Task 3 — Validator rules — 2026-05-07
+
+Landed at commit `fb31f4b6`. Spec review clean; CR round 1 returned "Approved. Ship it."
+
+**Rule changes:**
+- `sortTypeCheck.ts` + its test DELETED (sort type derived; nothing left to validate). Three error codes removed from `errors.ts`: `CASE_LIST_SORT_UNKNOWN_PROPERTY`, `CASE_LIST_SORT_UNKNOWN_CALCULATED_COLUMN`, `CASE_LIST_SORT_TYPE_INCOMPATIBLE`.
+- `columnReferences.ts` walks single `config.columns`; calc-arm skipped via `kind === "calculated" continue`; error detail surfaces `columnUuid`. The defensive throw eliminated entirely by passing `caseType: string` (non-undefined) as a parameter — typed-parameter precondition replaces body-throw.
+- `calculatedColumnTypeCheck.ts` iterates `config.columns.filter(c => c.kind === "calculated")` rather than the deleted `calculatedColumns` array.
+- `searchInputModeMatchesPropertyType.ts` discriminates on `input.kind` — advanced short-circuits (predicate AST owns property resolution); simple keeps property/mode/via checks. The `!input.property` guard is gone (required on simple arm by schema).
+- `shared.ts::propertyExists` + `resolvePropertyDataType` form the unified column-property-source resolver, both backed by the `WeakMap`-memoized `validationContextFor` (declared → standard → writer-derived case types). `moduleTypeContext` discriminates on `input.kind` for `knownInputs`.
+- `module.ts` registration sweep: `sortTypeCheck` removed; `missingCaseListColumns` no longer filters by `kind !== "search-only"` (kind gone — non-emptiness of `columns` is the condition). Four case-list rules now registered.
+- `filterTypeCheck.ts` UNCHANGED (filter slot unchanged in v2).
+
+**Elm-style error voice landed.** Every `validationError(...)` body in the touched rules rewritten to the supervisor's standing voice rule (state what was tried + went wrong, name the expected condition, point at what to try). Validator surfaces in the UI; voice matters.
+
+**`lib/__tests__/docHelpers.ts` updated** as the minimum required for v2-shape compatibility (Task 2 left it broken per the planned intermediate state) — `caseListConfig()` helper drops `detailColumns` option + `sort`/`calculatedColumns` slot inits; `plainColumn` calls auto-assign `uuid`.
+
+**Test fixtures.** All v2-shape: every column has `uuid`; no `kind: "search-only"` / `time-since-until` / `late-flag`; SearchInputDef uses `kind` + `predicate`. New tests pin calc-arm skip + every-non-calc-kind walk + advanced-arm skip.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- lib/commcare/validator` — 48 / 48 green.
+- Sanity check on adjacent consumers: `validationRules.test.ts` + `postExpansionValidation.test.ts` — 72 / 72 green.
+- Sweeps clean: zero line-number citations, zero `detailColumns`/`sortTypeCheck`/`searchOnly`/`xpath`/`calculatedColumns` references in scope, zero `should not reach`/`should be impossible`/`Invariant violated` patterns.
+
+**Deltas from the planned shape:** none. The defensive-throw elimination via typed parameter is a stronger fix than the planned "rewrite the throw to Elm-style" — eliminating the unreachable state at the type level beats both.
+
+**Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (wire emitters, SA tools, UI, preview, scripts, integration tests). Tasks 4-9 bring each surface to green.
+
+**Next:** Reshape Task 4 — Wire emitters.
