@@ -4,8 +4,7 @@
 // declares three slots — `columns`, `filter?`, `searchInputs` —
 // with sort, visibility, and calculated arms carried on columns.
 // Unknown keys (anything outside the declared shape) strip silently
-// under Zod's default mode and never reach the typed result, which
-// is what downstream consumers bind against.
+// under Zod's default mode and never reach the typed result.
 //
 // The contracts pinned below:
 //

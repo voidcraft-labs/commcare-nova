@@ -138,7 +138,9 @@ const columnCommonSlots = z.object({
 /** Base shape every column kind extends — uuid + the common
  *  optional slots (sort, visibility). Per-kind schemas add their
  *  required configuration on top. */
-const columnBase = z.object({ uuid: uuidSchema }).merge(columnCommonSlots);
+const columnBase = z
+	.object({ uuid: uuidSchema })
+	.extend(columnCommonSlots.shape);
 
 // ── Column kinds ─────────────────────────────────────────────────
 //
@@ -287,13 +289,6 @@ export interface ColumnCommonSlots {
 	readonly visibleInDetail?: boolean;
 }
 
-/** Mutable mirror of `ColumnCommonSlots` for builder-internal writes. */
-type WritableColumnCommonSlots = {
-	sort?: ColumnSort;
-	visibleInList?: boolean;
-	visibleInDetail?: boolean;
-};
-
 /**
  * Spreads the common optional slots onto a column object only when
  * present. Avoids leaking `key: undefined` shapes that would fail
@@ -303,7 +298,11 @@ function withCommonSlots<T extends Record<string, unknown>>(
 	base: T,
 	slots: ColumnCommonSlots,
 ): T & ColumnCommonSlots {
-	const out: T & WritableColumnCommonSlots = { ...base };
+	const out: T & {
+		sort?: ColumnSort;
+		visibleInList?: boolean;
+		visibleInDetail?: boolean;
+	} = { ...base };
 	if (slots.sort !== undefined) out.sort = slots.sort;
 	if (slots.visibleInList !== undefined)
 		out.visibleInList = slots.visibleInList;
