@@ -16,14 +16,14 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, SearchInputDef, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import {
 	newUuid,
-	type SearchInputDefInput,
 	searchInputDefInputSchema,
+	stampSearchInputUuid,
 } from "./shared";
 
 export const addSearchInputInputSchema = z.object({
@@ -113,11 +113,4 @@ function moduleNotFoundResult(
 			error: `Tried to add a search input on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
 		},
 	};
-}
-
-function stampSearchInputUuid(
-	input: SearchInputDefInput,
-	uuid: Uuid,
-): SearchInputDef {
-	return { ...input, uuid } as SearchInputDef;
 }

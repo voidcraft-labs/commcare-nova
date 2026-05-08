@@ -27,8 +27,10 @@
 import { z } from "zod";
 import {
 	type CaseListConfig,
+	type Column,
 	columnSchema,
 	type Module,
+	type SearchInputDef,
 	searchInputDefSchema,
 	type Uuid,
 } from "@/lib/domain";
@@ -82,6 +84,48 @@ export const searchInputDefInputSchema = z.discriminatedUnion("kind", [
 	advancedSearchInputArm.omit({ uuid: true }),
 ]);
 export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
+
+// ── Uuid stamp helpers ──────────────────────────────────────────────
+//
+// The two stamp helpers below lift a uuid-less SA input back onto the
+// canonical domain shape (`Column`, `SearchInputDef`) by spreading the
+// minted (or carried-through) uuid into the object. Their cast lives
+// adjacent to the per-arm-omit machinery that makes the cast necessary
+// — keeping the rationale and the workaround in one place.
+
+/**
+ * Stamp the supplied uuid onto a kind-discriminated input column. The
+ * cast is required because TS does not preserve per-arm narrowing
+ * across a spread on a discriminated union — the structural identity
+ * of each arm is preserved at runtime, but the resulting object's
+ * static type widens to `Record<string, unknown>` after the spread.
+ * The cast funnels back through `Column`, which is exactly the shape
+ * the spread produces (every arm of `Column` carries `uuid` plus the
+ * arm's discriminator + per-kind fields, all of which `column` already
+ * supplies).
+ *
+ * Used by `addCaseListColumn` (uuid minted via `newUuid`) and
+ * `updateCaseListColumn` (uuid carried through from `columnUuid`).
+ */
+export function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
+	return { ...column, uuid } as Column;
+}
+
+/**
+ * Stamp the supplied uuid onto a kind-discriminated input search
+ * input. Same per-arm-narrowing reasoning as `stampColumnUuid` —
+ * spread on a discriminated union widens to `Record<string, unknown>`
+ * statically, and the cast funnels back through `SearchInputDef`.
+ *
+ * Used by `addSearchInput` (uuid minted via `newUuid`) and
+ * `updateSearchInput` (uuid carried through from `searchInputUuid`).
+ */
+export function stampSearchInputUuid(
+	input: SearchInputDefInput,
+	uuid: Uuid,
+): SearchInputDef {
+	return { ...input, uuid } as SearchInputDef;
+}
 
 // ── Uuid generation ─────────────────────────────────────────────────
 

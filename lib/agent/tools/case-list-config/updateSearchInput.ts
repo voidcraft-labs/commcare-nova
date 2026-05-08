@@ -21,18 +21,13 @@
  */
 
 import { z } from "zod";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type SearchInputDef,
-	type Uuid,
-} from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import {
-	type SearchInputDefInput,
 	searchInputDefInputSchema,
+	stampSearchInputUuid,
 	uuidInputSchema,
 } from "./shared";
 
@@ -137,11 +132,4 @@ function moduleNotFoundResult(
 			error: `Tried to update a search input on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
 		},
 	};
-}
-
-function stampSearchInputUuid(
-	input: SearchInputDefInput,
-	uuid: Uuid,
-): SearchInputDef {
-	return { ...input, uuid } as SearchInputDef;
 }

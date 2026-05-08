@@ -258,10 +258,10 @@ export function createSolutionsArchitect(
 
 	// ── Generation tools (build mode only) ────────────────────────────
 	// Drive the initial build sequence: schema → scaffold → fields. Case
-	// list authoring (columns / sort / filter / calculated / search inputs)
-	// happens through the typed case-list-config tools in the shared set
-	// — same tools both during initial build and on later edits. Excluded
-	// in edit mode — the SA uses mutation tools instead.
+	// list authoring (columns + filter + searchInputs) happens through
+	// the typed case-list-config tools in the shared set — same tools
+	// both during initial build and on later edits. Excluded in edit
+	// mode — the SA uses mutation tools instead.
 	//
 	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
 	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key

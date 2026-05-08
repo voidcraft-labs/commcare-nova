@@ -35,7 +35,7 @@
 
 import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
-import { predicateSchema } from "@/lib/domain/predicate";
+import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
@@ -57,15 +57,24 @@ export type SetCaseListFilterInput = z.infer<
 >;
 
 /**
+ * Discriminator returned in the structured success arm. On a set call
+ * it's the supplied predicate's `kind` (`"eq"`, `"and"`, `"match-all"`,
+ * etc., narrowed by `Predicate["kind"]`); on a null-clears call it's
+ * the literal `"cleared"`. Surfaces the outcome to the SA + any TS
+ * consumer without parsing prose, with full discriminated narrowing
+ * preserved.
+ */
+export type SetCaseListFilterKind = Predicate["kind"] | "cleared";
+
+/**
  * Success result. `kind` carries the predicate's discriminator on a
- * set call (e.g. `"eq"`, `"and"`, `"match-all"`), or the literal
- * `"cleared"` on the null-clears path — the SA reads it without
- * reparsing the message string, mirroring the structured `result.uuid`
- * shape on the atomic-op tools.
+ * set call, or the literal `"cleared"` on the null-clears path — the
+ * SA reads it without reparsing the message string, mirroring the
+ * structured `result.uuid` shape on the atomic-op tools.
  */
 export interface SetCaseListFilterSuccess {
 	message: string;
-	kind: string;
+	kind: SetCaseListFilterKind;
 }
 
 export type SetCaseListFilterResult =

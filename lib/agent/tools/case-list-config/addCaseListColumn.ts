@@ -18,11 +18,11 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, Column, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { type ColumnInput, columnInputSchema, newUuid } from "./shared";
+import { columnInputSchema, newUuid, stampColumnUuid } from "./shared";
 
 export const addCaseListColumnInputSchema = z.object({
 	moduleIndex: z
@@ -120,15 +120,4 @@ function moduleNotFoundResult(
 			error: `Tried to add a case list column on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
 		},
 	};
-}
-
-/**
- * Stamp the minted uuid onto the kind-discriminated input column. The
- * cast is required because TS does not preserve per-arm narrowing
- * across a spread on a discriminated union — the structural identity
- * of each arm is preserved at runtime, but the resulting object's
- * static type widens to `Record<string, unknown>` after the spread.
- */
-function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
-	return { ...column, uuid } as Column;
 }

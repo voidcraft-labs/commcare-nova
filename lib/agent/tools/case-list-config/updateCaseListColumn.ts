@@ -25,16 +25,11 @@
  */
 
 import { z } from "zod";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Column,
-	type Uuid,
-} from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { type ColumnInput, columnInputSchema, uuidInputSchema } from "./shared";
+import { columnInputSchema, stampColumnUuid, uuidInputSchema } from "./shared";
 
 export const updateCaseListColumnInputSchema = z.object({
 	moduleIndex: z
@@ -133,8 +128,4 @@ function moduleNotFoundResult(
 			error: `Tried to update a case list column on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
 		},
 	};
-}
-
-function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
-	return { ...column, uuid } as Column;
 }
