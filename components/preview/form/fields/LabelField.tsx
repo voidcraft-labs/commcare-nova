@@ -1,7 +1,10 @@
 "use client";
 import { useMemo } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { LabelField as LabelFieldEntity } from "@/lib/domain";
+import type {
+	FieldPatchFor,
+	LabelField as LabelFieldEntity,
+} from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useEditMode } from "@/lib/session/hooks";
@@ -42,7 +45,7 @@ export function LabelField({
 		return (property, value) => {
 			updateField(field.uuid, "label", {
 				[property]: value === "" ? undefined : value,
-			} as Partial<Omit<LabelFieldEntity, "uuid" | "kind">>);
+			} as FieldPatchFor<"label">);
 		};
 	}, [isEditMode, field.uuid, updateField]);
 

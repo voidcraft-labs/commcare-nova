@@ -27,7 +27,7 @@ import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { Field, Uuid } from "@/lib/domain";
+import type { FieldPatchFor, Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -74,9 +74,7 @@ export const FieldRow = memo(function FieldRow({
 		return (property, value) => {
 			updateField(uuid, fieldKind, {
 				[property]: value === "" ? undefined : value,
-			} as Partial<
-				Omit<Extract<Field, { kind: typeof fieldKind }>, "uuid" | "kind">
-			>);
+			} as FieldPatchFor<typeof fieldKind>);
 		};
 	}, [mode, uuid, fieldKind, updateField]);
 

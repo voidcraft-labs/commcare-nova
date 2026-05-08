@@ -27,7 +27,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field } from "@/lib/domain";
+import type { Field, FieldPatchFor } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
 import type { EditorSectionName } from "./useEntryActivation";
@@ -82,9 +82,7 @@ export function FieldEditorSection<F extends Field>({
 			// kind's schema declares.
 			updateField(field.uuid, field.kind, {
 				[key]: value,
-			} as unknown as Partial<
-				Omit<Extract<Field, { kind: F["kind"] }>, "uuid" | "kind">
-			>);
+			} as unknown as FieldPatchFor<F["kind"]>);
 			onCommit(key, value);
 		},
 		[updateField, field.uuid, field.kind, onCommit],

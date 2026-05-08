@@ -86,10 +86,15 @@ const BLUEPRINT_DOC_KEYS: ReadonlySet<string> = new Set(
 export function pickBlueprintDoc<T extends BlueprintDoc>(
 	state: T,
 ): BlueprintDoc {
-	const picked = pickByKeys(
-		state as unknown as Record<string, unknown>,
-		BLUEPRINT_DOC_KEYS,
-	);
+	// `state` may carry doc-store-only extras (action methods, the
+	// `temporal` slot from zundo) on top of the persisted shape. The
+	// generic narrows to `T extends BlueprintDoc`, so `pickByKeys`
+	// returns `Partial<T>` — every persisted slot is preserved by
+	// value but typed as optional after the projection. We re-assert
+	// the persisted-slot shape on the spread, then re-attach the
+	// in-memory `fieldParent` reverse index (rebuilt from `fieldOrder`
+	// on load, not part of the persisted schema).
+	const picked = pickByKeys(state, BLUEPRINT_DOC_KEYS);
 	return {
 		...(picked as Omit<BlueprintDoc, "fieldParent">),
 		fieldParent: state.fieldParent,

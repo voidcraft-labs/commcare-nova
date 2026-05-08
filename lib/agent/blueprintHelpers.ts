@@ -30,6 +30,7 @@ import type {
 	ConnectConfig,
 	Field,
 	FieldKind,
+	FieldPatchFor,
 	Form,
 	FormType,
 	Module,
@@ -689,7 +690,7 @@ export function updateFieldMutations<K extends FieldKind>(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 	targetKind: K,
-	patch: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>,
+	patch: FieldPatchFor<K>,
 ): Mutation[] {
 	if (doc.fields[fieldUuid] === undefined) return [];
 	// The mutation literal's structural shape matches the per-kind

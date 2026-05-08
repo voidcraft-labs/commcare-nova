@@ -47,6 +47,7 @@ import {
 	type ConnectType,
 	type Field,
 	type FieldKind,
+	type FieldPatchFor,
 	type Form,
 	type Module,
 } from "@/lib/domain";
@@ -154,7 +155,7 @@ export interface BlueprintMutations {
 	updateField: <K extends FieldKind>(
 		uuid: Uuid,
 		targetKind: K,
-		patch: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>,
+		patch: FieldPatchFor<K>,
 	) => void;
 	removeField: (uuid: Uuid) => void;
 	renameField: (uuid: Uuid, newId: string) => FieldRenameResult;

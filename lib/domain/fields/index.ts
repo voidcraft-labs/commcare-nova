@@ -252,15 +252,18 @@ const repeatVariantKeySets: Record<RepeatMode, ReadonlySet<string>> = {
  *
  * Callers precompute `allowedKeys` from `Object.keys(schema.shape)` at
  * module load so this helper is a tight loop on the hot path. Returns
- * a fresh object — never mutates the source.
+ * a fresh `Partial<T>` — every input key is optional in the output, since
+ * the picked subset depends on the runtime allowedKeys set.
  */
-export function pickByKeys(
-	source: Record<string, unknown>,
+export function pickByKeys<T extends Record<string, unknown>>(
+	source: T,
 	allowedKeys: ReadonlySet<string>,
-): Record<string, unknown> {
-	const picked: Record<string, unknown> = {};
+): Partial<T> {
+	const picked: Partial<T> = {};
 	for (const [key, value] of Object.entries(source)) {
-		if (allowedKeys.has(key)) picked[key] = value;
+		if (allowedKeys.has(key)) {
+			(picked as Record<string, unknown>)[key] = value;
+		}
 	}
 	return picked;
 }
@@ -407,6 +410,41 @@ export function reconcileFieldForKind(
 }
 
 /**
+ * Drop the immutable `uuid` + `kind` slots from a field-kind schema and
+ * make every remaining key optional — the patch shape for an
+ * `updateField` mutation. Identity and discriminant are fixed for the
+ * lifetime of a field entity; everything else is mutable. Used once
+ * per non-repeat kind plus once per repeat variant in
+ * `fieldPatchSchemaByKind`.
+ *
+ * The generic carries the source schema's full shape so each call site
+ * gets a precisely-typed partial — the per-variant key set survives
+ * the projection rather than collapsing to `Record<string, never>`.
+ */
+function partialOf<
+	S extends { uuid: z.ZodTypeAny; kind: z.ZodTypeAny } & z.ZodRawShape,
+>(
+	schema: z.ZodObject<S>,
+): z.ZodObject<{
+	[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<S[K]>;
+}> {
+	// `S extends { uuid; kind }` guarantees these slots exist; Zod's
+	// `omit()` parameter type encodes "every key in `S` must appear in
+	// the mask" (`Record<keyof S, never>` for unmasked keys), which the
+	// generic constraint can't satisfy structurally. The runtime call
+	// is sound, so cast the mask through `unknown`. The explicit return
+	// type captures the post-projection shape so callers see the
+	// per-variant key set rather than `Record<string, never>`.
+	return schema
+		.omit({ uuid: true, kind: true } as unknown as Parameters<
+			typeof schema.omit
+		>[0])
+		.partial() as z.ZodObject<{
+		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<S[K]>;
+	}>;
+}
+
+/**
  * Per-kind partial-patch schemas, keyed by `FieldKind`.
  *
  * Each entry validates the `patch` slot of a kind-discriminated
@@ -430,34 +468,45 @@ export function reconcileFieldForKind(
  * stray-key drop).
  */
 export const fieldPatchSchemaByKind = {
-	text: textFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	int: intFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	decimal: decimalFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	date: dateFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	time: timeFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	datetime: datetimeFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	single_select: singleSelectFieldSchema
-		.omit({ uuid: true, kind: true })
-		.partial(),
-	multi_select: multiSelectFieldSchema
-		.omit({ uuid: true, kind: true })
-		.partial(),
-	geopoint: geopointFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	image: imageFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	audio: audioFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	video: videoFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	barcode: barcodeFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	signature: signatureFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	label: labelFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	hidden: hiddenFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	secret: secretFieldSchema.omit({ uuid: true, kind: true }).partial(),
-	group: groupFieldSchema.omit({ uuid: true, kind: true }).partial(),
+	text: partialOf(textFieldSchema),
+	int: partialOf(intFieldSchema),
+	decimal: partialOf(decimalFieldSchema),
+	date: partialOf(dateFieldSchema),
+	time: partialOf(timeFieldSchema),
+	datetime: partialOf(datetimeFieldSchema),
+	single_select: partialOf(singleSelectFieldSchema),
+	multi_select: partialOf(multiSelectFieldSchema),
+	geopoint: partialOf(geopointFieldSchema),
+	image: partialOf(imageFieldSchema),
+	audio: partialOf(audioFieldSchema),
+	video: partialOf(videoFieldSchema),
+	barcode: partialOf(barcodeFieldSchema),
+	signature: partialOf(signatureFieldSchema),
+	label: partialOf(labelFieldSchema),
+	hidden: partialOf(hiddenFieldSchema),
+	secret: partialOf(secretFieldSchema),
+	group: partialOf(groupFieldSchema),
 	repeat: z.union([
-		userControlledRepeatSchema.omit({ uuid: true, kind: true }).partial(),
-		countBoundRepeatSchema.omit({ uuid: true, kind: true }).partial(),
-		queryBoundRepeatSchema.omit({ uuid: true, kind: true }).partial(),
+		partialOf(userControlledRepeatSchema),
+		partialOf(countBoundRepeatSchema),
+		partialOf(queryBoundRepeatSchema),
 	]),
 } as const satisfies { [K in FieldKind]: z.ZodTypeAny };
+
+/**
+ * Type-level shape of an `updateField` mutation's `patch` slot for a
+ * field of kind `K` — the mutable, schema-declared properties of the
+ * variant minus the immutable identity (`uuid`) and discriminant
+ * (`kind`). Pairs with `fieldPatchSchemaByKind` (the runtime Zod
+ * schema for the same shape).
+ *
+ * Distributes over a wider `K` to give a union of per-variant
+ * partials, so callers can write `FieldPatchFor<F["kind"]>` against
+ * a generic field whose kind is narrowed downstream.
+ */
+export type FieldPatchFor<K extends FieldKind> = Partial<
+	Omit<Extract<Field, { kind: K }>, "uuid" | "kind">
+>;
 
 export type { SelectOption } from "./base";
 // Re-export the shared option shape (used by single_select + multi_select,

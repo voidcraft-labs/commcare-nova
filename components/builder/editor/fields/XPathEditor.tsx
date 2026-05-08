@@ -22,7 +22,7 @@ import { useFormLintContext } from "@/components/builder/editor/fields/useFormLi
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field } from "@/lib/domain";
+import type { Field, FieldPatchFor } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	XPathStringKeys,
@@ -103,9 +103,7 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 		(next: string) => {
 			updateField(field.uuid, field.kind, {
 				validate_msg: next === "" ? undefined : next,
-			} as unknown as Partial<
-				Omit<Extract<Field, { kind: F["kind"] }>, "uuid" | "kind">
-			>);
+			} as unknown as FieldPatchFor<F["kind"]>);
 			setAddingMsg(false);
 		},
 		[updateField, field.uuid, field.kind],
@@ -117,9 +115,7 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 	const clearValidateMsg = useCallback(() => {
 		updateField(field.uuid, field.kind, {
 			validate_msg: undefined,
-		} as unknown as Partial<
-			Omit<Extract<Field, { kind: F["kind"] }>, "uuid" | "kind">
-		>);
+		} as unknown as FieldPatchFor<F["kind"]>);
 		setAddingMsg(false);
 	}, [updateField, field.uuid, field.kind]);
 
