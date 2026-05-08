@@ -12,6 +12,12 @@
 //   - **Validity aggregation:** the section reports `valid: false`
 //     iff any column reports invalid; `valid: true` only when all
 //     columns pass.
+//   - **Preview validity gate:** when the column list reports
+//     invalid, the embedded `DisplayPreview` enters its paused
+//     state and the case-store action does NOT fire. Mirrors
+//     `FiltersSection`'s preview-paused contract; without the gate
+//     an invalid calc-arm expression flows into `compileExpression`
+//     at the SQL layer and surfaces a raw error arm.
 //   - **Slot ownership:** edits to the columns slot emit through
 //     `onChange` with the other slots (`filter` / `searchInputs`)
 //     preserved.
@@ -226,6 +232,87 @@ describe("DisplaySection — validity aggregation", () => {
 		await waitFor(() => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
+	});
+});
+
+// ── Preview validity gate ────────────────────────────────────────
+//
+// Pre-fix: the section hardcoded `configValid={true}` on the
+// `DisplayPreview`, so an invalid calc-arm expression would fire
+// `loadCaseListPreviewAction` and reach `compileExpression` at the
+// SQL layer (which throws). The structural defense is the
+// preview's `configValid` prop — the section must aggregate the
+// column list's verdict and thread it through, mirroring
+// `FiltersSection`'s `filterValid={isValid}` pattern.
+//
+// This test pins the contract: an invalid column (Date kind on a
+// text-typed property) flips the column list's verdict, the
+// section threads `false` into `DisplayPreview`, and the preview
+// renders its paused state instead of firing the action.
+
+describe("DisplaySection — preview validity gate", () => {
+	it("threads the column-list verdict into DisplayPreview's configValid", async () => {
+		// Date-kind column on a text-typed property → applicability
+		// fails → ColumnList aggregates `valid: false` → section
+		// threads `false` into `DisplayPreview` → the preview enters
+		// its paused state.
+		const PATIENT_DOB_AS_TEXT: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "dob", label: "Date of birth", data_type: "text" },
+			],
+		};
+		const config = makeConfig({
+			columns: [dateColumn(COL_A_UUID, "dob", "DOB", "%Y-%m-%d")],
+		});
+		render(
+			<DisplaySection
+				value={config}
+				onChange={() => {}}
+				caseTypes={[PATIENT_DOB_AS_TEXT]}
+				currentCaseType="patient"
+				appId={APP_ID}
+			/>,
+		);
+		// Preview surfaces the paused state once the column-list
+		// verdict propagates to `false`. The earlier "preview paused"
+		// shape is the gate's tell — without the wire, the preview
+		// would stay in a "loading → empty" cycle and never surface
+		// the paused branch.
+		await waitFor(() => {
+			expect(screen.getByText(/preview paused/i)).toBeDefined();
+		});
+		// The fresh-mount default is `valid: true`; the action may
+		// fire once before the column's first verdict flips through.
+		// What the gate prevents is REPEATED loads on a stale invalid
+		// state — verify by snapshotting the call count after the
+		// paused state lands, then waiting briefly + asserting the
+		// count hasn't grown.
+		const callsAtPause = vi.mocked(loadCaseListPreviewAction).mock.calls.length;
+		await new Promise<void>((r) => setTimeout(r, 50));
+		expect(vi.mocked(loadCaseListPreviewAction).mock.calls.length).toBe(
+			callsAtPause,
+		);
+	});
+
+	it("fires the action and stays out of paused state when every column is valid", async () => {
+		const config = makeConfig({
+			columns: [plainColumn(COL_A_UUID, "name", "Name")],
+		});
+		render(
+			<DisplaySection
+				value={config}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				appId={APP_ID}
+			/>,
+		);
+		await waitFor(() => {
+			expect(loadCaseListPreviewAction).toHaveBeenCalled();
+		});
+		expect(screen.queryByText(/preview paused/i)).toBeNull();
 	});
 });
 

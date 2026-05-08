@@ -45,7 +45,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSortAscending from "@iconify-icons/tabler/sort-ascending";
 import tablerSortDescending from "@iconify-icons/tabler/sort-descending";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import {
 	type CaseListConfig,
 	type CaseType,
@@ -101,6 +101,21 @@ export interface DisplaySectionProps {
  * the live-preview panel. Sort and calc are no longer separate
  * sub-sections — sort is per-column on the column itself, calc is
  * a column kind.
+ *
+ * Validity propagation: the column list aggregates per-row inner
+ * verdicts (kind-vs-property applicability + calc-arm
+ * `ExpressionCardEditor` validity) and fires onValidityChange. This
+ * section stashes the column-list verdict, propagates the same
+ * verdict up to the workspace (so the save affordance gates), AND
+ * threads it into `DisplayPreview` as `configValid` so the preview
+ * suppresses its case-store load while the column list is invalid.
+ *
+ * Skipping the gate would let an invalid calculated-column
+ * expression flow into `compileExpression` at the SQL layer, where
+ * it would throw and surface a raw error arm to the user — the
+ * structural defense the preview's file header pins. Mirrors
+ * `FiltersSection`'s pattern verbatim (slot-presence-driven
+ * `predicateValid` + `filterValid={isValid}`).
  */
 export function DisplaySection({
 	value,
@@ -110,6 +125,18 @@ export function DisplaySection({
 	appId,
 	onValidityChange,
 }: DisplaySectionProps) {
+	// Aggregated column-list verdict. Default `true` — fresh-mount
+	// state stays valid until the inner editors fire their first
+	// verdicts; otherwise the preview would render its paused state
+	// momentarily on every load while the column list is doing its
+	// applicability pass.
+	const [columnsValid, setColumnsValid] = useState(true);
+
+	// Standardized parent-validity propagation — fires on mount + on
+	// every transition, ref-stashed against fresh-each-render parent
+	// callback identity.
+	useValidityPropagator({ isValid: columnsValid, onValidityChange });
+
 	// ── Per-slot mutator ──
 	//
 	// Column-list mutations route through the shared mutator. Every
@@ -129,7 +156,9 @@ export function DisplaySection({
 			{/* Column list — owns add / remove / reorder + per-row
 			    `ColumnEditor` mount. Every column kind (including
 			    calculated) renders the same row chrome with the
-			    affordances row in the card shell. */}
+			    affordances row in the card shell. The list's
+			    aggregated verdict drives both the parent's save gate
+			    and the preview's `configValid` below. */}
 			<DisplaySubSection
 				icon={tablerColumns}
 				title="Columns"
@@ -140,7 +169,7 @@ export function DisplaySection({
 					onChange={setColumns}
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
-					onValidityChange={onValidityChange}
+					onValidityChange={setColumnsValid}
 				/>
 			</DisplaySubSection>
 
@@ -159,7 +188,7 @@ export function DisplaySection({
 					appId={appId}
 					caseListConfig={value}
 					currentCaseType={currentCaseType}
-					configValid={true}
+					configValid={columnsValid}
 				/>
 			</DisplaySubSection>
 		</div>
@@ -169,10 +198,20 @@ export function DisplaySection({
 // ── Sort priority stack ───────────────────────────────────────────
 //
 // Read-only ordered pill stack showing the sorted columns in
-// priority order. Drag-to-reorder emits a new `priority` for each
-// affected column — priorities are reassigned to be contiguous
-// (0, 1, 2, ...) after every reorder so the wire emitter sees a
-// clean ascending order.
+// priority order. Drag-to-reorder reassigns priorities 0..N-1
+// across the dragged set so the visible order matches the wire-
+// emitter's ascending-priority order.
+//
+// The schema doesn't guarantee priority uniqueness or contiguity:
+// per-column `cycleSort` and `clearSort` (in
+// `ColumnAffordancesRow`) drop a column's sort slot without
+// renumbering its peers, which leaves gaps (e.g. priorities
+// `[0, 1, 2]` with the middle column cleared becomes `[0, 2]`).
+// The gaps are harmless — the wire emitter's tie-break to
+// source-array index resolves any ambiguity, and `resolveSortedColumns`
+// here uses the same tie-break — but the stack's drag handler
+// always emits a clean 0..N-1 sequence so the visible order stays
+// readable.
 
 interface SortPriorityStackProps {
 	readonly value: readonly Column[];
@@ -188,18 +227,18 @@ interface SortPriorityStackProps {
 function SortPriorityStack({ value, onChange }: SortPriorityStackProps) {
 	// Resolve the sorted columns ordered by priority ascending.
 	// Tie-break to source-array index — same rule the saga / preview
-	// / wire emitter use. The schema doesn't guarantee priority
-	// uniqueness; the editor enforces it on save by reassigning
-	// contiguous priorities post-reorder.
+	// / wire emitter use. Gaps in the priority sequence are tolerated
+	// by every layer (the schema doesn't enforce uniqueness or
+	// contiguity); the drag-reorder handler below normalizes to
+	// 0..N-1 so the visible order stays readable.
 	const sorted = useMemo(() => resolveSortedColumns(value), [value]);
 	const containerKey = useId();
 
 	const reorderSorted = (nextOrder: readonly Column[]) => {
-		// Reassign contiguous priorities to the reordered sorted list,
-		// then write back into the full column array preserving every
-		// non-sorted column's position. The non-sorted columns keep
-		// their array indices; only the sort fields on the sorted
-		// columns change.
+		// Renumber the reordered sorted list 0..N-1, then write back
+		// into the full column array preserving every non-sorted
+		// column's position. The non-sorted columns keep their array
+		// indices; only the sort fields on the sorted columns change.
 		const priorityByUuid = new Map<string, number>();
 		nextOrder.forEach((col, idx) => {
 			priorityByUuid.set(col.uuid, idx);

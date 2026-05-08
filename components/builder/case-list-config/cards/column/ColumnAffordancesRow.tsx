@@ -102,12 +102,16 @@ export function ColumnAffordancesRow({
 			);
 			return;
 		}
-		// desc → cleared. Removing the column from the sort priority
-		// order leaves a gap (e.g. priorities [0, 1, 2] with column at
-		// `1` cleared becomes [0, 2]); the wire emitter sorts by
-		// priority ascending and the gap is harmless. The editor's
-		// "drag to reorder priority" affordance is the sort-priority
-		// pill stack rendered at the top of the Display section.
+		// desc → cleared. Per-column clears drop the sort slot
+		// without renumbering peers, so the resulting priority
+		// sequence may carry gaps (priorities `[0, 1, 2]` with the
+		// middle column cleared becomes `[0, 2]`). Gaps are tolerated
+		// by every layer — the schema doesn't enforce contiguity, the
+		// wire emitter sorts by priority ascending, and
+		// `resolveSortedColumns` tie-breaks to source-array index when
+		// priorities collide. The Display section's sort-priority
+		// pill stack normalizes back to 0..N-1 the next time the user
+		// drags to reorder.
 		onChange(replaceSlot(value, "sort", undefined));
 	};
 
