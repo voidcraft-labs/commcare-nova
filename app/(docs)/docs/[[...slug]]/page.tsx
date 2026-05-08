@@ -22,10 +22,14 @@ import {
 	DocsDescription,
 	DocsPage,
 	DocsTitle,
+	MarkdownCopyButton,
+	PageBreadcrumb,
+	ViewOptionsPopover,
 } from "fumadocs-ui/layouts/docs/page";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { llmMarkdownUrl } from "@/lib/docs/llm";
 import { source } from "@/lib/docs/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -65,6 +69,7 @@ export default async function Page({ params }: PageProps) {
 	}
 
 	const MDX = page.data.body;
+	const markdownUrl = llmMarkdownUrl(slug);
 
 	/* `createRelativeLink` rewrites href values that point at sibling
 	 * `.mdx` files into the correct routed URL for the current page.
@@ -74,7 +79,25 @@ export default async function Page({ params }: PageProps) {
 	 * it through the same loader fumadocs uses for sidebar/nav links.
 	 * Server-component-only API. */
 	return (
-		<DocsPage toc={page.data.toc}>
+		<DocsPage
+			toc={page.data.toc}
+			/* Disable the built-in breadcrumb slot so we can render it
+			 * inline with the page-actions row (right-aligned Copy +
+			 * View buttons). The slot accepts a custom FC, but slot
+			 * functions cannot close over server-side props across the
+			 * RSC boundary — composing inside `children` keeps every
+			 * value in scope without crossing it. */
+			breadcrumb={{ enabled: false }}
+		>
+			{/* Header row: breadcrumb on the left, AI page-actions on
+			 * the right. */}
+			<div className="flex flex-row items-center justify-between gap-4">
+				<PageBreadcrumb />
+				<div className="flex flex-row items-center gap-2">
+					<MarkdownCopyButton markdownUrl={markdownUrl} />
+					<ViewOptionsPopover markdownUrl={markdownUrl} />
+				</div>
+			</div>
 			<DocsTitle>{page.data.title}</DocsTitle>
 			<DocsDescription>{page.data.description}</DocsDescription>
 			<DocsBody>
