@@ -3,10 +3,11 @@
 // Server Actions for the running-app view's case-data binding.
 // Each action resolves the request's session, constructs a
 // tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`,
-// and delegates to a pure helper in `./caseDataBindingHelpers.ts`.
-// Tests bypass the actions and inject a `CaseStore` directly.
-// Centralizing session resolution here means a change to the auth
-// strategy lands in one file.
+// and delegates to an I/O helper in `./caseDataBindingHelpers.ts`
+// (server-only) or an error mapper in `./caseDataBindingClient.ts`
+// (client-bundle-safe). Tests bypass the actions and inject a
+// `CaseStore` directly. Centralizing session resolution here means
+// a change to the auth strategy lands in one file.
 
 "use server";
 
@@ -16,6 +17,12 @@ import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import {
+	mapCaseListPreviewError,
+	mapFilterPreviewError,
+	mapPopulateSampleCasesError,
+	mapSubmitFormError,
+} from "./caseDataBindingClient";
 import {
 	applyCloseMutation,
 	applyFollowupMutation,
@@ -27,12 +34,6 @@ import {
 	readFilterPreview,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
-import {
-	mapCaseListPreviewError,
-	mapFilterPreviewError,
-	mapPopulateSampleCasesError,
-	mapSubmitFormError,
-} from "./caseDataBindingPure";
 import type {
 	LoadCaseDataResult,
 	LoadCaseListPreviewResult,

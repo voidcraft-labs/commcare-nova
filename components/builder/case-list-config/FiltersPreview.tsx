@@ -39,7 +39,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { CaseListConfig, Column } from "@/lib/domain";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
-import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingPure";
+import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 import type { LoadFilterPreviewResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import { renderColumnCell } from "./columnCellRenderer";
 

@@ -12,11 +12,11 @@
 // `caseDataBinding.ts` exports `"use server"` actions that wrap
 // `getSession()` + `withOwnerContext`. Driving those through a
 // real session is heavy (Better Auth + Firestore); the
-// architecture splits the I/O wrapper from the pure helpers
-// precisely so tests can bind against a `CaseStore` instance from
-// the contract harness without spinning up a session. The pure
-// helpers carry every behavior the actions delegate to; the
-// actions are thin wrappers.
+// architecture splits the action wrapper from the underlying
+// helpers precisely so tests can bind against a `CaseStore`
+// instance from the contract harness without spinning up a
+// session. The helpers carry every behavior the actions delegate
+// to; the actions are thin wrappers.
 //
 // ## Tenant-scope coverage
 //
@@ -51,6 +51,15 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import {
+	caseRowDisplayValue,
+	caseRowToFormPreload,
+	mapCaseListPreviewError,
+	mapFilterPreviewError,
+	mapPopulateSampleCasesError,
+	mapSubmitFormError,
+	pickBlueprintDoc,
+} from "../caseDataBindingClient";
+import {
 	applyCloseMutation,
 	applyFollowupMutation,
 	applyRegistrationMutation,
@@ -62,15 +71,6 @@ import {
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
-import {
-	caseRowDisplayValue,
-	caseRowToFormPreload,
-	mapCaseListPreviewError,
-	mapFilterPreviewError,
-	mapPopulateSampleCasesError,
-	mapSubmitFormError,
-	pickBlueprintDoc,
-} from "../caseDataBindingPure";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 
 // ---------------------------------------------------------------

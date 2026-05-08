@@ -12,14 +12,14 @@
 // `properties` document the same way `applySchemaChange` and the
 // predicate compiler do. The only coercion is `caseRowToFormPreload`
 // at the form-engine boundary, which lives in
-// `./caseDataBindingPure.ts` because it's a pure transformation
-// over `CaseRow` with no `CaseStore` dependency.
+// `./caseDataBindingClient.ts` — the client-bundle-safe mirror of
+// this module — because it has no `CaseStore` dependency.
 //
-// Pure projections + typed-error mappers live in
-// `./caseDataBindingPure.ts` so client components can value-import
-// them without dragging the case-store's Cloud SQL connector graph
-// into their bundle. The `"use server"` action layer composes both
-// modules.
+// Doc-store projections + typed-error mappers live in
+// `./caseDataBindingClient.ts` so client components can
+// value-import them without dragging the case-store's Cloud SQL
+// connector graph into their bundle. The `"use server"` action
+// layer composes both modules.
 
 import "server-only";
 

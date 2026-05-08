@@ -25,7 +25,7 @@
 
 "use client";
 import type { Column } from "@/lib/domain";
-import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingPure";
+import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CalculatedValue,
 	CaseRowWithCalculated,

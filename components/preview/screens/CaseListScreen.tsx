@@ -11,7 +11,7 @@ import { useFirstFormForModule } from "@/lib/doc/hooks/useFirstFormForModule";
 import {
 	evaluateColumnValue,
 	pickBlueprintDoc,
-} from "@/lib/preview/engine/caseDataBindingPure";
+} from "@/lib/preview/engine/caseDataBindingClient";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
 	useCases,

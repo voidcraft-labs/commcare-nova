@@ -1,22 +1,25 @@
-// lib/preview/engine/caseDataBindingPure.ts
+// lib/preview/engine/caseDataBindingClient.ts
 //
-// Client-safe pure helpers for the running-app view's data binding.
-// Every function in this module is a pure transformation over
-// `CaseRow` / `CaseRowWithCalculated` / `JsonValue` /
-// `CalculatedValue` / `BlueprintDoc` shapes — no `CaseStore`, no
-// I/O, no Postgres dependency surface. Client components ("use
-// client") that render a row's display value or project a doc-store
-// snapshot down to the wire-serializable `BlueprintDoc` shape import
-// from here so their bundle never reaches into
-// `lib/case-store/index.ts` (whose value exports drag the Cloud SQL
-// connector + `google-auth-library` graph in transitively).
+// Client-bundle-safe helpers for the running-app view's data
+// binding — the client-side surface consumed by React components
+// in the case-list-config + preview screens. Mirror of
+// `./caseDataBindingHelpers.ts`, which carries
+// `import "server-only"` and reaches into the case-store's Cloud
+// SQL connector graph. Every export here transforms in-memory
+// shapes (`CaseRow` / `CaseRowWithCalculated` / `JsonValue` /
+// `CalculatedValue` / `BlueprintDoc`) without touching `CaseStore`
+// or any Postgres surface, so `"use client"` components that render
+// a row's display value or project a doc-store snapshot down to the
+// wire-serializable `BlueprintDoc` shape can value-import from here
+// without dragging `lib/case-store/index.ts` (which transitively
+// pulls in the Cloud SQL connector + `google-auth-library`) into
+// their bundle.
 //
-// Server-only counterparts (`./caseDataBindingHelpers.ts`) take a
-// `CaseStore` parameter and do the actual reads / writes; the
-// running-app Server Actions (`./caseDataBinding.ts`) compose both
-// modules. Tests that exercise the helpers via a real
-// `PostgresCaseStore` reach into `caseDataBindingHelpers.ts`
-// directly; tests of pure projections + mappers reach here.
+// The running-app Server Actions (`./caseDataBinding.ts`) compose
+// this module with `./caseDataBindingHelpers.ts`. Tests that
+// exercise the I/O helpers against a real `PostgresCaseStore` reach
+// into `caseDataBindingHelpers.ts` directly; tests of the
+// projections + mappers reach here.
 //
 // Typed-error mappers live here too: `mapPopulateSampleCasesError`,
 // `mapCaseListPreviewError`, `mapFilterPreviewError`, and
