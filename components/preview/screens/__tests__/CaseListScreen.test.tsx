@@ -12,9 +12,9 @@
 //      columns with `visibleInList: false` are absent from the
 //      header row AND every body cell.
 //   3. Calculated columns surface `row.calculated[column.uuid]`
-//      values in their cells. The case-store's
-//      `queryWithCalculated` materializes calc values keyed by
-//      uuid; the screen reads the slot directly via
+//      values in their cells. The case-store's `query` materializes
+//      calc values keyed by uuid (via the optional `calculated`
+//      projection arg); the screen reads the slot directly via
 //      `evaluateColumnValue` — no AST evaluation in the preview
 //      layer.
 

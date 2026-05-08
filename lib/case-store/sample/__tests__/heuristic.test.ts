@@ -24,10 +24,8 @@
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
-import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import type { CaseType } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
-import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
-import { CaseTypeNotInBlueprintError } from "../../errors";
 import type { JsonObject } from "../../sql/database";
 import { HeuristicCaseGenerator } from "../heuristic";
 import { createSeededPrng, hashStringToUint32 } from "../prng";
@@ -35,17 +33,6 @@ import { createSeededPrng, hashStringToUint32 } from "../prng";
 // ---------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------
-
-const APP_ID = "app-test";
-
-/**
- * Local wrapper that pins `APP_ID` so each test body calls
- * `buildBlueprint([CASE_TYPE])` instead of restating the app id
- * every time.
- */
-function buildBlueprint(caseTypes: CaseType[]): BlueprintDoc {
-	return buildSimpleBlueprint(caseTypes, APP_ID);
-}
 
 /**
  * A patient case-type covering every `data_type` arm — the broad
@@ -170,11 +157,9 @@ describe("HeuristicCaseGenerator", () => {
 	const generator = new HeuristicCaseGenerator();
 
 	it("produces the same output for the same seed", () => {
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		const args = {
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 10,
 			seed: "deterministic",
 		};
@@ -184,18 +169,15 @@ describe("HeuristicCaseGenerator", () => {
 	});
 
 	it("produces different output for different seeds", () => {
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		const first = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 10,
 			seed: "seed-A",
 		});
 		const second = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 10,
 			seed: "seed-B",
 		});
@@ -203,46 +185,40 @@ describe("HeuristicCaseGenerator", () => {
 	});
 
 	it("produces different output for different case-types", () => {
-		// Same seed, different `caseType` qualifier in the PRNG seed
-		// — output must differ. The check guards against the
+		// Same seed, different `caseType.name` qualifier in the PRNG
+		// seed — output must differ. The check guards against the
 		// determinism contract collapsing into "same seed string =
 		// same output regardless of context."
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, HOUSEHOLD_CASE_TYPE]);
 		const patient = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 5,
 			seed: "shared-seed",
 		});
 		// Use a single-property household to compare structurally
 		// against the patient's name property.
 		const household = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "household",
+			caseType: HOUSEHOLD_CASE_TYPE,
 			count: 5,
 			seed: "shared-seed",
 		});
 		// Compare the regions vs. names — different data sources.
 		// The non-equality check is the behavior pin: distinct
-		// `caseType` qualifiers must seed distinct PRNG streams.
+		// `caseType.name` qualifiers must seed distinct PRNG streams.
 		expect(patient).not.toEqual(household);
 	});
 
 	it("returns the requested count of rows", () => {
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		const five = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 5,
 			seed: "count-five",
 		});
 		const thirty = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 30,
 			seed: "count-thirty",
 		});
@@ -256,11 +232,9 @@ describe("HeuristicCaseGenerator", () => {
 		// out-of-shape value (e.g. an int outside the schema's
 		// integer arm) would surface here without ever needing the
 		// database.
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 30,
 			seed: "schema-validity",
 		});
@@ -281,11 +255,9 @@ describe("HeuristicCaseGenerator", () => {
 	});
 
 	it("each generated property has the expected JS shape per data_type", () => {
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 10,
 			seed: "shape-check",
 		});
@@ -342,11 +314,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			name: "person",
 			properties: [{ name: "age", label: "Age", data_type: "int" }],
 		};
-		const blueprint = buildBlueprint([caseType]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "person",
+			caseType,
 			count: 100,
 			seed: "age-pool",
 		});
@@ -366,11 +336,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 				{ name: "total_quantity", label: "Quantity", data_type: "int" },
 			],
 		};
-		const blueprint = buildBlueprint([caseType]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "stock",
+			caseType,
 			count: 30,
 			seed: "count-pool",
 		});
@@ -391,11 +359,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 				{ name: "temperature", label: "Temp", data_type: "decimal" },
 			],
 		};
-		const blueprint = buildBlueprint([caseType]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "vital",
+			caseType,
 			count: 30,
 			seed: "temp-pool",
 		});
@@ -411,11 +377,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			name: "person",
 			properties: [{ name: "name", label: "Name", data_type: "text" }],
 		};
-		const blueprint = buildBlueprint([caseType]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "person",
+			caseType,
 			count: 30,
 			seed: "name-pool",
 		});
@@ -432,11 +396,9 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 				{ name: "first_name", label: "First Name", data_type: "text" },
 			],
 		};
-		const blueprint = buildBlueprint([caseType]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "person",
+			caseType,
 			count: 30,
 			seed: "first-name-pool",
 		});
@@ -456,15 +418,10 @@ describe("HeuristicCaseGenerator parent linkage", () => {
 	const generator = new HeuristicCaseGenerator();
 
 	it("resolves parent_case_id from parentRefs for child case types", () => {
-		const blueprint = buildBlueprint([
-			PATIENT_WITH_PARENT_CASE_TYPE,
-			HOUSEHOLD_CASE_TYPE,
-		]);
 		const householdIds = ["household-1", "household-2", "household-3"];
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_WITH_PARENT_CASE_TYPE,
 			count: 30,
 			seed: "with-parents",
 			parentRefs: new Map([["household", householdIds]]),
@@ -479,11 +436,9 @@ describe("HeuristicCaseGenerator parent linkage", () => {
 		// `PATIENT_CASE_TYPE` has no `parent_type` — even with
 		// parentRefs supplied, the generator should not assign a
 		// parent.
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_CASE_TYPE,
 			count: 5,
 			seed: "no-parent-type",
 			parentRefs: new Map([["other", ["irrelevant-id"]]]),
@@ -496,14 +451,9 @@ describe("HeuristicCaseGenerator parent linkage", () => {
 	it("emits null parent_case_id when parent type has no existing rows", () => {
 		// `parent_type` declared but `parentRefs` carries no entry —
 		// child rows are orphans; not an error.
-		const blueprint = buildBlueprint([
-			PATIENT_WITH_PARENT_CASE_TYPE,
-			HOUSEHOLD_CASE_TYPE,
-		]);
 		const rows = generator.generate({
-			blueprint,
 			appId: "app-1",
-			caseType: "patient",
+			caseType: PATIENT_WITH_PARENT_CASE_TYPE,
 			count: 5,
 			seed: "no-parents-yet",
 		});
@@ -513,27 +463,10 @@ describe("HeuristicCaseGenerator parent linkage", () => {
 	});
 });
 
-// ---------------------------------------------------------------
-// HeuristicCaseGenerator — error paths
-// ---------------------------------------------------------------
-
-describe("HeuristicCaseGenerator error paths", () => {
-	const generator = new HeuristicCaseGenerator();
-
-	it("throws CaseTypeNotInBlueprintError when the blueprint does not contain the requested case type", () => {
-		const blueprint = buildBlueprint([HOUSEHOLD_CASE_TYPE]);
-		// The typed error carries the `(appId, caseType)` pair as
-		// public fields so Server Actions can map to a structured
-		// `missing-case-type` arm. Pin the instanceof + the public
-		// field contract; the prose body is voice-tweakable.
-		expect(() =>
-			generator.generate({
-				blueprint,
-				appId: "app-1",
-				caseType: "patient",
-				count: 5,
-				seed: "missing-case-type",
-			}),
-		).toThrow(CaseTypeNotInBlueprintError);
-	});
-});
+// `CaseTypeNotInBlueprintError` no longer surfaces from the heuristic
+// generator — the generator takes a full `CaseType` definition rather
+// than looking the case type up in a blueprint. The class still
+// surfaces from `applySchemaChange`'s `caseTypeSchemas.get(caseType)
+// === undefined` path, exercised by the contract harness in
+// `lib/case-store/__tests__/storeContract.ts`. The class itself is
+// covered by `lib/case-store/__tests__/errors.test.ts`.

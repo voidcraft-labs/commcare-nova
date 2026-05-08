@@ -25,7 +25,6 @@ import addFormats from "ajv-formats";
 import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import type {
-	BlueprintDoc,
 	CaseProperty,
 	CasePropertyDataType,
 	CaseType,
@@ -42,6 +41,7 @@ import type { RelationPath } from "@/lib/domain/predicate/types";
 import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
 } from "../errors";
 import type { SampleCaseGenerator } from "../sample/generator";
@@ -63,6 +63,7 @@ import type {
 } from "../sql/database";
 import type {
 	ApplySchemaChangeArgs,
+	CalculatedColumn,
 	CalculatedValue,
 	CaseInsert,
 	CaseRow,
@@ -73,11 +74,9 @@ import type {
 	GenerateSampleDataArgs,
 	MigrationReport,
 	QueryArgs,
-	QueryWithCalculatedArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 } from "../store";
-import { buildCaseTypeMap, findCaseTypeOrThrow } from "../store";
 
 /**
  * Construction arguments. Production callers go through
@@ -132,100 +131,14 @@ export class PostgresCaseStore implements CaseStore {
 		this.sampleGenerator = args.sampleGenerator;
 	}
 
-	async query(args: QueryArgs): Promise<CaseRow[]> {
+	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
+		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
+
 		const ctx = this.buildPredicateContext({
 			db: this.db,
 			appId: args.appId,
 			caseType: args.caseType,
-			schemas: buildCaseTypeMap(args.blueprint),
-		});
-
-		// Outer query owns the tenant filter — `compileRelationPath`
-		// only enforces it on JOIN-ed cases inside relation walks.
-		let qb = this.db
-			.selectFrom("cases as c")
-			.selectAll("c")
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId);
-
-		if (args.predicate !== undefined) {
-			qb = qb.where(compilePredicate(args.predicate, ctx));
-		}
-
-		// Sort keys compile through `compileExpression` against the
-		// thunk-wired context — `expressionContextFor` handles the
-		// cycle break for the predicate-bearing arms (`if.cond`,
-		// `count.where`).
-		if (args.sort !== undefined) {
-			const exprCtx = expressionContextFor(ctx);
-			for (const key of args.sort) {
-				const expr = compileExpression(key.expression, exprCtx);
-				qb = qb.orderBy(expr, key.direction);
-			}
-		}
-
-		if (args.limit !== undefined) {
-			qb = qb.limit(args.limit);
-		}
-		if (args.offset !== undefined) {
-			qb = qb.offset(args.offset);
-		}
-
-		return await qb.execute();
-	}
-
-	async count(args: CountArgs): Promise<number> {
-		// Same predicate-context plumbing `query` uses — the WHERE
-		// clause emitted here MUST match a predicate-narrowed `query`
-		// against the same `(appId, caseType, blueprint, predicate)`
-		// tuple; the Filters-section preview pairs the count with a
-		// limited `queryWithCalculated` against the same predicate, so
-		// any divergence between the two compile paths would surface
-		// as a count vs row-list mismatch.
-		const ctx = this.buildPredicateContext({
-			db: this.db,
-			appId: args.appId,
-			caseType: args.caseType,
-			schemas: buildCaseTypeMap(args.blueprint),
-		});
-
-		// `eb.fn.countAll<string>()` matches the existing usage at
-		// `runRenameMigration` — pg-driver returns BIGINT counts as
-		// strings (numeric-precision-preserving), so the typed
-		// builder declares the column as string and the caller
-		// `Number(...)` coerces. Tenant filter on the outer scan;
-		// `compileRelationPath` handles JOIN-side cases independently
-		// per the `lib/case-store/CLAUDE.md` § "Tenant scoping"
-		// contract.
-		let qb = this.db
-			.selectFrom("cases as c")
-			.select((eb) => eb.fn.countAll<string>().as("total"))
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId);
-
-		if (args.predicate !== undefined) {
-			qb = qb.where(compilePredicate(args.predicate, ctx));
-		}
-
-		// `executeTakeFirstOrThrow` is appropriate here — Postgres'
-		// `count` aggregate always returns exactly one row even on
-		// empty input. A `undefined` from the executor would indicate
-		// a structural pg-driver violation rather than a runtime
-		// branch the caller can recover from.
-		const row = await qb.executeTakeFirstOrThrow();
-		return Number(row.total);
-	}
-
-	async queryWithCalculated(
-		args: QueryWithCalculatedArgs,
-	): Promise<CaseRowWithCalculated[]> {
-		const ctx = this.buildPredicateContext({
-			db: this.db,
-			appId: args.appId,
-			caseType: args.caseType,
-			schemas: buildCaseTypeMap(args.blueprint),
+			schemas: args.caseTypeSchemas ?? new Map(),
 		});
 		const exprCtx = expressionContextFor(ctx);
 
@@ -282,11 +195,11 @@ export class PostgresCaseStore implements CaseStore {
 		// Reject early with the canonical compiler-bug shape so the
 		// caller surfaces the contract violation instead of a silent
 		// null-row or a wrapped pg parser error.
-		for (const column of args.calculated) {
+		for (const column of calculated) {
 			if (column.uuid === "") {
 				throw new Error(
 					compilerBugMessage({
-						where: "case-store.PostgresCaseStore.queryWithCalculated",
+						where: "case-store.PostgresCaseStore.query",
 						invariant: "a calculated column carried an empty-string uuid",
 						detail:
 							"Calculated columns project as SELECT aliases; Postgres rejects an empty alias and the row partition step relies on a non-empty key. Hint: Zod-parse the case-list config at the request boundary to catch the violation before it reaches the SQL layer.",
@@ -297,7 +210,7 @@ export class PostgresCaseStore implements CaseStore {
 			if (Buffer.byteLength(alias, "utf8") > 63) {
 				throw new Error(
 					compilerBugMessage({
-						where: "case-store.PostgresCaseStore.queryWithCalculated",
+						where: "case-store.PostgresCaseStore.query",
 						invariant: `composed calculated alias \`${alias}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
 						detail:
 							"Postgres silently truncates identifiers at 63 bytes. The downstream row-partition step uses the FULL pre-truncation alias to read each calculated value; a truncated wire-side alias would miss the lookup and the projection would silently emit `null` for every row. Two uuids matching in the truncation prefix would collide on the same alias. Hint: the alias is `__nova_calc__<uuid>`, so the uuid itself must be ≤ 50 bytes.",
@@ -306,10 +219,11 @@ export class PostgresCaseStore implements CaseStore {
 			}
 		}
 
-		// `selectAll("c")` first so the row carries every `cases`
-		// column, then chain `.select(eb => ...)` per calculated column
-		// for the projection. The Kysely fluent surface admits arbitrary
-		// `Expression<unknown>` projections via `eb(expression).as(alias)`.
+		// Outer query owns the tenant filter — `compileRelationPath`
+		// only enforces it on JOIN-ed cases inside relation walks.
+		// `selectAll("c")` first so every `cases` column lands; the
+		// per-calculated-column projection chains via `select(...)`
+		// under prefixed aliases.
 		let qb = this.db
 			.selectFrom("cases as c")
 			.selectAll("c")
@@ -318,7 +232,7 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.owner_id", "=", this.ownerId);
 
 		// Project each calculated column under its prefixed alias.
-		for (const column of args.calculated) {
+		for (const column of calculated) {
 			const expr = compileExpression(column.expression, exprCtx);
 			qb = qb.select(expr.as(aliasFor(column.uuid)));
 		}
@@ -327,6 +241,10 @@ export class PostgresCaseStore implements CaseStore {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
 		}
 
+		// Sort keys compile through `compileExpression` against the
+		// thunk-wired context — `expressionContextFor` handles the
+		// cycle break for the predicate-bearing arms (`if.cond`,
+		// `count.where`).
 		if (args.sort !== undefined) {
 			for (const key of args.sort) {
 				const expr = compileExpression(key.expression, exprCtx);
@@ -360,13 +278,13 @@ export class PostgresCaseStore implements CaseStore {
 		// alias (`__nova_calc__<uuid>`) with the consumer-facing key
 		// (the column's `uuid`) so the loop body needs no extra
 		// string ops per row.
-		const calcAliases = args.calculated.map((c) => ({
+		const calcAliases = calculated.map((c) => ({
 			alias: aliasFor(c.uuid),
 			uuid: c.uuid,
 		}));
 
 		return rows.map((row) => {
-			const calculated: Record<string, CalculatedValue> = {};
+			const calculatedMap: Record<string, CalculatedValue> = {};
 			// Postgres returns calculated-column NULL as JS `null`; the
 			// `CalculatedValue` union admits `null`. Non-null typed
 			// values come back per pg's per-OID deserializer:
@@ -387,7 +305,7 @@ export class PostgresCaseStore implements CaseStore {
 				// Postgres elides the alias from the row; the explicit
 				// guard keeps the map clean of `undefined`-typed slots.
 				if (Object.hasOwn(row, alias)) {
-					calculated[uuid] = row[alias] as CalculatedValue;
+					calculatedMap[uuid] = row[alias] as CalculatedValue;
 				} else {
 					// Defensive fall-through: treat missing alias as null.
 					// Documented contract from the interface JSDoc says
@@ -395,7 +313,7 @@ export class PostgresCaseStore implements CaseStore {
 					// an elided alias is functionally equivalent at the
 					// consumer layer (renderer reads the same blank
 					// value).
-					calculated[uuid] = null;
+					calculatedMap[uuid] = null;
 				}
 			}
 
@@ -412,9 +330,52 @@ export class PostgresCaseStore implements CaseStore {
 			}
 			return {
 				...(cleaned as unknown as CaseRow),
-				calculated,
+				calculated: calculatedMap,
 			};
 		});
+	}
+
+	async count(args: CountArgs): Promise<number> {
+		// Same predicate-context plumbing `query` uses — the WHERE
+		// clause emitted here MUST match a predicate-narrowed `query`
+		// against the same `(appId, caseType, caseTypeSchemas,
+		// predicate)` tuple; the Filters-section preview pairs the
+		// count with a limited `query` against the same predicate, so
+		// any divergence between the two compile paths would surface
+		// as a count vs row-list mismatch.
+		const ctx = this.buildPredicateContext({
+			db: this.db,
+			appId: args.appId,
+			caseType: args.caseType,
+			schemas: args.caseTypeSchemas ?? new Map(),
+		});
+
+		// `eb.fn.countAll<string>()` matches the existing usage at
+		// `runRenameMigration` — pg-driver returns BIGINT counts as
+		// strings (numeric-precision-preserving), so the typed
+		// builder declares the column as string and the caller
+		// `Number(...)` coerces. Tenant filter on the outer scan;
+		// `compileRelationPath` handles JOIN-side cases independently
+		// per the `lib/case-store/CLAUDE.md` § "Tenant scoping"
+		// contract.
+		let qb = this.db
+			.selectFrom("cases as c")
+			.select((eb) => eb.fn.countAll<string>().as("total"))
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.where("c.owner_id", "=", this.ownerId);
+
+		if (args.predicate !== undefined) {
+			qb = qb.where(compilePredicate(args.predicate, ctx));
+		}
+
+		// `executeTakeFirstOrThrow` is appropriate here — Postgres'
+		// `count` aggregate always returns exactly one row even on
+		// empty input. A `undefined` from the executor would indicate
+		// a structural pg-driver violation rather than a runtime
+		// branch the caller can recover from.
+		const row = await qb.executeTakeFirstOrThrow();
+		return Number(row.total);
 	}
 
 	async insert(args: {
@@ -897,11 +858,10 @@ export class PostgresCaseStore implements CaseStore {
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
-		const caseType = findCaseTypeOrThrow(
-			args.blueprint,
-			args.appId,
-			args.caseType,
-		);
+		const caseType = args.caseTypeSchemas.get(args.caseType);
+		if (caseType === undefined) {
+			throw new CaseTypeNotInBlueprintError(args.appId, args.caseType);
+		}
 		const schema = caseTypeToJsonSchema(caseType);
 
 		// Pre-flight: compute the desired index set BEFORE Phase A
@@ -1066,11 +1026,9 @@ export class PostgresCaseStore implements CaseStore {
 		const parentRefs = await this.resolveParentRefs(trx, {
 			appId: args.appId,
 			caseType: args.caseType,
-			blueprint: args.blueprint,
 		});
 
 		const rows = this.sampleGenerator.generate({
-			blueprint: args.blueprint,
 			appId: args.appId,
 			caseType: args.caseType,
 			count: args.count,
@@ -1096,6 +1054,7 @@ export class PostgresCaseStore implements CaseStore {
 		// edges + rows delete, regenerate, validate, bulk-insert. A
 		// mid-operation failure rolls back deletion alongside partial
 		// regeneration so the user never lands on an empty case type.
+		const caseTypeName = args.caseType.name;
 		return await this.db.transaction().execute(async (trx) => {
 			// `case_indices` references are caller-managed (no FK
 			// constraint) — delete first so orphan edges don't
@@ -1107,14 +1066,14 @@ export class PostgresCaseStore implements CaseStore {
 						.selectFrom("cases")
 						.select("case_id")
 						.where("app_id", "=", args.appId)
-						.where("case_type", "=", args.caseType)
+						.where("case_type", "=", caseTypeName)
 						.where("owner_id", "=", this.ownerId),
 				)
 				.execute();
 			const deleteResult = await trx
 				.deleteFrom("cases")
 				.where("app_id", "=", args.appId)
-				.where("case_type", "=", args.caseType)
+				.where("case_type", "=", caseTypeName)
 				.where("owner_id", "=", this.ownerId)
 				.executeTakeFirst();
 			const deleted = Number(deleteResult.numDeletedRows ?? 0);
@@ -1124,7 +1083,6 @@ export class PostgresCaseStore implements CaseStore {
 				caseType: args.caseType,
 				count: args.count,
 				seed: Date.now().toString(),
-				blueprint: args.blueprint,
 			});
 
 			return { deleted, inserted };
@@ -1144,17 +1102,13 @@ export class PostgresCaseStore implements CaseStore {
 		executor: Transaction<Database>,
 		args: {
 			appId: string;
-			caseType: string;
-			blueprint: BlueprintDoc;
+			caseType: CaseType;
 		},
 	): Promise<ReadonlyMap<string, ReadonlyArray<string>>> {
-		const matching = args.blueprint.caseTypes?.find(
-			(c) => c.name === args.caseType,
-		);
-		if (matching === undefined || matching.parent_type === undefined) {
+		const parentType = args.caseType.parent_type;
+		if (parentType === undefined) {
 			return new Map();
 		}
-		const parentType = matching.parent_type;
 		const parents = await executor
 			.selectFrom("cases")
 			.select("case_id")

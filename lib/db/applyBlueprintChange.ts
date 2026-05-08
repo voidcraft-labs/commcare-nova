@@ -65,7 +65,7 @@
  */
 
 import type { CaseStore } from "@/lib/case-store";
-import { withOwnerContext } from "@/lib/case-store";
+import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { loadApp, updateApp, updateAppForRun } from "./apps";
@@ -139,6 +139,11 @@ export async function applyBlueprintChange(
 
 	const store = await withOwnerContext(args.userId);
 
+	// Build the case-type schema map once at the boundary; the
+	// case-store's `applySchemaChange` reads from it directly. Each
+	// loop iteration shares the same prospective map.
+	const prospectiveSchemas = buildCaseTypeMap(prospectiveBlueprint);
+
 	// Phase 1: forward apply each change against Postgres. Track
 	// which entries succeeded so a failure mid-loop compensates
 	// only the ones that actually landed.
@@ -148,7 +153,7 @@ export async function applyBlueprintChange(
 			await store.applySchemaChange({
 				appId: args.appId,
 				caseType: entry.caseType,
-				blueprint: prospectiveBlueprint,
+				caseTypeSchemas: prospectiveSchemas,
 				...(entry.property !== undefined && { property: entry.property }),
 				...(entry.change !== undefined && { change: entry.change }),
 			});
@@ -256,10 +261,13 @@ async function compensate(
 	priorBlueprint: BlueprintDoc,
 ): Promise<void> {
 	if (applied.length === 0) return;
-	const priorByName = indexCaseTypesByName(priorBlueprint);
+	// Build the prior schema map once for the loop; every entry's
+	// presence-check + applySchemaChange call reads from the same
+	// snapshot.
+	const priorSchemas = buildCaseTypeMap(priorBlueprint);
 	for (const entry of applied) {
 		try {
-			if (priorByName.has(entry.caseType)) {
+			if (priorSchemas.has(entry.caseType)) {
 				// Case type existed in prior — re-sync the schema for
 				// the prior state. The per-row migration ran in Phase
 				// 1, so passing `change` again would attempt a second
@@ -270,7 +278,7 @@ async function compensate(
 				await store.applySchemaChange({
 					appId,
 					caseType: entry.caseType,
-					blueprint: priorBlueprint,
+					caseTypeSchemas: priorSchemas,
 				});
 			} else {
 				// Case type was added in prospective — drop the schema
@@ -290,19 +298,4 @@ async function compensate(
 			);
 		}
 	}
-}
-
-/**
- * Build a `name → present` set for the supplied blueprint's
- * `caseTypes`. Used by `compensate` to discriminate the
- * already-existed-in-prior arm (compensate via
- * `applySchemaChange`) from the case-type-addition arm
- * (compensate via `dropSchema`).
- */
-function indexCaseTypesByName(blueprint: BlueprintDoc): ReadonlySet<string> {
-	const set = new Set<string>();
-	for (const ct of blueprint.caseTypes ?? []) {
-		set.add(ct.name);
-	}
-	return set;
 }

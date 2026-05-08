@@ -8,6 +8,13 @@
 // "CaseStore — Cloud SQL Postgres from day-1" (lines 350-389). See
 // `lib/case-store/CLAUDE.md` for the architectural contract
 // (one interface / one implementation, structural tenant scoping).
+//
+// Methods take their narrow dependency directly: predicate / sort /
+// calculated-column compilation needs the case-type schema map; the
+// sample-data path needs one `CaseType` definition. Callers convert
+// `BlueprintDoc → ReadonlyMap<string, CaseType>` at the boundary via
+// `buildCaseTypeMap` so the interface stays decoupled from the full
+// blueprint shape.
 
 import type { Insertable, Selectable } from "kysely";
 import type {
@@ -21,15 +28,14 @@ import type {
 	RelationPath,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
-import { CaseTypeNotInBlueprintError } from "./errors";
 import type { CasesTable, JsonObject, JsonValue } from "./sql/database";
 
 /**
  * Calculated-column projection arm — the `kind: "calculated"` slice of
  * the authoring `Column` discriminated union. The case-store's
- * `queryWithCalculated` accepts arrays of this arm directly so callers
- * pass the same column entries the editor authors without an
- * intermediate shape conversion. The `uuid` is the SELECT alias key
+ * `query` accepts arrays of this arm directly so callers pass the
+ * same column entries the editor authors without an intermediate
+ * shape conversion. The `uuid` is the SELECT alias key
  * (`__nova_calc__<uuid>`); the `expression` is the per-row
  * `ValueExpression` the SQL emitter compiles into a projection.
  */
@@ -99,21 +105,34 @@ export interface SortKey {
 }
 
 /**
- * Arguments for `CaseStore.query`.
+ * Arguments for `CaseStore.query`. Single-shaped result regardless
+ * of whether `calculated` is supplied — the `calculated: {}` map per
+ * row reads uniformly across consumers.
  *
- * `blueprint` is required when `predicate` or `sort` reads a case
- * property — the compiler resolves the `prop` term's `data_type`
- * to pick the column cast. Predicate-free, sort-free queries (or
- * queries whose operands touch only reserved scalar columns at
- * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMNS`)
- * work without one.
+ * `caseTypeSchemas` is required when `predicate`, `sort`, or
+ * `calculated` references a case property — the term compiler
+ * resolves each `prop` term's `data_type` from the case-type schema
+ * map to pick the column cast. Optional when the query is
+ * predicate-free, sort-free, and calc-free, OR when every operand
+ * touches only the reserved scalar columns at
+ * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMNS`.
+ *
+ * `calculated` projections evaluate inline at the SQL layer keyed
+ * by the column's `uuid`; `lib/case-store/CLAUDE.md` § "Sample-data"
+ * documents the single-evaluator stance the project locks in.
+ *
+ * Empty / absent `calculated` produces an empty `calculated: {}`
+ * map per row. Postgres has no per-row value-budget on SELECT
+ * projections, but consumers should keep the count proportional to
+ * the case list's authored shape.
  */
 export interface QueryArgs {
 	appId: string;
 	caseType: string;
-	blueprint?: BlueprintDoc;
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 	predicate?: Predicate;
 	sort?: SortKey[];
+	calculated?: ReadonlyArray<CalculatedColumn>;
 	limit?: number;
 	offset?: number;
 }
@@ -122,10 +141,10 @@ export interface QueryArgs {
  * Arguments for `CaseStore.count`. Subset of `QueryArgs` — `count`
  * never sorts, never paginates, and never projects calculated
  * columns; it returns a single integer for the row population the
- * `(appId, caseType, predicate?)` triple resolves to. `blueprint`
- * is required when `predicate` reads a case property (same data-
- * type-resolution contract as `QueryArgs`).
+ * `(appId, caseType, predicate?)` triple resolves to.
  *
+ * `caseTypeSchemas` is required when `predicate` reads a case
+ * property (same data-type-resolution contract as `QueryArgs`).
  * Predicate-free callers pass `predicate: undefined`; the
  * implementation skips the WHERE clause entirely so the count
  * collapses to a sequential / index scan over the case-type
@@ -134,37 +153,8 @@ export interface QueryArgs {
 export interface CountArgs {
 	appId: string;
 	caseType: string;
-	blueprint?: BlueprintDoc;
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 	predicate?: Predicate;
-}
-
-/**
- * Arguments for `CaseStore.queryWithCalculated`. Same shape as
- * `QueryArgs` plus the calculated-column projection list. Each
- * column's `expression` is compiled inline as a SELECT projection
- * keyed by the column's `id`; the result row carries a `calculated`
- * map keyed by the same id.
- *
- * `blueprint` is required (not optional like `QueryArgs`) because
- * every calculated-column expression compiles through
- * `compileExpression`, which delegates to `compileTerm` for `prop`
- * leaf reads — and the term compiler resolves the property's
- * `data_type` from the case-type schema map. A calculated expression
- * that reads no properties (`today()` / `now()` / arith over
- * literals) would compile without a blueprint, but the typed
- * blueprint slot is the structural defense: the slot is required
- * upstream so the compiler stack never reaches an undefined schema
- * map under realistic authoring.
- */
-export interface QueryWithCalculatedArgs {
-	appId: string;
-	caseType: string;
-	blueprint: BlueprintDoc;
-	calculated: ReadonlyArray<CalculatedColumn>;
-	predicate?: Predicate;
-	sort?: SortKey[];
-	limit?: number;
-	offset?: number;
 }
 
 /**
@@ -189,11 +179,11 @@ export interface QueryWithCalculatedArgs {
 export type CalculatedValue = JsonValue | Date;
 
 /**
- * Result row shape for `queryWithCalculated`. Folds the calculated
- * map ONTO the row rather than returning a sidecar array — sidecar
- * arrays couple by index, and any future filter / sort transform
- * applied to one half would silently misalign the two. One row,
- * one calculated map, never desyncs.
+ * Result row shape for `query`. Folds the calculated map ONTO the
+ * row rather than returning a sidecar array — sidecar arrays couple
+ * by index, and any future filter / sort transform applied to one
+ * half would silently misalign the two. One row, one calculated
+ * map, never desyncs.
  *
  * The `calculated` map is keyed by the calculated column's `uuid`
  * (the column-level identity slot every `Column` arm carries); a
@@ -202,7 +192,10 @@ export type CalculatedValue = JsonValue | Date;
  * therefore distinguish "column absent from the query" (key not
  * in map) from "column evaluated to null" (`map[uuid] === null`).
  *
- * Two collision classes the projection must handle:
+ * When `QueryArgs.calculated` is empty / absent, every row carries
+ * an empty `calculated: {}` map.
+ *
+ * Two collision classes the projection handles:
  *
  *   1. **Calculated uuid vs `cases` column collision.** A
  *      programmatic caller could supply a uuid string that matches
@@ -213,13 +206,12 @@ export type CalculatedValue = JsonValue | Date;
  *      driver's row deserializer keeps the LAST occurrence (the
  *      calculated expression's value); the row's actual scalar
  *      value is silently corrupted.
- *      `PostgresCaseStore.queryWithCalculated` defends structurally
- *      by emitting calculated aliases under a fixed
- *      `__nova_calc__<uuid>` prefix in the SELECT, then
- *      unprefixing during the row partition — the wire and the
- *      consumer-facing key live in disjoint keyspaces, so this
- *      collision class is impossible regardless of the supplied
- *      uuid.
+ *      `PostgresCaseStore.query` defends structurally by emitting
+ *      calculated aliases under a fixed `__nova_calc__<uuid>`
+ *      prefix in the SELECT, then unprefixing during the row
+ *      partition — the wire and the consumer-facing key live in
+ *      disjoint keyspaces, so this collision class is impossible
+ *      regardless of the supplied uuid.
  *
  *   2. **Duplicate uuid across siblings.** When two `calculated`
  *      entries share the same `uuid`, the SELECT emits two columns
@@ -239,10 +231,10 @@ export type CalculatedValue = JsonValue | Date;
  *      each calculated value, misses the truncated wire-side key,
  *      and silently emits `null` for every row. Two uuids
  *      matching in the truncation prefix would collide on the
- *      same wire alias. `queryWithCalculated` defends with a pre-
- *      projection byte-length check that throws a
- *      `compilerBugMessage` naming the over-cap alias — same
- *      shape as the `indexName` defense under `applySchemaChange`.
+ *      same wire alias. `query` defends with a pre-projection
+ *      byte-length check that throws a `compilerBugMessage`
+ *      naming the over-cap alias — same shape as the `indexName`
+ *      defense under `applySchemaChange`.
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;
@@ -270,13 +262,14 @@ export type SchemaChangeKind =
 	| { kind: "narrow-options"; removedOptions: string[] };
 
 /**
- * Arguments for `CaseStore.applySchemaChange`. The `blueprint`
- * carries the prospective state — the function regenerates the
- * JSON Schema from it, then (when `change` is present) runs the
- * matching per-row migration. The caller-supplied-snapshot shape
- * is the cross-store saga seam: the orchestrator commits Firestore
- * on success and runs a compensating `applySchemaChange(previousState)`
- * on Firestore-commit failure.
+ * Arguments for `CaseStore.applySchemaChange`. The
+ * `caseTypeSchemas` map carries the prospective state — the
+ * function regenerates the JSON Schema for the targeted case type,
+ * then (when `change` is present) runs the matching per-row
+ * migration. The caller-supplied-snapshot shape is the cross-store
+ * saga seam: the orchestrator commits Firestore on success and
+ * runs a compensating `applySchemaChange(previousState)` on
+ * Firestore-commit failure.
  *
  * `property` is required when `change` is present and ignored
  * otherwise.
@@ -284,7 +277,7 @@ export type SchemaChangeKind =
 export interface ApplySchemaChangeArgs {
 	appId: string;
 	caseType: string;
-	blueprint: BlueprintDoc;
+	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	property?: string;
 	change?: SchemaChangeKind;
 }
@@ -306,17 +299,59 @@ export interface MigrationReport {
 }
 
 /**
+ * Arguments for `CaseStore.generateSampleData`. Same `(appId,
+ * caseType.name, seed)` tuple yields the same row sequence on
+ * every call. `caseType` is the full definition — the heuristic
+ * generator reads the property list from it; the implementation
+ * uses `caseType.parent_type` to resolve parent ids when the
+ * declaration carries one.
+ */
+export interface GenerateSampleDataArgs {
+	appId: string;
+	caseType: CaseType;
+	count: number;
+	seed: string;
+}
+
+/**
+ * Arguments for `CaseStore.resetSampleData`. The implementation
+ * picks a fresh seed at call time — callers reset specifically to
+ * randomize the population. Tests that need reproducibility call
+ * `generateSampleData` directly with a fixed seed.
+ */
+export interface ResetSampleDataArgs {
+	appId: string;
+	caseType: CaseType;
+	count: number;
+}
+
+/**
  * The storage contract every consumer of case data binds against.
  * Construction is via the `withOwnerContext(userId)` factory —
  * there is no other constructor.
  */
 export interface CaseStore {
 	/**
-	 * Predicate-driven SELECT. Default ordering (when `sort` is
-	 * absent) is insertion order, driven by `case_id`'s UUID v7
-	 * timestamp prefix.
+	 * Predicate-driven SELECT with optional inline calculated-column
+	 * projection. Default ordering (when `sort` is absent) is
+	 * insertion order, driven by `case_id`'s UUID v7 timestamp prefix.
+	 *
+	 * Each `calculated` entry's `expression` compiles through
+	 * `compileExpression` and lands in the SELECT keyed by
+	 * `aliasFor(column.uuid)`; the result rows fold the evaluated
+	 * values into `row.calculated[uuid]`. Postgres is the live
+	 * runtime; calculated-column evaluation happens in the same
+	 * SELECT as the row scan rather than post-processing in
+	 * TypeScript. A future second evaluator would create a parity-
+	 * tracking burden the project explicitly rules out at
+	 * `feedback_max_subset_no_dimagi_litter.md`.
+	 *
+	 * Empty / absent `calculated` produces an empty `calculated: {}`
+	 * map per row. The single result shape lets consumers read
+	 * uniformly through the same `row.calculated[uuid]` accessor
+	 * regardless of whether the query carried calc projections.
 	 */
-	query(args: QueryArgs): Promise<CaseRow[]>;
+	query(args: QueryArgs): Promise<CaseRowWithCalculated[]>;
 
 	/**
 	 * Predicate-driven `COUNT(*)`. Returns the row population the
@@ -333,31 +368,6 @@ export interface CaseStore {
 	 * to a tenant-scoped count over the case-type partition.
 	 */
 	count(args: CountArgs): Promise<number>;
-
-	/**
-	 * Predicate-driven SELECT with calculated-column projection.
-	 * Same semantics as `query` plus per-row evaluation of every
-	 * calculated column's expression at the SQL layer — each
-	 * column's `expression` compiles through `compileExpression`
-	 * and lands in the SELECT keyed by `aliasFor(column.uuid)`.
-	 * The result rows fold the evaluated values into the row's
-	 * `calculated` map keyed by the same uuid.
-	 *
-	 * Postgres is the live runtime; calculated-column evaluation
-	 * happens in the same SELECT as the row scan rather than
-	 * post-processing in TypeScript. A future second evaluator
-	 * would create a parity-tracking burden the project explicitly
-	 * rules out at `feedback_max_subset_no_dimagi_litter.md`.
-	 *
-	 * The empty `calculated` arm behaves like `query` plus an empty
-	 * `calculated: {}` map per row. Calling with a long calculated
-	 * list creates one column per entry; Postgres has no per-row
-	 * value-budget on SELECT projections, but consumers should keep
-	 * the count proportional to the case list's authored shape.
-	 */
-	queryWithCalculated(
-		args: QueryWithCalculatedArgs,
-	): Promise<CaseRowWithCalculated[]>;
 
 	/**
 	 * Insert one case row. Validates `properties` against the
@@ -429,9 +439,9 @@ export interface CaseStore {
 
 	/**
 	 * Sync the case-type's JSON Schema with the supplied prospective
-	 * blueprint state, optionally running a per-row migration. See
-	 * `lib/case-store/CLAUDE.md` § "`applySchemaChange` runs in two
-	 * phases" for the atomic-then-convergent shape.
+	 * `caseTypeSchemas` map, optionally running a per-row migration.
+	 * See `lib/case-store/CLAUDE.md` § "`applySchemaChange` runs in
+	 * two phases" for the atomic-then-convergent shape.
 	 */
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
 
@@ -461,10 +471,10 @@ export interface CaseStore {
 
 	/**
 	 * Generate `count` sample rows for `caseType` and bulk-insert
-	 * them. Deterministic per `(app, caseType, seed)`. The
+	 * them. Deterministic per `(app, caseType.name, seed)`. The
 	 * implementation queries existing parent rows for any declared
-	 * `parent_type` and threads them so generated children's parent
-	 * linkages resolve to real ids. Whole batch lands in one
+	 * `caseType.parent_type` and threads them so generated children's
+	 * parent linkages resolve to real ids. Whole batch lands in one
 	 * Postgres transaction.
 	 */
 	generateSampleData(args: GenerateSampleDataArgs): Promise<{
@@ -472,7 +482,7 @@ export interface CaseStore {
 	}>;
 
 	/**
-	 * Drop every row of `caseType` for the bound tenant + the
+	 * Drop every row of `caseType.name` for the bound tenant + the
 	 * matching `case_indices` edges, then regenerate from a fresh
 	 * seed. The whole operation runs in one transaction — a
 	 * mid-operation failure rolls back the deletion alongside the
@@ -486,58 +496,12 @@ export interface CaseStore {
 }
 
 /**
- * Arguments for `CaseStore.generateSampleData`. Same `(appId,
- * caseType, seed)` tuple yields the same row sequence on every
- * call.
- */
-export interface GenerateSampleDataArgs {
-	appId: string;
-	caseType: string;
-	count: number;
-	seed: string;
-	blueprint: BlueprintDoc;
-}
-
-/**
- * Arguments for `CaseStore.resetSampleData`. The implementation
- * picks a fresh seed at call time — callers reset specifically to
- * randomize the population. Tests that need reproducibility call
- * `generateSampleData` directly with a fixed seed.
- */
-export interface ResetSampleDataArgs {
-	appId: string;
-	caseType: string;
-	count: number;
-	blueprint: BlueprintDoc;
-}
-
-/**
- * Locate a case type within a blueprint by name. Throws
- * `CaseTypeNotInBlueprintError` when the case type is absent. The
- * typed error reaches Server Actions on the running-app view so a
- * stale blueprint snapshot (case type deleted in the editor between
- * mount and click) maps to a `missing-case-type` arm rather than
- * the wrapper-jargon shape used for true invariant violations.
- *
- * Consumed by `PostgresCaseStore.applySchemaChange` and
- * `HeuristicCaseGenerator.generate`.
- */
-export function findCaseTypeOrThrow(
-	blueprint: BlueprintDoc,
-	appId: string,
-	caseType: string,
-): CaseType {
-	const found = blueprint.caseTypes?.find((c) => c.name === caseType);
-	if (!found) {
-		throw new CaseTypeNotInBlueprintError(appId, caseType);
-	}
-	return found;
-}
-
-/**
  * Build the `name → CaseType` map every compiler in the stack reads
- * from `TermCompileContext.caseTypeSchemas`. A `null` `caseTypes`
- * yields an empty map.
+ * from `TermCompileContext.caseTypeSchemas`. The case-store's
+ * `query` / `count` / `applySchemaChange` accept this map directly;
+ * external callers pre-compute it from a `BlueprintDoc` at the
+ * boundary so the case-store interface stays decoupled from the
+ * full blueprint shape. A `null` `caseTypes` yields an empty map.
  */
 export function buildCaseTypeMap(
 	blueprint: BlueprintDoc | undefined,

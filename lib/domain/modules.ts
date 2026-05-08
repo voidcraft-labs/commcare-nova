@@ -670,26 +670,6 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 }
 
 /**
- * Spreads the simple-arm-only optional slots (`via`, `mode`) onto a
- * simple search-input object only when present, with the `via.kind
- * === "self"` carve-out: `selfPath()` is the schema's canonical
- * "no walk" shape and `via: undefined` is structurally equivalent —
- * both are omitted so a saved doc that omitted the slot round-trips
- * equal to a freshly-built one.
- */
-function withSimpleSearchInputSlots<T extends Record<string, unknown>>(
-	base: T,
-	slots: Pick<SimpleSearchInputSlots, "via" | "mode">,
-): T & Pick<SimpleSearchInputSlots, "via" | "mode"> {
-	const out: T & { via?: RelationPath; mode?: SearchInputMode } = { ...base };
-	if (slots.via !== undefined && slots.via.kind !== "self") {
-		out.via = slots.via;
-	}
-	if (slots.mode !== undefined) out.mode = slots.mode;
-	return out;
-}
-
-/**
  * Constructs a simple search input. `property` is required (no
  * escape hatch — a property-less input belongs on the `advanced`
  * arm). The builder OMITS optional slots whose values are absent-
@@ -708,11 +688,18 @@ export function simpleSearchInputDef(
 	property: string,
 	slots: SimpleSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const base = withSearchInputCommonSlots(
-		{ uuid, kind: "simple" as const, name, label, type, property },
-		slots,
-	);
-	return withSimpleSearchInputSlots(base, slots);
+	const out: SimpleSearchInputDef = {
+		uuid,
+		kind: "simple",
+		name,
+		label,
+		type,
+		property,
+	};
+	if (slots.default !== undefined) out.default = slots.default;
+	if (slots.via !== undefined && slots.via.kind !== "self") out.via = slots.via;
+	if (slots.mode !== undefined) out.mode = slots.mode;
+	return out;
 }
 
 /**

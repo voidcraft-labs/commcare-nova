@@ -7,12 +7,12 @@
 // via subpath in tests). See `lib/case-store/CLAUDE.md` for the
 // full surface description.
 //
-// Targeted re-exports (not `export *`) because `./store` and
-// `./errors` expose helpers (`findCaseTypeOrThrow`,
-// `buildCaseTypeMap`) consumed inside the package only.
-// `export type` is used for type-only re-exports so consumers
-// honoring `verbatimModuleSyntax` don't pull a runtime import for
-// a type-only reference.
+// Targeted re-exports (not `export *`) so consumer-facing surface
+// stays narrow. `export type` is used for type-only re-exports so
+// consumers honoring `verbatimModuleSyntax` don't pull a runtime
+// import for a type-only reference. `buildCaseTypeMap` is exposed
+// for callers that hold a `BlueprintDoc` and need to convert it
+// to the schema-map shape the case-store methods accept.
 
 // Typed user-domain errors.
 export type { CasePropertyFailure } from "./errors";
@@ -30,6 +30,7 @@ export type {
 } from "./sql/database";
 export type {
 	ApplySchemaChangeArgs,
+	CalculatedColumn,
 	CalculatedValue,
 	CaseInsert,
 	CaseRow,
@@ -40,9 +41,9 @@ export type {
 	GenerateSampleDataArgs,
 	MigrationReport,
 	QueryArgs,
-	QueryWithCalculatedArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 	SortKey,
 } from "./store";
+export { buildCaseTypeMap } from "./store";
 export { withOwnerContext } from "./withOwnerContext";

@@ -831,9 +831,9 @@ describe("mapPopulateSampleCasesError", () => {
 // ---------------------------------------------------------------
 //
 // The case-list authoring-surface live-preview helpers route through
-// `caseStore.queryWithCalculated`. The integration tests here pin
-// the discriminated-union return shapes the live preview's UI
-// dispatches on — the empty arm, the rows arm with calculated
+// `caseStore.query` (with a `calculated` arg). The integration tests
+// here pin the discriminated-union return shapes the live preview's
+// UI dispatches on — the empty arm, the rows arm with calculated
 // projection, and the typed-error mapping (mirrors the
 // `mapPopulateSampleCasesError` pattern).
 
@@ -1544,7 +1544,6 @@ describe("submitFormAction", () => {
 		// surfaces loudly.
 		const stubStore = {
 			query: vi.fn(),
-			queryWithCalculated: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
@@ -1578,7 +1577,6 @@ describe("submitFormAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
-			queryWithCalculated: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
@@ -1736,8 +1734,8 @@ describe("loadCaseListPreviewAction", () => {
 // ---------------------------------------------------------------
 //
 // The Filters-section live preview routes through the case-store's
-// `queryWithCalculated` for the row sample AND `count` for the
-// totality figure — both compile the same predicate through the
+// `query` (with `calculated`) for the row sample AND `count` for
+// the totality figure — both compile the same predicate through the
 // same stack so the count + row-list pair is internally consistent.
 // These tests pin the discriminated-union return shapes the
 // preview's UI dispatches on.

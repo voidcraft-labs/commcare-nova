@@ -76,9 +76,9 @@ export type LoadCaseListPreviewResult =
 	 * validation. Same trust-boundary argument as `invalid-config`
 	 * — the action is the wire boundary and the blueprint AST
 	 * flows directly into the case-store's compiler stack via
-	 * `caseStore.queryWithCalculated`. A separate arm (rather than
-	 * reusing `invalid-config`) keeps the structural cause
-	 * discriminable for the client surface.
+	 * `caseStore.query`. A separate arm (rather than reusing
+	 * `invalid-config`) keeps the structural cause discriminable
+	 * for the client surface.
 	 */
 	| { kind: "invalid-blueprint"; message: string }
 	| { kind: "unauthenticated" }

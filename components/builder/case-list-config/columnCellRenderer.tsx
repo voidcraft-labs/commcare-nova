@@ -18,9 +18,10 @@
 // for an authoring-time preview.
 //
 // Calculated columns project their result through the case-store's
-// `queryWithCalculated` SELECT slot; the value lands on
-// `row.calculated[col.uuid]` per the v2 case-store contract. The
-// dispatcher reads the slot and routes through `renderCalculatedCell`.
+// `query` SELECT slot (under the optional `calculated` projection
+// arg); the value lands on `row.calculated[col.uuid]` per the v2
+// case-store contract. The dispatcher reads the slot and routes
+// through `renderCalculatedCell`.
 
 "use client";
 import type { CalculatedValue, CaseRowWithCalculated } from "@/lib/case-store";
@@ -37,9 +38,9 @@ import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingHelpers
  * type error first, not a silent rendering regression.
  *
  * Calculated arm reads `row.calculated[column.uuid]` — the case-
- * store's `queryWithCalculated` keys results by the column's uuid
- * (the wire-side stable handle). Other arms read the case property
- * named by `column.field` via the shared display-value helper.
+ * store's `query` keys results by the column's uuid (the wire-side
+ * stable handle). Other arms read the case property named by
+ * `column.field` via the shared display-value helper.
  */
 export function renderColumnCell(
 	column: Column,

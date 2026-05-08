@@ -21,7 +21,6 @@ import type {
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import type { JsonObject, JsonValue } from "../sql/database";
 import type { CaseInsert } from "../store";
-import { findCaseTypeOrThrow } from "../store";
 import type { SampleCaseGenerator, SampleGeneratorArgs } from "./generator";
 import { pickAddressLine } from "./pools/addresses";
 import {
@@ -43,13 +42,9 @@ import { createSeededPrng, type SeededPrng } from "./prng";
  */
 export class HeuristicCaseGenerator implements SampleCaseGenerator {
 	generate(args: SampleGeneratorArgs): ReadonlyArray<CaseInsert> {
-		const caseType = findCaseTypeOrThrow(
-			args.blueprint,
-			args.appId,
-			args.caseType,
-		);
+		const caseType = args.caseType;
 		const prng = createSeededPrng(
-			`${args.appId}::${args.caseType}::${args.seed}`,
+			`${args.appId}::${caseType.name}::${args.seed}`,
 		);
 		const dateGenerators = composeDateRangeGenerators(prng, REFERENCE_DATE);
 
@@ -79,7 +74,7 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 				});
 			}
 			rows.push({
-				case_type: args.caseType,
+				case_type: caseType.name,
 				// Pool contract guarantees non-empty, satisfying the
 				// column's `length > 0` CHECK.
 				case_name: pickFullName(prng),

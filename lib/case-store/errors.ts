@@ -128,12 +128,12 @@ export class CasePropertiesValidationError extends Error {
 }
 
 /**
- * Thrown by `findCaseTypeOrThrow` when the supplied blueprint
- * snapshot carries no `caseTypes` entry with the requested name.
- * Reachable from user-driven actions when the doc-store state
- * mutates between the action's mount and the user's click. Server
- * Actions map to a `missing-case-type` arm and re-resolve against
- * fresh state.
+ * Thrown by `CaseStore.applySchemaChange` and the heuristic sample
+ * generator when the supplied `caseTypeSchemas` map carries no
+ * entry for the requested case-type name. Reachable from
+ * user-driven actions when the doc-store state mutates between
+ * the action's mount and the user's click. Server Actions map to
+ * a `missing-case-type` arm and re-resolve against fresh state.
  */
 export class CaseTypeNotInBlueprintError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */

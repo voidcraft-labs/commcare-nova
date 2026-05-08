@@ -54,6 +54,7 @@ import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { applyMigrationsViaAtlas } from "../../sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
+import { buildCaseTypeMap } from "../../store";
 import { PostgresCaseStore } from "../store";
 
 // ---------------------------------------------------------------
@@ -181,6 +182,16 @@ function buildBlueprint(caseType: CaseType): BlueprintDoc {
 }
 
 /**
+ * Build the schema map `applySchemaChange` accepts directly. Pure
+ * sugar over `buildCaseTypeMap(buildBlueprint(...))` — every test in
+ * this file converts a one-case-type fixture into the map shape, so
+ * the helper keeps the call sites to one line each.
+ */
+function buildSchemaMap(caseType: CaseType): ReadonlyMap<string, CaseType> {
+	return buildCaseTypeMap(buildBlueprint(caseType));
+}
+
+/**
  * Construct a `PostgresCaseStore` for the supplied owner against
  * the per-test database. Keeping this in one helper keeps every
  * test below to a single line of setup before the meaningful
@@ -208,7 +219,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -230,7 +241,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -262,7 +273,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "visit",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "visit");
@@ -278,7 +289,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -309,7 +320,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -351,7 +362,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -380,7 +391,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -418,7 +429,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -453,7 +464,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -481,7 +492,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: buildBlueprint(caseType),
+				caseTypeSchemas: buildSchemaMap(caseType),
 			}),
 		).rejects.toThrow(/compose into the same index name/);
 	});
@@ -498,7 +509,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(initial),
+			caseTypeSchemas: buildSchemaMap(initial),
 		});
 		const beforeIndexes = await readPropertyIndexes(dbHandle.pool, "patient");
 		expect(beforeIndexes.map((i) => i.name).sort()).toEqual([
@@ -515,7 +526,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(reduced),
+			caseTypeSchemas: buildSchemaMap(reduced),
 		});
 
 		const afterIndexes = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -533,7 +544,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(initial),
+			caseTypeSchemas: buildSchemaMap(initial),
 		});
 
 		// Rename `age` → `years`. Same data type, so the diff drops
@@ -546,7 +557,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(renamed),
+			caseTypeSchemas: buildSchemaMap(renamed),
 			property: "years",
 			change: { kind: "rename", from: "age", to: "years" },
 		});
@@ -564,7 +575,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(initial),
+			caseTypeSchemas: buildSchemaMap(initial),
 		});
 		const before = await readPropertyIndexes(dbHandle.pool, "patient");
 		expect(before.map((i) => i.name)).toEqual(["cases_patient_age_fuzzy"]);
@@ -578,7 +589,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(retyped),
+			caseTypeSchemas: buildSchemaMap(retyped),
 			property: "age",
 			change: { kind: "retype", fromType: "text", toType: "int" },
 		});
@@ -605,7 +616,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(initial),
+			caseTypeSchemas: buildSchemaMap(initial),
 		});
 
 		// Insert a castable row + a non-castable row. The trgm index
@@ -637,7 +648,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const report = await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(retyped),
+			caseTypeSchemas: buildSchemaMap(retyped),
 			property: "age",
 			change: { kind: "retype", fromType: "text", toType: "int" },
 		});
@@ -669,7 +680,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(initial),
+			caseTypeSchemas: buildSchemaMap(initial),
 		});
 		await store.insert({
 			appId: APP_ID,
@@ -694,7 +705,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: buildBlueprint(retyped),
+				caseTypeSchemas: buildSchemaMap(retyped),
 				property: "age",
 				change: { kind: "retype", fromType: "text", toType: "int" },
 			}),
@@ -744,7 +755,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint({ name: "patient", properties: [] }),
+			caseTypeSchemas: buildSchemaMap({ name: "patient", properties: [] }),
 		});
 
 		// Property name long enough that
@@ -758,7 +769,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: buildBlueprint(caseType),
+				caseTypeSchemas: buildSchemaMap(caseType),
 			}),
 		).rejects.toThrow(/63-byte identifier cap/);
 
@@ -801,7 +812,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint({ name: "patient", properties: [] }),
+			caseTypeSchemas: buildSchemaMap({ name: "patient", properties: [] }),
 		});
 
 		// Drop the extension. Production never does this; the test
@@ -820,7 +831,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: buildBlueprint(caseType),
+				caseTypeSchemas: buildSchemaMap(caseType),
 			}),
 		).rejects.toThrow(/gin_trgm_ops|pg_trgm|trgm/i);
 
@@ -850,7 +861,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint(caseType),
+			caseTypeSchemas: buildSchemaMap(caseType),
 		});
 
 		const afterRetry = await readPropertyIndexes(dbHandle.pool, "patient");
@@ -886,14 +897,14 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const store = makeStore(OWNER_A);
 
 		// Establish a healthy text-fuzzy index for the `name` property.
-		const blueprint = buildBlueprint({
+		const caseTypeSchemas = buildSchemaMap({
 			name: "patient",
 			properties: [{ name: "name", label: "Name", data_type: "text" }],
 		});
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas,
 		});
 
 		// Confirm the index is present and valid before the catalog
@@ -927,14 +938,14 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		);
 		expect(afterMutation.rows[0]?.indisvalid).toBe(false);
 
-		// Re-run `applySchemaChange` with the same blueprint. The diff
-		// reads the catalog, sees the INVALID entry, emits a drop +
-		// create pair, and converges the live set with the desired
-		// set.
+		// Re-run `applySchemaChange` with the same schema map. The
+		// diff reads the catalog, sees the INVALID entry, emits a
+		// drop + create pair, and converges the live set with the
+		// desired set.
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas,
 		});
 
 		// The recovered index exists, is valid, and has the same
@@ -978,7 +989,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint({
+			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
 				properties: [{ name: "name", label: "Name", data_type: "text" }],
 			}),
@@ -989,7 +1000,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint({
+			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
 				properties: [
 					{ name: "name", label: "Name", data_type: "text" },
@@ -1020,7 +1031,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: buildBlueprint({
+				caseTypeSchemas: buildSchemaMap({
 					name: "patient",
 					properties: [
 						{ name: "name with space", label: "X", data_type: "text" },
@@ -1127,14 +1138,16 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			blueprint: buildSimpleBlueprint(
-				[
-					{
-						name: "patient",
-						properties: [{ name: "name", label: "Name", data_type: "text" }],
-					},
-				],
-				"app-explain",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint(
+					[
+						{
+							name: "patient",
+							properties: [{ name: "name", label: "Name", data_type: "text" }],
+						},
+					],
+					"app-explain",
+				),
 			),
 		});
 		await populateExplainFixture(EXPLAIN_ROW_COUNT);
@@ -1157,14 +1170,16 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			blueprint: buildSimpleBlueprint(
-				[
-					{
-						name: "patient",
-						properties: [{ name: "age", label: "Age", data_type: "int" }],
-					},
-				],
-				"app-explain",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint(
+					[
+						{
+							name: "patient",
+							properties: [{ name: "age", label: "Age", data_type: "int" }],
+						},
+					],
+					"app-explain",
+				),
 			),
 		});
 		await populateExplainFixture(EXPLAIN_ROW_COUNT);
@@ -1187,16 +1202,18 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			blueprint: buildSimpleBlueprint(
-				[
-					{
-						name: "patient",
-						properties: [
-							{ name: "weight", label: "Weight", data_type: "decimal" },
-						],
-					},
-				],
-				"app-explain",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint(
+					[
+						{
+							name: "patient",
+							properties: [
+								{ name: "weight", label: "Weight", data_type: "decimal" },
+							],
+						},
+					],
+					"app-explain",
+				),
 			),
 		});
 		await populateExplainFixture(EXPLAIN_ROW_COUNT);
@@ -1218,25 +1235,27 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			blueprint: buildSimpleBlueprint(
-				[
-					{
-						name: "patient",
-						properties: [
-							{
-								name: "tags",
-								label: "Tags",
-								data_type: "multi_select",
-								options: [
-									{ value: "red", label: "Red" },
-									{ value: "blue", label: "Blue" },
-									{ value: "green", label: "Green" },
-								],
-							},
-						],
-					},
-				],
-				"app-explain",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint(
+					[
+						{
+							name: "patient",
+							properties: [
+								{
+									name: "tags",
+									label: "Tags",
+									data_type: "multi_select",
+									options: [
+										{ value: "red", label: "Red" },
+										{ value: "blue", label: "Blue" },
+										{ value: "green", label: "Green" },
+									],
+								},
+							],
+						},
+					],
+					"app-explain",
+				),
 			),
 		});
 		await populateExplainFixture(EXPLAIN_ROW_COUNT);
@@ -1274,7 +1293,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await storeA.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint({
+			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
 				properties: [{ name: "name", label: "Name", data_type: "text" }],
 			}),
@@ -1290,7 +1309,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await storeB.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: buildBlueprint({
+			caseTypeSchemas: buildSchemaMap({
 				name: "patient",
 				properties: [{ name: "name", label: "Name", data_type: "text" }],
 			}),
@@ -1331,7 +1350,7 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 				{ name: "age", label: "Age", data_type: "int" },
 			],
 		};
-		const blueprint = buildBlueprint(caseType);
+		const caseTypeSchemas = buildSchemaMap(caseType);
 
 		// Stub generator returning a fixed three-row batch with one
 		// schema-violating row at index 1. The interface admits any
@@ -1372,7 +1391,7 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 		await store.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas,
 		});
 
 		// `generateSampleData` routes through the bulk-insert path.
@@ -1381,10 +1400,9 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 		await expect(
 			store.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType,
 				count: 3,
 				seed: "rollback-test",
-				blueprint,
 			}),
 		).rejects.toThrow();
 
@@ -1425,7 +1443,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 				{ name: "age", label: "Age", data_type: "int" },
 			],
 		};
-		const blueprint = buildBlueprint(caseType);
+		const caseTypeSchemas = buildSchemaMap(caseType);
 
 		const seedingStore = new PostgresCaseStore({
 			ownerId: OWNER_A,
@@ -1436,14 +1454,13 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		await seedingStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas,
 		});
 		await seedingStore.generateSampleData({
 			appId: APP_ID,
-			caseType: "patient",
+			caseType,
 			count: 4,
 			seed: "pre-reset-population",
-			blueprint,
 		});
 
 		const beforeRows = await seedingStore.query({
@@ -1486,9 +1503,8 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		await expect(
 			failingStore.resetSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType,
 				count: 2,
-				blueprint,
 			}),
 		).rejects.toThrow();
 

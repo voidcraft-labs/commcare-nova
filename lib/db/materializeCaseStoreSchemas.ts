@@ -67,7 +67,7 @@
  * Schema-not-synced gap this helper exists to close.
  */
 
-import { withOwnerContext } from "@/lib/case-store";
+import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 
 /**
@@ -119,18 +119,19 @@ export async function materializeCaseStoreSchemas(
 	// reporting deterministic — a throw on case type N stops the
 	// loop at N, the operator sees exactly which case type
 	// failed.
-	// `applySchemaChange` accepts the in-memory `BlueprintDoc`
-	// shape (`PersistableDoc & { fieldParent: ... }`). The
-	// case-store reads `caseTypes` only and never touches
-	// `fieldParent`, so passing the persistable shape directly
-	// is sound — the `as BlueprintDoc` cast here matches the
-	// same pattern in `applyBlueprintChange.ts`.
-	const blueprint = args.blueprint as BlueprintDoc;
+	// `applySchemaChange` accepts the case-type schema map every
+	// compiler in the case-store stack reads from; the boundary
+	// builds it once from the in-memory `BlueprintDoc` shape
+	// (`PersistableDoc & { fieldParent: ... }`). `buildCaseTypeMap`
+	// reads `caseTypes` only and never touches `fieldParent`, so
+	// passing the persistable shape via the cast matches the same
+	// pattern in `applyBlueprintChange.ts`.
+	const caseTypeSchemas = buildCaseTypeMap(args.blueprint as BlueprintDoc);
 	for (const caseType of caseTypes) {
 		await store.applySchemaChange({
 			appId: args.appId,
 			caseType: caseType.name,
-			blueprint,
+			caseTypeSchemas,
 		});
 	}
 }

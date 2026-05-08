@@ -22,6 +22,7 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CaseRow,
+	type CaseRowWithCalculated,
 	type CaseStore,
 	type SortKey as CaseStoreSortKey,
 	CaseTypeNotInBlueprintError,
@@ -553,7 +554,7 @@ export function caseRowDisplayValue(row: CaseRow, field: string): string {
 
 /**
  * String coercion for a calculated cell value. The case-store's
- * `queryWithCalculated` returns each value typed per the SQL
+ * `query` (with `calculated`) returns each value typed per the SQL
  * expression's resolved Postgres type — text / integer / numeric /
  * boolean / Date (date or timestamptz) / JSONB. The running-app
  * preview surfaces all six shapes as a single text cell.
@@ -576,8 +577,8 @@ function calculatedValueToString(value: CalculatedValue | undefined): string {
  * Read a column's display value off a `CaseRowWithCalculated`,
  * dispatching on the column's discriminator. Calc-arm columns
  * resolve through `row.calculated[column.uuid]` — the case-store's
- * `queryWithCalculated` projects each calc expression into the
- * SELECT keyed by uuid, and the running-app preview reads the slot
+ * `query` projects each `calculated` expression into the SELECT
+ * keyed by uuid, and the running-app preview reads the slot
  * directly. Non-calc kinds read the case property named by
  * `column.field` through the shared `caseRowDisplayValue` helper
  * so reserved-scalar resolution + JSONB coercion stay consistent

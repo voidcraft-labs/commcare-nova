@@ -4,8 +4,8 @@
 // current `CaseListConfig` and renders a tabular view of how the
 // case list would appear with sample data — same `cases` rows the
 // running-app view would render, queried through the case-store's
-// `queryWithCalculated` method so calculated columns evaluate
-// inline at the SQL layer.
+// `query` method (with the `calculated` projection arg) so
+// calculated columns evaluate inline at the SQL layer.
 //
 // Authoring contract: the preview suppresses its load while the
 // caller's `configValid` is `false`. Sending an invalid expression

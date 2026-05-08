@@ -49,7 +49,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
-import { calculatedColumn } from "@/lib/domain";
+import { asUuid, calculatedColumn } from "@/lib/domain";
 import {
 	ancestorPath,
 	arith,
@@ -61,7 +61,7 @@ import {
 	today,
 } from "@/lib/domain/predicate/builders";
 import { CaseNotFoundError, SchemaNotSyncedError } from "../errors";
-import type { CaseStore } from "../store";
+import { buildCaseTypeMap, type CaseStore } from "../store";
 import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
 // ---------------------------------------------------------------
@@ -161,6 +161,11 @@ const HOUSEHOLD_CASE_TYPE: CaseType = {
  * `appId` defaults to the harness's shared `APP_ID` so the common
  * one-app-per-test pattern reads as a three-argument call; tests
  * exercising multi-app behavior pass an explicit `appId`.
+ *
+ * The blueprint is converted to the schema-map shape the case-store
+ * accepts — `applySchemaChange` resolves each method's narrow
+ * dependency directly via `caseTypeSchemas` rather than threading
+ * the full blueprint shape across the layer boundary.
  */
 async function seedSchema(
 	store: CaseStore,
@@ -171,8 +176,29 @@ async function seedSchema(
 	await store.applySchemaChange({
 		appId,
 		caseType,
-		blueprint,
+		caseTypeSchemas: buildCaseTypeMap(blueprint),
 	});
+}
+
+/**
+ * Resolve one case-type definition by name from the supplied
+ * blueprint. The sample-data methods now take a full `CaseType`
+ * (not just the name) so the heuristic generator reads the property
+ * list + `parent_type` from the same source the schema-sync path
+ * does. This helper keeps every test body to a one-liner at the
+ * call site.
+ */
+function findCaseTypeOrFail(
+	blueprint: BlueprintDoc,
+	caseType: string,
+): CaseType {
+	const def = buildCaseTypeMap(blueprint).get(caseType);
+	if (def === undefined) {
+		throw new Error(
+			`fixture missing case type '${caseType}' in blueprint — test bug`,
+		);
+	}
+	return def;
 }
 
 /**
@@ -312,7 +338,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const matched = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				predicate: gt(prop("patient", "age"), literal(30)),
 			});
 			expect(matched).toHaveLength(1);
@@ -807,7 +833,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 			});
 			// Additive path: zero rows touched, zero quarantined.
 			expect(report).toEqual({
@@ -830,7 +856,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const second = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: extendedBlueprint,
+				caseTypeSchemas: buildCaseTypeMap(extendedBlueprint),
 			});
 			expect(second.migrated).toBe(0);
 		});
@@ -891,7 +917,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: renamedBlueprint,
+				caseTypeSchemas: buildCaseTypeMap(renamedBlueprint),
 				property: "years",
 				change: { kind: "rename", from: "age", to: "years" },
 			});
@@ -973,7 +999,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: retypedBlueprint,
+				caseTypeSchemas: buildCaseTypeMap(retypedBlueprint),
 				property: "age",
 				change: {
 					kind: "retype",
@@ -1062,7 +1088,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint: narrowedBlueprint,
+				caseTypeSchemas: buildCaseTypeMap(narrowedBlueprint),
 				property: "color",
 				change: { kind: "narrow-options", removedOptions: ["red"] },
 			});
@@ -1343,7 +1369,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await storeA.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 			});
 
 			// Owner B writes against the same `(appId, caseType)` —
@@ -1388,10 +1414,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			await storeA.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: findCaseTypeOrFail(blueprint, "patient"),
 				count: 5,
 				seed: "tenant-isolation",
-				blueprint,
 			});
 
 			const seenByA = await storeA.query({
@@ -1417,19 +1442,18 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
+			const patientType = findCaseTypeOrFail(blueprint, "patient");
 			await storeA.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 3,
 				seed: "owner-a-initial",
-				blueprint,
 			});
 			await storeB.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 4,
 				seed: "owner-b-initial",
-				blueprint,
 			});
 
 			const beforeBRows = await storeB.query({
@@ -1440,9 +1464,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const result = await storeA.resetSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 2,
-				blueprint,
 			});
 			expect(result.deleted).toBe(3);
 			expect(result.inserted).toBe(2);
@@ -1476,10 +1499,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const result = await store.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: findCaseTypeOrFail(blueprint, "patient"),
 				count: 5,
 				seed: "alpha",
-				blueprint,
 			});
 			expect(result).toEqual({ inserted: 5 });
 
@@ -1508,19 +1530,18 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(storeA, blueprint, "patient");
 			await seedSchema(storeB, blueprint, "patient");
 
+			const patientType = findCaseTypeOrFail(blueprint, "patient");
 			await storeA.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 3,
 				seed: "deterministic",
-				blueprint,
 			});
 			await storeB.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 3,
 				seed: "deterministic",
-				blueprint,
 			});
 
 			// Sort by `properties.name` so the comparison is index-
@@ -1552,14 +1573,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(OWNER_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
+			const patientType = findCaseTypeOrFail(blueprint, "patient");
 
 			// Seed an initial population.
 			await store.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 4,
 				seed: "before-reset",
-				blueprint,
 			});
 			const beforeRows = await store.query({
 				appId: APP_ID,
@@ -1573,9 +1594,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// should leave exactly two.
 			const result = await store.resetSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: patientType,
 				count: 2,
-				blueprint,
 			});
 			expect(result.deleted).toBe(4);
 			expect(result.inserted).toBe(2);
@@ -1614,17 +1634,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// resolve them via `parent_case_id`.
 			await store.generateSampleData({
 				appId: APP_ID,
-				caseType: "household",
+				caseType: findCaseTypeOrFail(blueprint, "household"),
 				count: 3,
 				seed: "households",
-				blueprint,
 			});
 			await store.generateSampleData({
 				appId: APP_ID,
-				caseType: "patient",
+				caseType: findCaseTypeOrFail(blueprint, "patient"),
 				count: 5,
 				seed: "patients",
-				blueprint,
 			});
 
 			// Every child row carries a non-null `parent_case_id`
@@ -1666,13 +1684,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		// -----------------------------------------------------------
-		// queryWithCalculated — calculated-column projection
+		// query — calculated-column projection
 		// -----------------------------------------------------------
 		//
 		// The case-list authoring-surface live preview routes through
-		// `queryWithCalculated` so each calc-arm column's `expression`
-		// evaluates at the SQL layer rather than reconstructed in
-		// TypeScript. The contract pins:
+		// `query` (with `calculated`) so each calc-arm column's
+		// `expression` evaluates at the SQL layer rather than
+		// reconstructed in TypeScript. The contract pins:
 		//
 		//   1. Every projected column lands on the result row's
 		//      `calculated` map, keyed by the column's `uuid`.
@@ -1681,9 +1699,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		//      distinguish "column absent from request" (key not in
 		//      map) from "column evaluated to null"
 		//      (`map[uuid] === null`).
-		//   3. The empty-`calculated` arm behaves like `query` with an
-		//      empty `calculated: {}` map per row — the projection is
-		//      additive, not destructive.
+		//   3. The empty / absent `calculated` arm behaves like a
+		//      regular `query` with an empty `calculated: {}` map per
+		//      row — the projection is additive, not destructive.
 		//   4. Predicate / sort / limit / offset arguments compose with
 		//      calculated-column projection (the same arguments the
 		//      live preview threads).
@@ -1713,12 +1731,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				term({ kind: "literal", value: 1, data_type: "int" }),
 			);
 
-			const rows = await store.queryWithCalculated({
+			const ageNextYearUuid = asUuid("age_next_year");
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				calculated: [
-					calculatedColumn("age_next_year", "Next year", ageNextYear),
+					calculatedColumn(ageNextYearUuid, "Next year", ageNextYear),
 				],
 			});
 			expect(rows).toHaveLength(1);
@@ -1726,7 +1745,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			if (row === undefined) throw new Error("expected one row");
 			// Postgres returns the int-typed arithmetic result as a
 			// JS number through pg-driver's per-OID deserializer.
-			expect(Number(row.calculated.age_next_year)).toBe(31);
+			expect(Number(row.calculated[ageNextYearUuid])).toBe(31);
 			// The row still carries the `cases`-side columns verbatim.
 			expect(row.case_id).toBe(PATIENT_ALICE_ID);
 			expect(row.properties).toEqual({ name: "Alice", age: 30 });
@@ -1755,18 +1774,19 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// `term(literal(null))` produces a SQL NULL constant.
 			const nullExpr = term({ kind: "literal", value: null });
-			const rows = await store.queryWithCalculated({
+			const nothingUuid = asUuid("nothing");
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
-				calculated: [calculatedColumn("nothing", "Nothing", nullExpr)],
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
+				calculated: [calculatedColumn(nothingUuid, "Nothing", nullExpr)],
 			});
 			expect(rows).toHaveLength(1);
 			const row = rows[0];
 			if (row === undefined) throw new Error("expected one row");
 			// Key present, value null.
-			expect("nothing" in row.calculated).toBe(true);
-			expect(row.calculated.nothing).toBeNull();
+			expect(nothingUuid in row.calculated).toBe(true);
+			expect(row.calculated[nothingUuid]).toBeNull();
 		});
 
 		it("emits an empty calculated map when no calculated columns are supplied", async () => {
@@ -1784,10 +1804,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			const rows = await store.queryWithCalculated({
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				calculated: [],
 			});
 			expect(rows).toHaveLength(1);
@@ -1833,12 +1853,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				term({ kind: "literal", value: 1, data_type: "int" }),
 			);
 
-			const rows = await store.queryWithCalculated({
+			const ageNextYearUuid = asUuid("age_next_year");
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				calculated: [
-					calculatedColumn("age_next_year", "Next year", ageNextYear),
+					calculatedColumn(ageNextYearUuid, "Next year", ageNextYear),
 				],
 				predicate: gt(prop("patient", "age"), literal(30)),
 				sort: [
@@ -1852,7 +1873,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const row = rows[0];
 			if (row === undefined) throw new Error("expected one row");
 			expect(row.case_id).toBe(PATIENT_BOB_ID);
-			expect(Number(row.calculated.age_next_year)).toBe(41);
+			expect(Number(row.calculated[ageNextYearUuid])).toBe(41);
 		});
 
 		it("sorts by a calculated column's expression when the same expression is reused in ORDER BY", async () => {
@@ -1905,12 +1926,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				term({ kind: "literal", value: 1, data_type: "int" }),
 			);
 
-			const rows = await store.queryWithCalculated({
+			const ageNextYearUuid = asUuid("age_next_year");
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				calculated: [
-					calculatedColumn("age_next_year", "Next year", ageNextYear),
+					calculatedColumn(ageNextYearUuid, "Next year", ageNextYear),
 				],
 				// `sortKeyToExpression`'s lift contract: a calculated-
 				// source SortKey passes the calculated column's
@@ -1929,8 +1951,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows[0]?.case_id).toBe(PATIENT_ALICE_ID);
 			expect(rows[1]?.case_id).toBe(PATIENT_BOB_ID);
 			// Calculated values surface in declaration order on each row.
-			expect(Number(rows[0]?.calculated.age_next_year)).toBe(26);
-			expect(Number(rows[1]?.calculated.age_next_year)).toBe(41);
+			expect(Number(rows[0]?.calculated[ageNextYearUuid])).toBe(26);
+			expect(Number(rows[1]?.calculated[ageNextYearUuid])).toBe(41);
 		});
 
 		it("does not leak calculated-column aliases onto the row's top-level shape", async () => {
@@ -1953,13 +1975,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			const rows = await store.queryWithCalculated({
+			const aliasUnderTestUuid = asUuid("alias_under_test");
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				calculated: [
 					calculatedColumn(
-						"alias_under_test",
+						aliasUnderTestUuid,
 						"Alias",
 						term({ kind: "literal", value: "x" }),
 					),
@@ -1968,10 +1991,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows).toHaveLength(1);
 			const row = rows[0];
 			if (row === undefined) throw new Error("expected one row");
-			// Top-level row carries no extra alias key.
-			expect("alias_under_test" in row).toBe(false);
+			// Top-level row carries no extra alias key — calculated
+			// columns never collide with `cases` columns because the
+			// SQL emitter routes them under a `__nova_calc__<uuid>`
+			// alias and the row partition strips that wire alias before
+			// returning.
+			expect(aliasUnderTestUuid in row).toBe(false);
 			// The calculated map carries the value.
-			expect(row.calculated.alias_under_test).toBe("x");
+			expect(row.calculated[aliasUnderTestUuid]).toBe("x");
 		});
 
 		it("emits an empty rows array when the case-type has no cases", async () => {
@@ -1979,11 +2006,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
-			const rows = await store.queryWithCalculated({
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
-				calculated: [calculatedColumn("today_iso", "Today", today())],
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
+				calculated: [calculatedColumn(asUuid("today_iso"), "Today", today())],
 			});
 			expect(rows).toEqual([]);
 		});
@@ -2012,23 +2039,24 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					properties: makeProperties({ name: "Alice", age: 30 }),
 				},
 			});
-			const rows = await store.queryWithCalculated({
+			const todayUuid = asUuid("today_iso");
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
-				calculated: [calculatedColumn("today_iso", "Today", today())],
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
+				calculated: [calculatedColumn(todayUuid, "Today", today())],
 			});
 			expect(rows).toHaveLength(1);
 			const row = rows[0];
 			if (row === undefined) throw new Error("expected one row");
 			// The value must be present on the calculated map.
-			expect("today_iso" in row.calculated).toBe(true);
+			expect(todayUuid in row.calculated).toBe(true);
 			// pg-driver returns date columns as Date objects. The
 			// renderer special-cases `instanceof Date`. Pinning the
 			// shape protects the contract — a future change to the
 			// emitter that returns a string here would break the
 			// cell renderer's date formatting.
-			const value = row.calculated.today_iso;
+			const value = row.calculated[todayUuid];
 			expect(value instanceof Date).toBe(true);
 		});
 
@@ -2071,8 +2099,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			"properties",
 		] as const;
 
-		for (const collisionUuid of RESERVED_COLLISION_UUIDS) {
-			it(`preserves the row's \`${collisionUuid}\` column when a calculated uuid collides`, async () => {
+		for (const collisionName of RESERVED_COLLISION_UUIDS) {
+			it(`preserves the row's \`${collisionName}\` column when a calculated uuid collides`, async () => {
 				const store = await options.factory(OWNER_A);
 				const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 				await seedSchema(store, blueprint, "patient");
@@ -2087,14 +2115,18 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					},
 				});
 
+				// The collision uuid mirrors the reserved column name so
+				// a regression to non-prefixed aliasing would tee the
+				// calculated value over the row's scalar.
+				const collisionUuid = asUuid(collisionName);
 				// The calculated expression is a constant string sentinel
 				// — distinguishes the calculated value from the row's
 				// scalar value at every assertion site.
 				const SENTINEL = "CALCULATED_VALUE";
-				const rows = await store.queryWithCalculated({
+				const rows = await store.query({
 					appId: APP_ID,
 					caseType: "patient",
-					blueprint,
+					caseTypeSchemas: buildCaseTypeMap(blueprint),
 					calculated: [
 						calculatedColumn(collisionUuid, "Header", term(literal(SENTINEL))),
 					],
@@ -2111,7 +2143,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				// expected values mirror the inserted row above; the
 				// `properties` slot reads the JSONB document; the
 				// nullable timestamps stay null.
-				switch (collisionUuid) {
+				switch (collisionName) {
 					case "case_name":
 						expect(row.case_name).toBe(DEFAULT_CASE_NAME);
 						break;
@@ -2166,11 +2198,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 
 			await expect(
-				store.queryWithCalculated({
+				store.query({
 					appId: APP_ID,
 					caseType: "patient",
-					blueprint,
-					calculated: [calculatedColumn("", "Header", term(literal("x")))],
+					caseTypeSchemas: buildCaseTypeMap(blueprint),
+					calculated: [
+						calculatedColumn(asUuid(""), "Header", term(literal("x"))),
+					],
 				}),
 			).rejects.toThrowError(/empty-string uuid/);
 		});
@@ -2192,12 +2226,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(OWNER_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
-			const overlongUuid = "x".repeat(60);
+			const overlongUuid = asUuid("x".repeat(60));
 			await expect(
-				store.queryWithCalculated({
+				store.query({
 					appId: APP_ID,
 					caseType: "patient",
-					blueprint,
+					caseTypeSchemas: buildCaseTypeMap(blueprint),
 					calculated: [
 						calculatedColumn(overlongUuid, "Header", term(literal("x"))),
 					],
@@ -2212,11 +2246,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// `count(args)` returns the row population the
 		// `(appId, caseType, predicate?)` triple resolves to. The
 		// Filters-section live preview pairs the count with a
-		// limited `queryWithCalculated` against the same predicate,
-		// so the WHERE clause emitted here MUST match the
-		// predicate-narrowed `query` it pairs with — any divergence
-		// would surface as a count-vs-row-list mismatch. The four
-		// tests pin:
+		// limited `query` against the same predicate, so the WHERE
+		// clause emitted here MUST match the predicate-narrowed
+		// `query` it pairs with — any divergence would surface as a
+		// count-vs-row-list mismatch. The four tests pin:
 		//
 		//   1. Predicate-undefined returns the total population
 		//      (matches the "no filter applied" preview state).
@@ -2224,8 +2257,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		//      (the predicate compiles through the same stack as
 		//      `query`).
 		//   3. Tenant scoping — cross-tenant rows are invisible.
-		//   4. Blueprint resolves property data types in the
-		//      predicate (matches `QueryArgs.blueprint`'s contract).
+		//   4. The schema map resolves property data types in the
+		//      predicate (matches `QueryArgs.caseTypeSchemas`'s
+		//      contract).
 		//
 		// Three patient rows seeded across these tests; the same
 		// `(name, age)` shape `query`-related tests use, so any
@@ -2302,7 +2336,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const matchedCount = await store.count({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				predicate: gt(prop("patient", "age"), literal(30)),
 			});
 			expect(matchedCount).toBe(2);
@@ -2350,17 +2384,17 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(myCount).toBe(1);
 		});
 
-		it("count requires a blueprint when the predicate reads a typed property", async () => {
+		it("count uses caseTypeSchemas to resolve typed-property casts in the predicate", async () => {
 			// `compileTerm` resolves the property's `data_type` from
 			// `caseTypeSchemas` to pick the column cast. A predicate-
-			// reading-typed-property `count` call without a blueprint
+			// reading-typed-property `count` call without a schema map
 			// means the term compiler reaches an empty schema map
 			// and falls through to the default `text` shape — wrong
 			// cast for an `int` column would yield zero rows for an
 			// otherwise-matching predicate. This test pins the
-			// blueprint-threading contract by asserting the typed-int
-			// comparison returns the expected count when the
-			// blueprint resolves the property's `int` shape.
+			// schema-threading contract by asserting the typed-int
+			// comparison returns the expected count when the schema
+			// map resolves the property's `int` shape.
 			const store = await options.factory(OWNER_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
@@ -2378,7 +2412,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const matched = await store.count({
 				appId: APP_ID,
 				caseType: "patient",
-				blueprint,
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
 				predicate: gt(prop("patient", "age"), literal(20)),
 			});
 			expect(matched).toBe(1);

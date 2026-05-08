@@ -893,7 +893,16 @@ describe("renameField case-property cascade", () => {
 
 		// Module Y (caseType: household) columns untouched.
 		const modY = next.modules[M("Y")];
-		expect(modY?.caseListConfig?.columns[0]?.field).toBe("age");
+		const modYCol = modY?.caseListConfig?.columns[0];
+		// Narrow off the calculated arm — the fixture seeds a plain
+		// column at index 0. Without the kind guard, `column.field`
+		// is unreachable through the discriminated `Column` union.
+		if (modYCol?.kind === "calculated") {
+			throw new Error(
+				"fixture invariant: module Y column 0 should be a plain column",
+			);
+		}
+		expect(modYCol?.field).toBe("age");
 	});
 
 	it("preserves a column's sort + visibility slots across a field-rename rewrite", () => {
@@ -1373,14 +1382,24 @@ describe("renameField case-property cascade", () => {
 		expect(asField(next.fields[Q("host_ref")])?.label).toBe(
 			"Host says: #case/date_of_visit",
 		);
-		// Target module's column rewritten.
-		expect(next.modules[M("tgt")]?.caseListConfig?.columns[0]?.field).toBe(
-			"visit_date",
-		);
+		// Target module's column rewritten. Narrow off the calculated
+		// arm — the fixture seeds plain columns and only the plain /
+		// reserved-scalar arms carry a `field` slot.
+		const tgtCol = next.modules[M("tgt")]?.caseListConfig?.columns[0];
+		if (tgtCol?.kind === "calculated") {
+			throw new Error(
+				"fixture invariant: target module column 0 should be a plain column",
+			);
+		}
+		expect(tgtCol?.field).toBe("visit_date");
 		// Host module's column untouched (belongs to "patient" caseType).
-		expect(next.modules[M("host")]?.caseListConfig?.columns[0]?.field).toBe(
-			"date_of_visit",
-		);
+		const hostCol = next.modules[M("host")]?.caseListConfig?.columns[0];
+		if (hostCol?.kind === "calculated") {
+			throw new Error(
+				"fixture invariant: host module column 0 should be a plain column",
+			);
+		}
+		expect(hostCol?.field).toBe("date_of_visit");
 		expect(result?.cascadedAcrossForms).toBe(true);
 	});
 

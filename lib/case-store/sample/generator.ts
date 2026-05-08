@@ -11,13 +11,14 @@
 // lives here (not on `store.ts`) so `store.ts` can stay independent
 // of the sample-data layer; `withOwnerContext` composes the two.
 
-import type { BlueprintDoc } from "@/lib/domain";
+import type { CaseType } from "@/lib/domain";
 import type { CaseInsert } from "../store";
 
 /**
- * Arguments for `SampleCaseGenerator.generate`. Same `(blueprint,
- * caseType, seed)` tuple yields the same row sequence on every
- * call.
+ * Arguments for `SampleCaseGenerator.generate`. Same `(appId,
+ * caseType.name, seed)` tuple yields the same row sequence on
+ * every call — `caseType` carries the property declarations the
+ * generator's per-property dispatch reads.
  *
  * `parentRefs` is the case-store layer's pre-resolved parent ids.
  * When the case type declares a `parent_type` and an entry
@@ -25,9 +26,8 @@ import type { CaseInsert } from "../store";
  * carry `parent_case_id: null` (orphan).
  */
 export interface SampleGeneratorArgs {
-	blueprint: BlueprintDoc;
 	appId: string;
-	caseType: string;
+	caseType: CaseType;
 	count: number;
 	seed: string;
 	parentRefs?: ReadonlyMap<string, ReadonlyArray<string>>;
