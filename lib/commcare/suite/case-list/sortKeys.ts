@@ -44,10 +44,9 @@
 //   - **Comparator-type derivation.** Property-rooted columns route
 //     through `applicableSortTypes(dataType)[0]` (the canonical
 //     comparator for the column's `data_type`); calculated columns
-//     route through `checkValueExpression(expression).resultType`
-//     mapped to a `SortType`. Three failure shapes — checker
-//     returns `undefined` (resolution failure), checker returns
-//     `ANY_TYPE` (null-literal arm), checker returns a
+//     route through `checkExpression(expression, ctx, errors, path)`
+//     mapped to a `SortType`. Three failure shapes — `undefined`
+//     (resolution failure), `ANY_TYPE` (null-literal arm), or a
 //     `ResolvedType` with no mapping (e.g. `SEQUENCE_TYPE`) —
 //     route to `"plain"`.
 
