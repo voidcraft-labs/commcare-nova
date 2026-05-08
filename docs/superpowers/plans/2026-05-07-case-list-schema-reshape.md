@@ -562,3 +562,50 @@ Landed across five commits: `7bc33244` (initial reshape — 8 atomic tools + hel
 **Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (UI workspace, preview, scripts, integration tests). Tasks 6-9 bring each surface to green.
 
 **Next:** Reshape Task 6 — UI workspace + ColumnEditor.
+
+### Task 6 — UI workspace + ColumnEditor — 2026-05-08
+
+Landed across three commits: `0c276568` (initial reshape) → `4e81a04d` (CR fix-pass — restore `DisplayPreview` validity gate + reconcile sort-priority contiguity claim) → `e8d6e02d` (CR fix-pass — unify `useValidityPropagator` adoption + tighten voice + fake timers in test).
+
+**Workspace structure (preserved):** three sticky-headed sections — Display / Filter / Search — single-scroll magazine layout, glass-violet identity unchanged.
+
+**DELETED:**
+- `SortKeyEditor.tsx` + tests (sort lives on each column).
+- `CalculatedColumnEditor.tsx` + tests (calc folded into `ColumnEditor` calc arm).
+- `TimeSinceUntilCard.tsx` + `LateFlagCard.tsx` + tests (merged into `IntervalCard`).
+- `SearchOnlyCard.tsx` (kind gone).
+
+**NEW:**
+- `cards/column/IntervalCard.tsx` — discriminator UX on `display: "always" | "flag"` with role-flipping `text` slot. Mounts via `ColumnEditor`'s registry-driven kind dispatch (`columnCardSchemas[value.kind].component`).
+- `cards/column/CalculatedColumnCard.tsx` — calc arm body. Mounts `ExpressionCardEditor` for the column's `expression` slot. No `field` slot UI.
+- `cards/column/ColumnAffordancesRow.tsx` — shared visibility (list/detail eye toggles) + sort affordance (direction toggle + ordinal priority badge). Mounted via `CardShell.kindAccent` so it surfaces uniformly across all six kinds, including calc (which has no `ColumnFieldRow`).
+- `uuid.ts` (UI-local `newUuid()`) — wraps `crypto.randomUUID()` + `asUuid`. JSDoc explains the boundary direction (`components/` cannot import from `lib/agent/`).
+
+**EDITED:**
+- `ColumnEditor.tsx` gains the registry kind-dispatch (six kinds including `calculated`); routes through `useValidityPropagator`.
+- `columnEditorSchemas.ts` — `Record<ColumnKind, ColumnCardSchema<K>>` mapped-type, exhaustive over the v2 union.
+- `cards/column/{Plain,Date,Phone,IdMapping,ColumnFieldRow}.tsx` — accept v2 column shape; field-bearing kinds use `ColumnFieldRow` + `ColumnAffordancesRow`.
+- `columnCellRenderer.tsx` — six-kind exhaustive switch; calc reads `row.calculated[column.uuid]`; interval dispatches on `display`; no `search-only` arm.
+- `DisplaySection.tsx` collapses to `SortPriorityStack` (drag-to-reorder pill stack at top) + Columns sub-section + Live preview. Threads `columnsValid` through `useValidityPropagator` to the workspace's save gate AND to `DisplayPreview`'s `configValid` (preserves the structural defense against malformed-expression-AST throws).
+- `DisplayPreview.tsx` filters by `visibleInList ?? true`; renders the new union via `columnCellRenderer`; sort indicator from `col.sort.direction`.
+- `FiltersPreview.tsx` accepts new column union for row rendering (filter slot itself unchanged).
+- `SearchInputsSection.tsx` discriminated UI: `kind: "simple"` row + `kind: "advanced"` row (PredicateCardEditor on `predicate`). Per-row "Convert to advanced/simple" affordance preserves `uuid`/`name`/`label`/`type`/`default` across the conversion (simple→advanced seeds `eq(prop, '')` or `match-all()`; advanced→simple drops predicate, resets property).
+- `CaseListWorkspace.tsx` consumes `sortedColumnCount` + `firstSortedColumn`; `buildDisplayStatus` updated; empty-state seeds use `newUuid()`.
+- `appTree/ModuleCard.tsx` — sidebar visibility filter; calc columns surface header alone, others fall back through header → field → "(unnamed)".
+- `useInnerValidityShadow.ts::useValidityPropagator` — centralized hook adopted by all six editors (`FiltersSection`, `PredicateCardEditor`, `ColumnEditor`, `ExpressionCardEditor`, `DisplaySection`, `SearchInputsSection`). Eliminates the four prior hand-rolled `onValidityChangeRef` triples per the first-duplication rule.
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- components/builder/case-list-config components/builder/appTree` — 390 / 390 across 34 test files (deterministic two runs).
+- New regression test pins the validity-gate contract (invalid expression → preview paused + zero load attempts; valid expression → load fires + paused not shown). Uses `vi.useFakeTimers({ shouldAdvanceTime: true })` for determinism.
+- Sweeps clean: zero line-number citations, zero references to deleted v1 surfaces in surviving files, zero forward-projection / "previously" / "Pre-fix:" voice.
+
+**Deltas from the planned shape (all sound, called out by implementer in commit bodies):**
+1. `ColumnAffordancesRow` mounted in `CardShell.kindAccent`, not in `ColumnFieldRow` — calc has no field-row mount, so shell-level placement is the only shape covering all six kinds.
+2. Sort priority Notion-style — direction toggle + ordinal badge per column + drag-to-reorder pill stack at the Display section's top.
+3. `DisplaySection` collapses to one column list with the priority pill stack as inline chrome above.
+4. `SearchInputsSection` discriminated UI with per-row conversion affordance (matches plan verbatim).
+
+**Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (preview screens, scripts, integration tests). Tasks 7-9 bring each surface to green.
+
+**Next:** Reshape Task 7 — Preview heading + calculated column rendering.
