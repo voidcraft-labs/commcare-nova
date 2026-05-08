@@ -224,6 +224,34 @@ End-to-end against the testcontainer harness:
 - [ ] Web-apps split-screen rendering verified end-to-end (no platform toggle; this is the only rendering).
 - [ ] **User-runnable acceptance:** User runs `npm run dev`, navigates to `/build/{appId}/{moduleUuid}/cases` in live mode, sees actual case rows. Submits a registration form via the running-app surface. Returns to case list. Sees the new case appear. Types into a search input; sees the list filter live. Clicks "Generate sample data"; sees additional rows. End-to-end running-app loop reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
 
+## ⚠️ Pre-deploy: run the migration script BEFORE the v2 code goes live
+
+The branch ships v2 `caseListConfig`. Production Firestore holds existing apps on v0 (most) and v1 (the brief Plan-3 window). The v2 code cannot read v0 / v1 shapes — every app will fail to load until those docs are migrated.
+
+The migration script at `scripts/migrate-case-list-schema-reshape.ts` is idempotent and three-way-aware (v0 → v2, v1 → v2, v2-skipped). Run it at deploy time, not before.
+
+**Deploy sequence:**
+
+1. **Dry-run against prod Firestore** (no writes; default mode):
+
+   ```
+   npx tsx scripts/migrate-case-list-schema-reshape.ts
+   ```
+
+   Inspect the per-doc `version=v0|v1|v2-skipped|corrupt` log lines. Confirm `failedCount === 0` (corrupt-doc count) and `corruptInputCount === 0` (per-input corrupt count). If either is non-zero, investigate the named app(s) before proceeding — the script exits non-zero on `failedCount > 0`.
+
+2. **Live-write** (writes to prod Firestore):
+
+   ```
+   npx tsx scripts/migrate-case-list-schema-reshape.ts --write
+   ```
+
+3. **Deploy the v2 code IMMEDIATELY after the live-write completes.** The gap between migration-write and v2-deploy is the only window of broken prod (v2 data + v1 code). Keep it minutes, not hours.
+
+4. **Verify** a few apps load post-deploy; confirm the case-list workspace + case-search-config surfaces render against migrated data.
+
+Re-running the live migration after deploy is safe — already-v2 docs skip cleanly via the schema-parse idempotency check. Use the `--app-id <id>` flag for surgical retry against any single app that was flagged corrupt.
+
 ## Plan shape
 
 The bulk of work is in the runtime-bindings layer (Task 1), the split-screen search screen (Task 5), and the form-completion / write-through wiring (Task 6). After Plan 5 ships, the case-list-and-search foundation is end-to-end exercised in the flipbook's running-app view against live Cloud SQL Postgres rows. The running-app view is web-apps-shaped per the spec's "One surface, no mode picker, no platform toggle" rule — Plans 4 and 5 do not produce per-platform preview affordances; CCHQ runtime fragmentation is handled silently by the export adapter when the app ships.
