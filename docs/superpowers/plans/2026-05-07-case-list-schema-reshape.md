@@ -436,3 +436,28 @@ Landed across four commits: `608625c3` (initial reshape) → `48582c0f` (CR roun
 **Whole-repo build state:** intentionally broken on consumer surfaces (validator, wire emitters, SA tools, UI, preview, doc-store, case-store, scripts) per the planned sequencing. Tasks 2-9 bring each surface to green.
 
 **Next:** Reshape Task 2 — Doc-store + case-store consumer updates.
+
+### Task 2 — Doc-store + case-store consumers — 2026-05-07
+
+Landed at commit `93c55979`. Spec review clean; CR round 1 returned "Approved. Ship it." (3 MINOR JSDoc voice notes recorded as observations, not blockers).
+
+**Files touched:**
+- `lib/doc/mutations/fields.ts` — `cascadeCasePropertyRename` walks only `caseListConfig.columns`; the `detailColumns` walk is gone. Calc-arm columns skip via `if (col.kind === "calculated") continue;` (no `field` slot). Rewrite preserves `column.uuid`, `column.sort`, `column.visibleInList`, `column.visibleInDetail` slots in-place.
+- `lib/doc/hooks/useCaseListSummary.ts` — `useCaseListWorkspaceState` exposes `sortedColumnCount` + `firstSortedColumn`. Tie-break: forward iteration with strict `<` priority comparison, so the column at the lowest array index wins on ties. `EMPTY_CONFIG` sentinel reflects three-slot shape.
+- `lib/case-store/store.ts` — drops `import { CalculatedColumn } from "@/lib/domain"`; introduces a local `export type CalculatedColumn = Extract<Column, { kind: "calculated" }>` alias. The case-store's own `interface SortKey` (runtime sort: `direction + expression`) UNCHANGED.
+- `lib/case-store/postgres/store.ts` — `column.id` → `column.uuid` mechanical rename across `queryWithCalculated` (alias construction, empty-string guard, `calcAliases` materialization, row-partition allowlist). Throw messages updated to `empty-string uuid` text.
+- `lib/case-store/index.ts` — UNCHANGED (verified: the deleted top-level `CalculatedColumn` was never re-exported from this barrel; external `CalculatedColumn` consumers import from `@/lib/domain`, not from `@/lib/case-store`).
+- `lib/db/applyBlueprintChange.ts` — UNCHANGED (saga diffs `caseTypes` only).
+- Test fixtures updated: `lib/doc/__tests__/mutations-fields.test.ts` (column uuids on every fixture; new tests for slot preservation + calc-arm skip), `lib/case-store/__tests__/storeContract.ts` (`RESERVED_COLLISION_IDS` → `RESERVED_COLLISION_UUIDS` symbol rename; assertion text updates).
+
+**Acceptance gate landed:**
+- `npm run lint` green.
+- `npm test -- lib/db lib/doc lib/case-store` — 779 passing, 14 skipped, 0 failing (52 test files).
+- No new line-number citations.
+- No remaining references to deleted slots in scope files.
+
+**Deltas from the planned shape:** none. Implementer's `column.id` → `column.uuid` rename in `postgres/store.ts` was a discovered call-site change implied by the v2 calc-arm shape (calc carries `uuid`, not `id`); not in the plan's verbatim file list but structurally required.
+
+**Whole-repo build state:** still intentionally broken on un-migrated consumer surfaces (validator, wire emitters, SA tools, UI, preview, scripts, integration tests). Tasks 3-9 bring each surface to green.
+
+**Next:** Reshape Task 3 — Validator rules.
