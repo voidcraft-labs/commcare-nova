@@ -59,6 +59,7 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { ExpressionCardEditor } from "../case-list-config/ExpressionCardEditor";
+import { nextConfig } from "./nextConfig";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -92,23 +93,6 @@ export interface ClaimSectionProps {
 	 *  verdicts are true (or trivially true when their slots are
 	 *  absent). The parent gates its save affordance on this. */
 	readonly onValidityChange?: (valid: boolean) => void;
-}
-
-// ── Seed helper ───────────────────────────────────────────────────
-
-/**
- * Builds the next `CaseSearchConfig` from a possibly-undefined
- * current value plus a slot patch. Pins the schema-required
- * `dontClaimAlreadyOwned` default on first edit so the parent never
- * sees a partial config that fails strict parse, and passes through
- * the existing slot when the section already has a config.
- */
-function nextConfig(
-	current: CaseSearchConfig | undefined,
-	patch: Partial<CaseSearchConfig>,
-): CaseSearchConfig {
-	const base: CaseSearchConfig = current ?? { dontClaimAlreadyOwned: false };
-	return { ...base, ...patch };
 }
 
 // ── Top-level component ───────────────────────────────────────────
