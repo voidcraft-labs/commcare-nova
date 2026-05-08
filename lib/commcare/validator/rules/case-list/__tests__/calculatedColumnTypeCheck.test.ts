@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { calculatedColumn, plainColumn } from "@/lib/domain";
+import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
 import { arith, prop, term } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
@@ -15,11 +15,10 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								"bad_arith",
+								asUuid("col-bad-arith"),
 								"Bad",
 								arith(
 									"+",
@@ -77,11 +76,10 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								"age_plus_one",
+								asUuid("col-age-plus"),
 								"Age + 1",
 								arith(
 									"+",
@@ -139,11 +137,10 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								"unknown_ref",
+								asUuid("col-unknown"),
 								"Unknown",
 								term(prop("patient", "ghost")),
 							),
@@ -177,6 +174,54 @@ describe("calculatedColumnTypeCheck", () => {
 		).toBe(true);
 	});
 
+	it("locates the offending column by uuid in the error details", () => {
+		// Pin the uuid-as-locator contract: the error's `columnUuid`
+		// detail carries the offending column's stable identity, not
+		// an array index, so the editor can highlight the right row
+		// after a reorder.
+		const calcUuid = asUuid("col-locator-target");
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							calculatedColumn(
+								calcUuid,
+								"Unknown",
+								term(prop("patient", "ghost")),
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		const hits = runValidation(doc).filter(
+			(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+		);
+		expect(hits.length).toBeGreaterThan(0);
+		expect(hits.every((e) => e.details?.columnUuid === calcUuid)).toBe(true);
+	});
+
 	// ── Augmentation regression coverage ─────────────────────────
 	//
 	// Pin the rule-set-wide admission model for value expressions:
@@ -197,11 +242,10 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								"nick_alias",
+								asUuid("col-nickname"),
 								"Nickname",
 								term(prop("patient", "nickname")),
 							),
@@ -255,11 +299,10 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								"display_name",
+								asUuid("col-display-name"),
 								"Display name",
 								term(prop("patient", "case_name")),
 							),
@@ -305,11 +348,10 @@ describe("calculatedColumnTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								"bad_arith",
+								asUuid("col-bad-arith"),
 								"Bad",
 								arith(
 									"+",

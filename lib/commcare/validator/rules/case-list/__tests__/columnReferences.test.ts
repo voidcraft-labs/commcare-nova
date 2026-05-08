@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn } from "@/lib/domain";
+import {
+	asUuid,
+	calculatedColumn,
+	dateColumn,
+	plainColumn,
+} from "@/lib/domain";
+import { prop, term } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("columnReferences", () => {
@@ -85,53 +91,10 @@ describe("columnReferences", () => {
 		).toBe(false);
 	});
 
-	it("fires on detailColumns (long-detail override)", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig(
-						[{ field: "case_name", header: "Name" }],
-						{
-							detailColumns: [
-								{ field: "case_name", header: "Name" },
-								{ field: "ghost_in_detail", header: "Ghost" },
-							],
-						},
-					),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		const errors = runValidation(doc);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					e.message.includes("ghost_in_detail") &&
-					e.message.includes("case-detail column"),
-			),
-		).toBe(true);
-	});
-
-	it("walks every column kind, not just plain", () => {
-		// Date column with an unresolved field still fires.
+	it("walks every non-calculated column kind", () => {
+		// Date column with an unresolved field still fires — pins that
+		// the rule iterates the discriminated union arms uniformly,
+		// not just the `plain` arm.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -140,16 +103,14 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn("case_name", "Name"),
-							{
-								kind: "date",
-								field: "missing_date",
-								header: "Date",
-								pattern: "%Y-%m-%d",
-							},
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							dateColumn(
+								asUuid("col-date"),
+								"missing_date",
+								"Date",
+								"%Y-%m-%d",
+							),
 						],
-						sort: [],
-						calculatedColumns: [],
 						searchInputs: [],
 					},
 					forms: [
@@ -177,6 +138,53 @@ describe("columnReferences", () => {
 					e.message.includes("missing_date"),
 			),
 		).toBe(true);
+	});
+
+	it("skips calculated columns (no `field` slot — checked by calculatedColumnTypeCheck)", () => {
+		// Calculated columns have no `field` slot; their property
+		// references live inside the expression AST. The rule must NOT
+		// emit an unknown-field error against the calc arm — that
+		// would be a structural false positive.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							calculatedColumn(
+								asUuid("col-calc"),
+								"Display name",
+								term(prop("patient", "case_name")),
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
+			),
+		).toBe(false);
 	});
 
 	it("admits declared-only properties (no field writer, no standard)", () => {

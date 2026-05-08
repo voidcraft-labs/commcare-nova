@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
+	advancedSearchInputDef,
+	asUuid,
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
@@ -8,10 +10,16 @@ import {
 	phoneticMode,
 	plainColumn,
 	rangeMode,
-	searchInputDef,
+	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
-import { ancestorPath, relationStep } from "@/lib/domain/predicate";
+import {
+	ancestorPath,
+	eq,
+	literal,
+	prop,
+	relationStep,
+} from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("searchInputModeMatchesPropertyType", () => {
@@ -23,14 +31,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("name_range", "Name", "text", {
-								property: "name",
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-name-range"),
+								"name_range",
+								"Name",
+								"text",
+								"name",
+								{ mode: rangeMode() },
+							),
 						],
 					},
 					forms: [
@@ -82,14 +92,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("age_fuzzy", "Age (fuzzy)", "text", {
-								property: "age",
-								mode: fuzzyMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-age-fuzzy"),
+								"age_fuzzy",
+								"Age (fuzzy)",
+								"text",
+								"age",
+								{ mode: fuzzyMode() },
+							),
 						],
 					},
 					forms: [
@@ -139,14 +151,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("age_msc", "Age (msc)", "select", {
-								property: "age",
-								mode: multiSelectContainsMode("any"),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-age-msc"),
+								"age_msc",
+								"Age (msc)",
+								"select",
+								"age",
+								{ mode: multiSelectContainsMode("any") },
+							),
 						],
 					},
 					forms: [
@@ -196,14 +210,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("age_range", "Age", "text", {
-								property: "age",
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-age-range"),
+								"age_range",
+								"Age",
+								"text",
+								"age",
+								{ mode: rangeMode() },
+							),
 						],
 					},
 					forms: [
@@ -255,14 +271,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("any", "Any", "text", {
-								property: "geo",
-								mode: exactMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-any"),
+								"any",
+								"Any",
+								"text",
+								"geo",
+								{ mode: exactMode() },
+							),
 						],
 					},
 					forms: [
@@ -339,7 +357,11 @@ describe("searchInputModeMatchesPropertyType", () => {
 		).toBe(false);
 	});
 
-	it("skips inputs without a property (advanced inputs)", () => {
+	it("skips advanced inputs (predicate AST owns its own type checking)", () => {
+		// Advanced inputs carry a free-form Predicate. The mode-vs-
+		// property compatibility rule has no slot to inspect — the
+		// predicate AST type checker owns the property + operator
+		// resolution downstream.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -347,15 +369,15 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							// Advanced input — no `property`, mode set to a
-							// normally-restricted shape. The rule must not fire.
-							searchInputDef("advanced", "Advanced", "text", {
-								mode: rangeMode(),
-							}),
+							advancedSearchInputDef(
+								asUuid("si-advanced"),
+								"advanced",
+								"Advanced",
+								"text",
+								eq(prop("patient", "case_name"), literal("Alice")),
+							),
 						],
 					},
 					forms: [
@@ -396,14 +418,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("age_phon", "Age (phonetic)", "text", {
-								property: "age",
-								mode: phoneticMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-age-phon"),
+								"age_phon",
+								"Age (phonetic)",
+								"text",
+								"age",
+								{ mode: phoneticMode() },
+							),
 						],
 					},
 					forms: [
@@ -453,14 +477,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("age_starts", "Age (starts)", "text", {
-								property: "age",
-								mode: startsWithMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-age-starts"),
+								"age_starts",
+								"Age (starts)",
+								"text",
+								"age",
+								{ mode: startsWithMode() },
+							),
 						],
 					},
 					forms: [
@@ -514,14 +540,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("dob_fz", "DOB (fuzzy-date)", "date", {
-								property: "dob",
-								mode: fuzzyDateMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-dob-fz"),
+								"dob_fz",
+								"DOB (fuzzy-date)",
+								"date",
+								"dob",
+								{ mode: fuzzyDateMode() },
+							),
 						],
 					},
 					forms: [
@@ -571,14 +599,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("age_fz", "Age (fuzzy-date)", "date", {
-								property: "age",
-								mode: fuzzyDateMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-age-fz"),
+								"age_fz",
+								"Age (fuzzy-date)",
+								"date",
+								"age",
+								{ mode: fuzzyDateMode() },
+							),
 						],
 					},
 					forms: [
@@ -631,14 +661,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("ghost", "Ghost", "text", {
-								property: "ghost",
-								mode: fuzzyMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-ghost"),
+								"ghost",
+								"Ghost",
+								"text",
+								"ghost",
+								{ mode: fuzzyMode() },
+							),
 						],
 					},
 					forms: [
@@ -677,14 +709,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("nick_fz", "Nickname", "text", {
-								property: "nickname",
-								mode: fuzzyMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-nick-fz"),
+								"nick_fz",
+								"Nickname",
+								"text",
+								"nickname",
+								{ mode: fuzzyMode() },
+							),
 						],
 					},
 					forms: [
@@ -735,14 +769,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("weight_range", "Weight", "text", {
-								property: "weight",
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-weight-range"),
+								"weight_range",
+								"Weight",
+								"text",
+								"weight",
+								{ mode: rangeMode() },
+							),
 						],
 					},
 					forms: [
@@ -791,14 +827,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("name_range", "Name", "text", {
-								property: "case_name",
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-name-range"),
+								"name_range",
+								"Name",
+								"text",
+								"case_name",
+								{ mode: rangeMode() },
+							),
 						],
 					},
 					forms: [
@@ -836,14 +874,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("opened_range", "Opened", "date", {
-								property: "date_opened",
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-opened-range"),
+								"opened_range",
+								"Opened",
+								"date",
+								"date_opened",
+								{ mode: rangeMode() },
+							),
 						],
 					},
 					forms: [
@@ -886,15 +926,19 @@ describe("searchInputModeMatchesPropertyType", () => {
 					name: "Visits",
 					caseType: "visit",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("patient_name_range", "Patient name", "text", {
-								property: "name",
-								via: ancestorPath(relationStep("parent")),
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-patient-name-range"),
+								"patient_name_range",
+								"Patient name",
+								"text",
+								"name",
+								{
+									via: ancestorPath(relationStep("parent")),
+									mode: rangeMode(),
+								},
+							),
 						],
 					},
 					forms: [

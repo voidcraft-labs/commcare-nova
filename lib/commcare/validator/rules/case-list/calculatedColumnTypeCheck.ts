@@ -1,6 +1,6 @@
 /**
- * Rule: every `CalculatedColumn.expression` on
- * `caseListConfig.calculatedColumns` type-checks via
+ * Rule: every `kind: "calculated"` column on `caseListConfig.columns`
+ * carries a `ValueExpression` that type-checks via
  * `checkValueExpression(...)` (the predicate AST type checker at
  * `@/lib/domain/predicate`) against the module's case-type schema.
  *
@@ -10,16 +10,14 @@
  * per-operand errors with paths the editor can highlight. Any error
  * the checker emits surfaces here as a single
  * `CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR` validation entry per
- * operand — the column id and the AST path locate the offending node.
+ * operand — the column uuid and the AST path locate the offending
+ * node.
  *
- * No per-column display-kind type rule is enforced beyond the
- * checker's own arms. Calculated columns never carry a kind on the
- * `Column` discriminated union; the runtime renderer reads the
- * column's expression result as text regardless of the resolved type
- * (the wire emitter coerces through `string` at the suite XML layer).
- * The checker's per-operator type rules (numeric arithmetic, ordered
- * comparisons, text-shaped operands for `concat` / `match`, etc.)
- * remain the structural gate for column expressions.
+ * Calculated columns share the column array with every other column
+ * kind; the rule iterates the array and dispatches the type-check on
+ * the calculated arm. Non-calculated columns are owned by
+ * `columnReferences` (which checks their `field` slot against the
+ * augmented admission set).
  *
  * The `TypeContext` consumed here carries the augmented case-type
  * list from `moduleTypeContext` — writer-derived + CommCare standard
@@ -38,7 +36,7 @@ export function calculatedColumnTypeCheck(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const columns = mod.caseListConfig?.calculatedColumns ?? [];
+	const columns = mod.caseListConfig?.columns ?? [];
 	if (columns.length === 0) return [];
 
 	const ctx = moduleTypeContext(mod, doc);
@@ -46,21 +44,22 @@ export function calculatedColumnTypeCheck(
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
+		if (column.kind !== "calculated") continue;
 		const result = checkValueExpression(column.expression, ctx);
 		if (result.ok) continue;
 
 		for (const err of result.errors) {
 			const at = formatPath(err.path);
-			const suffix = at ? ` (at ${at})` : "";
+			const suffix = at ? ` at \`${at}\`` : "";
 			errors.push(
 				validationError(
 					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 					"module",
-					`Module "${mod.name}" calculated column #${index + 1} ("${column.header}", id "${column.id}") has a type error${suffix}: ${err.message}`,
+					`Calculated column "${column.header}" (column #${index + 1}, uuid "${column.uuid}") on the case list of module "${mod.name}" has an expression that doesn't type-check${suffix}: ${err.message}. The expression's operand types and the operator's expected types didn't line up. Open the column's expression editor and adjust the operand at that path — common fixes are pointing the property reference at a different case property whose \`data_type\` matches, swapping the operator for one that admits these operands, or wrapping a literal in the right shape (for example casting a text literal to a number).`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						index: String(index),
-						columnId: column.id,
+						columnUuid: column.uuid,
 						path: at,
 					},
 				),

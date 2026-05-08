@@ -92,29 +92,22 @@ export interface ModuleSpec {
  * column list. Tests construct columns this way overwhelmingly often
  * (every fixture builds the simplest case-list shape), so the helper
  * keeps fixtures concise without forcing each test to spell the
- * empty `sort` / `calculatedColumns` / `searchInputs` arrays itself.
+ * empty `searchInputs` array itself.
  *
- * Each entry becomes a `kind: "plain"` column — the discriminated
- * union arm equivalent to "render the property value as text",
- * which mirrors the shipped column shape on every persisted
- * blueprint today.
+ * Each entry becomes a `kind: "plain"` column with an auto-assigned
+ * `uuid`. The helper short-circuits the schema's identity slot so
+ * fixtures that don't care about column identity stay compact —
+ * fixtures that DO care (drag-reorder tests, sort-on-column lookups)
+ * pass `plainColumn(uuid, field, header)` directly.
  */
 export function caseListConfig(
 	columns: ReadonlyArray<{ field: string; header: string }>,
-	options: {
-		detailColumns?: ReadonlyArray<{ field: string; header: string }>;
-	} = {},
 ): NonNullable<Module["caseListConfig"]> {
 	return {
-		columns: columns.map((c) => plainColumn(c.field, c.header)),
-		sort: [],
-		calculatedColumns: [],
+		columns: columns.map((c) =>
+			plainColumn(nextUuid("col"), c.field, c.header),
+		),
 		searchInputs: [],
-		...(options.detailColumns && {
-			detailColumns: options.detailColumns.map((c) =>
-				plainColumn(c.field, c.header),
-			),
-		}),
 	};
 }
 

@@ -9,7 +9,12 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, rangeMode, searchInputDef } from "@/lib/domain";
+import {
+	asUuid,
+	plainColumn,
+	rangeMode,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 describe("case-list validator — cross-rule integration", () => {
@@ -25,14 +30,16 @@ describe("case-list validator — cross-rule integration", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [
-							searchInputDef("name_range", "Name range", "text", {
-								property: "name",
-								mode: rangeMode(),
-							}),
+							simpleSearchInputDef(
+								asUuid("si-name-range"),
+								"name_range",
+								"Name range",
+								"text",
+								"name",
+								{ mode: rangeMode() },
+							),
 						],
 					},
 					forms: [
@@ -158,11 +165,11 @@ describe("case-list validator — cross-rule integration", () => {
 	});
 
 	it("admits a fully-valid case-list-config without spurious cross-rule firings", () => {
-		// All five module-scope rules + the app-scope rule must stay
-		// silent on a structurally clean blueprint. The fixture exercises
-		// every shape the rules pattern-match against (columns, sort,
-		// calculated columns, filter absent, search inputs, multi-writer
-		// agreement).
+		// All four module-scope case-list rules + the app-scope rule
+		// must stay silent on a structurally clean blueprint. The
+		// fixture exercises every shape the rules pattern-match
+		// against (columns, calculated columns absent, filter absent,
+		// simple search inputs, multi-writer agreement).
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -170,19 +177,19 @@ describe("case-list validator — cross-rule integration", () => {
 					name: "Patients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn("case_name", "Name")],
-						sort: [
-							{
-								source: { kind: "property", property: "case_name" },
-								type: "plain",
-								direction: "asc",
-							},
-						],
-						calculatedColumns: [],
-						searchInputs: [
-							searchInputDef("name_search", "Name", "text", {
-								property: "case_name",
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name", {
+								sort: { direction: "asc", priority: 0 },
 							}),
+						],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-name-search"),
+								"name_search",
+								"Name",
+								"text",
+								"case_name",
+							),
 						],
 					},
 					forms: [
@@ -224,9 +231,6 @@ describe("case-list validator — cross-rule integration", () => {
 		const newCodes = new Set([
 			"CASE_LIST_COLUMN_UNKNOWN_FIELD",
 			"CASE_LIST_FILTER_TYPE_ERROR",
-			"CASE_LIST_SORT_UNKNOWN_PROPERTY",
-			"CASE_LIST_SORT_UNKNOWN_CALCULATED_COLUMN",
-			"CASE_LIST_SORT_TYPE_INCOMPATIBLE",
 			"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY",
 			"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",

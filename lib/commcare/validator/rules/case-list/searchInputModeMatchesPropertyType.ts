@@ -1,8 +1,23 @@
 /**
- * Rule: every `SearchInputDef` with both a `property` and a `mode`
- * declares a mode whose semantics match the targeted property's
- * effective `data_type` — at the input's destination case type
- * (resolved through `via` when the input carries a relation walk).
+ * Rule: every simple `SearchInputDef` with an explicit `mode` declares
+ * a mode whose semantics match the targeted property's effective
+ * `data_type` — at the input's destination case type (resolved through
+ * `via` when the input carries a relation walk).
+ *
+ * `SearchInputDef` is a discriminated union over `kind: "simple"` and
+ * `kind: "advanced"`:
+ *
+ *   - `kind: "simple"` — the (property, mode, via) shape this rule
+ *     gates. `property` is REQUIRED on this arm, so the existence
+ *     check + per-mode allow-list both bind directly. `mode` is
+ *     optional: omitted → wire layer picks the per-`type` default,
+ *     which is always admissible for that type, so the rule short-
+ *     circuits.
+ *   - `kind: "advanced"` — body is a free-form `predicate: Predicate`
+ *     AST. The advanced arm has no `mode` slot at the schema layer;
+ *     property resolution lives inside the AST and is type-checked by
+ *     the predicate / per-input predicate rules elsewhere. This rule
+ *     short-circuits the advanced arm to avoid double-reporting.
  *
  * The mapping table lives at `SEARCH_MODE_PROPERTY_TYPES`
  * (`@/lib/domain/modules`) — never reinvent it here. Modes whose
@@ -27,11 +42,6 @@
  * `any-relation` step) resolve the destination case type via
  * `checkRelationPath`, then run the same three-arm property
  * resolution against the destination scope.
- *
- * Inputs without a `property` (advanced inputs whose predicate is
- * fully expressed via `xpath`) skip this check; the `xpath`
- * predicate is type-checked by the filter / per-input predicate
- * rules elsewhere.
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
@@ -53,9 +63,15 @@ export function searchInputModeMatchesPropertyType(
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
-		// Skip advanced inputs (no property) and inputs with no explicit
-		// mode — both fall outside this rule's scope.
-		if (!input.property || !input.mode) continue;
+		// Advanced inputs delegate property resolution to the predicate
+		// AST type checker (`filterTypeCheck` / per-input predicate
+		// rules); this rule's domain (mode-vs-property compatibility)
+		// has no slot to inspect on the advanced arm.
+		if (input.kind === "advanced") continue;
+		// Simple input without an explicit mode: the wire layer picks
+		// the per-`type` default, which is always admissible for that
+		// type, so this rule has no decision to make.
+		if (!input.mode) continue;
 
 		// Resolve the destination case type — self-walk lands on the
 		// module's own case type; cross-walks chase the `via` to its
@@ -98,11 +114,12 @@ export function searchInputModeMatchesPropertyType(
 				validationError(
 					"CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY",
 					"module",
-					`Module "${mod.name}" search input #${index + 1} ("${input.label}", name "${input.name}") targets property "${input.property}" on case type "${destinationCaseType}", but no such property is declared on the case type, written to by any field via \`case_property_on\`, or part of the standard set ("case_name", "date_opened", …). Add the property to the case type's \`properties[]\`, or pick one that exists.`,
+					`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" targets the case property "${input.property}" on case type "${destinationCaseType}", but no case property by that name is declared on that case type, written by any form field via \`case_property_on\`, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${input.property}" to "${destinationCaseType}"'s properties, point a form field at it via \`case_property_on\`, or change the search input to target an existing property.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						index: String(index),
 						inputName: input.name,
+						inputUuid: input.uuid,
 						property: input.property,
 						destinationCaseType,
 					},
@@ -119,11 +136,12 @@ export function searchInputModeMatchesPropertyType(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 				"module",
-				`Module "${mod.name}" search input #${index + 1} ("${input.label}", name "${input.name}") uses mode "${input.mode.kind}" against property "${input.property}" on case type "${destinationCaseType}" (data_type "${dataType}"). The "${input.mode.kind}" mode requires a property whose data_type is one of ${allowed.map((t) => `"${t}"`).join(" / ")}. Either pick a different mode, or change the property's data_type.`,
+				`Search input "${input.label}" (input #${index + 1}, name "${input.name}") on the case list of module "${mod.name}" uses search mode "${input.mode.kind}" against property "${input.property}" on case type "${destinationCaseType}", whose \`data_type\` is "${dataType}". The "${input.mode.kind}" mode only admits properties whose \`data_type\` is one of ${allowed.map((t) => `"${t}"`).join(" / ")} — running it against "${dataType}" wouldn't produce a meaningful match at the wire layer. Either pick a search mode that admits "${dataType}", change the property's \`data_type\` to one the mode supports, or target a different property whose declared type fits.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					index: String(index),
 					inputName: input.name,
+					inputUuid: input.uuid,
 					mode: input.mode.kind,
 					property: input.property,
 					propertyDataType: dataType,

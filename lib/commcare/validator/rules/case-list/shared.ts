@@ -50,11 +50,11 @@
  * Every case-list-config rule consults this same admission set:
  *
  *   - `columnReferences` — `propertyExists` (existence only; no type
- *     check).
- *   - `sortTypeCheck` — `resolvePropertyDataType` for type-driven
- *     `applicableSortTypes(...)` selection.
+ *     check). Skips calculated columns (no `field` slot — their
+ *     property references live inside the expression AST).
  *   - `searchInputModeMatchesPropertyType` — `resolvePropertyDataType`
- *     for `SEARCH_MODE_PROPERTY_TYPES` admission.
+ *     for `SEARCH_MODE_PROPERTY_TYPES` admission on simple inputs;
+ *     advanced inputs delegate to the predicate AST type checker.
  *   - `filterTypeCheck` / `calculatedColumnTypeCheck` — delegate to
  *     `checkPredicate` / `checkValueExpression`, which resolve only
  *     against `ct.properties[]`. Routing through `moduleTypeContext`
@@ -142,16 +142,21 @@ export function validationContextFor(doc: BlueprintDoc): ValidationContext {
  * `ct.properties[]`. Rules that delegate to the type checker
  * (`filterTypeCheck`, `calculatedColumnTypeCheck`) thus consume the
  * same admission set as the per-rule property resolvers
- * (`sortTypeCheck`, `searchInputModeMatchesPropertyType`,
- * `columnReferences`).
+ * (`searchInputModeMatchesPropertyType`, `columnReferences`).
  *
  * `knownInputs` is derived from the module's own
- * `caseListConfig.searchInputs`. Each declaration carries the input's
- * declared `name` plus the resolved `data_type` (when the input
- * targets a known property on the module's case type) so the type
- * checker can compare `input(...)` operands against the right side of
- * comparisons. Inputs without a resolvable property fall back to
- * `text` (the type checker's default for un-annotated declarations).
+ * `caseListConfig.searchInputs`. The discriminated union splits two
+ * authoring shapes:
+ *
+ *   - `kind: "simple"` — carries `(property, mode, via)`. The
+ *     declaration carries the input's `name` plus the resolved
+ *     `data_type` (when `via` is self-walk and the property resolves
+ *     to a known type on the module's case type). Cross-walk inputs
+ *     and self-walks against unknown properties fall back to text-as-
+ *     no-annotation.
+ *   - `kind: "advanced"` — carries a `predicate` AST. The advanced
+ *     arm has no single declared property; the type checker has no
+ *     `data_type` to bind, so the declaration omits the slot.
  *
  * `currentCaseType` is set to the module's case type so the
  * relational quantifiers (`exists` / `missing`) and the destination-
@@ -165,11 +170,11 @@ export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
 
 	const knownInputs: SearchInputDecl[] = [];
 	for (const input of inputs) {
-		// Without a `property`, the input is "advanced" (its predicate is
-		// expressed via the `xpath` slot); the type checker has no
-		// declared `data_type` to bind. Default to `text` — the same
-		// fallback the type checker applies for un-annotated declarations.
-		if (!input.property || !moduleCaseType) {
+		// Advanced inputs have no single declared property; the type
+		// checker has no `data_type` to bind. Default to `text` — the
+		// same fallback the type checker applies for un-annotated
+		// declarations.
+		if (input.kind === "advanced" || !moduleCaseType) {
 			knownInputs.push({ name: input.name });
 			continue;
 		}

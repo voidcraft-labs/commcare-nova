@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { asUuid, plainColumn } from "@/lib/domain";
 import { eq, gt, literal, prop } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
@@ -14,9 +15,7 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 						filter: gt(prop("patient", "name"), literal("M")),
 					},
@@ -66,9 +65,7 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 						// `eq(prop, literal)` — text vs string literal is structurally
 						// compatible.
@@ -119,9 +116,7 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "ghost"), literal("x")),
 					},
@@ -175,9 +170,7 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "nickname"), literal("Al")),
 					},
@@ -226,9 +219,7 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "case_name"), literal("Alice")),
 					},
@@ -268,9 +259,7 @@ describe("filterTypeCheck", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-						sort: [],
-						calculatedColumns: [],
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "date_opened"), literal("not-a-date")),
 					},

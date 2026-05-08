@@ -1,35 +1,27 @@
 /**
- * Rule: every `Column.field` on `caseListConfig.columns` and
- * `caseListConfig.detailColumns` resolves to a property the module's
- * case type admits — declared on `ct.properties[]`, written by a
- * form field via `case_property_on === mod.caseType`, or part of
- * CommCare's standard set (`case_name`, `date_opened`, …).
+ * Rule: every non-calculated column on `caseListConfig.columns` carries
+ * a `field` that resolves to a property the module's case type admits
+ * — declared on `ct.properties[]`, written by a form field via
+ * `case_property_on === mod.caseType`, or part of CommCare's standard
+ * set (`case_name`, `date_opened`, …).
  *
- * Walks every column kind regardless of arm: every entry in the
- * `Column` discriminated union carries a `field` slot, and every
- * runtime renderer reads the case property by that name. Resolution
- * routes through the shared `propertyExists` helper, which reads
- * the memoized `ValidationContext` augmented case-type list — so
- * this rule's admission set agrees with every other case-list-config
- * rule by construction.
+ * `caseListConfig` carries one columns array — display + sort + calc +
+ * visibility, all together. Calculated columns are the lone arm
+ * without a `field` slot (their expression is the source); the field-
+ * reference check skips them and leaves their property resolution to
+ * the per-operand walk inside `calculatedColumnTypeCheck`. Every other
+ * column kind exposes the same `field: string` slot, and every runtime
+ * renderer reads the case property by that name.
+ *
+ * Property resolution routes through the shared `propertyExists`
+ * helper, which reads the memoized `ValidationContext` augmented case-
+ * type list — so this rule's admission set agrees with every other
+ * case-list-config rule by construction.
  */
 
 import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 import { propertyExists } from "./shared";
-
-/**
- * Identifies which slot a column came from. `columns` is the short
- * detail; `detailColumns` is the optional long-detail override. The
- * label appears in the error message so authors can locate the
- * offending entry without counting indices across both lists.
- */
-type ColumnSlot = "columns" | "detailColumns";
-
-const SLOT_LABEL: Record<ColumnSlot, string> = {
-	columns: "case-list column",
-	detailColumns: "case-detail column",
-};
 
 export function columnReferences(
 	mod: Module,
@@ -40,42 +32,43 @@ export function columnReferences(
 	if (!config || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
+	const caseType = mod.caseType;
 
-	checkColumns(mod, moduleUuid, "columns", config.columns, doc, errors);
-	if (config.detailColumns) {
-		checkColumns(
-			mod,
-			moduleUuid,
-			"detailColumns",
-			config.detailColumns,
-			doc,
-			errors,
-		);
+	for (let index = 0; index < config.columns.length; index++) {
+		const col = config.columns[index];
+		// Calculated columns have no `field` — their property references
+		// live inside the `expression` AST and the per-operand type
+		// checker (`calculatedColumnTypeCheck`) walks them through the
+		// same admission set this rule consults.
+		if (col.kind === "calculated") continue;
+		if (propertyExists(doc, caseType, col.field)) continue;
+		errors.push(buildUnknownFieldError(mod, moduleUuid, caseType, index, col));
 	}
 
 	return errors;
 }
 
-function checkColumns(
+/**
+ * Renders the `CASE_LIST_COLUMN_UNKNOWN_FIELD` error for a non-calculated
+ * column whose `field` does not resolve. Authors locate the offending
+ * entry by 1-based index + header so the message reads as a sentence
+ * without the editor having to count discriminated-union arms. Takes
+ * the resolved `caseType` as a parameter so the type system carries
+ * the invariant the entry-point already established (`mod.caseType`
+ * present) — no runtime re-check, no defensive throw.
+ */
+function buildUnknownFieldError(
 	mod: Module,
 	moduleUuid: Uuid,
-	slot: ColumnSlot,
-	columns: readonly Column[],
-	doc: BlueprintDoc,
-	errors: ValidationError[],
-): void {
-	if (!mod.caseType) return;
-	for (let index = 0; index < columns.length; index++) {
-		const col = columns[index];
-		if (propertyExists(doc, mod.caseType, col.field)) continue;
-		errors.push(
-			validationError(
-				"CASE_LIST_COLUMN_UNKNOWN_FIELD",
-				"module",
-				`Module "${mod.name}" has a ${SLOT_LABEL[slot]} (#${index + 1}) referencing field "${col.field}" (header: "${col.header}"), but no such property is declared on case type "${mod.caseType}", written to by any field via \`case_property_on\`, or part of the standard set ("case_name", "date_opened", …). Either add the property to the case type, write a field that saves to it, or use a standard property.`,
-				{ moduleUuid, moduleName: mod.name },
-				{ field: col.field, slot, index: String(index) },
-			),
-		);
-	}
+	caseType: string,
+	index: number,
+	col: Exclude<Column, { kind: "calculated" }>,
+): ValidationError {
+	return validationError(
+		"CASE_LIST_COLUMN_UNKNOWN_FIELD",
+		"module",
+		`Column "${col.header}" (column #${index + 1}) on the case list of module "${mod.name}" points at the case property "${col.field}", but no case property by that name is declared on case type "${caseType}", written by any form field via \`case_property_on\`, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${col.field}" to the "${caseType}" case type's properties, point a form field at it via \`case_property_on\`, or change the column's field to one of those names.`,
+		{ moduleUuid, moduleName: mod.name },
+		{ field: col.field, columnUuid: col.uuid, index: String(index) },
+	);
 }

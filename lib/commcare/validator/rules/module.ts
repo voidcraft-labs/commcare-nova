@@ -13,7 +13,6 @@ import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck
 import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
-import { sortTypeCheck } from "./case-list/sortTypeCheck";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
@@ -122,14 +121,12 @@ function caseTypeTooLong(
 }
 
 /**
- * Modules with cases but no case-list display columns are unusable —
- * the case list screen has no row content to render. The check
- * walks `caseListConfig.columns` and counts entries with a `field`
- * binding (every column kind in the discriminated union carries
- * `field`, so the property reference is uniform across kinds).
- *
- * Search-only columns are not displayed; they don't satisfy the
- * "at least one displayed column" requirement.
+ * Modules with cases but no case-list columns are unusable — the case
+ * list screen has no row content to render. The columns array is the
+ * single display source: every entry in it is a column the runtime
+ * may render (visibility flags gate per-surface display, not the
+ * "is this a column" check), so non-emptiness of the array is the
+ * condition.
  */
 function missingCaseListColumns(
 	mod: Module,
@@ -137,20 +134,18 @@ function missingCaseListColumns(
 	doc: BlueprintDoc,
 ): ValidationError[] {
 	const forms = formsOf(doc, moduleUuid);
-	const displayColumns = (mod.caseListConfig?.columns ?? []).filter(
-		(col) => col.kind !== "search-only",
-	);
+	const columns = mod.caseListConfig?.columns ?? [];
 	const needsColumns =
 		!!mod.caseType &&
 		!mod.caseListOnly &&
 		forms.length > 0 &&
-		displayColumns.length === 0;
+		columns.length === 0;
 	if (!needsColumns) return [];
 	return [
 		validationError(
 			"MISSING_CASE_LIST_COLUMNS",
 			"module",
-			`Module "${mod.name}" manages "${mod.caseType}" cases but has no case-list columns. The case list screen needs at least one displayed column (like "name") so users can identify which case to select. Configure caseListConfig.columns with the properties you want displayed.`,
+			`Module "${mod.name}" manages "${mod.caseType}" cases but its case list has no columns. The case list screen needs at least one column so users can tell rows apart and pick which case to open. Add a column to \`caseListConfig.columns\` — usually something identifying like "name" — so the list has something to render.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
@@ -168,7 +163,6 @@ export const MODULE_RULES = [
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
 	columnReferences,
 	filterTypeCheck,
-	sortTypeCheck,
 	calculatedColumnTypeCheck,
 	searchInputModeMatchesPropertyType,
 ];
