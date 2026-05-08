@@ -285,24 +285,28 @@ async function main() {
 		for (const mod of modules) {
 			const config = mod.caseListConfig;
 			const cols = config?.columns ?? [];
-			const detailCols = config?.detailColumns ?? [];
-			if (cols.length === 0 && detailCols.length === 0) continue;
+			if (cols.length === 0) continue;
 
 			console.log(`  ${mod.name} (${mod.caseType ?? "no case type"}):`);
-			if (cols.length > 0) {
-				console.log("    List columns:");
-				printTable(
-					[{ header: "    Field" }, { header: "Header" }],
-					cols.map((c) => [`    ${c.field}`, c.header]),
-				);
-			}
-			if (detailCols.length > 0) {
-				console.log("    Detail columns:");
-				printTable(
-					[{ header: "    Field" }, { header: "Header" }],
-					detailCols.map((c) => [`    ${c.field}`, c.header]),
-				);
-			}
+			/* `caseListConfig.columns` carries every column kind + per-
+			 * column visibility flags. Calc columns surface their header
+			 * + expression placeholder (no `field`); display columns
+			 * surface their `field` and visibility marks. */
+			printTable(
+				[
+					{ header: "    Source" },
+					{ header: "Header" },
+					{ header: "Kind" },
+					{ header: "List" },
+					{ header: "Detail" },
+				],
+				cols.map((c) => {
+					const visList = (c.visibleInList ?? true) ? "yes" : "no";
+					const visDetail = (c.visibleInDetail ?? true) ? "yes" : "no";
+					const source = c.kind === "calculated" ? "(expression)" : c.field;
+					return [`    ${source}`, c.header, c.kind, visList, visDetail];
+				}),
+			);
 			console.log();
 		}
 	}

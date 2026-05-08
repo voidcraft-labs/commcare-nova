@@ -73,11 +73,22 @@ export interface ModuleStats {
 	name: string;
 	caseType: string | undefined;
 	caseListOnly: boolean;
-	/** Number of case-list display columns (Module.caseListConfig.columns). */
-	caseListColumnCount: number;
-	/** Number of long-detail columns (Module.caseListConfig.detailColumns). */
-	caseDetailColumnCount: number;
+	/** Total columns in `caseListConfig.columns` — every kind, every
+	 *  visibility state. The visibility-flag breakdown lives in the
+	 *  two fields below. */
+	columnCount: number;
+	/** Columns with `visibleInList ?? true` — drives the case-list
+	 *  short-detail render in CCHQ. */
+	visibleInListCount: number;
+	/** Columns with `visibleInDetail ?? true` — drives the long-detail
+	 *  render. */
+	visibleInDetailCount: number;
+	/** Columns with `kind: "calculated"` — author-defined expression
+	 *  yields a derived per-row value. */
 	calculatedColumns: number;
+	/** Columns with `kind: "interval"` — relative interval cell with
+	 *  per-row "is this overdue?" decision. */
+	intervalColumns: number;
 	searchInputs: number;
 	forms: FormStats[];
 	totalFields: number;
@@ -295,14 +306,29 @@ function analyzeModule(doc: BlueprintDoc, mod: Module): ModuleAnalysis {
 	}
 
 	const config = mod.caseListConfig;
+	const cols = config?.columns ?? [];
+	let visibleInListCount = 0;
+	let visibleInDetailCount = 0;
+	let calculatedColumns = 0;
+	let intervalColumns = 0;
+	for (const col of cols) {
+		// `visibleInList` / `visibleInDetail` default to `true` when
+		// absent — mirrors the wire-emitter convention.
+		if (col.visibleInList ?? true) visibleInListCount += 1;
+		if (col.visibleInDetail ?? true) visibleInDetailCount += 1;
+		if (col.kind === "calculated") calculatedColumns += 1;
+		else if (col.kind === "interval") intervalColumns += 1;
+	}
 	const stats: ModuleStats = {
 		uuid: mod.uuid,
 		name: mod.name,
 		caseType: mod.caseType,
 		caseListOnly: mod.caseListOnly ?? false,
-		caseListColumnCount: config?.columns.length ?? 0,
-		caseDetailColumnCount: config?.detailColumns?.length ?? 0,
-		calculatedColumns: config?.calculatedColumns.length ?? 0,
+		columnCount: cols.length,
+		visibleInListCount,
+		visibleInDetailCount,
+		calculatedColumns,
+		intervalColumns,
 		searchInputs: config?.searchInputs.length ?? 0,
 		forms: analyses.map((a) => a.stats),
 		totalFields: analyses.reduce((sum, a) => sum + a.stats.fieldCount, 0),
@@ -511,11 +537,11 @@ function checkQuality(
 	const flags: QualityFlag[] = [];
 
 	for (const { stats: mod, formFields } of moduleAnalyses) {
-		if (mod.caseType && !mod.caseListOnly && mod.caseListColumnCount === 0) {
+		if (mod.caseType && !mod.caseListOnly && mod.visibleInListCount === 0) {
 			flags.push({
 				severity: "warn",
 				module: mod.name,
-				message: `Module has caseType "${mod.caseType}" but no case-list columns`,
+				message: `Module has caseType "${mod.caseType}" but no case-list columns visible in the list`,
 			});
 		}
 
