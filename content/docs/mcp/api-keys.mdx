@@ -33,13 +33,15 @@ The setup depends on whether you have the [Nova plugin](../claude-code/index.mdx
 
 ### With the plugin
 
-The plugin ships a Nova MCP entry that uses OAuth. To switch to API-key auth, add a user-scope override at the same URL — Claude Code matches by URL and prefers your override over the plugin's entry.
+The plugin ships a Nova MCP entry that uses OAuth. To switch to API-key auth, add a user-scope override at the same URL — Claude Code matches by URL and prefers your override over the plugin's entry. Paste the full key value directly into the `--header` argument:
 
 ```bash
 claude mcp add nova --transport http https://mcp.commcare.app/mcp \
-  --header "Authorization: Bearer ${NOVA_API_KEY}" \
+  --header "Authorization: Bearer sk-nova-v1-YOUR_KEY_HERE" \
   --scope user
 ```
+
+The key gets written to `~/.claude.json` verbatim, so anything that file admits is fine to use here. Don't try to interpolate a shell variable like `${NOVA_API_KEY}` inline — `claude mcp add` stores whatever the shell expands at the moment you run the command, which is empty if the variable isn't already exported. If you want the key out of your config file, configure the MCP entry by hand (see below) instead of going through `claude mcp add`.
 
 After this, your override is the one Claude Code talks to. The tool names change shape too — what used to appear as `mcp__plugin_nova_nova__*` becomes `mcp__nova__*`. If you have any scripts or skills that hardcode the old names, update them.
 
@@ -53,7 +55,7 @@ The plugin's `nova` entry comes back automatically.
 
 ### Without the plugin
 
-Add the server directly. Drop a config block in your project's `.mcp.json` or a user-scope file at `~/.claude.json`:
+Add the server directly. Drop a config block in your project's `.mcp.json` or a user-scope file at `~/.claude.json`, with the full key value in the `Authorization` header:
 
 ```json
 {
@@ -62,14 +64,12 @@ Add the server directly. Drop a config block in your project's `.mcp.json` or a 
       "type": "http",
       "url": "https://mcp.commcare.app/mcp",
       "headers": {
-        "Authorization": "Bearer ${NOVA_API_KEY}"
+        "Authorization": "Bearer sk-nova-v1-YOUR_KEY_HERE"
       }
     }
   }
 }
 ```
-
-Claude Code expands `${NOVA_API_KEY}` at config load, so the key stays in your shell environment or `.env` rather than getting committed.
 
 ## Scopes
 
