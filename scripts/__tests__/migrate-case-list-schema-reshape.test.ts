@@ -14,8 +14,9 @@
 //      `header` values, the caseList header wins and the migration
 //      logs an INFO.
 //   4. CLI surface — `parseArgs` extracts dryRun + appId + help out
-//      of `process.argv`-shaped input, opts INTO dry-run via the
-//      flag, and rejects empty `--app-id=` values.
+//      of `process.argv`-shaped input, defaults to dry-run, opts
+//      INTO live writes via `--write`, accepts the legacy
+//      `--dry-run` no-op flag, and rejects empty `--app-id=` values.
 //   5. Runtime safety — `run(...)` against a mocked Firestore
 //      surface: status / `deleted_at` filter, dry-run no-write,
 //      `--app-id` surgical retry bypass, corrupt-module isolation
@@ -1070,19 +1071,33 @@ describe("migrateAppBlueprint — counters", () => {
 // ── parseArgs — CLI surface ────────────────────────────────────────
 
 describe("parseArgs", () => {
-	it("with no flags returns a live-write configuration", () => {
-		// Matches the predecessor's CLI shape — `--dry-run` is the
-		// opt-in safety flag, not an auto-default. Operators write the
-		// flag explicitly when they want a dry pass; absent flag is
-		// the live-write path.
+	it("with no flags defaults to dry-run", () => {
+		// Production data is on the v0 shape and a bare invocation
+		// must NOT mutate every live app doc. Dry-run is the cautious
+		// default; the operator opts INTO live writes via `--write`.
 		expect(parseArgs([])).toEqual({
+			dryRun: true,
+			appId: undefined,
+			help: false,
+		});
+	});
+
+	it("--write opts into live writes", () => {
+		// `--write` is the only path off the dry-run default. Reads
+		// as a verb in help text rather than a double-negation
+		// (`--no-dry-run`) and makes the destructive intent explicit
+		// at the invocation site.
+		expect(parseArgs(["--write"])).toEqual({
 			dryRun: false,
 			appId: undefined,
 			help: false,
 		});
 	});
 
-	it("--dry-run sets dryRun: true", () => {
+	it("--dry-run is an explicit no-op against the new default", () => {
+		// Kept accepted for shell-history compatibility — operators
+		// arriving from the deleted v0→v1 script's `--dry-run` muscle
+		// memory hit the same dry pass they expected.
 		expect(parseArgs(["--dry-run"])).toEqual({
 			dryRun: true,
 			appId: undefined,
@@ -1092,6 +1107,14 @@ describe("parseArgs", () => {
 
 	it("extracts appId from --app-id=<value>", () => {
 		expect(parseArgs(["--app-id=abc123"])).toEqual({
+			dryRun: true,
+			appId: "abc123",
+			help: false,
+		});
+	});
+
+	it("combines --app-id with --write", () => {
+		expect(parseArgs(["--app-id=abc123", "--write"])).toEqual({
 			dryRun: false,
 			appId: "abc123",
 			help: false,
@@ -1108,12 +1131,12 @@ describe("parseArgs", () => {
 
 	it("--help (and -h short form) sets help: true", () => {
 		expect(parseArgs(["-h"])).toEqual({
-			dryRun: false,
+			dryRun: true,
 			appId: undefined,
 			help: true,
 		});
 		expect(parseArgs(["--help"])).toEqual({
-			dryRun: false,
+			dryRun: true,
 			appId: undefined,
 			help: true,
 		});

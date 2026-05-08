@@ -47,7 +47,14 @@
  * Safety patterns inherited from the deleted v0→v1 script's safety
  * fix-pass:
  *
- *   - `--dry-run` default; `--app-id=<id>` for surgical retry.
+ *   - **Dry-run is the default.** Bare invocation scans + classifies
+ *     + logs without any Firestore writes; the operator must pass
+ *     `--write` to take the live-write path. Production data lives
+ *     on the v0 shape, so flipping a doc's `caseListConfig` is
+ *     destructive — the cautious default protects against the
+ *     "ran the wrong command" failure mode. `--dry-run` is still
+ *     accepted as an explicit no-op for shell-history compatibility.
+ *   - `--app-id=<id>` for surgical retry.
  *   - Server-side `deleted_at == null` AND `status == "complete"`
  *     filter on the bulk apps query. The `--app-id` path bypasses
  *     the filter.
@@ -62,10 +69,10 @@
  *     can scan a 1000-app run for the breakdown.
  *
  * Usage:
- *   npx tsx scripts/migrate-case-list-schema-reshape.ts --dry-run
- *   npx tsx scripts/migrate-case-list-schema-reshape.ts
- *   npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123
- *   npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123 --dry-run
+ *   npx tsx scripts/migrate-case-list-schema-reshape.ts                       # dry-run (default)
+ *   npx tsx scripts/migrate-case-list-schema-reshape.ts --write               # live writes
+ *   npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123       # dry-run, single app
+ *   npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123 --write
  *   npx tsx scripts/migrate-case-list-schema-reshape.ts --help
  */
 
@@ -906,7 +913,9 @@ export interface PerAppMigrateResult {
  * three signals the per-app caller acts on:
  *
  *   - `migratedModules > 0` — the caller persists the rewritten
- *     blueprint (or skips the write under `--dry-run`).
+ *     blueprint when the run is in live-write mode (`--write`),
+ *     or skips the write when the run is in the default dry-run
+ *     mode.
  *   - `corruptModuleCount > 0` — at least one module's
  *     `caseListConfig` is structurally unrecognized. The caller
  *     bumps `failedCount`, logs WARN, and SKIPS the whole-app write
@@ -1011,8 +1020,12 @@ export function migrateAppBlueprint(
 
 export interface MigrateOptions {
 	/** When `true`, scan + classify + log without any Firestore writes.
-	 *  Operators run with `--dry-run` first to review the per-app diff
-	 *  surface before re-running without the flag for the live writes. */
+	 *  Defaults to `true` — production data is on the v0 shape and a
+	 *  bare invocation must not mutate every live app doc. Operators
+	 *  pass `--write` (the only live-write opt-in) to flip this to
+	 *  `false` after they've reviewed the dry-run output. The CLI
+	 *  also accepts `--dry-run` as an explicit no-op so shell-history
+	 *  invocations from the predecessor script keep working. */
 	readonly dryRun: boolean;
 	/** Surgical-retry path. When set, the run targets one app by id;
 	 *  the bulk apps-query filter is bypassed. */
@@ -1028,17 +1041,31 @@ const HELP_TEXT = [
 	"  v0 (legacy top-level columns) AND v1 (parallel-array config) sources",
 	"  migrate to the v2 three-slot shape in one pass.",
 	"",
+	"  DEFAULT MODE: dry-run. The script scans, classifies, and logs every",
+	"  per-app diff WITHOUT writing to Firestore. The operator must pass",
+	"  --write to take the live-write path; this is the only flag that",
+	"  flips dry-run off.",
+	"",
 	"Options:",
-	"  --dry-run         Scan + classify + log; no Firestore writes.",
-	"                    Recommended for the first pass on every run.",
+	"  --write           Opt INTO live writes. Required to mutate Firestore;",
+	"                    without it the run is a dry pass.",
+	"  --dry-run         Explicit no-op (dry-run is already the default).",
+	"                    Accepted for shell-history compatibility.",
 	"  --app-id=<id>     Target one app by id; bypasses the bulk apps query.",
 	"  --help, -h        Print this help text and exit.",
 	"",
 	"Examples:",
-	"  npx tsx scripts/migrate-case-list-schema-reshape.ts --dry-run",
+	"  # Dry-run pass over every eligible app (default; no writes).",
 	"  npx tsx scripts/migrate-case-list-schema-reshape.ts",
-	"  npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123 --dry-run",
+	"",
+	"  # Live-write pass over every eligible app — only after a dry-run.",
+	"  npx tsx scripts/migrate-case-list-schema-reshape.ts --write",
+	"",
+	"  # Surgical-retry: dry-run a single app.",
 	"  npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123",
+	"",
+	"  # Surgical-retry: write a single app.",
+	"  npx tsx scripts/migrate-case-list-schema-reshape.ts --app-id=abc123 --write",
 	"",
 	"Per-module log line tags surface the source-version breakdown:",
 	"  v0 / v1            migrated; counted toward modulesMigrated",
@@ -1047,12 +1074,31 @@ const HELP_TEXT = [
 ].join("\n");
 
 export function parseArgs(argv: readonly string[]): MigrateOptions {
-	let dryRun = false;
+	// Dry-run is the cautious default — production data is on the v0
+	// shape and a bare invocation must not mutate every live app doc.
+	// The only opt-in to live writes is `--write`; `--dry-run` stays
+	// accepted as an explicit no-op so shell-history invocations
+	// (`--app-id=… --dry-run` from the predecessor script) keep
+	// working without operator surprise.
+	let dryRun = true;
 	let appId: string | undefined;
 	let help = false;
 	for (const arg of argv) {
 		if (arg === "--dry-run") {
+			// Explicit no-op against the new default. Kept for
+			// invocation compatibility — operators arriving from the
+			// deleted v0→v1 script's `--dry-run` muscle memory hit the
+			// same dry pass they expected, no behavior change.
 			dryRun = true;
+			continue;
+		}
+		if (arg === "--write") {
+			// The only path to live Firestore writes. Mirrors how
+			// most modern destructive CLIs gate on an opt-in verb
+			// rather than a no-flag default; reads as an action in
+			// help text ("--write live records") rather than a double
+			// negation ("--no-dry-run").
+			dryRun = false;
 			continue;
 		}
 		if (arg === "--help" || arg === "-h") {
