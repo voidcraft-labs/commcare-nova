@@ -1,19 +1,30 @@
 // lib/domain/modules.ts
 //
 // Module schema. Owns the structured `caseListConfig` shape that
-// drives every case-list authoring surface (display columns, sort,
-// always-on filter, calculated columns, search inputs, optional
-// long-detail override). The shape is the single source of truth
-// the validator, wire emitters, SA tools, and case-list-config UI
-// all read from.
+// drives every case-list authoring surface. The shape is the single
+// source of truth the validator, wire emitters, SA tools, and case-
+// list-config UI all read from.
+//
+// `caseListConfig` collapses to three slots:
+//
+//   - `columns: Column[]` — display + sort + calc + visibility, all
+//     here. Each column carries its own `uuid` (UI identity, drag /
+//     reorder handle, AST references), an optional `sort` (Notion-
+//     style direction + priority on the column itself), and optional
+//     `visibleInList` / `visibleInDetail` flags (absent ≡ visible).
+//   - `filter?: Predicate` — single optional always-on predicate
+//     applied to every row before display.
+//   - `searchInputs: SearchInputDef[]` — discriminated union of
+//     simple `(property, mode, via)` inputs and advanced inputs
+//     whose body is a free-form `predicate`.
 //
 // `Predicate`, `ValueExpression`, and `RelationPath` come from
 // `@/lib/domain/predicate` — the AST primitives the filter,
-// calculated-column expression, and search-input `via` slots
-// reference. Importing them here (rather than redefining the
-// shapes) keeps the AST cycles consolidated in one package and
-// keeps every authoring surface bound against the same Zod
-// schemas.
+// calculated-column expression, search-input default, and search-
+// input advanced predicate slots reference. Importing them here
+// (rather than redefining the shapes) keeps the AST cycles
+// consolidated in one package and keeps every authoring surface
+// bound against the same Zod schemas.
 
 import { z } from "zod";
 import type { CasePropertyDataType } from "./casePropertyTypes";
@@ -27,23 +38,133 @@ import {
 	relationPathSchema,
 	valueExpressionSchema,
 } from "./predicate/types";
-import { uuidSchema } from "./uuid";
+import { type Uuid, uuidSchema } from "./uuid";
+
+// ── Sort + visibility — common column slots ──────────────────────
+//
+// Column-level sort (Notion / Linear / Airtable shape): a column
+// optionally carries its own sort direction + priority. The sort
+// runtime applies columns in ascending `priority` order — `priority:
+// 0` is the primary sort, subsequent priorities act as tiebreakers.
+//
+// `priority` is a non-negative integer (the schema's `int().min(0)`
+// rejects negatives at parse). Two columns at the same priority
+// tie-break to display order in `caseListConfig.columns` — that
+// rule binds at the saga, preview, and wire-emission layers; the
+// editor maintains uniqueness on save, but the tie-break exists for
+// transient (undo / partial-save) and migration states. No layer
+// assumes uniqueness.
+//
+// The comparator type (lexicographic / numeric / date / decimal)
+// is NOT authored here — wire emission derives it from the case
+// property's `data_type` (or, for calculated columns, from the
+// expression's resolved result type).
+
+export const SORT_DIRECTIONS = ["asc", "desc"] as const;
+export type SortDirection = (typeof SORT_DIRECTIONS)[number];
+
+/**
+ * Sort comparator types referenced at the wire-emission layer.
+ *
+ *   - `plain` — lexicographic comparison (the safe default for any
+ *     unresolved or text-shaped property).
+ *   - `date` — calendar comparison; ISO 8601 strings are also
+ *     order-preserving under lexicographic sort.
+ *   - `integer` / `decimal` — numeric comparison; the runtime casts
+ *     stored values through the corresponding numeric type.
+ *
+ * The enum stays exported from `lib/domain` because the wire-
+ * emission layer at `lib/commcare/suite/case-list/sortKeys.ts`
+ * binds against it. The data-type → SortType mapping table moves
+ * with the wire emitter (it's a wire-emission concern; authoring
+ * never needs to author a type).
+ */
+export const SORT_TYPES = ["plain", "date", "integer", "decimal"] as const;
+export type SortType = (typeof SORT_TYPES)[number];
+
+/**
+ * Per-column sort directive. Carries direction + priority only —
+ * the comparator type is derived at wire emission, not authored.
+ *
+ * `priority` is a non-negative integer; tie-break to column display
+ * order is uniform across saga / preview / wire layers (no layer
+ * assumes uniqueness).
+ */
+export const columnSortSchema = z.object({
+	direction: z.enum(SORT_DIRECTIONS),
+	priority: z.number().int().min(0),
+});
+export type ColumnSort = z.infer<typeof columnSortSchema>;
+
+// ── Time-since-until shared enum ─────────────────────────────────
+
+/**
+ * Interval-column unit set. Single source of truth for both the
+ * schema's `z.enum(...)` constraint AND every consumer that renders
+ * a unit picker — exporting the tuple keeps the dropdown options in
+ * lockstep with the schema's accepted set. Adding a unit here
+ * cascades to the picker without a parallel edit (the structural-
+ * subtype `readonly TimeSinceUnit[]` array shape can silently
+ * accept a strict subset).
+ */
+export const TIME_SINCE_UNITS = ["days", "weeks", "months", "years"] as const;
+export type TimeSinceUnit = (typeof TIME_SINCE_UNITS)[number];
+
+/**
+ * Display dispatch for `interval` columns:
+ *
+ *   - `"interval"` — always show the relative interval (e.g. "3
+ *     days ago"). The threshold + unit drive an "is this overdue?"
+ *     decision the runtime can surface in the cell.
+ *   - `"flag"` — only show `text` when the threshold is exceeded;
+ *     otherwise the cell is empty. Used for "overdue" / "follow-up
+ *     needed" signal columns where the absence-of-flag is itself
+ *     the typical state.
+ *
+ * The single `interval` kind dispatches on this slot — both
+ * variants share the same `(threshold, unit)` mechanics; only the
+ * cell render differs.
+ */
+export const INTERVAL_DISPLAYS = ["interval", "flag"] as const;
+export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
+
+// ── Common column-slot helpers ───────────────────────────────────
+//
+// Every column kind carries the same base slots: `uuid` for UI
+// identity, optional `sort` for column-level sort directive,
+// optional `visibleInList` / `visibleInDetail` for surface
+// filtering. Centralized here so every per-kind schema below
+// extends the same base.
+
+/**
+ * Optional surface-visibility + sort slots shared by every column
+ * kind. Absent slots default to "visible" at the wire layer; the
+ * schema preserves the slot's presence so the editor can
+ * distinguish "user explicitly toggled off" from "user never
+ * toggled".
+ */
+const columnCommonSlots = z.object({
+	sort: columnSortSchema.optional(),
+	visibleInList: z.boolean().optional(),
+	visibleInDetail: z.boolean().optional(),
+});
+
+/** Base shape every column kind extends — uuid + the common
+ *  optional slots (sort, visibility). Per-kind schemas add their
+ *  required configuration on top. */
+const columnBase = z.object({ uuid: uuidSchema }).merge(columnCommonSlots);
 
 // ── Column kinds ─────────────────────────────────────────────────
 //
-// Each column kind carries its own per-kind configuration. The
-// `kind` discriminant routes the column through the matching wire
-// emitter (suite XML `<field>` `<style>`/`<sort>` blocks) and
-// builder UI (the per-kind `ColumnEditor` arms).
+// Six discriminated arms. The `kind` discriminant routes the column
+// through the matching wire emitter and editor body. Calculated
+// columns have no `field` slot — the expression is the source.
 
 /**
  * Plain text column — renders the property value as a string.
- *
- * The default kind for any displayed column. `field` references
- * a case property; `header` is the column header text the case
- * list renders.
+ * Default kind for any displayed column.
  */
-const plainColumnSchema = z.object({
+const plainColumnSchema = columnBase.extend({
 	kind: z.literal("plain"),
 	field: z.string(),
 	header: z.string(),
@@ -55,15 +176,14 @@ const plainColumnSchema = z.object({
  * `data_type` (validator rule); the runtime formatter consumes
  * `pattern` to produce the displayed string.
  *
- * `pattern` rejects empty strings (`z.string().min(1)`) — symmetric
- * with `formatDateSchema.pattern` on the ValueExpression side.
- * Both fields drive the same CCHQ format-date runtime; an empty
- * pattern would render the property's raw ISO string at the wire
- * boundary, defeating the column's purpose. Backed at the editor
- * by an inline empty-pattern signal in the shared
- * `CustomDatePatternInput` primitive.
+ * `pattern` rejects empty strings — symmetric with `formatDateSchema.pattern`
+ * on the ValueExpression side. Both fields drive the same CCHQ
+ * format-date runtime; an empty pattern would render the property's
+ * raw ISO string at the wire boundary, defeating the column's
+ * purpose. Backed at the editor by an inline empty-pattern signal
+ * in the shared `CustomDatePatternInput` primitive.
  */
-const dateColumnSchema = z.object({
+const dateColumnSchema = columnBase.extend({
 	kind: z.literal("date"),
 	field: z.string(),
 	header: z.string(),
@@ -71,38 +191,10 @@ const dateColumnSchema = z.object({
 });
 
 /**
- * Time-since/time-until interval units. Single source of truth
- * for both the schema's `z.enum(...)` constraint AND every
- * consumer that renders a unit picker — exporting the tuple keeps
- * the dropdown options in lockstep with the schema's accepted set.
- * Adding a unit here cascades to the picker without a parallel
- * edit (the structural-subtype `readonly TimeSinceUnit[]` array
- * shape can silently accept a strict subset).
- */
-export const TIME_SINCE_UNITS = ["days", "weeks", "months", "years"] as const;
-export type TimeSinceUnit = (typeof TIME_SINCE_UNITS)[number];
-
-/**
- * Time-since-until column — renders a relative interval against
- * the property's date value (e.g. "3 days ago"). The threshold +
- * unit drive a per-row "is this overdue?" decision, surfaced via
- * `displayLabel` when the threshold is exceeded; otherwise the
- * raw interval renders.
- */
-const timeSinceUntilColumnSchema = z.object({
-	kind: z.literal("time-since-until"),
-	field: z.string(),
-	header: z.string(),
-	threshold: z.number(),
-	unit: z.enum(TIME_SINCE_UNITS),
-	displayLabel: z.string(),
-});
-
-/**
  * Phone-number column — renders the property as a tappable phone
  * link in the running app. Plain text in static contexts.
  */
-const phoneColumnSchema = z.object({
+const phoneColumnSchema = columnBase.extend({
 	kind: z.literal("phone"),
 	field: z.string(),
 	header: z.string(),
@@ -111,14 +203,14 @@ const phoneColumnSchema = z.object({
 /**
  * ID-mapping column — renders a lookup table from property value
  * to display label (e.g. region code → human-readable region
- * name). The mapping table is authored explicitly; values not in
- * the table render as the raw property value.
+ * name). The mapping is authored explicitly; values not in the
+ * table render as the raw property value.
  */
 const idMappingEntrySchema = z.object({
 	value: z.string(),
 	label: z.string(),
 });
-const idMappingColumnSchema = z.object({
+const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
 	field: z.string(),
 	header: z.string(),
@@ -126,78 +218,131 @@ const idMappingColumnSchema = z.object({
 });
 
 /**
- * Late-flag column — surfaces a flag string when the date
- * property exceeds the threshold; otherwise renders empty. Used
- * for "overdue" / "follow-up needed" signals on the case list.
+ * Interval column — renders a relative interval against the
+ * property's date value. The `display` slot dispatches the cell
+ * shape:
+ *
+ *   - `"interval"` — always show the relative interval (e.g. "3
+ *     days ago"). `text` is the runtime label that decorates
+ *     "overdue" cells when the threshold is exceeded.
+ *   - `"flag"` — only show `text` when the threshold is exceeded;
+ *     otherwise the cell renders empty.
+ *
+ * The threshold + unit drive the per-row "is this overdue?"
+ * decision in both arms.
  */
-const lateFlagColumnSchema = z.object({
-	kind: z.literal("late-flag"),
+const intervalColumnSchema = columnBase.extend({
+	kind: z.literal("interval"),
 	field: z.string(),
 	header: z.string(),
 	threshold: z.number(),
 	unit: z.enum(TIME_SINCE_UNITS),
-	flagDisplayValue: z.string(),
+	display: z.enum(INTERVAL_DISPLAYS),
+	text: z.string(),
 });
 
 /**
- * Search-only column — declares a property as searchable but
- * NOT displayed. The validator rule `searchInputModeMatchesPropertyType`
- * uses these declarations to widen the indexable property set
- * without forcing a visible column.
+ * Calculated column — author-defined `ValueExpression` that yields
+ * a derived per-row value (e.g. "days since last visit",
+ * "concatenated full name"). Has no `field` slot — the expression
+ * is the source. The wire emitter lowers the expression into a
+ * Postgres expression / on-device XPath / CSQL fragment.
  *
- * `header` is retained for authoring-surface display (the
- * column-editor UI lists every column; "search-only" rows still
- * have a title) but is not emitted to the runtime case list.
+ * Calculated columns participate in column-level sort like every
+ * other column; the comparator type at wire emission is derived
+ * from the expression's resolved result type.
  */
-const searchOnlyColumnSchema = z.object({
-	kind: z.literal("search-only"),
-	field: z.string(),
+const calculatedColumnSchema = columnBase.extend({
+	kind: z.literal("calculated"),
 	header: z.string(),
+	expression: valueExpressionSchema,
 });
 
 export const columnSchema = z.discriminatedUnion("kind", [
 	plainColumnSchema,
 	dateColumnSchema,
-	timeSinceUntilColumnSchema,
 	phoneColumnSchema,
 	idMappingColumnSchema,
-	lateFlagColumnSchema,
-	searchOnlyColumnSchema,
+	intervalColumnSchema,
+	calculatedColumnSchema,
 ]);
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
-/** Single id-mapping entry — value-to-label pair surfaced by
- *  `idMappingColumn`'s lookup table. The pair is the canonical
- *  shape parsed by `idMappingEntrySchema`; constructing through
- *  this helper pins the key order and avoids ad-hoc literals
- *  drifting out of the schema. */
+/** Single id-mapping entry — value-to-label pair surfaced by the
+ *  id-mapping column's lookup table. Constructing through the
+ *  matching builder pins the key order and keeps ad-hoc literals
+ *  from drifting out of the schema. */
 export type IdMappingEntry = z.infer<typeof idMappingEntrySchema>;
 
 // ── Column builders ───────────────────────────────────────────────
 //
-// One thin builder per `ColumnKind` arm, each pinning the
-// discriminator and threading the per-arm structural fields onto
-// the constructed object. Mirrors the predicate-side pattern at
-// `lib/domain/predicate/builders.ts`: every per-arm precise type is
-// preserved on the return value, so callers narrowing on `kind`
-// after a builder call get the per-variant fields directly without
-// re-narrowing.
+// One thin builder per `ColumnKind` arm. Each takes `uuid: Uuid`
+// explicitly as the first arg so call sites pin identity before any
+// per-kind config — mirrors the explicit-uuid stance the field
+// schemas take (`{ uuid, id, ... }` on every Field arm).
 //
-// The builders are the single construction surface for Column AST
-// nodes — every Column-producing call site routes through these so
-// the bug class "ad-hoc literal drifts out of schema shape" is
-// structurally impossible at the editor's mutation paths.
+// Common optional slots (`sort`, `visibleInList`, `visibleInDetail`)
+// are passed via a `slots` object. Builders OMIT keys whose values
+// are undefined so the constructed shape round-trips through the
+// schema's strip-mode parse — equality assertions like
+// `expect(parsed).toEqual(input)` would otherwise fail on the
+// present-with-undefined keys.
+
+/**
+ * Optional surface-visibility + sort slots shared across every
+ * column-builder signature. The schema layer makes each slot
+ * optional; the builder convention is to OMIT keys whose values are
+ * undefined so round-trip equality stays clean.
+ */
+export interface ColumnCommonSlots {
+	readonly sort?: ColumnSort;
+	readonly visibleInList?: boolean;
+	readonly visibleInDetail?: boolean;
+}
+
+/**
+ * Spreads the common optional slots onto a column object only when
+ * present. Avoids leaking `key: undefined` shapes that would fail
+ * `toEqual` round-trip assertions. The internal write-target is
+ * typed as a mutable mirror of `ColumnCommonSlots` (the interface's
+ * `readonly` modifiers are part of the consumer-facing surface; the
+ * builder owns construction and writes through a mutable view
+ * before returning the readonly-typed result).
+ */
+type WritableColumnCommonSlots = {
+	sort?: ColumnSort;
+	visibleInList?: boolean;
+	visibleInDetail?: boolean;
+};
+
+function withCommonSlots<T extends Record<string, unknown>>(
+	base: T,
+	slots: ColumnCommonSlots,
+): T & ColumnCommonSlots {
+	const out: T & WritableColumnCommonSlots = { ...base };
+	if (slots.sort !== undefined) out.sort = slots.sort;
+	if (slots.visibleInList !== undefined)
+		out.visibleInList = slots.visibleInList;
+	if (slots.visibleInDetail !== undefined)
+		out.visibleInDetail = slots.visibleInDetail;
+	return out;
+}
 
 /**
  * Constructs a plain-text column. `field` references the case
  * property name; `header` is the column's display label.
  */
 export function plainColumn(
+	uuid: Uuid,
 	field: string,
 	header: string,
+	slots: ColumnCommonSlots = {},
 ): Extract<Column, { kind: "plain" }> {
-	return { kind: "plain", field, header };
+	return withCommonSlots(
+		{ uuid, kind: "plain" as const, field, header },
+		slots,
+	);
 }
 
 /**
@@ -205,46 +350,22 @@ export function plainColumn(
  * form date format string consumed by the runtime formatter (e.g.
  * `%Y-%m-%d` for ISO output, `%d-%b-%Y` for `27-Apr-2025`).
  *
- * Schema constraint: `pattern` must be non-empty. The schema layer
- * (`dateColumnSchema.pattern: z.string().min(1)`) enforces it at
- * parse — same shape as `formatDateSchema.pattern` on the
- * ValueExpression side. TypeScript can't structurally encode
- * "non-empty string" without a branded subtype + runtime guard at
- * every constructor; the schema is the structural defense, mirroring
- * `formatDate`'s parallel pattern. The editor's
- * `CustomDatePatternInput` primitive surfaces the rejection inline
- * before save.
+ * Schema constraint: `pattern` must be non-empty (the schema layer
+ * rejects empties at parse — same shape as `formatDateSchema.pattern`
+ * on the ValueExpression side). The editor's `CustomDatePatternInput`
+ * primitive surfaces the rejection inline before save.
  */
 export function dateColumn(
+	uuid: Uuid,
 	field: string,
 	header: string,
 	pattern: string,
+	slots: ColumnCommonSlots = {},
 ): Extract<Column, { kind: "date" }> {
-	return { kind: "date", field, header, pattern };
-}
-
-/**
- * Constructs a time-since-until interval column. `threshold` +
- * `unit` drive the per-row "is this overdue?" decision; the
- * `displayLabel` text surfaces when the threshold is exceeded.
- * Wire-emit binds `unit` to one of the `TIME_SINCE_UNITS` enum
- * values; passing a non-enum value is a compile-time error.
- */
-export function timeSinceUntilColumn(
-	field: string,
-	header: string,
-	threshold: number,
-	unit: TimeSinceUnit,
-	displayLabel: string,
-): Extract<Column, { kind: "time-since-until" }> {
-	return {
-		kind: "time-since-until",
-		field,
-		header,
-		threshold,
-		unit,
-		displayLabel,
-	};
+	return withCommonSlots(
+		{ uuid, kind: "date" as const, field, header, pattern },
+		slots,
+	);
 }
 
 /**
@@ -253,10 +374,15 @@ export function timeSinceUntilColumn(
  * contexts fall back to plain text.
  */
 export function phoneColumn(
+	uuid: Uuid,
 	field: string,
 	header: string,
+	slots: ColumnCommonSlots = {},
 ): Extract<Column, { kind: "phone" }> {
-	return { kind: "phone", field, header };
+	return withCommonSlots(
+		{ uuid, kind: "phone" as const, field, header },
+		slots,
+	);
 }
 
 /**
@@ -266,277 +392,106 @@ export function phoneColumn(
  * matches.
  */
 export function idMappingColumn(
+	uuid: Uuid,
 	field: string,
 	header: string,
 	mapping: readonly IdMappingEntry[],
+	slots: ColumnCommonSlots = {},
 ): Extract<Column, { kind: "id-mapping" }> {
-	return {
-		kind: "id-mapping",
-		field,
-		header,
-		mapping: [...mapping],
-	};
+	return withCommonSlots(
+		{ uuid, kind: "id-mapping" as const, field, header, mapping: [...mapping] },
+		slots,
+	);
 }
 
 /**
- * Constructs a single id-mapping entry. The thin builder mirrors
- * the column-level builder pattern — every IdMappingEntry-producing
- * call site routes through this helper so the bug class "ad-hoc
- * literal drifts out of schema shape" stays structurally
- * impossible. Adding a required field to `idMappingEntrySchema`
- * would surface here as a builder-signature change rather than a
- * silently-rotting raw literal.
+ * Constructs a single id-mapping entry. Mirrors the column-level
+ * builder pattern — every IdMappingEntry-producing call site routes
+ * through this helper so the bug class "ad-hoc literal drifts out of
+ * schema shape" stays structurally impossible.
  */
 export function idMappingEntry(value: string, label: string): IdMappingEntry {
 	return { value, label };
 }
 
 /**
- * Constructs a late-flag column. The runtime surfaces
- * `flagDisplayValue` when the date property exceeds `threshold ×
- * unit` from the current date; otherwise the cell renders empty.
+ * Constructs an interval column. `display` selects between the two
+ * cell shapes:
+ *
+ *   - `"interval"` — always show the relative interval; `text`
+ *     decorates the cell when the threshold is exceeded.
+ *   - `"flag"` — only show `text` when the threshold is exceeded;
+ *     otherwise empty cell.
+ *
+ * The threshold + unit drive the per-row "is this overdue?"
+ * decision in both arms. Wire-emit binds `unit` to a `TIME_SINCE_UNITS`
+ * value; passing a non-enum value is a compile-time error.
  */
-export function lateFlagColumn(
+export function intervalColumn(
+	uuid: Uuid,
 	field: string,
 	header: string,
 	threshold: number,
 	unit: TimeSinceUnit,
-	flagDisplayValue: string,
-): Extract<Column, { kind: "late-flag" }> {
-	return {
-		kind: "late-flag",
-		field,
-		header,
-		threshold,
-		unit,
-		flagDisplayValue,
-	};
+	display: IntervalDisplay,
+	text: string,
+	slots: ColumnCommonSlots = {},
+): Extract<Column, { kind: "interval" }> {
+	return withCommonSlots(
+		{
+			uuid,
+			kind: "interval" as const,
+			field,
+			header,
+			threshold,
+			unit,
+			display,
+			text,
+		},
+		slots,
+	);
 }
 
 /**
- * Constructs a search-only column — declares the property as
- * searchable without surfacing a visible cell on the case list.
- * `header` is preserved for the authoring-surface label even
- * though the wire layer skips emission for this kind.
- */
-export function searchOnlyColumn(
-	field: string,
-	header: string,
-): Extract<Column, { kind: "search-only" }> {
-	return { kind: "search-only", field, header };
-}
-
-// ── Sort + calculated columns ─────────────────────────────────────
-//
-// Sort keys reference either a property (typed via `data_type`)
-// or a calculated column (typed via the calculated column's
-// `expression`). The `SortType` enum picks the comparator the
-// runtime applies — `plain` is lexicographic, `date` parses ISO
-// strings, `integer`/`decimal` cast through numeric comparison.
-
-export const SORT_TYPES = ["plain", "date", "integer", "decimal"] as const;
-export type SortType = (typeof SORT_TYPES)[number];
-
-export const SORT_DIRECTIONS = ["asc", "desc"] as const;
-export type SortDirection = (typeof SORT_DIRECTIONS)[number];
-
-const sortConfigSchema = z.object({
-	type: z.enum(SORT_TYPES),
-	direction: z.enum(SORT_DIRECTIONS),
-});
-
-/**
- * Calculated column — author-defined ValueExpression that yields
- * a derived per-row value (e.g. "days since last visit",
- * "concatenated full name"). The optional `sort` slot lets the
- * runtime sort the case list by the computed value without
- * recomputing per row.
- *
- * `id` is a stable per-column identifier (referenced by sort
- * keys when sorting by a calculated column); `header` is the
- * column header text; `expression` is the AST the wire emitter
- * lowers into a Postgres expression / on-device XPath / CSQL
- * fragment.
- */
-export const calculatedColumnSchema = z.object({
-	id: z.string(),
-	header: z.string(),
-	expression: valueExpressionSchema,
-	sort: sortConfigSchema.optional(),
-});
-export type CalculatedColumn = z.infer<typeof calculatedColumnSchema>;
-/** Per-column sort config — surfaced from the `CalculatedColumn.sort`
- *  slot and the `SortKey`-side `(type, direction)` pair. Sourced from
- *  the schema so consumers narrowing on the field stay in lockstep
- *  with `sortConfigSchema`. */
-export type SortConfig = z.infer<typeof sortConfigSchema>;
-
-/**
- * Constructs a calculated column. The `id` slot is the stable
- * identifier sort keys reference (per the `SortKey.source.calculated`
- * arm) and the live-preview projection labels each computed value
- * by; the `header` slot is the case-list column heading. The
- * `expression` is the AST the wire / SQL emitters lower into a
- * derived per-row value. `sort` is the optional per-column sort
- * config — when present, the runtime can sort the case list by the
- * calculated value without recomputing per row.
- *
- * Routes the structural assembly through one builder so every site
- * that constructs a CalculatedColumn (case-list-config editor,
- * migration script, SA tools wiring, test helpers) carries the same
- * key-order and the same handling of the optional `sort` slot —
- * setting `sort: undefined` would round-trip as a present-with-
- * undefined key under Zod's default strip mode and break equality
- * assertions like `expect(parsed).toEqual(input)`. Builder omits
- * the key when no sort is supplied.
+ * Constructs a calculated column. The `expression` AST is the
+ * source — there is no `field` slot. The wire / SQL emitters lower
+ * the expression into a derived per-row value, and column-level
+ * sort uses the expression's resolved result type to pick a
+ * comparator at wire emission.
  */
 export function calculatedColumn(
-	id: string,
+	uuid: Uuid,
 	header: string,
-	expression: import("./predicate/types").ValueExpression,
-	sort?: SortConfig,
-): CalculatedColumn {
-	return sort === undefined
-		? { id, header, expression }
-		: { id, header, expression, sort };
-}
-
-const sortKeySourceSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("property"), property: z.string() }),
-	z.object({ kind: z.literal("calculated"), columnId: z.string() }),
-]);
-
-/**
- * Multi-key sort. Each key resolves a source (case property or a
- * calculated column id), a comparator type, and a direction. The
- * runtime applies keys in order — the first key is the primary
- * sort, each subsequent key is a tiebreaker.
- */
-export const sortKeySchema = z.object({
-	source: sortKeySourceSchema,
-	type: z.enum(SORT_TYPES),
-	direction: z.enum(SORT_DIRECTIONS),
-});
-export type SortKey = z.infer<typeof sortKeySchema>;
-export type SortKeySource = z.infer<typeof sortKeySourceSchema>;
-
-// ── SortKey builders ──────────────────────────────────────────────
-//
-// Thin builder per discriminated arm + the top-level `sortKey`
-// builder. Mirrors the per-arm column-builder pattern above: every
-// SortKey-producing call site routes through these so the
-// constructed shape always matches the schema. Adding a required
-// field to the source / sort key schema surfaces here as a
-// builder-signature change rather than a silently-rotting raw
-// literal at editor mutation paths.
-
-/**
- * Constructs a property-rooted sort source. The runtime reads the
- * referenced property's value per row and applies the comparator
- * the surrounding `SortKey.type` selects. The `property` slot is a
- * case-property name on the originating case type (no relation
- * walks at the sort layer — those resolve through a calculated
- * column whose expression encodes the walk).
- */
-export function propertySortSource(
-	property: string,
-): Extract<SortKeySource, { kind: "property" }> {
-	return { kind: "property", property };
-}
-
-/**
- * Constructs a calculated-column sort source. The `columnId`
- * references one of the case-list's `calculatedColumns[i].id`
- * entries; the runtime evaluates the matching expression per row
- * and applies the comparator the surrounding `SortKey.type`
- * selects.
- */
-export function calculatedSortSource(
-	columnId: string,
-): Extract<SortKeySource, { kind: "calculated" }> {
-	return { kind: "calculated", columnId };
-}
-
-/**
- * Constructs a single sort key. The runtime applies sort keys in
- * declaration order — the first key is the primary sort, each
- * subsequent key acts as a tiebreaker on the previous keys.
- */
-export function sortKey(
-	source: SortKeySource,
-	type: SortType,
-	direction: SortDirection,
-): SortKey {
-	return { source, type, direction };
-}
-
-/**
- * Compatibility table from a property's effective `data_type` to
- * the `SortType` set the comparator can meaningfully apply. The
- * editor's per-row type-picker filters on this set; the inline
- * type-mismatch error reads it to decide whether the current
- * `(source, type)` pair is structurally rejected.
- *
- * The matrix:
- *   - text / single_select / multi_select / geopoint → ["plain"].
- *     Only lexicographic comparison is meaningful — these values
- *     are stored as strings at the wire layer; numeric / temporal
- *     casts would silently coerce nonsense.
- *   - int → ["integer", "plain"]. Numeric comparison is the
- *     canonical sort; lexicographic stays available for the rare
- *     "stable display order" case.
- *   - decimal → ["decimal", "plain"]. Same shape as int; the
- *     numeric comparator promotes through the runtime's decimal
- *     arithmetic.
- *   - date / datetime / time → ["date", "plain"]. Calendar
- *     comparison is canonical; lexicographic on ISO strings is a
- *     valid fallback because ISO 8601 is order-preserving. `time`
- *     joins date/datetime here because it's temporally shaped —
- *     the on-device runtime parses it through the same calendar
- *     comparator the wire emitter binds for `date` / `datetime`.
- *
- * Calculated-column sources have no resolvable property type at
- * the source layer; the editor admits all four sort types for
- * them and trusts the user's pick.
- */
-export function applicableSortTypes(
-	dataType: CasePropertyDataType | undefined,
-): readonly SortType[] {
-	switch (dataType) {
-		case "int":
-			return ["integer", "plain"];
-		case "decimal":
-			return ["decimal", "plain"];
-		case "date":
-		case "datetime":
-		case "time":
-			return ["date", "plain"];
-		// `text` / `single_select` / `multi_select` / `geopoint` and
-		// the unresolved (`undefined`) case all collapse to plain.
-		// Permissive default: when the property isn't declared (or
-		// resolves to a non-numeric / non-temporal type), only
-		// lexicographic comparison is structurally sound.
-		default:
-			return ["plain"];
-	}
+	expression: ValueExpression,
+	slots: ColumnCommonSlots = {},
+): Extract<Column, { kind: "calculated" }> {
+	return withCommonSlots(
+		{ uuid, kind: "calculated" as const, header, expression },
+		slots,
+	);
 }
 
 // ── Search inputs ─────────────────────────────────────────────────
 //
-// Search input definitions. Each input declares an authoring-
-// surface widget (`type`), an optional case property the input
-// targets (`property`), an optional relation walk (`via`), an
-// explicit search mode (`mode`), an optional default value
-// (`default`), and an optional advanced predicate (`xpath`).
+// Search input declarations. The discriminated union splits two
+// authoring shapes:
+//
+//   - `simple` — `(property, mode, via)` triple. The wire layer
+//     builds the predicate from the targeted property's value, the
+//     mode (exact / fuzzy / range / etc.), and the optional
+//     relation walk. `property` is REQUIRED on this arm — there is
+//     no escape hatch for a property-less simple input.
+//   - `advanced` — free-form `predicate` (a `Predicate` AST). The
+//     wire layer emits the predicate verbatim; the editor surfaces
+//     a `PredicateCardEditor` in this arm.
+//
+// Common slots (`uuid`, `name`, `label`, `type`, `default?`) appear
+// on both arms.
 
 /**
- * Search-input authoring widget kinds. Exported so every consumer
- * that reasons about the closed set — the editor's type picker, the
- * SA tools' tool-schema enum, the validator's per-type / per-mode
- * applicability gate — shares one tuple rather than maintaining
- * parallel copies. Adding a kind cascades to all surfaces in one
- * edit, the same shape `TIME_SINCE_UNITS` / `SORT_TYPES` /
- * `MULTI_SELECT_QUANTIFIERS` use above.
+ * Search-input authoring widget kinds. Single source of truth for
+ * the editor's type picker, the SA tools' tool-schema enum, and the
+ * validator's per-type / per-mode applicability gate.
  */
 export const SEARCH_INPUT_TYPES = [
 	"text",
@@ -559,9 +514,8 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  *   - `fuzzy` — pg_trgm `%` similarity (text only).
  *   - `starts-with` — pg_trgm-backed prefix match (text only).
  *   - `phonetic` — fuzzystrmatch dmetaphone (text only).
- *   - `fuzzy-date` — date permutation match (text only — the
- *     property holds free-form date text, not a typed date).
- *   - `range` — between-with-bounds (numeric/date/datetime/time).
+ *   - `fuzzy-date` — date permutation match (text or temporal).
+ *   - `range` — between-with-bounds (numeric / date / datetime / time).
  *   - `multi-select-contains` — JSONB `@>` / `?` against a
  *     `multi_select` property; the quantifier picks `any` (∃)
  *     vs `all` (∀).
@@ -580,50 +534,60 @@ const searchInputModeSchema = z.discriminatedUnion("kind", [
 ]);
 export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 
-/**
- * Search input declaration.
- *
- *   - `name` — stable identifier the runtime binds the user input
- *     to; referenced from `xpath` / `default` AST nodes via the
- *     `input` term.
- *   - `label` — author-visible widget label.
- *   - `type` — authoring-surface widget kind.
- *   - `property` — case property the input targets. Absent for
- *     advanced inputs whose predicate is fully expressed via
- *     `xpath`.
- *   - `via` — optional relation walk; absent ≡ self (the
- *     module's case type). Drives the case-store's index-DDL
- *     emission against the destination case-type rather than
- *     the module's case type.
- *   - `mode` — explicit search mode; absent picks the per-`type`
- *     default at the wire-emission boundary (text → exact,
- *     date-range → range, etc.).
- *   - `default` — optional `ValueExpression` evaluated to seed
- *     the input's initial value (e.g. `today()` for date-typed
- *     defaults).
- *   - `xpath` — optional advanced `Predicate` that replaces the
- *     `(property, mode)`-derived predicate when present.
- */
-export const searchInputDefSchema = z.object({
+// Common slots present on every SearchInputDef arm. Shared via an
+// object so the discriminated arms below extend one base.
+const searchInputCommon = z.object({
+	uuid: uuidSchema,
 	name: z.string(),
 	label: z.string(),
 	type: z.enum(SEARCH_INPUT_TYPES),
-	property: z.string().optional(),
+	default: valueExpressionSchema.optional(),
+});
+
+/**
+ * Simple search input — the (property, mode, via) shape. The wire
+ * layer builds a predicate from the targeted property's value, the
+ * mode (defaulted at wire-emit when absent), and an optional
+ * relation walk to a destination case type.
+ *
+ * `property` is REQUIRED on this arm — a property-less input is the
+ * `advanced` arm by definition.
+ */
+const simpleSearchInputSchema = searchInputCommon.extend({
+	kind: z.literal("simple"),
+	property: z.string(),
 	via: relationPathSchema.optional(),
 	mode: searchInputModeSchema.optional(),
-	default: valueExpressionSchema.optional(),
-	xpath: predicateSchema.optional(),
 });
+
+/**
+ * Advanced search input — the `predicate` arm. The slot's body is a
+ * full `Predicate` AST that replaces the (property, mode)-derived
+ * predicate. The editor surfaces a `PredicateCardEditor` against
+ * this slot.
+ */
+const advancedSearchInputSchema = searchInputCommon.extend({
+	kind: z.literal("advanced"),
+	predicate: predicateSchema,
+});
+
+export const searchInputDefSchema = z.discriminatedUnion("kind", [
+	simpleSearchInputSchema,
+	advancedSearchInputSchema,
+]);
 export type SearchInputDef = z.infer<typeof searchInputDefSchema>;
+export type SimpleSearchInputDef = Extract<SearchInputDef, { kind: "simple" }>;
+export type AdvancedSearchInputDef = Extract<
+	SearchInputDef,
+	{ kind: "advanced" }
+>;
 
 // ── SearchInputMode builders ──────────────────────────────────────
 //
-// Thin per-arm constructors. Mirror the per-arm column / sort-key
+// Thin per-arm constructors. Mirror the per-arm column / sort
 // builder pattern: every SearchInputMode-producing call site routes
 // through one of these so the constructed shape stays in lockstep
-// with `searchInputModeSchema`. Adding a required field to a mode
-// arm surfaces here as a builder-signature change rather than a
-// silently-rotting raw literal at editor mutation paths.
+// with `searchInputModeSchema`.
 
 /** Equality match. Wire layer: `prop = value` for property modes;
  *  `prop = ''` for empty-input short-circuits. */
@@ -652,9 +616,8 @@ export function phoneticMode(): Extract<SearchInputMode, { kind: "phonetic" }> {
 	return { kind: "phonetic" };
 }
 
-/** Date-permutation match — text-only (the property holds free-form
- *  date text rather than a typed date column). Validator gates
- *  against text-shaped property data types. */
+/** Date-permutation match — text or temporal. Validator gates
+ *  against the per-mode property-type allow-list. */
 export function fuzzyDateMode(): Extract<
 	SearchInputMode,
 	{ kind: "fuzzy-date" }
@@ -677,91 +640,99 @@ export function multiSelectContainsMode(
 	return { kind: "multi-select-contains", quantifier };
 }
 
-// ── SearchInputDef builder ────────────────────────────────────────
+// ── SearchInputDef builders ───────────────────────────────────────
 //
-// Single construction surface for `SearchInputDef`. Mirrors the
-// pattern `calculatedColumn(...)` uses for its optional `sort` slot:
-// when the caller supplies an optional slot whose content is
-// absent-equivalent (an undefined value, or — for `via` — the
-// `selfPath()` shape that's structurally equivalent to "no walk"),
-// the builder OMITS the key entirely so the constructed shape
-// round-trips through `safeParse(...).toEqual(input)` against the
-// original-shaped persisted document.
+// Per-arm constructors. The two arms have distinct required slots —
+// `simple` carries `property`, `advanced` carries `predicate` — so
+// per-arm builders pin the discriminator and the per-arm required
+// shape. Optional slots are passed via a `slots` object; the
+// builders OMIT keys whose values are absent-equivalent so the
+// constructed shape round-trips through the schema's strip-mode
+// parse cleanly.
 //
-// This matters at the editor's `RelationPathBuilder` slot: the
-// builder defaults to `selfPath()` when the user doesn't author a
-// walk, but the schema treats `via: undefined` as the canonical
-// "self" shape (per the `searchInputDefSchema`'s "absent ≡ self"
-// contract on line 579-582). Without omission here, the editor
-// would author `via: { kind: "self" }` on every save and break
-// equality assertions.
+// `via` has an extra rule: `selfPath()` is the schema's canonical
+// "no walk" shape and `via: undefined` is structurally equivalent.
+// The builder treats both as omit so a saved doc that omitted the
+// slot round-trips equal to a freshly-built one.
 
-interface SearchInputDefOptionalSlots {
-	/** Optional case property the input targets. When absent, the
-	 *  input is "advanced" — every predicate is expressed via
-	 *  `xpath`. */
-	readonly property?: string;
+interface SimpleSearchInputSlots {
 	/** Optional relation walk to a destination case type. `selfPath()`
-	 *  is structurally equivalent to absent and the builder omits
-	 *  the key in that case to preserve schema-shape equality. */
+	 *  is structurally equivalent to absent and the builder omits the
+	 *  key in that case. */
 	readonly via?: RelationPath;
 	/** Optional explicit search mode. When absent, the wire layer
-	 *  picks the per-`type` default (text → exact, date-range →
-	 *  range, etc.). */
+	 *  picks the per-`type` default (text → exact, date-range → range,
+	 *  etc.). */
 	readonly mode?: SearchInputMode;
 	/** Optional default-value expression seeded into the input's
 	 *  initial state (e.g. `today()` for date-typed inputs). */
 	readonly default?: ValueExpression;
-	/** Optional advanced predicate that replaces the
-	 *  `(property, mode)`-derived predicate when present. */
-	readonly xpath?: Predicate;
+}
+
+interface AdvancedSearchInputSlots {
+	/** Optional default-value expression seeded into the input's
+	 *  initial state. */
+	readonly default?: ValueExpression;
 }
 
 /**
- * Constructs a `SearchInputDef`. Required slots (`name`, `label`,
- * `type`) are positional; every optional slot is supplied via the
- * `slots` object. The builder OMITS keys whose values are
- * absent-equivalent so the constructed shape round-trips through
- * the schema's strip-mode parse without an `undefined`-valued key
- * leaking past `expect(parsed).toEqual(input)` assertions:
+ * Constructs a simple search input. `property` is required (no
+ * escape hatch — a property-less input belongs on the `advanced`
+ * arm). The builder OMITS optional slots whose values are absent-
+ * equivalent so round-trip equality against persisted documents
+ * stays clean:
  *
  *   - `via === undefined` OR `via.kind === "self"` → omitted.
- *     `selfPath()` is the schema's canonical "no walk" shape and
- *     `via: undefined` is equivalent (per the schema's "absent ≡
- *     self" contract).
- *   - Every other optional whose value is `undefined` → omitted.
- *
- * Routes the structural assembly through one builder so every
- * `SearchInputDef`-producing call site (case-list-config editor,
- * SA tools wiring, validator test fixtures, migration scripts)
- * carries the same key-order and the same handling of optional
- * slots.
+ *   - `mode === undefined` → omitted.
+ *   - `default === undefined` → omitted.
  */
-export function searchInputDef(
+export function simpleSearchInputDef(
+	uuid: Uuid,
 	name: string,
 	label: string,
 	type: SearchInputType,
-	slots: SearchInputDefOptionalSlots = {},
-): SearchInputDef {
-	const out: SearchInputDef = { name, label, type };
-	// Property — omit when undefined (absent-equivalent at the schema
-	// layer). Empty-string is preserved verbatim as the user's
-	// "I haven't filled this in yet" state, which the editor surfaces
-	// distinctly from "I don't want a property at all" (the former
-	// shows the picker placeholder; the latter omits the slot).
-	if (slots.property !== undefined) out.property = slots.property;
-	// Via — omit when undefined OR `selfPath()`. The latter is the
-	// schema's canonical "no walk" shape; both shapes are
-	// semantically equivalent at the wire layer (see relationPath
-	// emission at `lib/commcare/predicate/...`). Treating both as
-	// "omit" keeps round-trip equality against persisted documents
-	// that omitted the slot.
+	property: string,
+	slots: SimpleSearchInputSlots = {},
+): SimpleSearchInputDef {
+	const out: SimpleSearchInputDef = {
+		uuid,
+		kind: "simple",
+		name,
+		label,
+		type,
+		property,
+	};
 	if (slots.via !== undefined && slots.via.kind !== "self") {
 		out.via = slots.via;
 	}
 	if (slots.mode !== undefined) out.mode = slots.mode;
 	if (slots.default !== undefined) out.default = slots.default;
-	if (slots.xpath !== undefined) out.xpath = slots.xpath;
+	return out;
+}
+
+/**
+ * Constructs an advanced search input. The `predicate` body
+ * replaces the simple-arm `(property, mode, via)` derivation; the
+ * wire layer emits the predicate verbatim. Optional `default`
+ * seeds the input's initial value.
+ */
+export function advancedSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	type: SearchInputType,
+	predicate: Predicate,
+	slots: AdvancedSearchInputSlots = {},
+): AdvancedSearchInputDef {
+	const out: AdvancedSearchInputDef = {
+		uuid,
+		kind: "advanced",
+		name,
+		label,
+		type,
+		predicate,
+	};
+	if (slots.default !== undefined) out.default = slots.default;
 	return out;
 }
 
@@ -772,19 +743,16 @@ export function searchInputDef(
 // the targeted property's `data_type` doesn't satisfy the picked
 // `(type, mode)` pair. Centralized here so the editor's mode
 // picker, the validator's per-input rule, and the SA tool surface
-// all read from one source of truth — two independent copies would
-// drift; one shared table keeps every surface aligned by
-// construction.
+// all read from one source of truth.
 
 /**
  * Modes admitted by each `SearchInputType`. The wire layer's
- * default-mode contract (per `searchInputDefSchema`'s `mode`
- * comment, lines 583-585) selects the first entry of each tuple
- * when the slot is absent: text → exact, select → exact,
- * date → exact, date-range → range, barcode → exact.
+ * default-mode contract selects the first entry of each tuple when
+ * the slot is absent: text → exact, select → exact, date → exact,
+ * date-range → range, barcode → exact.
  *
  * The order also drives the editor's picker — the first entry is
- * the default; subsequent entries surface as alternative modes the
+ * the default; subsequent entries surface as alternatives the
  * author can pick when their semantics fit.
  */
 export const APPLICABLE_SEARCH_MODES: Readonly<
@@ -807,16 +775,13 @@ export const APPLICABLE_SEARCH_MODES: Readonly<
 /**
  * The tuple of modes admitted for a given input `type`. Read by:
  *
- *   - The editor's per-row mode picker (filters the menu items the
- *     user sees).
+ *   - The editor's per-row mode picker (filters menu items).
  *   - The validator's per-input rule (rejects `(type, mode)` pairs
  *     not in this table at parse time).
  *
- * Never falls through to a fallback — every entry of
- * `SEARCH_INPUT_TYPES` has an explicit row in
- * `APPLICABLE_SEARCH_MODES` (the readonly mapping is keyed on the
- * full tuple, so adding a new type without adding its row is a
- * compile error).
+ * Never falls through — every `SEARCH_INPUT_TYPES` entry has an
+ * explicit row (the readonly mapping is keyed on the full tuple, so
+ * adding a new type without adding its row is a compile error).
  */
 export function applicableSearchModes(
 	type: SearchInputType,
@@ -836,8 +801,8 @@ export function applicableSearchModes(
  * regardless of declared type).
  *
  * Routes through `effectiveDataType(property)` at the call site so
- * un-annotated properties (no `data_type` declared) resolve to
- * `"text"`, matching the type-checker's fallback convention.
+ * un-annotated properties resolve to `"text"`, matching the type-
+ * checker's fallback convention.
  */
 export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
 	Record<SearchInputMode["kind"], readonly CasePropertyDataType[] | undefined>
@@ -850,10 +815,10 @@ export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
 	fuzzy: ["text", "single_select", "multi_select"],
 	"starts-with": ["text", "single_select", "multi_select"],
 	phonetic: ["text", "single_select", "multi_select"],
-	// `fuzzy-date` widens to text + temporal — the operator recovers
-	// from transposed date input against typed dates AND free-form
-	// date text. Mirrors the type-checker's `MATCH_PROPERTY_TYPES_FUZZY_DATE`
-	// allow-list at `lib/domain/predicate/typeChecker.ts:301-306`.
+	// `fuzzy-date` widens to text + temporal — recovers from
+	// transposed date input against typed dates AND free-form date
+	// text. Mirrors the type-checker's `MATCH_PROPERTY_TYPES_FUZZY_DATE`
+	// allow-list at `lib/domain/predicate/typeChecker.ts`.
 	"fuzzy-date": ["text", "single_select", "multi_select", "date", "datetime"],
 	// `range` requires totally-ordered types — numeric or temporal.
 	range: ["int", "decimal", "date", "datetime", "time"],
@@ -895,23 +860,20 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 
 // ── CaseListConfig ───────────────────────────────────────────────
 //
-// The structured case-list configuration. Replaces the legacy
-// `caseListColumns` / `caseDetailColumns` fields. A module
-// without a case list (survey-only modules) omits the slot
-// entirely; a module with a case list always carries every
-// sub-field, even if some lists are empty.
+// The structured case-list configuration. Three slots:
 //
-// `detailColumns` is optional: absent ≡ "long detail mirrors
-// the short detail's columns" (matches CommCare's default
-// behavior when no explicit long detail is authored).
+//   - `columns` — display + sort + calc + visibility, all here.
+//   - `filter?` — optional always-on predicate.
+//   - `searchInputs` — discriminated `simple` / `advanced` union.
+//
+// A module without a case list (survey-only modules) omits the slot
+// entirely; a module with a case list always carries every required
+// sub-field, even if `columns` / `searchInputs` are empty arrays.
 
 export const caseListConfigSchema = z.object({
 	columns: z.array(columnSchema),
-	sort: z.array(sortKeySchema),
 	filter: predicateSchema.optional(),
-	calculatedColumns: z.array(calculatedColumnSchema),
 	searchInputs: z.array(searchInputDefSchema),
-	detailColumns: z.array(columnSchema).optional(),
 });
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
