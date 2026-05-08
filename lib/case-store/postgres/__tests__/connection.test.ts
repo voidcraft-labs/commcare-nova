@@ -112,9 +112,6 @@ describe("readCaseStoreEnvConfig", () => {
 	});
 
 	it("references the runbook in the error message so an operator can re-run Phase 6", () => {
-		// The error's secondary purpose is operator orientation.
-		// Naming the runbook + Phase tells the on-call where to look
-		// without grep-the-codebase.
 		const env: Record<string, string> = {};
 		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
 			/2026-05-02-plan-2-task-0-cloud-sql-provisioning\.md/,

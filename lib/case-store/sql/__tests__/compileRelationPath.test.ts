@@ -21,12 +21,12 @@
 //   2. Multi-hop ancestor walks compose correctly — every step
 //      adds one `case_indices` lookup + one `cases` lookup.
 //   3. The `(app_id, owner_id)` tenant filter is structurally
-//      enforced on every joined `cases` row (not just the leaf).
-//      The tenancy invariant is the load-bearing claim Risk #1
-//      of the spec depends on — see `spec lines 561-562`.
-//   4. The `case_indices.depth = 1` filter runs on every join,
-//      making the SQL materialization-agnostic against the
-//      `case_indices` policy gate at `spec lines 540-548`.
+//      enforced on every joined `cases` row (not just the leaf) —
+//      the JOIN-side half of the structural-tenant-scoping contract
+//      that makes cross-tenant reads impossible.
+//   4. The `case_indices.depth = 1` filter runs on every join, so
+//      the emitted SQL stays correct regardless of whether
+//      `case_indices` materializes deeper edges or only direct ones.
 //   5. `RelationStep.ofCaseType` and `subcase.ofCaseType` /
 //      `any-relation.ofCaseType` filters narrow the joined
 //      `cases.case_type` column when present.

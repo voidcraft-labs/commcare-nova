@@ -1,9 +1,10 @@
 // lib/case-store/sample/generator.ts
 //
 // `SampleCaseGenerator` interface — the seam between
-// `CaseStore.generateSampleData` and the concrete generator. Spec
-// source: `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "Sample data — an action, not a mode".
+// `CaseStore.generateSampleData` and the concrete generator. Sample
+// data is an action, not a mode: a user toggles between authoring
+// and running modes against one shared row set; "Generate sample
+// data" / "Reset sample data" write or replace real rows in `cases`.
 //
 // `PostgresCaseStore` takes a `SampleCaseGenerator` at construction
 // so tests can pass alternative implementations. `withOwnerContext`

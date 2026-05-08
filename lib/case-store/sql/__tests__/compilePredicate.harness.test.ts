@@ -16,7 +16,7 @@
 //   - PostGIS `ST_DWithin` returning the correct geographic
 //     distance result against `ST_MakePoint(lon, lat)::geography`.
 //   - The Postgres-strict null semantic — four distinct cases
-//     pinned per `feedback_postgres_strict_ast_null_semantics.md`.
+//     pinned (absent / null / empty string / non-empty value).
 //
 // ## Why a separate file from the cold compile-only suite
 //
@@ -353,9 +353,9 @@ describe("compilePredicate — round-trip — comparison operators", () => {
 // Postgres-strict null semantics — four distinct cases
 // ---------------------------------------------------------------
 //
-// The lock-in `feedback_postgres_strict_ast_null_semantics.md`
-// states the AST distinguishes absent / empty / null at the data-
-// model layer. Round-trip tests pin all four:
+// The AST distinguishes absent / empty / null at the data-model
+// layer; this compiler emits the strict SQL, and round-trip tests
+// pin all four cases:
 //
 //   1. is-null(prop) matches absent only.
 //   2. is-blank(prop) matches absent OR empty-string.
@@ -965,18 +965,18 @@ describe("compilePredicate — round-trip — match", () => {
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
 
-	test("fuzzy with a search-input ref drives the match value at runtime (Plan 4 use case)", async ({
+	test("fuzzy with a search-input ref drives the match value at runtime", async ({
 		db,
 		pgClient,
 	}) => {
 		// The widened `match.value: ValueExpression` (per the schema
 		// at types.ts § matchSchema) lets a search-input ref drive
-		// the match value at runtime. Plan 4's search-input modes
+		// the match value at runtime. The search-input modes
 		// (fuzzy / phonetic / starts-with) bind the field worker's
 		// typed value into the predicate context's `searchInputs`
-		// map; the foundation's compileTerm resolves the input ref
-		// to its bound value, and the match dispatch consumes the
-		// resolved value just as it would a literal.
+		// map; `compileTerm` resolves the input ref to its bound
+		// value, and the match dispatch consumes the resolved value
+		// just as it would a literal.
 		await pgClient.query(`SET LOCAL pg_trgm.similarity_threshold = 0.3`);
 		await db
 			.insertInto("cases")

@@ -38,7 +38,7 @@
 // (`dateLiteral` / `datetimeLiteral` / `timeLiteral`) used by the
 // free-text decode path. The editor never hand-rolls a Literal
 // shape; the predicate package owns the construction primitive
-// (per `lib/domain/predicate/CLAUDE.md`).
+// so reductions and Zod-validated invariants apply uniformly.
 
 import {
 	dateLiteral,

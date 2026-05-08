@@ -181,9 +181,10 @@ export class FormEngine {
 
 		// Bump `repeatCount` on the repeat's own state — this is what
 		// `useEngineState` subscribers observe to re-render with the new
-		// cardinality. See `lib/preview/CLAUDE.md` § Repeat-count
-		// reactivity for the path-routing constraint that makes this the
-		// only viable signal.
+		// cardinality. New `[N]/...` child writes don't reach the
+		// runtime store because `pathToUuid` only registers the `[0]`
+		// template path; the parent's `repeatCount` is the only signal
+		// per-field subscribers can observe to drive a re-render.
 		const repeatState = this.store.getState()[repeatPath];
 		if (repeatState) {
 			updates[repeatPath] = { ...repeatState, repeatCount: newIndex + 1 };

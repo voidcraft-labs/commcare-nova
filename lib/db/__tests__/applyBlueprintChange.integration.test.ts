@@ -388,14 +388,12 @@ describe("applyBlueprintChange — retype mutations", () => {
 		expect(quarantined.rows).toHaveLength(1);
 	});
 
-	// Plan 3 line 129: "retype mutation runs schema sync + migration
-	// in one transaction (verified by simulating a mid-migration
-	// failure and confirming the schema row is not present after
-	// rollback)." This test is the saga-level proof of that
-	// guarantee — the sibling store-level proof
+	// Saga-level proof that a retype mutation's schema sync +
+	// migration runs atomically: a mid-migration failure leaves no
+	// schema row behind. The sibling store-level proof
 	// (`PostgresCaseStore — applySchemaChange index DDL > Phase A
-	// rolls back atomically on per-row migration failure`) covers the
-	// store on its own; this one covers the saga's wrapper so a
+	// rolls back atomically on per-row migration failure`) covers
+	// the store on its own; this one covers the saga's wrapper so a
 	// regression in either layer's failure routing surfaces here.
 	it("rolls back the schema row + suppresses the Firestore commit when the retype migration fails mid-Phase-A", async () => {
 		// Bootstrap: seed `case_type_schemas[appId, "patient"]` with

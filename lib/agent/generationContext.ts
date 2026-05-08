@@ -27,8 +27,8 @@
  *
  * Sub-generation prompts/outputs (from `generate`, `generatePlainText`,
  * `streamGenerate`) are intentionally NOT persisted in the event log — only
- * aggregate token usage. Per spec §5 the log is supplemental and does not
- * carry per-tool payloads. Admin inspection surfaces should rely on per-run
+ * aggregate token usage. The log is supplemental and does not carry
+ * per-tool payloads. Admin inspection surfaces should rely on per-run
  * summary docs and on agent-step-granularity conversation events.
  *
  * The context owns nothing stateful beyond a monotonic `seq` counter used to
@@ -506,7 +506,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * agent steps (handled by `handleAgentStep`) produce "steps" in the
 	 * run-summary sense.
 	 *
-	 * Per spec §5 the event log does not carry per-tool usage; if sub-gen
+	 * The event log does not carry per-tool usage; if sub-gen
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */

@@ -21,13 +21,14 @@
 //      reads as one tree without per-level hacks.
 //
 // Every mutation flows through the typed builders in
-// `lib/domain/predicate/builders.ts`. Builders apply the boolean-
-// algebra reductions (per `lib/domain/predicate/CLAUDE.md` §
-// "Reduction module") so the saved AST is always in canonical
-// reduced form. Cards may therefore disappear mid-edit when their
-// clause list collapses to one — the parent's onChange replaces
-// the group with the unwrapped clause and the next render shows
-// just the inner card.
+// `lib/domain/predicate/builders.ts`. Builders apply boolean-algebra
+// reductions on every `and(...)` / `or(...)` / `not(...)` call
+// (`and([])` → `match-all`, `and([single])` → single, `not(not(x))`
+// → x, etc.) so the saved AST is always in canonical reduced form.
+// Cards may therefore disappear mid-edit when their clause list
+// collapses to one — the parent's onChange replaces the group with
+// the unwrapped clause and the next render shows just the inner
+// card.
 
 "use client";
 import { useMemo } from "react";

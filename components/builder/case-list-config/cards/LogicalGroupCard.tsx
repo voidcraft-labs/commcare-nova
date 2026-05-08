@@ -3,9 +3,8 @@
 // Renders the logical operators `and` / `or` (multi-clause) and
 // `not` (single-clause). Composing through this card is how
 // authors stack predicates; drag-and-drop reorders clauses inside
-// an and/or group via Atlassian's pragmatic-drag-and-drop (the
-// same library the form-list reorder UI uses, per
-// `components/builder/CLAUDE.md` § "Drag-and-drop").
+// an and/or group via Atlassian's pragmatic-drag-and-drop, the
+// same library the form-list reorder UI uses.
 //
 // Construction routes through the builders so reductions apply on
 // every onChange — `and([single])` collapses to `single`, and

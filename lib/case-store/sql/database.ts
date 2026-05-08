@@ -1,18 +1,16 @@
 // lib/case-store/sql/database.ts
 //
-// The Kysely `Database` type. The DDL the types mirror is at
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
-// lines 249-284 (four base tables + indexes) and lines 309-340
-// (the quarantine policy). Any schema change updates both
-// surfaces in lockstep.
+// The Kysely `Database` type. The DDL the types mirror lives at
+// `lib/case-store/schema.sql` (the desired-state source atlas reads
+// to autogenerate forward-only migrations). Any schema change
+// updates `schema.sql`, this file, and the migration set in lockstep.
 //
 // ## Multi-tenancy
 //
 // Tenant isolation is the column pair `(app_id, owner_id)`. No
 // row-level security, no per-tenant schema, no per-tenant
 // database. The application funnels access through a `CaseStore`
-// instance bound to the request's owner id (spec § "CaseStore",
-// line 389).
+// instance bound to the request's owner id.
 //
 // ## JSONB column types do NOT narrow per case type
 //

@@ -12,9 +12,10 @@
 // placeholder formatting are dialect-emitter details that aren't
 // the contract this test guards. The contract this test guards is:
 //
-//   1. Every column named in the spec's DDL (lines 253-284 of
-//      `docs/superpowers/specs/2026-04-30-case-list-search-design.md`)
-//      is reachable from a typed Kysely query.
+//   1. Every column on the four base tables (`cases`, `case_indices`,
+//      `case_type_schemas`, `cases_quarantine`) declared in
+//      `lib/case-store/schema.sql` is reachable from a typed Kysely
+//      query.
 //   2. The Postgres dialect adapter compiles those queries into
 //      well-formed SQL with parameters captured as a positional
 //      array — the same shape every Term/Predicate/Expression
@@ -26,10 +27,10 @@
 // A type-level assertion on column types (the `Selectable<...>` /
 // `Insertable<...>` shapes) is also pinned per table — this is
 // what catches a typo in `database.ts` that would otherwise show
-// up only when the C-phase compilers integrate.
+// up only when the compilers integrate.
 //
-// CCHQ schema citation source: spec lines 249-284 (the SQL DDL
-// block) is the authority on column names, types, and nullability.
+// `lib/case-store/schema.sql` is the authority on column names,
+// types, and nullability; this file's type contract mirrors it.
 
 import {
 	type CompiledQuery,
@@ -326,16 +327,15 @@ describe("Database.case_indices", () => {
 	});
 
 	it("constrains relationship to 'child' | 'extension'", () => {
-		// Type-level assertion: the spec hard-codes the two values
-		// (line 278). Anything else must be a TypeScript error.
-		// The narrowed literal-union type catches a stray
-		// "ancestor" / "host" string slipping in via app code.
-		// The valid-arm half is exercised at runtime; the
-		// invalid-arm half is exercised at typecheck time via the
-		// expect-error directive on the line below — its contract
-		// is "if this line stops failing typecheck, tsc errors out
-		// on an unused directive," which is the actual signal we
-		// want.
+		// Type-level assertion: only the two literal values are
+		// valid. Anything else must be a TypeScript error. The
+		// narrowed literal-union type catches a stray "ancestor"
+		// / "host" string slipping in via app code. The valid-arm
+		// half is exercised at runtime; the invalid-arm half is
+		// exercised at typecheck time via the expect-error directive
+		// on the line below — its contract is "if this line stops
+		// failing typecheck, tsc errors out on an unused directive,"
+		// which is the actual signal we want.
 		type Row = Selectable<CaseIndicesTable>;
 		const child: Row["relationship"] = "child";
 		const extension: Row["relationship"] = "extension";

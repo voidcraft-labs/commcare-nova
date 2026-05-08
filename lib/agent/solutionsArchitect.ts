@@ -342,9 +342,9 @@ export function createSolutionsArchitect(
 		 *      `case_type_schemas` rows + per-property expression
 		 *      indexes for every case type the SA just generated. The
 		 *      chat-side intermediate save (`saveBlueprint`) is
-		 *      fire-and-forget by design (`lib/agent/CLAUDE.md`
-		 *      documents the SA fix-retry discipline), so the case-
-		 *      store schema never materialized during streaming.
+		 *      fire-and-forget by design (the SA fix-retry loop runs
+		 *      against an in-memory doc), so the case-store schema
+		 *      never materialized during streaming.
 		 *   2. `data-done` SSE emit — UX signal carrying the full doc +
 		 *      HQ JSON; the client's stream dispatcher stamps
 		 *      `runCompletedAt` on this event, which drives the
@@ -398,14 +398,13 @@ export function createSolutionsArchitect(
 						const persistable = toPersistableDoc(doc);
 						/* Materialize the case-store schema rows + indexes
 						 * BEFORE the celebration emit. The chat-side
-						 * intermediate save was fire-and-forget per
-						 * `lib/agent/CLAUDE.md`, so `case_type_schemas`
-						 * carries no row for the SA's freshly-generated
-						 * case types until this call lands. Awaited so
-						 * any user-initiated case-store action that
-						 * follows the celebration (sample-data populate,
-						 * form submit, live preview) sees a synced
-						 * schema. A Postgres failure here is
+						 * intermediate save was fire-and-forget, so
+						 * `case_type_schemas` carries no row for the SA's
+						 * freshly-generated case types until this call
+						 * lands. Awaited so any user-initiated case-store
+						 * action that follows the celebration (sample-data
+						 * populate, form submit, live preview) sees a
+						 * synced schema. A Postgres failure here is
 						 * unrecoverable from the SA's perspective — route
 						 * through the same classified-error path the
 						 * chat route uses for stream errors so the SA

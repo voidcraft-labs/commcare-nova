@@ -2,12 +2,12 @@
  * Schema-compilation contract for the case-list-config SA tools.
  *
  * The Anthropic structured-output compiler imposes a hard ceiling of 8
- * `.optional()` fields per per-arm shape (per root CLAUDE.md "Structured
- * output constraint"). Each tool's `inputSchema` carries a typed AST
- * shape lifted from `lib/domain/predicate` + `lib/domain/modules`; this
- * test ensures the compilation survives the Zod 4 → JSON Schema bridge
- * AND stays inside the per-arm ceiling on the column / search-input
- * discriminated unions.
+ * `.optional()` fields per per-arm shape — verified hard limit on
+ * opus-4-7. Each tool's `inputSchema` carries a typed AST shape lifted
+ * from `lib/domain/predicate` + `lib/domain/modules`; this test ensures
+ * the compilation survives the Zod 4 → JSON Schema bridge AND stays
+ * inside the per-arm ceiling on the column / search-input discriminated
+ * unions.
  *
  * Three checks per tool:
  *

@@ -14,12 +14,11 @@
 //
 // Empty-state contract: this is the AUTHORING surface — the
 // preview does NOT expose the "Generate sample data" affordance
-// (that lives at the running-app view's `CaseListScreen` per the
-// no-preview-mode foundation lock at
-// `feedback_no_preview_mode.md`). When no cases exist, the preview
-// shows an instructional empty state pointing the author at the
-// running-app view; populating sample data there reflects here on
-// the next reload.
+// (that lives at the running-app view's `CaseListScreen`; sample
+// data is an action that writes real rows, not a preview-mode
+// shape). When no cases exist, the preview shows an instructional
+// empty state pointing the author at the running-app view;
+// populating sample data there reflects here on the next reload.
 //
 // Visibility filter: only columns where `visibleInList ?? true`
 // render in the preview's table — the schema's "absent slot ≡

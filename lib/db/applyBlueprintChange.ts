@@ -18,8 +18,7 @@
  * idempotent because `applySchemaChange` re-derives the schema +
  * index DDL from its input snapshot.
  *
- * ## Saga shape (per the design spec's "Cross-store coordination"
- * section)
+ * ## Saga shape
  *
  *   1. Compute the prospective new blueprint state in memory.
  *   2. Diff prior vs. prospective via `classifyCaseTypeChanges`.

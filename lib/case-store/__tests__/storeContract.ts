@@ -9,15 +9,15 @@
 // ## Why a harness, not a per-implementation test file
 //
 // `PostgresCaseStore` is the only implementation today, but the
-// `CaseStore` interface is the seam Plans 3 / 4 / 5 bind against.
-// Every method-level contract this harness exercises (predicate-
-// filtered reads, JSONB merge on update, relation-path traversal,
-// schema-sync atomicity, tenant isolation) is part of the
-// architectural contract — Plan 1's compilers, the `(app_id,
-// owner_id)` tenant model, the JSONB validator. A future
-// implementation that diverges from this contract is a regression,
-// not a feature; the harness pins the contract independently from
-// any one implementation's source.
+// `CaseStore` interface is the architectural seam every consumer
+// of case data binds against. Every method-level contract this
+// harness exercises (predicate-filtered reads, JSONB merge on
+// update, relation-path traversal, schema-sync atomicity, tenant
+// isolation) is part of the architectural contract — the
+// AST→Kysely compilers, the `(app_id, owner_id)` tenant model,
+// the JSONB validator. A future implementation that diverges from
+// this contract is a regression, not a feature; the harness pins
+// the contract independently from any one implementation's source.
 //
 // ## What the caller wires
 //
@@ -1144,8 +1144,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		it("dropSchema removes the case_type_schemas row and indexes after applySchemaChange seeded them", async () => {
 			// Seed via `applySchemaChange`: materializes the schema
 			// row + the trgm GIN index for the `text`-typed `name`
-			// property (per `lib/case-store/CLAUDE.md` § Per-data-type
-			// index coverage).
+			// property (text properties get a `gin_trgm_ops` partial
+			// expression index for `match` / `compare` coverage).
 			const store = await options.factory(OWNER_A);
 			await seedSchema(store, buildBlueprint([PATIENT_CASE_TYPE]), "patient");
 

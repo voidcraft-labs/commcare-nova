@@ -4,10 +4,13 @@
 // discrimination so API routes and Server Actions can map them to
 // typed result arms; every other throw across `lib/case-store/**`
 // is an internal-invariant violation that reuses the helpers from
-// `lib/domain/predicate/errors.ts`. See `lib/case-store/CLAUDE.md`
-// § "Typed error contract" for the API-route catch-and-translate
-// pattern and the equivalence-class rationale on the not-found
-// shape.
+// `lib/domain/predicate/errors.ts`.
+//
+// `CaseNotFoundError` collapses three causes into one shape (row
+// never created, row removed out of band, row outside the bound
+// owner's tenant). The message acknowledges the equivalence rather
+// than confirming the case is in another tenant — keeps tenant
+// boundaries structural rather than message-leaked.
 //
 // Voice mirrors the `compilerBugMessage` shape: third-person
 // impersonal header, indented diagnostic body, narrative paragraph,

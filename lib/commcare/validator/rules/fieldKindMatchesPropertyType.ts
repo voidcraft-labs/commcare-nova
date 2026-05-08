@@ -9,8 +9,9 @@
  * target `(patient, age)` are individually structurally valid but
  * collectively inconsistent. The runner aggregates writers across
  * every form in the app, partitions them by their `(case_type,
- * property_name)` tuple, and emits errors per writer (per the spec's
- * "one error per writer" contract).
+ * property_name)` tuple, and emits one error per writer so each
+ * authoring surface highlights the specific field it owns rather
+ * than emitting a single composite error against an arbitrary writer.
  *
  * **The kind→data_type mapping table is locked here.** Adding a new
  * field kind whose semantic data type isn't already covered cascades

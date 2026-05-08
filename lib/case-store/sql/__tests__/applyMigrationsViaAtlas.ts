@@ -1,9 +1,11 @@
 // lib/case-store/sql/__tests__/applyMigrationsViaAtlas.ts
 //
 // Shared atlas shell-out for `globalSetup.ts` (shared database)
-// and per-test databases (`setupPerTestDatabase`). The
-// `--allow-dirty` rationale lives in `lib/case-store/CLAUDE.md`
-// § Production: Cloud Run startup CMD.
+// and per-test databases (`setupPerTestDatabase`). `--allow-dirty`
+// suppresses Atlas's empty-database precondition check; the
+// testcontainer image has the postgis-managed `tiger` and
+// `topology` schemas pre-installed before atlas runs, so the
+// "database is non-empty" warning is expected and benign.
 
 import { spawnSync } from "node:child_process";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";

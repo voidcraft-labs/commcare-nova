@@ -1299,10 +1299,9 @@ describe("sentinel predicates", () => {
 // Postgres-strict family-wide; CCHQ's wire collapse (where `prop = ''`
 // matches absent / cleared / empty alike) is a per-dialect emitter
 // concern + representability checker error, not an AST design
-// constraint. The full table (per-dialect representability) lives in
-// the design spec at "Null vs blank semantics" under the Predicate
-// family code block — `is-null` is unrepresentable on every CCHQ wire
-// target, while the parallel `is-blank` operator is portable.
+// constraint. The dialects diverge on representability — `is-null`
+// is unrepresentable on every CCHQ wire target, while the parallel
+// `is-blank` operator is portable.
 //
 // The `left` slot is `termSchema`, not `propertyRefSchema`, so authors
 // can ask "is the input X absent" or "is the user's region absent"
@@ -1395,9 +1394,7 @@ describe("is-null predicate", () => {
 // emits a clean form. The schema is parallel-shaped to `isNullSchema`:
 // same `left: termSchema`, same admission of every Term variant
 // (including the meaningless literal shape, rejected by the type
-// checker), same operand-validation handoff. See the design spec
-// "Null vs blank semantics" subsection under the Predicate family
-// for the full per-dialect representability table.
+// checker), same operand-validation handoff.
 describe("is-blank predicate", () => {
 	it("parses is-blank with a property reference", () => {
 		const result = predicateSchema.parse({
@@ -2056,10 +2053,11 @@ describe("valueExpression schema — conditional + aggregation arms", () => {
 	});
 
 	it("parses if nested inside if (self-recursion through then / else)", () => {
-		// Mirrors the spec example sort calculation
-		// `if(risk = 'Very Risky', 1, if(risk = 'Risky', 2, ...))` —
-		// nested-if compose into the spec's "structured switch-card UI"
-		// affordance per the design doc's Expression-family section.
+		// Risk-bucket sort calculation shape:
+		// `if(risk = 'Very Risky', 1, if(risk = 'Risky', 2, ...))`.
+		// Nested-if composes through the schema's recursive then /
+		// else slots — both branches are `ValueExpression`, so an
+		// inner `if` lives inside its own `else`.
 		const result = valueExpressionSchema.parse({
 			kind: "if",
 			cond: { kind: "match-all" },

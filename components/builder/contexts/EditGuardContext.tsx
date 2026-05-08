@@ -122,8 +122,9 @@ export function useRegisterEditGuard(
  * `true` means "safe to proceed", `false` means "block".
  *
  * Used by routing hooks (`useSelect`) to gate URL-driven selection
- * changes — the spec line: "useSelect hook consults
- * EditGuardContext.canLeave() before calling router.replace."
+ * changes — selection only changes when the guard says it's safe
+ * to leave the current edit, so an XPath editor with unsaved
+ * invalid content can intercept the navigation.
  */
 export function useConsultEditGuard(): () => boolean {
 	const { consult } = useEditGuardApi();

@@ -931,8 +931,9 @@ describe("checkPredicate — sentinel predicates", () => {
 //      the predicate is identically false at every wire target. The
 //      schema admits this shape because bounds may be Term refs whose
 //      values aren't known at parse time; the checker is the right
-//      place to catch the literal-pair case (per the spec's "Range
-//      predicate" subsection).
+//      place to catch the literal-pair case — it has the type context
+//      to recognise a typed-literal pair, which the schema layer does
+//      not.
 describe("checkPredicate — between operator rules", () => {
 	it("accepts between on an int property with int bounds", () => {
 		// Canonical positive case: `age` is int, both bounds are int

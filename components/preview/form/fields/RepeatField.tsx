@@ -114,10 +114,13 @@ export function RepeatField({
 
 	const hasChildren = useHasFieldsInForm(field.uuid);
 
-	// Reactive count — see `lib/preview/CLAUDE.md` § Repeat-count
-	// reactivity for why this can't read `controller.getRepeatCount`.
-	// `?? 1` covers the brief `DEFAULT_RUNTIME_STATE` window before the
-	// engine's first sync to the runtime store.
+	// Reactive count — read from `state.repeatCount` (via
+	// `useEngineState`), not `controller.getRepeatCount(uuid)`.
+	// The latter is a non-reactive method call; `addRepeat` /
+	// `removeRepeat` bump `repeatCount` on the repeat's own
+	// `FieldState` to give subscribers the re-render signal.
+	// `?? 1` covers the brief `DEFAULT_RUNTIME_STATE` window before
+	// the engine's first sync to the runtime store.
 	const count = state.repeatCount ?? 1;
 
 	const onToggle = useCallback(() => {

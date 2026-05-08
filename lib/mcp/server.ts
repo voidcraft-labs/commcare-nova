@@ -92,10 +92,10 @@ import type { ToolContext } from "./types";
  * already in flight.
  *
  * **Wire-name convention**: snake_case is standard across MCP tools
- * (matches the SDK's built-in naming and the design spec's "Tools
- * exposed" section). The TypeScript export name stays camelCase so
- * JavaScript idiom is preserved on both sides of the boundary without
- * either side bleeding into the other.
+ * (matches the MCP SDK's built-in naming convention). The TypeScript
+ * export name stays camelCase so JavaScript idiom is preserved on
+ * both sides of the boundary without either side bleeding into the
+ * other.
  *
  * **`askQuestions` is intentionally absent.** The chat-side SA uses it
  * to emit mid-run clarifying questions through the UI's question panel;

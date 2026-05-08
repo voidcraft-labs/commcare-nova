@@ -158,10 +158,10 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 		});
 	}, [handleConfigChange, config, firstProperty]);
 
-	// Status-line text. Direct calls — no `useMemo` on simple counts
-	// per the spec's status-line precision rule. Strings prop-compare
-	// by value; the section header re-renders when the text changes,
-	// not when the parent re-renders.
+	// Status-line text. Direct calls — no `useMemo` on simple counts.
+	// Strings prop-compare by value; the section header re-renders
+	// when the text changes, not when the parent re-renders, so
+	// memoization would only displace the cost without removing it.
 	const displayStatus = buildDisplayStatus({
 		columnCount,
 		sortedColumnCount,

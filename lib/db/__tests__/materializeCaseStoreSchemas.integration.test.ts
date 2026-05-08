@@ -181,10 +181,10 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 
 		// Per-property expression indexes landed. The text-typed
 		// `name` property materializes `cases_patient_name_fuzzy`
-		// (trgm GIN per the per-data-type table in
-		// `lib/case-store/CLAUDE.md`); the text-typed `notes`
-		// property on `visit` materializes its own
-		// `cases_visit_notes_fuzzy`. Index names follow the
+		// (text properties get a `gin_trgm_ops` partial GIN
+		// expression index for `match` / `compare` coverage); the
+		// text-typed `notes` property on `visit` materializes its
+		// own `cases_visit_notes_fuzzy`. Index names follow the
 		// `cases_<case_type>_<property>_<mode>` convention enforced
 		// by the case-store; one assertion per case type proves
 		// every iteration of the helper's loop ran the Phase B

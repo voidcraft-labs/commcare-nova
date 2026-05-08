@@ -427,11 +427,12 @@ function createAuth() {
 			 * once per install). Other endpoints stay on plugin defaults.
 			 */
 			oauthProvider({
-				/* Nova's sign-in surface is the root route — `/` renders the
-				 * landing page with the Google OAuth button when no session
-				 * exists (see CLAUDE.md's "no redirects" root-route design).
-				 * There is no `/sign-in` page, so pointing the plugin there
-				 * would 404 first-touch unauthenticated OAuth-flow users. */
+				/* Nova's sign-in surface is the root route — `/` branches
+				 * between landing / get-started / app list with no
+				 * redirects, rendering the Google OAuth button when no
+				 * session exists. There is no `/sign-in` page, so pointing
+				 * the plugin there would 404 first-touch unauthenticated
+				 * OAuth-flow users. */
 				loginPage: "/",
 				consentPage: "/consent",
 				validAudiences: [MCP_RESOURCE_URL],

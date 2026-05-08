@@ -18,8 +18,9 @@
  *
  * Both hooks consolidate the "read a module's case list config"
  * pattern into named domain hooks, so consumers don't import the
- * raw `useBlueprintDocShallow` (which is lib-private per the
- * boundary rule documented in `lib/doc/CLAUDE.md`).
+ * raw `useBlueprintDocShallow` directly — that selector-accepting
+ * hook is package-private (Biome `noRestrictedImports` enforces),
+ * so every component reaches the doc through a named domain hook.
  *
  * The shallow comparator short-circuits when none of the
  * primitives change reference. `firstSortedColumn` and `config`

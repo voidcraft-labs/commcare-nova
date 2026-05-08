@@ -39,11 +39,12 @@
 // after the database handle is provisioned.
 //
 // The split mirrors the production split between Cloud SQL
-// provisioning (Phase 5 of the runbook installs extensions under
-// `postgres` superuser) and migration application (Cloud Run
-// startup CMD under the IAM-auth runtime SA). In tests, the
-// helper plays the role of the superuser provisioning; the atlas
-// shell-out plays the role of the Cloud Run startup migration.
+// provisioning (extensions installed at provisioning time under
+// `cloudsqlsuperuser`) and migration application (Cloud Run
+// startup CMD applies atlas migrations under the IAM-auth runtime
+// SA). In tests, the helper plays the role of the superuser
+// provisioning; the atlas shell-out plays the role of the Cloud
+// Run startup migration.
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";

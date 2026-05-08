@@ -110,9 +110,13 @@ export interface TermCompileContext {
 	anchorAlias: string;
 	/**
 	 * Relation-walk nesting depth. Forwarded to `compileRelationPath`
-	 * so leaf subqueries pick unique aliases (`rp_leaf_<depth>`)
-	 * that don't shadow outer-scope leaves — see
-	 * `lib/case-store/sql/CLAUDE.md` § "depth-thread".
+	 * so leaf subqueries pick unique aliases (`rp_leaf_<depth>`) that
+	 * don't shadow outer-scope leaves. Counter starts at 0 at the
+	 * outermost compile site and increments on every recursion into
+	 * a relation-walk leaf's inner predicate; without it, an inner
+	 * subquery's `rp_leaf` alias shadows the outer leaf and the
+	 * correlation predicate collapses into self-equality on the
+	 * inner row.
 	 */
 	relationPathDepth?: number;
 	/**

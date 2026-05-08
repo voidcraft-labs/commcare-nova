@@ -26,8 +26,7 @@
 // anchor"; the swap pins that intent. The depth counter increments
 // so a nested `compileRelationPath` invocation picks a unique
 // leaf alias (`rp_leaf` → `rp_leaf_<N>`) and inner correlation
-// references resolve unambiguously against the outer leaf — see
-// `lib/case-store/sql/CLAUDE.md` § "depth-thread".
+// references resolve unambiguously against the outer leaf.
 //
 // `via.kind === "self"` collapses to a no-op: `exists(self,
 // where)` → `where`; `exists(self)` → `lit(true)`;

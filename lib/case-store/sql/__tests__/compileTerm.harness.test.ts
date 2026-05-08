@@ -32,9 +32,9 @@
 //      joined-table read returns the ancestor's value.
 //   4. Postgres-strict null semantics — insert a row with the
 //      property absent, query with `eq(prop("X"), literal(""))`,
-//      verify it does NOT match (because absent ≠ empty-string at
-//      the Postgres layer per the lock-in
-//      `feedback_postgres_strict_ast_null_semantics`).
+//      verify it does NOT match (absent ≠ empty-string at the
+//      Postgres layer; the AST distinguishes absent / null /
+//      empty and this compiler emits the strict SQL).
 
 import { sql } from "kysely";
 import { describe } from "vitest";
@@ -551,16 +551,14 @@ describe("compileTerm — round-trip — Postgres-strict null semantics", () => 
 	test("absent JSONB key does NOT equal an empty-string literal", async ({
 		db,
 	}) => {
-		// The Postgres-strict null semantic locked in
-		// `feedback_postgres_strict_ast_null_semantics.md`: the
-		// distinction between "key absent" and "key present with
-		// empty string" lives in the AST and at the data-model
-		// layer. `properties->>'X'` returns SQL `NULL` when the
-		// key is absent; `NULL = ''` evaluates to `NULL` (not
-		// true) under SQL three-valued logic, so the row is NOT
-		// matched by the predicate. This is the foundational
-		// distinction the `is-null` operator at the predicate
-		// layer relies on.
+		// Postgres-strict null semantics: the distinction between
+		// "key absent" and "key present with empty string" lives in
+		// the AST and at the data-model layer. `properties->>'X'`
+		// returns SQL `NULL` when the key is absent; `NULL = ''`
+		// evaluates to `NULL` (not true) under SQL three-valued
+		// logic, so the row is NOT matched by the predicate. This
+		// is the foundational distinction the `is-null` operator
+		// at the predicate layer relies on.
 		await db
 			.insertInto("cases")
 			.values(

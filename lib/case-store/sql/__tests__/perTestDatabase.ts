@@ -132,8 +132,9 @@ function urlForDatabase(baseUri: string, databaseName: string): string {
 
 /**
  * `CREATE DATABASE <prefix><rand>` against the superuser
- * connection from globalSetup, then install the three extensions
- * (mirroring runbook §Phase 5).
+ * connection from globalSetup, then install the three required
+ * extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`) the case-store
+ * compiler stack depends on.
  */
 async function createIsolatedDatabase(
 	databaseNamePrefix: string,

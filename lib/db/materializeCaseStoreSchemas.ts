@@ -5,13 +5,12 @@
  * ## What this closes
  *
  * The SA's chat-side `saveBlueprint` writes Firestore fire-and-
- * forget on every mutation (intentionally — `lib/agent/CLAUDE.md`
- * documents the SA fix-retry discipline that covers missed
- * intermediate saves; SSE latency must not block on Firestore).
- * That fire-and-forget path never calls `applySchemaChange`, so
- * `case_type_schemas` carries no row for any case type the SA
- * just generated. Until the user's first awaited write
- * (auto-save PUT or MCP tool call) routes through
+ * forget on every mutation (intentionally — the SA's fix-retry
+ * loop covers missed intermediate saves and SSE latency must not
+ * block on Firestore). That fire-and-forget path never calls
+ * `applySchemaChange`, so `case_type_schemas` carries no row for
+ * any case type the SA just generated. Until the user's first
+ * awaited write (auto-save PUT or MCP tool call) routes through
  * `applyBlueprintChange` and lands the schema sync, every
  * case-store insert path fires `SchemaNotSyncedError`:
  *

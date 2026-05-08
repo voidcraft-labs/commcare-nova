@@ -38,13 +38,12 @@
 // for the rationale); `is-null` / `is-blank` accept any non-literal
 // Term in `left` and reject literal-shaped `left` as a category
 // error (a literal is the value itself, not a runtime read whose
-// presence is in question — see `checkAbsenceOperator` for the
-// rationale and the spec subsection "Null vs blank semantics" under
-// the Predicate family); `between` requires `left` and any provided
-// bounds to resolve to one of the ordered types and detects literal-
-// pair `lower > upper` impossibility (see `checkBetween`); `exists` /
-// `missing` walk `via` to a destination case type and recursively
-// type-check `where` (if present) in that destination scope, with
+// presence is in question — see `checkAbsenceOperator`); `between`
+// requires `left` and any provided bounds to resolve to one of the
+// ordered types and detects literal-pair `lower > upper`
+// impossibility (see `checkBetween`); `exists` / `missing` walk
+// `via` to a destination case type and recursively type-check
+// `where` (if present) in that destination scope, with
 // `prop.caseType` inside the where-clause pinned to the destination
 // scope (see `checkRelationalQuantifier` and `checkRelationPath`).
 // Logical wrappers (`and` / `or` / `not`) and the wrapped clause of
@@ -119,8 +118,9 @@ export type SearchInputDecl = {
  * on `currentCaseType !== undefined` — when absent, every property
  * reference resolves on its own qualifier with no destination-scope
  * constraint applied. When present, the constraint enforces the
- * destination-scope contract the spec locks at the `where`-clause
- * boundary.
+ * destination-scope contract: a property reference inside a `where`
+ * clause must resolve against the surrounding `via`'s destination
+ * scope, not the originating case type.
  */
 export type TypeContext = {
 	caseTypes: CaseType[];
@@ -442,9 +442,7 @@ function walk(
 			// / in-memory distinguishes the strict semantic; CCHQ wire
 			// collapses the two states), which is irrelevant to type-
 			// checking — the operand-shape question is identical at
-			// this layer. Spec subsection: "Null vs blank semantics"
-			// under the Predicate family in
-			// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
+			// this layer.
 			checkAbsenceOperator(p, ctx, errors, path);
 			return;
 		case "between":
@@ -457,10 +455,7 @@ function walk(
 			// type-check the optional `where` clause in that destination
 			// scope. The two operators diverge only at per-dialect wire
 			// emission (`missing` is sugar for `not(exists(...))`), which
-			// is irrelevant to type-checking. Spec subsection: "Relation
-			// paths" and the `exists`/`missing` arms of the Predicate
-			// family in
-			// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
+			// is irrelevant to type-checking.
 			checkRelationalQuantifier(p, ctx, errors, path);
 			return;
 		default: {
@@ -908,9 +903,7 @@ function checkMultiSelectContains(
  * server-side `case_property_query()` short-circuit collapsing empty-
  * value queries to absent-or-empty semantics in CSQL); the type-
  * checker treats them identically because the operand-shape question
- * is the same. Spec subsection: "Null vs blank semantics" under the
- * Predicate family in
- * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
+ * is the same.
  */
 function checkAbsenceOperator(
 	p: Extract<Predicate, { kind: "is-null" | "is-blank" }>,
@@ -968,10 +961,8 @@ function checkAbsenceOperator(
  *      for the literal-pair check because it has the type context to
  *      recognise a typed-literal pair.
  *
- * Spec subsection: "Range predicate" under the Predicate family in
- * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`. CCHQ
- * has no dedicated `between` function — it compiles to `>= AND <=` at
- * every wire target — so no per-dialect citation belongs here.
+ * CCHQ has no dedicated `between` function — it compiles to `>= AND <=`
+ * at every wire target — so no per-dialect citation belongs here.
  */
 function checkBetween(
 	p: Extract<Predicate, { kind: "between" }>,
@@ -1129,10 +1120,9 @@ function unwrapLiteralOperand(
  *     directional-agnosticism is meaningful only when the underlying
  *     schema carries both directions, which is foundation work for a
  *     future `CaseType` extension. The kind exists in the AST today
- *     because the persisted-shape contract has to settle now (per the
- *     spec's "RelationPath" subsection); the representability checker
- *     rejects it for CCHQ wire targets where direction-specific
- *     operators are the only choice.
+ *     because the persisted-shape contract has to settle now; the
+ *     representability checker rejects it for CCHQ wire targets
+ *     where direction-specific operators are the only choice.
  *
  * **Principled narrowing — identifier→relationship matching:** the
  * current `CaseType` schema doesn't carry named relationships (no
@@ -1373,10 +1363,7 @@ export function checkInDestinationScope(
  *      threads the kind segment so a where-clause violation surfaces
  *      with `[..., "exists" | "missing", "where", ...]`.
  *
- * Spec subsection: "Relation paths" and the `exists` / `missing` arms
- * of the Predicate family in
- * `docs/superpowers/specs/2026-04-30-case-list-search-design.md`. CCHQ
- * source citations live on `checkRelationPath`'s JSDoc and on the
+ * CCHQ source citations live on `checkRelationPath`'s JSDoc and on the
  * relation-path schemas in `types.ts`.
  */
 function checkRelationalQuantifier(
@@ -1598,9 +1585,7 @@ export function resolveTermType(
 // `TypeContext`, resolves the expression's output type, and pushes any
 // per-arm or recursive errors onto the `errors` array.
 //
-// Per-arm rules (per the design spec
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "Expression family"):
+// Per-arm rules:
 //
 //   - `term` — delegates to `resolveTermType` for the lifted Term.
 //   - `today` → `date`; `now` → `datetime` (wire-form constants).

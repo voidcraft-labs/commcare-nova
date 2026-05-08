@@ -881,9 +881,6 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * reference, and (structurally only) literal. Whether a checker
  * rejects the literal shape is a type-checker concern; the builder
  * + schema accept it uniformly across every Term variant.
- *
- * Spec subsection: "Null vs blank semantics" under the Predicate
- * family in `docs/superpowers/specs/2026-04-30-case-list-search-design.md`.
  */
 export function isNull(
 	left: Term | ValueExpression,

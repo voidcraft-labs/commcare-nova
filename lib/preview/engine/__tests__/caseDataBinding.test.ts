@@ -1768,10 +1768,9 @@ describe("readFilterPreview", () => {
 	});
 
 	it("narrows to the predicate-matching subset and reports the matching totalCount", async () => {
-		// Pins the spec § "editing the filter updates the result
-		// count and visible rows" obligation at the helper level —
-		// applying a predicate must affect BOTH the row sample and
-		// the totalCount, identically.
+		// Editing the filter must update BOTH the row sample and
+		// the totalCount, identically — applying a predicate
+		// affects both surfaces or neither.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");

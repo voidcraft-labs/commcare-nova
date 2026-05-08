@@ -15,9 +15,10 @@
  * pull `htmlparser2` / `dom-serializer` / `domhandler` / `domutils`
  * (top-level imports in that file) into every barrel consumer —
  * `RESERVED_CASE_PROPERTIES`, `expandHashtags`, etc. would each drag
- * the DOM-parser graph through `formActions` into client bundles. The
- * sub-path-only rule for `xform`/`expander` (per `./CLAUDE.md`) is
- * what keeps Turbopack able to tree-shake the heavy paths out.
+ * the DOM-parser graph through `formActions` into client bundles.
+ * The Node-only modules (`./xform`, `./expander`) and the heavy
+ * emission pipeline are therefore reached by sub-path only, so
+ * Turbopack tree-shakes them out of client bundles.
  */
 
 import type { ConnectConfig } from "@/lib/domain";

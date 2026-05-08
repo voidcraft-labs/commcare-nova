@@ -36,10 +36,12 @@ export type XFormDataType =
  * branching on it. Adding a kind = adding one entry to `fieldRegistry`.
  *
  * `icon` carries imported IconifyIcon data (the object literal shape
- * `{ body, width?, height?, ... }`), not an iconify ID string. This matches
- * the project's synchronous-icon convention (see CLAUDE.md) so
- * `<Icon icon={meta.icon} />` renders on first paint without a network fetch
- * or an empty-span hydration frame.
+ * `{ body, width?, height?, ... }`), not an iconify ID string. Synchronous
+ * icon data lets `<Icon icon={meta.icon} />` render on first paint without
+ * a network fetch or an empty-span hydration frame — the default
+ * `@iconify/react` export hydrates via effects and renders an empty span
+ * for 1-3 frames, which we explicitly avoid by routing every icon import
+ * through `@iconify/react/offline`.
  *
  * `label` is the human-readable name for the kind — used in field-type
  * pickers, conversion menus, and tooltips. Kept on the registry so UI

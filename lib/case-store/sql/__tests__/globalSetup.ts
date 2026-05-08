@@ -30,13 +30,15 @@
 //
 // ## Schema seeding
 //
-// Extensions install via the container's superuser (mirroring
-// what `postgres` does in production runbook §Phase 5 — atlas
-// runs as the IAM runtime SA which lacks superuser).
+// Extensions install via the container's superuser. `CREATE EXTENSION`
+// requires `cloudsqlsuperuser` on production, and atlas runs as the
+// IAM runtime SA which lacks superuser; the harness mirrors the
+// production split (extensions installed at provisioning under a
+// superuser; schema migrations applied under the runtime SA via atlas).
 // `applyMigrationsViaAtlas` shells out to atlas to apply
-// `lib/case-store/migrations/`, the same directory production
-// runs at Cloud Run startup. No harness-only schema shape that
-// could mask a migration bug.
+// `lib/case-store/migrations/`, the same directory production runs at
+// Cloud Run startup. No harness-only schema shape that could mask a
+// migration bug.
 
 import {
 	PostgreSqlContainer,
@@ -88,9 +90,8 @@ export async function setup(project: TestProject): Promise<void> {
 	runningContainer = container;
 	const connectionString = container.getConnectionUri();
 
-	// The container's default postgres user is a superuser
-	// (mirroring runbook §Phase 5's briefly-opened postgres role),
-	// so `CREATE EXTENSION` succeeds without IAM auth.
+	// The container's default postgres user is a superuser, so
+	// `CREATE EXTENSION` succeeds without IAM auth.
 	const extClient = new Client({ connectionString });
 	await extClient.connect();
 	try {

@@ -14,8 +14,8 @@
 // `node:crypto` id generators) or a heavy pipeline surface (the
 // BlueprintDoc → HqApplication expander, XForm emitter, validator,
 // xpath engine, encryption, HQ HTTP client) is imported directly from
-// its sub-path so Turbopack can tree-shake it out of the client
-// bundle. See CLAUDE.md for the exact sub-path conventions.
+// its sub-path (`@/lib/commcare/expander`, `@/lib/commcare/xform`,
+// etc.) so Turbopack can tree-shake it out of the client bundle.
 
 export * from "./constants";
 export * from "./deriveCaseConfig";

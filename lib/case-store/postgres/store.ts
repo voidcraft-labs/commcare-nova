@@ -3,17 +3,33 @@
 // `PostgresCaseStore` — the only implementation of the `CaseStore`
 // interface. Wraps the `Kysely<Database>` instance, threading the
 // AST→Kysely predicate / expression / relation-path compilers into
-// the live runtime. Spec source:
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "CaseStore — Cloud SQL Postgres from day-1" (lines 350-389) and
-// "Schema migration policy" (lines 309-340).
+// the live runtime.
 //
-// See `lib/case-store/CLAUDE.md` for the architectural contract:
-// structural tenant scoping, the API-trust-boundary validation
-// model, the two-phase shape of `applySchemaChange` (Phase A schema
-// sync + per-row migration in one transaction; Phase B
-// `CREATE INDEX CONCURRENTLY` afterward), and the
-// `SnapshotAny`-vs-`CONCURRENTLY` rationale that forces the split.
+// Architectural contract:
+//
+//   - **Structural tenant scoping.** Every method internally adds
+//     `WHERE owner_id = <bound userId>` to the underlying query;
+//     the JOIN-side filter on every joined `cases` row inside
+//     relation walks lives at the compiler stack
+//     (`compileRelationPath`). Cross-tenant reads are
+//     structurally impossible.
+//   - **API-trust-boundary validation.** Writes validate the
+//     candidate `properties` payload against the case-type's JSON
+//     Schema (the row in `case_type_schemas`) via `ajv` BEFORE the
+//     write reaches Postgres. The schema row is fetched on demand
+//     and the compiled validator is cached per
+//     `(appId, caseType, schemaContent)`. There is no in-database
+//     trigger and no `pg_jsonschema` dependency.
+//   - **`applySchemaChange` is two phases.** Phase A is one Kysely
+//     transaction: UPSERT `case_type_schemas` + run the optional
+//     per-row migration (`rename` / `retype` / `narrow-options`).
+//     Phase B runs after Phase A commits and emits the per-property
+//     expression-index `CREATE INDEX CONCURRENTLY` /
+//     `DROP INDEX CONCURRENTLY` diff. Phase B cannot share Phase A's
+//     transaction — non-CONCURRENTLY index builds heap-scan with
+//     `SnapshotAny` semantics that include the dead tuples a retype's
+//     quarantine inserts + deletes left in the same transaction;
+//     CONCURRENTLY index builds reject any outer transaction.
 //
 // Identifier validation runs synchronously at the top of
 // `applySchemaChange` before Phase A opens. A throw leaves
@@ -356,8 +372,8 @@ export class PostgresCaseStore implements CaseStore {
 		// builder declares the column as string and the caller
 		// `Number(...)` coerces. Tenant filter on the outer scan;
 		// `compileRelationPath` handles JOIN-side cases independently
-		// per the `lib/case-store/CLAUDE.md` § "Tenant scoping"
-		// contract.
+		// — the structural tenant-scoping contract splits the two
+		// halves to make cross-tenant reads structurally impossible.
 		let qb = this.db
 			.selectFrom("cases as c")
 			.select((eb) => eb.fn.countAll<string>().as("total"))
@@ -413,11 +429,10 @@ export class PostgresCaseStore implements CaseStore {
 				.executeTakeFirstOrThrow();
 			const caseId = inserted.case_id;
 
-			// Direct-edge derivation per spec § "case_indices
-			// materialization policy" Option B (lines 290-295):
-			// depth=1 edges only; recursive walks compose at read
-			// time. `relationship` defaults to `child` — the subcase
-			// vs extension distinction is a CCHQ concern resolved at
+			// Direct-edge derivation: depth=1 edges only; recursive
+			// walks compose at read time via `compileRelationPath`.
+			// `relationship` defaults to `child` — the subcase vs
+			// extension distinction is a CCHQ concern resolved at
 			// the relation-path compile site, not at write.
 			if (
 				args.row.parent_case_id !== null &&
@@ -1121,7 +1136,10 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Dispatch to the per-row migration matching the `change` shape.
-	 * Spec § "Schema migration policy" (lines 309-340).
+	 * Three arms: `rename(from, to)`, `retype(fromType, toType)`, and
+	 * `narrow-options(removedOptions)`. Cast / option-set failures
+	 * move to `cases_quarantine` with the original value + failure
+	 * reason.
 	 */
 	private async runPerRowMigration(
 		trx: Transaction<Database>,
@@ -1484,9 +1502,10 @@ export class PostgresCaseStore implements CaseStore {
 	 * the JSON-stringified content changes.
 	 *
 	 * Throws `SchemaNotSyncedError` when no schema row exists; the
-	 * blueprint mutator must run `applySchemaChange` first per spec
-	 * § "Write-time validation". `executor` shares the transaction
-	 * (see `validateProperties` for the deadlock rationale).
+	 * blueprint mutator must run `applySchemaChange` first so the
+	 * row is materialized before any write reaches this validator.
+	 * `executor` shares the transaction (see `validateProperties`
+	 * for the deadlock rationale).
 	 */
 	private async getValidator(
 		appId: string,
@@ -1534,9 +1553,8 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Re-derive the parent edge in `case_indices` after an UPDATE
-	 * that changed `parent_case_id`. Spec § "case_indices
-	 * materialization policy" Option B (lines 290-295): direct edges
-	 * only.
+	 * that changed `parent_case_id`. Direct edges only — recursive
+	 * walks compose at read time via `compileRelationPath`.
 	 *
 	 * The DELETE is broad — every `'parent'` edge for the case —
 	 * so leftover edges from any prior shape don't accumulate. The
@@ -1622,9 +1640,9 @@ function parseJsonbInput(value: unknown): Record<string, unknown> {
 type CastResult = { ok: true; value: unknown } | { ok: false; reason: string };
 
 /**
- * Try to cast a stored value to the new property data type per
- * spec § "Schema migration policy". Failure cases surface a
- * descriptive `reason` that flows into `cases_quarantine.quarantine_reason`.
+ * Try to cast a stored value to the new property data type during
+ * a `retype` per-row migration. Failure cases surface a descriptive
+ * `reason` that flows into `cases_quarantine.quarantine_reason`.
  * Exhaustive over `CasePropertyDataType`.
  */
 function tryCastValue(

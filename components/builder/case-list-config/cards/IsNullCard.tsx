@@ -5,9 +5,10 @@
 // ref, search-input ref, session ref); this card narrows authoring
 // to property refs as the dominant case-list authoring shape.
 //
-// `is-null` is the strict-absent operator (key not present).
-// Distinct from `is-blank` per the spec's locked invariant — see
-// `lib/domain/predicate/CLAUDE.md` for the full rationale.
+// `is-null` is the strict-absent operator (key not present in the
+// JSONB document). `is-blank` is the wider absent-or-empty operator
+// authoring surfaces default to; the two are distinct kinds in the
+// AST so persisted predicates carry the strict semantic explicitly.
 
 "use client";
 import { isNull, type Predicate, prop } from "@/lib/domain/predicate";

@@ -3,11 +3,13 @@
 // The `CaseStore` interface and its row / arg / result types — the
 // type contracts the implementation (`./postgres/store.ts`) and the
 // factory (`./withOwnerContext.ts`) both depend on. This module
-// imports from neither. Spec source:
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md` §
-// "CaseStore — Cloud SQL Postgres from day-1". See
-// `lib/case-store/CLAUDE.md` for the architectural contract
-// (one interface / one implementation, structural tenant scoping).
+// imports from neither.
+//
+// Architectural contract: one interface, one implementation, with
+// structural tenant scoping enforced by the `withOwnerContext`
+// factory binding the request's owner id at construction time so
+// every method's underlying query inherits the
+// `WHERE owner_id = <bound userId>` filter automatically.
 //
 // Methods take their narrow dependency directly: predicate / sort /
 // calculated-column compilation needs the case-type schema map; the
@@ -118,8 +120,8 @@ export interface SortKey {
  * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMNS`.
  *
  * `calculated` projections evaluate inline at the SQL layer keyed
- * by the column's `uuid`; `lib/case-store/CLAUDE.md` § "Sample-data"
- * documents the single-evaluator stance the project locks in.
+ * by the column's `uuid`. The Postgres compiler is the single
+ * evaluator — no parallel JS evaluator, no parity tests.
  *
  * Empty / absent `calculated` produces an empty `calculated: {}`
  * map per row. Postgres has no per-row value-budget on SELECT
@@ -342,9 +344,8 @@ export interface CaseStore {
 	 * values into `row.calculated[uuid]`. Postgres is the live
 	 * runtime; calculated-column evaluation happens in the same
 	 * SELECT as the row scan rather than post-processing in
-	 * TypeScript. A future second evaluator would create a parity-
-	 * tracking burden the project explicitly rules out at
-	 * `feedback_max_subset_no_dimagi_litter.md`.
+	 * TypeScript. A second evaluator would create a parity-tracking
+	 * burden the project rules out — Postgres is the only evaluator.
 	 *
 	 * Empty / absent `calculated` produces an empty `calculated: {}`
 	 * map per row. The single result shape lets consumers read
@@ -440,8 +441,21 @@ export interface CaseStore {
 	/**
 	 * Sync the case-type's JSON Schema with the supplied prospective
 	 * `caseTypeSchemas` map, optionally running a per-row migration.
-	 * See `lib/case-store/CLAUDE.md` § "`applySchemaChange` runs in
-	 * two phases" for the atomic-then-convergent shape.
+	 *
+	 * Two-phase shape — Phase A is one Kysely transaction that
+	 * UPSERTs `case_type_schemas` and runs the optional per-row
+	 * migration (`rename` / `retype` / `narrow-options`); Phase B
+	 * runs after Phase A commits and emits the per-property
+	 * expression-index `CREATE INDEX CONCURRENTLY` /
+	 * `DROP INDEX CONCURRENTLY` diff. Phase B cannot share the
+	 * Phase A transaction because non-CONCURRENTLY index builds
+	 * scan dead tuples produced by per-row quarantine inserts +
+	 * deletes earlier in the same transaction, and CONCURRENTLY
+	 * index builds reject any outer transaction.
+	 *
+	 * Phase B failure leaves the next call's diff to converge —
+	 * INVALID indexes flow through both `drops` and `creates` so a
+	 * retry rebuilds them from scratch. Recovery is idempotent.
 	 */
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
 
@@ -463,9 +477,8 @@ export interface CaseStore {
 	 * Mirrors `applySchemaChange`'s two-phase shape: the schema-
 	 * row DELETE runs in Phase A; the index drops run in Phase B
 	 * via `DROP INDEX CONCURRENTLY IF EXISTS` so the index drops
-	 * cannot run inside an outer transaction (per Postgres's
-	 * `CREATE/DROP INDEX CONCURRENTLY` semantics — see
-	 * `lib/case-store/CLAUDE.md` § "Why two phases").
+	 * cannot run inside an outer transaction (Postgres rejects
+	 * CONCURRENTLY index DDL inside a transaction).
 	 */
 	dropSchema(args: { appId: string; caseType: string }): Promise<void>;
 

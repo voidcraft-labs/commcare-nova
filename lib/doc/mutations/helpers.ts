@@ -125,8 +125,11 @@ export function walkFormFieldUuids(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
  * Deduplicate a field id against its siblings. If `desired` conflicts
  * with any existing sibling id, append `_2`, `_3`, ... until unique.
  *
- * CommCare requires unique field ids within each parent level — see
- * the "Sibling IDs must be unique" note in the root CLAUDE.md.
+ * CommCare requires unique field ids within each parent level
+ * (cousins can share). This helper enforces that invariant on cross-
+ * level moves and on rename; the auto-suffix pairs with an XPath
+ * rewrite at the call site so references to the renamed field point
+ * at the new id.
  */
 export function dedupeSiblingId(
 	draft: Draft<BlueprintDoc>,

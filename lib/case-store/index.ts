@@ -4,8 +4,7 @@
 // import from `@/lib/case-store`; the implementation
 // (`PostgresCaseStore`), connection layer, sample-data generator
 // surface, and testcontainers harness stay package-private (reach
-// via subpath in tests). See `lib/case-store/CLAUDE.md` for the
-// full surface description.
+// via subpath in tests).
 //
 // Targeted re-exports (not `export *`) so consumer-facing surface
 // stays narrow. `export type` is used for type-only re-exports so

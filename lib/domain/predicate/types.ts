@@ -19,9 +19,7 @@
 // 25 years — every new capability there became another function added
 // to the same untyped expression language. By forcing every authored
 // predicate / expression through this typed AST, that pattern is
-// structurally prevented here. (See the design spec at
-// docs/superpowers/specs/2026-04-30-case-list-search-design.md
-// "Design properties — the quality bar" for the full rationale.)
+// structurally prevented here.
 //
 // Why one package, not two: predicates ARE expressions that resolve
 // to boolean — they are the boolean-typed arm of the broader
@@ -591,9 +589,7 @@ export type Term = z.infer<typeof termSchema>;
 // independently of the type checker (which adds the
 // type-compatibility layer).
 //
-// **The 14 arms (per the design spec at
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "Expression family"):**
+// **The 14 arms:**
 //
 //   - `term` — structural lifter for any `Term`. Lets a property /
 //     input / session ref / literal flow through any value slot.
@@ -1423,10 +1419,7 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // `lib/domain/predicate/typeChecker.ts`) rejects literal-shaped
 // `left` for both operators with a parallel rule shape — the type
 // checker is the right layer for the constraint because it has the
-// term-discriminator context to surface a semantic-class error. See
-// the design spec subsection "Null vs blank semantics" under the
-// Predicate family for the full per-dialect representability table
-// and the authoring-surface scoping rationale.
+// term-discriminator context to surface a semantic-class error.
 
 // `left` is `ValueExpression` (not bare `Term`) so expression-shaped
 // operands (`is-null(arith(prop, literal(0), "div"))` — "is the per-

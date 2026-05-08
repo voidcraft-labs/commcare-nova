@@ -60,13 +60,13 @@ export type { Database } from "../sql/database.js";
 // `CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS`.
 // `enforceConnectionBudget` (below) fails loudly if the math drifts.
 
-/** Cloud SQL `db-f1-micro` `max_connections`. Pinned in runbook §Phase 2. */
+/** Cloud SQL `db-f1-micro` `max_connections`. */
 export const CLOUD_SQL_MAX_CONNECTIONS = 25;
 
 /** Connections held back for `postgres` superuser, admin tooling, replication. */
 export const CLOUD_SQL_RESERVED_CONNECTIONS = 5;
 
-/** Cloud Run `--max-instances` for `commcare-nova`. Set in runbook §Phase 6. */
+/** Cloud Run `--max-instances` for `commcare-nova`. */
 export const CLOUD_RUN_MAX_INSTANCES = 5;
 
 /**
@@ -116,8 +116,7 @@ export function enforceConnectionBudget(): void {
 
 // Environment variable contract.
 //
-// Cloud Run wires three required env vars in Phase 6 of the
-// provisioning runbook (`docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md`):
+// Cloud Run wires three required env vars at deploy time:
 // `NOVA_DB_NAME` (the database name), `NOVA_DB_USER` (the IAM
 // database user identity for the Cloud Run runtime SA, in Cloud
 // SQL's truncated form without `.gserviceaccount.com`), and

@@ -403,11 +403,15 @@ export class EngineController {
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return 0;
 		const result = this.engine.addRepeat(path);
-		// Targeted sync — only the repeat's own path round-trips to the
-		// runtime store (see `lib/preview/CLAUDE.md` § Repeat-count
-		// reactivity). `syncAllToStore` would replace every UUID's
-		// reference and re-render every leaf row in the form, the exact
-		// fan-out the per-field subscription model is built to avoid.
+		// Targeted sync — only the repeat's own path round-trips to
+		// the runtime store. `addRepeat` / `removeRepeat` bump
+		// `repeatCount` on the repeat's own `FieldState` to give
+		// subscribers the re-render signal; new `[N]/...` child
+		// writes don't reach the store because `pathToUuid` only
+		// registers the `[0]` template path. `syncAllToStore` would
+		// replace every UUID's reference and re-render every leaf
+		// row in the form, the exact fan-out the per-field
+		// subscription model is built to avoid.
 		this.syncPathsToStore([path]);
 		return result;
 	}

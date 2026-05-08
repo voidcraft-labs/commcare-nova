@@ -1,7 +1,7 @@
 /**
  * InteractiveFormRenderer — recursive renderer for pointer / test mode.
  *
- * Mode matrix (see `components/builder/CLAUDE.md` → "Edit vs preview mode"):
+ * Mode matrix:
  *
  *   ctx.mode === "edit"  && cursorMode === "edit"    → VirtualFormList
  *   ctx.mode === "edit"  && cursorMode === "pointer" → this renderer

@@ -1,10 +1,19 @@
 // lib/case-store/sql/index.ts
 //
-// Public barrel for the case-store SQL package. See
-// `lib/case-store/sql/CLAUDE.md` for the four-compilers / one-
-// composition shape; the dispatch contract; the depth-thread for
-// nested-walk composition; the zero-raw-SQL emission rule; and the
-// tenant-scope contract (callers emit the outer-query filter).
+// Public barrel for the case-store SQL package. The compiler stack
+// lowers `Predicate` / `ValueExpression` / `RelationPath` AST nodes
+// into Kysely typed-builder calls Postgres executes natively. Four
+// entry points compose through one shared dispatch shape:
+// `compilePredicate` recurses back into itself via `compileExpression`'s
+// thunk-wired `compilePredicate` callback (the cycle break that lets
+// `if.cond` / `count.where` reach the predicate compiler without
+// producing an import cycle); `compileTerm` and `compileRelationPath`
+// are leaves the higher-order compilers call into.
+//
+// Tenant-scope contract: callers emit the outer-query
+// `(app_id = $1 AND owner_id = $2)` filter; the compiler stack only
+// emits its filter on every JOIN-ed `cases` row inside
+// `compileRelationPath`'s subquery body.
 //
 // `compileLiteral` and the type-erased `Dynamic*` views stay
 // package-private — callers route through the public entry points.

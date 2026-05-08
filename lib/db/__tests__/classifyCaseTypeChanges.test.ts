@@ -110,9 +110,9 @@ describe("classifyCaseTypeChanges — case-type additions", () => {
 describe("classifyCaseTypeChanges — case-type removals", () => {
 	it("does NOT emit an entry when a case type is removed", () => {
 		// Removed case types leave their `case_type_schemas` row
-		// orphaned per the spec's migration policy — the runtime
-		// never reads a schema for a missing case type, so the saga
-		// has no Postgres work to do for the removal.
+		// orphaned — the runtime never reads a schema for a missing
+		// case type, so the saga has no Postgres work to do for the
+		// removal.
 		const result = classifyCaseTypeChanges({
 			prior: makeDoc([PATIENT]),
 			prospective: makeDoc([]),

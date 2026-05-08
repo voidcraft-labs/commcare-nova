@@ -13,8 +13,11 @@
 // `Kysely<Database>` instance from
 // `lib/case-store/sql/__tests__/perTestDatabase.ts`.
 //
-// See `lib/case-store/CLAUDE.md` § "Tenant scoping is structural"
-// for the structural-enforcement contract.
+// Tenant scoping is structural: the bound owner id flows through
+// every method's underlying query as `WHERE owner_id = <bound>`,
+// and `compileRelationPath` adds the JOIN-side filter on every
+// joined `cases` row. The two halves combine to make cross-tenant
+// reads structurally impossible.
 
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
