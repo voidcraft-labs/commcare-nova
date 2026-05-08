@@ -41,9 +41,11 @@ claude mcp add nova --transport http https://mcp.commcare.app/mcp \
   --scope user
 ```
 
-The key gets written to `~/.claude.json` verbatim, so anything that file admits is fine to use here. Don't try to interpolate a shell variable like `${NOVA_API_KEY}` inline — `claude mcp add` stores whatever the shell expands at the moment you run the command, which is empty if the variable isn't already exported. If you want the key out of your config file, configure the MCP entry by hand (see below) instead of going through `claude mcp add`.
+<Callout type="warn">
+Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value before running.
+</Callout>
 
-After this, your override is the one Claude Code talks to. The tool names change shape too — what used to appear as `mcp__plugin_nova_nova__*` becomes `mcp__nova__*`. If you have any scripts or skills that hardcode the old names, update them.
+After this, your override is the one Claude Code talks to.
 
 To go back to OAuth, remove the override:
 
@@ -70,6 +72,10 @@ Add the server directly. Drop a config block in your project's `.mcp.json` or a 
   }
 }
 ```
+
+<Callout type="warn">
+Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value.
+</Callout>
 
 ## Scopes
 
