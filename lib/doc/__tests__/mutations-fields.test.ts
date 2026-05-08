@@ -7,7 +7,7 @@ import type {
 } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import type { Field, Form, Module } from "@/lib/domain";
+import type { Column, Field, Form, Module } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -55,6 +55,27 @@ type AnyField =
 	| undefined;
 
 const asField = (f: Field | undefined): AnyField => f as AnyField;
+
+/**
+ * Narrow a column off the `calculated` arm of the `Column` discriminated
+ * union so test assertions can read the `field` slot directly. Calculated
+ * columns have no `field` (the expression is the source); every other
+ * kind (`plain`, `date`, `phone`, `id-mapping`, `interval`) carries a
+ * `field: string`. Tests seed plain columns and assert against `.field`,
+ * so the helper raises a fixture-shape error rather than silently
+ * widening to a partial type — the throw surface signals "the fixture
+ * isn't laid out the way the test assumes" instead of letting the
+ * assertion downstream blow up on `.field` being absent.
+ */
+function asNonCalculatedColumn(
+	col: Column | undefined,
+	label: string,
+): Exclude<Column, { kind: "calculated" }> {
+	if (col === undefined) throw new Error(`fixture: ${label} missing`);
+	if (col.kind === "calculated")
+		throw new Error(`fixture: ${label} is calculated`);
+	return col;
+}
 
 function docWithForm(): BlueprintDoc {
 	return {
@@ -893,16 +914,11 @@ describe("renameField case-property cascade", () => {
 
 		// Module Y (caseType: household) columns untouched.
 		const modY = next.modules[M("Y")];
-		const modYCol = modY?.caseListConfig?.columns[0];
-		// Narrow off the calculated arm — the fixture seeds a plain
-		// column at index 0. Without the kind guard, `column.field`
-		// is unreachable through the discriminated `Column` union.
-		if (modYCol?.kind === "calculated") {
-			throw new Error(
-				"fixture invariant: module Y column 0 should be a plain column",
-			);
-		}
-		expect(modYCol?.field).toBe("age");
+		const modYCol = asNonCalculatedColumn(
+			modY?.caseListConfig?.columns[0],
+			"module Y column 0",
+		);
+		expect(modYCol.field).toBe("age");
 	});
 
 	it("preserves a column's sort + visibility slots across a field-rename rewrite", () => {
@@ -1382,24 +1398,20 @@ describe("renameField case-property cascade", () => {
 		expect(asField(next.fields[Q("host_ref")])?.label).toBe(
 			"Host says: #case/date_of_visit",
 		);
-		// Target module's column rewritten. Narrow off the calculated
-		// arm — the fixture seeds plain columns and only the plain /
-		// reserved-scalar arms carry a `field` slot.
-		const tgtCol = next.modules[M("tgt")]?.caseListConfig?.columns[0];
-		if (tgtCol?.kind === "calculated") {
-			throw new Error(
-				"fixture invariant: target module column 0 should be a plain column",
-			);
-		}
-		expect(tgtCol?.field).toBe("visit_date");
+		// Target module's column rewritten. The fixture seeds plain
+		// columns on both modules; only the plain / reserved-scalar
+		// arms carry a `field` slot.
+		const tgtCol = asNonCalculatedColumn(
+			next.modules[M("tgt")]?.caseListConfig?.columns[0],
+			"target module column 0",
+		);
+		expect(tgtCol.field).toBe("visit_date");
 		// Host module's column untouched (belongs to "patient" caseType).
-		const hostCol = next.modules[M("host")]?.caseListConfig?.columns[0];
-		if (hostCol?.kind === "calculated") {
-			throw new Error(
-				"fixture invariant: host module column 0 should be a plain column",
-			);
-		}
-		expect(hostCol?.field).toBe("date_of_visit");
+		const hostCol = asNonCalculatedColumn(
+			next.modules[M("host")]?.caseListConfig?.columns[0],
+			"host module column 0",
+		);
+		expect(hostCol.field).toBe("date_of_visit");
 		expect(result?.cascadedAcrossForms).toBe(true);
 	});
 

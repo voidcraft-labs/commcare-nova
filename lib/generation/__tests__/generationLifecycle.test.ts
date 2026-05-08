@@ -215,9 +215,9 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Structure);
 
 		// ── Module-detail mutation → stage = Modules ──
-		// v2 `CaseListConfig`: per-column `uuid`, no top-level `sort`
-		// or `calculatedColumns` (sort lives on each column; calculated
-		// is a kind in the union).
+		// `CaseListConfig` literal: per-column `uuid`, no top-level
+		// `sort` / `calculatedColumns` (sort lives on each column;
+		// calculated is a kind in the column union).
 		const config = {
 			columns: [
 				{

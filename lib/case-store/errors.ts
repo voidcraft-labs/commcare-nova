@@ -128,12 +128,25 @@ export class CasePropertiesValidationError extends Error {
 }
 
 /**
- * Thrown by `CaseStore.applySchemaChange` and the heuristic sample
- * generator when the supplied `caseTypeSchemas` map carries no
- * entry for the requested case-type name. Reachable from
- * user-driven actions when the doc-store state mutates between
- * the action's mount and the user's click. Server Actions map to
- * a `missing-case-type` arm and re-resolve against fresh state.
+ * Thrown when a "look up this case type" lookup at the case-store
+ * boundary returns nothing. Two production throw sites today:
+ *
+ *   - `PostgresCaseStore.applySchemaChange` — throws when the
+ *     supplied `caseTypeSchemas` map carries no entry for the
+ *     requested case-type name (the schema-map lookup is the
+ *     case-store's authoritative case-type resolution path).
+ *   - `caseDataBindingHelpers.resolveCaseTypeOrThrow` — the
+ *     running-app preview layer's seed-sample-cases helper
+ *     resolves a `CaseType` definition out of the supplied
+ *     `BlueprintDoc` snapshot before forwarding it to
+ *     `CaseStore.generateSampleData`; throws when
+ *     `blueprint.caseTypes` carries no entry with the matching
+ *     name.
+ *
+ * Reachable from user-driven actions when the doc-store state
+ * mutates between the action's mount and the user's click. Server
+ * Actions map to a `missing-case-type` arm and re-resolve against
+ * fresh state.
  */
 export class CaseTypeNotInBlueprintError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */

@@ -462,11 +462,3 @@ describe("HeuristicCaseGenerator parent linkage", () => {
 		}
 	});
 });
-
-// `CaseTypeNotInBlueprintError` no longer surfaces from the heuristic
-// generator — the generator takes a full `CaseType` definition rather
-// than looking the case type up in a blueprint. The class still
-// surfaces from `applySchemaChange`'s `caseTypeSchemas.get(caseType)
-// === undefined` path, exercised by the contract harness in
-// `lib/case-store/__tests__/storeContract.ts`. The class itself is
-// covered by `lib/case-store/__tests__/errors.test.ts`.

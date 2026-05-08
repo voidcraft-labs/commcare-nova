@@ -60,7 +60,11 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
-import { CaseNotFoundError, SchemaNotSyncedError } from "../errors";
+import {
+	CaseNotFoundError,
+	CaseTypeNotInBlueprintError,
+	SchemaNotSyncedError,
+} from "../errors";
 import { buildCaseTypeMap, type CaseStore } from "../store";
 import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
@@ -1106,6 +1110,31 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(survivors).toHaveLength(1);
 			expect(survivors[0]?.case_id).toBe(PATIENT_BOB_ID);
+		});
+
+		// -----------------------------------------------------------
+		// applySchemaChange — missing case type in the schema map
+		// -----------------------------------------------------------
+
+		it("applySchemaChange throws CaseTypeNotInBlueprintError when the schema map omits the requested case type", async () => {
+			// Pin the throw-site contract: the case-store resolves the
+			// case-type definition exclusively from the supplied
+			// `caseTypeSchemas` map. An empty map (or one whose entries
+			// don't carry the requested name) trips the typed
+			// `CaseTypeNotInBlueprintError` so Server Actions can map to
+			// `missing-case-type` and re-resolve against fresh state.
+			// Mirrors the surrounding `SchemaNotSyncedError` rejection
+			// shape — the cross-module instanceof check is what the
+			// `readonly name` field initializer defends against under
+			// minified bundles.
+			const store = await options.factory(OWNER_A);
+			await expect(
+				store.applySchemaChange({
+					appId: APP_ID,
+					caseType: "patient",
+					caseTypeSchemas: new Map(),
+				}),
+			).rejects.toBeInstanceOf(CaseTypeNotInBlueprintError);
 		});
 
 		// -----------------------------------------------------------
