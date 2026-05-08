@@ -167,7 +167,7 @@ describe("updateSearchInput", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to update");
-		expect(result.result.error).toContain("module 99");
+		expect(result.result.error).toContain("module index 99");
 	});
 
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {

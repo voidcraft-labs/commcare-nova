@@ -708,7 +708,8 @@ export function within(
  * Term / ValueExpression operands flow through the same operand-
  * widening pattern the other Predicate value slots use; the value
  * being a `term(input("name_search"))` lets the match value flow at
- * runtime from a search-input binding (Plan 4's primary use case).
+ * runtime from a search-input binding — the load-bearing pattern
+ * for case-search-driven approximate matching.
  */
 export function match(
 	property: PropertyRef,
@@ -863,15 +864,17 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * `is-null` reaches a CCHQ-bound context; the per-dialect emitters
  * defensively throw.
  *
- * v1 surface scope: v1 authoring surfaces (filter UI, SA tool
- * surface, validator) have no path producing `is-null` directly.
- * `is-null` is foundation infrastructure for non-filter surfaces
- * (case-data inspection, audit / admin views, expression
- * operators that distinguish absent from empty); Postgres
- * natively represents strict-absent via the JSONB presence
- * test. The operator stays in the AST because the discriminated-
- * union shape is part of the persisted contract — removing a
- * kind invalidates every persisted predicate that used it.
+ * `is-null` is foundation infrastructure for non-filter surfaces —
+ * case-data inspection, audit / admin views, expression operators
+ * that distinguish absent from empty — where the strict-absent
+ * signal carries domain meaning Postgres represents natively via
+ * the JSONB presence test. Filter authoring surfaces (filter UI, SA
+ * tool surface, validator) reach for `is-blank` instead because
+ * "field empty" is the user-facing intent and `is-blank` emits
+ * cleanly on every CCHQ target. The operator stays in the AST
+ * regardless because the discriminated-union shape is part of the
+ * persisted contract — removing a kind would invalidate every
+ * persisted predicate that used it.
  *
  * The `left` slot accepts any term — property reference,
  * search-input reference, session-user reference, session-context
@@ -892,10 +895,10 @@ export function isNull(
  * Constructs an `is-blank` predicate — the portable absent-or-empty
  * operator. Asks "does `left` resolve to absent OR to the empty
  * string?" The widening over `is-null` is the operator's purpose:
- * `isBlank` is the v1 author-facing "field set / unset" check —
- * filter UI, SA tool surface, and validator all produce this
- * operator (not `is-null`) for predicates targeting CCHQ, and the
- * wire layer emits a clean form on every target.
+ * `isBlank` is the author-facing "field set / unset" check — filter
+ * UI, SA tool surface, and validator produce this operator (not
+ * `is-null`) for predicates targeting CCHQ, and the wire layer
+ * emits a clean form on every target.
  *
  * Per-dialect representability:
  *

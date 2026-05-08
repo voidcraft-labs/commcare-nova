@@ -1243,7 +1243,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		const result = await readCases(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: doc,
+			caseTypeSchemas: buildCaseTypeMap(doc),
 			caseListConfig: mod.caseListConfig,
 		});
 		if (result.kind !== "rows") {
@@ -1452,7 +1452,7 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 		const result = await readCases(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: doc,
+			caseTypeSchemas: buildCaseTypeMap(doc),
 			caseListConfig: mod.caseListConfig,
 		});
 		if (result.kind !== "rows") {

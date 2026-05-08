@@ -39,7 +39,7 @@ import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { snapshotCaseListConfig } from "./shared";
+import { moduleNotFoundResult, snapshotCaseListConfig } from "./shared";
 
 export const setCaseListFilterInputSchema = z.object({
 	moduleIndex: z
@@ -93,9 +93,19 @@ export const setCaseListFilterTool = {
 		const { moduleIndex, filter } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<SetCaseListFilterSuccess>(
+					doc,
+					moduleIndex,
+					"set the case list filter",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<SetCaseListFilterSuccess>(
+					doc,
+					moduleIndex,
+					"set the case list filter",
+				);
 
 			// `filter === null` clears the slot. The schema treats absent
 			// as "no filter," so we OMIT the key on the persisted config
@@ -143,17 +153,3 @@ export const setCaseListFilterTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<SetCaseListFilterResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to set the case list filter on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

@@ -4,8 +4,8 @@
 // type contracts the implementation (`./postgres/store.ts`) and the
 // factory (`./withOwnerContext.ts`) both depend on. This module
 // imports from neither. Spec source:
-// `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-// "CaseStore — Cloud SQL Postgres from day-1" (lines 350-389). See
+// `docs/superpowers/specs/2026-04-30-case-list-search-design.md` §
+// "CaseStore — Cloud SQL Postgres from day-1". See
 // `lib/case-store/CLAUDE.md` for the architectural contract
 // (one interface / one implementation, structural tenant scoping).
 //
@@ -242,7 +242,7 @@ export type CaseRowWithCalculated = CaseRow & {
 
 /**
  * The three change-shape arms `applySchemaChange` runs per-row
- * migrations for. Spec § "Schema migration policy" (lines 309-340).
+ * migrations for. Spec § "Schema migration policy".
  *
  *   - `rename(from, to)` — JSONB key rename in one UPDATE.
  *   - `retype(fromType, toType)` — per-row cast attempt; cast

@@ -459,8 +459,8 @@ export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
  *     diverge. Authors who need a semver-correct gate compose
  *     multiple comparisons (e.g. by exact-matching the major /
  *     minor segments). Authoring-time correctness for version
- *     gating is a Plan 3 / validator concern; the type checker's
- *     job here is only to resolve the term to its wire type.
+ *     gating is a validator concern; the type checker's job here
+ *     is only to resolve the term to its wire type.
  *
  * The other three are intentionally excluded:
  *
@@ -1174,9 +1174,9 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * (`compare`, `between`, `in`, `is-null`, `is-blank`,
  * `within-distance`); search inputs driving fuzzy / phonetic /
  * starts-with / fuzzy-date matches at runtime is the load-bearing
- * use case (Plan 4). The wire target supports runtime substitution
- * via the on-device wrapper that builds the CSQL `_xpath_query`
- * string — see CCHQ's `unwrap_value` at
+ * use case for case-search authoring. The wire target supports
+ * runtime substitution via the on-device wrapper that builds the
+ * CSQL `_xpath_query` string — see CCHQ's `unwrap_value` at
  * `commcare-hq/corehq/apps/case_search/dsl_utils.py:11-42` and the
  * canonical concat pattern in
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`.
@@ -1384,16 +1384,18 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 //     and lose the AST's strictness signal. The representability
 //     checker errors at authoring time; the per-dialect emitters
 //     defensively throw. Same dispatch pattern as `match(mode:
-//     fuzzy)` in case-list-filter context. v1 authoring surfaces
-//     (filter UI, SA tool surface, validator) have no path
-//     producing `is-null` directly — `is-null` is foundation
-//     infrastructure for non-filter surfaces (case-data
-//     inspection, audit / admin views, expression operators that
-//     distinguish absent from empty); Postgres natively
-//     represents strict-absent via the JSONB presence test. It
-//     stays in the AST because the discriminated-union shape is
-//     part of the persisted contract — removing a kind
-//     invalidates every persisted predicate that used it.
+//     fuzzy)` in case-list-filter context. Filter authoring
+//     surfaces (filter UI, SA tool surface, validator) reach for
+//     `is-blank` instead because "field empty" is the user-facing
+//     intent and `is-blank` emits cleanly on every CCHQ target;
+//     `is-null` is foundation infrastructure for non-filter
+//     surfaces (case-data inspection, audit / admin views,
+//     expression operators that distinguish absent from empty),
+//     where Postgres natively represents strict-absent via the
+//     JSONB presence test. The operator stays in the AST
+//     regardless because the discriminated-union shape is part
+//     of the persisted contract — removing a kind would
+//     invalidate every persisted predicate that used it.
 //
 //   - `is-blank` — **portable.** `left` resolves to absent OR
 //     empty-string. Postgres: emits the disjunction
@@ -1424,7 +1426,7 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // term-discriminator context to surface a semantic-class error. See
 // the design spec subsection "Null vs blank semantics" under the
 // Predicate family for the full per-dialect representability table
-// and the v1-surface scoping rationale.
+// and the authoring-surface scoping rationale.
 
 // `left` is `ValueExpression` (not bare `Term`) so expression-shaped
 // operands (`is-null(arith(prop, literal(0), "div"))` — "is the per-

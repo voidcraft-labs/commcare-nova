@@ -29,7 +29,12 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { columnInputSchema, stampColumnUuid, uuidInputSchema } from "./shared";
+import {
+	columnInputSchema,
+	moduleNotFoundResult,
+	stampColumnUuid,
+	uuidInputSchema,
+} from "./shared";
 
 export const updateCaseListColumnInputSchema = z.object({
 	moduleIndex: z
@@ -69,9 +74,19 @@ export const updateCaseListColumnTool = {
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<UpdateCaseListColumnSuccess>(
+					doc,
+					moduleIndex,
+					"update a case list column",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<UpdateCaseListColumnSuccess>(
+					doc,
+					moduleIndex,
+					"update a case list column",
+				);
 
 			const replacement = stampColumnUuid(column, columnUuid);
 			const result = updateColumnMutation(mod, columnUuid, replacement);
@@ -110,17 +125,3 @@ export const updateCaseListColumnTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<UpdateCaseListColumnResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to update a case list column on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

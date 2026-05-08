@@ -575,9 +575,11 @@ contract.
 
 ## Spec source
 
-All DDL is sourced from `docs/superpowers/specs/2026-04-30-case-list-search-design.md`
-lines 254-284 (the four base tables + indexes) and lines 309-340
-(the `cases_quarantine` shape). Two surfaces stay in lockstep:
+All DDL is sourced from
+`docs/superpowers/specs/2026-04-30-case-list-search-design.md` §
+"Storage layer for cases" — Schema subsection (the four base
+tables + indexes) and § "Schema migration policy" (the
+`cases_quarantine` shape). Two surfaces stay in lockstep:
 
 1. `lib/case-store/schema.sql` (the desired-state source atlas
    reads to autogenerate the migrations directory).

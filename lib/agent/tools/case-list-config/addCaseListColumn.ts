@@ -22,7 +22,12 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { columnInputSchema, newUuid, stampColumnUuid } from "./shared";
+import {
+	columnInputSchema,
+	moduleNotFoundResult,
+	newUuid,
+	stampColumnUuid,
+} from "./shared";
 
 export const addCaseListColumnInputSchema = z.object({
 	moduleIndex: z
@@ -63,9 +68,19 @@ export const addCaseListColumnTool = {
 		const { moduleIndex, column } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<AddCaseListColumnSuccess>(
+					doc,
+					moduleIndex,
+					"add a case list column",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<AddCaseListColumnSuccess>(
+					doc,
+					moduleIndex,
+					"add a case list column",
+				);
 
 			const uuid = newUuid();
 			const stamped = stampColumnUuid(column, uuid);
@@ -107,17 +122,3 @@ export const addCaseListColumnTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<AddCaseListColumnResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to add a case list column on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

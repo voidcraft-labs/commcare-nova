@@ -23,7 +23,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { reorderColumnsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { uuidInputSchema } from "./shared";
+import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const reorderCaseListColumnsInputSchema = z.object({
 	moduleIndex: z
@@ -62,9 +62,19 @@ export const reorderCaseListColumnsTool = {
 		const columnUuids = rawColumnUuids.map(asUuid);
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<ReorderCaseListColumnsSuccess>(
+					doc,
+					moduleIndex,
+					"reorder case list columns",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<ReorderCaseListColumnsSuccess>(
+					doc,
+					moduleIndex,
+					"reorder case list columns",
+				);
 
 			const result = reorderColumnsMutation(mod, columnUuids);
 			if ("error" in result) {
@@ -102,17 +112,3 @@ export const reorderCaseListColumnsTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<ReorderCaseListColumnsResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to reorder case list columns on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

@@ -148,6 +148,6 @@ describe("reorderSearchInputs", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to reorder");
-		expect(result.result.error).toContain("module 99");
+		expect(result.result.error).toContain("module index 99");
 	});
 });

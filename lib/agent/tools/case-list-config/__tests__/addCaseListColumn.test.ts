@@ -223,7 +223,7 @@ describe("addCaseListColumn", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to add");
-		expect(result.result.error).toContain("module 99");
+		expect(result.result.error).toContain("module index 99");
 		expect(result.result.error).toContain("Found no module");
 	});
 

@@ -12,7 +12,11 @@
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import { withOwnerContext } from "@/lib/case-store";
+import {
+	buildCaseTypeMap,
+	CaseTypeNotInBlueprintError,
+	withOwnerContext,
+} from "@/lib/case-store";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -75,7 +79,16 @@ export async function loadCasesAction(args: {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await withOwnerContext(session.user.id);
-		return await readCases(store, args);
+		// Convert `BlueprintDoc → ReadonlyMap<string, CaseType>` at the
+		// request edge — `readCases` accepts the case-store's actual
+		// schema-resolution dependency directly, so the helper stays
+		// decoupled from the full blueprint shape.
+		return await readCases(store, {
+			appId: args.appId,
+			caseType: args.caseType,
+			caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+			caseListConfig: args.caseListConfig,
+		});
 	} catch (err) {
 		return {
 			kind: "error",
@@ -110,8 +123,20 @@ export async function populateSampleCasesAction(
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
+		// Resolve the `CaseType` definition out of the blueprint at the
+		// request edge — the case-store's `generateSampleData` reads
+		// property declarations + `parent_type` off the definition, so
+		// the helper accepts the narrow value directly. A blueprint
+		// missing the requested case type throws
+		// `CaseTypeNotInBlueprintError` here; the catch block delegates
+		// to `mapPopulateSampleCasesError` which surfaces the typed
+		// `missing-case-type` arm.
+		const found = blueprint.caseTypes?.find((c) => c.name === caseType);
+		if (!found) {
+			throw new CaseTypeNotInBlueprintError(appId, caseType);
+		}
 		const store = await withOwnerContext(session.user.id);
-		return await seedSampleCases(store, { appId, caseType, blueprint });
+		return await seedSampleCases(store, { appId, caseType: found });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
 	}
@@ -209,17 +234,14 @@ export async function loadCaseListPreviewAction(args: {
 		}
 
 		const store = await withOwnerContext(session.user.id);
-		// `blueprintDocSchema.parse(...)` strips `fieldParent` (the
-		// derived in-memory reverse-index that's not part of the
-		// persisted schema). The case-store's compiler stack doesn't
-		// read `fieldParent` — only `caseTypes` for property data-
-		// type resolution — but the `BlueprintDoc` type requires the
-		// slot. Re-attach the original input's `fieldParent` after
-		// the parse so the type contract is satisfied; mirrors
-		// `pickBlueprintDoc(...)`'s shape. If the input's
-		// `fieldParent` is malformed, downstream call sites that DO
-		// read it would surface the issue then; today's case-store
-		// callers don't, so the parse covers the load-bearing AST.
+		// Convert the parsed `BlueprintDoc → ReadonlyMap<string, CaseType>`
+		// once at the request edge — `readCaseListPreview` accepts the
+		// case-store's actual schema-resolution dependency directly so
+		// the helper stays decoupled from the full blueprint shape. The
+		// `fieldParent` re-attach satisfies `buildCaseTypeMap`'s
+		// `BlueprintDoc` parameter type (the function reads only
+		// `caseTypes`, so the in-memory reverse-index is not load-
+		// bearing here, but the type contract requires the slot).
 		const fullBlueprint: BlueprintDoc = {
 			...parsedBlueprint.data,
 			fieldParent: args.blueprint.fieldParent ?? {},
@@ -229,7 +251,7 @@ export async function loadCaseListPreviewAction(args: {
 			caseType: args.caseType,
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
-			blueprint: fullBlueprint,
+			caseTypeSchemas: buildCaseTypeMap(fullBlueprint),
 		});
 	} catch (err) {
 		return mapCaseListPreviewError(err);
@@ -301,10 +323,9 @@ export async function loadFilterPreviewAction(args: {
 		const store = await withOwnerContext(session.user.id);
 		// `fieldParent` re-attach mirrors `loadCaseListPreviewAction`'s
 		// shape — the persisted schema doesn't declare the slot, but
-		// the `BlueprintDoc` type contract requires it. The case-store's
-		// compiler stack reads only `caseTypes`; `fieldParent` is a
-		// no-op for the predicate compile path but necessary for the
-		// type contract.
+		// `buildCaseTypeMap`'s `BlueprintDoc` parameter type does. The
+		// re-attach lets the schema-map conversion run cleanly; the
+		// helper itself takes only the resolved `ReadonlyMap`.
 		const fullBlueprint: BlueprintDoc = {
 			...parsedBlueprint.data,
 			fieldParent: args.blueprint.fieldParent ?? {},
@@ -314,7 +335,7 @@ export async function loadFilterPreviewAction(args: {
 			caseType: args.caseType,
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
-			blueprint: fullBlueprint,
+			caseTypeSchemas: buildCaseTypeMap(fullBlueprint),
 		});
 	} catch (err) {
 		return mapFilterPreviewError(err);

@@ -20,7 +20,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { removeColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { uuidInputSchema } from "./shared";
+import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const removeCaseListColumnInputSchema = z.object({
 	moduleIndex: z
@@ -58,9 +58,19 @@ export const removeCaseListColumnTool = {
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<RemoveCaseListColumnSuccess>(
+					doc,
+					moduleIndex,
+					"remove a case list column",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<RemoveCaseListColumnSuccess>(
+					doc,
+					moduleIndex,
+					"remove a case list column",
+				);
 
 			const result = removeColumnMutation(mod, columnUuid);
 			if ("error" in result) {
@@ -101,17 +111,3 @@ export const removeCaseListColumnTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<RemoveCaseListColumnResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to remove a case list column on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

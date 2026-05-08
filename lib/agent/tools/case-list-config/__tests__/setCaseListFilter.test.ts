@@ -220,7 +220,7 @@ describe("setCaseListFilter", () => {
 		// Voice mirrors the atomic-op family — "Tried to <X>. Found
 		// no <Y>. Look at <Z>."
 		expect(result.result.error).toContain("Tried to set the case list filter");
-		expect(result.result.error).toContain("module 99");
+		expect(result.result.error).toContain("module index 99");
 		expect(result.result.error).toContain("Found no module");
 	});
 

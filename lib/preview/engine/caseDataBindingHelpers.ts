@@ -23,20 +23,13 @@
 
 import "server-only";
 
-import {
-	buildCaseTypeMap,
-	type CaseInsert,
-	type CaseStore,
-	type SortKey as CaseStoreSortKey,
-	CaseTypeNotInBlueprintError,
-	type CaseUpdate,
-} from "@/lib/case-store";
 import type {
-	BlueprintDoc,
-	CaseListConfig,
-	CaseType,
-	Column,
-} from "@/lib/domain";
+	CaseInsert,
+	CaseStore,
+	SortKey as CaseStoreSortKey,
+	CaseUpdate,
+} from "@/lib/case-store";
+import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type {
@@ -71,27 +64,31 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * directly through `evaluateColumnValue`. No AST evaluator runs on
  * the JS side.
  *
- * `caseListConfig` + `blueprint` are both optional: callers without
- * a config (registration forms loading raw rows for inspection)
- * pass neither and receive rows with empty `calculated: {}` maps;
- * callers with a config thread the columns + filter + sort into
- * the single `store.query(...)` call. `caseTypeSchemas` flows from
- * the supplied `blueprint` so predicate / sort / calculated-column
- * compilation resolves typed property reads.
+ * `caseListConfig` + `caseTypeSchemas` are both optional: callers
+ * without a config (registration forms loading raw rows for
+ * inspection) pass neither and receive rows with empty
+ * `calculated: {}` maps; callers with a config thread the columns
+ * + filter + sort into the single `store.query(...)` call.
+ * `caseTypeSchemas` is the case-store's actual schema-resolution
+ * dependency — the term compiler reads each `prop` term's
+ * `data_type` from the map to pick the column cast — so the helper
+ * accepts the narrow shape directly. The Server Action at
+ * `./caseDataBinding.ts` does the `BlueprintDoc → ReadonlyMap`
+ * conversion once at the request edge via `buildCaseTypeMap`.
  */
 export async function readCases(
 	store: CaseStore,
 	args: {
 		appId: string;
 		caseType: string;
-		blueprint?: BlueprintDoc;
+		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
 	},
 ): Promise<LoadCasesResult> {
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
-		caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+		caseTypeSchemas: args.caseTypeSchemas,
 		predicate: args.caseListConfig?.filter,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		calculated: args.caseListConfig?.columns.filter(
@@ -130,6 +127,12 @@ export const PREVIEW_CASE_DEFAULT_LIMIT = 30;
  * the underlying query falls through unfiltered when `filter` is
  * undefined.
  *
+ * `caseTypeSchemas` is the term compiler's data-type-resolution
+ * dependency — the helper accepts the narrow shape directly so the
+ * Server Action at `./caseDataBinding.ts` runs the
+ * `BlueprintDoc → ReadonlyMap` conversion once at the request edge
+ * via `buildCaseTypeMap`.
+ *
  * Typed-error mapping mirrors `mapPopulateSampleCasesError` for
  * consistency: missing-case-type and schema-not-synced get
  * dedicated arms so the client surface can re-resolve / await the
@@ -140,7 +143,7 @@ export async function readCaseListPreview(
 	args: {
 		appId: string;
 		caseType: string;
-		blueprint: BlueprintDoc;
+		caseTypeSchemas: ReadonlyMap<string, CaseType>;
 		caseListConfig: CaseListConfig;
 		limit?: number;
 	},
@@ -149,7 +152,7 @@ export async function readCaseListPreview(
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
-		caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+		caseTypeSchemas: args.caseTypeSchemas,
 		calculated: args.caseListConfig.columns.filter(
 			(col) => col.kind === "calculated",
 		),
@@ -194,6 +197,13 @@ export const FILTER_PREVIEW_DEFAULT_LIMIT = 10;
  * the empty-rows case from the same arm. A separate `empty` arm
  * would have to hardcode `totalCount: 0`, fighting the racy count.
  *
+ * `caseTypeSchemas` flows in pre-built so both the row read and
+ * the count read share one value — the predicate compilation is
+ * guaranteed to resolve property data types identically across the
+ * pair. The Server Action at `./caseDataBinding.ts` runs the
+ * `BlueprintDoc → ReadonlyMap` conversion once at the request edge
+ * via `buildCaseTypeMap`.
+ *
  * Typed-error mapping reuses the same shape as
  * `mapCaseListPreviewError` — `LoadFilterPreviewResult`'s error
  * arms mirror `LoadCaseListPreviewResult`'s, so the mapper logic
@@ -204,17 +214,12 @@ export async function readFilterPreview(
 	args: {
 		appId: string;
 		caseType: string;
-		blueprint: BlueprintDoc;
+		caseTypeSchemas: ReadonlyMap<string, CaseType>;
 		caseListConfig: CaseListConfig;
 		limit?: number;
 	},
 ): Promise<LoadFilterPreviewResult> {
 	const limit = args.limit ?? FILTER_PREVIEW_DEFAULT_LIMIT;
-
-	// Build the schema map once — both reads share the same
-	// `caseTypeSchemas` value so the predicate compilation is
-	// guaranteed to resolve property data types identically.
-	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
 
 	// Row sample. The filter-section preview is a "results that pass
 	// the filter" view, so the predicate slot is the load-bearing
@@ -224,7 +229,7 @@ export async function readFilterPreview(
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
-		caseTypeSchemas,
+		caseTypeSchemas: args.caseTypeSchemas,
 		calculated: args.caseListConfig.columns.filter(
 			(col) => col.kind === "calculated",
 		),
@@ -240,7 +245,7 @@ export async function readFilterPreview(
 	const totalCount = await store.count({
 		appId: args.appId,
 		caseType: args.caseType,
-		caseTypeSchemas,
+		caseTypeSchemas: args.caseTypeSchemas,
 		predicate: args.caseListConfig.filter,
 	});
 
@@ -356,48 +361,26 @@ export async function readCaseData(
  * populates produce different rows; tests needing reproducibility
  * call `CaseStore.generateSampleData` directly with a fixed seed.
  *
- * Resolves the `CaseType` from the supplied blueprint at the
- * boundary; the case-store's `generateSampleData` reads from the
- * definition directly (property declarations, optional
- * `parent_type`). A blueprint that omits the requested case type
- * surfaces as `CaseTypeNotInBlueprintError`, mapped by the catch
- * block in the calling action.
+ * Accepts the full `CaseType` definition directly — the case-store's
+ * `generateSampleData` reads property declarations + optional
+ * `parent_type` off the definition. The Server Action at
+ * `./caseDataBinding.ts` resolves the `CaseType` out of the
+ * supplied `BlueprintDoc` at the request edge and forwards the
+ * narrow value here; an unresolved case type surfaces as
+ * `CaseTypeNotInBlueprintError` from the action layer, mapped by
+ * `mapPopulateSampleCasesError`.
  */
 export async function seedSampleCases(
 	store: CaseStore,
-	args: { appId: string; caseType: string; blueprint: BlueprintDoc },
+	args: { appId: string; caseType: CaseType },
 ): Promise<PopulateSampleCasesResult> {
-	const caseType = resolveCaseTypeOrThrow(
-		args.blueprint,
-		args.appId,
-		args.caseType,
-	);
 	const result = await store.generateSampleData({
 		appId: args.appId,
-		caseType,
+		caseType: args.caseType,
 		count: SAMPLE_CASE_DEFAULT_COUNT,
 		seed: `${Date.now()}`,
 	});
 	return { kind: "ok", inserted: result.inserted };
-}
-
-/**
- * Look up a `CaseType` definition by name in the supplied blueprint.
- * Throws `CaseTypeNotInBlueprintError` when the case type is absent
- * — same shape as the case-store's `applySchemaChange` throw, so
- * the typed-error mapper at the action boundary handles both
- * uniformly.
- */
-function resolveCaseTypeOrThrow(
-	blueprint: BlueprintDoc,
-	appId: string,
-	caseTypeName: string,
-): CaseType {
-	const found = blueprint.caseTypes?.find((c) => c.name === caseTypeName);
-	if (!found) {
-		throw new CaseTypeNotInBlueprintError(appId, caseTypeName);
-	}
-	return found;
 }
 
 // ---------------------------------------------------------------

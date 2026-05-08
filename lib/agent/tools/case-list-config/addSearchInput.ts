@@ -21,6 +21,7 @@ import { addSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import {
+	moduleNotFoundResult,
 	newUuid,
 	searchInputDefInputSchema,
 	stampSearchInputUuid,
@@ -56,9 +57,19 @@ export const addSearchInputTool = {
 		const { moduleIndex, searchInput } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<AddSearchInputSuccess>(
+					doc,
+					moduleIndex,
+					"add a search input",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<AddSearchInputSuccess>(
+					doc,
+					moduleIndex,
+					"add a search input",
+				);
 
 			const uuid = newUuid();
 			const stamped = stampSearchInputUuid(searchInput, uuid);
@@ -100,17 +111,3 @@ export const addSearchInputTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<AddSearchInputResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to add a search input on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

@@ -21,7 +21,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { reorderSearchInputsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
-import { uuidInputSchema } from "./shared";
+import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const reorderSearchInputsInputSchema = z.object({
 	moduleIndex: z
@@ -60,9 +60,19 @@ export const reorderSearchInputsTool = {
 		const searchInputUuids = rawSearchInputUuids.map(asUuid);
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
-			if (!moduleUuid) return moduleNotFoundResult(doc, moduleIndex);
+			if (!moduleUuid)
+				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
+					doc,
+					moduleIndex,
+					"reorder search inputs",
+				);
 			const mod = doc.modules[moduleUuid];
-			if (!mod) return moduleNotFoundResult(doc, moduleIndex);
+			if (!mod)
+				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
+					doc,
+					moduleIndex,
+					"reorder search inputs",
+				);
 
 			const result = reorderSearchInputsMutation(mod, searchInputUuids);
 			if ("error" in result) {
@@ -100,17 +110,3 @@ export const reorderSearchInputsTool = {
 		}
 	},
 };
-
-function moduleNotFoundResult(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): MutatingToolResult<ReorderSearchInputsResult> {
-	return {
-		kind: "mutate" as const,
-		mutations: [],
-		newDoc: doc,
-		result: {
-			error: `Tried to reorder search inputs on module ${moduleIndex}. Found no module at that index. Look at getModule's projection for the available module indices.`,
-		},
-	};
-}

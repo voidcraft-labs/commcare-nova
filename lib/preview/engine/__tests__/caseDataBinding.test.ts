@@ -410,8 +410,7 @@ describe("seedSampleCases", () => {
 
 		const result = await seedSampleCases(store, {
 			appId: APP_ID,
-			caseType: "patient",
-			blueprint,
+			caseType: PATIENT_CASE_TYPE,
 		});
 		expect(result.kind).toBe("ok");
 		if (result.kind !== "ok") return;
@@ -712,42 +711,12 @@ describe("mapPopulateSampleCasesError", () => {
 		expect(result.message).toBe("Failed to seed cases.");
 	});
 
-	it("maps a typed CaseTypeNotInBlueprintError thrown by the real seed flow", async () => {
-		// End-to-end: the case-store's `generateSampleData` throws
-		// `CaseTypeNotInBlueprintError` when the blueprint omits the
-		// requested case type; `seedSampleCases` propagates it; the
-		// mapping helper translates to the structured arm. Pins the
-		// catch path through the real error-thrower.
-		const store = makeStore(OWNER_A);
-		// Blueprint declares `household` only; the seed call asks
-		// for `patient`, which trips `resolveCaseTypeOrThrow` in
-		// `seedSampleCases`'s blueprint resolution before it forwards
-		// to `store.generateSampleData`.
-		const blueprint = buildBlueprint([
-			{
-				name: "household",
-				properties: [{ name: "region", label: "Region", data_type: "text" }],
-			},
-		]);
-		// No schema sync at all for any case type — but the throw
-		// is `CaseTypeNotInBlueprintError`, NOT `SchemaNotSyncedError`,
-		// because the blueprint resolution runs before any schema
-		// lookup.
-		try {
-			await seedSampleCases(store, {
-				appId: APP_ID,
-				caseType: "patient",
-				blueprint,
-			});
-			throw new Error("seedSampleCases should have thrown");
-		} catch (err) {
-			const result = mapPopulateSampleCasesError(err);
-			expect(result).toEqual({
-				kind: "missing-case-type",
-				caseType: "patient",
-			});
-		}
-	});
+	// `CaseTypeNotInBlueprintError` is no longer thrown by
+	// `seedSampleCases` itself — the helper accepts the resolved
+	// `CaseType` directly, so the missing-from-blueprint case lives
+	// at the Server Action layer (`populateSampleCasesAction`'s
+	// boundary resolution). The synthetic mapping test above already
+	// pins the typed-arm shape.
 
 	it("maps a typed SchemaNotSyncedError thrown by the real seed flow", async () => {
 		// End-to-end mapping for the schema-sync-skipped path. The
@@ -755,14 +724,12 @@ describe("mapPopulateSampleCasesError", () => {
 		// hasn't run, so the case-store's `getValidator` reaches a
 		// missing `case_type_schemas` row and throws.
 		const store = makeStore(OWNER_A);
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		// Skip `seedSchema` on purpose — that's the precondition the
 		// error covers.
 		try {
 			await seedSampleCases(store, {
 				appId: APP_ID,
-				caseType: "patient",
-				blueprint,
+				caseType: PATIENT_CASE_TYPE,
 			});
 			throw new Error("seedSampleCases should have thrown");
 		} catch (err) {
@@ -809,8 +776,7 @@ describe("mapPopulateSampleCasesError", () => {
 		try {
 			await seedSampleCases(store, {
 				appId: APP_ID,
-				caseType: "patient",
-				blueprint,
+				caseType: PATIENT_CASE_TYPE,
 			});
 			throw new Error("seedSampleCases should have thrown");
 		} catch (err) {
@@ -884,7 +850,7 @@ describe("readCaseListPreview", () => {
 		const result = await readCaseListPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 			}),
@@ -916,7 +882,7 @@ describe("readCaseListPreview", () => {
 		const result = await readCaseListPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [
 					plainColumn(NAME_COLUMN_UUID, "name", "Name"),
@@ -1752,7 +1718,7 @@ describe("readFilterPreview", () => {
 		const result = await readFilterPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 			}),
@@ -1790,7 +1756,7 @@ describe("readFilterPreview", () => {
 		const result = await readFilterPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 			}),
@@ -1834,7 +1800,7 @@ describe("readFilterPreview", () => {
 		const result = await readFilterPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
 				filter: gt(prop("patient", "age"), literal(30)),
@@ -1870,7 +1836,7 @@ describe("readFilterPreview", () => {
 		const result = await readFilterPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [
 					plainColumn(NAME_COLUMN_UUID, "name", "Name"),

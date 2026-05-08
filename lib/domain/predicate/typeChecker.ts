@@ -1192,8 +1192,8 @@ export function checkRelationPath(
 			// type the schema doesn't declare (e.g., a `prop` term with
 			// a typo'd `caseType`); subsequent hops fail when the
 			// previously-resolved destination type is missing from the
-			// schema, which Plan 3's blueprint validator should prevent
-			// but the type checker still guards.
+			// schema, which the blueprint validator should prevent but
+			// the type checker still guards.
 			let current = originCaseType;
 			for (let i = 0; i < relationPath.via.length; i++) {
 				const step = relationPath.via[i];
@@ -1362,11 +1362,11 @@ export function checkInDestinationScope(
  *      handled inside `checkRelationPath`.
  *
  *   2. The originating scope must be set on the context. At the top
- *      level Plan 3 supplies it from the case-list / search config;
- *      inside a where-clause `checkInDestinationScope` rebinds it to
- *      the parent's destination. Without an origin, the walk has no
- *      anchor — emit a precise error rather than silently bypassing
- *      the rule.
+ *      level the caller supplies it from the case-list / search
+ *      config; inside a where-clause `checkInDestinationScope`
+ *      rebinds it to the parent's destination. Without an origin,
+ *      the walk has no anchor — emit a precise error rather than
+ *      silently bypassing the rule.
  *
  *   3. `where` (if present) is type-checked recursively in the
  *      destination scope via `checkInDestinationScope`. The path
@@ -1453,7 +1453,7 @@ export function resolveTermType(
 			// the destination is recovered via `checkRelationPath`.
 			//
 			// Destination-scope pin: when `ctx.currentCaseType` is set
-			// (top-level by Plan 3, inside a where-clause by
+			// (top-level by the caller, inside a where-clause by
 			// `checkInDestinationScope`'s rebinding), the term's
 			// originating-scope qualifier MUST equal it. The pin enforces
 			// the spec contract that a where-clause's `prop` references
@@ -1551,7 +1551,7 @@ export function resolveTermType(
 			// digit counts diverge, lex compare disagrees with semver
 			// intuition). Returning `"text"` reflects what the wire
 			// carries; whether an author's `appversion`-comparison
-			// expresses correct semantic gating is a Plan 3 / validator
+			// expresses correct semantic gating is a validator
 			// concern, not a type-checker concern.
 			//
 			// If `drift` (a numeric clock-skew metric) ever joins the
