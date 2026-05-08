@@ -46,7 +46,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { CaseListConfig, Column } from "@/lib/domain";
 import { loadCaseListPreviewAction } from "@/lib/preview/engine/caseDataBinding";
-import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingPure";
 import type { LoadCaseListPreviewResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import { renderColumnCell } from "./columnCellRenderer";
 

@@ -21,7 +21,6 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CaseRowWithCalculated } from "@/lib/case-store";
 import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
@@ -29,6 +28,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	loadCasesAction: vi.fn(),

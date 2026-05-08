@@ -27,6 +27,20 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": path.resolve(__dirname, "."),
+			// Resolve `server-only` to its own no-op shim so tests of
+			// server modules (which mark themselves with the import as
+			// a build-time client-bundle defense) can load under
+			// vitest's Node runner. The published `server-only` package
+			// exports a thrower under its `default` condition (Next.js
+			// resolves to `react-server` at build time and gets a
+			// no-op); vitest doesn't honor the `react-server`
+			// condition, so an explicit alias to the shipped empty
+			// file keeps the marker import functional in production
+			// builds while letting test-time imports pass through.
+			"server-only": path.resolve(
+				__dirname,
+				"node_modules/server-only/empty.js",
+			),
 		},
 	},
 });

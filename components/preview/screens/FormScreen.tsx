@@ -13,7 +13,7 @@ import {
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import { defaultPostSubmit } from "@/lib/domain";
-import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingPure";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";

@@ -17,17 +17,31 @@
 // re-auth nudge.
 
 import type {
+	CalculatedValue,
 	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
 	JsonObject,
+	JsonValue,
 } from "@/lib/case-store";
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
 // import path for the binding's types. `CaseRowWithCalculated`
 // rides the same surface for the case-list live-preview path
-// (`loadCaseListPreviewAction`).
-export type { CaseRow, CaseRowWithCalculated };
+// (`loadCaseListPreviewAction`). `CalculatedValue`, `JsonValue`,
+// and `JsonObject` ride the same surface so client-bundle-bound
+// consumers + the server-only helpers can type-import them from
+// this leaf without touching the case-store barrel — the barrel
+// value-exports `withOwnerContext`, which pulls the Postgres
+// connection module + every transitive dep into any graph that
+// imports from it.
+export type {
+	CalculatedValue,
+	CaseRow,
+	CaseRowWithCalculated,
+	JsonObject,
+	JsonValue,
+};
 
 /**
  * Result of loading every case row for a case type. The `rows` arm

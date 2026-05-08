@@ -55,13 +55,6 @@ import {
 	applyFollowupMutation,
 	applyRegistrationMutation,
 	applySurveyMutation,
-	caseRowDisplayValue,
-	caseRowToFormPreload,
-	mapCaseListPreviewError,
-	mapFilterPreviewError,
-	mapPopulateSampleCasesError,
-	mapSubmitFormError,
-	pickBlueprintDoc,
 	readCaseData,
 	readCaseListPreview,
 	readCases,
@@ -69,6 +62,15 @@ import {
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
+import {
+	caseRowDisplayValue,
+	caseRowToFormPreload,
+	mapCaseListPreviewError,
+	mapFilterPreviewError,
+	mapPopulateSampleCasesError,
+	mapSubmitFormError,
+	pickBlueprintDoc,
+} from "../caseDataBindingPure";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 
 // ---------------------------------------------------------------

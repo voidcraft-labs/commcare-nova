@@ -23,10 +23,10 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CaseRowWithCalculated } from "@/lib/case-store";
 import { asUuid } from "@/lib/doc/types";
 import { type CaseListConfig, plainColumn } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
+import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 
 // Mock the action surface — same shape as DisplayPreview.test.tsx.
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({

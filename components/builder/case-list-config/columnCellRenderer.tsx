@@ -24,9 +24,12 @@
 // through `renderCalculatedCell`.
 
 "use client";
-import type { CalculatedValue, CaseRowWithCalculated } from "@/lib/case-store";
 import type { Column } from "@/lib/domain";
-import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingPure";
+import type {
+	CalculatedValue,
+	CaseRowWithCalculated,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 
 /**
  * Render one column's cell for one row. Dispatches on the
