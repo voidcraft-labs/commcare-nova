@@ -28,21 +28,23 @@ import { addModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const createModuleInputSchema = z.object({
-	name: z.string().describe("Module display name"),
-	case_type: z
-		.string()
-		.optional()
-		.describe(
-			"Case type (required if module will have registration/followup forms)",
-		),
-	case_list_only: z
-		.boolean()
-		.optional()
-		.describe(
-			"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.",
-		),
-});
+export const createModuleInputSchema = z
+	.object({
+		name: z.string().describe("Module display name"),
+		case_type: z
+			.string()
+			.optional()
+			.describe(
+				"Case type (required if module will have registration/followup forms)",
+			),
+		case_list_only: z
+			.boolean()
+			.optional()
+			.describe(
+				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.",
+			),
+	})
+	.strict();
 
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 

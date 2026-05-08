@@ -25,16 +25,18 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
-export const reorderCaseListColumnsInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list columns to reorder"),
-	columnUuids: z
-		.array(uuidInputSchema)
-		.describe(
-			"The new full column order, given as the array of column uuids in their target order. Must contain every existing column uuid exactly once — no duplicates, no unknown uuids, no missing uuids. Look at getModule's projection for the current uuid set.",
-		),
-});
+export const reorderCaseListColumnsInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list columns to reorder"),
+		columnUuids: z
+			.array(uuidInputSchema)
+			.describe(
+				"The new full column order, given as the array of column uuids in their target order. Must contain every existing column uuid exactly once — no duplicates, no unknown uuids, no missing uuids. Look at getModule's projection for the current uuid set.",
+			),
+	})
+	.strict();
 
 export type ReorderCaseListColumnsInput = z.infer<
 	typeof reorderCaseListColumnsInputSchema

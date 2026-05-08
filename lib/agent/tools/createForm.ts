@@ -25,21 +25,23 @@ import { addFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const createFormInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	name: z.string().describe("Form display name"),
-	type: z
-		.enum(FORM_TYPES)
-		.describe(
-			'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
-		),
-	post_submit: z
-		.enum(USER_FACING_DESTINATIONS)
-		.optional()
-		.describe(
-			'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
-		),
-});
+export const createFormInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		name: z.string().describe("Form display name"),
+		type: z
+			.enum(FORM_TYPES)
+			.describe(
+				'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
+			),
+		post_submit: z
+			.enum(USER_FACING_DESTINATIONS)
+			.optional()
+			.describe(
+				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
+			),
+	})
+	.strict();
 
 export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 

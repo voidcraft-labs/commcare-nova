@@ -23,9 +23,11 @@ import type { BlueprintDoc, CaseListConfig, FormType } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
-export const getModuleInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-});
+export const getModuleInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+	})
+	.strict();
 
 export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
 

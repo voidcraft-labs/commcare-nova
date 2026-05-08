@@ -29,14 +29,16 @@ import {
 	stampColumnUuid,
 } from "./shared";
 
-export const addCaseListColumnInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list to add a column to"),
-	column: columnInputSchema.describe(
-		"The column to append. Pick a kind (`plain` / `date` / `phone` / `id-mapping` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The tool mints the column's uuid; do not supply one. Calculated columns carry an `expression` instead of a `field` — the expression is the source.",
-	),
-});
+export const addCaseListColumnInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list to add a column to"),
+		column: columnInputSchema.describe(
+			"The column to append. Pick a kind (`plain` / `date` / `phone` / `id-mapping` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The tool mints the column's uuid; do not supply one. Calculated columns carry an `expression` instead of a `field` — the expression is the source.",
+		),
+	})
+	.strict();
 
 export type AddCaseListColumnInput = z.infer<
 	typeof addCaseListColumnInputSchema

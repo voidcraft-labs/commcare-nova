@@ -80,10 +80,12 @@ export type SortType = (typeof SORT_TYPES)[number];
  * order is uniform across saga / preview / wire layers (no layer
  * assumes uniqueness).
  */
-export const columnSortSchema = z.object({
-	direction: z.enum(SORT_DIRECTIONS),
-	priority: z.number().int().min(0),
-});
+export const columnSortSchema = z
+	.object({
+		direction: z.enum(SORT_DIRECTIONS),
+		priority: z.number().int().min(0),
+	})
+	.strict();
 export type ColumnSort = z.infer<typeof columnSortSchema>;
 
 // ── Interval-column units ────────────────────────────────────────
@@ -129,18 +131,24 @@ export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
  * distinguish "user explicitly toggled off" from "user never
  * toggled".
  */
-const columnCommonSlots = z.object({
-	sort: columnSortSchema.optional(),
-	visibleInList: z.boolean().optional(),
-	visibleInDetail: z.boolean().optional(),
-});
+const columnCommonSlots = z
+	.object({
+		sort: columnSortSchema.optional(),
+		visibleInList: z.boolean().optional(),
+		visibleInDetail: z.boolean().optional(),
+	})
+	.strict();
 
 /** Base shape every column kind extends — uuid + the common
  *  optional slots (sort, visibility). Per-kind schemas add their
- *  required configuration on top. */
+ *  required configuration on top. The `.strict()` on the base
+ *  propagates through every `columnBase.extend({...})` chain below,
+ *  so per-kind schemas reject unknown keys without restating
+ *  `.strict()` on each arm. */
 const columnBase = z
 	.object({ uuid: uuidSchema })
-	.extend(columnCommonSlots.shape);
+	.extend(columnCommonSlots.shape)
+	.strict();
 
 // ── Column kinds ─────────────────────────────────────────────────
 //
@@ -194,10 +202,12 @@ const phoneColumnSchema = columnBase.extend({
  * name). The mapping is authored explicitly; values not in the
  * table render as the raw property value.
  */
-const idMappingEntrySchema = z.object({
-	value: z.string(),
-	label: z.string(),
-});
+const idMappingEntrySchema = z
+	.object({
+		value: z.string(),
+		label: z.string(),
+	})
+	.strict();
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
 	field: z.string(),
@@ -503,27 +513,34 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  *     vs `all` (∀).
  */
 const searchInputModeSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("exact") }),
-	z.object({ kind: z.literal("fuzzy") }),
-	z.object({ kind: z.literal("starts-with") }),
-	z.object({ kind: z.literal("phonetic") }),
-	z.object({ kind: z.literal("fuzzy-date") }),
-	z.object({ kind: z.literal("range") }),
-	z.object({
-		kind: z.literal("multi-select-contains"),
-		quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
-	}),
+	z.object({ kind: z.literal("exact") }).strict(),
+	z.object({ kind: z.literal("fuzzy") }).strict(),
+	z.object({ kind: z.literal("starts-with") }).strict(),
+	z.object({ kind: z.literal("phonetic") }).strict(),
+	z.object({ kind: z.literal("fuzzy-date") }).strict(),
+	z.object({ kind: z.literal("range") }).strict(),
+	z
+		.object({
+			kind: z.literal("multi-select-contains"),
+			quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
+		})
+		.strict(),
 ]);
 export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 
-// Common slots present on every SearchInputDef arm.
-const searchInputCommon = z.object({
-	uuid: uuidSchema,
-	name: z.string(),
-	label: z.string(),
-	type: z.enum(SEARCH_INPUT_TYPES),
-	default: valueExpressionSchema.optional(),
-});
+// Common slots present on every SearchInputDef arm. `.strict()`
+// propagates through the `searchInputCommon.extend({...})` chains
+// for `simpleSearchInputSchema` and `advancedSearchInputSchema`,
+// so each arm rejects unknown keys at parse time.
+const searchInputCommon = z
+	.object({
+		uuid: uuidSchema,
+		name: z.string(),
+		label: z.string(),
+		type: z.enum(SEARCH_INPUT_TYPES),
+		default: valueExpressionSchema.optional(),
+	})
+	.strict();
 
 /**
  * Simple search input — the (property, mode, via) shape. The wire
@@ -856,11 +873,13 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 // entirely; a module with a case list always carries every required
 // sub-field, even if `columns` / `searchInputs` are empty arrays.
 
-export const caseListConfigSchema = z.object({
-	columns: z.array(columnSchema),
-	filter: predicateSchema.optional(),
-	searchInputs: z.array(searchInputDefSchema),
-});
+export const caseListConfigSchema = z
+	.object({
+		columns: z.array(columnSchema),
+		filter: predicateSchema.optional(),
+		searchInputs: z.array(searchInputDefSchema),
+	})
+	.strict();
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
 // ── CaseSearchConfig ─────────────────────────────────────────────
@@ -911,16 +930,18 @@ export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
 
 // ── Module ───────────────────────────────────────────────────────
 
-export const moduleSchema = z.object({
-	uuid: uuidSchema,
-	id: z.string(), // semantic id (snake_case display slug)
-	name: z.string(),
-	caseType: z.string().optional(),
-	caseListOnly: z.boolean().optional(),
-	purpose: z.string().optional(),
-	caseListConfig: caseListConfigSchema.optional(),
-	caseSearchConfig: caseSearchConfigSchema.optional(),
-});
+export const moduleSchema = z
+	.object({
+		uuid: uuidSchema,
+		id: z.string(), // semantic id (snake_case display slug)
+		name: z.string(),
+		caseType: z.string().optional(),
+		caseListOnly: z.boolean().optional(),
+		purpose: z.string().optional(),
+		caseListConfig: caseListConfigSchema.optional(),
+		caseSearchConfig: caseSearchConfigSchema.optional(),
+	})
+	.strict();
 export type Module = z.infer<typeof moduleSchema>;
 
 export type ModuleKindMetadata = {

@@ -3,8 +3,8 @@
 // Schema-parse coverage for the `caseListConfig` shape. The schema
 // declares three slots — `columns`, `filter?`, `searchInputs` —
 // with sort, visibility, and calculated arms carried on columns.
-// Unknown keys (anything outside the declared shape) strip silently
-// under Zod's default mode and never reach the typed result.
+// Every schema in this file is `.strict()`, so unknown keys are
+// rejected at parse rather than stripped silently.
 //
 // The contracts pinned below:
 //
@@ -23,8 +23,8 @@
 //      arms; the simple arm requires `property`; the advanced arm
 //      requires `predicate`.
 //   7. `caseListConfig` carries only `columns`, `filter?`, and
-//      `searchInputs`. Unknown top-level keys strip silently —
-//      `safeParse` succeeds, the typed result never carries them.
+//      `searchInputs`. Unknown top-level keys are rejected at
+//      parse — `safeParse` returns `success: false`.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -75,11 +75,12 @@ describe("moduleSchema — caseListConfig presence", () => {
 		expect(parsed.success).toBe(true);
 	});
 
-	it("strips unknown top-level keys", () => {
-		// `moduleSchema` declares only the slots the runtime reads;
-		// any other top-level key strips silently so consumers parsing
-		// through `moduleSchema` cannot accidentally reach undeclared
-		// slots on the typed surface.
+	it("rejects unknown top-level keys", () => {
+		// `moduleSchema` is `.strict()`, so any key outside the declared
+		// slot set fails to parse rather than stripping silently. A
+		// stale generator emitting a legacy field (e.g. `caseListColumns`)
+		// or a typo (`__unknown_*`) cannot reach the typed surface — the
+		// schema rejects the whole payload up front.
 		const parsed = moduleSchema.safeParse({
 			uuid: u(1),
 			id: "patients",
@@ -90,17 +91,10 @@ describe("moduleSchema — caseListConfig presence", () => {
 			__unknown_c: ["mixed", "shapes", 99],
 			// One legacy slot named inline as a regression backstop —
 			// confirms a real-world untypable-name doesn't smuggle past
-			// the strip.
+			// the strict gate.
 			caseListColumns: [{ field: "name", header: "Name" }],
 		});
-		expect(parsed.success).toBe(true);
-		if (parsed.success) {
-			const data = parsed.data as Record<string, unknown>;
-			expect(data.__unknown_a).toBeUndefined();
-			expect(data.__unknown_b).toBeUndefined();
-			expect(data.__unknown_c).toBeUndefined();
-			expect(data.caseListColumns).toBeUndefined();
-		}
+		expect(parsed.success).toBe(false);
 	});
 });
 
@@ -113,11 +107,12 @@ describe("caseListConfigSchema — three-slot shape", () => {
 		expect(parsed.success).toBe(true);
 	});
 
-	it("strips unknown top-level keys", () => {
-		// `caseListConfigSchema` declares three slots — `columns`,
-		// `filter?`, `searchInputs`. Any other top-level key strips
-		// silently so consumers reading through the schema cannot
-		// reach undeclared slots on the typed surface.
+	it("rejects unknown top-level keys", () => {
+		// `caseListConfigSchema` is `.strict()` and declares exactly
+		// three slots — `columns`, `filter?`, `searchInputs`. Any other
+		// top-level key fails to parse rather than stripping silently,
+		// so a stale generator emitting a legacy field (e.g.
+		// `detailColumns`) or a typo cannot reach the typed surface.
 		const parsed = caseListConfigSchema.safeParse({
 			columns: [],
 			searchInputs: [],
@@ -126,17 +121,10 @@ describe("caseListConfigSchema — three-slot shape", () => {
 			__unknown_c: ["mixed", "shapes", 99],
 			// One legacy slot named inline as a regression backstop —
 			// confirms a real-world array-shaped key doesn't smuggle
-			// past the strip.
+			// past the strict gate.
 			detailColumns: [{ kind: "plain", field: "phone", header: "Phone" }],
 		});
-		expect(parsed.success).toBe(true);
-		if (parsed.success) {
-			const data = parsed.data as Record<string, unknown>;
-			expect(data.__unknown_a).toBeUndefined();
-			expect(data.__unknown_b).toBeUndefined();
-			expect(data.__unknown_c).toBeUndefined();
-			expect(data.detailColumns).toBeUndefined();
-		}
+		expect(parsed.success).toBe(false);
 	});
 });
 
@@ -336,23 +324,20 @@ describe("columnSchema — six discriminated arms", () => {
 		expect(parsed.success).toBe(false);
 	});
 
-	it("strips an extraneous field slot from a calculated column (calc has no field)", () => {
+	it("rejects an extraneous field slot on a calculated column (calc has no field)", () => {
 		// The calculated arm has no `field` slot — the expression is
-		// the source. The schema's strip mode silently drops the key
-		// rather than rejecting the parse, but the typed result never
-		// carries it.
+		// the source. The arm is `.strict()` (inherited from
+		// `columnBase`), so a payload carrying `field` fails to parse
+		// rather than stripping. A stale caller mixing the plain-arm
+		// shape with the calculated arm is rejected up front.
 		const parsed = columnSchema.safeParse({
 			uuid: u(1),
 			kind: "calculated",
 			header: "Days since last visit",
 			expression: { kind: "today" },
-			field: "should_be_stripped",
+			field: "should_be_rejected",
 		});
-		expect(parsed.success).toBe(true);
-		if (parsed.success) {
-			const data = parsed.data as Record<string, unknown>;
-			expect(data.field).toBeUndefined();
-		}
+		expect(parsed.success).toBe(false);
 	});
 });
 
@@ -640,10 +625,10 @@ describe("searchInputDefSchema — discriminated union", () => {
 	});
 
 	it("rejects an advanced input shipping `xpath` instead of `predicate`", () => {
-		// The advanced arm declares `predicate` as a required slot. An
-		// input shipping `xpath` carries no `predicate`, so the parse
-		// fails on the missing required slot — `xpath` strips silently
-		// at the schema layer and never reaches the typed surface.
+		// The advanced arm declares `predicate` as a required slot and
+		// is `.strict()`, so a payload shipping `xpath` (a stale name)
+		// fails on both axes — the missing required slot AND the
+		// unknown `xpath` key. Either failure mode rejects the parse.
 		const parsed = searchInputDefSchema.safeParse({
 			uuid: u(1),
 			kind: "advanced",
@@ -825,8 +810,8 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 		// Round-trips every authored slot: `claimCondition`,
 		// `dontClaimAlreadyOwned`, `blacklistedOwnerIds`, the five
 		// display labels, and `searchButtonDisplayCondition`. The
-		// `toEqual(config)` assertion pins that the schema's strip-mode
-		// parse preserves all nine slots without drift.
+		// `toEqual(config)` assertion pins that the schema preserves
+		// all nine slots without drift across a strict-mode parse.
 		const config: CaseSearchConfig = {
 			claimCondition: { kind: "match-all" },
 			dontClaimAlreadyOwned: true,
@@ -892,9 +877,10 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 	});
 
 	it("admits explicit `undefined` for an optional slot", () => {
-		// Zod's strip-mode parse preserves the key for an explicitly-
-		// passed `undefined` (the typed result still reports
-		// `claimCondition === undefined`); this test pins that the schema
+		// An optional Zod slot accepts `undefined` as a valid value for
+		// the slot regardless of strict mode (strict rejects unknown
+		// keys; an explicitly-passed `undefined` against a declared
+		// optional slot is not unknown). This test pins that the schema
 		// accepts the input shape that an editor reset to "absent" might
 		// produce, rather than rejecting it as a missing required slot.
 		const parsed = caseSearchConfigSchema.safeParse({

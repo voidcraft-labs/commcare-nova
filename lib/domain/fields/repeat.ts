@@ -88,10 +88,12 @@ export const countBoundRepeatSchema = repeatBase.extend({
  */
 export const queryBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("query_bound"),
-	data_source: z.object({
-		/** XPath returning a space-separated list of case ids to iterate. */
-		ids_query: z.string(),
-	}),
+	data_source: z
+		.object({
+			/** XPath returning a space-separated list of case ids to iterate. */
+			ids_query: z.string(),
+		})
+		.strict(),
 });
 
 /**

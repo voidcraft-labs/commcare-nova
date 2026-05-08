@@ -26,10 +26,12 @@ import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const updateModuleInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	name: z.string().describe("New module name"),
-});
+export const updateModuleInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		name: z.string().describe("New module name"),
+	})
+	.strict();
 
 export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 

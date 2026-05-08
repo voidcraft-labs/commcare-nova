@@ -27,14 +27,18 @@ import {
 	stampSearchInputUuid,
 } from "./shared";
 
-export const addSearchInputInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list to add a search input to"),
-	searchInput: searchInputDefInputSchema.describe(
-		"The search input to append. Pick a kind (`simple` for property/mode/via inputs or `advanced` for a free-form predicate) and supply the kind's required fields plus any optional `default` slot. The tool mints the input's uuid; do not supply one.",
-	),
-});
+export const addSearchInputInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe(
+				"0-based module index whose case list to add a search input to",
+			),
+		searchInput: searchInputDefInputSchema.describe(
+			"The search input to append. Pick a kind (`simple` for property/mode/via inputs or `advanced` for a free-form predicate) and supply the kind's required fields plus any optional `default` slot. The tool mints the input's uuid; do not supply one.",
+		),
+	})
+	.strict();
 
 export type AddSearchInputInput = z.infer<typeof addSearchInputInputSchema>;
 

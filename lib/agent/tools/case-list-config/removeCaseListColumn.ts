@@ -22,14 +22,16 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
-export const removeCaseListColumnInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list column to remove"),
-	columnUuid: uuidInputSchema.describe(
-		"Uuid of the column to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
-	),
-});
+export const removeCaseListColumnInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list column to remove"),
+		columnUuid: uuidInputSchema.describe(
+			"Uuid of the column to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+		),
+	})
+	.strict();
 
 export type RemoveCaseListColumnInput = z.infer<
 	typeof removeCaseListColumnInputSchema

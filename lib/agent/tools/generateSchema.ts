@@ -17,10 +17,12 @@ import { caseTypesOutputSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const generateSchemaInputSchema = z.object({
-	appName: z.string().describe("Short app name (2-5 words)"),
-	caseTypes: caseTypesOutputSchema.shape.case_types,
-});
+export const generateSchemaInputSchema = z
+	.object({
+		appName: z.string().describe("Short app name (2-5 words)"),
+		caseTypes: caseTypesOutputSchema.shape.case_types,
+	})
+	.strict();
 
 export type GenerateSchemaInput = z.infer<typeof generateSchemaInputSchema>;
 

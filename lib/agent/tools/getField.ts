@@ -22,11 +22,13 @@ import { resolveFieldByIndex } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
-export const getFieldInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-	fieldId: z.string().describe("Field id"),
-});
+export const getFieldInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+		fieldId: z.string().describe("Field id"),
+	})
+	.strict();
 
 export type GetFieldInput = z.infer<typeof getFieldInputSchema>;
 

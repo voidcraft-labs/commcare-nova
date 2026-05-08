@@ -41,16 +41,18 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult, snapshotCaseListConfig } from "./shared";
 
-export const setCaseListFilterInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list filter to set"),
-	filter: predicateSchema
-		.nullable()
-		.describe(
-			"Replacement Predicate AST, or `null` to clear the filter. The filter narrows which cases appear on the case list at load time — applied unconditionally before any search-input refinement. Pass `null` to remove an existing filter and show every case of the module's case type.",
-		),
-});
+export const setCaseListFilterInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list filter to set"),
+		filter: predicateSchema
+			.nullable()
+			.describe(
+				"Replacement Predicate AST, or `null` to clear the filter. The filter narrows which cases appear on the case list at load time — applied unconditionally before any search-input refinement. Pass `null` to remove an existing filter and show every case of the module's case type.",
+			),
+	})
+	.strict();
 
 export type SetCaseListFilterInput = z.infer<
 	typeof setCaseListFilterInputSchema

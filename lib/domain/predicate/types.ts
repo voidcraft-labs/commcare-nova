@@ -254,10 +254,12 @@ const casePropertyField = (label: string) =>
  * keeping them in one place avoids drift between the per-schema and
  * file-level copies.
  */
-export const relationStepSchema = z.object({
-	identifier: xmlElementNameField("Relation identifier"),
-	throughCaseType: caseTypeField("Through case type").optional(),
-});
+export const relationStepSchema = z
+	.object({
+		identifier: xmlElementNameField("Relation identifier"),
+		throughCaseType: caseTypeField("Through case type").optional(),
+	})
+	.strict();
 export type RelationStep = z.infer<typeof relationStepSchema>;
 
 /**
@@ -292,35 +294,41 @@ export type RelationStep = z.infer<typeof relationStepSchema>;
  *     `any-relation` into a direction-specific kind.
  */
 export const relationPathSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("self") }),
-	z.object({
-		kind: z.literal("ancestor"),
-		// Tuple-with-rest is the Zod 4 idiom for non-empty arrays
-		// (Zod issue #5253 / v4 migration guide). Compared with
-		// `z.array(T).min(1)`, the tuple form infers as
-		// `[T, ...T[]]` rather than `T[]`, which lets construction-
-		// site object literals like `{ kind: "ancestor", via: [] }`
-		// fail at compile time rather than at parse time. Indexed
-		// access on the resulting type still yields `T` under the
-		// project's current `tsconfig` (no `noUncheckedIndexedAccess`),
-		// so the runtime parse rejection is what enforces non-empty
-		// at read sites — but the construction-site distinction is
-		// real and is locked by the
-		// `typeCheckNonEmptyConstructionSite` block in the builders
-		// test file. The same pattern guards `andSchema.clauses`,
-		// `orSchema.clauses`, and `inSchema.values` below.
-		via: z.tuple([relationStepSchema], relationStepSchema),
-	}),
-	z.object({
-		kind: z.literal("subcase"),
-		identifier: xmlElementNameField("Subcase identifier"),
-		ofCaseType: caseTypeField("Of case type").optional(),
-	}),
-	z.object({
-		kind: z.literal("any-relation"),
-		identifier: xmlElementNameField("Relation identifier"),
-		ofCaseType: caseTypeField("Of case type").optional(),
-	}),
+	z.object({ kind: z.literal("self") }).strict(),
+	z
+		.object({
+			kind: z.literal("ancestor"),
+			// Tuple-with-rest is the Zod 4 idiom for non-empty arrays
+			// (Zod issue #5253 / v4 migration guide). Compared with
+			// `z.array(T).min(1)`, the tuple form infers as
+			// `[T, ...T[]]` rather than `T[]`, which lets construction-
+			// site object literals like `{ kind: "ancestor", via: [] }`
+			// fail at compile time rather than at parse time. Indexed
+			// access on the resulting type still yields `T` under the
+			// project's current `tsconfig` (no `noUncheckedIndexedAccess`),
+			// so the runtime parse rejection is what enforces non-empty
+			// at read sites — but the construction-site distinction is
+			// real and is locked by the
+			// `typeCheckNonEmptyConstructionSite` block in the builders
+			// test file. The same pattern guards `andSchema.clauses`,
+			// `orSchema.clauses`, and `inSchema.values` below.
+			via: z.tuple([relationStepSchema], relationStepSchema),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("subcase"),
+			identifier: xmlElementNameField("Subcase identifier"),
+			ofCaseType: caseTypeField("Of case type").optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("any-relation"),
+			identifier: xmlElementNameField("Relation identifier"),
+			ofCaseType: caseTypeField("Of case type").optional(),
+		})
+		.strict(),
 ]);
 export type RelationPath = z.infer<typeof relationPathSchema>;
 
@@ -370,12 +378,14 @@ export type RelationPath = z.infer<typeof relationPathSchema>;
  * object. See the JSDoc on `relationPathSchema` for the full set of
  * supported walks.
  */
-export const propertyRefSchema = z.object({
-	kind: z.literal("prop"),
-	caseType: caseTypeField("Case type"),
-	property: casePropertyField("Property name"),
-	via: relationPathSchema.optional(),
-});
+export const propertyRefSchema = z
+	.object({
+		kind: z.literal("prop"),
+		caseType: caseTypeField("Case type"),
+		property: casePropertyField("Property name"),
+		via: relationPathSchema.optional(),
+	})
+	.strict();
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
 
 /**
@@ -395,10 +405,12 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
  * structural identifiers from the input name still rely on element-
  * name shape, so the schema rejects hyphens here.
  */
-export const searchInputRefSchema = z.object({
-	kind: z.literal("input"),
-	name: xmlElementNameField("Search input name"),
-});
+export const searchInputRefSchema = z
+	.object({
+		kind: z.literal("input"),
+		name: xmlElementNameField("Search input name"),
+	})
+	.strict();
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 
 // ---------- Session refs (`/session/user/data/` and `/session/context/`) ----------
@@ -509,10 +521,12 @@ export type SessionContextField = (typeof SESSION_CONTEXT_FIELDS)[number];
  * wire form places the field as a literal XML element name in the
  * path step.
  */
-export const sessionUserSchema = z.object({
-	kind: z.literal("session-user"),
-	field: xmlElementNameField("Session-user field"),
-});
+export const sessionUserSchema = z
+	.object({
+		kind: z.literal("session-user"),
+		field: xmlElementNameField("Session-user field"),
+	})
+	.strict();
 export type SessionUserRef = z.infer<typeof sessionUserSchema>;
 
 /**
@@ -534,10 +548,12 @@ export type SessionUserRef = z.infer<typeof sessionUserSchema>;
  * The closed set is documented on `SESSION_CONTEXT_FIELDS` above —
  * including which framework fields v1 intentionally excludes and why.
  */
-export const sessionContextSchema = z.object({
-	kind: z.literal("session-context"),
-	field: z.enum(SESSION_CONTEXT_FIELDS),
-});
+export const sessionContextSchema = z
+	.object({
+		kind: z.literal("session-context"),
+		field: z.enum(SESSION_CONTEXT_FIELDS),
+	})
+	.strict();
 export type SessionContextRef = z.infer<typeof sessionContextSchema>;
 
 /**
@@ -560,11 +576,13 @@ export type SessionContextRef = z.infer<typeof sessionContextSchema>;
  * type set — adding a property data type expands literals at the same
  * time, no parallel maintenance.
  */
-export const literalSchema = z.object({
-	kind: z.literal("literal"),
-	value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
-	data_type: casePropertyDataTypeSchema.optional(),
-});
+export const literalSchema = z
+	.object({
+		kind: z.literal("literal"),
+		value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+		data_type: casePropertyDataTypeSchema.optional(),
+	})
+	.strict();
 export type Literal = z.infer<typeof literalSchema>;
 
 export const termSchema = z.discriminatedUnion("kind", [
@@ -744,42 +762,54 @@ export type FormatDatePreset = (typeof FORMAT_DATE_PRESETS)[number];
  * emitters and the type checker have a single dispatch shape on
  * the value side.
  */
-const valueExpressionTermSchema = z.object({
-	kind: z.literal("term"),
-	term: termSchema,
-});
+const valueExpressionTermSchema = z
+	.object({
+		kind: z.literal("term"),
+		term: termSchema,
+	})
+	.strict();
 
-const todaySchema = z.object({ kind: z.literal("today") });
-const nowSchema = z.object({ kind: z.literal("now") });
+const todaySchema = z.object({ kind: z.literal("today") }).strict();
+const nowSchema = z.object({ kind: z.literal("now") }).strict();
 
-const dateAddSchema = z.object({
-	kind: z.literal("date-add"),
-	date: z.lazy(() => valueExpressionSchema),
-	interval: z.enum(DATE_ADD_INTERVALS),
-	quantity: z.lazy(() => valueExpressionSchema),
-});
+const dateAddSchema = z
+	.object({
+		kind: z.literal("date-add"),
+		date: z.lazy(() => valueExpressionSchema),
+		interval: z.enum(DATE_ADD_INTERVALS),
+		quantity: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
-const dateCoerceSchema = z.object({
-	kind: z.literal("date-coerce"),
-	value: z.lazy(() => valueExpressionSchema),
-});
+const dateCoerceSchema = z
+	.object({
+		kind: z.literal("date-coerce"),
+		value: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
-const datetimeCoerceSchema = z.object({
-	kind: z.literal("datetime-coerce"),
-	value: z.lazy(() => valueExpressionSchema),
-});
+const datetimeCoerceSchema = z
+	.object({
+		kind: z.literal("datetime-coerce"),
+		value: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
-const doubleSchema = z.object({
-	kind: z.literal("double"),
-	value: z.lazy(() => valueExpressionSchema),
-});
+const doubleSchema = z
+	.object({
+		kind: z.literal("double"),
+		value: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
-const arithSchema = z.object({
-	kind: z.literal("arith"),
-	op: z.enum(ARITH_OPS),
-	left: z.lazy(() => valueExpressionSchema),
-	right: z.lazy(() => valueExpressionSchema),
-});
+const arithSchema = z
+	.object({
+		kind: z.literal("arith"),
+		op: z.enum(ARITH_OPS),
+		left: z.lazy(() => valueExpressionSchema),
+		right: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 /**
  * `concat`'s `parts` is a non-empty list. An empty `concat()` is the
@@ -790,13 +820,15 @@ const arithSchema = z.object({
  * literals like `{ kind: "concat", parts: [] }` fail at compile time
  * rather than only at parse — same defense `andSchema.clauses` uses.
  */
-const concatSchema = z.object({
-	kind: z.literal("concat"),
-	parts: z.tuple(
-		[z.lazy(() => valueExpressionSchema)],
-		z.lazy(() => valueExpressionSchema),
-	),
-});
+const concatSchema = z
+	.object({
+		kind: z.literal("concat"),
+		parts: z.tuple(
+			[z.lazy(() => valueExpressionSchema)],
+			z.lazy(() => valueExpressionSchema),
+		),
+	})
+	.strict();
 
 /**
  * `coalesce`'s `values` is non-empty for the same reason `concat.parts`
@@ -805,13 +837,15 @@ const concatSchema = z.object({
  * via the `term` arm. Tuple-with-rest enforces the constraint at the
  * type layer.
  */
-const coalesceSchema = z.object({
-	kind: z.literal("coalesce"),
-	values: z.tuple(
-		[z.lazy(() => valueExpressionSchema)],
-		z.lazy(() => valueExpressionSchema),
-	),
-});
+const coalesceSchema = z
+	.object({
+		kind: z.literal("coalesce"),
+		values: z.tuple(
+			[z.lazy(() => valueExpressionSchema)],
+			z.lazy(() => valueExpressionSchema),
+		),
+	})
+	.strict();
 
 /**
  * Conditional value selection. `cond` is a `Predicate`; both
@@ -839,13 +873,15 @@ const coalesceSchema = z.object({
  * vocabulary (`{ cond, then, else }`) at the AST without forcing a
  * downstream rename pass at every consumer.
  */
-const ifSchema = z.object({
-	kind: z.literal("if"),
-	cond: z.lazy(() => predicateSchema),
-	// biome-ignore lint/suspicious/noThenProperty: `then` is a ValueExpression object (never callable); see the JSDoc above for the full thenable-hazard analysis.
-	then: z.lazy(() => valueExpressionSchema),
-	else: z.lazy(() => valueExpressionSchema),
-});
+const ifSchema = z
+	.object({
+		kind: z.literal("if"),
+		cond: z.lazy(() => predicateSchema),
+		// biome-ignore lint/suspicious/noThenProperty: `then` is a ValueExpression object (never callable); see the JSDoc above for the full thenable-hazard analysis.
+		then: z.lazy(() => valueExpressionSchema),
+		else: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 /**
  * Single switch-case shape — a `when` literal compared against the
@@ -865,11 +901,13 @@ const ifSchema = z.object({
  * hazard pattern; the suppression here preserves the spec's
  * `{ when, then }` shape at the AST.
  */
-const switchCaseSchema = z.object({
-	when: literalSchema,
-	// biome-ignore lint/suspicious/noThenProperty: `then` is a ValueExpression object (never callable); see `ifSchema`'s JSDoc for the full thenable-hazard analysis.
-	then: z.lazy(() => valueExpressionSchema),
-});
+const switchCaseSchema = z
+	.object({
+		when: literalSchema,
+		// biome-ignore lint/suspicious/noThenProperty: `then` is a ValueExpression object (never callable); see `ifSchema`'s JSDoc for the full thenable-hazard analysis.
+		then: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 /**
  * Value-driven multi-case selector. `on` is the discriminator value;
@@ -882,12 +920,14 @@ const switchCaseSchema = z.object({
  * Spec subsection: "Expression family", `if` / `switch` row of the
  * value-expression table.
  */
-const switchSchema = z.object({
-	kind: z.literal("switch"),
-	on: z.lazy(() => valueExpressionSchema),
-	cases: z.tuple([switchCaseSchema], switchCaseSchema),
-	fallback: z.lazy(() => valueExpressionSchema),
-});
+const switchSchema = z
+	.object({
+		kind: z.literal("switch"),
+		on: z.lazy(() => valueExpressionSchema),
+		cases: z.tuple([switchCaseSchema], switchCaseSchema),
+		fallback: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 /**
  * Relational aggregation: count related cases reachable along `via`
@@ -906,11 +946,13 @@ const switchSchema = z.object({
  * Postgres compiler executes the count natively in any value
  * position.
  */
-const countSchema = z.object({
-	kind: z.literal("count"),
-	via: relationPathSchema,
-	where: z.lazy(() => predicateSchema).optional(),
-});
+const countSchema = z
+	.object({
+		kind: z.literal("count"),
+		via: relationPathSchema,
+		where: z.lazy(() => predicateSchema).optional(),
+	})
+	.strict();
 
 /**
  * CSQL's `unwrap-list` value function: pull a JSON-encoded array
@@ -930,10 +972,12 @@ const countSchema = z.object({
  * type through without re-wiring the type checker's compatibility
  * table.
  */
-const unwrapListSchema = z.object({
-	kind: z.literal("unwrap-list"),
-	value: z.lazy(() => valueExpressionSchema),
-});
+const unwrapListSchema = z
+	.object({
+		kind: z.literal("unwrap-list"),
+		value: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 /**
  * `format-date(date, pattern)`. The `pattern` union accepts the three
@@ -948,11 +992,13 @@ const unwrapListSchema = z.object({
  * The pattern slot is non-empty: `format-date(date, "")` is
  * meaningless on every CCHQ dialect.
  */
-const formatDateSchema = z.object({
-	kind: z.literal("format-date"),
-	date: z.lazy(() => valueExpressionSchema),
-	pattern: z.union([z.enum(FORMAT_DATE_PRESETS), z.string().min(1)]),
-});
+const formatDateSchema = z
+	.object({
+		kind: z.literal("format-date"),
+		date: z.lazy(() => valueExpressionSchema),
+		pattern: z.union([z.enum(FORMAT_DATE_PRESETS), z.string().min(1)]),
+	})
+	.strict();
 
 // ---------- Predicate operators (anything that resolves to a boolean) ----------
 
@@ -994,11 +1040,13 @@ export const COMPARISON_KINDS = [
 ] as const;
 export type ComparisonKind = (typeof COMPARISON_KINDS)[number];
 
-const comparisonSchema = z.object({
-	kind: z.enum(COMPARISON_KINDS),
-	left: z.lazy(() => valueExpressionSchema),
-	right: z.lazy(() => valueExpressionSchema),
-});
+const comparisonSchema = z
+	.object({
+		kind: z.enum(COMPARISON_KINDS),
+		left: z.lazy(() => valueExpressionSchema),
+		right: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 /**
  * Set membership with value-equality semantics: `left` equals one of
@@ -1032,27 +1080,29 @@ const comparisonSchema = z.object({
  * null + non-null lists are accepted because they encode the
  * meaningful "absent OR equals one of these values" predicate.
  */
-const inSchema = z.object({
-	kind: z.literal("in"),
-	left: z.lazy(() => valueExpressionSchema),
-	// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
-	// `Literal[]`. Construction-site object literals like
-	// `{ kind: "in", left: ..., values: [] }` fail at compile time
-	// rather than only at parse. Indexed access on the resulting
-	// type still yields `Literal` under the project's current
-	// `tsconfig` (no `noUncheckedIndexedAccess`), so the runtime
-	// parse rejection is what enforces non-empty at read sites.
-	// The `.refine()` below (rejecting all-null lists) runs after
-	// the tuple-arity check so a malformed shape fails on arity
-	// first; both checks are independent and both run on every
-	// parse.
-	values: z
-		.tuple([literalSchema], literalSchema)
-		.refine(
-			(values) => values.some((v) => v.value !== null),
-			"in.values must contain at least one non-null value",
-		),
-});
+const inSchema = z
+	.object({
+		kind: z.literal("in"),
+		left: z.lazy(() => valueExpressionSchema),
+		// Tuple-with-rest produces `[Literal, ...Literal[]]` rather than
+		// `Literal[]`. Construction-site object literals like
+		// `{ kind: "in", left: ..., values: [] }` fail at compile time
+		// rather than only at parse. Indexed access on the resulting
+		// type still yields `Literal` under the project's current
+		// `tsconfig` (no `noUncheckedIndexedAccess`), so the runtime
+		// parse rejection is what enforces non-empty at read sites.
+		// The `.refine()` below (rejecting all-null lists) runs after
+		// the tuple-arity check so a malformed shape fails on arity
+		// first; both checks are independent and both run on every
+		// parse.
+		values: z
+			.tuple([literalSchema], literalSchema)
+			.refine(
+				(values) => values.some((v) => v.value !== null),
+				"in.values must contain at least one non-null value",
+			),
+	})
+	.strict();
 
 /**
  * Distance units accepted by `within-distance`. Pattern mirrors
@@ -1092,13 +1142,15 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
  * 4's `z.number()` already rejects `NaN` and `±Infinity`, so the only
  * structural concern left here is the sign.
  */
-const withinDistanceSchema = z.object({
-	kind: z.literal("within-distance"),
-	property: propertyRefSchema,
-	center: z.lazy(() => valueExpressionSchema),
-	distance: z.number().nonnegative(),
-	unit: z.enum(DISTANCE_UNITS),
-});
+const withinDistanceSchema = z
+	.object({
+		kind: z.literal("within-distance"),
+		property: propertyRefSchema,
+		center: z.lazy(() => valueExpressionSchema),
+		distance: z.number().nonnegative(),
+		unit: z.enum(DISTANCE_UNITS),
+	})
+	.strict();
 
 /**
  * Closed set of CCHQ text-match wire dispatches. Pattern mirrors
@@ -1198,12 +1250,14 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * collapse — the foundation does not rewrite them; the wire layer's
  * lossiness is the wire layer's concern.
  */
-const matchSchema = z.object({
-	kind: z.literal("match"),
-	property: propertyRefSchema,
-	value: z.lazy(() => valueExpressionSchema),
-	mode: z.enum(MATCH_MODES),
-});
+const matchSchema = z
+	.object({
+		kind: z.literal("match"),
+		property: propertyRefSchema,
+		value: z.lazy(() => valueExpressionSchema),
+		mode: z.enum(MATCH_MODES),
+	})
+	.strict();
 
 /**
  * Multi-select containment predicate — "the multi_select property
@@ -1281,6 +1335,7 @@ const multiSelectContainsSchema = z
 		values: z.tuple([literalSchema], literalSchema),
 		quantifier: z.enum(MULTI_SELECT_QUANTIFIERS),
 	})
+	.strict()
 	// All-null rejection mirrors `inSchema.values`'s defense: both wire
 	// targets collapse an all-null list to a duplicated absence check
 	// — the wire matches absent / cleared / empty alike on CCHQ — so
@@ -1344,8 +1399,8 @@ const multiSelectContainsSchema = z
 // shape — a discriminator-only object — so consumers never have to
 // recognise an alternate encoding.
 
-const matchAllSchema = z.object({ kind: z.literal("match-all") });
-const matchNoneSchema = z.object({ kind: z.literal("match-none") });
+const matchAllSchema = z.object({ kind: z.literal("match-all") }).strict();
+const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 
 // ---------- Null / blank predicates ----------
 //
@@ -1431,15 +1486,19 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") });
 // flow through unchanged: builders auto-wrap Term inputs as
 // ValueExpression-of-Term.
 
-const isNullSchema = z.object({
-	kind: z.literal("is-null"),
-	left: z.lazy(() => valueExpressionSchema),
-});
+const isNullSchema = z
+	.object({
+		kind: z.literal("is-null"),
+		left: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
-const isBlankSchema = z.object({
-	kind: z.literal("is-blank"),
-	left: z.lazy(() => valueExpressionSchema),
-});
+const isBlankSchema = z
+	.object({
+		kind: z.literal("is-blank"),
+		left: z.lazy(() => valueExpressionSchema),
+	})
+	.strict();
 
 // ---------- Range predicate ----------
 //
@@ -1499,6 +1558,7 @@ const betweenSchema = z
 		lowerInclusive: z.boolean(),
 		upperInclusive: z.boolean(),
 	})
+	.strict()
 	.refine(
 		(v) => v.lower !== undefined || v.upper !== undefined,
 		"between must have at least one bound (lower or upper)",
@@ -1578,26 +1638,32 @@ const betweenSchema = z
 // `.min(1)` form did — see the recursive-shape note above for why
 // the discriminated-union recursion has to go through `z.lazy`.
 
-const andSchema = z.object({
-	kind: z.literal("and"),
-	clauses: z.tuple(
-		[z.lazy(() => predicateSchema)],
-		z.lazy(() => predicateSchema),
-	),
-});
+const andSchema = z
+	.object({
+		kind: z.literal("and"),
+		clauses: z.tuple(
+			[z.lazy(() => predicateSchema)],
+			z.lazy(() => predicateSchema),
+		),
+	})
+	.strict();
 
-const orSchema = z.object({
-	kind: z.literal("or"),
-	clauses: z.tuple(
-		[z.lazy(() => predicateSchema)],
-		z.lazy(() => predicateSchema),
-	),
-});
+const orSchema = z
+	.object({
+		kind: z.literal("or"),
+		clauses: z.tuple(
+			[z.lazy(() => predicateSchema)],
+			z.lazy(() => predicateSchema),
+		),
+	})
+	.strict();
 
-const notSchema = z.object({
-	kind: z.literal("not"),
-	clause: z.lazy(() => predicateSchema),
-});
+const notSchema = z
+	.object({
+		kind: z.literal("not"),
+		clause: z.lazy(() => predicateSchema),
+	})
+	.strict();
 
 /**
  * Conditional inclusion: only apply `clause` if the named search input
@@ -1613,11 +1679,13 @@ const notSchema = z.object({
  * operators that share that shape. Reading semantics: `clause` is the
  * predicate that runs only when the trigger input is set.
  */
-const whenInputPresentSchema = z.object({
-	kind: z.literal("when-input-present"),
-	input: searchInputRefSchema,
-	clause: z.lazy(() => predicateSchema),
-});
+const whenInputPresentSchema = z
+	.object({
+		kind: z.literal("when-input-present"),
+		input: searchInputRefSchema,
+		clause: z.lazy(() => predicateSchema),
+	})
+	.strict();
 
 // ---------- Relational quantifiers ----------
 //
@@ -1655,17 +1723,21 @@ const whenInputPresentSchema = z.object({
 // union is fully resolved above this point and carries no
 // `predicateSchema` reference (it never embeds a predicate).
 
-const existsSchema = z.object({
-	kind: z.literal("exists"),
-	via: relationPathSchema,
-	where: z.lazy(() => predicateSchema).optional(),
-});
+const existsSchema = z
+	.object({
+		kind: z.literal("exists"),
+		via: relationPathSchema,
+		where: z.lazy(() => predicateSchema).optional(),
+	})
+	.strict();
 
-const missingSchema = z.object({
-	kind: z.literal("missing"),
-	via: relationPathSchema,
-	where: z.lazy(() => predicateSchema).optional(),
-});
+const missingSchema = z
+	.object({
+		kind: z.literal("missing"),
+		via: relationPathSchema,
+		where: z.lazy(() => predicateSchema).optional(),
+	})
+	.strict();
 
 /**
  * The full predicate union, discriminated on `kind` — consumers

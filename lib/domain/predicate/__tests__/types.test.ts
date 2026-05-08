@@ -922,13 +922,9 @@ describe("relationPath schema", () => {
 		// no-traversal shape the type checker treats as identity. The
 		// kind name `"self"` round-trips cleanly through the schema, so
 		// a silent rename to `"identity"` (or any other reshaping of
-		// the no-traversal arm) trips this test.
-		// (Strip semantics on the Zod object are not asserted here —
-		// the default mode strips unknown keys silently, so a payload
-		// with extra slots would still parse to the same
-		// discriminator-only shape. An explicit-no-extras lock would
-		// require `z.strictObject`, which the rest of the file's
-		// schemas don't use.)
+		// the no-traversal arm) trips this test. Each arm of the union
+		// is `.strict()`, so a payload with extra slots fails to parse
+		// rather than silently stripping.
 		const result = relationPathSchema.parse({ kind: "self" });
 		expect(result.kind).toBe("self");
 	});
@@ -1278,15 +1274,17 @@ describe("sentinel predicates", () => {
 	});
 
 	it("rejects match-all with a stray payload field at the schema arm level", () => {
-		// `z.discriminatedUnion` strips unknown keys silently in default
-		// mode, matching the rest of the file's schemas. The pin here
-		// is the discriminator-only round-trip: the parsed value carries
-		// only `kind`, regardless of what the caller passed in.
-		const result = predicateSchema.parse({
+		// Every arm in the predicate union is `.strict()`, so a stray key
+		// on a discriminator-only payload fails to parse rather than
+		// stripping silently. The pin enforces the discriminator-only
+		// shape at the schema layer — a payload carrying anything other
+		// than `kind` is rejected, matching the rest of the file's
+		// strict-mode schemas.
+		const parsed = predicateSchema.safeParse({
 			kind: "match-all",
 			ignored: "value",
 		});
-		expect(result).toEqual({ kind: "match-all" });
+		expect(parsed.success).toBe(false);
 	});
 });
 

@@ -14,10 +14,12 @@ import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
-export const getFormInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-});
+export const getFormInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+	})
+	.strict();
 
 export type GetFormInput = z.infer<typeof getFormInputSchema>;
 

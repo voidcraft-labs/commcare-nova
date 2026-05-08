@@ -15,17 +15,10 @@
  * `updateCaseListColumn`, `removeCaseListColumn`,
  * `reorderCaseListColumns`, `setCaseListFilter`, and the search-input
  * parallels). These tests pin that the module-scoped tools' input
- * schemas don't carry the legacy fields — Zod's default `.strict()`
- * is OFF on `z.object`, so unknown keys are silently stripped rather
- * than rejected. We therefore assert via the parsed output: a payload
- * with the legacy key parses successfully but the legacy field is
- * omitted from `result.data`.
- *
- * The behavioral guard against legacy callers reaching the
- * persistence layer is the absent field on the parsed output: the
- * tool body destructures only the schema's declared keys, so an
- * unknown `case_list_columns` key on an LLM-emitted payload never
- * reaches the mapping branch. That's the regression the test fixes.
+ * schemas don't carry the legacy fields — every input schema is
+ * `.strict()`, so a stale LLM-emitted payload carrying the legacy
+ * shape fails to parse rather than reaching the (now-deleted) mapping
+ * branch.
  */
 
 import { describe, expect, it } from "vitest";
@@ -44,33 +37,26 @@ describe("updateModule legacy column field rejection", () => {
 		}
 	});
 
-	it("input schema strips legacy case_list_columns from the parsed payload", () => {
-		// `z.object()` defaults to strip mode for unknown keys — the parse
-		// succeeds, but the legacy field never reaches the parsed `data`.
-		// The behavioral consequence: the tool body destructures only
-		// declared keys, so a stale LLM-emitted payload carrying the legacy
-		// shape no longer reaches the (now-deleted) mapping branch.
+	it("input schema rejects legacy case_list_columns at parse time", () => {
+		// The schema is `.strict()`, so a stale LLM-emitted payload
+		// carrying the legacy field fails to parse rather than stripping
+		// silently. The behavioral guard is now at the parse boundary —
+		// the tool body never sees the legacy shape.
 		const result = updateModuleInputSchema.safeParse({
 			moduleIndex: 0,
 			name: "Renamed",
 			case_list_columns: [{ field: "case_name", header: "Name" }],
 		});
-		expect(result.success).toBe(true);
-		if (result.success) {
-			expect(result.data).not.toHaveProperty("case_list_columns");
-		}
+		expect(result.success).toBe(false);
 	});
 
-	it("input schema strips legacy case_detail_columns from the parsed payload", () => {
+	it("input schema rejects legacy case_detail_columns at parse time", () => {
 		const result = updateModuleInputSchema.safeParse({
 			moduleIndex: 0,
 			name: "Renamed",
 			case_detail_columns: [{ field: "case_name", header: "Name" }],
 		});
-		expect(result.success).toBe(true);
-		if (result.success) {
-			expect(result.data).not.toHaveProperty("case_detail_columns");
-		}
+		expect(result.success).toBe(false);
 	});
 
 	it("input schema rejects a payload missing the now-required name", () => {
@@ -94,20 +80,16 @@ describe("createModule legacy column field rejection", () => {
 		}
 	});
 
-	it("input schema strips legacy case_list_columns from the parsed payload", () => {
-		// Same strip-on-unknown semantics as `updateModule`: the legacy
-		// field never reaches the parsed `data`, so the tool body's
-		// destructure can't observe it. Case list authoring goes through
-		// the dedicated case-list-config tools (`addCaseListColumn`
-		// et al.) after the module is created.
+	it("input schema rejects legacy case_list_columns at parse time", () => {
+		// Same strict-mode rejection as `updateModule`: the legacy field
+		// fails the schema and the tool body never sees it. Case list
+		// authoring goes through the dedicated case-list-config tools
+		// (`addCaseListColumn` et al.) after the module is created.
 		const result = createModuleInputSchema.safeParse({
 			name: "Patients",
 			case_type: "patient",
 			case_list_columns: [{ field: "case_name", header: "Name" }],
 		});
-		expect(result.success).toBe(true);
-		if (result.success) {
-			expect(result.data).not.toHaveProperty("case_list_columns");
-		}
+		expect(result.success).toBe(false);
 	});
 });

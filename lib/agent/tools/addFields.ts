@@ -37,11 +37,13 @@ import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const addFieldsInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-	fields: z.array(addFieldsItemSchema),
-});
+export const addFieldsInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+		fields: z.array(addFieldsItemSchema),
+	})
+	.strict();
 
 export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
 

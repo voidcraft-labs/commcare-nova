@@ -21,14 +21,16 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
-export const removeSearchInputInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list search input to remove"),
-	searchInputUuid: uuidInputSchema.describe(
-		"Uuid of the search input to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
-	),
-});
+export const removeSearchInputInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list search input to remove"),
+		searchInputUuid: uuidInputSchema.describe(
+			"Uuid of the search input to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+		),
+	})
+	.strict();
 
 export type RemoveSearchInputInput = z.infer<
 	typeof removeSearchInputInputSchema

@@ -36,17 +36,19 @@ import {
 	uuidInputSchema,
 } from "./shared";
 
-export const updateCaseListColumnInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list column to update"),
-	columnUuid: uuidInputSchema.describe(
-		"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
-	),
-	column: columnInputSchema.describe(
-		"Replacement column body — pick a kind (`plain` / `date` / `phone` / `id-mapping` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The column's uuid carries through from the existing entry; do not supply one.",
-	),
-});
+export const updateCaseListColumnInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list column to update"),
+		columnUuid: uuidInputSchema.describe(
+			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+		),
+		column: columnInputSchema.describe(
+			"Replacement column body — pick a kind (`plain` / `date` / `phone` / `id-mapping` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The column's uuid carries through from the existing entry; do not supply one.",
+		),
+	})
+	.strict();
 
 export type UpdateCaseListColumnInput = z.infer<
 	typeof updateCaseListColumnInputSchema

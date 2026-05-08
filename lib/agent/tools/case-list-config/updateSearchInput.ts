@@ -32,17 +32,19 @@ import {
 	uuidInputSchema,
 } from "./shared";
 
-export const updateSearchInputInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list search input to update"),
-	searchInputUuid: uuidInputSchema.describe(
-		"Uuid of the existing search input to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
-	),
-	searchInput: searchInputDefInputSchema.describe(
-		"Replacement search-input body — pick a kind (`simple` or `advanced`) and supply the kind's required fields plus any optional `default` slot. The input's uuid carries through from the existing entry; do not supply one. Switching kinds across this call (`simple` ↔ `advanced`) is permitted; the new shape replaces the old.",
-	),
-});
+export const updateSearchInputInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe("0-based module index whose case list search input to update"),
+		searchInputUuid: uuidInputSchema.describe(
+			"Uuid of the existing search input to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+		),
+		searchInput: searchInputDefInputSchema.describe(
+			"Replacement search-input body — pick a kind (`simple` or `advanced`) and supply the kind's required fields plus any optional `default` slot. The input's uuid carries through from the existing entry; do not supply one. Switching kinds across this call (`simple` ↔ `advanced`) is permitted; the new shape replaces the old.",
+		),
+	})
+	.strict();
 
 export type UpdateSearchInputInput = z.infer<
 	typeof updateSearchInputInputSchema

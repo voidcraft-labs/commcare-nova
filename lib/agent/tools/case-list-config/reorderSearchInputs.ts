@@ -23,16 +23,20 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
-export const reorderSearchInputsInputSchema = z.object({
-	moduleIndex: z
-		.number()
-		.describe("0-based module index whose case list search inputs to reorder"),
-	searchInputUuids: z
-		.array(uuidInputSchema)
-		.describe(
-			"The new full search-input order, given as the array of search-input uuids in their target order. Must contain every existing search-input uuid exactly once — no duplicates, no unknown uuids, no missing uuids. Look at getModule's projection for the current uuid set.",
-		),
-});
+export const reorderSearchInputsInputSchema = z
+	.object({
+		moduleIndex: z
+			.number()
+			.describe(
+				"0-based module index whose case list search inputs to reorder",
+			),
+		searchInputUuids: z
+			.array(uuidInputSchema)
+			.describe(
+				"The new full search-input order, given as the array of search-input uuids in their target order. Must contain every existing search-input uuid exactly once — no duplicates, no unknown uuids, no missing uuids. Look at getModule's projection for the current uuid set.",
+			),
+	})
+	.strict();
 
 export type ReorderSearchInputsInput = z.infer<
 	typeof reorderSearchInputsInputSchema

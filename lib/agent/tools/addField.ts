@@ -43,25 +43,27 @@ import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const addFieldInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-	field: addFieldSchema,
-	afterFieldId: z
-		.string()
-		.optional()
-		.describe("Insert after this field ID. Omit to append at end."),
-	beforeFieldId: z
-		.string()
-		.optional()
-		.describe(
-			"Insert before this field ID. Takes precedence over afterFieldId.",
-		),
-	parentId: z
-		.string()
-		.optional()
-		.describe("ID of a group/repeat to nest inside"),
-});
+export const addFieldInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+		field: addFieldSchema,
+		afterFieldId: z
+			.string()
+			.optional()
+			.describe("Insert after this field ID. Omit to append at end."),
+		beforeFieldId: z
+			.string()
+			.optional()
+			.describe(
+				"Insert before this field ID. Takes precedence over afterFieldId.",
+			),
+		parentId: z
+			.string()
+			.optional()
+			.describe("ID of a group/repeat to nest inside"),
+	})
+	.strict();
 
 export type AddFieldInput = z.infer<typeof addFieldInputSchema>;
 
