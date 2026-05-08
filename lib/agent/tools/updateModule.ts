@@ -1,11 +1,12 @@
 /**
  * SA tool: `updateModule` — patch module-level metadata.
  *
- * Module-scoped name patches only. Case list authoring (columns / sort /
- * filter / calculated / detail / search inputs) lives on the typed
- * case-list-config tools (`setCaseListColumns`, `setCaseListSort`,
- * `setCaseListFilter`, `setCalculatedColumns`, `setCaseListSearchInputs`)
- * — those preserve the typed `Column` discriminated union end-to-end.
+ * Module-scoped name patches only. Case list authoring lives on the
+ * typed case-list-config tools (`addCaseListColumn` /
+ * `updateCaseListColumn` / `removeCaseListColumn` /
+ * `reorderCaseListColumns`, the matching search-input quartet, and the
+ * wholesale `setCaseListFilter`) — those preserve the typed `Column`
+ * and `SearchInputDef` discriminated unions end-to-end.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.

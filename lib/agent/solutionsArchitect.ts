@@ -34,11 +34,15 @@ import type { ToolExecutionContext } from "./toolExecutionContext";
 import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { askQuestionsTool } from "./tools/askQuestions";
-import { setCalculatedColumnsTool } from "./tools/case-list-config/setCalculatedColumns";
-import { setCaseListColumnsTool } from "./tools/case-list-config/setCaseListColumns";
+import { addCaseListColumnTool } from "./tools/case-list-config/addCaseListColumn";
+import { addSearchInputTool } from "./tools/case-list-config/addSearchInput";
+import { removeCaseListColumnTool } from "./tools/case-list-config/removeCaseListColumn";
+import { removeSearchInputTool } from "./tools/case-list-config/removeSearchInput";
+import { reorderCaseListColumnsTool } from "./tools/case-list-config/reorderCaseListColumns";
+import { reorderSearchInputsTool } from "./tools/case-list-config/reorderSearchInputs";
 import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilter";
-import { setCaseListSearchInputsTool } from "./tools/case-list-config/setCaseListSearchInputs";
-import { setCaseListSortTool } from "./tools/case-list-config/setCaseListSort";
+import { updateCaseListColumnTool } from "./tools/case-list-config/updateCaseListColumn";
+import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInput";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
@@ -308,18 +312,25 @@ export function createSolutionsArchitect(
 		removeModule: wrapMutating(removeModuleTool),
 
 		// ── Case list config mutations ─────────────────────────────────
-		// One tool per `caseListConfig` slot. Each accepts the typed
-		// AST shape directly (no flat-text shape, no string parsing).
-		// Wholesale replace: each tool replaces ONE slot of the config
-		// and preserves every other slot. See
-		// `lib/agent/tools/case-list-config/shared.ts` for the shared
-		// resolve / patch / persist scaffolding.
+		// Two arrays (`columns`, `searchInputs`) decompose into atomic
+		// add / update / remove / reorder ops; the `filter` slot stays
+		// wholesale (one Predicate). Each atomic mutation tool returns
+		// the affected uuid both in the success message and in a
+		// structured `result.uuid` field so the SA can target follow-
+		// up edits without re-reading. Atomic ops route their array-
+		// walk through the case-list mutation builders in
+		// `blueprintHelpers.ts`; SA-boundary input shapes live in
+		// `tools/case-list-config/shared.ts`.
 
-		setCaseListColumns: wrapMutating(setCaseListColumnsTool),
-		setCaseListSort: wrapMutating(setCaseListSortTool),
+		addCaseListColumn: wrapMutating(addCaseListColumnTool),
+		updateCaseListColumn: wrapMutating(updateCaseListColumnTool),
+		removeCaseListColumn: wrapMutating(removeCaseListColumnTool),
+		reorderCaseListColumns: wrapMutating(reorderCaseListColumnsTool),
 		setCaseListFilter: wrapMutating(setCaseListFilterTool),
-		setCalculatedColumns: wrapMutating(setCalculatedColumnsTool),
-		setCaseListSearchInputs: wrapMutating(setCaseListSearchInputsTool),
+		addSearchInput: wrapMutating(addSearchInputTool),
+		updateSearchInput: wrapMutating(updateSearchInputTool),
+		removeSearchInput: wrapMutating(removeSearchInputTool),
+		reorderSearchInputs: wrapMutating(reorderSearchInputsTool),
 
 		// ── Validation ────────────────────────────────────────────────
 

@@ -23,21 +23,27 @@
  *
  * Usage: `npx tsx scripts/test-schema.ts [opus] [schema-name]`
  *   - Pass `opus` to test against Opus 4.7 (default Haiku 4.5).
- *   - Pass a schema name (`addFields`, `setCaseListColumns`,
- *     `setCaseListFilter`, `setCaseListSort`,
- *     `setCalculatedColumns`, `setCaseListSearchInputs`) to test
- *     only that schema; omit to test every registered schema.
+ *   - Pass a schema name to test only that schema; omit to test every
+ *     registered schema. Known names: `addFields`,
+ *     `addCaseListColumn`, `updateCaseListColumn`,
+ *     `removeCaseListColumn`, `reorderCaseListColumns`,
+ *     `setCaseListFilter`, `addSearchInput`, `updateSearchInput`,
+ *     `removeSearchInput`, `reorderSearchInputs`.
  */
 import "dotenv/config";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, Output, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { addFieldsSchema } from "../lib/agent/toolSchemas";
-import { setCalculatedColumnsTool } from "../lib/agent/tools/case-list-config/setCalculatedColumns";
-import { setCaseListColumnsTool } from "../lib/agent/tools/case-list-config/setCaseListColumns";
+import { addCaseListColumnTool } from "../lib/agent/tools/case-list-config/addCaseListColumn";
+import { addSearchInputTool } from "../lib/agent/tools/case-list-config/addSearchInput";
+import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/removeCaseListColumn";
+import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
+import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
+import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reorderSearchInputs";
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
-import { setCaseListSearchInputsTool } from "../lib/agent/tools/case-list-config/setCaseListSearchInputs";
-import { setCaseListSortTool } from "../lib/agent/tools/case-list-config/setCaseListSort";
+import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
+import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
 
 /**
  * Discriminated union of the two compiler paths. The structured-
@@ -73,11 +79,35 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 	},
 	{
 		mode: "tool-input",
-		name: "setCaseListColumns",
-		description: setCaseListColumnsTool.description,
-		schema: setCaseListColumnsTool.inputSchema,
+		name: "addCaseListColumn",
+		description: addCaseListColumnTool.description,
+		schema: addCaseListColumnTool.inputSchema,
 		prompt:
-			"Use setCaseListColumns to set columns on module 0 to one plain column for case_name titled Patient.",
+			"Use addCaseListColumn to add a plain column on module 0 for case_name with header Patient.",
+	},
+	{
+		mode: "tool-input",
+		name: "updateCaseListColumn",
+		description: updateCaseListColumnTool.description,
+		schema: updateCaseListColumnTool.inputSchema,
+		prompt:
+			"Use updateCaseListColumn on module 0, columnUuid 11111111-1111-1111-1111-111111111111, replacing it with a date column for dob with header Date of birth and pattern %Y-%m-%d.",
+	},
+	{
+		mode: "tool-input",
+		name: "removeCaseListColumn",
+		description: removeCaseListColumnTool.description,
+		schema: removeCaseListColumnTool.inputSchema,
+		prompt:
+			"Use removeCaseListColumn on module 0, columnUuid 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		mode: "tool-input",
+		name: "reorderCaseListColumns",
+		description: reorderCaseListColumnsTool.description,
+		schema: reorderCaseListColumnsTool.inputSchema,
+		prompt:
+			"Use reorderCaseListColumns on module 0 with the order [22222222-2222-2222-2222-222222222222, 11111111-1111-1111-1111-111111111111].",
 	},
 	{
 		mode: "tool-input",
@@ -89,27 +119,35 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 	},
 	{
 		mode: "tool-input",
-		name: "setCaseListSort",
-		description: setCaseListSortTool.description,
-		schema: setCaseListSortTool.inputSchema,
+		name: "addSearchInput",
+		description: addSearchInputTool.description,
+		schema: addSearchInputTool.inputSchema,
 		prompt:
-			"Use setCaseListSort to set the sort on module 0 to one key: property case_name ascending plain comparator.",
+			"Use addSearchInput on module 0 to add a simple search input named patient_name_input labeled Patient name type text targeting case property name.",
 	},
 	{
 		mode: "tool-input",
-		name: "setCalculatedColumns",
-		description: setCalculatedColumnsTool.description,
-		schema: setCalculatedColumnsTool.inputSchema,
+		name: "updateSearchInput",
+		description: updateSearchInputTool.description,
+		schema: updateSearchInputTool.inputSchema,
 		prompt:
-			"Use setCalculatedColumns to set one calculated column on module 0 with id today_str header Today expression today.",
+			"Use updateSearchInput on module 0, searchInputUuid 11111111-1111-1111-1111-111111111111, replacing it with a simple search input named region labeled Region type text targeting case property region.",
 	},
 	{
 		mode: "tool-input",
-		name: "setCaseListSearchInputs",
-		description: setCaseListSearchInputsTool.description,
-		schema: setCaseListSearchInputsTool.inputSchema,
+		name: "removeSearchInput",
+		description: removeSearchInputTool.description,
+		schema: removeSearchInputTool.inputSchema,
 		prompt:
-			"Use setCaseListSearchInputs to set one search input on module 0 named patient_name_input labeled Patient name type text targeting case property name.",
+			"Use removeSearchInput on module 0, searchInputUuid 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		mode: "tool-input",
+		name: "reorderSearchInputs",
+		description: reorderSearchInputsTool.description,
+		schema: reorderSearchInputsTool.inputSchema,
+		prompt:
+			"Use reorderSearchInputs on module 0 with the order [22222222-2222-2222-2222-222222222222, 11111111-1111-1111-1111-111111111111].",
 	},
 ];
 

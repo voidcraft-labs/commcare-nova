@@ -7,11 +7,12 @@
  * post-mutation `moduleOrder` length to compute the index for the
  * success message.
  *
- * Case list authoring (columns / sort / filter / calculated / search
- * inputs) is a separate step. After the new module is created, the SA
- * calls the typed case-list-config tools (`setCaseListColumns` et al.)
- * with the fresh module's index. Those tools preserve the structured
- * `Column` discriminated union end-to-end.
+ * Case list authoring (columns + filter + search inputs) is a
+ * separate step. After the new module is created, the SA calls the
+ * typed case-list-config tools (`addCaseListColumn`,
+ * `setCaseListFilter`, `addSearchInput`, etc.) with the fresh
+ * module's index. Those tools preserve the structured `Column` and
+ * `SearchInputDef` discriminated unions end-to-end.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
@@ -50,7 +51,7 @@ export type CreateModuleResult = string | { error: string };
 
 export const createModuleTool = {
 	description:
-		"Add a new module to the app. Configure its case list separately via setCaseListColumns once the module exists.",
+		"Add a new module to the app. Configure its case list separately via the case-list-config tools (addCaseListColumn / setCaseListFilter / addSearchInput) once the module exists.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,

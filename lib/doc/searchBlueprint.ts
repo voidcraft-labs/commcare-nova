@@ -15,18 +15,30 @@ import { isContainer } from "@/lib/domain";
 /**
  * A single match from `searchBlueprint`. The surface preserves the
  * positional index shape (`moduleIndex`, `formIndex`) so SA tool output
- * remains stable and human-readable; the `uuid` field lets callers target
- * follow-up mutations directly without re-resolving by index.
+ * remains stable and human-readable; the `uuid` field lets callers
+ * target follow-up mutations directly without re-resolving by index.
+ *
+ * For case-list matches (`case_list_column` and `search_input`), the
+ * `uuid` is the entity's own uuid — the column or search input the
+ * atomic-op tools consume directly. The `containerUuid` carries the
+ * owning module's uuid so the caller has both handles in one record.
  */
 export interface SearchResult {
-	type: "module" | "form" | "field" | "case_list_column";
+	type: "module" | "form" | "field" | "case_list_column" | "search_input";
 	moduleIndex: number;
 	formIndex?: number;
 	/** Slash-delimited path of field ids within the containing form.
 	 *  Absent for module-level and form-level matches. */
 	fieldPath?: string;
-	/** Stable uuid of the matched entity — lets callers target mutations. */
+	/** Stable uuid of the matched entity — lets callers target
+	 *  mutations. For columns / search inputs, this is the entry's own
+	 *  uuid (consumed by `updateCaseListColumn` / `removeCaseListColumn` /
+	 *  `updateSearchInput` / `removeSearchInput`). */
 	uuid?: Uuid;
+	/** Owning module's uuid — surfaced on case-list matches so callers
+	 *  hold the (column-uuid, module-uuid) pair the atomic-op tools
+	 *  need together. */
+	containerUuid?: Uuid;
 	/** Which property matched (e.g. 'label', 'case_property_on', 'id', 'name'). */
 	field: string;
 	/** The matched value. */
@@ -77,28 +89,52 @@ export function searchBlueprint(
 			});
 		}
 
-		/* Case-list display + long-detail columns. Module-level strings
-		 * the SA searches when looking up a case-property reference.
-		 * Every column kind in `caseListConfig.columns` carries
-		 * `field` + `header`, so the search shape is uniform across
-		 * kinds. */
+		/* Case-list columns + search inputs. Module-level strings the
+		 * SA searches when looking up a case-property reference or a
+		 * search-input handle. Each column carries `header` + (for
+		 * non-calc kinds) `field`; calc columns carry only `header`,
+		 * so the search shape branches on `kind`. The match's `uuid`
+		 * is the entry's own uuid; the owning module is surfaced as
+		 * `containerUuid` so the caller has both handles. */
 		const config = mod.caseListConfig;
-		const allColumns = [
-			...(config?.columns ?? []),
-			...(config?.detailColumns ?? []),
-		];
-		for (const col of allColumns) {
-			if (
-				col.field.toLowerCase().includes(q) ||
-				col.header.toLowerCase().includes(q)
-			) {
+		for (const col of config?.columns ?? []) {
+			const headerMatch = col.header.toLowerCase().includes(q);
+			const fieldMatch =
+				col.kind !== "calculated" && col.field.toLowerCase().includes(q);
+			if (headerMatch || fieldMatch) {
+				const value =
+					col.kind === "calculated"
+						? `(calculated) ${col.header}`
+						: `${col.field} (${col.header})`;
 				results.push({
 					type: "case_list_column",
 					moduleIndex: mIdx,
-					uuid: moduleUuid,
+					uuid: col.uuid,
+					containerUuid: moduleUuid,
 					field: "column",
-					value: `${col.field} (${col.header})`,
+					value,
 					context: `Module ${mIdx} "${mod.name}" column "${col.header}"`,
+				});
+			}
+		}
+		for (const input of config?.searchInputs ?? []) {
+			const labelMatch = input.label.toLowerCase().includes(q);
+			const nameMatch = input.name.toLowerCase().includes(q);
+			const propertyMatch =
+				input.kind === "simple" && input.property.toLowerCase().includes(q);
+			if (labelMatch || nameMatch || propertyMatch) {
+				const value =
+					input.kind === "simple"
+						? `${input.name} → ${input.property} (${input.label})`
+						: `${input.name} (advanced) (${input.label})`;
+				results.push({
+					type: "search_input",
+					moduleIndex: mIdx,
+					uuid: input.uuid,
+					containerUuid: moduleUuid,
+					field: "search_input",
+					value,
+					context: `Module ${mIdx} "${mod.name}" search input "${input.label}"`,
 				});
 			}
 		}

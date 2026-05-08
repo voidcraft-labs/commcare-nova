@@ -17,7 +17,7 @@
  *      own `server.registerTool(...)` call behind a `register*(server, ctx)`
  *      facade — there is nothing meaningful to factor out of them.
  *
- *   2. **Shared SA tools** (`lib/agent/tools/*`) — the 18 blueprint
+ *   2. **Shared SA tools** (`lib/agent/tools/*`) — the blueprint
  *      readers + writers the chat-side Solutions Architect already uses
  *      (search, add_field, edit_field, create_form, validate_app, …).
  *      Those modules share a uniform contract (input schema, `execute`
@@ -44,11 +44,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { addFieldTool } from "@/lib/agent/tools/addField";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
-import { setCalculatedColumnsTool } from "@/lib/agent/tools/case-list-config/setCalculatedColumns";
-import { setCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/setCaseListColumns";
+import { addCaseListColumnTool } from "@/lib/agent/tools/case-list-config/addCaseListColumn";
+import { addSearchInputTool } from "@/lib/agent/tools/case-list-config/addSearchInput";
+import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
+import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
+import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
+import { reorderSearchInputsTool } from "@/lib/agent/tools/case-list-config/reorderSearchInputs";
 import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
-import { setCaseListSearchInputsTool } from "@/lib/agent/tools/case-list-config/setCaseListSearchInputs";
-import { setCaseListSortTool } from "@/lib/agent/tools/case-list-config/setCaseListSort";
+import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
+import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
@@ -115,14 +119,20 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "remove_form", tool: removeFormTool },
 	{ name: "remove_module", tool: removeModuleTool },
 	{ name: "search_blueprint", tool: searchBlueprintTool },
-	/* Case-list-config mutations — one tool per slot. Snake_case
-	 * MCP wire names mirror the camelCase TypeScript exports per
-	 * the wire-name convention above. */
-	{ name: "set_calculated_columns", tool: setCalculatedColumnsTool },
-	{ name: "set_case_list_columns", tool: setCaseListColumnsTool },
+	/* Case-list-config mutations — atomic add / update / remove /
+	 * reorder ops on each of the two arrays (`columns`,
+	 * `searchInputs`), plus the wholesale `filter` setter.
+	 * Snake_case MCP wire names mirror the camelCase TypeScript
+	 * exports per the wire-name convention above. */
+	{ name: "add_case_list_column", tool: addCaseListColumnTool },
+	{ name: "add_search_input", tool: addSearchInputTool },
+	{ name: "remove_case_list_column", tool: removeCaseListColumnTool },
+	{ name: "remove_search_input", tool: removeSearchInputTool },
+	{ name: "reorder_case_list_columns", tool: reorderCaseListColumnsTool },
+	{ name: "reorder_search_inputs", tool: reorderSearchInputsTool },
 	{ name: "set_case_list_filter", tool: setCaseListFilterTool },
-	{ name: "set_case_list_search_inputs", tool: setCaseListSearchInputsTool },
-	{ name: "set_case_list_sort", tool: setCaseListSortTool },
+	{ name: "update_case_list_column", tool: updateCaseListColumnTool },
+	{ name: "update_search_input", tool: updateSearchInputTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
 	{ name: "validate_app", tool: validateAppTool },

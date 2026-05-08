@@ -374,7 +374,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(addFormMut?.form.postSubmit).toBe("module");
 	});
 
-	it("setCaseListColumns emits data-mutations tagged module:M:columns", async () => {
+	it("addCaseListColumn emits data-mutations tagged module:M:caseList:column:add", async () => {
 		// Pin the case-list-config write surface emits through the same
 		// `data-mutations` path as every other shared tool — case list
 		// authoring is the typed-AST replacement for the deleted
@@ -382,14 +382,14 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// `Column` mutation at the same staging granularity.
 		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
 
-		await runTool(sa, "setCaseListColumns", {
+		await runTool(sa, "addCaseListColumn", {
 			moduleIndex: 0,
-			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
+			column: { kind: "plain", field: "case_name", header: "Name" },
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("module:0:columns");
+		expect(muts[0].stage).toBe("module:0:caseList:column:add");
 		expectNoLegacyEvents(writer);
 	});
 
@@ -511,10 +511,10 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 		// Case-list-config write tool — covers the typed-AST surface that
 		// replaced the deleted `addModule` SA tool. Walking it here keeps
-		// the safety-net's coverage of column-replacement mutations.
-		await runTool(sa, "setCaseListColumns", {
+		// the safety-net's coverage of column-mutation events.
+		await runTool(sa, "addCaseListColumn", {
 			moduleIndex: 0,
-			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
+			column: { kind: "plain", field: "case_name", header: "Name" },
 		});
 
 		// Shared tools: read + mutation + structural.

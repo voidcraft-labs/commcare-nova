@@ -43,11 +43,21 @@ SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }
 
 ## Two tool groups: generation + shared
 
-Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `setCaseListColumns`, `setCaseListSort`, `setCaseListFilter`, `setCalculatedColumns`, `setCaseListSearchInputs`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`, `setCaseListFilter`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
 
-Case list authoring (columns / sort / filter / calculated / detail / search inputs) is the responsibility of the case-list-config tools — `updateModule` is name-only and `createModule` does NOT accept any case-list shape; the SA configures the case list in a follow-up call after the module exists. This keeps the typed `Column` discriminated union end-to-end on every authoring path.
+Case list authoring is the responsibility of the case-list-config tools — `updateModule` is name-only and `createModule` does NOT accept any case-list shape; the SA configures the case list in a follow-up call after the module exists. This keeps the typed `Column` and `SearchInputDef` discriminated unions end-to-end on every authoring path.
 
-The case-list-config tools (`setCase*` / `setCalculated*`) accept the typed AST shape directly via Zod — `Column[]`, `SortKey[]`, `Predicate`, `CalculatedColumn[]`, `SearchInputDef[]` — pulled from `lib/domain/predicate` and `lib/domain/modules`. Each tool replaces ONE slot of `caseListConfig` and preserves the others. The shared resolve / patch / persist scaffolding lives at `tools/case-list-config/shared.ts`.
+### Case-list authoring — atomic ops + uuid handles
+
+The `caseListConfig` shape has three slots — `columns`, `filter?`, `searchInputs` — and the SA tool surface reflects that:
+
+- **Two arrays decompose into atomic ops.** Each of `columns` and `searchInputs` has an `add` / `update` / `remove` / `reorder` quartet. Each `add` mints a fresh `uuid` and surfaces it in both the success message and a structured `result.uuid` field; `update` / `remove` consume the uuid as the addressing key. Atomic ops keep each call's payload small and let the SA reference uuids directly on follow-up edits without re-reading.
+- **One wholesale tool for `filter`.** A filter is one Predicate, so a wholesale `setCaseListFilter` (with a `null`-clears convention) fits.
+- **Read tools surface uuids.** `getModule`'s `case_list_config` returns the structured config verbatim — every column and search input carries its `uuid`. `searchBlueprint`'s `case_list_column` and `search_input` matches surface the entry's `uuid` plus the owning module's `containerUuid`. `summarizeBlueprint`'s prompt-time module summary lists each case-list entry's uuid alongside its kind + label so the SA inherits the handles after a fresh-session edit-mode resume.
+
+The `update*` tools accept the full body shape (kind + per-kind required fields + common optional slots) — partial-patch shapes don't fit the 8-optional ceiling on the column union (the interval arm alone has six per-kind fields), and switching between `simple` / `advanced` search-input arms requires a different field set anyway.
+
+The case-list-config tools accept the typed AST shape directly via Zod — `Column`, `Predicate`, `SearchInputDef` — pulled from `lib/domain/predicate` and `lib/domain/modules`. The atomic ops route their array-walk through `addColumnMutation` / `updateColumnMutation` / `removeColumnMutation` / `reorderColumnsMutation` (and the search-input parallels) in `lib/agent/blueprintHelpers.ts`; SA-boundary input schemas (`columnInputSchema`, `searchInputDefInputSchema`, both with `uuid` omitted) live at `tools/case-list-config/shared.ts`.
 
 ## Shared-tool return contract
 

@@ -7,7 +7,13 @@
  */
 
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	Column,
+	Module,
+	SearchInputDef,
+	Uuid,
+} from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 
 /**
@@ -72,6 +78,69 @@ function summarizeForm(
 	return [header, ...extras, fieldSummary].join("\n");
 }
 
+/**
+ * Summarize a module's case list — every column and search input
+ * carries its `uuid`, the SA-facing handle for the atomic-op tools
+ * (`updateCaseListColumn`, `removeCaseListColumn`,
+ * `reorderCaseListColumns`, and the search-input parallels). Surfacing
+ * the uuids in the prompt-time summary lets the SA target follow-up
+ * edits without a `getModule` round-trip after a fresh-session edit
+ * resume.
+ *
+ * Returns `undefined` when the module has no case-list config (survey-
+ * only modules; freshly created case-carrying modules). Caller
+ * concatenates only when a section was produced.
+ */
+function summarizeCaseList(mod: Module): string | undefined {
+	const config = mod.caseListConfig;
+	if (config === undefined) return undefined;
+	if (config.columns.length === 0 && config.searchInputs.length === 0) {
+		return undefined;
+	}
+	const lines: string[] = ["    case_list:"];
+	if (config.columns.length > 0) {
+		lines.push("      columns:");
+		for (const col of config.columns) {
+			lines.push(`        - ${formatColumn(col)}`);
+		}
+	}
+	if (config.searchInputs.length > 0) {
+		lines.push("      search_inputs:");
+		for (const input of config.searchInputs) {
+			lines.push(`        - ${formatSearchInput(input)}`);
+		}
+	}
+	if (config.filter !== undefined) {
+		lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	}
+	return lines.join("\n");
+}
+
+/** One-line column summary — uuid + kind + header + per-kind hint. */
+function formatColumn(col: Column): string {
+	const visibility =
+		col.visibleInList === false || col.visibleInDetail === false
+			? ` [list:${col.visibleInList ?? true} detail:${col.visibleInDetail ?? true}]`
+			: "";
+	const sort = col.sort
+		? ` [sort:${col.sort.direction} priority:${col.sort.priority}]`
+		: "";
+	const body =
+		col.kind === "calculated"
+			? `(${col.kind}) "${col.header}"`
+			: `(${col.kind}) ${col.field} → "${col.header}"`;
+	return `${col.uuid}: ${body}${sort}${visibility}`;
+}
+
+/** One-line search-input summary — uuid + kind + name + label hint. */
+function formatSearchInput(input: SearchInputDef): string {
+	const body =
+		input.kind === "simple"
+			? `(simple) ${input.name} → ${input.property} (${input.type}, "${input.label}")`
+			: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
+	return `${input.uuid}: ${body}`;
+}
+
 /** Summarize a module: name, case type, forms. */
 function summarizeModule(
 	doc: BlueprintDoc,
@@ -83,11 +152,15 @@ function summarizeModule(
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
 	const header = `- Module ${index}: "${mod.name}"${caseInfo}${listOnly}`;
+	const sections: string[] = [header];
+	const caseList = summarizeCaseList(mod);
+	if (caseList) sections.push(caseList);
 	const formUuids = doc.formOrder[moduleUuid] ?? [];
 	const forms = formUuids
 		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))
 		.join("\n");
-	return forms ? `${header}\n${forms}` : header;
+	if (forms) sections.push(forms);
+	return sections.join("\n");
 }
 
 /**

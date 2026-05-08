@@ -14,7 +14,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BlueprintDoc, Module } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type Module,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, matchAll, prop } from "@/lib/domain/predicate";
 import { setCaseListFilterTool } from "../setCaseListFilter";
@@ -60,9 +66,7 @@ describe("setCaseListFilter", () => {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: {
 						columns: [],
-						sort: [],
 						filter: matchAll(),
-						calculatedColumns: [],
 						searchInputs: [],
 					},
 				},
@@ -82,39 +86,29 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig && "filter" in finalConfig).toBe(false);
 	});
 
-	it("preserves columns / sort / calculated / search when setting filter", async () => {
+	it("preserves columns and search inputs when setting filter", async () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const seededColumn = plainColumn(
+			asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+			"case_name",
+			"Patient",
+			{ sort: { direction: "asc", priority: 0 } },
+		);
+		const seededInput = simpleSearchInputDef(
+			asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+			"name_search",
+			"Name",
+			"text",
+			"case_name",
+		);
 		const seededDoc = {
 			...baseDoc,
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: {
-						columns: [
-							{ kind: "plain" as const, field: "case_name", header: "Patient" },
-						],
-						sort: [
-							{
-								source: { kind: "property" as const, property: "case_name" },
-								type: "plain" as const,
-								direction: "asc" as const,
-							},
-						],
-						calculatedColumns: [
-							{
-								id: "today",
-								header: "Today",
-								expression: { kind: "today" as const },
-							},
-						],
-						searchInputs: [
-							{
-								name: "name_search",
-								label: "Name",
-								type: "text" as const,
-								property: "case_name",
-							},
-						],
+						columns: [seededColumn],
+						searchInputs: [seededInput],
 					},
 				},
 			},
@@ -129,18 +123,8 @@ describe("setCaseListFilter", () => {
 
 		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
 		expect(finalConfig?.filter).toEqual(filter);
-		expect(finalConfig?.columns).toEqual(
-			seededDoc.modules[MOD_A]?.caseListConfig?.columns,
-		);
-		expect(finalConfig?.sort).toEqual(
-			seededDoc.modules[MOD_A]?.caseListConfig?.sort,
-		);
-		expect(finalConfig?.calculatedColumns).toEqual(
-			seededDoc.modules[MOD_A]?.caseListConfig?.calculatedColumns,
-		);
-		expect(finalConfig?.searchInputs).toEqual(
-			seededDoc.modules[MOD_A]?.caseListConfig?.searchInputs,
-		);
+		expect(finalConfig?.columns).toEqual([seededColumn]);
+		expect(finalConfig?.searchInputs).toEqual([seededInput]);
 	});
 
 	it("is idempotent — two identical calls produce equivalent final state", async () => {
@@ -205,8 +189,8 @@ describe("setCaseListFilter", () => {
 
 	it("initializes the caseListConfig when the module has none", async () => {
 		// Module without an existing config — the tool must produce a
-		// fully-populated config with the new filter + empty arrays
-		// for the unset slots, rather than write `caseListConfig:
+		// fully-populated config with the new filter + empty arrays for
+		// the two array slots, rather than write `caseListConfig:
 		// { filter }` and leave the schema-required arrays absent.
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const baseMod = baseDoc.modules[MOD_A];
@@ -228,12 +212,7 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig).toBeDefined();
 		expect(finalConfig?.filter).toEqual(filter);
 		expect(finalConfig?.columns).toEqual([]);
-		expect(finalConfig?.sort).toEqual([]);
-		expect(finalConfig?.calculatedColumns).toEqual([]);
 		expect(finalConfig?.searchInputs).toEqual([]);
-		// `detailColumns` stays absent — schema-default for the
-		// mirror-short-detail case.
-		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
@@ -292,12 +271,9 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig).toBeDefined();
 		// Every required array slot present at empty.
 		expect(finalConfig?.columns).toEqual([]);
-		expect(finalConfig?.sort).toEqual([]);
-		expect(finalConfig?.calculatedColumns).toEqual([]);
 		expect(finalConfig?.searchInputs).toEqual([]);
 		// `filter` stays absent — `null` means "no filter," and the
 		// schema treats absence as the canonical no-filter shape.
 		expect(finalConfig?.filter).toBeUndefined();
-		expect(finalConfig?.detailColumns).toBeUndefined();
 	});
 });

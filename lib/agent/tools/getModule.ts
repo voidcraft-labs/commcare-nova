@@ -8,12 +8,13 @@
  * re-reading the whole doc. Both the SA chat factory and the MCP
  * adapter call this the same way.
  *
- * The returned `case_list_config` mirrors the structured `CaseListConfig`
- * shape the case-list-config write tools (`setCaseListColumns`,
- * `setCaseListSort`, `setCaseListFilter`, `setCalculatedColumns`,
- * `setCaseListSearchInputs`) consume. Keeping the read shape symmetric
- * with the write shape lets the SA round-trip its own authoring without
- * lossy projection.
+ * The returned `case_list_config` is the structured `CaseListConfig`
+ * verbatim — every column and search input carries its `uuid`, the
+ * SA-facing handle for atomic edits. The atomic write tools
+ * (`updateCaseListColumn`, `removeCaseListColumn`,
+ * `reorderCaseListColumns`, and the search-input parallels) consume
+ * those uuids directly, so a fresh-session read here surfaces every
+ * authoring handle without a parallel call.
  */
 
 import { z } from "zod";
@@ -61,7 +62,7 @@ export type GetModuleResult =
 
 export const getModuleTool = {
 	description:
-		"Get a module by index. Returns module metadata, the structured case list config (columns / sort / filter / calculated / detail / search inputs), and a summary of its forms.",
+		"Get a module by index. Returns module metadata, the structured case list config (columns + filter + searchInputs — every column and search input carries its uuid for atomic edits), and a summary of its forms.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,
