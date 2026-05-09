@@ -68,10 +68,10 @@ describe("AdvancedSection — empty state", () => {
 			screen.getByRole("heading", { name: /exclude cases/i }),
 		).toBeDefined();
 
-		// No Clear / Add affordances surface — Clear renders in the
-		// header only when the slot is defined; Add renders inside
-		// the body only when collapse-open + slot undefined. A
-		// regression that surfaced either would fire here.
+		// Empty-state mount surface: neither Clear nor Add appears.
+		// Clear is header-resident and surfaces only when the slot
+		// is defined; Add lives in the body and surfaces only when
+		// the body is open AND the slot is undefined.
 		expect(
 			screen.queryByLabelText(/^clear blacklisted owner ids$/i),
 		).toBeNull();
@@ -141,11 +141,12 @@ describe("AdvancedSection — add path", () => {
 	});
 
 	it("preserves unrelated `caseSearchConfig` slots through a per-slot mutation", () => {
-		// Pins the spread on every per-slot patch path. `searchScreenTitle`
-		// is the canary because the section never reads or writes it
-		// itself — a regression dropping the base spread would emit a
-		// config missing the title and the parent's strict parse would
-		// silently lose it on the next save.
+		// Per-slot mutators spread `value` so unrelated slots flow
+		// through every emission. `searchScreenTitle` is the canary
+		// because the section never reads or writes it itself — its
+		// presence on the emitted config pins the spread is in place
+		// (without it the parent's strict parse would lose the title
+		// on the next save).
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<AdvancedSection
@@ -316,10 +317,10 @@ describe("AdvancedSection — validity propagation", () => {
 	it("reports valid: true when the config is undefined", () => {
 		// Pins the full short-circuit. `value=undefined` is the shape a
 		// freshly-mounted module without a `caseSearchConfig` produces;
-		// the slot-presence short-circuit must drop the `expressionValid`
-		// stash from the aggregate just as it does on `value={}`. Without
-		// this arm, a regression that read into `value!.blacklistedOwnerIds`
-		// only on the empty-object path would slip past.
+		// the slot-presence short-circuit drops the `expressionValid`
+		// stash from the aggregate just as it does on `value={}`. The
+		// `undefined` arm pins the same valid:true verdict the empty-
+		// object arm pins on the line above.
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(
 			<AdvancedSection

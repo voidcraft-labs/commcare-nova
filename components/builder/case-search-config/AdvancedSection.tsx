@@ -32,21 +32,22 @@
 // type-check verdict keeps reaching the section's validity aggregate
 // regardless of collapse state.
 //
-// Header chrome shape mirrors the canonical `PredicateSlotCard`: the
-// Clear affordance lives in the header at `ml-auto`, surfacing
-// whenever the slot is defined regardless of collapse state. The
-// collapse toggle controls only the body's visibility — Clear stays
-// reachable in one click whenever the slot is present.
+// Header chrome composes through the shared `SlotCardHeader`
+// primitive — the same primitive `PredicateSlotCard` consumes — so
+// every slot-card consumer's header reads as a sibling. The Clear
+// affordance lives in the header at `ml-auto`, surfacing whenever
+// the slot is defined regardless of collapse state. The collapse
+// toggle is opt-in via the primitive's `collapse` prop and controls
+// only the body's visibility — Clear stays reachable in one click
+// whenever the slot is present.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerForbid from "@iconify-icons/tabler/forbid";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import { SlotCardHeader } from "@/components/builder/shared/SlotCardHeader";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {
@@ -143,14 +144,13 @@ export function AdvancedSection({
 	return (
 		<div className="space-y-6">
 			{/* ── Blacklisted owner IDs sub-control ──
-			    Collapsed by default. The chevron in the header is the
-			    collapse trigger; the violet rail, section icon, h3, and
-			    hint span are non-interactive chrome. Clear sits at the
-			    header's right end (matches `PredicateSlotCard`) and is
-			    surfaced whenever the slot is defined regardless of
-			    collapse state. The Add affordance lives inside the body
-			    (only shown when the body is open and the slot is
-			    undefined).
+			    Collapsed by default. The shared `SlotCardHeader`
+			    primitive owns the header chrome; the chevron toggle is
+			    threaded in via its `collapse` prop and the Clear
+			    button via `onClear`, so the affordances surface
+			    whenever the slot is defined regardless of collapse
+			    state. The Add affordance lives inside the body (only
+			    shown when the body is open and the slot is undefined).
 
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
@@ -158,61 +158,23 @@ export function AdvancedSection({
 			    verdict keeps reaching the section's validity aggregate
 			    on every render pass. */}
 			<div className="space-y-3">
-				{/* Section header — same shape as the canonical
-				    PredicateSlotCard header (violet rail → icon → h3 →
-				    hint → ml-auto Clear) with one addition: a chevron-
-				    toggle button sits between the violet rail and the
-				    section icon to drive the body's collapse state.
-				    The rail still leads so the header reads as a
-				    sibling of the Display section's PredicateSlotCard
-				    headers when both render on the same page. */}
-				<header className="flex items-baseline gap-2">
-					<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
-					<button
-						type="button"
-						onClick={() => setBlacklistOpen((prev) => !prev)}
-						aria-expanded={blacklistOpen}
-						aria-label={
-							blacklistOpen
-								? "Collapse blacklisted owner IDs"
-								: "Expand blacklisted owner IDs"
-						}
-						className="self-center cursor-pointer text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors"
-					>
-						<Icon
-							icon={blacklistOpen ? tablerChevronDown : tablerChevronRight}
-							width="12"
-							height="12"
-						/>
-					</button>
-					<Icon
-						icon={tablerForbid}
-						width="14"
-						height="14"
-						className="text-nova-violet-bright/80 self-center"
-					/>
-					<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-						Exclude cases owned by these users from search results
-					</h3>
-					<span className="ml-1 text-[10px] text-nova-text-muted/70">
-						{blacklistPresent
+				<SlotCardHeader
+					icon={tablerForbid}
+					title="Exclude cases owned by these users from search results"
+					description={
+						blacklistPresent
 							? "Cases owned by these IDs are hidden from search results."
-							: "Optional. Hide cases owned by specific user IDs from search results."}
-					</span>
-					<div className="ml-auto">
-						{blacklistPresent ? (
-							<button
-								type="button"
-								onClick={clearBlacklist}
-								className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
-								aria-label="Clear blacklisted owner IDs"
-							>
-								<Icon icon={tablerX} width="11" height="11" />
-								<span>Clear</span>
-							</button>
-						) : null}
-					</div>
-				</header>
+							: "Optional. Hide cases owned by specific user IDs from search results."
+					}
+					collapse={{
+						isOpen: blacklistOpen,
+						onToggle: () => setBlacklistOpen((prev) => !prev),
+						expandLabel: "Expand blacklisted owner IDs",
+						collapseLabel: "Collapse blacklisted owner IDs",
+					}}
+					onClear={blacklistPresent ? clearBlacklist : undefined}
+					clearLabel="Clear blacklisted owner IDs"
+				/>
 
 				{blacklist !== undefined ? (
 					// Defined slot: editor stays mounted unconditionally.

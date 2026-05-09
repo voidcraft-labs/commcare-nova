@@ -143,6 +143,43 @@ function pickClusterSlots<K extends keyof CaseSearchConfig>(
 	return out;
 }
 
+// ── Patch-projection helper for SA-input layering ───────────────────
+
+/**
+ * Project a wholesale-with-`null`-clears SA-input batch into the
+ * cluster-shaped layer the tools compose onto the carried-forward
+ * other cluster. Iterates `slots` so the slot list lives in exactly
+ * one place; `null` inputs (the wholesale-clear semantic) skip the
+ * write so the returned object's keys reflect only the slots the SA
+ * actually set.
+ *
+ * Structural twin of `pickClusterSlots` — both walk a slot list and
+ * filter on a per-slot guard. The generic correlation
+ * `K extends keyof CaseSearchConfig` keeps per-slot assignment
+ * well-typed without a return cast: `slot: K` and
+ * `input[slot]: CaseSearchConfig[K] | null` correlate per-call so
+ * `out[slot] = value` lands at the right slot's value type.
+ *
+ * The input shape is the SA-boundary's wholesale-clears mapping —
+ * every slot in `K` is required and may be `null`. Tools whose body
+ * schemas are derived from the same `slots` tuple (the partition
+ * exhaustiveness checks above guarantee this) feed the schema-typed
+ * input here directly.
+ */
+export function applyClusterPatch<K extends keyof CaseSearchConfig>(
+	input: { readonly [P in K]: CaseSearchConfig[P] | null },
+	slots: readonly K[],
+): Partial<Pick<CaseSearchConfig, K>> {
+	const out: Partial<Pick<CaseSearchConfig, K>> = {};
+	for (const slot of slots) {
+		const value = input[slot];
+		if (value !== null) {
+			out[slot] = value;
+		}
+	}
+	return out;
+}
+
 // ── Input schemas — advanced cluster ────────────────────────────────
 
 /**

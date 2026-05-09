@@ -39,12 +39,12 @@
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import type { CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { PredicateCardEditor } from "./PredicateCardEditor";
+import { SlotCardHeader } from "./SlotCardHeader";
 import { useValidityPropagator } from "./useInnerValidityShadow";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -154,36 +154,13 @@ export function PredicateSlotCard({
 
 	return (
 		<div className="space-y-3">
-			{/* Section header. Violet rail + icon + title + hint line +
-			    Clear button on the right when the slot is defined. */}
-			<header className="flex items-baseline gap-2">
-				<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
-				<Icon
-					icon={icon}
-					width="14"
-					height="14"
-					className="text-nova-violet-bright/80 self-center"
-				/>
-				<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-					{title}
-				</h3>
-				<span className="ml-1 text-[10px] text-nova-text-muted/70">
-					{description}
-				</span>
-				<div className="ml-auto">
-					{slotPresent ? (
-						<button
-							type="button"
-							onClick={handleClear}
-							className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
-							aria-label={clearLabel}
-						>
-							<Icon icon={tablerX} width="11" height="11" />
-							<span>{clearLabel}</span>
-						</button>
-					) : null}
-				</div>
-			</header>
+			<SlotCardHeader
+				icon={icon}
+				title={title}
+				description={description}
+				onClear={slotPresent ? handleClear : undefined}
+				clearLabel={clearLabel}
+			/>
 
 			{/* Body — predicate editor when the slot is defined; the
 			    dashed empty-state CTA when undefined. The two arms are

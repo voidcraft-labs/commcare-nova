@@ -59,10 +59,11 @@ describe("setCaseSearchAdvanced", () => {
 		expect(result.kind).toBe("mutate");
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config?.blacklistedOwnerIds).toEqual(blacklist);
-		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`
-		// so any unknown key sneaking out of the strip-and-rebuild logic, or
-		// a key that landed as `undefined` rather than absent, surfaces here.
-		// Catches drift the observable-shape assertions above wouldn't.
+		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
+		// so the persisted config's key set must be exactly the schema's
+		// declared slots. Catches the shape drift the observable-shape
+		// assertions above don't (an unknown key leaking onto the layer,
+		// or a known key landing as `undefined` instead of absent).
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 

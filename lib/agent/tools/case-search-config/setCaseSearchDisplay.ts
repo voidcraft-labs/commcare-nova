@@ -28,6 +28,7 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
+	applyClusterPatch,
 	DISPLAY_SLOT_NAMES,
 	type DisplaySlotName,
 	pickAdvancedCluster,
@@ -92,16 +93,10 @@ export const setCaseSearchDisplayTool = {
 				);
 
 			// Carry the advanced cluster forward via the shared picker,
-			// then layer the input's display values on top. The picker
-			// reads from the same source-of-truth tuples the input
-			// schema derives from, so a future schema slot that lands
-			// on the advanced cluster preserves automatically.
-			//
-			// The display layer iterates `DISPLAY_SLOT_NAMES` directly so
-			// the slot list lives in exactly one place. Each slot whose
-			// input arrived non-null lands on `nextConfig` keyed by its
-			// name; null inputs (the wholesale-clear semantic) and
-			// genuinely undefined slots stay absent.
+			// then layer the input's display values on top. Both helpers
+			// derive their slot sets from the source-of-truth tuples the
+			// schema uses, so a future schema slot lands on the right
+			// cluster automatically.
 			const existing = snapshotCaseSearchConfig(mod);
 			const nextConfig: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
@@ -151,27 +146,14 @@ export const setCaseSearchDisplayTool = {
 
 /**
  * Build the display-layer projection the wholesale-rebuild composes
- * onto the carried-forward advanced cluster. Iterates
- * `DISPLAY_SLOT_NAMES` so the slot list lives in exactly one place;
- * `null` inputs (the wholesale-clear semantic) skip the write so the
- * returned object's keys reflect only the slots the SA actually set.
- *
- * Return type mirrors the shape — `Partial<Pick<...>>` says "every
- * slot named in `DISPLAY_SLOT_NAMES`, possibly absent". The schema
- * derives the input slots and the config slots from the same source
- * nodes, so the runtime values are guaranteed assignable; the cast
- * on the return spans only the K-by-K parametricity the loop strips
- * off after walking `DISPLAY_SLOT_NAMES` as a flat string list.
+ * onto the carried-forward advanced cluster. Routes through the
+ * shared `applyClusterPatch` helper so the slot list (`DISPLAY_SLOT_NAMES`)
+ * lives in exactly one place; `null` inputs (the wholesale-clear
+ * semantic) skip the write so the returned object's keys reflect
+ * only the slots the SA actually set.
  */
 function buildDisplayLayer(
 	input: SetCaseSearchDisplayInput,
 ): Partial<Pick<CaseSearchConfig, DisplaySlotName>> {
-	const layer: Record<string, unknown> = {};
-	for (const slot of DISPLAY_SLOT_NAMES) {
-		const value = input[slot];
-		if (value !== null) {
-			layer[slot] = value;
-		}
-	}
-	return layer as Partial<Pick<CaseSearchConfig, DisplaySlotName>>;
+	return applyClusterPatch(input, DISPLAY_SLOT_NAMES);
 }
