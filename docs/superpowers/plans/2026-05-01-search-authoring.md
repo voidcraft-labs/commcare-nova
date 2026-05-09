@@ -841,6 +841,42 @@ In `lib/commcare/validator/rules/case-list/` (because `searchInputs` lives on `c
 
 **Next:** Task 4 (cross-binding test, in flight), Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`), Task 8 (`<remote-request>` orchestrator, depends on Task 9), Task 13 (integration test, depends on all). Plus the queued predicate-editor-subtree reorg (slated between Tasks 12 ✓ and 13).
 
+### Task 4 — SearchInputs cross-binding test — 2026-05-08
+
+Landed at commit `8ffd57ab`. Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) APPROVED with no blockers (one observation-only Minor on `userEvent` vs `fireEvent` style — sibling tests use the same pattern, not flagged for action).
+
+**Final shape:**
+
+- `components/builder/case-search-config/__tests__/searchInputsCrossBinding.test.tsx` (NEW, 655 lines, 8 `it()` blocks). Test-only — zero production-code changes.
+
+**Mount setup:** single `BlueprintDocProvider` wraps both `CaseListWorkspace` + `CaseSearchConfigPanel` + a `DocSnapshotProbe`. Both workspaces share one Zustand store instance — the cross-binding contract is genuinely under test, not tautological. `DocSnapshotProbe` (introduced in Task 12's fix-pass at `f54c3f0f`) reads live `Module` state from the store post-mutation via `useModule(moduleUuid)`; assertions run against the persisted shape, not the rendered view.
+
+**Mocks:** the four surrounding shells (DisplaySection + FiltersSection in case-list, ClaimSection + DisplaySection in case-search) are mocked to minimal `<div data-testid="..." />` stubs so only the `SearchInputsSection` mount drives mutations. `SearchInputsSection` is left UNMOCKED — real Add/Convert affordances drive real mutations through the doc store. Mocks are non-tautological (zero behavior assertions on the stubs).
+
+**8 invariants pinned (one per `it()` block):**
+
+1. **Persistence-slot pin** — after a cross-binding write, `mod.caseListConfig.searchInputs.length === 1` AND `mod.caseSearchConfig === undefined` (entire slot, stricter than the spec's "no parallel `caseSearchConfig.searchInputs` slot" — catches Claim/Display side-effects too).
+2. Add `kind: "simple"` from CaseSearchConfigPanel → appears in CaseListWorkspace.
+3. Add `kind: "advanced"` from CaseListWorkspace → appears in CaseSearchConfigPanel.
+4. Convert simple → advanced from CaseListWorkspace → visible in CaseSearchConfigPanel.
+5. Convert advanced → simple from CaseSearchConfigPanel → visible in CaseListWorkspace.
+6. Round-trip preserves all five common slots (`uuid`, `name`, `label`, `type`, `default`) across both convert directions; `default` set to `term(literal("Ada"))` to actually pin the preservation.
+7. Per-arm non-leakage on simple rows: `Object.hasOwn` checks confirm `predicate` is absent on simple-arm rows.
+8. Per-arm non-leakage on advanced rows: `Object.hasOwn` checks confirm `property`, `mode`, `via` are absent on advanced-arm rows.
+
+**Test count:** 8 in this file; 44 total in case-search-config; 4011 full suite passing.
+
+**Acceptance gates landed:**
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean.
+- Drift sweeps clean.
+
+**Whole-repo build state:** green throughout.
+
+**No production-code concerns surfaced** — the workspaces correctly share doc-store state via `useModule` / `updateModule`, both routing search-input writes through `caseListConfig.searchInputs`. The cross-binding works as designed.
+
+**Next:** Predicate-editor-subtree reorg (in flight); Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`); Task 8 (`<remote-request>` orchestrator, depends on Task 9); Task 13 (integration test, depends on all).
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
