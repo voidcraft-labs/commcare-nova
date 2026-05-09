@@ -92,9 +92,9 @@
 // tuple) keeps each function single-purpose and lets call sites
 // import only what they consume.
 
-import { emitOnDeviceExpression } from "@/lib/commcare/expression";
 import type { SearchInputDef, SearchInputType } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { escapeXml } from "../../xml";
 import type { CaseListEmission } from "../case-list/types";
 
@@ -124,11 +124,13 @@ const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 	// CCHQ's default: omit both attributes. The runtime renders a
 	// plain text input.
 	text: {},
-	// Single-select picker (CCHQ's `input_="select1"`). The Itemset
-	// child element that CCHQ pairs with `select1` is not yet
-	// modeled in Nova's authoring surface; the wire layer emits the
-	// type discriminator and leaves itemset configuration for a
-	// future enhancement.
+	// Single-select picker (CCHQ's `input_="select1"`). The wire
+	// emitter writes the type discriminator only; CCHQ pairs
+	// `select1` with an `<itemset>` child to enumerate options, but
+	// Nova's authoring layer doesn't project an itemset declaration
+	// into the prompt. CCHQ's runtime widget renders the option list
+	// from the property's declared options when the case-search
+	// executes.
 	select: { input: "select1" },
 	// CCHQ collapses the type discriminator to `date`.
 	date: { input: "date" },

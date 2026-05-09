@@ -15,15 +15,25 @@
 //      `barcode` (`@appearance="barcode_scan"`, NOT `@input`). One
 //      test per row.
 //
-//   2. **Optional slot presence.** `<display>` element omits when
-//      `input.label` is empty; `<default>` attribute omits when
-//      `input.default` is absent; both populate when set.
+//   2. **Display + default contracts.** `<display>` always emits
+//      (matches CCHQ canonical shape). The locale-string entry
+//      registers `input.label` when set, falling back to
+//      `input.name` for empty labels so the runtime renders
+//      something readable rather than the locale id itself. The
+//      `@default` attribute populates from `input.default` when
+//      present, omitted otherwise.
 //
 //   3. **Per-arm dispatch.** Simple-arm and advanced-arm rows emit
 //      the same `<prompt>` shape. Advanced-arm predicates surface
 //      via the sibling `getAdvancedArmPredicates` helper for the
 //      orchestrator's `_xpath_query` AND-composition. Simple-arm
 //      rows do not contribute to that helper's output.
+//
+//   4. **Attribute order.** When multiple optional attributes
+//      populate, the wire emission orders them `key`, `appearance`,
+//      `input`, `default` — matching CCHQ's `QueryPrompt` model
+//      declaration order in
+//      `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py`.
 //
 // Plus a golden-file comparison against the canonical fixture's
 // `<prompt>` block (`name` plain, `dob` date, `consent` checkbox)
@@ -203,7 +213,12 @@ describe("emitSearchPrompts — <display> element + locale registration", () => 
 // ============================================================
 
 describe("emitSearchPrompts — @default attribute conditional on input.default", () => {
-	it("populates @default with the compiled on-device XPath when input.default is set", () => {
+	it("populates @default with the compiled on-device XPath in the canonical attribute slot", () => {
+		// The full wire string pins `@default` AT THE END of the
+		// attribute list (after `key`, `appearance`, `input`) per
+		// CCHQ's `QueryPrompt` model declaration order. A regression
+		// that flipped attribute order — say, emitting `default`
+		// before `input` — would fail this exact-string check.
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(INPUT_UUIDS.a, "since", "Since", "date", "dob", {
 				default: today(),
@@ -212,11 +227,17 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
-		// `today()` is a CCHQ on-device value function — the emitter
-		// renders it as the wire string `today()`. The attribute value
-		// is XML-attribute-escaped; `today()` contains no XML-unsafe
-		// characters, so the literal string appears intact.
-		expect(xml).toContain(`default="today()"`);
+		expect(xml).toBe(
+			[
+				`        <prompt key="since" input="date" default="today()">`,
+				`          <display>`,
+				`            <text>`,
+				`              <locale id="search_property.m0.since"/>`,
+				`            </text>`,
+				`          </display>`,
+				`        </prompt>`,
+			].join("\n"),
+		);
 	});
 
 	it("omits @default attribute when input.default is absent", () => {
@@ -230,13 +251,13 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 	});
 
 	it("compiles a date-coerce default through the on-device emitter", () => {
-		// `dateCoerce(literal)` lowers to wire `date(<literal>)` — the
-		// XPath idiom for a typed date value that the runtime parses
-		// before comparison. The compiled attribute body uses single
-		// quotes around the date string, so the XML attribute's
-		// surrounding double quotes stay safe; the `escapeXml` pass
-		// covers `&` / `<` / `>` / `"` if any of those leak in
-		// future shapes.
+		// `dateCoerce(literal)` lowers to wire `date(<literal>)` —
+		// the XPath idiom for a typed date value that the runtime
+		// parses before comparison. The `escapeXml` helper covers
+		// `&` / `<` / `>` / `"` — defense for compiled XPath bodies
+		// that may contain these characters; this particular body
+		// uses single quotes around the date string, so nothing in
+		// it needs escaping.
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(INPUT_UUIDS.a, "since", "Since", "date", "dob", {
 				default: dateCoerce(term(dateLiteral("2024-01-01"))),
@@ -246,6 +267,31 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
 		expect(xml).toContain(`default="date('2024-01-01')"`);
+	});
+
+	it("orders attributes key, appearance, input, default for a barcode + default combination", () => {
+		// Hits both orthogonal optional slots — `appearance` (from
+		// the barcode mapping) AND `default` (author-set) — to pin
+		// the canonical declaration order across the broader
+		// matrix. `barcode` does not normally carry a `default`,
+		// but the attribute-emission code is mapping-driven so the
+		// combination exercises the slot ordering directly.
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"id_code",
+				"ID code",
+				"barcode",
+				"id_code",
+				{ default: today() },
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).toContain(
+			`<prompt key="id_code" appearance="barcode_scan" default="today()">`,
+		);
 	});
 });
 
