@@ -11,10 +11,11 @@
 //     only — no "Clear" button, no editor mounted.
 //   - Add path: clicking the chevron toggle opens the body; clicking
 //     Add seeds `term(literal(""))` and emits the next config.
-//   - Round-trip with populated slot: the editor mounts hidden by
-//     default (collapse keeps the body invisible until expanded) but
-//     the Clear affordance is reachable inside the hidden wrapper, so
-//     test queries can confirm the slot's presence.
+//   - Round-trip with populated slot: the editor mounts inside a
+//     collapsed body by default, but the Clear affordance lives in
+//     the header at `ml-auto` (matching the canonical
+//     `PredicateSlotCard` shape) so it stays one click away regardless
+//     of collapse state.
 //   - Validity propagation: an absent slot reports `valid: true`; an
 //     invalid populated expression reports `valid: false` even when
 //     the body is collapsed (mount-stays-on contract).
@@ -67,9 +68,10 @@ describe("AdvancedSection — empty state", () => {
 			screen.getByRole("heading", { name: /exclude cases/i }),
 		).toBeDefined();
 
-		// No Clear / Add affordances surface — both live inside the
-		// hidden body. A regression that mounted the body unconditionally
-		// would expose either, and the test would fire.
+		// No Clear / Add affordances surface — Clear renders in the
+		// header only when the slot is defined; Add renders inside
+		// the body only when collapse-open + slot undefined. A
+		// regression that surfaced either would fire here.
 		expect(
 			screen.queryByLabelText(/^clear blacklisted owner ids$/i),
 		).toBeNull();
@@ -175,7 +177,14 @@ describe("AdvancedSection — add path", () => {
 // ── Round-trip with populated slot ────────────────────────────────
 
 describe("AdvancedSection — populated round-trip", () => {
-	it("renders the populated blacklist slot with the body collapsed-closed by default", () => {
+	it("renders the Clear affordance in the header when the slot is defined — even with the body collapsed", () => {
+		// Pins the canonical `PredicateSlotCard` shape for this
+		// section: Clear lives in the header at `ml-auto`, so a
+		// collapsed body (the default for a backend-loaded config)
+		// keeps the Clear affordance reachable without a prior
+		// expand click. Without this contract, an author landing on
+		// a populated slot would have to expand the body first to
+		// drop the slot — friction with no upside.
 		render(
 			<AdvancedSection
 				value={{
@@ -187,14 +196,9 @@ describe("AdvancedSection — populated round-trip", () => {
 			/>,
 		);
 
-		// Toggle reads as collapsed. `getByRole`'s default
-		// `hidden: false` filter excludes content inside the
-		// `hidden`-attributed body, so the Clear affordance — which
-		// lives inside that body — is unreachable through the
-		// accessibility tree until the toggle expands. Querying the
-		// toggle's `aria-expanded` state and the Clear button's
-		// accessibility presence is the keep-it-accessible signal
-		// for "the body is collapsed."
+		// Toggle reads as collapsed (the body is hidden), but the
+		// Clear button surfaces from the header — `ml-auto` placement
+		// puts it outside the collapsed body wrapper.
 		expect(
 			screen.getByRole("button", {
 				expanded: false,
@@ -202,13 +206,13 @@ describe("AdvancedSection — populated round-trip", () => {
 			}),
 		).toBeDefined();
 		expect(
-			screen.queryByRole("button", {
+			screen.getByRole("button", {
 				name: /^clear blacklisted owner ids$/i,
 			}),
-		).toBeNull();
+		).toBeDefined();
 	});
 
-	it("reveals the body on chevron click", () => {
+	it("toggles body visibility on chevron click without affecting the header Clear", () => {
 		render(
 			<AdvancedSection
 				value={{
@@ -220,13 +224,20 @@ describe("AdvancedSection — populated round-trip", () => {
 			/>,
 		);
 
-		// Pre-click: collapsed body hides the Clear affordance from
-		// the accessibility tree.
+		// Pre-click: header reads collapsed, Clear is already
+		// reachable in the header (the load-bearing contract for
+		// this fix).
 		expect(
-			screen.queryByRole("button", {
+			screen.getByRole("button", {
+				expanded: false,
+				name: /^expand blacklisted owner ids$/i,
+			}),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", {
 				name: /^clear blacklisted owner ids$/i,
 			}),
-		).toBeNull();
+		).toBeDefined();
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -235,8 +246,9 @@ describe("AdvancedSection — populated round-trip", () => {
 			}),
 		);
 
-		// Post-click: toggle reads as expanded and the Clear
-		// affordance surfaces through the accessibility tree.
+		// Post-click: toggle now reads as expanded; Clear stays in
+		// the header. The collapse state controls the body's
+		// visibility, not the Clear affordance.
 		expect(
 			screen.getByRole("button", {
 				expanded: true,
@@ -248,6 +260,44 @@ describe("AdvancedSection — populated round-trip", () => {
 				name: /^clear blacklisted owner ids$/i,
 			}),
 		).toBeDefined();
+	});
+
+	it("Clear in the header drops the slot — works with the body collapsed (no expand prerequisite)", () => {
+		// Pins the user-actionable contract: a populated slot can be
+		// cleared without expanding the body. This is the failure
+		// mode the fix targets — a backend-loaded invalid expression
+		// mounts default-collapsed, and the user must be able to
+		// drop the slot in one click.
+		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		render(
+			<AdvancedSection
+				value={{
+					blacklistedOwnerIds: term(literal("owner-a")),
+					searchScreenTitle: "Find a patient",
+				}}
+				onChange={onChange}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+			/>,
+		);
+
+		// Body is collapsed (default), but Clear is reachable.
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /^clear blacklisted owner ids$/i,
+			}),
+		);
+
+		// `clearBlacklist` spreads `...(value ?? {})` and assigns
+		// `blacklistedOwnerIds: undefined`, so the unrelated
+		// `searchScreenTitle` slot survives and the cleared slot
+		// reads as `undefined`. The doc-store strict parse on the
+		// next save would otherwise lose the title.
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(onChange.mock.calls[0]?.[0]).toEqual({
+			blacklistedOwnerIds: undefined,
+			searchScreenTitle: "Find a patient",
+		});
 	});
 });
 

@@ -47,6 +47,7 @@ import type { Location } from "@/lib/routing/types";
 import { useEditMode } from "@/lib/session/hooks";
 import { PreviewHeader } from "./PreviewHeader";
 import { CaseListScreen } from "./screens/CaseListScreen";
+import { CaseSearchConfigInteractEmptyState } from "./screens/CaseSearchConfigInteractEmptyState";
 import { FormScreen } from "./screens/FormScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ModuleScreen } from "./screens/ModuleScreen";
@@ -186,8 +187,10 @@ export function PreviewShell({
 			break;
 		case "searchConfig":
 			/* The panel mounts off `caseSearchConfigRef` (uuid-shaped),
-			 * not a per-type screen ref — there's no live-mode counterpart
-			 * yet, so no integer-indexed identity is needed alongside it. */
+			 * not a per-type screen ref — the live-mode arm is a
+			 * stateless empty-state card (no per-screen identity to
+			 * preserve), so no integer-indexed identity is needed
+			 * alongside it. */
 			break;
 		case "form":
 			formScreenRef.current = zustandScreen;
@@ -306,17 +309,28 @@ export function PreviewShell({
 					</Activity>
 				)}
 				{/*
-				 * Activity boundary for the case-search authoring URL.
-				 * The panel is an edit-mode-only authoring shell — the
-				 * multi-section magazine layout (Display / Search
-				 * Inputs / Advanced) writes the module's
-				 * `caseSearchConfig` slot plus the cross-bound
-				 * `caseListConfig.searchInputs` slot. Live-mode arms
-				 * for this URL do not exist; routes that resolve to
-				 * `searchConfig` outside edit mode hide every
-				 * boundary, leaving the scroll container empty rather
-				 * than mounting a stand-in. The ref-gate pattern
-				 * matches the case-list workspace.
+				 * Two parallel Activity boundaries cover the case-search
+				 * authoring URL — same dual-arm shape as the case-list
+				 * workspace above.
+				 *
+				 *   - Edit mode: `CaseSearchConfigPanel` — the multi-
+				 *     section magazine layout (Display / Search Inputs
+				 *     / Advanced) that writes the module's
+				 *     `caseSearchConfig` slot plus the cross-bound
+				 *     `caseListConfig.searchInputs` slot.
+				 *
+				 *   - Otherwise (interact mode): the empty-state card
+				 *     surfaces because there's no running-app
+				 *     counterpart — case-search authoring configures
+				 *     HOW the runtime presents search, not data the
+				 *     runtime renders. Without this arm, toggling
+				 *     interact mode while on `/search-config` would
+				 *     render a blank scroll container with no
+				 *     indication of what to do.
+				 *
+				 * Both boundaries share `caseSearchConfigRef` because
+				 * the live-mode arm is stateless — no per-screen
+				 * identity to preserve alongside the panel.
 				 */}
 				{caseSearchConfigRef.current && (
 					<Activity
@@ -328,6 +342,18 @@ export function PreviewShell({
 						name="CaseSearchConfigPanel"
 					>
 						<CaseSearchConfigPanel moduleUuid={caseSearchConfigRef.current} />
+					</Activity>
+				)}
+				{caseSearchConfigRef.current && (
+					<Activity
+						mode={
+							screen.type === "searchConfig" && mode !== "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="CaseSearchConfigInteractEmptyState"
+					>
+						<CaseSearchConfigInteractEmptyState />
 					</Activity>
 				)}
 				{formScreenRef.current && (

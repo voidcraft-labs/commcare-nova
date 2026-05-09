@@ -2,7 +2,8 @@
 //
 // components/preview/__tests__/PreviewShell.test.tsx
 //
-// Pins the PreviewShell dispatch contract at the case list URL.
+// Pins the PreviewShell dispatch contract at the case list URL +
+// the case-search authoring URL.
 //
 //   - Edit mode + cases location → CaseListWorkspace is the visible
 //     surface; the legacy CaseListScreen is mounted but hidden by
@@ -10,6 +11,12 @@
 //   - Live mode + cases location → CaseListScreen is the visible
 //     surface; the workspace is mounted but hidden so its scroll
 //     position survives the round-trip.
+//   - Edit mode + search-config location → CaseSearchConfigPanel is
+//     the visible surface; the live-mode empty-state arm is mounted
+//     but hidden.
+//   - Live mode + search-config location → the empty-state arm is
+//     visible; the panel is mounted but hidden. The CTA invokes
+//     `switchCursorMode("edit")`.
 //
 // Activity in React 19 renders both `mode="visible"` and
 // `mode="hidden"` subtrees into the DOM — the `display: none` is
@@ -18,20 +25,23 @@
 // therefore assert visibility via the Activity's `<div>` parent
 // inline style rather than presence/absence in the DOM.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
+import type { Location } from "@/lib/routing/types";
 
 const MODULE_UUID = asUuid("mod-1");
 
-// `useLocation` and `useEditMode` are the dispatch knobs; the rest
-// of the routing/session surface is forwarded from the real module.
+// `useLocation`, `useEditMode`, and `useSwitchCursorMode` are the
+// dispatch knobs; the rest of the routing/session surface is
+// forwarded from the real module.
 const editModeMock = vi.fn(() => "edit" as "edit" | "test");
-const locationMock = vi.fn(() => ({
+const locationMock = vi.fn<() => Location>(() => ({
 	kind: "cases" as const,
 	moduleUuid: MODULE_UUID,
 }));
+const switchCursorModeMock = vi.fn();
 
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
@@ -61,6 +71,7 @@ vi.mock("@/lib/session/hooks", async () => {
 	return {
 		...actual,
 		useEditMode: () => editModeMock(),
+		useSwitchCursorMode: () => switchCursorModeMock,
 		useAppId: () => "app-preview-shell-test",
 		useBuilderIsReady: () => true,
 	};
@@ -76,6 +87,14 @@ vi.mock("@/components/builder/case-list-config/CaseListWorkspace", () => ({
 		<div data-testid="workspace-stub">CaseListWorkspace</div>
 	),
 }));
+vi.mock(
+	"@/components/builder/case-search-config/CaseSearchConfigPanel",
+	() => ({
+		CaseSearchConfigPanel: () => (
+			<div data-testid="search-config-panel-stub">CaseSearchConfigPanel</div>
+		),
+	}),
+);
 vi.mock("../screens/CaseListScreen", () => ({
 	CaseListScreen: () => (
 		<div data-testid="legacy-case-list-stub">CaseListScreen</div>
@@ -227,5 +246,56 @@ describe("PreviewShell — case list dispatch", () => {
 		const legacy = getByTestId("legacy-case-list-stub");
 		expect(isVisible(legacy)).toBe(true);
 		expect(isVisible(workspace)).toBe(false);
+	});
+});
+
+describe("PreviewShell — case-search config dispatch", () => {
+	it("edit mode at /search-config → CaseSearchConfigPanel is the visible surface; the interact-mode empty state is hidden", () => {
+		editModeMock.mockReturnValue("edit");
+		locationMock.mockReturnValue({
+			kind: "search-config",
+			moduleUuid: MODULE_UUID,
+		});
+		const { getByTestId, getByRole } = renderShell();
+		expect(isVisible(getByTestId("search-config-panel-stub"))).toBe(true);
+		// The empty-state arm renders a "Switch to edit mode" button —
+		// we identify the live-mode arm via that accessible name. It's
+		// mounted (visited-ref pattern) but Activity-hidden under edit
+		// mode.
+		const emptyStateCta = getByRole("button", {
+			name: /switch to edit mode/i,
+			hidden: true,
+		});
+		expect(isVisible(emptyStateCta)).toBe(false);
+	});
+
+	it("test mode at /search-config → empty-state arm is visible; the panel is hidden", () => {
+		editModeMock.mockReturnValue("test");
+		locationMock.mockReturnValue({
+			kind: "search-config",
+			moduleUuid: MODULE_UUID,
+		});
+		const { getByTestId, getByRole } = renderShell();
+		expect(
+			isVisible(getByRole("button", { name: /switch to edit mode/i })),
+		).toBe(true);
+		expect(isVisible(getByTestId("search-config-panel-stub"))).toBe(false);
+	});
+
+	it("clicking the empty-state CTA invokes switchCursorMode('edit')", () => {
+		// Pins the actionable contract: the live-mode arm isn't a
+		// placeholder — the CTA flips back to edit mode through the
+		// canonical `switchCursorMode` action (preserves sidebar
+		// stash). Without this the arm would be a v1-punt narrative.
+		editModeMock.mockReturnValue("test");
+		locationMock.mockReturnValue({
+			kind: "search-config",
+			moduleUuid: MODULE_UUID,
+		});
+		switchCursorModeMock.mockClear();
+		const { getByRole } = renderShell();
+		fireEvent.click(getByRole("button", { name: /switch to edit mode/i }));
+		expect(switchCursorModeMock).toHaveBeenCalledOnce();
+		expect(switchCursorModeMock).toHaveBeenCalledWith("edit");
 	});
 });

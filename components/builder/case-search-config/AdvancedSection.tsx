@@ -32,6 +32,13 @@
 // loaded invalid expression keeps surfacing its verdict even on a
 // default-collapsed mount — without that contract, the parent's
 // save gate would silently un-block on a closed-collapse load.
+//
+// Header chrome shape mirrors the canonical `PredicateSlotCard`: the
+// Clear affordance lives in the header at `ml-auto`, surfacing
+// whenever the slot is defined regardless of collapse state. The
+// collapse toggle controls only the body's visibility — Clear is
+// always one click away when the slot is present, including on a
+// backend-loaded invalid expression that mounts default-collapsed.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -138,10 +145,14 @@ export function AdvancedSection({
 	return (
 		<div className="space-y-6">
 			{/* ── Blacklisted owner IDs sub-control ──
-			    Collapsed by default. The chevron in the header below
-			    is the collapse trigger; the violet rail, section icon,
-			    h3, and hint span are non-interactive chrome. The
-			    add/clear affordances live inside the body.
+			    Collapsed by default. The chevron in the header is the
+			    collapse trigger; the violet rail, section icon, h3, and
+			    hint span are non-interactive chrome. Clear sits at the
+			    header's right end (matches `PredicateSlotCard`) and is
+			    surfaced whenever the slot is defined regardless of
+			    collapse state. The Add affordance lives inside the body
+			    (only shown when the body is open and the slot is
+			    undefined).
 
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
@@ -155,12 +166,13 @@ export function AdvancedSection({
 			<div className="space-y-3">
 				{/* Section header — same shape as the canonical
 				    PredicateSlotCard header (violet rail → icon → h3 →
-				    hint) with one addition: a chevron-toggle button
-				    sits between the violet rail and the section icon
-				    because this section is the only collapsible one on
-				    the page. The rail still leads so the header reads
-				    as a sibling of the Display section's PredicateSlotCard
-				    headers when both render on the same page. */}
+				    hint → ml-auto Clear) with one addition: a chevron-
+				    toggle button sits between the violet rail and the
+				    section icon because this section is the only
+				    collapsible one on the page. The rail still leads so
+				    the header reads as a sibling of the Display
+				    section's PredicateSlotCard headers when both render
+				    on the same page. */}
 				<header className="flex items-baseline gap-2">
 					<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
 					<button
@@ -194,6 +206,19 @@ export function AdvancedSection({
 							? "Cases owned by these IDs are hidden from search results."
 							: "Optional. Hide cases owned by specific user IDs from search results."}
 					</span>
+					<div className="ml-auto">
+						{blacklistPresent ? (
+							<button
+								type="button"
+								onClick={clearBlacklist}
+								className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
+								aria-label="Clear blacklisted owner IDs"
+							>
+								<Icon icon={tablerX} width="11" height="11" />
+								<span>Clear</span>
+							</button>
+						) : null}
+					</div>
 				</header>
 
 				{blacklist !== undefined ? (
@@ -210,7 +235,7 @@ export function AdvancedSection({
 					// authoring time rather than at the validator pass.
 					<div
 						hidden={!blacklistOpen}
-						className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3 space-y-2"
+						className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3"
 					>
 						<ExpressionCardEditor
 							value={blacklist}
@@ -221,17 +246,6 @@ export function AdvancedSection({
 							expectedType="text"
 							onValidityChange={setExpressionValid}
 						/>
-						<div className="flex justify-end">
-							<button
-								type="button"
-								onClick={clearBlacklist}
-								className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
-								aria-label="Clear blacklisted owner IDs"
-							>
-								<Icon icon={tablerX} width="11" height="11" />
-								<span>Clear</span>
-							</button>
-						</div>
 					</div>
 				) : blacklistOpen ? (
 					// Undefined slot, body open: surface the add affordance.
