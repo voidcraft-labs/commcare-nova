@@ -1,19 +1,32 @@
 // lib/commcare/suite/case-list/shortDetail.ts
 //
 // Suite-XML emission for the case-list short detail —
-// `<detail id="m{n}_case_short">`. Walks
+// `<detail id="m{n}_<target>_short">`. Walks
 // `module.caseListConfig.columns`, filters by `column.visibleInList`
 // (absent ≡ visible), and concatenates one `<field>` per surviving
 // column into the surrounding `<detail>` shell.
 //
+// One emitter, two targets. The `target` parameter
+// (`"case"` / `"search"`) selects which of the two CCHQ wire ids
+// the same `caseListConfig` projects onto. The emit content is
+// identical between the two targets except for three load-bearing
+// slots: the `<detail id>` attribute, the column header locale ids,
+// and (when calc columns walk cross-case) the `<template>` xpath's
+// instance reference. Driven by the orchestrator at
+// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`,
+// which pins the structural identity between `m0_case_short` and
+// `m0_search_short` (same fields, same sort, same column ordering).
+//
 // The `<detail>` shell carries:
 //
-//   - `id="m{moduleIndex}_case_short"` — the canonical short-detail
-//     identifier CCHQ binds entries against. CCHQ's
+//   - `id="m{moduleIndex}_{target}_short"` — the canonical short-
+//     detail identifier CCHQ binds entries against. CCHQ's
 //     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
-//     helper returns the same `m{module.id}_{detail_type}` shape;
-//     the surrounding entry's `detail-select="m0_case_short"`
-//     attribute references this id.
+//     helper returns the same `m{module.id}_{detail_type}` shape
+//     for both targets; the surrounding entry's
+//     `detail-select="m{N}_case_short"` attribute references the
+//     case target, while `<remote-request>`'s `<datum>` references
+//     the search target via `detail-select="m{N}_search_short"`.
 //
 //   - `<title>` referencing `<locale id="cchq.case"/>` — CCHQ's
 //     built-in case-detail title locale, registered with
@@ -48,7 +61,11 @@
 import type { BlueprintDoc, Module } from "@/lib/domain";
 import { emitColumnField } from "./columns";
 import { buildSortDirectives } from "./sortKeys";
-import type { CaseListEmission, CaseListEmitContext } from "./types";
+import type {
+	CaseListEmission,
+	CaseListEmitContext,
+	DetailTarget,
+} from "./types";
 
 /**
  * Compose the suite-XML `<detail>` block for one module's case-list
@@ -65,6 +82,14 @@ import type { CaseListEmission, CaseListEmitContext } from "./types";
  * column sort directives. Tests that don't exercise sort behavior
  * pass an empty doc.
  *
+ * `target` selects between the two wire ids the same
+ * `caseListConfig` projects onto — `"case"` (the local case-list
+ * detail) or `"search"` (the search-results detail; emitted only
+ * when the parent module has `caseSearchConfig`). The orchestrator
+ * at `lib/commcare/compiler.ts` calls this once per active target.
+ * Defaults to `"case"` so existing callers (and tests) that don't
+ * thread a target stay on the case-list path unchanged.
+ *
  * When `module.caseListConfig` is absent OR the module has no case
  * type, the emitter returns a minimal title-only `<detail>` block.
  * The validator's `columnReferences` rule (and its sibling rules)
@@ -76,9 +101,11 @@ export function emitShortDetail(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly doc: BlueprintDoc;
+	readonly target?: DetailTarget;
 }): CaseListEmission {
 	const { module: mod, moduleIndex, doc } = args;
-	const detailId = `m${moduleIndex}_case_short`;
+	const target: DetailTarget = args.target ?? "case";
+	const detailId = `m${moduleIndex}_${target}_short`;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -97,6 +124,7 @@ export function emitShortDetail(args: {
 		moduleIndex,
 		sortByUuid: buildSortDirectives(mod, doc),
 		detailKind: "short",
+		target,
 	};
 
 	const fields: string[] = [];

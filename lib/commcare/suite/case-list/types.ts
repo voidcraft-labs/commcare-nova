@@ -8,6 +8,21 @@
 // through the context. Keeping the cross-module shapes here lets
 // each emitter import only the type it needs without circling
 // back through the orchestrator.
+//
+// Two orthogonal axes drive per-emit divergence:
+//
+//   - `DetailKind = "short" | "long"` — picks between CCHQ's two
+//     detail surfaces. Short is the case-list / search-results
+//     screen; long is the case-detail confirm screen.
+//
+//   - `DetailTarget = "case" | "search"` — picks between the two
+//     wire ids a single `caseListConfig` projects onto. CCHQ
+//     authors a separate "search results" detail block alongside
+//     the case-list detail block; Nova's principle is "one case
+//     list, two wire ids" — the same `caseListConfig` projects
+//     onto both. The wire ids differ on three load-bearing slots
+//     (`<detail id>`, locale-id substring, calc-xpath instance
+//     reference) — every other byte is identical.
 
 import type { Uuid } from "@/lib/domain";
 import type { ResolvedSortDirective } from "./sortKeys";
@@ -69,6 +84,34 @@ export interface CaseListEmission {
 export type DetailKind = "short" | "long";
 
 /**
+ * Detail-target discriminator. Selects between the two wire ids
+ * a single `caseListConfig` projects onto:
+ *
+ *   - `"case"` — the local case-list detail block. Wire id pattern
+ *     `m{N}_case_<short|long>`; locale-id substring `case_<short|long>`;
+ *     calc-xpath cross-case lookups reference `instance('casedb')`.
+ *
+ *   - `"search"` — the search-results detail block. Wire id
+ *     pattern `m{N}_search_<short|long>`; locale-id substring
+ *     `search_<short|long>`; calc-xpath cross-case lookups
+ *     reference `instance('results')` instead of `instance('casedb')`.
+ *     The `instance('casedb')/casedb/case[...]` shape rewrites to
+ *     `instance('results')/results/case[...]`. Verified against
+ *     `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`'s
+ *     parent-relation field, which carries the rewritten root.
+ *
+ * The orchestrator emits the search variant only when the parent
+ * module has `caseSearchConfig`; case-only modules emit just the
+ * case variant (the existing default). The target axis is
+ * orthogonal to `DetailKind` — every (target × kind) pair is a
+ * valid combination, and the four wire ids
+ * (`m{N}_case_short` / `m{N}_search_short` / `m{N}_case_long` /
+ * `m{N}_search_long`) all live alongside each other when both
+ * configs are authored.
+ */
+export type DetailTarget = "case" | "search";
+
+/**
  * Per-emit invocation context. The orchestrator constructs one
  * instance per module-detail pair and forwards it through every
  * per-column call so individual emitters never need to know the
@@ -77,7 +120,7 @@ export type DetailKind = "short" | "long";
  *
  *   - `moduleIndex` — 0-based index of the module in
  *     `doc.moduleOrder`. Composes the surrounding `<detail>` block
- *     id (`m{moduleIndex}_case_<short|long>`) per CCHQ's
+ *     id (`m{moduleIndex}_<target>_<short|long>`) per CCHQ's
  *     `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`
  *     helper, and feeds the per-column header-locale composer.
  *
@@ -90,10 +133,16 @@ export type DetailKind = "short" | "long";
  *     uniformly keeps the context shape symmetric across surfaces.
  *
  *   - `detailKind` — selects between the two surfaces' divergent
- *     emission behaviors.
+ *     emission behaviors (short vs long).
+ *
+ *   - `target` — selects between the two wire ids the same
+ *     `caseListConfig` projects onto (case vs search). Search-target
+ *     emission rewrites calc-xpath cross-case lookups from
+ *     `instance('casedb')` to `instance('results')`.
  */
 export interface CaseListEmitContext {
 	readonly moduleIndex: number;
 	readonly sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly detailKind: DetailKind;
+	readonly target: DetailTarget;
 }

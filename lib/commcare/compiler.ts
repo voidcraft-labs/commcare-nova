@@ -105,6 +105,18 @@ export function compileCcz(
 		// expression's resolved result type). The long-detail emitter
 		// accepts `doc` for API symmetry but doesn't read it.
 		//
+		// When `mod.caseSearchConfig` is present, the same
+		// `caseListConfig` projects onto a second pair of wire ids —
+		// `m{N}_search_short` + `m{N}_search_long`. Nova's principle:
+		// "from the user's perspective there is only one case list,
+		// regardless of how they get there." The wire emitter
+		// duplicates the rendered content under the search-target
+		// wire ids; the canonical fixture
+		// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
+		// pins the structural identity. Modules without
+		// `caseSearchConfig` skip the search-target emission;
+		// emission is purely additive.
+		//
 		// Both detail blocks resolve their `<title>` through CCHQ's
 		// built-in `cchq.case` locale (registered with
 		// `default="Case"` at
@@ -129,6 +141,32 @@ export function compileCcz(
 			});
 			suiteDetails.push(longEmission.xml);
 			Object.assign(appStrings, longEmission.strings);
+
+			// Search-target dual emission. Same `caseListConfig` walked
+			// against the `"search"` target — produces `m{N}_search_short`
+			// + `m{N}_search_long` blocks. Calc-column cross-case
+			// references rewrite their instance root from `casedb` to
+			// `results` per the canonical fixture
+			// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`.
+			if (mod.caseSearchConfig) {
+				const searchShort = emitShortDetail({
+					module: mod,
+					moduleIndex: mIdx,
+					doc,
+					target: "search",
+				});
+				suiteDetails.push(searchShort.xml);
+				Object.assign(appStrings, searchShort.strings);
+
+				const searchLong = emitLongDetail({
+					module: mod,
+					moduleIndex: mIdx,
+					doc,
+					target: "search",
+				});
+				suiteDetails.push(searchLong.xml);
+				Object.assign(appStrings, searchLong.strings);
+			}
 		}
 
 		const menuCommands: string[] = [];

@@ -1,10 +1,20 @@
 // lib/commcare/suite/case-list/longDetail.ts
 //
 // Suite-XML emission for the case-list long detail —
-// `<detail id="m{n}_case_long">`. Walks
+// `<detail id="m{n}_<target>_long">`. Walks
 // `module.caseListConfig.columns`, filters by `column.visibleInDetail`
 // (absent ≡ visible), and concatenates one `<field>` per surviving
 // column into the surrounding `<detail>` shell.
+//
+// One emitter, two targets. The `target` parameter
+// (`"case"` / `"search"`) selects which of the two CCHQ wire ids
+// the same `caseListConfig` projects onto. The case-rooted block
+// renders against `instance('casedb')`; the search-rooted block
+// renders against `instance('results')`. Calc-column cross-case
+// references rewrite their root accordingly. The canonical fixture
+// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
+// pins the structural identity between `m0_case_long` and
+// `m0_search_long`.
 //
 // Per-column wire shape lives in `columns.ts`. Long-detail
 // divergences flow through the `CaseListEmitContext.detailKind`
@@ -46,7 +56,11 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { emitColumnField } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
-import type { CaseListEmission, CaseListEmitContext } from "./types";
+import type {
+	CaseListEmission,
+	CaseListEmitContext,
+	DetailTarget,
+} from "./types";
 
 /**
  * Empty sort-directive map for long-detail emission. The long-detail
@@ -68,10 +82,17 @@ const EMPTY_SORT_DIRECTIVES: ReadonlyMap<Uuid, ResolvedSortDirective> =
  *
  * `doc` is accepted as part of the uniform per-detail emission
  * surface — both short and long detail emitters take the same
- * triple `(module, moduleIndex, doc)`. Long detail doesn't read it
- * (no sort directives, no per-property type lookup needed for the
- * non-nodeset case) but the symmetry simplifies the compiler's
- * call site.
+ * arg shape. Long detail doesn't read it (no sort directives, no
+ * per-property type lookup needed for the non-nodeset case) but
+ * the symmetry simplifies the compiler's call site.
+ *
+ * `target` selects between the two wire ids the same
+ * `caseListConfig` projects onto — `"case"` (the local case-list
+ * detail) or `"search"` (the search-results detail; emitted only
+ * when the parent module has `caseSearchConfig`). The orchestrator
+ * at `lib/commcare/compiler.ts` calls this once per active target.
+ * Defaults to `"case"` so existing callers (and tests) that don't
+ * thread a target stay on the case-list path unchanged.
  *
  * When `module.caseListConfig` is absent OR the module has no case
  * type, the emitter returns a minimal title-only `<detail>` block.
@@ -84,9 +105,11 @@ export function emitLongDetail(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly doc: BlueprintDoc;
+	readonly target?: DetailTarget;
 }): CaseListEmission {
 	const { module: mod, moduleIndex } = args;
-	const detailId = `m${moduleIndex}_case_long`;
+	const target: DetailTarget = args.target ?? "case";
+	const detailId = `m${moduleIndex}_${target}_long`;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -105,6 +128,7 @@ export function emitLongDetail(args: {
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
+		target,
 	};
 
 	const fields: string[] = [];

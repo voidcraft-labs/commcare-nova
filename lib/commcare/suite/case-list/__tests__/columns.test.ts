@@ -58,6 +58,7 @@ const emptyCtx: CaseListEmitContext = {
 	moduleIndex: 0,
 	sortByUuid: new Map(),
 	detailKind: "short",
+	target: "case",
 };
 
 /** Build a single-entry sort map keyed under a column's uuid. */
@@ -336,6 +337,7 @@ describe("emitColumnField — calculated", () => {
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
+			target: "case",
 			sortByUuid: singleSort(calc.uuid, {
 				kind: "calculated",
 				order: 1,
@@ -383,6 +385,7 @@ describe("emitColumnField — sort integration", () => {
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
+			target: "case",
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -410,6 +413,7 @@ describe("emitColumnField — sort integration", () => {
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
+			target: "case",
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -432,6 +436,7 @@ describe("emitColumnField — sort integration", () => {
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
+			target: "case",
 			sortByUuid: singleSort(otherUuid, {
 				kind: "property",
 				order: 1,

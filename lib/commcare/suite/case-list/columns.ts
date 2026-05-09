@@ -95,25 +95,96 @@ import type { Column } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { quoteLiteral } from "../../predicate/stringQuoting";
 import { escapeXml } from "../../xml";
-import { emitSortBlock } from "./sortKeys";
+import { emitSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
 	DetailKind,
+	DetailTarget,
 } from "./types";
 
 /**
  * The CCHQ `detail_type` substring carried in column header
  * locale ids per
  * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`.
- * The two surfaces' ids share every other segment; only this
- * token differs (`case_short` vs `case_long`). Centralising the
- * map keeps the locale-id composers symmetric across surfaces.
+ * Two-dimensional lookup: `(target, surface)` → token. The four
+ * tokens correspond to the four canonical CCHQ wire ids that
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
+ * pins via its `<detail id>` attributes (`m0_case_short` /
+ * `m0_search_short` / `m0_case_long` / `m0_search_long`).
+ *
+ * Every other segment of the locale id stays identical across
+ * targets — only this token differs. Centralising the map keeps
+ * the locale-id composers symmetric across the four wire ids.
  */
-const DETAIL_KIND_LOCALE_TYPE: Readonly<Record<DetailKind, string>> = {
-	short: "case_short",
-	long: "case_long",
+const DETAIL_LOCALE_TYPE: Readonly<
+	Record<DetailTarget, Record<DetailKind, string>>
+> = {
+	case: { short: "case_short", long: "case_long" },
+	search: { short: "search_short", long: "search_long" },
 };
+
+/**
+ * Rewrite a calc-column's lowered xpath for emission inside a
+ * search-target detail block. CCHQ's `<detail id="m{N}_search_*">`
+ * runs against the `results` instance (the live search-result
+ * roster) rather than the local `casedb` instance, so any cross-
+ * case relational walk in the calc xpath needs the corresponding
+ * root rewrite:
+ *
+ *     instance('casedb')/casedb/case[...]
+ *         → instance('results')/results/case[...]
+ *
+ * Verified against the canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`'s
+ * parent-relation field, where
+ * `instance('casedb')/casedb/case[@case_id=current()/index/parent]/whatever`
+ * (on `m0_case_short`) becomes
+ * `instance('results')/results/case[@case_id=current()/index/parent]/whatever`
+ * (on `m0_search_short`).
+ *
+ * Property-rooted column kinds (`plain` / `date` / `phone` /
+ * `id-mapping` / `interval`) emit bare property references that
+ * carry no instance prefix, so the rewrite is a no-op for those
+ * kinds. The non-relational `current()/index/parent` segment
+ * (which selects the parent index on the surrounding context
+ * case) is identical on both targets and untouched here. The
+ * `instance('commcaresession')` references on session-user /
+ * session-context terms remain unchanged — they don't reference
+ * either case roster.
+ *
+ * Applied as a string transform on the lowered xpath (rather
+ * than threading a target axis through the on-device emitter
+ * stack) because the rewrite is local to one wire-emission
+ * surface; threading the parameter through `termEmitter` /
+ * `onDeviceEmitter` would pollute primitives every other consumer
+ * (XForm binds, search-filter slots, predicate rendering) shares.
+ */
+function rewriteCasedbToResults(xpath: string): string {
+	return xpath.replaceAll(
+		"instance('casedb')/casedb/case[",
+		"instance('results')/results/case[",
+	);
+}
+
+/**
+ * Apply the calc-xpath instance rewrite to a sort directive when
+ * the surrounding emit target is `search`. Returns the directive
+ * unchanged for the property-rooted arm (no instance prefix to
+ * rewrite) and for the case-target arm. Returns a new directive
+ * carrying the rewritten `calcXpath` for the search-target
+ * calculated arm.
+ */
+function rewriteSortDirectiveForTarget(
+	directive: ResolvedSortDirective,
+	target: DetailTarget,
+): ResolvedSortDirective {
+	if (target === "case" || directive.kind === "property") return directive;
+	return {
+		...directive,
+		calcXpath: rewriteCasedbToResults(directive.calcXpath),
+	};
+}
 
 /**
  * Days-equivalent divisor for each `TimeSinceUnit` arm. Shared by
@@ -170,22 +241,33 @@ function formatTimeAgoDivisor(divisor: number): string {
  * f-string produce
  * `m{module.id}.{detail_type}.{column.model}_{field}_{column.id+1}.header`,
  * where `column.model` is `'case'` for case-detail columns and
- * `detail_type` is `case_short` / `case_long` per
- * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`.
- * The `column.id + 1` step keys the suffix to the global 1-based
+ * `detail_type` is one of
+ * `case_short` / `case_long` / `search_short` / `search_long` per
+ * `commcare-hq/corehq/apps/app_manager/id_strings.py::detail`. The
+ * `column.id + 1` step keys the suffix to the global 1-based
  * position of the column within its detail.
  *
  * The 1-based position disambiguates duplicate-property columns
  * (the same property rendered through two different format
  * kinds, e.g. plain text + interval).
+ *
+ * The leading `case_` segment of the suffix tracks CCHQ's
+ * `column.model` (the per-instance-shape model name, fixed to
+ * `case` for both case-rooted detail blocks); it is NOT redundant
+ * with the surrounding `case_short` / `search_short` token. The
+ * canonical fixture
+ * `commcare-hq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`'s
+ * field locale ids (`m0.search_short.case_name_1.header`) confirm
+ * the literal `case_` segment survives onto the search target.
  */
 function detailHeaderLocaleId(
+	target: DetailTarget,
 	detailKind: DetailKind,
 	moduleIndex: number,
 	field: string,
 	position: number,
 ): string {
-	const localeType = DETAIL_KIND_LOCALE_TYPE[detailKind];
+	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
 	return `m${moduleIndex}.${localeType}.case_${field}_${position}.header`;
 }
 
@@ -198,11 +280,12 @@ function detailHeaderLocaleId(
  * is the global 1-based slot in the detail.
  */
 function detailCalculatedHeaderLocaleId(
+	target: DetailTarget,
 	detailKind: DetailKind,
 	moduleIndex: number,
 	position: number,
 ): string {
-	const localeType = DETAIL_KIND_LOCALE_TYPE[detailKind];
+	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
 	return `m${moduleIndex}.${localeType}.case_calculated_property_${position}.header`;
 }
 
@@ -521,7 +604,18 @@ function templateFormFor(
  * canonical fixture
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
  * carries zero `<sort>` blocks despite a multi-key sort on the
- * parent module's short detail.
+ * parent module's short detail. The same suppression rule binds
+ * the `m{N}_search_long` block — the canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_long']`
+ * carries zero `<sort>` blocks alongside the search-short block's
+ * directives.
+ *
+ * Search-target emission rewrites the directive's calc xpath
+ * `instance('casedb')` → `instance('results')` before passing to
+ * `emitSortBlock`, so the rendered `<sort>` block carries the
+ * search-instance root for any cross-case calc references. The
+ * property-rooted directive arm has no instance prefix and falls
+ * through unchanged.
  */
 function resolveSortXml(
 	column: Column,
@@ -530,7 +624,8 @@ function resolveSortXml(
 	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
-	return emitSortBlock(directive);
+	const targeted = rewriteSortDirectiveForTarget(directive, ctx.target);
+	return emitSortBlock(targeted);
 }
 
 /**
@@ -563,6 +658,7 @@ export function emitColumnField(args: {
 
 	const displayXpath = propertyDisplayXpath(column);
 	const headerLocaleId = detailHeaderLocaleId(
+		ctx.target,
 		ctx.detailKind,
 		ctx.moduleIndex,
 		column.field,
@@ -611,8 +707,20 @@ function emitCalculatedField(args: {
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
 	const { column, position, ctx } = args;
-	const calcXpath = emitOnDeviceExpression(column.expression);
+	// `emitOnDeviceExpression` lowers the AST against the canonical
+	// `instance('casedb')` cross-case root; the search-target detail
+	// block runs against `instance('results')` instead, so the
+	// rewrite swaps the root. Property-rooted refs (no `via` walk)
+	// emit bare property names with no prefix and pass through
+	// unchanged. Cross-case `count(...)` calls and `via`-walked
+	// property refs both rewrite at the call's outer instance root.
+	const rawCalcXpath = emitOnDeviceExpression(column.expression);
+	const calcXpath =
+		ctx.target === "search"
+			? rewriteCasedbToResults(rawCalcXpath)
+			: rawCalcXpath;
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
+		ctx.target,
 		ctx.detailKind,
 		ctx.moduleIndex,
 		position,
