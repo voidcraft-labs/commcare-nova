@@ -666,6 +666,51 @@ Landed at commit `45b91fe3`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 
 **Next:** Tasks 7 (dual-detail emission), 9 (claim emission), 10 (search prompts), 11 (validators), 8 (`<remote-request>` orchestrator — depends on 6 + 9 + 10), 12 (workspace mount), 4 (cross-binding test, after 12), 13 (integration test).
 
+### Task 7 — Dual-detail emission — 2026-05-08
+
+Landed at commit `c454265f`. Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) APPROVED with two observation-only Minors.
+
+**Final shape:**
+
+- `lib/commcare/suite/case-list/types.ts` (EDIT) — added `DetailTarget` type (closed-set union `"case" | "search"`), extended `CaseListEmitContext` with the `target` field as a second axis orthogonal to `detailKind`.
+
+- `lib/commcare/suite/case-list/columns.ts` (EDIT) — 2D `DETAIL_LOCALE_TYPE` lookup `(target × detailKind)` produces the four canonical CCHQ tokens (`case_short` / `case_long` / `search_short` / `search_long`). `rewriteCasedbToResults` helper rewrites `instance('casedb')/casedb/case[` → `instance('results')/results/case[` only on the search target; preserves other instance references (`instance('reports')`, etc.). `rewriteSortDirectiveForTarget` helper rewrites calc-arm sort directives' xpath when target is search; property-rooted directives need no rewrite (bare property name has no instance prefix).
+
+- `lib/commcare/suite/case-list/shortDetail.ts` (EDIT) and `lib/commcare/suite/case-list/longDetail.ts` (EDIT) — both accept the `target` parameter (default `"case"` for backward-compat with existing callers); detail id composes `m{N}_{target}_{short|long}`.
+
+- `lib/commcare/compiler.ts` (EDIT) — orchestrator emits the search variant when `mod.caseSearchConfig` is present (additive branch; case-only modules emit identically to before).
+
+- `lib/commcare/suite/case-list/__tests__/dualDetailEmission.test.ts` (NEW) — 12 tests across four shells:
+  1. Absent `caseSearchConfig` → only case pair emits.
+  2. Present `caseSearchConfig` → 4 blocks emit (case_short + search_short + case_long + search_long).
+  3. Identical `<field>` + `<sort>` content between case_target and search_target.
+  4. Locale-key prefix swap (`m{N}.case_short.*` ↔ `m{N}.search_short.*`) + instance-reference rewrite for cross-case lookups.
+
+**Path chosen: B** — `target: "case" | "search"` as a second axis on `CaseListEmitContext` orthogonal to `detailKind`, with the orchestrator owning the dual-emit decision. Single emitter handles both targets; reuse > parameterize. Mirrors the existing context's discriminator-axis pattern.
+
+**CCHQ fixture findings (verified against `commcare-hq/.../tests/data/suite/search_command_detail.xml`):**
+1. The `case_<field>_<n>` suffix on header locale ids retains its leading `case_` literal token even on `search_short` / `search_long` — fixture's `m0.search_short.case_name_1.header` confirms (this is CCHQ's `column.model = 'case'` projection, independent of the detail-type substring).
+2. Both `m0_search_short` and `m0_search_long` carry the same `<title>` shell with `cchq.case` locale.
+3. `m0_search_long` carries no `<sort>` blocks (matches the case-long suppression rule).
+
+**Plan-text correction (cited for completeness):** the plan's Task 7 file list named `lib/commcare/suite/case-list/compiler.ts`. The actual orchestrator is `lib/commcare/compiler.ts` (no `suite/case-list` prefix). The implementer correctly edited the right file.
+
+**Test count:** 3942 → 3942 (the +12 from this task plus +18 from Task 11 — the suite count was already 3942 from Task 11's commit landing first).
+
+**Acceptance gates landed:**
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean (in scope; two unrelated TS errors flagged by the CR live in Task 10's + Task 12's in-flight scopes; their implementers resolve on commit).
+- `npm test` 3942 / 14 skipped.
+- Drift sweeps clean.
+
+**CR round-1 Minor observations (none blocking):**
+1. Calc-column locale-id swap on search target isn't pinned by a dedicated test invariant. The fixture-verified structure (`m0.search_short.case_calculated_property_<n>.header`) is correct in the implementation; one assertion would close the test gap. Acceptable as-is; flagged for future tightening.
+2. The byte-identity test uses `expect(suiteXml).toContain(direct.xml)` (substring), the surrounding comment reads slightly stronger than substring containment validates. Either tighten or relax the comment. Stylistic.
+
+**Whole-repo build state:** green. Task 7's dual-detail emission composes into Task 8's `<remote-request>` orchestrator (the `<datum>` element references `m{N}_search_short` and `m{N}_search_long` per the canonical fixture).
+
+**Next:** Task 11 fix-pass for the round-1 CR's findings (Critical: `filterSearchInputConflict` dedup ignoring `via`; Important: drop Rule 1 + add 4 type-check rules for the slots the plan claimed were covered but weren't).
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
