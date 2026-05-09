@@ -139,10 +139,70 @@ describe("searchInputDefaultTypeCheck", () => {
 		expect(hits.some((e) => e.message.includes('"adv_search"'))).toBe(true);
 	});
 
-	it("does not fire when a default is well-typed", () => {
-		// `today()` resolves to `date` — a legitimate seed for a
-		// date-typed input. The rule doesn't lock `expectedType` so
-		// the resolution alone determines admission.
+	it("fires when the resolved default type doesn't match the widget kind's expected type", () => {
+		// AST-strict expectedType pin: a `text`-widget input rejects
+		// a `today()` default because `today` resolves to `date` and
+		// `typesCompatible(date, text)` is false. The author must
+		// coerce explicitly via `concat(today())` (or pick a date
+		// widget) for the seed to admit.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-text"),
+								"text_search",
+								"Text",
+								"text",
+								"case_name",
+								{ default: today() },
+							),
+						],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
+		});
+		const hits = runValidation(doc).filter(
+			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+		);
+		expect(hits.length).toBeGreaterThan(0);
+		// Pin the inner-message shape so a future change to
+		// `describe()`'s output surfaces here, not silently downstream.
+		expect(hits[0].message).toContain("Expected 'text'");
+		expect(hits[0].message).toContain("resolves to 'date'");
+		expect(hits[0].message).toContain('widget "text"');
+	});
+
+	it("does not fire when a default is well-typed for the widget kind", () => {
+		// `today()` resolves to `date` — matches the `date` widget's
+		// pinned expectedType (`SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES.date`
+		// → `"date"`). `typesCompatible(date, date)` holds, so the
+		// seed admits without coercion.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [

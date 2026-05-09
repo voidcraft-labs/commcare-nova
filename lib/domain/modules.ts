@@ -861,6 +861,43 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 	barcode: ["text"],
 };
 
+/**
+ * The resolved type each `SearchInputType` widget expects its
+ * `default` value-expression to produce. Used by the validator's
+ * per-input default type-check (`searchInputDefaultTypeCheck`)
+ * to gate the seed expression's resolution against the widget's
+ * shape.
+ *
+ *   - `text` → `"text"` — text widget admits any text-typed seed.
+ *   - `select` → `"text"` — `typesCompatible(text, single_select)`
+ *     and `typesCompatible(text, multi_select)` both hold per the
+ *     predicate AST type checker, so a `text`-typed seed coerces
+ *     cleanly into a select widget at runtime.
+ *   - `date` → `"date"` — calendar widget expects a date-shaped
+ *     seed. `typesCompatible` does NOT widen `datetime` to `date`,
+ *     so authors needing a datetime seed for a date widget must
+ *     coerce explicitly via `dateCoerce(...)`.
+ *   - `date-range` → `"date"` — same as `date`. The single
+ *     value-expression default seeds the range's start (or both
+ *     ends, runtime-composed); per CCHQ, `daterange` widgets
+ *     render a calendar picker (not datetime).
+ *   - `barcode` → `"text"` — barcode-scanned values surface as
+ *     plain strings.
+ *
+ * Single source of truth — the editor's per-widget default
+ * authoring surface, the SA tool surface, and the validator all
+ * read from this table.
+ */
+export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
+	Record<SearchInputType, CasePropertyDataType>
+> = {
+	text: "text",
+	select: "text",
+	date: "date",
+	"date-range": "date",
+	barcode: "text",
+};
+
 // ── CaseListConfig ───────────────────────────────────────────────
 //
 // The structured case-list configuration. Three slots:

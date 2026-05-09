@@ -2,22 +2,28 @@
  * Rule: `caseSearchConfig.blacklistedOwnerIds` (the value
  * expression evaluating to a space-separated list of owner ids
  * excluded from search results) type-checks against the module's
- * case-type schema map.
+ * case-type schema map AND resolves to a text-typed result.
  *
  * Mirrors the case-list `calculatedColumnTypeCheck` pattern —
- * dispatches `checkValueExpression(expression, ctx)` and lifts
- * each `CheckError` into a structured `ValidationError`. The slot
- * is a `ValueExpression` (not a Predicate), so the rule consumes
- * the value-expression entry point rather than `checkPredicate`.
+ * dispatches `checkValueExpression(expression, ctx, expectedType)`
+ * and lifts each `CheckError` into a structured `ValidationError`.
+ * The slot is a `ValueExpression` (not a Predicate), so the rule
+ * consumes the value-expression entry point rather than
+ * `checkPredicate`.
  *
- * No `expectedType` is passed: the wire-emission layer coerces the
- * resolved value to text at emission time, and the per-arm
- * structural checks the type checker runs (unknown property,
- * ill-typed operators, relation-walk validation, search-input
- * resolution) cover the real authoring failure modes. Locking the
- * slot to a text-typed result would over-constrain legitimate
- * authoring shapes that resolve to other types and coerce
- * downstream.
+ * The slot's authoring contract is "evaluates to a space-separated
+ * list of owner IDs" — text-typed by the AST-strict null /
+ * representability invariant. The validator enforces that contract
+ * at authoring time by passing `expectedType: "text"`. Authors who
+ * need a non-text-typed property to seed the blacklist must
+ * explicitly coerce — `concat(prop("patient", "owner_id"))` lifts
+ * any property to text via the concatenation operator's text-
+ * resolution semantics.
+ *
+ * `typesCompatible` widens `single_select` and `multi_select` to
+ * `text`, so select-typed property references resolve cleanly
+ * without explicit coercion; `int` / `decimal` / `date` / etc.
+ * resolutions surface as authoring errors.
  *
  * Short-circuits cleanly when `caseSearchConfig` is absent OR
  * the `blacklistedOwnerIds` slot itself is omitted — no expression
@@ -38,7 +44,7 @@ export function blacklistedOwnerIdsTypeCheck(
 	if (!expression) return [];
 
 	const ctx = moduleTypeContext(mod, doc);
-	const result = checkValueExpression(expression, ctx);
+	const result = checkValueExpression(expression, ctx, "text");
 	if (result.ok) return [];
 
 	return result.errors.map((err) => {
@@ -47,7 +53,7 @@ export function blacklistedOwnerIdsTypeCheck(
 		return validationError(
 			"CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
 			"module",
-			`Module "${mod.name}" case-search blacklisted owner ids expression has a type error${suffix}: ${err.message}. Open \`caseSearchConfig.blacklistedOwnerIds\` and adjust the operand at that path — common fixes are pointing a property reference at a different case property whose \`data_type\` matches, swapping the operator for one that admits these operands, or removing the broken sub-expression entirely (the wire layer omits the blacklist when the slot is empty).`,
+			`Module "${mod.name}" case-search blacklisted owner ids expression has a type error${suffix}: ${err.message}. The slot must resolve to a text-typed value (the runtime parses it as a space-separated list of owner IDs). Open \`caseSearchConfig.blacklistedOwnerIds\` and either pick a property whose \`data_type\` widens to text (\`text\` / \`single_select\` / \`multi_select\`), wrap the existing expression in \`concat(...)\` to coerce to text, or remove the slot entirely (the wire layer omits the blacklist when absent).`,
 			{ moduleUuid, moduleName: mod.name },
 			{ path: at },
 		);

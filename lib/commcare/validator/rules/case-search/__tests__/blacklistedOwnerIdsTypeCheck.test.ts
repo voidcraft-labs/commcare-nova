@@ -195,12 +195,13 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 		).toBe(false);
 	});
 
-	it("admits a non-text-typed expression resolution (no expectedType lock)", () => {
-		// The rule does NOT pin `expectedType: "text"`. A literal
-		// of an int-typed property (date_opened / int field) flows
-		// through `checkValueExpression` without a top-level
-		// "expected text" mismatch; the wire layer coerces at
-		// emission.
+	it("rejects a non-text-typed expression resolution (AST-strict expectedType: 'text')", () => {
+		// The rule pins `expectedType: "text"` per the AST-strict
+		// authoring contract — a `prop("patient", "age")` reference
+		// resolves to `int`, which `typesCompatible(int, text)`
+		// rejects. The author must coerce explicitly via
+		// `concat(prop("patient", "age"))` to lift the int into
+		// text.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -213,8 +214,6 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 					},
 					caseSearchConfig: {
 						dontClaimAlreadyOwned: false,
-						// `prop("patient", "age")` resolves to int — admissible
-						// because the rule doesn't lock the resolved type.
 						blacklistedOwnerIds: { kind: "term", term: prop("patient", "age") },
 					},
 					forms: [
@@ -245,6 +244,70 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 					properties: [
 						{ name: "case_name", label: "Name", data_type: "text" },
 						{ name: "age", label: "Age", data_type: "int" },
+					],
+				},
+			],
+		});
+		const hits = runValidation(doc).filter(
+			(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+		);
+		expect(hits.length).toBeGreaterThan(0);
+		// The inner per-checker message names the expected type and the
+		// resolved type — pin the string shape so a future change to
+		// `describe()`'s output surfaces here, not silently downstream.
+		expect(hits[0].message).toContain("Expected 'text'");
+		expect(hits[0].message).toContain("resolves to 'int'");
+	});
+
+	it("admits a single_select / multi_select-typed expression (text-compatible)", () => {
+		// `typesCompatible` widens `single_select` and `multi_select`
+		// into `text`, so a select-typed property reference resolves
+		// without needing explicit `concat(...)` coercion. Pin this
+		// path so the rule's text-coercion contract stays load-
+		// bearing through downstream changes.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						dontClaimAlreadyOwned: false,
+						blacklistedOwnerIds: {
+							kind: "term",
+							term: prop("patient", "category"),
+						},
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{
+							name: "category",
+							label: "Category",
+							data_type: "single_select",
+						},
 					],
 				},
 			],

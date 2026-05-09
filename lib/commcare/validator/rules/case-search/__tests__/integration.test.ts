@@ -28,7 +28,6 @@ import {
 	literal,
 	prop,
 	relationStep,
-	today,
 	toValueExpression,
 } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
@@ -168,7 +167,8 @@ describe("case-search validator — cross-rule integration", () => {
 		//   - claim condition resolves against augmented case types
 		//   - search-button display condition resolves
 		//   - blacklisted owner ids expression resolves
-		//   - simple-arm input default resolves (`today()` is well-typed)
+		//   - simple-arm input default resolves (text literal matches
+		//     the `text` widget's pinned expectedType)
 		//   - advanced-arm input predicate resolves
 		//   - cross-walk filter ref → distinct destination (parent's
 		//     `region`) from the simple input (patient's `region`),
@@ -193,14 +193,15 @@ describe("case-search validator — cross-rule integration", () => {
 						),
 						searchInputs: [
 							// Simple input on patient's region (self-walk) with a
-							// well-typed `today()` default.
+							// text-typed default — `text`-widget expectedType pins
+							// to `text`, so a literal text seed type-checks cleanly.
 							simpleSearchInputDef(
 								asUuid("si-region"),
 								"region_search",
 								"Region",
 								"text",
 								"region",
-								{ default: today() },
+								{ default: toValueExpression(literal("North")) },
 							),
 							// Advanced input with a well-typed predicate.
 							advancedSearchInputDef(
