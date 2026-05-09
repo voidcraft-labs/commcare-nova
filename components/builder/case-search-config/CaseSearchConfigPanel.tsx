@@ -168,7 +168,12 @@ export function CaseSearchConfigPanel({
 	// next tick.
 	if (!mod?.caseType) return null;
 
-	const knownInputs = mod.caseListConfig?.searchInputs ?? [];
+	// One source-of-truth alias for `caseListConfig.searchInputs`.
+	// Consumed three ways: as `knownInputs` for Claim + Display (so
+	// `input("...")` references inside their inner editors resolve)
+	// and as the `value` for the Search Inputs section (which owns
+	// the slot). The cross-binding is the load-bearing fact — the
+	// case-list workspace and this panel both author the SAME array.
 	const searchInputs = mod.caseListConfig?.searchInputs ?? [];
 	const caseSearchConfig = mod.caseSearchConfig;
 	const currentCaseType = mod.caseType;
@@ -194,7 +199,7 @@ export function CaseSearchConfigPanel({
 						onChange={handleSearchConfigChange}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
+						knownInputs={searchInputs}
 						onValidityChange={setClaimValid}
 					/>
 				</div>
@@ -225,7 +230,7 @@ export function CaseSearchConfigPanel({
 						onChange={handleSearchConfigChange}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
+						knownInputs={searchInputs}
 						onValidityChange={setDisplayValid}
 					/>
 				</div>

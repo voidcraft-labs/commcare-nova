@@ -18,14 +18,16 @@
 // `nextConfig`-mediated first-edit seed, and validity aggregation.
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { MutableRefObject, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { useModule } from "@/lib/doc/hooks/useEntity";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
 	type CaseSearchConfig,
 	type CaseType,
+	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 
@@ -169,6 +171,38 @@ interface RenderOpts {
 	 *  return path. */
 	readonly caseType?: string;
 	readonly onValidityChange?: (valid: boolean) => void;
+	/** Optional ref the test can read AFTER a mutation to assert
+	 *  against the persisted doc-store shape. Captures the live
+	 *  `Module` for `MODULE_UUID` on every render of the probe
+	 *  component below, so tests reading the ref immediately after a
+	 *  `fireEvent.click` see the post-mutation state. */
+	readonly moduleSnapshotRef?: MutableRefObject<Module | undefined>;
+}
+
+/**
+ * Sibling consumer that captures the current `Module` for
+ * `moduleUuid` from the doc store and writes it to the supplied
+ * ref. Used to assert against the persisted shape (e.g. the
+ * cross-binding seed's `columns: []` default) without exposing the
+ * raw store API to call sites.
+ *
+ * Subscribes via `useModule` so the probe re-renders whenever the
+ * targeted module's reference changes (Immer's structural sharing
+ * keeps unrelated mutations off this subscription). Tests trigger
+ * a mutation and then read the ref imperatively; React's commit
+ * pipeline guarantees the probe's render fires after the mutation
+ * lands but before `fireEvent.click` returns to the test.
+ */
+function DocSnapshotProbe({
+	targetRef,
+	moduleUuid,
+}: {
+	targetRef: MutableRefObject<Module | undefined>;
+	moduleUuid: Uuid;
+}) {
+	const mod = useModule(moduleUuid);
+	targetRef.current = mod;
+	return null;
 }
 
 /**
@@ -212,6 +246,12 @@ function renderPanel(opts: RenderOpts = {}): ReactNode {
 				moduleUuid={MODULE_UUID}
 				onValidityChange={opts.onValidityChange}
 			/>
+			{opts.moduleSnapshotRef ? (
+				<DocSnapshotProbe
+					targetRef={opts.moduleSnapshotRef}
+					moduleUuid={MODULE_UUID}
+				/>
+			) : null}
 		</BlueprintDocProvider>
 	);
 }
@@ -369,19 +409,24 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 		// A regression here would surface as a silent zod failure on
 		// the next save (no UI signal — the parse runs in the
 		// persistence layer).
-		render(renderPanel({ caseListConfig: undefined }));
-		const searchInputsMock = vi.mocked(SearchInputsSectionMock);
-		searchInputsMock.mockClear();
+		const moduleSnapshotRef: MutableRefObject<Module | undefined> = {
+			current: undefined,
+		};
+		render(renderPanel({ caseListConfig: undefined, moduleSnapshotRef }));
 		fireEvent.click(screen.getByTestId("search-inputs-section-fire-change"));
 
-		const lastCall = searchInputsMock.mock.calls.at(-1);
-		// Post-edit: SearchInputsSection's `value` reflects the new
-		// array (the panel's mutator ran the seed helper on the
-		// previously-undefined caseListConfig). The exact shape is
-		// validated by zod at write-time inside the doc store, so
-		// the assertion confirms the row landed without crashing on
-		// a partial config.
-		expect(lastCall?.[0].value.length).toBe(1);
+		// Read the persisted shape directly from the doc store. The
+		// mutator routes the cross-binding write through
+		// `nextCaseListConfigFromSearchInputs(undefined, [...])`,
+		// which seeds `columns: []` alongside the new searchInputs.
+		// Asserting against both keys pins the seed-helper's
+		// contract — a regression that dropped `columns` would surface
+		// here even before the zod parse on the next save.
+		const persistedConfig = moduleSnapshotRef.current?.caseListConfig;
+		expect(persistedConfig).toBeDefined();
+		expect(persistedConfig?.columns).toEqual([]);
+		expect(persistedConfig?.searchInputs.length).toBe(1);
+		expect(persistedConfig?.searchInputs[0]?.name).toBe("input_added");
 	});
 });
 
@@ -469,5 +514,21 @@ describe("CaseSearchConfigPanel — defensive guards", () => {
 		expect(
 			container.querySelector("[data-testid='search-inputs-section-stub']"),
 		).toBeNull();
+	});
+
+	it("reports valid: true to the parent on a case-less module (no validity-bearing controls mounted)", () => {
+		// Pins the contract: when the panel renders nothing because
+		// the module has no case type, the composite verdict still
+		// fires `true` to the parent. No validity-bearing sub-control
+		// mounted = no failure surface = trivially valid.
+		//
+		// The effect runs through `useValidityPropagator` BEFORE the
+		// case-less early return, so the propagation contract holds
+		// uniformly across the case-typed and case-less arms. A
+		// future caller gating its save affordance on this verdict
+		// can rely on case-less modules NOT blocking the save.
+		const onValidityChange = vi.fn<(valid: boolean) => void>();
+		render(renderPanel({ caseType: undefined, onValidityChange }));
+		expect(onValidityChange).toHaveBeenLastCalledWith(true);
 	});
 });
