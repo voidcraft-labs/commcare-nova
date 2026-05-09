@@ -82,7 +82,12 @@ export const updateFormInputSchema = z
 						// positive integer minutes. The reducer doesn't
 						// re-parse patches via Zod, so the SA-facing schema
 						// is the only gate against invalid values.
-						time_estimate: z.number().int().positive(),
+						time_estimate: z
+							.number()
+							.refine(
+								(n) => Number.isInteger(n) && n >= 1,
+								"time_estimate must be a positive integer (minutes).",
+							),
 					})
 					.strict()
 					.optional()

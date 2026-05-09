@@ -186,7 +186,12 @@ export const scaffoldModulesSchema = z.object({
 									// re-parse, so the SA-facing schema is the
 									// only gate against `0` / negatives / floats
 									// landing on the persisted doc.
-									time_estimate: z.number().int().positive(),
+									time_estimate: z
+										.number()
+										.refine(
+											(n) => Number.isInteger(n) && n >= 1,
+											"time_estimate must be a positive integer (minutes).",
+										),
 								})
 								.optional()
 								.describe(
