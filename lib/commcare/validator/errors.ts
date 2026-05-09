@@ -29,6 +29,13 @@ export type ValidationErrorCode =
 	| "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH"
 	| "FIELD_KIND_PROPERTY_TYPE_MISMATCH"
 	| "FIELD_KIND_WRITERS_DISAGREE"
+	// Case-search-config rules — fire only when `caseSearchConfig`
+	// is present on the module. Without it, no `<remote-request>` is
+	// emitted, so each rule short-circuits cleanly when the config
+	// slot is absent.
+	| "CASE_SEARCH_INPUT_REFERENCE_UNKNOWN"
+	| "CASE_SEARCH_CLAIM_CONDITION_TYPE_ERROR"
+	| "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT"
 	// Form-level
 	| "EMPTY_FORM"
 	| "NO_CASE_NAME_FIELD"

@@ -125,3 +125,4 @@ export * from "./jsonSchema";
 export * from "./reduction";
 export * from "./typeChecker";
 export * from "./types";
+export * from "./walk";

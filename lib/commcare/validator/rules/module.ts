@@ -13,6 +13,9 @@ import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck
 import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
+import { claimConditionTypeCheck } from "./case-search/claimConditionTypeCheck";
+import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
+import { searchInputReferences } from "./case-search/searchInputReferences";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
@@ -165,4 +168,11 @@ export const MODULE_RULES = [
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
 	searchInputModeMatchesPropertyType,
+	// Case-search-config rules — fire only when `caseSearchConfig`
+	// is present on the module; otherwise the module emits no
+	// `<remote-request>` and these rules have no authoring concern
+	// to gate.
+	searchInputReferences,
+	claimConditionTypeCheck,
+	filterSearchInputConflict,
 ];

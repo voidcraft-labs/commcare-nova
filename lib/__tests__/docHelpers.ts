@@ -84,6 +84,7 @@ export interface ModuleSpec {
 	caseListOnly?: boolean;
 	purpose?: string;
 	caseListConfig?: Module["caseListConfig"];
+	caseSearchConfig?: Module["caseSearchConfig"];
 	forms?: FormSpec[];
 }
 
@@ -155,6 +156,9 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 			...(modSpec.purpose !== undefined && { purpose: modSpec.purpose }),
 			...(modSpec.caseListConfig !== undefined && {
 				caseListConfig: modSpec.caseListConfig,
+			}),
+			...(modSpec.caseSearchConfig !== undefined && {
+				caseSearchConfig: modSpec.caseSearchConfig,
 			}),
 		};
 
