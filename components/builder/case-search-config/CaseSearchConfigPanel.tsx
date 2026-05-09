@@ -1,0 +1,326 @@
+// components/builder/case-search-config/CaseSearchConfigPanel.tsx
+//
+// Multi-section authoring shell for the case-search workspace. Mounts
+// at /build/[id]/{moduleUuid}/search-config in edit mode and stacks
+// three sections — Claim, Display, Search Inputs — vertically inside
+// violet-railed sticky section headers.
+//
+// Layout choice. Single-scroll magazine: every section is always
+// visible; the user moves between them by scrolling. The shape mirrors
+// the case-list workspace's three-section magazine — one shell pattern,
+// two URL-distinct authoring surfaces.
+//
+// Slot composition. The panel reads two distinct doc-store slots:
+//
+//   - `mod.caseSearchConfig` — owned by Claim + Display. The slot is
+//     OPTIONAL on the Module schema; the shared `nextConfig` helper
+//     seeds `{ dontClaimAlreadyOwned: false }` on first edit so the
+//     emitted shape always satisfies the schema's required boolean.
+//
+//   - `mod.caseListConfig.searchInputs` — owned by Search Inputs.
+//     Cross-binding with the case-list workspace: the same array is
+//     authored from both surfaces. Editing here writes through
+//     `caseListConfig.searchInputs`, NOT a parallel
+//     `caseSearchConfig.searchInputs`. One source, two views.
+//
+// Validity propagation. Each section reports its verdict via
+// `onValidityChange`; the panel ANDs the three into a single composite
+// boolean and propagates it to the parent through the standardized
+// `useValidityPropagator` helper. The parent gates its save affordance
+// on the composite verdict.
+
+"use client";
+
+import { useCallback, useState } from "react";
+import { CaseListSectionHeader } from "@/components/builder/case-list-config/CaseListSectionHeader";
+import { SearchInputsSection } from "@/components/builder/case-list-config/SearchInputsSection";
+import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useModule } from "@/lib/doc/hooks/useEntity";
+import type { Uuid } from "@/lib/doc/types";
+import type {
+	CaseListConfig,
+	CaseSearchConfig,
+	SearchInputDef,
+} from "@/lib/domain";
+import { ClaimSection } from "./ClaimSection";
+import { DisplaySection } from "./DisplaySection";
+
+// ── Public types ──────────────────────────────────────────────────
+
+export interface CaseSearchConfigPanelProps {
+	/** The module whose case-search authoring is being edited. The
+	 *  panel reads this module's `caseSearchConfig` and
+	 *  `caseListConfig.searchInputs` from the doc store and routes
+	 *  per-section edits back through `updateModule(...)`. */
+	readonly moduleUuid: Uuid;
+	/** Aggregated validity verdict — fires `false` when any section
+	 *  reports invalid, `true` when every section is valid (or
+	 *  trivially valid because its slots are absent). The parent
+	 *  gates its save affordance on this composite verdict. */
+	readonly onValidityChange?: (valid: boolean) => void;
+}
+
+// ── Cross-binding seed for caseListConfig ─────────────────────────
+//
+// When the panel writes a `searchInputs` change but the module's
+// `caseListConfig` slot is undefined, the schema-required `columns`
+// and `searchInputs` arrays must be present. Mirrors the
+// `nextConfig` seed pattern: route the empty-slot case through a
+// single helper so the emit shape stays in lockstep with the schema
+// and a future schema addition lands in one place.
+
+/**
+ * Build the next `CaseListConfig` from a possibly-undefined current
+ * value plus the next `searchInputs` array. Pins the schema-required
+ * `columns: []` default on first edit so the parent never sees a
+ * partial config that fails strict parse, and passes through every
+ * existing slot (`columns`, `filter`) when the panel already has a
+ * config.
+ *
+ * The shared `CaseListWorkspace` writes through its own paths today
+ * — this helper exists for the case-search panel's cross-binding
+ * write so the surfaces don't duplicate the seed logic. If the case-
+ * list workspace ever gains a "first-edit search input" path on an
+ * empty `caseListConfig`, it can adopt this helper too.
+ */
+function nextCaseListConfigFromSearchInputs(
+	current: CaseListConfig | undefined,
+	nextInputs: readonly SearchInputDef[],
+): CaseListConfig {
+	const base: CaseListConfig = current ?? { columns: [], searchInputs: [] };
+	return { ...base, searchInputs: [...nextInputs] };
+}
+
+// ── Top-level component ───────────────────────────────────────────
+
+/**
+ * Three-section single-scroll authoring panel for case-search.
+ * Composes ClaimSection + DisplaySection + the cross-bound
+ * SearchInputsSection inside the case-list workspace's section-header
+ * chrome (the `CaseListSectionHeader` primitive isn't case-list-
+ * specific — it's a chrome shape used by every magazine-layout
+ * workspace).
+ */
+export function CaseSearchConfigPanel({
+	moduleUuid,
+	onValidityChange,
+}: CaseSearchConfigPanelProps) {
+	const mod = useModule(moduleUuid);
+	const caseTypes = useCaseTypes();
+	const { updateModule } = useBlueprintMutations();
+
+	// Per-section verdicts. Default `true` so the composite verdict
+	// fires `true` on a clean module — the section-level effects then
+	// flip individual slots to `false` only when the inner editor
+	// reports invalid. The aggregator AND-folds the three at every
+	// transition.
+	const [claimValid, setClaimValid] = useState(true);
+	const [displayValid, setDisplayValid] = useState(true);
+	const [searchInputsValid, setSearchInputsValid] = useState(true);
+
+	const compositeValid = claimValid && displayValid && searchInputsValid;
+	useValidityPropagator({
+		isValid: compositeValid,
+		onValidityChange,
+	});
+
+	// ── Per-slot mutators ──
+	//
+	// Each section emits a fully-formed slot value the panel routes
+	// straight to `updateModule(...)`. Claim + Display share the
+	// `caseSearchConfig` slot; the sections themselves call through
+	// the shared `nextConfig` helper to seed the required boolean on
+	// first edit, so the panel's mutator just persists what the
+	// section emits.
+
+	const handleSearchConfigChange = useCallback(
+		(next: CaseSearchConfig) => {
+			updateModule(moduleUuid, { caseSearchConfig: next });
+		},
+		[updateModule, moduleUuid],
+	);
+
+	// Cross-binding mutator. Writes flow through `caseListConfig` —
+	// the same source the case-list workspace edits — so a search
+	// input authored from this panel is the same row the case-list
+	// workspace's Search section renders. The seed helper above pins
+	// the schema-required defaults on first edit.
+	const handleSearchInputsChange = useCallback(
+		(nextInputs: readonly SearchInputDef[]) => {
+			updateModule(moduleUuid, {
+				caseListConfig: nextCaseListConfigFromSearchInputs(
+					mod?.caseListConfig,
+					nextInputs,
+				),
+			});
+		},
+		[updateModule, moduleUuid, mod?.caseListConfig],
+	);
+
+	// Defensive return — a module without a case type can't author
+	// case-search (there's no scope for property references). The
+	// affordance on `ModuleScreen` greys out in this state, but a
+	// race (URL points at `/search-config` while the case type is
+	// being deleted) shouldn't crash. Render nothing rather than a
+	// hard error; the LocationRecoveryEffect scrubs the URL on the
+	// next tick.
+	if (!mod?.caseType) return null;
+
+	const knownInputs = mod.caseListConfig?.searchInputs ?? [];
+	const searchInputs = mod.caseListConfig?.searchInputs ?? [];
+	const caseSearchConfig = mod.caseSearchConfig;
+	const currentCaseType = mod.caseType;
+
+	return (
+		<div className="case-search-config-panel max-w-5xl mx-auto pb-32">
+			{/*
+			 * Section: Claim.
+			 *
+			 * Owns the claim-flow slots on `caseSearchConfig` —
+			 * `claimCondition` / `dontClaimAlreadyOwned` /
+			 * `blacklistedOwnerIds`. The status line surfaces the
+			 * three slots' presence at-a-glance.
+			 */}
+			<section>
+				<CaseListSectionHeader
+					title="Claim"
+					status={buildClaimStatus(caseSearchConfig)}
+				/>
+				<div className="px-8 pt-24 pb-16 space-y-6">
+					<ClaimSection
+						value={caseSearchConfig}
+						onChange={handleSearchConfigChange}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+						onValidityChange={setClaimValid}
+					/>
+				</div>
+			</section>
+
+			{/*
+			 * Section divider — mirrors the case-list workspace's
+			 * hairline between sections so the two surfaces compose
+			 * with the same vertical rhythm.
+			 */}
+			<div className="border-t border-nova-violet/[0.15]" aria-hidden="true" />
+
+			{/*
+			 * Section: Display.
+			 *
+			 * Owns the search-screen labels + the optional
+			 * `searchButtonDisplayCondition` predicate. The status
+			 * line counts authored labels.
+			 */}
+			<section>
+				<CaseListSectionHeader
+					title="Display"
+					status={buildDisplayStatus(caseSearchConfig)}
+				/>
+				<div className="px-8 pt-24 pb-16 space-y-6">
+					<DisplaySection
+						value={caseSearchConfig}
+						onChange={handleSearchConfigChange}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+						onValidityChange={setDisplayValid}
+					/>
+				</div>
+			</section>
+
+			<div className="border-t border-nova-violet/[0.15]" aria-hidden="true" />
+
+			{/*
+			 * Section: Search Inputs.
+			 *
+			 * Cross-bound to `mod.caseListConfig.searchInputs`. The
+			 * same array the case-list workspace's Search section
+			 * edits — the panel just renders a second view onto the
+			 * same source. The status line mirrors the case-list
+			 * workspace's input-count language.
+			 */}
+			<section>
+				<CaseListSectionHeader
+					title="Search Inputs"
+					status={buildSearchInputsStatus(searchInputs.length)}
+				/>
+				<div className="px-8 pt-24 pb-16 space-y-6">
+					<SearchInputsSection
+						value={searchInputs}
+						onChange={handleSearchInputsChange}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						onValidityChange={setSearchInputsValid}
+					/>
+				</div>
+			</section>
+		</div>
+	);
+}
+
+// ── Status-line builders ──────────────────────────────────────────
+//
+// Pure helpers. Each turns the relevant slot's authored state into
+// the at-a-glance copy the section header surfaces. Strings prop-
+// compare by value, so the section headers re-render when their
+// status changes — no memoization needed.
+
+/**
+ * Claim-section status. Counts which of the three claim-flow slots
+ * are authored: claim condition / already-owned guard / blacklisted
+ * owner IDs. The guard is a plain boolean and counts as "set" only
+ * when toggled on — its `false` default doesn't surface as an active
+ * configuration.
+ */
+function buildClaimStatus(value: CaseSearchConfig | undefined): string {
+	if (!value) return "Defaults — every selection claims unconditionally.";
+	const parts: string[] = [];
+	if (value.claimCondition !== undefined) parts.push("conditional claim");
+	if (value.dontClaimAlreadyOwned) parts.push("skip already-owned");
+	if (value.blacklistedOwnerIds !== undefined) parts.push("owner blacklist");
+	if (parts.length === 0) {
+		return "Defaults — every selection claims unconditionally.";
+	}
+	return parts.join(" · ");
+}
+
+/**
+ * Display-section status. Counts authored label slots and reports
+ * whether the search-button display condition is set. A blank state
+ * surfaces "Defaults" so the user immediately knows the runtime is
+ * using built-in copy.
+ */
+function buildDisplayStatus(value: CaseSearchConfig | undefined): string {
+	if (!value) return "Defaults — runtime uses built-in copy.";
+	const labels = [
+		value.searchScreenTitle,
+		value.searchScreenSubtitle,
+		value.emptyListText,
+		value.searchButtonLabel,
+		value.searchAgainButtonLabel,
+	].filter((s): s is string => s !== undefined && s.length > 0).length;
+	const hasDisplayCondition = value.searchButtonDisplayCondition !== undefined;
+	const parts: string[] = [];
+	if (labels > 0) {
+		parts.push(`${labels} ${labels === 1 ? "label" : "labels"} authored`);
+	}
+	if (hasDisplayCondition) parts.push("display condition set");
+	if (parts.length === 0) return "Defaults — runtime uses built-in copy.";
+	return parts.join(" · ");
+}
+
+/**
+ * Search-inputs status. Mirrors the case-list workspace's
+ * vocabulary — same source data, same status copy — so the user
+ * sees one consistent count regardless of which workspace they
+ * arrived from.
+ */
+function buildSearchInputsStatus(count: number): string {
+	if (count === 0) {
+		return "No search inputs — list-only view (no inline search bar).";
+	}
+	return `${count} ${count === 1 ? "input" : "inputs"}`;
+}

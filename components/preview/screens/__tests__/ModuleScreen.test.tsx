@@ -17,6 +17,7 @@ const navigateMock = {
 	openModule: vi.fn(),
 	openCaseList: vi.fn(),
 	openCaseDetail: vi.fn(),
+	openSearchConfig: vi.fn(),
 	openForm: vi.fn(),
 	push: vi.fn(),
 	replace: vi.fn(),
@@ -111,5 +112,50 @@ describe("ModuleScreen — Case List affordance", () => {
 		// Case-type appears as a monospace pill — the user immediately
 		// sees which case-type's case list this affordance configures.
 		expect(card.textContent).toMatch(/patient/i);
+	});
+});
+
+describe("ModuleScreen — Search Config affordance", () => {
+	it("renders the Search Config card when the module has a caseType", () => {
+		renderModuleScreen({ caseType: "patient" });
+		// Sibling affordance to Case List. Same role + name shape so
+		// the user sees the two cards as related.
+		expect(
+			screen.getByRole("button", { name: /Search Config/i }),
+		).toBeDefined();
+	});
+
+	it("renders the Search Config card even when the module has no caseType (greyed)", () => {
+		// The card always renders so the affordance path stays
+		// discoverable — the disabled state surfaces the unblocking
+		// action via the native `title` hint. Pinning the always-
+		// render contract here so a future change to "render only
+		// when case-typed" surfaces as a regression.
+		renderModuleScreen({ caseType: undefined });
+		const card = screen.getByRole("button", { name: /Search Config/i });
+		expect(card).toBeDefined();
+		// Disabled state — the button carries the `disabled` attribute
+		// and surfaces the hover hint.
+		expect((card as HTMLButtonElement).disabled).toBe(true);
+		expect(card.getAttribute("title")).toContain(
+			"Set a case type on this module",
+		);
+	});
+
+	it("navigates to the search-config URL via openSearchConfig on click", () => {
+		renderModuleScreen({ caseType: "patient" });
+		const card = screen.getByRole("button", { name: /Search Config/i });
+		fireEvent.click(card);
+		expect(navigateMock.openSearchConfig).toHaveBeenCalledOnce();
+		expect(navigateMock.openSearchConfig).toHaveBeenCalledWith(MODULE_UUID);
+	});
+
+	it("does NOT call openSearchConfig on click when the module has no caseType", () => {
+		// Disabled state must suppress navigation — clicking a greyed
+		// card shouldn't push a URL the panel can't author against.
+		renderModuleScreen({ caseType: undefined });
+		const card = screen.getByRole("button", { name: /Search Config/i });
+		fireEvent.click(card);
+		expect(navigateMock.openSearchConfig).not.toHaveBeenCalled();
 	});
 });

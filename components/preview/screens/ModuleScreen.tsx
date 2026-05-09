@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
+import tablerListSearch from "@iconify-icons/tabler/list-search";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
@@ -87,6 +88,25 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 					moduleUuid={moduleUuid}
 					caseType={mod.caseType ?? ""}
 					onClick={() => navigate.openCaseList(moduleUuid)}
+				/>
+			) : null}
+
+			{/*
+			 * Search Config affordance card.
+			 *
+			 * Sibling affordance to Case List, opening the per-module
+			 * case-search authoring workspace at
+			 * /build/[id]/{moduleUuid}/search-config. The card always
+			 * renders so the affordance path stays discoverable; when
+			 * the module has no case type, the card greys out with a
+			 * hover hint pointing at the unblocking action — case-
+			 * search authoring needs a declared case type to scope
+			 * property references.
+			 */}
+			{moduleUuid ? (
+				<SearchConfigCard
+					hasCase={hasCase}
+					onClick={() => navigate.openSearchConfig(moduleUuid)}
 				/>
 			) : null}
 
@@ -195,6 +215,84 @@ function CaseListCard({ moduleUuid, caseType, onClick }: CaseListCardProps) {
 			<span className="px-2 py-0.5 rounded text-[11px] font-mono bg-nova-violet/[0.12] text-nova-violet-bright border border-nova-violet/[0.25]">
 				{caseType}
 			</span>
+		</motion.button>
+	);
+}
+
+// ── Search Config affordance ─────────────────────────────────────
+
+interface SearchConfigCardProps {
+	/** Whether the module has a case type. Drives the active /
+	 *  greyed visual variant + the click handler's enabled state.
+	 *  When `false`, the card renders disabled with a hover hint
+	 *  surfacing the unblocking action. */
+	readonly hasCase: boolean;
+	readonly onClick: () => void;
+}
+
+/**
+ * Sibling affordance to `CaseListCard`. Opens the case-search
+ * authoring workspace at /build/[id]/{moduleUuid}/search-config.
+ *
+ * Always renders — the affordance path stays discoverable even on
+ * a case-less module. When the module has no case type, the card
+ * greys out, drops its hover state, and surfaces a native `title`
+ * hint pointing at the unblocking action ("Set a case type on this
+ * module to enable search authoring."). Click is suppressed in the
+ * disabled state via the button's `disabled` attribute so screen
+ * readers report the disabled state alongside the visual cue.
+ */
+function SearchConfigCard({ hasCase, onClick }: SearchConfigCardProps) {
+	const baseClass =
+		"w-full flex items-center gap-3 p-4 rounded-lg border transition-all duration-200 text-left";
+	const enabledClass =
+		"bg-gradient-to-r from-nova-violet/[0.08] to-transparent border-nova-violet/[0.2] hover:border-nova-violet/[0.4] hover:from-nova-violet/[0.12] cursor-pointer group";
+	const disabledClass =
+		"bg-nova-surface/30 border-white/[0.06] opacity-60 cursor-not-allowed";
+
+	return (
+		<motion.button
+			type="button"
+			initial={{ opacity: 0, y: 12 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+			onClick={hasCase ? onClick : undefined}
+			disabled={!hasCase}
+			title={
+				hasCase
+					? undefined
+					: "Set a case type on this module to enable search authoring."
+			}
+			className={`${baseClass} ${hasCase ? enabledClass : disabledClass}`}
+		>
+			{/* Violet pill icon mirrors the Case List card's chrome —
+			 *  the two affordances read as siblings of the same family. */}
+			<div
+				className={`p-2 rounded-md shrink-0 ${
+					hasCase
+						? "bg-nova-violet/[0.15] border border-nova-violet/[0.3]"
+						: "bg-white/[0.04] border border-white/[0.06]"
+				}`}
+			>
+				<Icon
+					icon={tablerListSearch}
+					width="20"
+					height="20"
+					className={
+						hasCase ? "text-nova-violet-bright" : "text-nova-text-muted"
+					}
+				/>
+			</div>
+			<div className="flex-1 min-w-0">
+				<div className="text-base font-display font-medium text-nova-text">
+					Search Config
+				</div>
+				<div className="text-xs text-nova-text-muted mt-0.5">
+					{hasCase
+						? "Author claim flow + display labels for case search."
+						: "Requires a case type."}
+				</div>
+			</div>
 		</motion.button>
 	);
 }
