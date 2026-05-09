@@ -25,7 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { setCaseSearchClaimTool } from "../setCaseSearchClaim";
+import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 
 /* JSON Schema shape this test introspects. `properties` and
@@ -55,7 +55,7 @@ function countTopLevelOptionals(schema: ObjectJsonSchema): number {
 }
 
 const TOOLS = [
-	{ name: "setCaseSearchClaim", tool: setCaseSearchClaimTool },
+	{ name: "setCaseSearchAdvanced", tool: setCaseSearchAdvancedTool },
 	{ name: "setCaseSearchDisplay", tool: setCaseSearchDisplayTool },
 ] as const;
 
@@ -79,29 +79,20 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 
 	// ── Representative-payload smoke tests ────────────────────────────
 
-	it("setCaseSearchClaim: parses a representative payload (every slot supplied)", () => {
-		const result = setCaseSearchClaimTool.inputSchema.safeParse({
+	it("setCaseSearchAdvanced: parses a representative payload (slot supplied)", () => {
+		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			claimCondition: {
-				kind: "eq",
-				left: {
-					kind: "term",
-					term: { kind: "prop", caseType: "patient", property: "status" },
-				},
-				right: { kind: "term", term: { kind: "literal", value: "active" } },
-			},
 			blacklistedOwnerIds: {
 				kind: "term",
-				term: { kind: "literal", value: "" },
+				term: { kind: "literal", value: "owner-a owner-b" },
 			},
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it("setCaseSearchClaim: parses with optional slots cleared via null", () => {
-		const result = setCaseSearchClaimTool.inputSchema.safeParse({
+	it("setCaseSearchAdvanced: parses with the slot cleared via null", () => {
+		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			claimCondition: null,
 			blacklistedOwnerIds: null,
 		});
 		expect(result.success).toBe(true);

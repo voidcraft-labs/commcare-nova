@@ -2,13 +2,13 @@
  * Shared input schemas + snapshot helper for the case-search-config SA
  * tools.
  *
- * The case-search config carries two clusters — claim flow (claim
- * condition / blacklisted owner ids) and display labels (search-
- * screen titles, button labels, search-button display predicate).
- * Each cluster has its own wholesale-replace tool
- * (`setCaseSearchClaim` / `setCaseSearchDisplay`); this file owns the
- * SA-boundary input shapes and the typed snapshot accessor both tools
- * read before constructing the next config.
+ * The case-search config carries two clusters — display labels (search-
+ * screen titles, button labels, search-button display predicate) and
+ * the advanced cluster (niche search-side filters; today only the
+ * `blacklistedOwnerIds` value expression). Each cluster has its own
+ * wholesale-replace tool (`setCaseSearchDisplay` / `setCaseSearchAdvanced`);
+ * this file owns the SA-boundary input shapes and the typed snapshot
+ * accessor both tools read before constructing the next config.
  *
  * The `searchInputs` cross-binding lives on `caseListConfig.searchInputs`
  * (one source of truth across both screens), so the case-search-config
@@ -35,23 +35,21 @@ import { z } from "zod";
 import type { CaseSearchConfig, Module } from "@/lib/domain";
 import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
-// ── Input schemas — claim cluster ───────────────────────────────────
+// ── Input schemas — advanced cluster ────────────────────────────────
 
 /**
- * SA boundary shape for `setCaseSearchClaim`. Required-and-nullable
+ * SA boundary shape for `setCaseSearchAdvanced`. Required-and-nullable
  * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it.
+ * value sets it. Today the cluster carries one slot; the abstract
+ * "advanced" framing means future niche filters land here without a
+ * tool rename.
  *
  * `moduleIndex` omitted from the named export so callers can wrap it
- * (`setCaseSearchClaim` adds the slot back in its tool input schema).
+ * (`setCaseSearchAdvanced` adds the slot back in its tool input
+ * schema).
  */
-export const setCaseSearchClaimBodySchema = z
+export const setCaseSearchAdvancedBodySchema = z
 	.object({
-		claimCondition: predicateSchema
-			.nullable()
-			.describe(
-				"Predicate AST gating the claim, or `null` to clear. When set, the runtime claims a case from search results only when this predicate evaluates true against the selected case. Pass `null` to remove an existing condition (the runtime claims unconditionally on selection).",
-			),
 		blacklistedOwnerIds: valueExpressionSchema
 			.nullable()
 			.describe(

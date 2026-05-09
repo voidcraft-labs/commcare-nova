@@ -6,7 +6,7 @@
  * Lives at `tools/shared/` because more than one tool family consumes
  * it. The case-list-config quartet (`addCaseListColumn`,
  * `setCaseListFilter`, …) was the first family; the case-search-config
- * tools (`setCaseSearchClaim`, `setCaseSearchDisplay`) are the second.
+ * tools (`setCaseSearchDisplay`, `setCaseSearchAdvanced`) are the second.
  * Centralizing the shape keeps the SA-facing message uniform across
  * families and means a future error-shape edit lands in one place.
  *

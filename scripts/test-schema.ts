@@ -29,7 +29,7 @@
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `addSearchInput`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
- *     `setCaseSearchClaim`, `setCaseSearchDisplay`.
+ *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`.
  */
 import "dotenv/config";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -45,7 +45,7 @@ import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reo
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
-import { setCaseSearchClaimTool } from "../lib/agent/tools/case-search-config/setCaseSearchClaim";
+import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
 
 /**
@@ -154,11 +154,11 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 	},
 	{
 		mode: "tool-input",
-		name: "setCaseSearchClaim",
-		description: setCaseSearchClaimTool.description,
-		schema: setCaseSearchClaimTool.inputSchema,
+		name: "setCaseSearchAdvanced",
+		description: setCaseSearchAdvancedTool.description,
+		schema: setCaseSearchAdvancedTool.inputSchema,
 		prompt:
-			"Use setCaseSearchClaim on module 0 to clear the claim condition (null) and clear the blacklisted owner ids (null).",
+			"Use setCaseSearchAdvanced on module 0 to clear the blacklisted owner ids (null).",
 	},
 	{
 		mode: "tool-input",

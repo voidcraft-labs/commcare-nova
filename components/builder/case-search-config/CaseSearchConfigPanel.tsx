@@ -2,8 +2,17 @@
 //
 // Multi-section authoring shell for the case-search workspace. Mounts
 // at /build/[id]/{moduleUuid}/search-config in edit mode and stacks
-// three sections — Claim, Display, Search Inputs — vertically inside
+// three sections — Display, Search Inputs, Advanced — vertically inside
 // violet-railed sticky section headers.
+//
+// Section order is load-bearing. Display sits at the top because the
+// search-screen title + subtitle are the most important fields on the
+// page — every author authoring a search screen edits them first.
+// Search Inputs comes next because it's the core search affordance.
+// Advanced is the bottom because its current contents are niche (an
+// owner blacklist most authors never reach for); pulling it down to
+// the bottom keeps the section out of the way of authors who don't
+// use it.
 //
 // Layout choice. Single-scroll magazine: every section is always
 // visible; the user moves between them by scrolling. The shape mirrors
@@ -12,8 +21,8 @@
 //
 // Slot composition. The panel reads two distinct doc-store slots:
 //
-//   - `mod.caseSearchConfig` — owned by Claim + Display. The slot is
-//     OPTIONAL on the Module schema; per-section mutators spread
+//   - `mod.caseSearchConfig` — owned by Display + Advanced. The slot
+//     is OPTIONAL on the Module schema; per-section mutators spread
 //     `...(value ?? {})` before applying their patch so first-edit
 //     produces a strict-parse-valid empty-but-present config and
 //     existing siblings flow through untouched.
@@ -45,7 +54,7 @@ import type {
 	CaseSearchConfig,
 	SearchInputDef,
 } from "@/lib/domain";
-import { ClaimSection } from "./ClaimSection";
+import { AdvancedSection } from "./AdvancedSection";
 import { DisplaySection } from "./DisplaySection";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -98,8 +107,8 @@ function nextCaseListConfigFromSearchInputs(
 
 /**
  * Three-section single-scroll authoring panel for case-search.
- * Composes ClaimSection + DisplaySection + the cross-bound
- * SearchInputsSection inside the case-list workspace's section-header
+ * Composes DisplaySection + the cross-bound SearchInputsSection +
+ * AdvancedSection inside the case-list workspace's section-header
  * chrome (the `CaseListSectionHeader` primitive isn't case-list-
  * specific — it's a chrome shape used by every magazine-layout
  * workspace).
@@ -117,11 +126,11 @@ export function CaseSearchConfigPanel({
 	// flip individual slots to `false` only when the inner editor
 	// reports invalid. The aggregator AND-folds the three at every
 	// transition.
-	const [claimValid, setClaimValid] = useState(true);
 	const [displayValid, setDisplayValid] = useState(true);
 	const [searchInputsValid, setSearchInputsValid] = useState(true);
+	const [advancedValid, setAdvancedValid] = useState(true);
 
-	const compositeValid = claimValid && displayValid && searchInputsValid;
+	const compositeValid = displayValid && searchInputsValid && advancedValid;
 	useValidityPropagator({
 		isValid: compositeValid,
 		onValidityChange,
@@ -130,7 +139,7 @@ export function CaseSearchConfigPanel({
 	// ── Per-slot mutators ──
 	//
 	// Each section emits a fully-formed slot value the panel routes
-	// straight to `updateModule(...)`. Claim + Display share the
+	// straight to `updateModule(...)`. Display + Advanced share the
 	// `caseSearchConfig` slot; both sections spread `...(value ?? {})`
 	// inside their per-slot mutators, so the panel's mutator just
 	// persists what the section emits.
@@ -169,11 +178,12 @@ export function CaseSearchConfigPanel({
 	if (!mod?.caseType) return null;
 
 	// One source-of-truth alias for `caseListConfig.searchInputs`.
-	// Consumed three ways: as `knownInputs` for Claim + Display (so
-	// `input("...")` references inside their inner editors resolve)
-	// and as the `value` for the Search Inputs section (which owns
-	// the slot). The cross-binding is the load-bearing fact — the
-	// case-list workspace and this panel both author the SAME array.
+	// Consumed three ways: as `knownInputs` for Display + Advanced
+	// (so `input("...")` references inside their inner editors
+	// resolve) and as the `value` for the Search Inputs section
+	// (which owns the slot). The cross-binding is the load-bearing
+	// fact — the case-list workspace and this panel both author the
+	// SAME array.
 	const searchInputs = mod.caseListConfig?.searchInputs ?? [];
 	const caseSearchConfig = mod.caseSearchConfig;
 	const currentCaseType = mod.caseType;
@@ -181,42 +191,13 @@ export function CaseSearchConfigPanel({
 	return (
 		<div className="case-search-config-panel max-w-5xl mx-auto pb-32">
 			{/*
-			 * Section: Claim.
-			 *
-			 * Owns the claim-flow slots on `caseSearchConfig` —
-			 * `claimCondition` / `blacklistedOwnerIds`. The status
-			 * line surfaces the slots' presence at-a-glance.
-			 */}
-			<section>
-				<CaseListSectionHeader
-					title="Claim"
-					status={buildClaimStatus(caseSearchConfig)}
-				/>
-				<div className="px-8 pt-24 pb-16 space-y-6">
-					<ClaimSection
-						value={caseSearchConfig}
-						onChange={handleSearchConfigChange}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={searchInputs}
-						onValidityChange={setClaimValid}
-					/>
-				</div>
-			</section>
-
-			{/*
-			 * Section divider — mirrors the case-list workspace's
-			 * hairline between sections so the two surfaces compose
-			 * with the same vertical rhythm.
-			 */}
-			<div className="border-t border-nova-violet/[0.15]" aria-hidden="true" />
-
-			{/*
 			 * Section: Display.
 			 *
 			 * Owns the search-screen labels + the optional
 			 * `searchButtonDisplayCondition` predicate. The status
-			 * line counts authored labels.
+			 * line counts authored labels. Sits at the top because
+			 * the title and subtitle are the most prominent slots on
+			 * the page.
 			 */}
 			<section>
 				<CaseListSectionHeader
@@ -235,6 +216,11 @@ export function CaseSearchConfigPanel({
 				</div>
 			</section>
 
+			{/*
+			 * Section divider — mirrors the case-list workspace's
+			 * hairline between sections so the two surfaces compose
+			 * with the same vertical rhythm.
+			 */}
 			<div className="border-t border-nova-violet/[0.15]" aria-hidden="true" />
 
 			{/*
@@ -261,6 +247,35 @@ export function CaseSearchConfigPanel({
 					/>
 				</div>
 			</section>
+
+			<div className="border-t border-nova-violet/[0.15]" aria-hidden="true" />
+
+			{/*
+			 * Section: Advanced.
+			 *
+			 * Owns niche search-side filters. Today the section hosts
+			 * `blacklistedOwnerIds` (a search-results owner exclusion
+			 * list); future advanced filters land here without a
+			 * section rename. Sits at the bottom because most authors
+			 * never reach into this section — keeping it out of the
+			 * way of the more common authoring above.
+			 */}
+			<section>
+				<CaseListSectionHeader
+					title="Advanced"
+					status={buildAdvancedStatus(caseSearchConfig)}
+				/>
+				<div className="px-8 pt-24 pb-16 space-y-6">
+					<AdvancedSection
+						value={caseSearchConfig}
+						onChange={handleSearchConfigChange}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={searchInputs}
+						onValidityChange={setAdvancedValid}
+					/>
+				</div>
+			</section>
 		</div>
 	);
 }
@@ -271,21 +286,6 @@ export function CaseSearchConfigPanel({
 // the at-a-glance copy the section header surfaces. Strings prop-
 // compare by value, so the section headers re-render when their
 // status changes — no memoization needed.
-
-/**
- * Claim-section status. Counts which of the two claim-flow slots
- * are authored: claim condition / blacklisted owner IDs.
- */
-function buildClaimStatus(value: CaseSearchConfig | undefined): string {
-	if (!value) return "Defaults — every selection claims unconditionally.";
-	const parts: string[] = [];
-	if (value.claimCondition !== undefined) parts.push("conditional claim");
-	if (value.blacklistedOwnerIds !== undefined) parts.push("owner blacklist");
-	if (parts.length === 0) {
-		return "Defaults — every selection claims unconditionally.";
-	}
-	return parts.join(" · ");
-}
 
 /**
  * Display-section status. Counts authored label slots and reports
@@ -323,4 +323,17 @@ function buildSearchInputsStatus(count: number): string {
 		return "No search inputs — list-only view (no inline search bar).";
 	}
 	return `${count} ${count === 1 ? "input" : "inputs"}`;
+}
+
+/**
+ * Advanced-section status. Surfaces which advanced filters are
+ * authored. A blank state reads "None" so the user sees the section
+ * is intentionally empty rather than misconfigured.
+ */
+function buildAdvancedStatus(value: CaseSearchConfig | undefined): string {
+	if (!value) return "None — no advanced filters set.";
+	const parts: string[] = [];
+	if (value.blacklistedOwnerIds !== undefined) parts.push("owner blacklist");
+	if (parts.length === 0) return "None — no advanced filters set.";
+	return parts.join(" · ");
 }

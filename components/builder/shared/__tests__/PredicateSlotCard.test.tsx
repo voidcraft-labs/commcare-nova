@@ -4,7 +4,7 @@
 //
 // PredicateSlotCard composition tests — pin the public contract of
 // the optional-Predicate slot primitive that FiltersSection and
-// ClaimSection both consume:
+// DisplaySection (case-search) both consume:
 //
 //   - Slot-empty state surfaces the "Add ..." dashed CTA; the
 //     "Clear ..." button is absent.

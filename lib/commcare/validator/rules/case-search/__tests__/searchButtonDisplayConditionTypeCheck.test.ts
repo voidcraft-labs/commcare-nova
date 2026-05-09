@@ -1,8 +1,9 @@
 /**
  * Tests for the `searchButtonDisplayConditionTypeCheck` rule. One
- * invariant per `it(...)` block; the rule structurally mirrors
- * `claimConditionTypeCheck`, so the test shapes mirror that
- * file's pattern: fires-on-bad / passes-on-clean / short-circuits.
+ * invariant per `it(...)` block; the rule routes through the shared
+ * `moduleTypeContext` + `checkPredicate` dispatch every predicate-
+ * slot rule uses, so the test pattern is the canonical shape:
+ * fires-on-bad / passes-on-clean / short-circuits.
  */
 
 import { describe, expect, it } from "vitest";

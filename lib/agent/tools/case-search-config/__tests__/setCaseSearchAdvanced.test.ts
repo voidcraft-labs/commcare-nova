@@ -1,19 +1,17 @@
 /**
- * Behavioral tests for `setCaseSearchClaim`.
+ * Behavioral tests for `setCaseSearchAdvanced`.
  *
  * Drives the tool through `GenerationContext`. Coverage:
  *
- *   1. Effect on the doc — the supplied claim cluster lands on the
+ *   1. Effect on the doc — the supplied advanced cluster lands on the
  *      module's `caseSearchConfig`.
- *   2. Structured success carries the `claimConditionKind`
- *      discriminator.
- *   3. `null` clears `claimCondition` / `blacklistedOwnerIds` (keys
- *      omitted on the persisted doc).
- *   4. Display cluster (search-screen labels) survives the patch.
- *   5. Module-not-found surfaces an Elm-style error.
- *   6. Cross-surface parity — chat + MCP contexts produce
+ *   2. `null` clears `blacklistedOwnerIds` (key omitted on the
+ *      persisted doc).
+ *   3. Display cluster (search-screen labels) survives the patch.
+ *   4. Module-not-found surfaces an Elm-style error.
+ *   5. Cross-surface parity — chat + MCP contexts produce
  *      structurally identical mutation batches.
- *   7. Initializes the caseSearchConfig when the module has none.
+ *   6. Initializes the caseSearchConfig when the module has none.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,8 +20,8 @@ import {
 	caseSearchConfigSchema,
 	type Module,
 } from "@/lib/domain";
-import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
-import { setCaseSearchClaimTool } from "../setCaseSearchClaim";
+import { matchAll, term } from "@/lib/domain/predicate";
+import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import {
 	MOD_A,
 	makeCaseSearchFixture,
@@ -44,19 +42,15 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("setCaseSearchClaim", () => {
-	it("sets the claim cluster to the supplied values", async () => {
+describe("setCaseSearchAdvanced", () => {
+	it("sets the advanced cluster to the supplied values", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
-		const claimCondition = eq(prop("patient", "status"), literal("active"));
+		const blacklist = term({ kind: "literal", value: "owner-a owner-b" });
 
-		const result = await setCaseSearchClaimTool.execute(
+		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				claimCondition,
-				blacklistedOwnerIds: term({
-					kind: "literal",
-					value: "owner-a owner-b",
-				}),
+				blacklistedOwnerIds: blacklist,
 			},
 			ctx,
 			doc,
@@ -64,8 +58,7 @@ describe("setCaseSearchClaim", () => {
 
 		expect(result.kind).toBe("mutate");
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.claimCondition).toEqual(claimCondition);
-		expect(config?.blacklistedOwnerIds).toBeDefined();
+		expect(config?.blacklistedOwnerIds).toEqual(blacklist);
 		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`
 		// so any unknown key sneaking out of the strip-and-rebuild logic, or
 		// a key that landed as `undefined` rather than absent, surfaces here.
@@ -73,16 +66,16 @@ describe("setCaseSearchClaim", () => {
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
-	it("surfaces the predicate kind in the structured result", async () => {
-		// Mirrors `setCaseListFilter`'s structured-success contract — the
-		// SA reads the discriminator off the result rather than parsing
-		// it back out of the prose message.
+	it("returns a confirmation message that names the slot operation", async () => {
+		// Single-slot wholesale tool — there's no `kind` discriminator on
+		// the success result (the prose message is the only signal). Pin
+		// that the message names the blacklist slot so the SA can confirm
+		// the tool ran without re-reading the config.
 		const { doc, ctx } = makeCaseSearchFixture();
-		const result = await setCaseSearchClaimTool.execute(
+		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				claimCondition: matchAll(),
-				blacklistedOwnerIds: null,
+				blacklistedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
 			doc,
@@ -90,15 +83,14 @@ describe("setCaseSearchClaim", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		expect(result.result.claimConditionKind).toBe("match-all");
-		expect(result.result.message).toContain("match-all");
+		expect(result.result.message).toContain("blacklisted owner ids");
 	});
 
-	it("clears optional slots when null is passed", async () => {
-		// Seed a config with both slots populated, then null-clear them.
-		// The persisted shape must omit the cleared keys rather than
-		// carry `key: undefined` — same convention as
-		// `setCaseListFilter`'s null-clear test.
+	it("clears the blacklisted owner ids slot when null is passed", async () => {
+		// Seed a config with the slot populated, then null-clear it.
+		// The persisted shape must omit the cleared key rather than carry
+		// `key: undefined` — same convention as `setCaseListFilter`'s
+		// null-clear test.
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
 		const seededDoc: BlueprintDoc = {
 			...baseDoc,
@@ -106,7 +98,6 @@ describe("setCaseSearchClaim", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
-						claimCondition: matchAll(),
 						blacklistedOwnerIds: term({
 							kind: "literal",
 							value: "owner-a",
@@ -116,10 +107,9 @@ describe("setCaseSearchClaim", () => {
 			},
 		};
 
-		const result = await setCaseSearchClaimTool.execute(
+		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				claimCondition: null,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -127,18 +117,16 @@ describe("setCaseSearchClaim", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.claimCondition).toBeUndefined();
 		expect(config?.blacklistedOwnerIds).toBeUndefined();
-		expect(config && "claimCondition" in config).toBe(false);
 		expect(config && "blacklistedOwnerIds" in config).toBe(false);
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		expect(result.result.claimConditionKind).toBe("cleared");
+		expect(result.result.message).toContain("cleared");
 	});
 
-	it("preserves display cluster when setting claim", async () => {
-		// Cross-cluster preservation contract — claim and display are
+	it("preserves display cluster when setting advanced", async () => {
+		// Cross-cluster preservation contract — advanced and display are
 		// independent. Setting one cluster must NOT clobber any slot
 		// owned by the other.
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
@@ -159,11 +147,10 @@ describe("setCaseSearchClaim", () => {
 			},
 		};
 
-		const result = await setCaseSearchClaimTool.execute(
+		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				claimCondition: eq(prop("patient", "status"), literal("active")),
-				blacklistedOwnerIds: null,
+				blacklistedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 			},
 			ctx,
 			seededDoc,
@@ -176,16 +163,15 @@ describe("setCaseSearchClaim", () => {
 		expect(config?.searchButtonLabel).toBe("Search");
 		expect(config?.searchAgainButtonLabel).toBe("Search again");
 		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
-		// Claim cluster updated.
-		expect(config?.claimCondition?.kind).toBe("eq");
+		// Advanced cluster updated.
+		expect(config?.blacklistedOwnerIds).toBeDefined();
 	});
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
-		const result = await setCaseSearchClaimTool.execute(
+		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 99,
-				claimCondition: null,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -196,7 +182,9 @@ describe("setCaseSearchClaim", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to set the case-search claim");
+		expect(result.result.error).toContain(
+			"Tried to set the case-search advanced",
+		);
 		expect(result.result.error).toContain("module index 99");
 		expect(result.result.error).toContain("Found no module");
 	});
@@ -211,11 +199,10 @@ describe("setCaseSearchClaim", () => {
 			},
 		};
 
-		const result = await setCaseSearchClaimTool.execute(
+		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				claimCondition: matchAll(),
-				blacklistedOwnerIds: null,
+				blacklistedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
 			docWithoutConfig,
@@ -223,7 +210,7 @@ describe("setCaseSearchClaim", () => {
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config).toBeDefined();
-		expect(config?.claimCondition?.kind).toBe("match-all");
+		expect(config?.blacklistedOwnerIds).toBeDefined();
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
@@ -235,12 +222,11 @@ describe("setCaseSearchClaim", () => {
 		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
 		const input = {
 			moduleIndex: 0,
-			claimCondition: eq(prop("patient", "status"), literal("active")),
-			blacklistedOwnerIds: null,
+			blacklistedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 		};
 
-		const r1 = await setCaseSearchClaimTool.execute(input, chatCtx, doc);
-		const r2 = await setCaseSearchClaimTool.execute(input, mcpCtx, doc);
+		const r1 = await setCaseSearchAdvancedTool.execute(input, chatCtx, doc);
+		const r2 = await setCaseSearchAdvancedTool.execute(input, mcpCtx, doc);
 
 		expect(r1.mutations).toEqual(r2.mutations);
 	});

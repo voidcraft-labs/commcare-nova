@@ -16,7 +16,6 @@ import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeC
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { blacklistedOwnerIdsTypeCheck } from "./case-search/blacklistedOwnerIdsTypeCheck";
-import { claimConditionTypeCheck } from "./case-search/claimConditionTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 
@@ -177,7 +176,6 @@ export const MODULE_RULES = [
 	// is present on the module; otherwise the module emits no
 	// `<remote-request>` and these rules have no authoring concern
 	// to gate.
-	claimConditionTypeCheck,
 	searchButtonDisplayConditionTypeCheck,
 	blacklistedOwnerIdsTypeCheck,
 	filterSearchInputConflict,

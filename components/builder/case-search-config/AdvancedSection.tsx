@@ -1,19 +1,21 @@
-// components/builder/case-search-config/ClaimSection.tsx
+// components/builder/case-search-config/AdvancedSection.tsx
 //
-// Composes the case-search authoring surface's Claim section. Owns
-// two independent slots on `caseSearchConfig` that together author
-// what happens when a user picks a case from search results:
+// Composes the case-search authoring surface's Advanced section. Holds
+// niche search-side filters — affordances most authors never reach for
+// but a small subset depend on. Today the section hosts a single slot;
+// the section name is intentionally abstract so future advanced
+// filters can land here without a rename.
 //
-//   1. `claimCondition: Predicate?` — when present, the runtime
-//      claims a case only if the predicate evaluates true; absent ≡
-//      "always claim on selection." Mounted via the shared
-//      `<PredicateSlotCard>` primitive — the same primitive
-//      `FiltersSection` consumes for `caseListConfig.filter`.
-//   2. `blacklistedOwnerIds: ValueExpression?` — when present,
-//      evaluates to a space-separated list of owner IDs whose cases
-//      are excluded from search results. Rare in practice; the
-//      affordance collapses closed by default so it doesn't crowd
-//      the section.
+// Slot inventory:
+//
+//   - `blacklistedOwnerIds: ValueExpression?` — when present, evaluates
+//     to a space-separated list of owner ids whose cases are excluded
+//     from the search-results scope. The runtime applies this exclusion
+//     before paging the results back to the search screen, so a row
+//     owned by a blacklisted user never surfaces — distinct from a
+//     case-by-case filter, which would suppress rows post-paging. The
+//     affordance collapses closed by default so it doesn't crowd the
+//     section.
 //
 // `caseSearchConfig` itself is OPTIONAL on the Module schema — a
 // module without search authored omits the slot entirely. The first
@@ -21,31 +23,29 @@
 // whatever the user changed; subsequent edits compose against the
 // existing slot.
 //
-// Validity propagation. Both sub-controls have their own validity:
-// the predicate via the type checker, the value expression via the
-// type checker. The section reports `valid: true` when both
-// sub-control verdicts are true (or trivially true when their slots
-// are absent) and `false` otherwise. Slot-presence short-circuits —
-// both for the predicate and the blacklist — defend against stale
-// `false` shadows leaking past a clear, mirroring the contract
-// `PredicateSlotCard` already provides for the claim-condition arm.
+// Validity propagation. The blacklist expression has its own validity
+// via the type checker. The section reports `valid: true` when the
+// slot is absent (slot-presence short-circuit) and `valid: false`
+// when the slot is present and the expression's type-check verdict
+// is `false`. The expression editor stays mounted whenever the slot
+// is defined (the collapse only toggles visibility), so a backend-
+// loaded invalid expression keeps surfacing its verdict even on a
+// default-collapsed mount — without that contract, the parent's
+// save gate would silently un-block on a closed-collapse load.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerForbid from "@iconify-icons/tabler/forbid";
-import tablerHandStop from "@iconify-icons/tabler/hand-stop";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
-import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {
 	literal,
-	type Predicate,
 	type SearchInputDecl,
 	term,
 	type ValueExpression,
@@ -53,7 +53,7 @@ import {
 
 // ── Public types ──────────────────────────────────────────────────
 
-export interface ClaimSectionProps {
+export interface AdvancedSectionProps {
 	/** Current case-search configuration. `undefined` means the
 	 *  module has no caseSearchConfig authored yet — first edit
 	 *  through this section seeds the slot with the changed sub-slot
@@ -64,88 +64,63 @@ export interface ClaimSectionProps {
 	 *  `caseSearchConfig` slot). */
 	readonly onChange: (next: CaseSearchConfig) => void;
 	/** Blueprint case-type definitions — drives the property pickers
-	 *  inside the predicate and expression editors. */
+	 *  inside the expression editor. */
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the search runs against. Property references in
-	 *  the claim condition and the blacklist expression resolve
-	 *  against this scope; relation walks inside `exists`/`missing`
-	 *  flip the destination scope as authored. */
+	 *  the blacklist expression resolve against this scope; relation
+	 *  walks inside the expression flip the destination scope as
+	 *  authored. */
 	readonly currentCaseType: string;
 	/** Search-input declarations from the parent screen. Threaded
-	 *  into the predicate / expression editors so an `input(...)`
-	 *  term resolves the binding name. The case-search-config panel
-	 *  draws these from `mod.caseListConfig?.searchInputs ?? []`. */
+	 *  into the expression editor so an `input(...)` term resolves
+	 *  the binding name. The case-search-config panel draws these
+	 *  from `mod.caseListConfig?.searchInputs ?? []`. */
 	readonly knownInputs?: readonly SearchInputDecl[];
-	/** Aggregated validity verdict. `true` when both sub-control
-	 *  verdicts are true (or trivially true when their slots are
-	 *  absent). The parent gates its save affordance on this. */
+	/** Aggregated validity verdict. `true` when the blacklist slot is
+	 *  absent OR its expression type-checks. The parent gates its
+	 *  save affordance on this. */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
 
 // ── Top-level component ───────────────────────────────────────────
 
 /**
- * Composes the claim cluster of the case-search authoring surface.
- * Renders two independent sub-controls — claim condition (via
- * `PredicateSlotCard`) and the blacklisted-owner-IDs expression —
- * and aggregates their validity verdicts for the parent's save
- * gate.
+ * Composes the advanced cluster of the case-search authoring surface.
+ * Renders one collapsible sub-control today (`blacklistedOwnerIds`);
+ * additional advanced filters land here without a section rename
+ * because the abstract "Advanced" framing scopes the section to its
+ * role (niche search-side filters), not its current contents.
  */
-export function ClaimSection({
+export function AdvancedSection({
 	value,
 	onChange,
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
 	onValidityChange,
-}: ClaimSectionProps) {
-	// Inner verdicts. The predicate verdict is the value
-	// `PredicateSlotCard` reports via its `onValidityChange`
-	// callback — the primitive already applies its own
-	// slot-presence short-circuit, so this state always carries the
-	// effective verdict for the claim-condition arm. The expression
-	// verdict mirrors that contract but is sourced from the
-	// `ExpressionCardEditor` directly (no value-expression slot
-	// primitive yet).
-	//
-	// Default `true` — when the corresponding slot is undefined the
-	// section's slot-presence short-circuit drops the verdict from
-	// the aggregate anyway. For the blacklist arm, the editor stays
-	// mounted whenever the slot is defined (the collapse only
-	// toggles visibility), so the verdict fires on initial mount
-	// regardless of collapse state.
-	const [predicateValid, setPredicateValid] = useState(true);
+}: AdvancedSectionProps) {
+	// Inner verdict. Default `true` — when the slot is undefined the
+	// section's slot-presence short-circuit drops the verdict from the
+	// aggregate anyway. The editor stays mounted whenever the slot is
+	// defined (the collapse only toggles visibility), so the verdict
+	// fires on initial mount regardless of collapse state.
 	const [expressionValid, setExpressionValid] = useState(true);
 
-	// Blacklist collapse — closed by default. Spec: rare in practice,
-	// so the affordance hides until the author opens it. Header click
-	// flips the state; collapsed view shows only the header chrome.
+	// Blacklist collapse — closed by default. Niche affordance, so the
+	// body hides until the author opens it. Header click flips the
+	// state; collapsed view shows only the header chrome.
 	const [blacklistOpen, setBlacklistOpen] = useState(false);
 
 	const blacklist = value?.blacklistedOwnerIds;
 	const blacklistPresent = blacklist !== undefined;
 
-	// Slot-presence short-circuit for the blacklist arm — when the
-	// slot is undefined, that sub-control is trivially valid
-	// regardless of `expressionValid`'s stash. The
-	// `PredicateSlotCard` primitive applies the equivalent
-	// short-circuit internally for the claim-condition arm.
-	const sectionValid = predicateValid && (!blacklistPresent || expressionValid);
-
-	// Standardized parent-validity propagation — fires on mount + on
-	// every transition, ref-stashed inside the helper against fresh-
-	// each-render parent callback identity.
+	// Slot-presence short-circuit. When the slot is undefined the
+	// editor isn't mounted (and never was), so `expressionValid`'s
+	// stash is meaningless — drop it from the aggregate. When the
+	// slot is defined the editor is mounted unconditionally and its
+	// verdict carries.
+	const sectionValid = !blacklistPresent || expressionValid;
 	useValidityPropagator({ isValid: sectionValid, onValidityChange });
-
-	// ── Claim-condition mutator ──
-	// `PredicateSlotCard` owns add/clear semantics — Add seeds
-	// `matchAll()` and Clear emits `undefined`. The section's
-	// callback just routes the slot-card's emission into the
-	// `caseSearchConfig` writer; spread order `...base, ...patch`
-	// preserves any sibling slot the patch doesn't touch.
-	const handleClaimCondition = (next: Predicate | undefined) => {
-		onChange({ ...(value ?? {}), claimCondition: next });
-	};
 
 	// ── Blacklist mutators ──
 	const setBlacklist = (next: ValueExpression | undefined) => {
@@ -155,8 +130,7 @@ export function ClaimSection({
 		// Empty-string seed: `term(literal(""))`. The editor body
 		// renders the literal-text input which the author fills in
 		// with the space-separated owner ID list. Open the body when
-		// adding so the freshly-mounted input is immediately
-		// visible.
+		// adding so the freshly-mounted input is immediately visible.
 		setBlacklist(term(literal("")));
 		setBlacklistOpen(true);
 	};
@@ -166,30 +140,11 @@ export function ClaimSection({
 
 	return (
 		<div className="space-y-6">
-			{/* ── Claim condition sub-control ──
-			    Delegated wholesale to `PredicateSlotCard`. The
-			    primitive owns the header chrome, the add/clear
-			    affordances, the seed (`matchAll()` on Add), and the
-			    slot-presence validity short-circuit. */}
-			<PredicateSlotCard
-				icon={tablerHandStop}
-				title="Claim condition"
-				description="When set, the runtime claims a case only if this evaluates true."
-				addLabel="Add claim condition"
-				clearLabel="Clear claim condition"
-				value={value?.claimCondition}
-				onChange={handleClaimCondition}
-				caseTypes={caseTypes}
-				currentCaseType={currentCaseType}
-				knownInputs={knownInputs}
-				onValidityChange={setPredicateValid}
-			/>
-
 			{/* ── Blacklisted owner IDs sub-control ──
-			    Collapsed by default. The header doubles as the
-			    collapse trigger — clicking anywhere on the header row
-			    toggles `blacklistOpen`. The add/clear affordances live
-			    inside the body so the header stays a single control.
+			    Collapsed by default. The header doubles as the collapse
+			    trigger — clicking anywhere on the header row toggles
+			    `blacklistOpen`. The add/clear affordances live inside
+			    the body so the header stays a single control.
 
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
@@ -220,21 +175,21 @@ export function ClaimSection({
 						className="text-nova-violet-bright/80 self-center"
 					/>
 					<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-						Blacklisted owner IDs
+						Exclude cases owned by these users from search results
 					</h3>
 					<span className="ml-1 text-[10px] text-nova-text-muted/70">
 						{blacklistPresent
 							? "Cases owned by these IDs are hidden from search results."
-							: "Optional. Hide cases owned by specific IDs from search results."}
+							: "Optional. Hide cases owned by specific user IDs from search results."}
 					</span>
 				</button>
 
 				{blacklist !== undefined ? (
 					// Defined slot: editor stays mounted unconditionally.
 					// `hidden` swaps the visual presentation while
-					// preserving the editor's mount state so its
-					// validity verdict keeps reaching the section
-					// across collapse toggles.
+					// preserving the editor's mount state so its validity
+					// verdict keeps reaching the section across collapse
+					// toggles.
 					//
 					// `expectedType="text"` narrows the type checker's
 					// top-level expectation to text. The value is
@@ -267,11 +222,10 @@ export function ClaimSection({
 						</div>
 					</div>
 				) : blacklistOpen ? (
-					// Undefined slot, body open: surface the add
-					// affordance. The collapsed-undefined state shows
-					// only the header — the section's "set this slot"
-					// surface lives behind the deliberate collapse
-					// expand.
+					// Undefined slot, body open: surface the add affordance.
+					// The collapsed-undefined state shows only the header —
+					// the section's "set this slot" surface lives behind
+					// the deliberate collapse expand.
 					<button
 						type="button"
 						onClick={addBlacklist}

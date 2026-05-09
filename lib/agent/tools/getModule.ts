@@ -11,9 +11,9 @@
  * `case_list_config` carries the case-list-config verbatim — every
  * column and search input retains its `uuid`, the SA-facing handle for
  * atomic edits. `case_search_config` carries the wholesale case-search
- * shape (claim cluster + display cluster); the wholesale-replace
- * `setCaseSearchClaim` / `setCaseSearchDisplay` tools read it back as
- * the snapshot they merge into. A fresh-session read here surfaces
+ * shape (display cluster + advanced cluster); the wholesale-replace
+ * `setCaseSearchDisplay` / `setCaseSearchAdvanced` tools read it back
+ * as the snapshot they merge into. A fresh-session read here surfaces
  * every authoring handle without a parallel call.
  */
 
@@ -71,7 +71,7 @@ export type GetModuleResult =
 
 export const getModuleTool = {
 	description:
-		"Get a module by index. Returns module metadata, the structured case list config (columns + filter + searchInputs — every column and search input carries its uuid for atomic edits), the case search config (claim cluster + display cluster — wholesale-shaped, no uuids), and a summary of its forms.",
+		"Get a module by index. Returns module metadata, the structured case list config (columns + filter + searchInputs — every column and search input carries its uuid for atomic edits), the case search config (display cluster + advanced cluster — wholesale-shaped, no uuids), and a summary of its forms.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,

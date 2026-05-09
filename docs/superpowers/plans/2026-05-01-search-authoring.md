@@ -1000,3 +1000,57 @@ Three commits land the foundation cleanup:
 - `npm run lint`, `npx tsc --noEmit`, `npm run build` all green.
 
 **Why this section, not its own plan.** The reshape's pattern (`docs/superpowers/plans/2026-05-07-case-list-schema-reshape.md`'s "Audit-driven follow-ups" section) is the precedent: foundation fixes that surface during a plan's CR loop and that the supervisor lands as their own commits stay attached to the plan as followups, not as a separate plan. This section documents the four foundation commits so a fresh-session supervisor reading Plan 4 sees the foundation that Plan 4's later tasks compose against.
+
+### Option B — claim-condition authoring removed wholesale — 2026-05-09
+
+**Decision.** CCHQ's runtime fires the case-claim step automatically: the `<post>` `relevant` always emits the default guard `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0` regardless of any author input (verified at `commcare-hq/.../models.py::CaseSearch.get_relevant`). The `claimCondition` field compiles to CCHQ's `additional_relevant`, which is gated behind `CASE_SEARCH_DEPRECATED` for authoring. In four years at Dimagi the user has never seen anyone author a claim condition. The Nova affordance was inventing UX over a wind-down field for a runtime step CCHQ already runs without authoring input. Drop it.
+
+**Affected tasks.** Tasks 1, 2, 5, 9, 11, 12 — schema, ClaimSection UI, SA tools, claim wire emission, validator, workspace mount.
+
+**Schema (Task 1).** `claimCondition` removed from `caseSearchConfigSchema` (`lib/domain/modules.ts`). Schema collapses to seven optional fields — `blacklistedOwnerIds` plus the six display labels. `lib/domain/__tests__/modules.test.ts` updated: round-trip fixture drops the `claimCondition` line; the `admits explicit undefined` test pivots to the `blacklistedOwnerIds` slot. `caseSearchConfigSchema`'s description reframes the two clusters as **display** + **advanced** (single-slot today, abstracted name to absorb future advanced filters).
+
+**UI (Tasks 2, 12).** `components/builder/case-search-config/ClaimSection.tsx` + its test deleted entirely. The `blacklistedOwnerIds` editor relocates to a NEW `components/builder/case-search-config/AdvancedSection.tsx` whose section title is the abstract "Advanced" — matching CCHQ's own framing (`CASE_SEARCH_ADVANCED` toggle, "Advanced Case Search") and scoping the section to its role (niche search-side filters), not its current contents. Abstract naming is load-bearing — future advanced filters land here without a section rename. `CaseSearchConfigPanel.tsx` reorders to **Display → Search Inputs → Advanced**: Display sits at the top because the search-screen title and subtitle are the most important slots on the page; Advanced sits at the bottom because its current contents are niche affordances most authors never reach for. Status-line builders track the section reorder: `buildClaimStatus` deleted, `buildAdvancedStatus` added. The state hook renames `claimValid → advancedValid`; composite verdict is `displayValid && searchInputsValid && advancedValid`. Panel test updated for the section-order swap and the `claim-section-stub` → `advanced-section-stub` mock-id change.
+
+**SA tools (Task 5).** `setCaseSearchClaim` renamed to `setCaseSearchAdvanced`:
+- File rename: `lib/agent/tools/case-search-config/setCaseSearchClaim.ts` → `setCaseSearchAdvanced.ts`. Tool name on the SA boundary becomes `setCaseSearchAdvanced`. The body shape collapses to `{ blacklistedOwnerIds: ValueExpression | null }` — null clears, non-null sets, mirroring the wholesale-replace pattern. The `claimConditionKind` discriminator on the success result drops; the single-slot wholesale tool's success is `{ message }` only (no useful branching off "blacklist set vs cleared" beyond what the prose conveys).
+- Test file rename: `__tests__/setCaseSearchClaim.test.ts` → `setCaseSearchAdvanced.test.ts`. Test bodies pivot to exercise the blacklist slot only.
+- Schema test (`__tests__/schema.test.ts`) updated: `setCaseSearchAdvanced` smoke parses replace the `setCaseSearchClaim` smoke parses.
+- `setCaseSearchDisplay`'s strip-and-rebuild renames the destructured rest from `claimCluster` to `advancedCluster`. Description text references the advanced cluster.
+- `lib/agent/tools/case-search-config/shared.ts`: `setCaseSearchClaimBodySchema` renamed to `setCaseSearchAdvancedBodySchema`; the body shape drops the `claimCondition` field. File header reframes the two clusters.
+- `lib/agent/solutionsArchitect.ts`: registered tool name update.
+- `lib/agent/tools/getModule.ts`: JSDoc reframes the two clusters; tool description text references "display cluster + advanced cluster."
+- `lib/agent/tools/updateModule.ts`: JSDoc references the renamed advanced tool.
+- `lib/agent/tools/shared/moduleNotFoundResult.ts`: JSDoc references the renamed tool.
+- `lib/mcp/server.ts`: MCP wire name `set_case_search_advanced` replaces `set_case_search_claim`.
+- `lib/agent/CLAUDE.md`: case-search authoring section reframes the two clusters; the prompt-list of shared tools renames `setCaseSearchClaim` → `setCaseSearchAdvanced`.
+- `lib/agent/prompts.ts`: build-mode workflow narrative drops the "claim flow on selection" trigger (claim runs automatically), frames the case-search tools as covering "search-screen labels, niche search-side filters."
+- `lib/agent/summarizeBlueprint.ts::summarizeCaseSearch` rewritten: the `claim={kind|none}` line drops; the new shape is `case_search: display={…} advanced={blacklistedOwnerIds|none}`. Edit-mode SA reading the blueprint summary sees the same density without the deprecated cluster.
+- `scripts/test-schema.ts`: registered name + import path update; the `setCaseSearchClaim` test entry becomes `setCaseSearchAdvanced` with the prompt rewritten to match the single-slot shape.
+
+**Validator (Task 11).** `lib/commcare/validator/rules/case-search/claimConditionTypeCheck.ts` + its test (`__tests__/claimConditionTypeCheck.test.ts`) deleted entirely. `lib/commcare/validator/rules/module.ts` drops the `claimConditionTypeCheck` import + registration. `searchButtonDisplayConditionTypeCheck.ts`'s JSDoc rewords the now-orphan `claimConditionTypeCheck` reference into "every predicate-slot type-check rule" — the structurally-identical pattern is still load-bearing, just no longer cross-referencing the deleted rule. `__tests__/integration.test.ts` rewritten: the violating-blueprint case drops the claim condition predicate (one fewer rule fires); the clean-blueprint case drops `claimCondition` from `caseSearchConfig` and replaces the `input("region_search")` reference inside the (now-deleted) claim condition with an equivalent reference inside `searchButtonDisplayCondition` to keep input-resolution coverage. The `filterSearchInputConflict` rule is **untouched** — it gates on `caseSearchConfig` presence (search authored = `<remote-request>` emitted), which is the right gate regardless of the cluster split inside.
+
+**Wire emission (Task 9).** Plan 4 Task 9's pending scope (claim emission) collapses. With `claimCondition` gone, the `<post>` `relevant` attribute emits the default guard verbatim: `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0`. There is no AND-composition with `additional_relevant`. Task 9 reduces to a 5-line helper that emits the `<post>` element + its single `<data key="case_id">` child + the static `relevant` string. The "Resolution — no separate skip-already-owned toggle" sub-section becomes moot and is preserved here only as a historical reference; the operative decision is "no claim authoring at all."
+
+**Spec doc.** `docs/superpowers/specs/2026-04-30-case-list-search-design.md`: the V1-IN list's "Claim condition (Predicate AST)" bullet is removed. The "Predicate AST" use-list cross-reference at the spec head is updated to drop "claim conditions" — `Predicate` is still used for filters, default search filters, search-button display conditions, and EXISTS clauses. `lib/domain/predicate/CLAUDE.md`'s package summary follows the spec.
+
+**File deletions (commit-ready).**
+- `components/builder/case-search-config/ClaimSection.tsx`
+- `components/builder/case-search-config/__tests__/ClaimSection.test.tsx`
+- `lib/commcare/validator/rules/case-search/claimConditionTypeCheck.ts`
+- `lib/commcare/validator/rules/case-search/__tests__/claimConditionTypeCheck.test.ts`
+
+**File renames (commit-ready).**
+- `lib/agent/tools/case-search-config/setCaseSearchClaim.ts` → `setCaseSearchAdvanced.ts`
+- `lib/agent/tools/case-search-config/__tests__/setCaseSearchClaim.test.ts` → `setCaseSearchAdvanced.test.ts`
+
+**New files (commit-ready).**
+- `components/builder/case-search-config/AdvancedSection.tsx` — single-section panel for `blacklistedOwnerIds` today; abstract "Advanced" naming so future advanced filters land here without a rename. Mirrors the structure of the deleted `ClaimSection`'s blacklist editor (collapsed-by-default, `expectedType="text"`, mount-stays-on across collapse toggles).
+- `components/builder/case-search-config/__tests__/AdvancedSection.test.tsx` — empty-state / add-path / populated-round-trip / validity-propagation coverage; pins the load-bearing decision that collapse is a VISIBILITY toggle (the editor stays mounted through close-to-open transitions so the type-check verdict keeps reaching the section even on default-collapsed loads).
+
+**Final sweep.** `rg "claimCondition|additional_relevant|setCaseSearchClaim|ClaimSection|claim.cluster|claim.emission" --type ts --type tsx` returns zero matches in code/tests. The spec/plan markdown carries historic SHIPPED-block mentions only (those are institutional memory for fresh-session supervisors and stay).
+
+**Acceptance gates.**
+- `npx tsc --noEmit` clean.
+- `npm run lint` clean.
+- `npm test` all green.
+- The four `rg` final-sweep terms return zero matches outside of `docs/superpowers/`.

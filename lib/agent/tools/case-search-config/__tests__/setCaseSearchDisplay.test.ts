@@ -8,8 +8,8 @@
  *   2. Structured success carries the `displaySlotsSet` discriminator.
  *   3. `null` clears any display slot (key omitted on the persisted
  *      doc).
- *   4. Claim cluster (claim condition, blacklisted owners) survives
- *      the patch byte-identically.
+ *   4. Advanced cluster (blacklisted owners) survives the patch
+ *      byte-identically.
  *   5. Module-not-found surfaces an Elm-style error.
  *   6. Cross-surface parity — chat + MCP contexts produce
  *      structurally identical mutation batches.
@@ -23,7 +23,7 @@ import {
 	caseSearchConfigSchema,
 	type Module,
 } from "@/lib/domain";
-import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
+import { matchAll, term } from "@/lib/domain/predicate";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 import {
 	MOD_A,
@@ -163,12 +163,11 @@ describe("setCaseSearchDisplay", () => {
 		expect(result.result.message).toContain("Cleared every");
 	});
 
-	it("preserves claim cluster when setting display labels", async () => {
-		// Cross-cluster preservation contract — display and claim are
+	it("preserves advanced cluster when setting display labels", async () => {
+		// Cross-cluster preservation contract — display and advanced are
 		// independent. Setting one cluster must NOT clobber any slot
 		// owned by the other.
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
-		const seededClaim = eq(prop("patient", "status"), literal("active"));
 		const seededOwners = term({ kind: "literal", value: "owner-x owner-y" });
 		const seededDoc: BlueprintDoc = {
 			...baseDoc,
@@ -176,7 +175,6 @@ describe("setCaseSearchDisplay", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
-						claimCondition: seededClaim,
 						blacklistedOwnerIds: seededOwners,
 					},
 				},
@@ -198,7 +196,6 @@ describe("setCaseSearchDisplay", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.claimCondition).toEqual(seededClaim);
 		expect(config?.blacklistedOwnerIds).toEqual(seededOwners);
 		// Display update landed.
 		expect(config?.searchScreenTitle).toBe("Find patients");

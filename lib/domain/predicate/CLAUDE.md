@@ -2,8 +2,9 @@
 
 The single package that owns Nova's two structurally-related AST
 families: `Predicate` (boolean-typed expressions for filters,
-default search filters, claim conditions, EXISTS clauses) and
-`ValueExpression` (typed-value expressions for calculated columns,
+default search filters, search-button display conditions, EXISTS
+clauses) and `ValueExpression` (typed-value expressions for calculated
+columns,
 sort calculations, search-input defaults, conditional branches,
 aggregation operands). Spec source:
 `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,

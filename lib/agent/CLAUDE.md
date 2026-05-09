@@ -43,9 +43,9 @@ SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }
 
 ## Two tool groups: generation + shared
 
-Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`, `setCaseListFilter`, `setCaseSearchClaim`, `setCaseSearchDisplay`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
+Tools split into a generation set (build mode only: `generateSchema`, `generateScaffold`) and a shared set (all modes: `askQuestions`, `searchBlueprint`, `getModule`, `getForm`, `getField`, `addFields`, `addField`, `editField`, `removeField`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `addCaseListColumn`, `updateCaseListColumn`, `removeCaseListColumn`, `reorderCaseListColumns`, `addSearchInput`, `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`, `setCaseListFilter`, `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `validateApp`). When the app already exists, generation tools are excluded. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
 
-Case list authoring is the responsibility of the case-list-config tools — `updateModule` is name-only and `createModule` does NOT accept any case-list shape; the SA configures the case list in a follow-up call after the module exists. Case-search authoring is the parallel responsibility of the case-search-config tools (`setCaseSearchClaim` / `setCaseSearchDisplay`). This keeps the typed `Column` / `SearchInputDef` / `CaseSearchConfig` shapes end-to-end on every authoring path.
+Case list authoring is the responsibility of the case-list-config tools — `updateModule` is name-only and `createModule` does NOT accept any case-list shape; the SA configures the case list in a follow-up call after the module exists. Case-search authoring is the parallel responsibility of the case-search-config tools (`setCaseSearchAdvanced` / `setCaseSearchDisplay`). This keeps the typed `Column` / `SearchInputDef` / `CaseSearchConfig` shapes end-to-end on every authoring path.
 
 ### Case-list authoring — atomic ops + uuid handles
 
@@ -63,8 +63,8 @@ The case-list-config tools accept the typed AST shape directly via Zod — `Colu
 
 The `caseSearchConfig` shape is a settings bag, not an addressable list, so its tool surface is two wholesale-replace tools rather than atomic ops:
 
-- **`setCaseSearchClaim`** owns the claim cluster: `claimCondition` (predicate gating the claim), `blacklistedOwnerIds` (value expression naming hidden owners).
 - **`setCaseSearchDisplay`** owns the display cluster: `searchScreenTitle`, `searchScreenSubtitle`, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`, `searchButtonDisplayCondition`.
+- **`setCaseSearchAdvanced`** owns the advanced cluster — niche search-side filters that most authors never reach for. Today the cluster carries one slot: `blacklistedOwnerIds` (value expression naming owner ids whose cases are excluded from search results). The abstract "advanced" framing scopes the tool to its role (niche filters), not its current contents — future advanced filters land here without a rename.
 
 Each tool replaces its own cluster in one call and preserves the other cluster byte-identically — strip-and-rebuild over the snapshot, layered with the input. Wholesale-with-`null`-clears semantic mirrors `setCaseListFilter`: every cluster slot is required-and-nullable on the SA boundary; `null` clears, non-null sets. That keeps the per-tool optional count at zero (well under the Anthropic 8-optional ceiling) and removes the "absent vs null" ambiguity the SA would otherwise have to resolve.
 

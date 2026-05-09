@@ -144,27 +144,25 @@ function formatSearchInput(input: SearchInputDef): string {
 
 /**
  * Summarize a module's case-search config in one line so a fresh-
- * session SA reading the edit-mode prompt can confirm the claim cluster
- * shape and which display labels are set without a `getModule` round-
- * trip. Returns `undefined` when the module has no case-search config
- * — caller concatenates only when a section was produced.
+ * session SA reading the edit-mode prompt can confirm which display
+ * labels are set and whether any advanced filters are authored
+ * without a `getModule` round-trip. Returns `undefined` when the
+ * module has no case-search config — caller concatenates only when a
+ * section was produced.
  *
  * Output shape:
  *
- *   `case_search: claim={kind|none} display={titleSet,subtitleSet,…}`
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={blacklistedOwnerIds|none}`
  *
- * Claim cluster summary: the predicate's `kind` if a `claimCondition`
- * is set, otherwise `"none"`; appended `blacklistedOwnerIds:set`
- * marker when that slot is authored. Display cluster summary:
- * comma-separated list of the slot names that are non-undefined;
- * `none` when every slot is cleared (rare — one-liner pinned at this
- * width keeps the prompt cheap).
+ * Display cluster summary: comma-separated list of the slot names that
+ * are non-undefined; `none` when every slot is cleared. Advanced
+ * cluster summary: names each authored slot (today only the blacklist);
+ * `none` when no advanced filter is set. The one-liner stays at a
+ * fixed width to keep the prompt cheap.
  */
 function summarizeCaseSearch(mod: Module): string | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
-	const claimKind = config.claimCondition?.kind ?? "none";
-	const claimSummary = `claim={kind:${claimKind}${config.blacklistedOwnerIds !== undefined ? ", blacklistedOwnerIds:set" : ""}}`;
 	const displaySlots: Array<keyof CaseSearchConfig> = [
 		"searchScreenTitle",
 		"searchScreenSubtitle",
@@ -173,12 +171,18 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 		"searchAgainButtonLabel",
 		"searchButtonDisplayCondition",
 	];
-	const setSlots = displaySlots.filter((slot) => config[slot] !== undefined);
+	const setDisplaySlots = displaySlots.filter(
+		(slot) => config[slot] !== undefined,
+	);
 	const displaySummary =
-		setSlots.length === 0
+		setDisplaySlots.length === 0
 			? "display={none}"
-			: `display={${setSlots.join(", ")}}`;
-	return `    case_search: ${claimSummary} ${displaySummary}`;
+			: `display={${setDisplaySlots.join(", ")}}`;
+	const advancedSummary =
+		config.blacklistedOwnerIds !== undefined
+			? "advanced={blacklistedOwnerIds}"
+			: "advanced={none}";
+	return `    case_search: ${displaySummary} ${advancedSummary}`;
 }
 
 /** Summarize a module: name, case type, forms. */

@@ -5,16 +5,16 @@
 // CaseSearchConfigPanel composition tests. The panel is the multi-
 // section authoring shell mounted at
 // /build/[id]/{moduleUuid}/search-config in edit mode. It composes
-// ClaimSection + DisplaySection + the cross-bound SearchInputsSection
+// DisplaySection + the cross-bound SearchInputsSection + AdvancedSection
 // inside the case-list workspace's section-header chrome.
 //
 // The three inner sections are mocked at module-resolution time so
 // the panel's own composition (section order, slot routing, validity
 // aggregation) can be tested without each section's full inner
-// editor harness. ClaimSection / DisplaySection / SearchInputsSection
-// have their own dedicated test files for their internals; this
-// file pins the shell — section ordering, doc-store cross-binding
-// (the load-bearing invariant for case search authoring), the
+// editor harness. DisplaySection / SearchInputsSection / AdvancedSection
+// have their own dedicated test files for their internals; this file
+// pins the shell — section ordering, doc-store cross-binding (the
+// load-bearing invariant for case search authoring), the
 // `nextConfig`-mediated first-edit seed, and validity aggregation.
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -39,36 +39,6 @@ import {
 // mock factories receive props via the same props interface the
 // real components export, so a renamed prop surfaces here as a
 // type error rather than a silent mismatch.
-
-vi.mock("../ClaimSection", () => ({
-	ClaimSection: vi.fn((props: import("../ClaimSection").ClaimSectionProps) => (
-		<div
-			data-testid="claim-section-stub"
-			data-current-case-type={props.currentCaseType}
-			data-known-input-count={props.knownInputs?.length ?? 0}
-		>
-			ClaimSection
-			<button
-				type="button"
-				data-testid="claim-section-fire-change"
-				onClick={() =>
-					props.onChange({
-						searchScreenTitle: "From claim",
-					})
-				}
-			>
-				fire claim change
-			</button>
-			<button
-				type="button"
-				data-testid="claim-section-fire-invalid"
-				onClick={() => props.onValidityChange?.(false)}
-			>
-				fire claim invalid
-			</button>
-		</div>
-	)),
-}));
 
 vi.mock("../DisplaySection", () => ({
 	DisplaySection: vi.fn(
@@ -96,6 +66,38 @@ vi.mock("../DisplaySection", () => ({
 					onClick={() => props.onValidityChange?.(false)}
 				>
 					fire display invalid
+				</button>
+			</div>
+		),
+	),
+}));
+
+vi.mock("../AdvancedSection", () => ({
+	AdvancedSection: vi.fn(
+		(props: import("../AdvancedSection").AdvancedSectionProps) => (
+			<div
+				data-testid="advanced-section-stub"
+				data-current-case-type={props.currentCaseType}
+				data-known-input-count={props.knownInputs?.length ?? 0}
+			>
+				AdvancedSection
+				<button
+					type="button"
+					data-testid="advanced-section-fire-change"
+					onClick={() =>
+						props.onChange({
+							searchScreenTitle: "From advanced",
+						})
+					}
+				>
+					fire advanced change
+				</button>
+				<button
+					type="button"
+					data-testid="advanced-section-fire-invalid"
+					onClick={() => props.onValidityChange?.(false)}
+				>
+					fire advanced invalid
 				</button>
 			</div>
 		),
@@ -143,8 +145,8 @@ vi.mock("@/components/builder/case-list-config/SearchInputsSection", () => ({
 }));
 
 import { SearchInputsSection as SearchInputsSectionMock } from "@/components/builder/case-list-config/SearchInputsSection";
+import { AdvancedSection as AdvancedSectionMock } from "../AdvancedSection";
 import { CaseSearchConfigPanel } from "../CaseSearchConfigPanel";
-import { ClaimSection as ClaimSectionMock } from "../ClaimSection";
 import { DisplaySection as DisplaySectionMock } from "../DisplaySection";
 
 // ── Fixtures ──────────────────────────────────────────────────────
@@ -257,15 +259,15 @@ function renderPanel(opts: RenderOpts = {}): ReactNode {
 // ── Section composition ──────────────────────────────────────────
 
 describe("CaseSearchConfigPanel — section composition", () => {
-	it("renders Claim, Display, and Search Inputs sections in that order", () => {
+	it("renders Display, Search Inputs, and Advanced sections in that order", () => {
 		render(renderPanel());
-		const claim = screen.getByTestId("claim-section-stub");
 		const display = screen.getByTestId("display-section-stub");
 		const searches = screen.getByTestId("search-inputs-section-stub");
+		const advanced = screen.getByTestId("advanced-section-stub");
 		// Verify all three are mounted and arranged in source order.
 		// `Array.from(...).indexOf(el)` returns the document-order
 		// position, so a swap between any two trips the assertion.
-		const order = [claim, display, searches].map((el) =>
+		const order = [display, searches, advanced].map((el) =>
 			Array.from(document.body.querySelectorAll("[data-testid]")).indexOf(el),
 		);
 		expect(order[0]).toBeLessThan(order[1]);
@@ -275,13 +277,13 @@ describe("CaseSearchConfigPanel — section composition", () => {
 	it("renders sticky violet-railed section headers for each section", () => {
 		render(renderPanel());
 		// `CaseListSectionHeader` (reused by this panel) renders an
-		// `<h2>` per section. Three headings — Claim / Display /
-		// Search Inputs — read off the section titles.
-		expect(screen.getByRole("heading", { name: /^Claim$/ })).toBeDefined();
+		// `<h2>` per section. Three headings — Display / Search Inputs /
+		// Advanced — read off the section titles.
 		expect(screen.getByRole("heading", { name: /^Display$/ })).toBeDefined();
 		expect(
 			screen.getByRole("heading", { name: /^Search Inputs$/ }),
 		).toBeDefined();
+		expect(screen.getByRole("heading", { name: /^Advanced$/ })).toBeDefined();
 
 		// Each section header carries the violet rail divider —
 		// pin the rail's presence so a future header refactor that
@@ -306,19 +308,19 @@ describe("CaseSearchConfigPanel — section composition", () => {
 			}),
 		);
 		// All three sections receive the same case-type scope.
-		const claim = screen.getByTestId("claim-section-stub");
 		const display = screen.getByTestId("display-section-stub");
 		const searches = screen.getByTestId("search-inputs-section-stub");
-		expect(claim.dataset.currentCaseType).toBe("patient");
+		const advanced = screen.getByTestId("advanced-section-stub");
 		expect(display.dataset.currentCaseType).toBe("patient");
 		expect(searches.dataset.currentCaseType).toBe("patient");
+		expect(advanced.dataset.currentCaseType).toBe("patient");
 
-		// Claim + Display see the seed input as a knownInputs entry —
+		// Display + Advanced see the seed input as a knownInputs entry —
 		// `input("name_input")` references in their inner editors
 		// resolve correctly. Search Inputs receives the live array
 		// directly (it owns the slot).
-		expect(claim.dataset.knownInputCount).toBe("1");
 		expect(display.dataset.knownInputCount).toBe("1");
+		expect(advanced.dataset.knownInputCount).toBe("1");
 		expect(searches.dataset.inputCount).toBe("1");
 	});
 });
@@ -326,30 +328,11 @@ describe("CaseSearchConfigPanel — section composition", () => {
 // ── Slot routing ──────────────────────────────────────────────────
 
 describe("CaseSearchConfigPanel — slot routing", () => {
-	it("routes ClaimSection's onChange through updateModule's caseSearchConfig slot", () => {
+	it("routes DisplaySection's onChange through updateModule's caseSearchConfig slot", () => {
 		// Pin the routing — the panel's mutator writes to
 		// `caseSearchConfig`, NOT `caseListConfig`. A future bug
-		// flipping the slot would persist claim edits to the wrong
+		// flipping the slot would persist display edits to the wrong
 		// part of the module schema.
-		render(
-			renderPanel({
-				caseSearchConfig: {},
-			}),
-		);
-		const claimMock = vi.mocked(ClaimSectionMock);
-		claimMock.mockClear();
-		fireEvent.click(screen.getByTestId("claim-section-fire-change"));
-
-		// After the update, ClaimSection re-renders with its new
-		// `value` prop sourced from the doc store. Reading the most
-		// recent call captures the persisted shape.
-		const lastCall = claimMock.mock.calls.at(-1);
-		expect(lastCall?.[0].value).toEqual({
-			searchScreenTitle: "From claim",
-		});
-	});
-
-	it("routes DisplaySection's onChange through updateModule's caseSearchConfig slot", () => {
 		render(
 			renderPanel({
 				caseSearchConfig: {},
@@ -359,9 +342,28 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 		displayMock.mockClear();
 		fireEvent.click(screen.getByTestId("display-section-fire-change"));
 
+		// After the update, DisplaySection re-renders with its new
+		// `value` prop sourced from the doc store. Reading the most
+		// recent call captures the persisted shape.
 		const lastCall = displayMock.mock.calls.at(-1);
 		expect(lastCall?.[0].value).toEqual({
 			searchScreenTitle: "From display",
+		});
+	});
+
+	it("routes AdvancedSection's onChange through updateModule's caseSearchConfig slot", () => {
+		render(
+			renderPanel({
+				caseSearchConfig: {},
+			}),
+		);
+		const advancedMock = vi.mocked(AdvancedSectionMock);
+		advancedMock.mockClear();
+		fireEvent.click(screen.getByTestId("advanced-section-fire-change"));
+
+		const lastCall = advancedMock.mock.calls.at(-1);
+		expect(lastCall?.[0].value).toEqual({
+			searchScreenTitle: "From advanced",
 		});
 	});
 
@@ -387,14 +389,14 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 		expect(lastCall?.[0].value[0]?.name).toBe("input_added");
 
 		// CRITICAL: the cross-binding lands on `caseListConfig`, not
-		// `caseSearchConfig`. The Claim + Display sections share the
+		// `caseSearchConfig`. The Display + Advanced sections share the
 		// `caseSearchConfig` slot — verify their `value` is unchanged
 		// (still undefined for an unauthored module) so a regression
 		// that wrote to `caseSearchConfig.searchInputs` would surface
-		// as Claim's value flipping to a partial config.
-		const claimMock = vi.mocked(ClaimSectionMock);
-		const lastClaimCall = claimMock.mock.calls.at(-1);
-		expect(lastClaimCall?.[0].value).toBeUndefined();
+		// as Display's value flipping to a partial config.
+		const displayMock = vi.mocked(DisplaySectionMock);
+		const lastDisplayCall = displayMock.mock.calls.at(-1);
+		expect(lastDisplayCall?.[0].value).toBeUndefined();
 	});
 
 	it("seeds caseListConfig with required slots when the module has no caseListConfig and search inputs change for the first time", () => {
@@ -429,22 +431,22 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 // ── First-edit seed for caseSearchConfig ─────────────────────────
 
 describe("CaseSearchConfigPanel — first-edit seed", () => {
-	it("forwards `value: undefined` to Claim/Display when the module has no caseSearchConfig", () => {
+	it("forwards `value: undefined` to Display/Advanced when the module has no caseSearchConfig", () => {
 		// Pins the contract: when `mod.caseSearchConfig` is undefined,
-		// the panel forwards `value: undefined` to ClaimSection +
-		// DisplaySection. Each section's first edit emits a fully-
+		// the panel forwards `value: undefined` to DisplaySection +
+		// AdvancedSection. Each section's first edit emits a fully-
 		// formed config via its own `...(value ?? {})` spread, and
 		// the panel persists it. A regression here — e.g. the panel
 		// pre-seeding an empty config itself — would produce two
 		// write paths for the same edit.
 		render(renderPanel({ caseSearchConfig: undefined }));
 
-		const claim = screen.getByTestId("claim-section-stub");
 		const display = screen.getByTestId("display-section-stub");
+		const advanced = screen.getByTestId("advanced-section-stub");
 		// Both stubs render — the panel didn't crash on undefined
 		// caseSearchConfig.
-		expect(claim).toBeDefined();
 		expect(display).toBeDefined();
+		expect(advanced).toBeDefined();
 	});
 });
 
@@ -457,21 +459,20 @@ describe("CaseSearchConfigPanel — validity propagation", () => {
 		expect(onValidityChange).toHaveBeenLastCalledWith(true);
 	});
 
-	it("flips to valid: false when ClaimSection reports invalid; flips back when valid", () => {
+	it("flips to valid: false when DisplaySection reports invalid", () => {
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(renderPanel({ onValidityChange }));
 		// Initial true.
 		expect(onValidityChange).toHaveBeenLastCalledWith(true);
 
-		// Section reports false → composite flips to false.
-		fireEvent.click(screen.getByTestId("claim-section-fire-invalid"));
+		fireEvent.click(screen.getByTestId("display-section-fire-invalid"));
 		expect(onValidityChange).toHaveBeenLastCalledWith(false);
 	});
 
-	it("flips to valid: false when DisplaySection reports invalid", () => {
+	it("flips to valid: false when AdvancedSection reports invalid", () => {
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(renderPanel({ onValidityChange }));
-		fireEvent.click(screen.getByTestId("display-section-fire-invalid"));
+		fireEvent.click(screen.getByTestId("advanced-section-fire-invalid"));
 		expect(onValidityChange).toHaveBeenLastCalledWith(false);
 	});
 
@@ -501,10 +502,10 @@ describe("CaseSearchConfigPanel — defensive guards", () => {
 		const { container } = render(renderPanel({ caseType: undefined }));
 		// The provider tree mounts but nothing inside renders.
 		expect(
-			container.querySelector("[data-testid='claim-section-stub']"),
+			container.querySelector("[data-testid='display-section-stub']"),
 		).toBeNull();
 		expect(
-			container.querySelector("[data-testid='display-section-stub']"),
+			container.querySelector("[data-testid='advanced-section-stub']"),
 		).toBeNull();
 		expect(
 			container.querySelector("[data-testid='search-inputs-section-stub']"),

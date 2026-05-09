@@ -20,7 +20,7 @@
 // The two workspaces' SHELL chrome — the cards, status lines,
 // per-section editors that don't own the searchInputs slot — are
 // mocked out at module-resolution time so their inner harnesses
-// (FiltersPreview's Server Action, the claim/display sections'
+// (FiltersPreview's Server Action, the display/advanced sections'
 // editors) don't fire during cross-binding exercises. The shared
 // `SearchInputsSection` is left UNMOCKED — both workspaces resolve
 // to the same real component, and tests click into its actual
@@ -58,7 +58,7 @@ import {
 // Stub the workspace shells so only the shared `SearchInputsSection`
 // runs its real implementation. The case-list workspace's
 // FiltersPreview would otherwise fire its Server Action under
-// happy-dom; the case-search panel's claim/display editors would
+// happy-dom; the case-search panel's display/advanced editors would
 // pull in their own type-checked predicate harnesses. Neither owns
 // the slot under test — keeping them out of the tree narrows the
 // test's blast radius to the cross-binding contract itself.
@@ -75,8 +75,10 @@ vi.mock("@/components/builder/case-list-config/FiltersSection", () => ({
 	)),
 }));
 
-vi.mock("@/components/builder/case-search-config/ClaimSection", () => ({
-	ClaimSection: vi.fn(() => <div data-testid="search-claim-section-stub" />),
+vi.mock("@/components/builder/case-search-config/AdvancedSection", () => ({
+	AdvancedSection: vi.fn(() => (
+		<div data-testid="search-advanced-section-stub" />
+	)),
 }));
 
 vi.mock("@/components/builder/case-search-config/DisplaySection", () => ({
@@ -298,8 +300,8 @@ describe("Search-inputs cross-binding — persistence slot", () => {
 		expect(persisted.length).toBe(1);
 
 		// `caseSearchConfig` slot is untouched by a search-inputs
-		// edit — Claim + Display are the only sections that write to
-		// it, and neither fired. The slot stays undefined on this
+		// edit — Display + Advanced are the only sections that write
+		// to it, and neither fired. The slot stays undefined on this
 		// fresh module.
 		const caseSearchConfig = moduleSnapshotRef.current?.caseSearchConfig;
 		expect(caseSearchConfig).toBeUndefined();

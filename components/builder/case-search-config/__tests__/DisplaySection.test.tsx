@@ -17,7 +17,7 @@
 //     an invalid display-condition reports `false`.
 //   - Cross-slot preservation: a display-cluster edit doesn't
 //     clobber unrelated `caseSearchConfig` slots (e.g.,
-//     `claimCondition`).
+//     `blacklistedOwnerIds`).
 //
 // The five visible label slots all share the section's local
 // `OptionalTextRow` primitive (built on top of `useCommitField`),
@@ -35,6 +35,8 @@ import {
 	matchAll,
 	type Predicate,
 	prop,
+	term,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { DisplaySection } from "../DisplaySection";
 
@@ -256,7 +258,7 @@ describe("DisplaySection — validity propagation", () => {
 		// `gt(int, "string")` is rejected by the predicate type
 		// checker — the editor's onValidityChange flows the verdict
 		// to PredicateSlotCard, then through DisplaySection, to its
-		// parent. Same shape as ClaimSection's claim-condition test.
+		// parent.
 		const invalidPredicate: Predicate = gt(
 			prop("patient", "age"),
 			literal("string"),
@@ -283,18 +285,18 @@ describe("DisplaySection — cross-slot preservation", () => {
 	it("typing into a display slot leaves unrelated `caseSearchConfig` slots intact", () => {
 		// Pins the `...(value ?? {}), [slot]: next` spread on every
 		// per-slot patch path — any sibling slot the patch doesn't
-		// touch must flow through. `claimCondition` is the canary
+		// touch must flow through. `blacklistedOwnerIds` is the canary
 		// because the display section never reads or writes it
-		// directly; if a future per-slot mutator dropped the base
-		// spread, the title commit would emit a config missing the
-		// claim condition and the parent's strict parse would silently
-		// lose it on the next save.
-		const claimCondition = matchAll();
+		// directly (it lives on the advanced cluster); if a future
+		// per-slot mutator dropped the base spread, the title commit
+		// would emit a config missing the blacklist and the parent's
+		// strict parse would silently lose it on the next save.
+		const blacklistedOwnerIds: ValueExpression = term(literal("owner-a"));
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<DisplaySection
 				value={{
-					claimCondition,
+					blacklistedOwnerIds,
 				}}
 				onChange={onChange}
 				caseTypes={CASE_TYPES}
@@ -309,7 +311,7 @@ describe("DisplaySection — cross-slot preservation", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			claimCondition,
+			blacklistedOwnerIds,
 			searchScreenTitle: "Find a patient",
 		});
 	});

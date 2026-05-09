@@ -921,28 +921,33 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
-// The structured case-search configuration. Carries the two
-// search-only authoring concerns: the claim flow (claim condition /
-// already-owned guard / blacklisted owner ids) and the search-screen
-// display labels. Display sort, the always-on filter, and search
-// inputs are not duplicated here; they live on `caseListConfig` as
-// the single source for both screens.
+// The structured case-search configuration. Carries two
+// search-only authoring concerns:
+//
+//   - The display cluster — the search-screen labels (title /
+//     subtitle / button labels / empty state) and the optional
+//     `searchButtonDisplayCondition` predicate that gates the search
+//     button.
+//   - The advanced cluster — niche search-side filters. Today the
+//     only entry is `blacklistedOwnerIds`, a `ValueExpression` that
+//     evaluates to a space-separated list of owner ids whose cases
+//     are excluded from the search-results scope.
+//
+// The runtime case-claim step (which fires when an author picks a
+// case from search results) runs unconditionally on the CCHQ
+// runtime — there is no authoring affordance for it. Display sort,
+// the always-on filter, and search inputs are not duplicated here;
+// they live on `caseListConfig` as the single source for both
+// screens.
 
 export const caseSearchConfigSchema = z
 	.object({
-		// Claim flow.
-		// When absent, the runtime claims a case unconditionally on
-		// selection from search results. When present, the predicate
-		// gates the claim — the runtime claims only if it evaluates
-		// true. The author writes this as a normal Predicate AST
-		// against the selected case's properties.
-		claimCondition: predicateSchema.optional(),
-		// ValueExpression evaluating to a space-separated list of owner
-		// IDs whose cases are excluded from the search-results scope.
-		// Useful when an author wants to hide a known set of owners'
-		// cases from search without filtering case-by-case. Rare in
-		// practice; the case-search-config UI collapses this affordance
-		// closed by default.
+		// Advanced cluster.
+		// `blacklistedOwnerIds` evaluates to a space-separated list of
+		// owner ids whose cases are excluded from the search-results
+		// scope. Rare in practice; the case-search-config UI collapses
+		// this affordance into a dedicated "Advanced" section that
+		// hosts niche search-side filters.
 		blacklistedOwnerIds: valueExpressionSchema.optional(),
 
 		// Display labels for the search screen. The runtime renders the

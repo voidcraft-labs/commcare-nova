@@ -805,15 +805,13 @@ describe("caseListConfigSchema — populated round-trip", () => {
 	});
 });
 
-describe("caseSearchConfigSchema — claim flow + display labels", () => {
+describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 	it("round-trips a fully-populated config (every slot set)", () => {
-		// Round-trips every authored slot: `claimCondition`,
-		// `blacklistedOwnerIds`, the five display labels, and
-		// `searchButtonDisplayCondition`. The `toEqual(config)`
-		// assertion pins that the schema preserves all eight slots
-		// without drift across a strict-mode parse.
+		// Round-trips every authored slot: `blacklistedOwnerIds`, the
+		// five display labels, and `searchButtonDisplayCondition`. The
+		// `toEqual(config)` assertion pins that the schema preserves
+		// every slot without drift across a strict-mode parse.
 		const config: CaseSearchConfig = {
-			claimCondition: { kind: "match-all" },
 			// `blacklistedOwnerIds` is a `ValueExpression`; the `term` arm
 			// wraps a `Term` (here a string literal) so the value
 			// satisfies the `ValueExpression` shape.
@@ -868,11 +866,11 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 		// accepts the input shape that an editor reset to "absent" might
 		// produce.
 		const parsed = caseSearchConfigSchema.safeParse({
-			claimCondition: undefined,
+			blacklistedOwnerIds: undefined,
 		});
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
-			expect(parsed.data.claimCondition).toBeUndefined();
+			expect(parsed.data.blacklistedOwnerIds).toBeUndefined();
 		}
 	});
 });

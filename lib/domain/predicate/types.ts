@@ -453,7 +453,8 @@ export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
  * authoring semantics:
  *
  *   - `userid` — the canonical owner / current-user identifier;
- *     drives owner-keyed filters and case-claim flows.
+ *     drives owner-keyed filters and other current-user-scoped
+ *     comparisons.
  *   - `username` — display-name pairing with `userid` for UI surfaces
  *     that label the active user.
  *   - `deviceid` — supports device-targeting filters (e.g. surfacing

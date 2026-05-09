@@ -3,11 +3,11 @@
  * predicate gating whether the search button renders) type-checks
  * against the module's case-type schema map.
  *
- * Structurally identical to `claimConditionTypeCheck`: same
- * `moduleTypeContext` admission set, same `formatPath` for AST-path
- * suffixes, same `checkPredicate` dispatch. The two rules diverge
- * only on (1) which slot they read and (2) the validation error
- * code they emit.
+ * Routes through the shared `moduleTypeContext` admission set + the
+ * shared `formatPath` for AST-path suffixes + the shared
+ * `checkPredicate` dispatch — same shape every predicate-slot type-
+ * check rule uses, varying only on (1) which slot it reads and (2)
+ * the validation error code it emits.
  *
  * Routing through `checkPredicate` covers orphan input refs
  * natively — the type checker pushes "Unknown search input
