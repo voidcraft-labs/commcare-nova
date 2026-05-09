@@ -4,21 +4,14 @@
  *
  * The case-search config carries two independent clusters; this tool
  * owns the display cluster (search-screen labels + the search-button
- * display predicate). The claim cluster (claim condition / already-
- * owned guard / blacklisted owner ids) stays untouched and round-trips
+ * display predicate). The claim cluster (claim condition /
+ * blacklisted owner ids) stays untouched and round-trips
  * byte-identically through the patch. The claim tool
  * (`setCaseSearchClaim`) is the parallel for the other cluster.
  *
  * Wholesale-with-`null`-clears semantic — every display slot is
  * required-and-nullable on the SA boundary; `null` clears, non-null
  * sets. Mirrors `setCaseListFilter`.
- *
- * Bootstrap default — when the module has no existing
- * `caseSearchConfig`, the rebuilt config seeds
- * `dontClaimAlreadyOwned: false` because the schema requires it
- * whenever the config is present. A non-claim-authored display edit
- * shouldn't fail at the schema; the SA can flip the flag later via
- * `setCaseSearchClaim` if needed.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
@@ -122,11 +115,10 @@ export const setCaseSearchDisplayTool = {
 
 			// Strip the display cluster's keys from the snapshot so the
 			// rebuild carries only the claim cluster forward — then
-			// layer the input's display values back on. The schema
-			// requires `dontClaimAlreadyOwned` whenever the config is
-			// present; when no existing config exists we seed `false`
-			// so a display-only edit on a fresh module still produces
-			// a valid config.
+			// layer the input's display values back on. When no
+			// existing config exists, the strip starts from an empty
+			// object so a display-only edit on a fresh module still
+			// produces a valid config.
 			const existing = snapshotCaseSearchConfig(mod);
 			const {
 				searchScreenTitle: _t,
@@ -136,7 +128,7 @@ export const setCaseSearchDisplayTool = {
 				searchAgainButtonLabel: _sa,
 				searchButtonDisplayCondition: _sd,
 				...claimCluster
-			} = existing ?? { dontClaimAlreadyOwned: false };
+			} = existing ?? {};
 			const nextConfig: CaseSearchConfig = {
 				...claimCluster,
 				...(searchScreenTitle !== null && { searchScreenTitle }),

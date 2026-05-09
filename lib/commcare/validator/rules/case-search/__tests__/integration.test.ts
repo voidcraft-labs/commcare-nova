@@ -89,7 +89,6 @@ describe("case-search validator — cross-rule integration", () => {
 						],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						claimCondition: gt(prop("patient", "case_name"), literal("M")),
 						searchButtonDisplayCondition: eq(
 							prop("patient", "phantom"),
@@ -214,7 +213,6 @@ describe("case-search validator — cross-rule integration", () => {
 						],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						claimCondition: eq(
 							prop("patient", "case_name"),
 							input("region_search"),

@@ -26,7 +26,6 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						searchButtonDisplayCondition: gt(
 							prop("patient", "case_name"),
 							literal("M"),
@@ -90,7 +89,6 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						searchButtonDisplayCondition: eq(
 							prop("patient", "case_name"),
 							input("ghost"),
@@ -141,7 +139,6 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						searchButtonDisplayCondition: eq(
 							prop("patient", "case_name"),
 							literal("Alice"),
@@ -232,7 +229,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: true },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",

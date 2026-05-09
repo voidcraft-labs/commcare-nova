@@ -50,12 +50,10 @@ const PATIENT: CaseType = {
 };
 const CASE_TYPES = [PATIENT];
 
-// Fully-populated baseline. `dontClaimAlreadyOwned` is required by
-// the schema even though the display section never reads or writes
-// it — every emitted config flows through `nextConfig` which carries
-// the seeded default.
+// Fully-populated baseline. Every slot on `caseSearchConfigSchema`
+// is optional; the populated baseline sets every display slot plus
+// the `searchButtonDisplayCondition` predicate.
 const POPULATED_CONFIG: CaseSearchConfig = {
-	dontClaimAlreadyOwned: false,
 	searchScreenTitle: "Find a patient",
 	searchScreenSubtitle: "Search by **name** or *village*.",
 	emptyListText: "No patients matched.",
@@ -148,7 +146,6 @@ describe("DisplaySection — per-slot edits", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: false,
 			[slot]: expected,
 		});
 	});
@@ -176,7 +173,6 @@ describe("DisplaySection — per-slot edits", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: false,
 			searchScreenSubtitle: "Search by **name**.",
 		});
 	});
@@ -191,7 +187,6 @@ describe("DisplaySection — per-slot edits", () => {
 		render(
 			<DisplaySection
 				value={{
-					dontClaimAlreadyOwned: false,
 					searchScreenTitle: "Find a patient",
 				}}
 				onChange={onChange}
@@ -206,9 +201,7 @@ describe("DisplaySection — per-slot edits", () => {
 		fireEvent.blur(input);
 
 		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: false,
-		});
+		expect(onChange.mock.calls[0]?.[0]).toEqual({});
 	});
 
 	it("does not emit onChange when focusing and blurring an empty input on an undefined config", () => {
@@ -216,10 +209,9 @@ describe("DisplaySection — per-slot edits", () => {
 		// `OptionalTextRow`'s `onEmpty` arm. Without the
 		// `value !== undefined` gate, `useCommitField`'s
 		// "delete on empty" semantic fires `onCommit(undefined)` on a
-		// focus-blur-without-typing gesture, which `nextConfig` would
-		// turn into `{ dontClaimAlreadyOwned: false }` — transitioning
-		// `caseSearchConfig` from absent to present-with-default for
-		// a "I clicked on this and looked away" interaction. That's a
+		// focus-blur-without-typing gesture, which would transition
+		// `caseSearchConfig` from absent to present-with-empty for a
+		// "I clicked on this and looked away" interaction. That's a
 		// spurious autosave + an undo-history entry the user never
 		// asked for; this test fails the regression class loudly.
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
@@ -273,7 +265,6 @@ describe("DisplaySection — validity propagation", () => {
 		render(
 			<DisplaySection
 				value={{
-					dontClaimAlreadyOwned: false,
 					searchButtonDisplayCondition: invalidPredicate,
 				}}
 				onChange={() => {}}
@@ -290,19 +281,19 @@ describe("DisplaySection — validity propagation", () => {
 
 describe("DisplaySection — cross-slot preservation", () => {
 	it("typing into a display slot leaves unrelated `caseSearchConfig` slots intact", () => {
-		// Pins `nextConfig`'s `...base` spread before `...patch` —
-		// any sibling slot the patch doesn't touch must flow through.
-		// `claimCondition` is the canary because the display section
-		// never reads or writes it directly; if `nextConfig` ever
-		// dropped `...base` from its construction, the toggle would
-		// emit a config missing the claim condition and the parent's
-		// strict parse would silently lose it on the next save.
+		// Pins the `...(value ?? {}), [slot]: next` spread on every
+		// per-slot patch path — any sibling slot the patch doesn't
+		// touch must flow through. `claimCondition` is the canary
+		// because the display section never reads or writes it
+		// directly; if a future per-slot mutator dropped the base
+		// spread, the title commit would emit a config missing the
+		// claim condition and the parent's strict parse would silently
+		// lose it on the next save.
 		const claimCondition = matchAll();
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<DisplaySection
 				value={{
-					dontClaimAlreadyOwned: false,
 					claimCondition,
 				}}
 				onChange={onChange}
@@ -318,7 +309,6 @@ describe("DisplaySection — cross-slot preservation", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: false,
 			claimCondition,
 			searchScreenTitle: "Find a patient",
 		});

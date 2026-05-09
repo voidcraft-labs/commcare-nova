@@ -123,10 +123,6 @@ interface CaseSearchConfig {
   // selection from search results. When present, it gates the claim — claim
   // fires only if the predicate evaluates true.
   claimCondition?: Predicate;
-  // When true, the wire emits a guard that skips the claim if the user
-  // already owns the case (avoids redundant claim API calls when re-opening
-  // a case in the user's own list).
-  dontClaimAlreadyOwned: boolean;
   // ValueExpression returning a space-separated list of owner IDs whose
   // cases are excluded from the search-results scope. Wire form: `<data
   // key="blacklist" ref="..."/>`. Rare; collapses default closed in the UI.
@@ -147,26 +143,26 @@ Notable schema decisions:
 - **No `defaultFilters` slot.** `caseListConfig.filter` is the single Predicate source. The wire emitter projects it onto both the case-list `<detail nodeset>` filter and the search-side `<data key="_xpath_query">` slot at emission time (Task 8).
 - **No `customSorts` / `sortByRelevance` slots.** `caseListConfig.columns[*].sort` is the single source for display sort; the wire emitter projects identical `<sort>` blocks onto both `m{N}_case_short` and `m{N}_search_short` (Task 7). Nova never emits `<data key="commcare_sort">` (the ES retrieval-sort override); ES's default `_score` ranking is in effect for fuzzy / phonetic match results.
 - **`searchInputs` does NOT live here.** It stays on `mod.caseListConfig.searchInputs` per Plan 3 + the v2 reshape, shared between the case-list inline-search experience and the case-search-config workspace.
+- **No `dontClaimAlreadyOwned` slot.** CCHQ's `additional_relevant` (the field a "skip already-owned" toggle would compile to) is gated behind the `CASE_SEARCH_DEPRECATED` feature flag for authoring; the runtime is alive but the authoring affordance is being wound down. Authors who want the semantic write the XPath in `claimCondition` themselves.
 
-Schema is `z.object({ ... }).strict()` with all-optional fields except `dontClaimAlreadyOwned`, which is `z.boolean()` (required at the schema level — no default; the panel UI initializes the field as `false` when first creating `caseSearchConfig`, so the persisted shape always carries the boolean).
+Schema is `z.object({ ... }).strict()` with all-optional fields. `caseSearchConfig: undefined` on a module signals "no case-search authoring"; an empty `{}` signals "search authored, every slot uses runtime defaults" — both are valid persisted shapes, distinguishing the two states meaningfully.
 
-**Tests:** schema parse round-trip; required-field gate (`dontClaimAlreadyOwned`); optional fields stripped when undefined; `caseSearchConfig: undefined` round-trips as the absent-slot shape on the Module.
+**Tests:** schema parse round-trip; empty-config round-trip; `.strict()` rejects unknown keys; explicit `undefined` admitted on optional slots; `caseSearchConfig: undefined` round-trips as the absent-slot shape on the Module.
 
 ### Task 2: Claim section UI
 
 **Files:** `components/builder/case-search-config/ClaimSection.tsx`, tests.
 
-Three sub-controls:
+Two sub-controls:
 
 - **Claim condition** — `<PredicateCardEditor predicate={config.claimCondition} onChange={...} caseTypes={...} currentCaseType={...} knownInputs={mod.caseListConfig?.searchInputs ?? []} />` — optional; absent ≡ "always claim."
-- **Don't claim already owned** — boolean toggle wired to `config.dontClaimAlreadyOwned`. Default off.
 - **Blacklisted owner IDs** — collapsed-by-default `<ExpressionCardEditor expression={config.blacklistedOwnerIds} onChange={...} />`. Returns a space-separated `ValueExpression`. Rare; collapse default closed.
 
 Routes through `useValidityPropagator` for save-gate propagation (mirrors the `FiltersSection` pattern from Plan 3).
 
 **Mount site:** `CaseSearchConfigPanel.tsx::ClaimSection` (Task 12's shell mounts it).
 
-**Tests:** round-trip; toggle persistence; blacklist expression validity; claim condition validity gates the save state via `useValidityPropagator`.
+**Tests:** round-trip; first-edit seed; blacklist expression validity; claim condition validity gates the save state via `useValidityPropagator`.
 
 ### Task 3: Display section UI
 
@@ -201,7 +197,7 @@ The test mounts both `CaseListWorkspace` and `CaseSearchConfigPanel` against the
 
 Two wholesale tools — `caseSearchConfig` is a config bag, not an addressable list, so atomic-op decomposition doesn't apply. Each tool replaces a coherent cluster of related fields. Both reuse the relocated `moduleNotFoundResult` helper.
 
-- `setCaseSearchClaim({ moduleIndex, claimCondition?, dontClaimAlreadyOwned, blacklistedOwnerIds? })` — sets the entire claim cluster. `null`-clearing convention on the optional fields: pass `null` to clear `claimCondition` / `blacklistedOwnerIds`; omitted = unchanged.
+- `setCaseSearchClaim({ moduleIndex, claimCondition?, blacklistedOwnerIds? })` — sets the entire claim cluster. `null`-clearing convention on the optional fields: pass `null` to clear `claimCondition` / `blacklistedOwnerIds`; omitted = unchanged.
 - `setCaseSearchDisplay({ moduleIndex, searchScreenTitle?, searchScreenSubtitle?, emptyListText?, searchButtonLabel?, searchAgainButtonLabel?, searchButtonDisplayCondition? })` — sets the entire display cluster. `null`-clearing convention applies.
 
 Each tool's `execute` returns `MutatingToolResult<R>` per the shared contract; success result is structured `{ message, ... }` carrying the touched-field-count discriminator (mirror `setCaseListFilter`'s structured-success shape — the SA reads the discriminator without re-parsing prose).
@@ -331,32 +327,25 @@ CCHQ shape verified against `~/code/commcare-hq/.../suite_xml/post_process/remot
 `<post url="..." relevant="...">` element. `relevant` attribute compiles from CCHQ's `CaseSearch.get_relevant` shape:
 
 - **Base guard (always present)** — CCHQ's `CaseClaimXpath.default_relevant`, lifted verbatim: `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0`. Structural defense against repeat-claim writes (the underlying cause of the `state hash mismatch` log spam in CCHQ webapps logs — Nova emits the guard so we never make it worse).
-- **AND optional `additional_relevant` clause** — Nova's wire emitter folds two contributions into one `additional_relevant` string that AND-composes with the base guard at the wire layer per CCHQ's pattern `({base}) and ({additional_relevant})`:
-  - `caseSearchConfig.claimCondition` (when present) — compiled via the on-device emitter (`emitCaseListFilter` from `lib/commcare/predicate/index.ts` — the `<post relevant>` slot is on-device-evaluated, same grammar as the case-list filter slot).
-  - `caseSearchConfig.dontClaimAlreadyOwned` clause when `true` — **TBD pending supervisor decision; see "Open question — `dontClaimAlreadyOwned` wire form" section below.**
+- **AND optional `additional_relevant` clause** — Nova's wire emitter folds the `caseSearchConfig.claimCondition` predicate (when present) into the `additional_relevant` string that AND-composes with the base guard at the wire layer per CCHQ's pattern `({base}) and ({additional_relevant})`. Compiled via the on-device emitter (`emitCaseListFilter` from `lib/commcare/predicate/index.ts` — the `<post relevant>` slot is on-device-evaluated, same grammar as the case-list filter slot). When the predicate is absent, the `<post>` element carries only the base guard.
 
 Inside `<post>`, ONLY:
 - `<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>` — required, always present. No other `<data>` children (the blacklist lives on `<query>`, not `<post>`).
 
 **Wire fixture verification gate.** Verify against `~/code/commcare-hq/.../tests/data/suite/remote_request.xml` for the `<post>` element shape and child ordering, and against `case-search-with-action.xml` / `case-search-again-with-action.xml` for the action-prompted claim flow shape (action element lives on `m{N}_case_short` per Task 7's territory; Task 9 cross-references but doesn't emit).
 
-**Tests:** golden-file comparison against `remote_request.xml`'s `<post>` shape; minimal `<post>` (no claim condition, no dontClaimAlreadyOwned) = base guard only; `claimCondition` set produces `({base}) and ({additional_relevant})` composition; `dontClaimAlreadyOwned: true` produces the supervisor-decided clause AND-composed with the base guard (or claim-condition-bearing combined string).
+**Tests:** golden-file comparison against `remote_request.xml`'s `<post>` shape; minimal `<post>` (no claim condition) = base guard only; `claimCondition` set produces `({base}) and ({additional_relevant})` composition.
 
-#### Open question — `dontClaimAlreadyOwned` wire form
+#### Resolution — no separate "skip already-owned" toggle
 
-CCHQ has no canonical "skip already-owned" XPath form anywhere in the source. The only general-purpose hook is `additional_relevant` — a free-form XPath string CCHQ authors write themselves. Nova's `dontClaimAlreadyOwned: boolean` schema slot was specified in the spec, shipped via Task 1, and consumed by the UI (Task 2) and SA tools (Task 5). The wire emission needs to translate the boolean to a specific XPath clause, which Nova authors.
+CCHQ's `additional_relevant` field — the only general-purpose hook a "skip already-owned" toggle could compile to — has its **authoring UI gated behind the `CASE_SEARCH_DEPRECATED` feature flag** in `commcare-hq/.../models.py::CaseSearchProperty.get_relevant`. The runtime is alive (the field is still ANDed with the default condition at evaluation time) but the authoring affordance is being wound down upstream.
 
-**Three options the supervisor must pick before Task 9 ships:**
+A Nova-invented "skip already-owned" toggle that compiled into a synthesized XPath clause on `additional_relevant` would invent UX over a wind-down field. The right shape is:
 
-A. **Drop the slot entirely** — remove `dontClaimAlreadyOwned` from the schema. Authors who want "skip already-owned" semantics write the XPath in `claimCondition` themselves. Reverts Task 1 schema + Task 2 UI + Task 5 SA tool surface. Honest about CCHQ's lack of native support; worse authoring UX.
+- **The schema has no `dontClaimAlreadyOwned` slot.** Authors who want the semantic write the XPath in `claimCondition` themselves — that's what CCHQ authors do upstream after the deprecated flag was set.
+- **The `claimCondition` predicate-card editor is the only authoring affordance for claim conditions.** It emits to the same active runtime field (`additional_relevant`) via the `claimCondition` AST.
 
-B. **Map to a Nova-authored XPath clause** — Nova's wire emitter generates a specific XPath form when the toggle is true. Candidate form: `instance('results')/results/case[@case_id=instance('commcaresession')/session/data/search_case_id]/@owner_id != instance('commcaresession')/session/context/userid`. Verifies the user is NOT the owner before claiming. Looks up the case in the search-results instance by case-id, reads its `@owner_id`, compares to the framework-provided `session/context/userid`. **Unverified** — no canonical CCHQ source for this exact form; this is Nova-authored XPath.
-
-C. **Defer the feature** — keep the schema slot but emit a no-op at the wire layer with a documented "not yet wired through" surface. Authors can toggle but the runtime ignores the toggle. Worst option (silently breaks the user's intent).
-
-**Recommendation:** Option B with a verified XPath form. The XPath needs runtime testing in a CCHQ webapps deployment to confirm the case-lookup-via-search-results-instance evaluates correctly post-selection. A reviewer pass on a deployed Nova-authored fixture (cycle once through CCHQ's `applyXForm` + restore loop, confirm the claim fires only when the user is not already the owner) would close the verification gap.
-
-The supervisor's decision needs to land in this section before Task 9 dispatches.
+Original supervisor decision date: 2026-05-08.
 
 ### Task 10: Search prompts emission (per-arm dispatch)
 
@@ -400,7 +389,7 @@ Three rules registered in `module.ts`:
 - `components/preview/screens/ModuleScreen.tsx` (EDIT)
 - `components/preview/screens/__tests__/ModuleScreen.test.tsx` (EDIT)
 
-**`CaseSearchConfigPanel.tsx`** — multi-section UI shell. Renders three sections in order: Claim → Display → Search Inputs. Sticky violet-railed section headers (mirror Plan 3's `CaseListSectionHeader` pattern). Single-scroll magazine layout. Reads `mod.caseSearchConfig` (initializing as `{ dontClaimAlreadyOwned: false }` on first edit) and `mod.caseListConfig.searchInputs` from the doc store; writes via `useBlueprintDocApi().updateModule(moduleUuid, ...)`.
+**`CaseSearchConfigPanel.tsx`** — multi-section UI shell. Renders three sections in order: Claim → Display → Search Inputs. Sticky violet-railed section headers (mirror Plan 3's `CaseListSectionHeader` pattern). Single-scroll magazine layout. Reads `mod.caseSearchConfig` (every per-section mutator spreads `...(value ?? {})` before applying its patch, so first-edit emits a strict-parse-valid empty-but-present config) and `mod.caseListConfig.searchInputs` from the doc store; writes via `useBlueprintDocApi().updateModule(moduleUuid, ...)`.
 
 **URL routing changes (the load-bearing fix vs the prior plan, which mis-cited `lib/preview/engine/types.ts`):**
 
@@ -523,6 +512,8 @@ Landed across three commits: `f10a82e6` (initial schema + 9 tests) → `4915690f
 
 **Whole-repo build state:** green throughout (the schema addition is purely additive; consumers ignore the new optional slot until Task 12 mounts the workspace).
 
+**Option A — `dontClaimAlreadyOwned` dropped 2026-05-08.** CCHQ's `additional_relevant` (the field a "skip already-owned" toggle would compile to) is gated behind the `CASE_SEARCH_DEPRECATED` feature flag for authoring; the runtime is alive but the authoring affordance is being wound down. The toggle was a Nova-invented affordance over a wind-down field. Schema removed across `lib/domain/modules.ts::caseSearchConfigSchema` + `lib/domain/__tests__/modules.test.ts`. Every `caseSearchConfig` slot is now optional; the empty `{}` shape is a valid persisted state. The `claimCondition` Predicate Card editor remains as the only authoring affordance for claim conditions.
+
 **Next:** Task 2 — Claim section UI.
 
 ### Task 2 — Claim section UI — 2026-05-08
@@ -558,6 +549,8 @@ The plan's literal file list named `ClaimSection.tsx` + tests. The supervisor ex
 
 **Whole-repo build state:** green throughout. Task 2's deliverables compose into Task 12's workspace shell when that lands.
 
+**Option A — `dontClaimAlreadyOwned` dropped 2026-05-08.** The toggle, header chrome, `Toggle` import, and the toggle-persistence test block were removed from `ClaimSection.tsx`. The section now mounts only the claim-condition `<PredicateSlotCard>` and the blacklisted-owner-IDs `<ExpressionCardEditor>`. Section validity = `predicateValid && (!blacklistPresent || expressionValid)`. The `claimCondition` Predicate Card editor remains as the only authoring affordance for claim conditions; CCHQ's `additional_relevant` (the underlying runtime field) is alive but its CCHQ-side authoring UI is gated `CASE_SEARCH_DEPRECATED`.
+
 **Next:** Task 3 — Display section UI.
 
 ### Task 3 — Display section UI — 2026-05-08
@@ -590,6 +583,8 @@ Landed across two commits: `4c71b1f4` (initial DisplaySection + tests + extracte
 The plan listed only `DisplaySection.tsx` + tests. The supervisor scope expanded to extract `nextConfig` (first-duplication on the second consumer of the helper) and a local `OptionalTextRow` primitive that owns the five text-slot chrome. Both expansions were structurally justified by the project's discipline rules.
 
 **Whole-repo build state:** green throughout. Task 3's deliverables compose into Task 12's workspace shell when that lands.
+
+**Option A — `dontClaimAlreadyOwned` dropped 2026-05-08.** The shared `nextConfig.ts` helper was removed (its sole purpose was seeding `{ dontClaimAlreadyOwned: false }` on the absent→empty transition; with the field gone, the helper collapses to `{ ...(value ?? {}), [slot]: next }` and inlines cleanly into both ClaimSection and DisplaySection per-slot mutators). Test rationales that cited the seeded default were rewritten to reference the new "absent vs empty config" boundary.
 
 **Next:** Task 4 — Embed Search Inputs section (cross-binding test). Task 4 sits AFTER Task 12 in execution order despite its lower task ID — Task 4 verifies a contract Task 12 establishes; the executor follows dependencies, not numbers.
 
@@ -630,6 +625,8 @@ The plan listed `setCaseSearchClaim` + `setCaseSearchDisplay` + `setCaseSearchDe
 3. The conditional-spread fan-out across six display slots could refactor to a loop. Current explicit form mirrors `setCaseListFilter`'s exact pattern for family parity. Stylistic, not blocking.
 
 **Whole-repo build state:** green throughout.
+
+**Option A — `dontClaimAlreadyOwned` dropped 2026-05-08.** Removed from `setCaseSearchClaimBodySchema` + the tool's input destructure + the `SetCaseSearchClaimSuccess` interface + the strip-and-rebuild's existing-cluster destructure. The tool now takes `{ claimCondition, blacklistedOwnerIds }` (each `.nullable()`); structured success carries only `claimConditionKind`. `setCaseSearchDisplay`'s bootstrap-default seed dropped the `dontClaimAlreadyOwned: false` rebuild base — a fresh-module display edit now produces a config carrying only the supplied display slot. SA-prompt narration in `lib/agent/CLAUDE.md` + `summarizeBlueprint.ts::summarizeCaseSearch` updated to drop the flag. The `claimCondition` Predicate Card editor on the SA boundary remains as the only authoring affordance for claim conditions.
 
 **Next:** Task 6 — Platform-aware compilation decision tree (running in parallel with this plan-sync).
 
@@ -757,7 +754,7 @@ Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) Approved with o
 
 **Whole-repo build state:** green within Task 10's scope; the Task 11 fix-pass is running and will close those validator failures.
 
-**Next:** Task 11's 6-rule fix-pass (in flight), Task 12 (workspace mount, in flight), Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`), Task 8 (`<remote-request>` orchestrator — depends on 9 + 10), Task 4 (cross-binding test, depends on 12), Task 13 (integration test, depends on all).
+**Next:** Task 11's 6-rule fix-pass (in flight), Task 12 (workspace mount, in flight), Task 9 (resolved 2026-05-08: supervisor picked Option A — see Task 9 body's "Resolution — no separate skip-already-owned toggle" section), Task 8 (`<remote-request>` orchestrator — depends on 9 + 10), Task 4 (cross-binding test, depends on 12), Task 13 (integration test, depends on all).
 
 ### Task 12 — CaseSearchConfigPanel + URL routing + ModuleScreen affordance — 2026-05-08
 
@@ -839,7 +836,7 @@ In `lib/commcare/validator/rules/case-list/` (because `searchInputs` lives on `c
 
 **Whole-repo build state:** green throughout.
 
-**Next:** Task 4 (cross-binding test, in flight), Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`), Task 8 (`<remote-request>` orchestrator, depends on Task 9), Task 13 (integration test, depends on all). Plus the queued predicate-editor-subtree reorg (slated between Tasks 12 ✓ and 13).
+**Next:** Task 4 (cross-binding test, in flight), Task 9 (resolved 2026-05-08: supervisor picked Option A — see Task 9 body's "Resolution — no separate skip-already-owned toggle" section), Task 8 (`<remote-request>` orchestrator, depends on Task 9), Task 13 (integration test, depends on all). Plus the queued predicate-editor-subtree reorg (slated between Tasks 12 ✓ and 13).
 
 ### Task 4 — SearchInputs cross-binding test — 2026-05-08
 
@@ -875,7 +872,7 @@ Landed at commit `8ffd57ab`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 
 **No production-code concerns surfaced** — the workspaces correctly share doc-store state via `useModule` / `updateModule`, both routing search-input writes through `caseListConfig.searchInputs`. The cross-binding works as designed.
 
-**Next:** Predicate-editor-subtree reorg (in flight); Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`); Task 8 (`<remote-request>` orchestrator, depends on Task 9); Task 13 (integration test, depends on all).
+**Next:** Predicate-editor-subtree reorg (in flight); Task 9 (resolved 2026-05-08: supervisor picked Option A — see Task 9 body's "Resolution — no separate skip-already-owned toggle" section); Task 8 (`<remote-request>` orchestrator, depends on Task 9); Task 13 (integration test, depends on all).
 
 ## Audit followups — Predicate-editor subtree relocation — 2026-05-08
 

@@ -1,7 +1,7 @@
 // components/builder/case-search-config/ClaimSection.tsx
 //
 // Composes the case-search authoring surface's Claim section. Owns
-// three independent slots on `caseSearchConfig` that together author
+// two independent slots on `caseSearchConfig` that together author
 // what happens when a user picks a case from search results:
 //
 //   1. `claimCondition: Predicate?` — when present, the runtime
@@ -9,11 +9,7 @@
 //      "always claim on selection." Mounted via the shared
 //      `<PredicateSlotCard>` primitive — the same primitive
 //      `FiltersSection` consumes for `caseListConfig.filter`.
-//   2. `dontClaimAlreadyOwned: boolean` — when true, the runtime
-//      skips the claim step on cases the user already owns (avoids
-//      a redundant claim API call when re-opening an owned case
-//      from search results).
-//   3. `blacklistedOwnerIds: ValueExpression?` — when present,
+//   2. `blacklistedOwnerIds: ValueExpression?` — when present,
 //      evaluates to a space-separated list of owner IDs whose cases
 //      are excluded from search results. Rare in practice; the
 //      affordance collapses closed by default so it doesn't crowd
@@ -21,21 +17,18 @@
 //
 // `caseSearchConfig` itself is OPTIONAL on the Module schema — a
 // module without search authored omits the slot entirely. The first
-// edit through this section seeds the slot with the schema's
-// required default `{ dontClaimAlreadyOwned: false }` plus whatever
-// the user changed. Subsequent edits compose against the existing
-// slot.
+// edit through this section seeds the slot as an empty object plus
+// whatever the user changed; subsequent edits compose against the
+// existing slot.
 //
-// Validity propagation. Two of the three sub-controls have their
-// own validity (the predicate via the type checker; the value
-// expression via the type checker). The toggle is structurally
-// always-valid (boolean values can't fail validation). The section
-// reports `valid: true` when both sub-control verdicts are true (or
-// trivially true when their slots are absent) and `false` otherwise.
-// Slot-presence short-circuits — both for the predicate and the
-// blacklist — defend against stale `false` shadows leaking past a
-// clear, mirroring the contract `PredicateSlotCard` already
-// provides for the claim-condition arm.
+// Validity propagation. Both sub-controls have their own validity:
+// the predicate via the type checker, the value expression via the
+// type checker. The section reports `valid: true` when both
+// sub-control verdicts are true (or trivially true when their slots
+// are absent) and `false` otherwise. Slot-presence short-circuits —
+// both for the predicate and the blacklist — defend against stale
+// `false` shadows leaking past a clear, mirroring the contract
+// `PredicateSlotCard` already provides for the claim-condition arm.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -44,13 +37,11 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerForbid from "@iconify-icons/tabler/forbid";
 import tablerHandStop from "@iconify-icons/tabler/hand-stop";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import { Toggle } from "@/components/ui/Toggle";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {
 	literal,
@@ -59,22 +50,18 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { nextConfig } from "./nextConfig";
 
 // ── Public types ──────────────────────────────────────────────────
 
 export interface ClaimSectionProps {
 	/** Current case-search configuration. `undefined` means the
 	 *  module has no caseSearchConfig authored yet — first edit
-	 *  through this section seeds the slot with
-	 *  `{ dontClaimAlreadyOwned: false }` plus the changed sub-slot. */
+	 *  through this section seeds the slot with the changed sub-slot
+	 *  on top of an otherwise-empty config. */
 	readonly value: CaseSearchConfig | undefined;
 	/** Fired with the next configuration. The parent applies the
 	 *  next config to its source-of-truth (the doc store's module
-	 *  `caseSearchConfig` slot). The callback is fired with a fully-
-	 *  formed `CaseSearchConfig` (the seed pattern lives inside this
-	 *  section's mutators); the parent never has to materialize the
-	 *  required `dontClaimAlreadyOwned` default itself. */
+	 *  `caseSearchConfig` slot). */
 	readonly onChange: (next: CaseSearchConfig) => void;
 	/** Blueprint case-type definitions — drives the property pickers
 	 *  inside the predicate and expression editors. */
@@ -99,10 +86,10 @@ export interface ClaimSectionProps {
 
 /**
  * Composes the claim cluster of the case-search authoring surface.
- * Renders three independent sub-controls — claim condition (via
- * `PredicateSlotCard`), the already-owned guard toggle, and the
- * blacklisted-owner-IDs expression — and aggregates their validity
- * verdicts for the parent's save gate.
+ * Renders two independent sub-controls — claim condition (via
+ * `PredicateSlotCard`) and the blacklisted-owner-IDs expression —
+ * and aggregates their validity verdicts for the parent's save
+ * gate.
  */
 export function ClaimSection({
 	value,
@@ -135,7 +122,6 @@ export function ClaimSection({
 	// flips the state; collapsed view shows only the header chrome.
 	const [blacklistOpen, setBlacklistOpen] = useState(false);
 
-	const dontClaimAlreadyOwned = value?.dontClaimAlreadyOwned ?? false;
 	const blacklist = value?.blacklistedOwnerIds;
 	const blacklistPresent = blacklist !== undefined;
 
@@ -155,21 +141,15 @@ export function ClaimSection({
 	// `PredicateSlotCard` owns add/clear semantics — Add seeds
 	// `matchAll()` and Clear emits `undefined`. The section's
 	// callback just routes the slot-card's emission into the
-	// `caseSearchConfig` writer.
+	// `caseSearchConfig` writer; spread order `...base, ...patch`
+	// preserves any sibling slot the patch doesn't touch.
 	const handleClaimCondition = (next: Predicate | undefined) => {
-		onChange(nextConfig(value, { claimCondition: next }));
-	};
-
-	// ── Toggle mutator ──
-	const toggleAlreadyOwned = () => {
-		onChange(
-			nextConfig(value, { dontClaimAlreadyOwned: !dontClaimAlreadyOwned }),
-		);
+		onChange({ ...(value ?? {}), claimCondition: next });
 	};
 
 	// ── Blacklist mutators ──
 	const setBlacklist = (next: ValueExpression | undefined) => {
-		onChange(nextConfig(value, { blacklistedOwnerIds: next }));
+		onChange({ ...(value ?? {}), blacklistedOwnerIds: next });
 	};
 	const addBlacklist = () => {
 		// Empty-string seed: `term(literal(""))`. The editor body
@@ -204,32 +184,6 @@ export function ClaimSection({
 				knownInputs={knownInputs}
 				onValidityChange={setPredicateValid}
 			/>
-
-			{/* ── Don't-claim-already-owned toggle ──
-			    The toggle sits in its own row; no add/clear chrome
-			    because the underlying value is a pure boolean (the
-			    schema requires it at all times). Clicking the row's
-			    Toggle component flips the slot and seeds
-			    `caseSearchConfig` on first edit if the panel hasn't
-			    authored it yet. */}
-			<div className="flex items-center gap-3 rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
-				<Icon
-					icon={tablerUserShield}
-					width="14"
-					height="14"
-					className="text-nova-violet-bright/80"
-				/>
-				<div className="flex-1 min-w-0">
-					<div className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-						Don't claim cases the user already owns
-					</div>
-					<div className="text-[10px] text-nova-text-muted/70 mt-0.5">
-						Skips the claim step when a search result is already owned by the
-						current user. Avoids a redundant claim on re-open.
-					</div>
-				</div>
-				<Toggle enabled={dontClaimAlreadyOwned} onToggle={toggleAlreadyOwned} />
-			</div>
 
 			{/* ── Blacklisted owner IDs sub-control ──
 			    Collapsed by default. The header doubles as the

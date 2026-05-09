@@ -53,7 +53,6 @@ vi.mock("../ClaimSection", () => ({
 				data-testid="claim-section-fire-change"
 				onClick={() =>
 					props.onChange({
-						dontClaimAlreadyOwned: true,
 						searchScreenTitle: "From claim",
 					})
 				}
@@ -85,7 +84,6 @@ vi.mock("../DisplaySection", () => ({
 					data-testid="display-section-fire-change"
 					onClick={() =>
 						props.onChange({
-							dontClaimAlreadyOwned: false,
 							searchScreenTitle: "From display",
 						})
 					}
@@ -335,7 +333,7 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 		// part of the module schema.
 		render(
 			renderPanel({
-				caseSearchConfig: { dontClaimAlreadyOwned: false },
+				caseSearchConfig: {},
 			}),
 		);
 		const claimMock = vi.mocked(ClaimSectionMock);
@@ -347,7 +345,6 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 		// recent call captures the persisted shape.
 		const lastCall = claimMock.mock.calls.at(-1);
 		expect(lastCall?.[0].value).toEqual({
-			dontClaimAlreadyOwned: true,
 			searchScreenTitle: "From claim",
 		});
 	});
@@ -355,7 +352,7 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 	it("routes DisplaySection's onChange through updateModule's caseSearchConfig slot", () => {
 		render(
 			renderPanel({
-				caseSearchConfig: { dontClaimAlreadyOwned: false },
+				caseSearchConfig: {},
 			}),
 		);
 		const displayMock = vi.mocked(DisplaySectionMock);
@@ -364,7 +361,6 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 
 		const lastCall = displayMock.mock.calls.at(-1);
 		expect(lastCall?.[0].value).toEqual({
-			dontClaimAlreadyOwned: false,
 			searchScreenTitle: "From display",
 		});
 	});
@@ -433,15 +429,14 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 // ── First-edit seed for caseSearchConfig ─────────────────────────
 
 describe("CaseSearchConfigPanel — first-edit seed", () => {
-	it("does NOT mount Claim/Display sections with a partial caseSearchConfig — sections see undefined and call through nextConfig themselves", () => {
+	it("forwards `value: undefined` to Claim/Display when the module has no caseSearchConfig", () => {
 		// Pins the contract: when `mod.caseSearchConfig` is undefined,
 		// the panel forwards `value: undefined` to ClaimSection +
-		// DisplaySection. Each section's first edit then routes
-		// through the SHARED `nextConfig` helper (one place the seed
-		// pattern lives) and the parent persists the seeded config.
-		// A regression here — e.g. the panel pre-seeding `{ dontClaim
-		// AlreadyOwned: false }` itself — would fight the section-
-		// level seed and produce two write paths for the same edit.
+		// DisplaySection. Each section's first edit emits a fully-
+		// formed config via its own `...(value ?? {})` spread, and
+		// the panel persists it. A regression here — e.g. the panel
+		// pre-seeding an empty config itself — would produce two
+		// write paths for the same edit.
 		render(renderPanel({ caseSearchConfig: undefined }));
 
 		const claim = screen.getByTestId("claim-section-stub");

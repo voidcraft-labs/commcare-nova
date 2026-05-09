@@ -808,13 +808,12 @@ describe("caseListConfigSchema — populated round-trip", () => {
 describe("caseSearchConfigSchema — claim flow + display labels", () => {
 	it("round-trips a fully-populated config (every slot set)", () => {
 		// Round-trips every authored slot: `claimCondition`,
-		// `dontClaimAlreadyOwned`, `blacklistedOwnerIds`, the five
-		// display labels, and `searchButtonDisplayCondition`. The
-		// `toEqual(config)` assertion pins that the schema preserves
-		// all nine slots without drift across a strict-mode parse.
+		// `blacklistedOwnerIds`, the five display labels, and
+		// `searchButtonDisplayCondition`. The `toEqual(config)`
+		// assertion pins that the schema preserves all eight slots
+		// without drift across a strict-mode parse.
 		const config: CaseSearchConfig = {
 			claimCondition: { kind: "match-all" },
-			dontClaimAlreadyOwned: true,
 			// `blacklistedOwnerIds` is a `ValueExpression`; the `term` arm
 			// wraps a `Term` (here a string literal) so the value
 			// satisfies the `ValueExpression` shape.
@@ -834,31 +833,17 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 		if (parsed.success) expect(parsed.data).toEqual(config);
 	});
 
-	it("round-trips a minimal config (only the required slot set)", () => {
-		// `dontClaimAlreadyOwned` is the only required slot; this is the
-		// shape the UI persists when an author first creates the
-		// caseSearchConfig and hasn't filled in any optional slot.
-		const config: CaseSearchConfig = {
-			dontClaimAlreadyOwned: false,
-		};
+	it("round-trips an empty config (every slot absent)", () => {
+		// All slots are optional — an empty object is the shape the UI
+		// persists when an author first creates the caseSearchConfig
+		// and hasn't filled in any slot. Distinct from the module-level
+		// `caseSearchConfig: undefined` shape (the module has no search
+		// authoring at all); the empty object signals "search is on,
+		// using runtime defaults for every slot."
+		const config: CaseSearchConfig = {};
 		const parsed = caseSearchConfigSchema.safeParse(config);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(config);
-	});
-
-	it("rejects a config missing dontClaimAlreadyOwned", () => {
-		// `dontClaimAlreadyOwned` carries no schema-level default; a
-		// persisted document missing the slot is a parse failure rather
-		// than silently coerced to a default value.
-		const parsed = caseSearchConfigSchema.safeParse({});
-		expect(parsed.success).toBe(false);
-	});
-
-	it("rejects a non-boolean dontClaimAlreadyOwned", () => {
-		const parsed = caseSearchConfigSchema.safeParse({
-			dontClaimAlreadyOwned: "yes",
-		});
-		expect(parsed.success).toBe(false);
 	});
 
 	it("rejects unknown top-level keys (.strict())", () => {
@@ -868,7 +853,6 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 		// nested object, mixed array) to confirm the rejection isn't
 		// gated on a particular value type.
 		const parsed = caseSearchConfigSchema.safeParse({
-			dontClaimAlreadyOwned: false,
 			__unknown_a: "alpha",
 			__unknown_b: { nested: 42 },
 			__unknown_c: ["mixed", "shapes", 99],
@@ -882,9 +866,8 @@ describe("caseSearchConfigSchema — claim flow + display labels", () => {
 		// keys; an explicitly-passed `undefined` against a declared
 		// optional slot is not unknown). This test pins that the schema
 		// accepts the input shape that an editor reset to "absent" might
-		// produce, rather than rejecting it as a missing required slot.
+		// produce.
 		const parsed = caseSearchConfigSchema.safeParse({
-			dontClaimAlreadyOwned: true,
 			claimCondition: undefined,
 		});
 		expect(parsed.success).toBe(true);
@@ -921,14 +904,12 @@ describe("moduleSchema — caseSearchConfig presence", () => {
 			caseType: "patient",
 			caseListConfig: { columns: [], searchInputs: [] },
 			caseSearchConfig: {
-				dontClaimAlreadyOwned: false,
 				searchScreenTitle: "Search for a patient",
 			},
 		});
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
 			expect(parsed.data.caseSearchConfig).toEqual({
-				dontClaimAlreadyOwned: false,
 				searchScreenTitle: "Search for a patient",
 			});
 		}

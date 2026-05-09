@@ -22,7 +22,6 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						blacklistedOwnerIds: {
 							kind: "term",
 							term: prop("patient", "phantom_property"),
@@ -75,7 +74,6 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						blacklistedOwnerIds: toValueExpression(
 							literal("user-1 user-2 user-3"),
 						),
@@ -164,7 +162,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: true },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
@@ -213,7 +211,6 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						blacklistedOwnerIds: { kind: "term", term: prop("patient", "age") },
 					},
 					forms: [
@@ -276,7 +273,6 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						blacklistedOwnerIds: {
 							kind: "term",
 							term: prop("patient", "category"),

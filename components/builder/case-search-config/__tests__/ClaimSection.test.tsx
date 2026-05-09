@@ -3,13 +3,13 @@
 // components/builder/case-search-config/__tests__/ClaimSection.test.tsx
 //
 // ClaimSection composition tests — pin the public contract of the
-// three sub-controls + the section's validity aggregation:
+// two sub-controls + the section's validity aggregation:
 //
 //   - Round-trip: mount with a fully-populated config and verify the
-//     three sub-controls render the expected initial state.
-//   - Toggle persistence: clicking the don't-claim-already-owned
-//     toggle fires onChange with the flipped boolean (and seeds the
-//     required default when the section starts undefined).
+//     two sub-controls render the expected initial state.
+//   - First-edit seed: clicking Add on the claim-condition slot from
+//     an undefined section state fires onChange carrying the seeded
+//     `matchAll()` over an otherwise-empty config.
 //   - Blacklist collapse default: the blacklist body is hidden on
 //     first render; the header click reveals it.
 //   - Validity propagation: an invalid claim-condition predicate
@@ -54,7 +54,6 @@ const CASE_TYPES = [PATIENT];
 // the same shape.
 const POPULATED_CONFIG: CaseSearchConfig = {
 	claimCondition: matchAll(),
-	dontClaimAlreadyOwned: true,
 	blacklistedOwnerIds: term(literal("owner-a owner-b")),
 };
 
@@ -73,22 +72,6 @@ describe("ClaimSection — round-trip", () => {
 
 		expect(screen.queryByLabelText(/^add claim condition$/i)).toBeNull();
 		expect(screen.getByLabelText(/^clear claim condition$/i)).toBeDefined();
-	});
-
-	it("reflects `dontClaimAlreadyOwned: true` on the toggle's aria-checked attribute", () => {
-		render(
-			<ClaimSection
-				value={POPULATED_CONFIG}
-				onChange={() => {}}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-
-		// The shared `Toggle` primitive renders as
-		// `role="switch"` + `aria-checked`.
-		const toggle = screen.getByRole("switch");
-		expect(toggle.getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("renders the blacklist sub-control with the body collapsed-closed even when the slot is populated", () => {
@@ -115,34 +98,17 @@ describe("ClaimSection — round-trip", () => {
 	});
 });
 
-// ── Toggle persistence ────────────────────────────────────────────
+// ── First-edit seed ───────────────────────────────────────────────
 
-describe("ClaimSection — toggle persistence", () => {
-	it("fires onChange with the flipped boolean when the toggle is clicked", () => {
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
-		render(
-			<ClaimSection
-				value={{ dontClaimAlreadyOwned: false }}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-
-		const toggle = screen.getByRole("switch");
-		fireEvent.click(toggle);
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: true,
-		});
-	});
-
-	it("seeds caseSearchConfig on first edit when the section starts undefined", () => {
-		// Pins the seed pattern: the panel may receive a module without
-		// `caseSearchConfig`, and the first edit MUST emit a config
-		// that satisfies the schema's required `dontClaimAlreadyOwned`.
-		// Without the seed, the parent would get a partial object that
-		// fails strict parse.
+describe("ClaimSection — first-edit seed", () => {
+	it("seeds caseSearchConfig as `{ claimCondition }` when the section starts undefined and the user adds a claim condition", () => {
+		// Pins the first-edit contract: the panel may receive a module
+		// without `caseSearchConfig`, and the first edit emits a config
+		// carrying only the freshly-added slot (every slot on
+		// `caseSearchConfigSchema` is optional, so an empty config is
+		// still a valid persisted shape — the difference between
+		// `undefined` (no search authoring) and `{}` (search authored,
+		// every slot at runtime defaults) is meaningful).
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<ClaimSection
@@ -153,27 +119,30 @@ describe("ClaimSection — toggle persistence", () => {
 			/>,
 		);
 
-		const toggle = screen.getByRole("switch");
-		fireEvent.click(toggle);
+		// `PredicateSlotCard` exposes the Add affordance via an aria-
+		// label matching the `addLabel` prop ClaimSection passes in.
+		const addClaim = screen.getByLabelText(/^add claim condition$/i);
+		fireEvent.click(addClaim);
+
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: true,
+			claimCondition: matchAll(),
 		});
 	});
 
-	it("preserves unrelated `caseSearchConfig` slots through a toggle mutation", () => {
+	it("preserves unrelated `caseSearchConfig` slots through a per-slot mutation", () => {
 		// Pins the spread on every per-slot patch path. A future change
-		// that drops `...base` from `nextConfig`'s patch construction
-		// would surface here as a regression — the toggle would emit a
-		// config missing `searchScreenTitle` and the parent's strict
-		// parse would silently lose the display label. Picks
-		// `searchScreenTitle` as the canary because it's a sibling
-		// display slot the section never reads or writes itself.
+		// that drops `...(value ?? {})` from a per-slot mutator would
+		// surface here as a regression — the claim-condition mutation
+		// would emit a config missing `searchScreenTitle` and the
+		// parent's strict parse would silently lose the display label.
+		// Picks `searchScreenTitle` as the canary because it's a
+		// sibling display slot the section never reads or writes
+		// itself.
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<ClaimSection
 				value={{
-					dontClaimAlreadyOwned: false,
 					searchScreenTitle: "Find a patient",
 				}}
 				onChange={onChange}
@@ -182,10 +151,10 @@ describe("ClaimSection — toggle persistence", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("switch"));
+		fireEvent.click(screen.getByLabelText(/^add claim condition$/i));
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			dontClaimAlreadyOwned: true,
+			claimCondition: matchAll(),
 			searchScreenTitle: "Find a patient",
 		});
 	});
@@ -199,7 +168,6 @@ describe("ClaimSection — blacklist collapse", () => {
 		render(
 			<ClaimSection
 				value={{
-					dontClaimAlreadyOwned: false,
 					blacklistedOwnerIds: blacklistValue,
 				}}
 				onChange={() => {}}
@@ -241,7 +209,7 @@ describe("ClaimSection — validity propagation", () => {
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(
 			<ClaimSection
-				value={{ dontClaimAlreadyOwned: false }}
+				value={{}}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
@@ -260,7 +228,6 @@ describe("ClaimSection — validity propagation", () => {
 		render(
 			<ClaimSection
 				value={{
-					dontClaimAlreadyOwned: false,
 					claimCondition: invalidPredicate,
 				}}
 				onChange={() => {}}
@@ -290,7 +257,6 @@ describe("ClaimSection — validity propagation", () => {
 		render(
 			<ClaimSection
 				value={{
-					dontClaimAlreadyOwned: false,
 					blacklistedOwnerIds: invalidExpression,
 				}}
 				onChange={() => {}}
@@ -319,7 +285,6 @@ describe("ClaimSection — validity propagation", () => {
 		const { rerender } = render(
 			<ClaimSection
 				value={{
-					dontClaimAlreadyOwned: false,
 					claimCondition: invalidPredicate,
 				}}
 				onChange={() => {}}
@@ -332,7 +297,7 @@ describe("ClaimSection — validity propagation", () => {
 
 		rerender(
 			<ClaimSection
-				value={{ dontClaimAlreadyOwned: false }}
+				value={{}}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"

@@ -154,17 +154,17 @@ function formatSearchInput(input: SearchInputDef): string {
  *   `case_search: claim={kind|none} display={titleSet,subtitleSet,…}`
  *
  * Claim cluster summary: the predicate's `kind` if a `claimCondition`
- * is set, otherwise `"none"`. The `dontClaimAlreadyOwned` flag is
- * appended verbatim. Display cluster summary: comma-separated list of
- * the slot names that are non-undefined; `none` when every slot is
- * cleared (rare — one-liner pinned at this width keeps the prompt
- * cheap).
+ * is set, otherwise `"none"`; appended `blacklistedOwnerIds:set`
+ * marker when that slot is authored. Display cluster summary:
+ * comma-separated list of the slot names that are non-undefined;
+ * `none` when every slot is cleared (rare — one-liner pinned at this
+ * width keeps the prompt cheap).
  */
 function summarizeCaseSearch(mod: Module): string | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
 	const claimKind = config.claimCondition?.kind ?? "none";
-	const claimSummary = `claim={kind:${claimKind}, dontClaimAlreadyOwned:${config.dontClaimAlreadyOwned}${config.blacklistedOwnerIds !== undefined ? ", blacklistedOwnerIds:set" : ""}}`;
+	const claimSummary = `claim={kind:${claimKind}${config.blacklistedOwnerIds !== undefined ? ", blacklistedOwnerIds:set" : ""}}`;
 	const displaySlots: Array<keyof CaseSearchConfig> = [
 		"searchScreenTitle",
 		"searchScreenSubtitle",

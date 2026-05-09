@@ -63,7 +63,7 @@ The case-list-config tools accept the typed AST shape directly via Zod — `Colu
 
 The `caseSearchConfig` shape is a settings bag, not an addressable list, so its tool surface is two wholesale-replace tools rather than atomic ops:
 
-- **`setCaseSearchClaim`** owns the claim cluster: `claimCondition` (predicate gating the claim), `dontClaimAlreadyOwned` (already-owned guard), `blacklistedOwnerIds` (value expression naming hidden owners).
+- **`setCaseSearchClaim`** owns the claim cluster: `claimCondition` (predicate gating the claim), `blacklistedOwnerIds` (value expression naming hidden owners).
 - **`setCaseSearchDisplay`** owns the display cluster: `searchScreenTitle`, `searchScreenSubtitle`, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`, `searchButtonDisplayCondition`.
 
 Each tool replaces its own cluster in one call and preserves the other cluster byte-identically — strip-and-rebuild over the snapshot, layered with the input. Wholesale-with-`null`-clears semantic mirrors `setCaseListFilter`: every cluster slot is required-and-nullable on the SA boundary; `null` clears, non-null sets. That keeps the per-tool optional count at zero (well under the Anthropic 8-optional ceiling) and removes the "absent vs null" ambiguity the SA would otherwise have to resolve.

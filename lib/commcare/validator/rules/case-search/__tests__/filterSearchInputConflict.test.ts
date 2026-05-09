@@ -49,7 +49,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
@@ -127,7 +127,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
@@ -202,7 +202,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
@@ -261,7 +261,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
@@ -333,7 +333,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
@@ -458,7 +458,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					caseSearchConfig: {},
 					forms: [],
 				},
 			],

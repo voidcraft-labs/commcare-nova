@@ -158,7 +158,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setCaseSearchClaimTool.description,
 		schema: setCaseSearchClaimTool.inputSchema,
 		prompt:
-			"Use setCaseSearchClaim on module 0 to clear the claim condition (null), set dontClaimAlreadyOwned to true, and clear the blacklisted owner ids (null).",
+			"Use setCaseSearchClaim on module 0 to clear the claim condition (null) and clear the blacklisted owner ids (null).",
 	},
 	{
 		mode: "tool-input",

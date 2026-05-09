@@ -90,7 +90,6 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 				},
 				right: { kind: "term", term: { kind: "literal", value: "active" } },
 			},
-			dontClaimAlreadyOwned: true,
 			blacklistedOwnerIds: {
 				kind: "term",
 				term: { kind: "literal", value: "" },
@@ -103,7 +102,6 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 		const result = setCaseSearchClaimTool.inputSchema.safeParse({
 			moduleIndex: 0,
 			claimCondition: null,
-			dontClaimAlreadyOwned: false,
 			blacklistedOwnerIds: null,
 		});
 		expect(result.success).toBe(true);

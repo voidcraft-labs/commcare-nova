@@ -104,16 +104,15 @@ function makeListConfig(
 }
 
 /**
- * Minimal `CaseSearchConfig` that flips presence on. Only the
- * required `dontClaimAlreadyOwned` flag is populated; every other
- * slot is optional and unused at this layer. The dual-detail
- * emitter cares about presence-vs-absence of the config (the
- * orchestrator's branch condition); the semantic content of the
- * config drives the `<remote-request>` orchestrator emission, not
- * detail-block content.
+ * Minimal `CaseSearchConfig` that flips presence on. Every slot is
+ * optional and unused at this layer — the dual-detail emitter cares
+ * about presence-vs-absence of the config (the orchestrator's
+ * branch condition); the semantic content of the config drives the
+ * `<remote-request>` orchestrator emission, not detail-block
+ * content.
  */
 function makeSearchConfig(): CaseSearchConfig {
-	return { dontClaimAlreadyOwned: false };
+	return {};
 }
 
 type SparseCaseType = {

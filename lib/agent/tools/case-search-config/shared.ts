@@ -3,9 +3,9 @@
  * tools.
  *
  * The case-search config carries two clusters — claim flow (claim
- * condition / already-owned guard / blacklisted owner ids) and
- * display labels (search-screen titles, button labels, search-button
- * display predicate). Each cluster has its own wholesale-replace tool
+ * condition / blacklisted owner ids) and display labels (search-
+ * screen titles, button labels, search-button display predicate).
+ * Each cluster has its own wholesale-replace tool
  * (`setCaseSearchClaim` / `setCaseSearchDisplay`); this file owns the
  * SA-boundary input shapes and the typed snapshot accessor both tools
  * read before constructing the next config.
@@ -17,8 +17,8 @@
  * family (`addSearchInput` / `updateSearchInput` / `removeSearchInput`
  * / `reorderSearchInputs`).
  *
- * Wholesale-with-`null`-clears semantic — every optional cluster field
- * is required-and-nullable on the SA boundary. The SA always supplies
+ * Wholesale-with-`null`-clears semantic — every cluster field is
+ * required-and-nullable on the SA boundary. The SA always supplies
  * every field of the cluster it's authoring; `null` explicitly clears
  * a slot, a non-null value sets it. Mirrors the case-list-config
  * `setCaseListFilter` pattern — required-and-nullable removes the
@@ -28,11 +28,7 @@
  *
  * Cross-cluster preservation lives in each tool's `execute` body — the
  * tool reads the existing config via `snapshotCaseSearchConfig`, strips
- * its own cluster keys, and rebuilds with the input. The display tool
- * additionally seeds `dontClaimAlreadyOwned: false` when the module
- * has no existing config; the schema requires the field, and the
- * display tool can't ask the SA for it without confusing the per-tool
- * cluster boundary.
+ * its own cluster keys, and rebuilds with the input.
  */
 
 import { z } from "zod";
@@ -44,10 +40,7 @@ import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 /**
  * SA boundary shape for `setCaseSearchClaim`. Required-and-nullable
  * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it. `dontClaimAlreadyOwned` is required because the
- * `caseSearchConfig` schema requires it whenever the config is
- * present; clearing it doesn't make sense (the absence of the config
- * is already the no-claim-flow state).
+ * value sets it.
  *
  * `moduleIndex` omitted from the named export so callers can wrap it
  * (`setCaseSearchClaim` adds the slot back in its tool input schema).
@@ -58,11 +51,6 @@ export const setCaseSearchClaimBodySchema = z
 			.nullable()
 			.describe(
 				"Predicate AST gating the claim, or `null` to clear. When set, the runtime claims a case from search results only when this predicate evaluates true against the selected case. Pass `null` to remove an existing condition (the runtime claims unconditionally on selection).",
-			),
-		dontClaimAlreadyOwned: z
-			.boolean()
-			.describe(
-				"When true, selecting a case the FLW already owns is treated as a no-op rather than re-claiming it. When false, every selection from search results goes through the claim step regardless of current ownership.",
 			),
 		blacklistedOwnerIds: valueExpressionSchema
 			.nullable()
@@ -127,14 +115,9 @@ export const setCaseSearchDisplayBodySchema = z
 /**
  * Pick the existing `caseSearchConfig` off the supplied module entity.
  * Returns `undefined` when the module has none — the tools handle the
- * empty-config bootstrap themselves so they can pick the right
- * cluster-specific defaults (e.g., the display tool seeds
- * `dontClaimAlreadyOwned: false` because the schema requires it
- * whenever the config is present).
+ * empty-config rebuild themselves over the `existing ?? {}` pattern.
  *
- * Mirrors `snapshotCaseListConfig` shape but stays minimal — the
- * empty-config defaults differ between the two clusters, so the helper
- * doesn't try to bake them in.
+ * Mirrors `snapshotCaseListConfig` shape.
  */
 export function snapshotCaseSearchConfig(
 	mod: Module,

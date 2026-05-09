@@ -937,11 +937,6 @@ export const caseSearchConfigSchema = z
 		// true. The author writes this as a normal Predicate AST
 		// against the selected case's properties.
 		claimCondition: predicateSchema.optional(),
-		// Authoring switch: when true, the runtime treats selecting a
-		// case the user already owns as a no-op rather than re-claiming
-		// it. When false, every selection from search results goes
-		// through the claim step regardless of current ownership.
-		dontClaimAlreadyOwned: z.boolean(),
 		// ValueExpression evaluating to a space-separated list of owner
 		// IDs whose cases are excluded from the search-results scope.
 		// Useful when an author wants to hide a known set of owners'

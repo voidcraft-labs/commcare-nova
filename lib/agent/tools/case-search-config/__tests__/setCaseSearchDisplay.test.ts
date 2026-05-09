@@ -8,13 +8,13 @@
  *   2. Structured success carries the `displaySlotsSet` discriminator.
  *   3. `null` clears any display slot (key omitted on the persisted
  *      doc).
- *   4. Claim cluster (claim condition, dontClaimAlreadyOwned,
- *      blacklisted owners) survives the patch byte-identically.
+ *   4. Claim cluster (claim condition, blacklisted owners) survives
+ *      the patch byte-identically.
  *   5. Module-not-found surfaces an Elm-style error.
  *   6. Cross-surface parity — chat + MCP contexts produce
  *      structurally identical mutation batches.
- *   7. Initializes the caseSearchConfig with `dontClaimAlreadyOwned:
- *      false` when the module has none.
+ *   7. Initializes the caseSearchConfig with an empty rebuild when
+ *      the module has none.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -120,7 +120,6 @@ describe("setCaseSearchDisplay", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						searchScreenTitle: "Old title",
 						searchScreenSubtitle: "Old subtitle",
 						emptyListText: "Old empty",
@@ -178,7 +177,6 @@ describe("setCaseSearchDisplay", () => {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
 						claimCondition: seededClaim,
-						dontClaimAlreadyOwned: true,
 						blacklistedOwnerIds: seededOwners,
 					},
 				},
@@ -201,7 +199,6 @@ describe("setCaseSearchDisplay", () => {
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config?.claimCondition).toEqual(seededClaim);
-		expect(config?.dontClaimAlreadyOwned).toBe(true);
 		expect(config?.blacklistedOwnerIds).toEqual(seededOwners);
 		// Display update landed.
 		expect(config?.searchScreenTitle).toBe("Find patients");
@@ -234,11 +231,11 @@ describe("setCaseSearchDisplay", () => {
 		expect(result.result.error).toContain("Found no module");
 	});
 
-	it("initializes the caseSearchConfig with default dontClaimAlreadyOwned when the module has none", async () => {
-		// Bootstrap default — the schema requires `dontClaimAlreadyOwned`
-		// whenever the config is present, so a display-only edit on a
-		// fresh module must seed `false` so the resulting config still
-		// validates against `caseSearchConfigSchema`.
+	it("initializes the caseSearchConfig with an empty rebuild when the module has none", async () => {
+		// Fresh-module bootstrap — a display-only edit on a module
+		// without a caseSearchConfig produces a config carrying only
+		// the supplied display slot. Every cluster key is optional, so
+		// the shape strict-parses cleanly.
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {
@@ -264,8 +261,10 @@ describe("setCaseSearchDisplay", () => {
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config).toBeDefined();
-		expect(config?.dontClaimAlreadyOwned).toBe(false);
 		expect(config?.searchScreenTitle).toBe("Find a patient");
+		// Schema-strict round-trip — every cluster key is optional, so
+		// a config carrying only one display slot still validates.
+		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {

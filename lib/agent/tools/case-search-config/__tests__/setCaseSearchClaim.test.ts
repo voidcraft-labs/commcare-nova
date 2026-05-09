@@ -6,7 +6,7 @@
  *   1. Effect on the doc — the supplied claim cluster lands on the
  *      module's `caseSearchConfig`.
  *   2. Structured success carries the `claimConditionKind`
- *      discriminator + the `dontClaimAlreadyOwned` flag.
+ *      discriminator.
  *   3. `null` clears `claimCondition` / `blacklistedOwnerIds` (keys
  *      omitted on the persisted doc).
  *   4. Display cluster (search-screen labels) survives the patch.
@@ -53,7 +53,6 @@ describe("setCaseSearchClaim", () => {
 			{
 				moduleIndex: 0,
 				claimCondition,
-				dontClaimAlreadyOwned: true,
 				blacklistedOwnerIds: term({
 					kind: "literal",
 					value: "owner-a owner-b",
@@ -66,7 +65,6 @@ describe("setCaseSearchClaim", () => {
 		expect(result.kind).toBe("mutate");
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config?.claimCondition).toEqual(claimCondition);
-		expect(config?.dontClaimAlreadyOwned).toBe(true);
 		expect(config?.blacklistedOwnerIds).toBeDefined();
 		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`
 		// so any unknown key sneaking out of the strip-and-rebuild logic, or
@@ -75,7 +73,7 @@ describe("setCaseSearchClaim", () => {
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
-	it("surfaces the predicate kind + flag in the structured result", async () => {
+	it("surfaces the predicate kind in the structured result", async () => {
 		// Mirrors `setCaseListFilter`'s structured-success contract — the
 		// SA reads the discriminator off the result rather than parsing
 		// it back out of the prose message.
@@ -84,7 +82,6 @@ describe("setCaseSearchClaim", () => {
 			{
 				moduleIndex: 0,
 				claimCondition: matchAll(),
-				dontClaimAlreadyOwned: false,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -94,14 +91,13 @@ describe("setCaseSearchClaim", () => {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
 		expect(result.result.claimConditionKind).toBe("match-all");
-		expect(result.result.dontClaimAlreadyOwned).toBe(false);
 		expect(result.result.message).toContain("match-all");
 	});
 
 	it("clears optional slots when null is passed", async () => {
-		// Seed a config with both optional slots populated, then null-
-		// clear them. The persisted shape must omit the cleared keys
-		// rather than carry `key: undefined` — same convention as
+		// Seed a config with both slots populated, then null-clear them.
+		// The persisted shape must omit the cleared keys rather than
+		// carry `key: undefined` — same convention as
 		// `setCaseListFilter`'s null-clear test.
 		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
 		const seededDoc: BlueprintDoc = {
@@ -111,7 +107,6 @@ describe("setCaseSearchClaim", () => {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
 						claimCondition: matchAll(),
-						dontClaimAlreadyOwned: true,
 						blacklistedOwnerIds: term({
 							kind: "literal",
 							value: "owner-a",
@@ -125,7 +120,6 @@ describe("setCaseSearchClaim", () => {
 			{
 				moduleIndex: 0,
 				claimCondition: null,
-				dontClaimAlreadyOwned: false,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -137,7 +131,6 @@ describe("setCaseSearchClaim", () => {
 		expect(config?.blacklistedOwnerIds).toBeUndefined();
 		expect(config && "claimCondition" in config).toBe(false);
 		expect(config && "blacklistedOwnerIds" in config).toBe(false);
-		expect(config?.dontClaimAlreadyOwned).toBe(false);
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -155,7 +148,6 @@ describe("setCaseSearchClaim", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						searchScreenTitle: "Find a patient",
 						searchScreenSubtitle: "Type to filter",
 						emptyListText: "No matches",
@@ -171,7 +163,6 @@ describe("setCaseSearchClaim", () => {
 			{
 				moduleIndex: 0,
 				claimCondition: eq(prop("patient", "status"), literal("active")),
-				dontClaimAlreadyOwned: true,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -186,7 +177,6 @@ describe("setCaseSearchClaim", () => {
 		expect(config?.searchAgainButtonLabel).toBe("Search again");
 		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
 		// Claim cluster updated.
-		expect(config?.dontClaimAlreadyOwned).toBe(true);
 		expect(config?.claimCondition?.kind).toBe("eq");
 	});
 
@@ -196,7 +186,6 @@ describe("setCaseSearchClaim", () => {
 			{
 				moduleIndex: 99,
 				claimCondition: null,
-				dontClaimAlreadyOwned: false,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -226,7 +215,6 @@ describe("setCaseSearchClaim", () => {
 			{
 				moduleIndex: 0,
 				claimCondition: matchAll(),
-				dontClaimAlreadyOwned: true,
 				blacklistedOwnerIds: null,
 			},
 			ctx,
@@ -235,7 +223,6 @@ describe("setCaseSearchClaim", () => {
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config).toBeDefined();
-		expect(config?.dontClaimAlreadyOwned).toBe(true);
 		expect(config?.claimCondition?.kind).toBe("match-all");
 	});
 
@@ -249,7 +236,6 @@ describe("setCaseSearchClaim", () => {
 		const input = {
 			moduleIndex: 0,
 			claimCondition: eq(prop("patient", "status"), literal("active")),
-			dontClaimAlreadyOwned: true,
 			blacklistedOwnerIds: null,
 		};
 

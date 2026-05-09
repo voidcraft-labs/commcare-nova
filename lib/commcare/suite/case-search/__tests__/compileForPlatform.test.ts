@@ -47,12 +47,10 @@ import type { PlatformContext, WireShape } from "../types";
 /**
  * Sentinel `caseSearchConfig` for branches where the slot is
  * required by the function signature but unused by the decision
- * tree. The `dontClaimAlreadyOwned: false` shape is the minimal
- * valid config (mirrors the `caseSearchConfigSchema` minimal
- * persisted shape — only the required slot set, every optional
- * slot absent).
+ * tree. Every slot is optional, so an empty object is the minimal
+ * valid persisted shape.
  */
-const SEARCH_CONFIG: CaseSearchConfig = { dontClaimAlreadyOwned: false };
+const SEARCH_CONFIG: CaseSearchConfig = {};
 
 /** Empty case list — no columns, no filter, no search inputs. */
 const EMPTY_LIST_CONFIG: CaseListConfig = {

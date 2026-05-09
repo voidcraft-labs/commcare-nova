@@ -13,9 +13,10 @@
 // Slot composition. The panel reads two distinct doc-store slots:
 //
 //   - `mod.caseSearchConfig` — owned by Claim + Display. The slot is
-//     OPTIONAL on the Module schema; the shared `nextConfig` helper
-//     seeds `{ dontClaimAlreadyOwned: false }` on first edit so the
-//     emitted shape always satisfies the schema's required boolean.
+//     OPTIONAL on the Module schema; per-section mutators spread
+//     `...(value ?? {})` before applying their patch so first-edit
+//     produces a strict-parse-valid empty-but-present config and
+//     existing siblings flow through untouched.
 //
 //   - `mod.caseListConfig.searchInputs` — owned by Search Inputs.
 //     Cross-binding with the case-list workspace: the same array is
@@ -130,10 +131,9 @@ export function CaseSearchConfigPanel({
 	//
 	// Each section emits a fully-formed slot value the panel routes
 	// straight to `updateModule(...)`. Claim + Display share the
-	// `caseSearchConfig` slot; the sections themselves call through
-	// the shared `nextConfig` helper to seed the required boolean on
-	// first edit, so the panel's mutator just persists what the
-	// section emits.
+	// `caseSearchConfig` slot; both sections spread `...(value ?? {})`
+	// inside their per-slot mutators, so the panel's mutator just
+	// persists what the section emits.
 
 	const handleSearchConfigChange = useCallback(
 		(next: CaseSearchConfig) => {
@@ -184,9 +184,8 @@ export function CaseSearchConfigPanel({
 			 * Section: Claim.
 			 *
 			 * Owns the claim-flow slots on `caseSearchConfig` —
-			 * `claimCondition` / `dontClaimAlreadyOwned` /
-			 * `blacklistedOwnerIds`. The status line surfaces the
-			 * three slots' presence at-a-glance.
+			 * `claimCondition` / `blacklistedOwnerIds`. The status
+			 * line surfaces the slots' presence at-a-glance.
 			 */}
 			<section>
 				<CaseListSectionHeader
@@ -274,17 +273,13 @@ export function CaseSearchConfigPanel({
 // status changes — no memoization needed.
 
 /**
- * Claim-section status. Counts which of the three claim-flow slots
- * are authored: claim condition / already-owned guard / blacklisted
- * owner IDs. The guard is a plain boolean and counts as "set" only
- * when toggled on — its `false` default doesn't surface as an active
- * configuration.
+ * Claim-section status. Counts which of the two claim-flow slots
+ * are authored: claim condition / blacklisted owner IDs.
  */
 function buildClaimStatus(value: CaseSearchConfig | undefined): string {
 	if (!value) return "Defaults — every selection claims unconditionally.";
 	const parts: string[] = [];
 	if (value.claimCondition !== undefined) parts.push("conditional claim");
-	if (value.dontClaimAlreadyOwned) parts.push("skip already-owned");
 	if (value.blacklistedOwnerIds !== undefined) parts.push("owner blacklist");
 	if (parts.length === 0) {
 		return "Defaults — every selection claims unconditionally.";

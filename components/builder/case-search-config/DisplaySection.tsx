@@ -31,11 +31,11 @@
 // circuit internally — the section just forwards the verdict it
 // receives from the card to its own parent.
 //
-// `caseSearchConfig` itself is OPTIONAL on the Module schema (the
-// shared `nextConfig` helper seeds `{ dontClaimAlreadyOwned: false }`
-// on first edit) so a module that has not authored a case-search
-// configuration receives a fully-formed config the moment any one
-// of these six slots takes its first value.
+// `caseSearchConfig` itself is OPTIONAL on the Module schema. A
+// module without case-search authored receives an empty config the
+// moment any one of these six slots takes its first value; the
+// per-slot mutators spread `...(value ?? {})` before applying the
+// patch so untouched siblings flow through unchanged.
 
 "use client";
 import tablerEye from "@iconify-icons/tabler/eye";
@@ -46,21 +46,18 @@ import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import type { Predicate, SearchInputDecl } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
-import { nextConfig } from "./nextConfig";
 
 // ── Public types ──────────────────────────────────────────────────
 
 export interface DisplaySectionProps {
 	/** Current case-search configuration. `undefined` means the
 	 *  module has no caseSearchConfig authored yet — first edit
-	 *  through this section seeds the slot with
-	 *  `{ dontClaimAlreadyOwned: false }` plus the changed sub-slot. */
+	 *  through this section seeds the slot with the changed sub-slot
+	 *  on top of an otherwise-empty config. */
 	readonly value: CaseSearchConfig | undefined;
 	/** Fired with the next configuration. The parent applies the
 	 *  next config to its source-of-truth (the doc store's module
-	 *  `caseSearchConfig` slot). Each onChange carries a fully-formed
-	 *  `CaseSearchConfig` — the seed pattern lives inside the shared
-	 *  `nextConfig` helper. */
+	 *  `caseSearchConfig` slot). */
 	readonly onChange: (next: CaseSearchConfig) => void;
 	/** Blueprint case-type definitions — drives the property pickers
 	 *  inside the predicate editor mounted on the
@@ -131,13 +128,12 @@ function OptionalTextRow({
 	// The `onEmpty` arm gates on `value !== undefined`. When the slot
 	// started absent, an empty commit (focus-blur without typing,
 	// Esc on an empty input) has nothing to clear — emitting
-	// `onCommit(undefined)` would route through `nextConfig` and
-	// transition `caseSearchConfig` from absent to
-	// `{ dontClaimAlreadyOwned: false }`, persisting the schema
-	// default and writing an undo-history entry the user never
-	// asked for. The hook's contract is "delete on empty"; this
-	// site needs "no-op on never-set" — when the slot started
-	// absent and ends absent, no parent emit fires.
+	// `onCommit(undefined)` would transition `caseSearchConfig` from
+	// absent to `{}`, persisting an empty config and writing an
+	// undo-history entry the user never asked for. The hook's
+	// contract is "delete on empty"; this site needs "no-op on
+	// never-set" — when the slot started absent and ends absent, no
+	// parent emit fires.
 	const { draft, setDraft, ref, handleFocus, handleBlur, handleKeyDown } =
 		useCommitField({
 			value: value ?? "",
@@ -241,28 +237,29 @@ export function DisplaySection({
 	const [predicateValid, setPredicateValid] = useState(true);
 	useValidityPropagator({ isValid: predicateValid, onValidityChange });
 
-	// Per-slot mutators. Each routes through the shared `nextConfig`
-	// seed helper so the emitted shape always carries
-	// `dontClaimAlreadyOwned: false` even when the parent value is
-	// undefined. Setting a slot to `undefined` clears it — strict
-	// parse on the next mount drops the key.
+	// Per-slot mutators. `...(value ?? {})` materializes the empty
+	// config on first edit so a fresh module emits a strict-parse-
+	// valid `CaseSearchConfig` immediately, and spreads existing
+	// siblings forward so a per-slot patch never loses the rest.
+	// Setting a slot to `undefined` clears it — strict parse on the
+	// next mount drops the key.
 	const setSearchScreenTitle = (next: string | undefined) => {
-		onChange(nextConfig(value, { searchScreenTitle: next }));
+		onChange({ ...(value ?? {}), searchScreenTitle: next });
 	};
 	const setSearchScreenSubtitle = (next: string | undefined) => {
-		onChange(nextConfig(value, { searchScreenSubtitle: next }));
+		onChange({ ...(value ?? {}), searchScreenSubtitle: next });
 	};
 	const setEmptyListText = (next: string | undefined) => {
-		onChange(nextConfig(value, { emptyListText: next }));
+		onChange({ ...(value ?? {}), emptyListText: next });
 	};
 	const setSearchButtonLabel = (next: string | undefined) => {
-		onChange(nextConfig(value, { searchButtonLabel: next }));
+		onChange({ ...(value ?? {}), searchButtonLabel: next });
 	};
 	const setSearchAgainButtonLabel = (next: string | undefined) => {
-		onChange(nextConfig(value, { searchAgainButtonLabel: next }));
+		onChange({ ...(value ?? {}), searchAgainButtonLabel: next });
 	};
 	const setSearchButtonDisplayCondition = (next: Predicate | undefined) => {
-		onChange(nextConfig(value, { searchButtonDisplayCondition: next }));
+		onChange({ ...(value ?? {}), searchButtonDisplayCondition: next });
 	};
 
 	return (

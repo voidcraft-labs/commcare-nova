@@ -25,7 +25,6 @@ describe("claimConditionTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						claimCondition: gt(prop("patient", "case_name"), literal("M")),
 					},
 					forms: [
@@ -75,7 +74,6 @@ describe("claimConditionTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						claimCondition: eq(prop("patient", "ghost"), literal("x")),
 					},
 					forms: [
@@ -116,7 +114,6 @@ describe("claimConditionTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
 						// `eq(text-prop, text-literal)` — structurally compatible.
 						claimCondition: eq(prop("patient", "case_name"), literal("Alice")),
 					},
@@ -209,9 +206,7 @@ describe("claimConditionTypeCheck", () => {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
 						searchInputs: [],
 					},
-					caseSearchConfig: {
-						dontClaimAlreadyOwned: true,
-					},
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Reg",
