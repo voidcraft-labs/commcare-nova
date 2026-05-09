@@ -614,6 +614,39 @@ The plan listed `setCaseSearchClaim` + `setCaseSearchDisplay` + `setCaseSearchDe
 
 **Next:** Task 6 — Platform-aware compilation decision tree (running in parallel with this plan-sync).
 
+### Task 6 — Platform-aware compilation decision tree — 2026-05-08
+
+Landed at commit `45b91fe3`. Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) APPROVED with no issues.
+
+**Final shape:**
+
+- `lib/commcare/suite/case-search/compileForPlatform.ts` (NEW, 147 lines) — pure decision-tree function `compileForPlatform(caseListConfig, caseSearchConfig, ctx) → WireShape`. Total over the input domain; four branches dispatch-by-condition: Android invariance (1) → web split-screen (2) → web skip-to-results (3) → web list-first fallback (4). Match-all carve-out: a filter set to `{ kind: "match-all" }` is treated as absent (boolean-algebra identity element).
+
+- `lib/commcare/suite/case-search/types.ts` (NEW, 95 lines) — four supporting types: `Platform` (closed-set union), `PlatformFlags`, `PlatformContext = { platform; flags }` (compositional), `WireShape` (`readonly` boolean fields). The new directory `lib/commcare/suite/case-search/` is created by this task; subsequent tasks (7 dual-detail emission, 8 `<remote-request>` orchestrator, 9 claim emission, 10 search prompts) add sibling files.
+
+- `lib/commcare/suite/case-search/__tests__/compileForPlatform.test.ts` (NEW, 332 lines) — 14 tests across four describe shells: Android invariance (4 tests verifying all content variants produce the same output), web split-screen (2), web no-split-screen sub-shapes (5 incl. match-all carve-out), purity (3: idempotency + immutability of both input configs).
+
+**CCHQ verification gate (honored):** the implementer cited `details.py::DetailContributor._get_auto_launch_expression`, `remote_requests.py::RemoteRequestFactory.build_remote_request_queries`, `entries.py::EntriesHelper.get_query_datums`, `util.py::module_uses_inline_search` by stable name — verified against the actual CCHQ source. Three semantics confirmed:
+1. `auto_launch` lives on `<action auto_launch="...">` inside `m{N}_case_short` (NOT on `<query>` or `<remote-request>`). Wire form is an XPath expression.
+2. `default_search` is an attribute on `<query>` inside `<remote-request>/<session>`.
+3. `inline_search` selects the storage-instance identifier on the search-side `<datum nodeset>` — `instance('results')` standalone vs `instance('results:inline')` inline.
+
+**Structural finding routed to Task 8:** CCHQ's `module_uses_inline_search` requires `auto_launch=true` (boolean AND of three flags). Two of the decision tree's branches (Android + web split-screen) emit `{ autoLaunch: false, inlineSearch: true }` — CCHQ's runtime helper short-circuits the inline post-and-query embedding for those combinations. The decision tree expresses platform intent faithfully; the wire-emission orchestrator (Task 8) decides whether to emit the redundant flag faithfully or omit, given the runtime semantic. Documented in the commit body for Task 8's implementer.
+
+**Test count:** 3913 / 14 skipped (deterministic two runs). +14 from baseline.
+
+**Acceptance gates landed:**
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean.
+- Drift sweeps clean: zero line-number citations in committed code, zero Plan 4 / spec section / SHIPPED references, zero consumer-inventory snapshots.
+- CR-spotted side observation: pre-existing line-number citation in `lib/commcare/expression/csqlEmitter.ts:163`'s throw-message body — NOT introduced by Task 6, but a real "no line numbers in committed code" hard-gate violation. Cleanup tracked separately.
+
+**Deltas from the planned shape:** none. The decision tree implementation matches the plan's branch table exactly; the `types.ts` decomposition into `Platform | PlatformFlags | PlatformContext` (rather than the flat `PlatformContext` the prompt suggested) is a structural improvement that makes the function signature cleaner and matches the case-list package's existing convention.
+
+**Whole-repo build state:** green throughout. Task 6's `WireShape` type is the contract Task 8's `<remote-request>` orchestrator consumes.
+
+**Next:** Tasks 7 (dual-detail emission), 9 (claim emission), 10 (search prompts), 11 (validators), 8 (`<remote-request>` orchestrator — depends on 6 + 9 + 10), 12 (workspace mount), 4 (cross-binding test, after 12), 13 (integration test).
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
