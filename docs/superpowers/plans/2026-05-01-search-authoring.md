@@ -877,6 +877,45 @@ Landed at commit `8ffd57ab`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 
 **Next:** Predicate-editor-subtree reorg (in flight); Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`); Task 8 (`<remote-request>` orchestrator, depends on Task 9); Task 13 (integration test, depends on all).
 
+## Audit followups — Predicate-editor subtree relocation — 2026-05-08
+
+The supervisor's queued task #8 in the supervisor task list (predicate-editor subtree relocation, slated between Plan 4 Task 12 ✓ and Task 13). Cross-family consumer audit triggered by Task 2's CR + Task 4's setup, deferred until after Task 12 mounted the workspace (so the workspace-mount work didn't churn against a moving target).
+
+The subtree was rooted in `components/builder/case-list-config/` by historical accident — case-list-config was the first consumer. Plan 4 made it genuinely cross-family (FiltersSection, SearchInputsSection's advanced arm, ClaimSection via PredicateSlotCard, DisplaySection's `searchButtonDisplayCondition` via PredicateSlotCard, plus PredicateSlotCard itself in `shared/`). The current home was misleading; `shared/` is correct.
+
+Landed across two commits (one a partial-state intermediate, one the completion):
+
+- `f1646913` — `docs(plan): sync Task 4 SHIPPED` (incidentally bundled the 67 `git mv` operations the reorg implementer pre-staged; the supervisor's `git add` swept them in alongside the plan doc). Branch in transient broken state — renames land without import-path updates.
+- `b57cd45a` — `refactor(builder): relocate predicate-editor subtree to shared/` follow-up. Lands the import-path updates across 11 consumer files + the `components/builder/CLAUDE.md` shared-vs-case-list-config split, restoring green build. End state matches the intended atomic relocation.
+
+**Files relocated (67 renames):**
+- Top-level: `PredicateCardEditor.tsx`, `ExpressionCardEditor.tsx`, `editorContext.tsx`, `path.ts`, `editorSchemas.ts`, `expressionEditorSchemas.ts`, `nodeIdentity.ts`, `literalRebuild.ts`, `relationDestination.ts`, `dragData.ts`, `useReorderableList.ts`.
+- Predicate cards (13): all 13 in `cards/`.
+- Expression cards (13): all 13 in `cards/expression/`.
+- Primitives (9): `primitives/{BlurCommitTextInput, CardShell, CustomDatePatternInput, ExpressionPicker, HigherOrderBadge, LiteralValueInput, PropertyPicker, PropertyRefPicker, RelationPathBuilder}.tsx`.
+- Tests (21): top-level + `cards/` + `cards/expression/` test mirrors.
+
+**Files staying in `case-list-config/`:**
+- Workspace shells: `CaseListWorkspace`, `CaseListSectionHeader`, `DisplayPreview`, `DisplaySection`, `FiltersPreview`, `FiltersSection`, `SearchInputsSection`.
+- Column-specific: `ColumnEditor`, `columnEditorSchemas`, `columnCellRenderer`, `cards/column/*`.
+- `uuid.ts` (only consumed by case-list-config-internal files).
+
+**Lessons learned (process, not implementation):**
+
+1. **Parallel agent operations on a shared worktree need explicit sequencing.** The reorg implementer's `git mv` operations pre-staged 67 renames into the index. When the supervisor ran `git add docs/superpowers/plans/2026-05-01-search-authoring.md && git commit` for the unrelated Task 4 plan-sync, the staged renames swept in. Fix going forward: when an implementer is running operations that stage to the index (`git mv`, `git add` of any kind), the supervisor avoids unrelated commits OR uses `git add --` with explicit-paths discipline (which was already the case here, but the renames had been staged outside the supervisor's `git add` invocation by the implementer's parallel session).
+
+2. **The implementer's discipline holds.** They correctly chose NOT to `git reset --soft` to repair the partial state — that would have clobbered the supervisor's plan-doc edit. The remediation was a clean follow-up commit instead. End-state is correct; commit history has one extra step.
+
+**Acceptance gates landed:**
+- `npm run lint`: clean (1041 files).
+- `npx tsc --noEmit`: clean.
+- `npm test`: 4011 passing (matches pre-move count, exactly per spec).
+- `npm run build`: succeeds.
+- Drift sweep `rg "from \"@/components/builder/case-list-config/(PredicateCardEditor|ExpressionCardEditor|cards/[^c]|editorContext|path|editorSchemas|expressionEditorSchemas|primitives|nodeIdentity|literalRebuild|relationDestination|dragData|useReorderableList)\"" components lib`: 0 hits.
+- Drift sweep `rg "from \"@/components/builder/case-list-config" components/builder/shared/`: 0 hits — dependency direction is correct (shared/ does not import from case-list-config/).
+
+**Whole-repo build state:** green at `b57cd45a`. Plan 4 Task 13 (integration test) can now run against the post-reorg layout without churning.
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
