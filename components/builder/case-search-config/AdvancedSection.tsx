@@ -87,9 +87,7 @@ export interface AdvancedSectionProps {
 /**
  * Composes the advanced cluster of the case-search authoring surface.
  * Renders one collapsible sub-control today (`blacklistedOwnerIds`);
- * additional advanced filters land here without a section rename
- * because the abstract "Advanced" framing scopes the section to its
- * role (niche search-side filters), not its current contents.
+ * named for the role, not the contents.
  */
 export function AdvancedSection({
 	value,

@@ -27,10 +27,10 @@ import type { MutatingToolResult } from "../common";
  * with the tool's no-op outcome.
  *
  * `actionPhrase` names the verb-phrase the tool was attempting (e.g.
- * `"add a case list column"`, `"set the case-search claim"`); it lands
- * in the SA-facing message verbatim. The hint at the end nudges the
- * SA toward `getModule`'s projection — the canonical recovery path
- * for an out-of-range or stale `moduleIndex`.
+ * `"add a case list column"`, `"set the case-search advanced cluster"`);
+ * it lands in the SA-facing message verbatim. The hint at the end
+ * nudges the SA toward `getModule`'s projection — the canonical
+ * recovery path for an out-of-range or stale `moduleIndex`.
  */
 export function moduleNotFoundResult<R>(
 	doc: BlueprintDoc,

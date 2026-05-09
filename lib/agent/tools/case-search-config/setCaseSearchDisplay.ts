@@ -103,14 +103,14 @@ export const setCaseSearchDisplayTool = {
 				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
 					doc,
 					moduleIndex,
-					"set the case-search display",
+					"set the case-search display cluster",
 				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
 					doc,
 					moduleIndex,
-					"set the case-search display",
+					"set the case-search display cluster",
 				);
 
 			// Strip the display cluster's keys from the snapshot so the
@@ -121,12 +121,12 @@ export const setCaseSearchDisplayTool = {
 			// produces a valid config.
 			const existing = snapshotCaseSearchConfig(mod);
 			const {
-				searchScreenTitle: _t,
-				searchScreenSubtitle: _s,
-				emptyListText: _e,
-				searchButtonLabel: _sb,
-				searchAgainButtonLabel: _sa,
-				searchButtonDisplayCondition: _sd,
+				searchScreenTitle: _existingSearchScreenTitle,
+				searchScreenSubtitle: _existingSearchScreenSubtitle,
+				emptyListText: _existingEmptyListText,
+				searchButtonLabel: _existingSearchButtonLabel,
+				searchAgainButtonLabel: _existingSearchAgainButtonLabel,
+				searchButtonDisplayCondition: _existingSearchButtonDisplayCondition,
 				...advancedCluster
 			} = existing ?? {};
 			const nextConfig: CaseSearchConfig = {

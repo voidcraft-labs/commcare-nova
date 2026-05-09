@@ -40,9 +40,7 @@ import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 /**
  * SA boundary shape for `setCaseSearchAdvanced`. Required-and-nullable
  * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it. Today the cluster carries one slot; the abstract
- * "advanced" framing means future niche filters land here without a
- * tool rename.
+ * value sets it. Today the cluster carries one slot.
  *
  * `moduleIndex` omitted from the named export so callers can wrap it
  * (`setCaseSearchAdvanced` adds the slot back in its tool input

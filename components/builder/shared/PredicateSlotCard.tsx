@@ -51,11 +51,11 @@ import { useValidityPropagator } from "./useInnerValidityShadow";
 
 export interface PredicateSlotCardProps {
 	/** Header icon — chosen by the consumer to match the surface
-	 *  (e.g., `tabler/filter` for the case-list filter, `tabler/hand-stop`
-	 *  for the search claim condition). */
+	 *  (e.g., `tabler/filter` for the case-list filter, `tabler/eye`
+	 *  for the search-button display condition). */
 	readonly icon: IconifyIcon;
 	/** Header title — short uppercase label (e.g., "Filter",
-	 *  "Claim condition"). */
+	 *  "Display condition"). */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */

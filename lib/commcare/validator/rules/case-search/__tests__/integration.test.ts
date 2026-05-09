@@ -2,14 +2,14 @@
  * Cross-rule integration tests for the case-search-config validator
  * surface. Two pins:
  *
- *   1. A blueprint that violates each of the five remaining type-
- *      check rules + the `filter / simple-input` conflict rule
- *      surfaces every error simultaneously through `runValidation`.
- *   2. A structurally-clean blueprint exercising every covered
- *      slot (search-button display condition, blacklisted owner ids,
- *      simple-input default, advanced-input predicate, advanced-input
- *      default, cross-walk filter reference) stays silent on every
- *      case-search-config rule.
+ *   1. A blueprint that violates each of the four type-check rules
+ *      plus the `filter / simple-input` conflict rule surfaces every
+ *      error simultaneously through `runValidation`.
+ *   2. A structurally-clean blueprint exercising every covered slot
+ *      (search-button display condition, blacklisted owner ids,
+ *      simple-input default, advanced-input predicate, cross-walk
+ *      filter reference) stays silent on every case-search-config
+ *      rule.
  */
 
 import { describe, expect, it } from "vitest";
@@ -33,7 +33,8 @@ import { runValidation } from "../../../runner";
 
 describe("case-search validator — cross-rule integration", () => {
 	it("surfaces every case-search rule's error simultaneously when each violates", () => {
-		// Single blueprint that structurally violates all five rules:
+		// Single blueprint that structurally violates all five codes —
+		// four type-check rules + the filter/simple-input conflict rule:
 		//
 		//   1. searchButtonDisplayCondition: `eq` against unknown property
 		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR

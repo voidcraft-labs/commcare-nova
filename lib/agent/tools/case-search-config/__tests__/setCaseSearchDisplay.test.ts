@@ -222,7 +222,7 @@ describe("setCaseSearchDisplay", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain(
-			"Tried to set the case-search display",
+			"Tried to set the case-search display cluster",
 		);
 		expect(result.result.error).toContain("module index 99");
 		expect(result.result.error).toContain("Found no module");

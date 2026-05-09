@@ -49,7 +49,7 @@ describe("moduleNotFoundResult", () => {
 		const result = moduleNotFoundResult<never>(
 			doc,
 			7,
-			"set the case-search claim",
+			"set the case-search advanced cluster",
 		);
 
 		expect(result.kind).toBe("mutate");
@@ -66,11 +66,11 @@ describe("moduleNotFoundResult", () => {
 		const result = moduleNotFoundResult<never>(
 			makeDoc(),
 			42,
-			"set the case-search display",
+			"set the case-search display cluster",
 		);
 
 		expect(result.result.error).toContain(
-			"Tried to set the case-search display",
+			"Tried to set the case-search display cluster",
 		);
 		expect(result.result.error).toContain("module index 42");
 		expect(result.result.error).toContain("Found no module at that index");

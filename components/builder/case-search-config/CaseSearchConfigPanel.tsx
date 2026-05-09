@@ -89,11 +89,8 @@ export interface CaseSearchConfigPanelProps {
  * existing slot (`columns`, `filter`) when the panel already has a
  * config.
  *
- * The shared `CaseListWorkspace` writes through its own paths today
- * — this helper exists for the case-search panel's cross-binding
- * write so the surfaces don't duplicate the seed logic. If the case-
- * list workspace ever gains a "first-edit search input" path on an
- * empty `caseListConfig`, it can adopt this helper too.
+ * The helper exists for the case-search panel's cross-binding write
+ * so the surfaces don't duplicate the seed logic.
  */
 function nextCaseListConfigFromSearchInputs(
 	current: CaseListConfig | undefined,
@@ -255,10 +252,9 @@ export function CaseSearchConfigPanel({
 			 *
 			 * Owns niche search-side filters. Today the section hosts
 			 * `blacklistedOwnerIds` (a search-results owner exclusion
-			 * list); future advanced filters land here without a
-			 * section rename. Sits at the bottom because most authors
-			 * never reach into this section — keeping it out of the
-			 * way of the more common authoring above.
+			 * list). Sits at the bottom because most authors never
+			 * reach into this section — keeping it out of the way of
+			 * the more common authoring above.
 			 */}
 			<section>
 				<CaseListSectionHeader

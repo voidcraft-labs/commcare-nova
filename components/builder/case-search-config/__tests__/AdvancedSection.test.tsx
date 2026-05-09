@@ -229,11 +229,31 @@ describe("AdvancedSection — populated round-trip", () => {
 // ── Validity propagation ──────────────────────────────────────────
 
 describe("AdvancedSection — validity propagation", () => {
-	it("reports valid: true when the slot is absent", () => {
+	it("reports valid: true when the slot is absent (empty config)", () => {
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(
 			<AdvancedSection
 				value={{}}
+				onChange={() => {}}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+				onValidityChange={onValidityChange}
+			/>,
+		);
+		expect(onValidityChange).toHaveBeenLastCalledWith(true);
+	});
+
+	it("reports valid: true when the config is undefined", () => {
+		// Pins the full short-circuit. `value=undefined` is the shape a
+		// freshly-mounted module without a `caseSearchConfig` produces;
+		// the slot-presence short-circuit must drop the `expressionValid`
+		// stash from the aggregate just as it does on `value={}`. Without
+		// this arm, a regression that read into `value!.blacklistedOwnerIds`
+		// only on the empty-object path would slip past.
+		const onValidityChange = vi.fn<(valid: boolean) => void>();
+		render(
+			<AdvancedSection
+				value={undefined}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"

@@ -3,13 +3,13 @@
  * module's case-search config in one call.
  *
  * The case-search config carries two independent clusters; this tool
- * owns the advanced cluster — niche search-side filters that most
- * authors never reach for. Today the cluster holds a single slot
- * (`blacklistedOwnerIds`); future advanced filters land here without
- * a tool rename. Display labels stay untouched and round-trip byte-
- * identically through the patch — the tool reads the existing config,
- * strips the advanced keys, and rebuilds with the input. The display
- * tool (`setCaseSearchDisplay`) is the parallel for the other cluster.
+ * owns the advanced cluster — niche search-side filters most authors
+ * never reach for. Today the cluster holds a single slot
+ * (`blacklistedOwnerIds`). Display labels stay untouched and round-
+ * trip byte-identically through the patch — the tool reads the
+ * existing config, strips the advanced keys, and rebuilds with the
+ * input. The display tool (`setCaseSearchDisplay`) is the parallel
+ * for the other cluster.
  *
  * Wholesale-with-`null`-clears semantic — every cluster slot is
  * required-and-nullable on the SA boundary; `null` clears, non-null
@@ -80,14 +80,14 @@ export const setCaseSearchAdvancedTool = {
 				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
 					doc,
 					moduleIndex,
-					"set the case-search advanced",
+					"set the case-search advanced cluster",
 				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
 					doc,
 					moduleIndex,
-					"set the case-search advanced",
+					"set the case-search advanced cluster",
 				);
 
 			// Strip the advanced cluster's keys from the snapshot so the
