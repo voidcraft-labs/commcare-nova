@@ -221,13 +221,12 @@ Each tool's `execute` returns `MutatingToolResult<R>` per the shared contract; s
 **Files:** `lib/commcare/suite/case-search/compileForPlatform.ts`, tests.
 
 ```ts
-type PlatformContext = { platform: "android" | "web"; flags: { splitScreenAvailable: boolean } };
+type PlatformContext = { platform: "android" | "web" };
 
 interface WireShape {
   autoLaunch: boolean;
   defaultSearch: boolean;
   inlineSearch: boolean;
-  splitScreen: boolean;
 }
 
 export function compileForPlatform(
@@ -239,10 +238,9 @@ export function compileForPlatform(
 
 Decision tree (no author override; pure inference from content + platform):
 
-1. **Android** → `{ autoLaunch: false, defaultSearch: false, inlineSearch: true, splitScreen: false }`. Android always shows the case list first regardless of any wire flag (per the spec's web-apps-shaped authoring principle).
-2. **Web + split-screen available** → `{ autoLaunch: false, defaultSearch: false, inlineSearch: true, splitScreen: true }`. Modern UX: filters in sidebar, results in main panel, inline.
-3. **Web, split-screen unavailable, `caseListConfig.filter` configured AND zero search inputs** → `{ autoLaunch: true, defaultSearch: true, inlineSearch: false, splitScreen: false }`. Skip-to-results — author intent is clear (filter narrows the list, nothing for the user to type, show filtered results immediately).
-4. **Web fallback** → `{ autoLaunch: false, defaultSearch: false, inlineSearch: false, splitScreen: false }`. List-first. Forcing a user to fill a search form before they see whether they have any local cases is worse UX than letting them see the list first.
+1. **Android** → `{ autoLaunch: false, defaultSearch: false, inlineSearch: true }`. Android always shows the case list first regardless of any wire flag (per the spec's web-apps-shaped authoring principle).
+2. **Web, `caseListConfig.filter` configured AND zero search inputs** → `{ autoLaunch: true, defaultSearch: true, inlineSearch: false }`. Skip-to-results — author intent is clear (filter narrows the list, nothing for the user to type, show filtered results immediately).
+3. **Web fallback** → `{ autoLaunch: false, defaultSearch: false, inlineSearch: false }`. List-first. Forcing a user to fill a search form before they see whether they have any local cases is worse UX than letting them see the list first.
 
 The "filter configured" check is `caseListConfig.filter !== undefined && caseListConfig.filter.kind !== "match-all"`. The "zero search inputs" check is `caseListConfig.searchInputs.length === 0`.
 
@@ -662,6 +660,28 @@ Landed at commit `45b91fe3`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 **Whole-repo build state:** green throughout. Task 6's `WireShape` type is the contract Task 8's `<remote-request>` orchestrator consumes.
 
 **Next:** Tasks 7 (dual-detail emission), 9 (claim emission), 10 (search prompts), 11 (validators), 8 (`<remote-request>` orchestrator — depends on 6 + 9 + 10), 12 (workspace mount), 4 (cross-binding test, after 12), 13 (integration test).
+
+### Task 6 addendum — `splitScreen` dropped from `WireShape` — 2026-05-09
+
+**Drop:** `splitScreen: boolean` field on `WireShape` and the supporting `splitScreenAvailable: boolean` flag on `PlatformFlags`. With `splitScreenAvailable` removed, the `PlatformFlags` interface itself is empty and goes too — `PlatformContext` reduces to `{ platform: Platform }`.
+
+**Why the original premise was wrong:** Task 6's JSDoc claimed `splitScreen` lands on the `<query>` element as a wire attribute on deploys with `SPLIT_SCREEN_CASE_SEARCH` enabled. That claim is unsupported by CCHQ's source — `rg "split_screen|SPLIT_SCREEN" commcare-hq/corehq/apps/app_manager/suite_xml/` returns zero matches. CCHQ's Python suite emission is unconditional with respect to the toggle. The runtime gate lives entirely in formplayer's Java layer at `formplayer/src/main/java/org/commcare/formplayer/beans/menus/EntityListResponse.java::EntityListResponse`, which checks `TOGGLE_SPLIT_SCREEN_CASE_SEARCH` and conditionally populates `queryResponse` for the front-end JS to render the split-screen UX. The toggle's effect is 100% runtime / front-end; there is no wire-format surface for Nova to gate on.
+
+**Branch-2 disposition:** the original Task 6 had four branches; branch 2 ("Web + split-screen available") returned `{ inlineSearch: true, splitScreen: true }`. With `splitScreenAvailable` gone, branch 2 had no triggering condition, so it folds into branch 4 (web fallback). Post-drop the decision tree is three branches:
+
+1. Android → `{ autoLaunch: false, defaultSearch: false, inlineSearch: true }`.
+2. Web + filter-effective + zero inputs → `{ autoLaunch: true, defaultSearch: true, inlineSearch: false }` (skip-to-results).
+3. Web fallback → `{ autoLaunch: false, defaultSearch: false, inlineSearch: false }` (list-first).
+
+Web no longer emits `inlineSearch: true` from any branch — only Android does. The supersedes clause from Task 6's "Structural finding routed to Task 8" tightens accordingly: only the Android branch produces the `{ autoLaunch: false, inlineSearch: true }` combination that CCHQ's `module_uses_inline_search` short-circuits; Task 8's web emission has no parallel case to reckon with.
+
+**Files updated:**
+- `lib/commcare/suite/case-search/types.ts` — drop `PlatformFlags` interface and `flags` field on `PlatformContext`; drop `splitScreen` field on `WireShape`. JSDoc rewritten for the three-flag shape.
+- `lib/commcare/suite/case-search/compileForPlatform.ts` — fold branch 2 into branch 4; rewrite JSDoc to enumerate three flags / three branches.
+- `lib/commcare/suite/case-search/__tests__/compileForPlatform.test.ts` — collapse the four-branch test organization to three (drop the "web + split-screen available" describe shell entirely; drop the "split-screen flag dominates" Android case as the flag no longer exists). Test count: 11 (was 14).
+- `docs/superpowers/plans/2026-05-01-search-authoring.md` — Task 6 plan body's `PlatformContext` / `WireShape` definition + branch table updated to three-flag / three-branch shape.
+
+**Whole-repo build state:** green throughout. Lint, `tsc --noEmit`, and `npm test` all clean post-change.
 
 ### Task 7 — Dual-detail emission — 2026-05-08
 

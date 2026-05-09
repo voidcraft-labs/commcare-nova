@@ -10,13 +10,13 @@
 //
 // The principle Nova locks here: the author configures one
 // coherent surface (filter + columns + search inputs); the
-// compiler picks the closest CCHQ-supported emission per platform
-// + deploy capability. There is no per-platform UI affordance, no
-// mode picker, no author override. The four `WireShape` flags
-// fall out of inference over the `(content, platform, flags)`
-// triple — same triple, same flags.
+// compiler picks the closest CCHQ-supported emission per platform.
+// There is no per-platform UI affordance, no mode picker, no
+// author override. The three `WireShape` flags fall out of
+// inference over the `(content, platform)` pair — same pair, same
+// flags.
 //
-// CCHQ's wire-side semantics the four branches map to:
+// CCHQ's wire-side semantics the three flags map to:
 //
 //   - `autoLaunch` lands on the `<action auto_launch>` attribute
 //     inside the case-list short detail (per
@@ -32,8 +32,6 @@
 //     `instance('results')` (standalone) vs `instance('results:inline')`
 //     (inline). Wire consumers also emit the `<query inline_search>`
 //     attribute from this same flag.
-//   - `splitScreen` is a runtime UX hint the `<query>` carries on
-//     deploys with `SPLIT_SCREEN_CASE_SEARCH` enabled.
 
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
 import type { PlatformContext, WireShape } from "./types";
@@ -50,20 +48,14 @@ import type { PlatformContext, WireShape } from "./types";
  *      shows the case list first regardless of any wire flag, so
  *      the compiler emits `inlineSearch: true` (the inline post-
  *      and-query embedding is the Android-compatible shape) and
- *      every other flag false. The platform's `splitScreenAvailable`
- *      flag is irrelevant — split-screen is a web-apps-only UX.
- *   2. **Web + split-screen available** — modern split-screen UX.
- *      Filters render in the sidebar and results in the main
- *      panel; the wire layer expresses this through
- *      `splitScreen: true` and the inline storage-instance
- *      reference.
- *   3. **Web, split-screen unavailable, filter set, zero search
- *      inputs** — skip-to-results. Author intent is
- *      unambiguous: the filter narrows the case list, and there
- *      is nothing for the user to type. The runtime executes the
- *      search immediately on screen entry, surfacing the
- *      filtered results without an intermediate input form.
- *   4. **Web fallback** — list-first. The default web shape
+ *      every other flag false.
+ *   2. **Web, filter set, zero search inputs** — skip-to-results.
+ *      Author intent is unambiguous: the filter narrows the case
+ *      list, and there is nothing for the user to type. The
+ *      runtime executes the search immediately on screen entry,
+ *      surfacing the filtered results without an intermediate
+ *      input form.
+ *   3. **Web fallback** — list-first. The default web shape
  *      whenever skip-to-results doesn't apply. Forcing a user to
  *      fill a search form before they see whether they have any
  *      local cases at all is a worse UX than letting them see
@@ -71,7 +63,7 @@ import type { PlatformContext, WireShape } from "./types";
  *      search button.
  *
  * `caseSearchConfig` is part of the uniform call shape but does
- * not feed the four flags — every flag derives from
+ * not feed the three flags — every flag derives from
  * `caseListConfig.filter` / `caseListConfig.searchInputs` and the
  * platform context.
  */
@@ -90,25 +82,11 @@ export function compileForPlatform(
 			autoLaunch: false,
 			defaultSearch: false,
 			inlineSearch: true,
-			splitScreen: false,
 		};
 	}
 
-	// Branch 2 — Web with split-screen available. The modern
-	// modular UX: filters in the sidebar, results in the main
-	// panel, both rendering inline against the same screen.
-	if (ctx.flags.splitScreenAvailable) {
-		return {
-			autoLaunch: false,
-			defaultSearch: false,
-			inlineSearch: true,
-			splitScreen: true,
-		};
-	}
-
-	// Branch 3 — Web, split-screen unavailable. Pick between skip-
-	// to-results and the list-first fallback by examining the
-	// authored content.
+	// Branch 2 — Web, skip-to-results. Pick between skip-to-results
+	// and the list-first fallback by examining the authored content.
 	//
 	// Skip-to-results triggers when the author has configured an
 	// effective filter AND zero search inputs — the filter narrows
@@ -131,17 +109,15 @@ export function compileForPlatform(
 			autoLaunch: true,
 			defaultSearch: true,
 			inlineSearch: false,
-			splitScreen: false,
 		};
 	}
 
-	// Branch 4 — Web fallback. List-first. The wire layer surfaces
+	// Branch 3 — Web fallback. List-first. The wire layer surfaces
 	// no auto-launch / default-search behavior; the user sees the
 	// case list and reaches search via the explicit search action.
 	return {
 		autoLaunch: false,
 		defaultSearch: false,
 		inlineSearch: false,
-		splitScreen: false,
 	};
 }

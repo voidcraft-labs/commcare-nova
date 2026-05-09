@@ -4,30 +4,24 @@
 // tree that produces a `WireShape` flag set from authored content
 // + platform context.
 //
-// Tests organize around the four branches of the decision tree
+// Tests organize around the three branches of the decision tree
 // plus a structural-purity shell:
 //
 //   1. **Android** — always list-first regardless of authored
 //      content. Three test cases pin invariance over filter set /
-//      filter absent / non-zero search inputs and over the
-//      `splitScreenAvailable` flag.
-//   2. **Web + split-screen available** — modern split-screen UX.
-//      Two test cases pin invariance over zero / non-zero search
-//      inputs.
-//   3. **Web + split-screen unavailable** — the four sub-shapes:
+//      filter absent / non-zero search inputs.
+//   2. **Web — skip-to-results vs list-first** — the four sub-shapes:
 //      filter set + zero inputs (skip-to-results), filter set +
 //      inputs present (list-first), no filter + zero inputs
 //      (list-first), match-all filter + zero inputs (list-first;
 //      match-all is structurally a no-op and must not trip skip-
 //      to-results).
-//   4. **Purity** — same input always produces same output (no
+//   3. **Purity** — same input always produces same output (no
 //      module-level state, no side effects); the function never
 //      mutates either config.
 //
-// Branch coverage is 1:1 against the decision tree's four
-// branches. `splitScreenAvailable` dominates over content on the
-// web-with-split-screen branch (no skip-to-results regardless of
-// authored inputs) — this is structural and tested explicitly.
+// Branch coverage is 1:1 against the decision tree's three
+// branches.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -59,8 +53,7 @@ const EMPTY_LIST_CONFIG: CaseListConfig = {
 };
 
 /** Case list with an effective (non-`match-all`) filter and zero
- *  search inputs. Triggers skip-to-results on the web + no-split-
- *  screen branch. */
+ *  search inputs. Triggers skip-to-results on the web branch. */
 const FILTER_ONLY_CONFIG: CaseListConfig = {
 	columns: [],
 	filter: eq(prop("patient", "is_active"), literal(true)),
@@ -108,51 +101,28 @@ const FILTER_AND_INPUTS_CONFIG: CaseListConfig = {
 	],
 };
 
-const ANDROID_NO_SPLIT: PlatformContext = {
-	platform: "android",
-	flags: { splitScreenAvailable: false },
-};
-const ANDROID_WITH_SPLIT: PlatformContext = {
-	platform: "android",
-	flags: { splitScreenAvailable: true },
-};
-const WEB_WITH_SPLIT: PlatformContext = {
-	platform: "web",
-	flags: { splitScreenAvailable: true },
-};
-const WEB_NO_SPLIT: PlatformContext = {
-	platform: "web",
-	flags: { splitScreenAvailable: false },
-};
+const ANDROID: PlatformContext = { platform: "android" };
+const WEB: PlatformContext = { platform: "web" };
 
 /**
  * Pin every flag of a `WireShape` literal — `expect(...).toEqual(shape)`
  * gives the same coverage but reading a wire-shape constant per
- * branch makes the four flag sets self-documenting.
+ * branch makes the three flag sets self-documenting.
  */
 const ANDROID_SHAPE: WireShape = {
 	autoLaunch: false,
 	defaultSearch: false,
 	inlineSearch: true,
-	splitScreen: false,
-};
-const WEB_SPLIT_SCREEN_SHAPE: WireShape = {
-	autoLaunch: false,
-	defaultSearch: false,
-	inlineSearch: true,
-	splitScreen: true,
 };
 const SKIP_TO_RESULTS_SHAPE: WireShape = {
 	autoLaunch: true,
 	defaultSearch: true,
 	inlineSearch: false,
-	splitScreen: false,
 };
 const LIST_FIRST_SHAPE: WireShape = {
 	autoLaunch: false,
 	defaultSearch: false,
 	inlineSearch: false,
-	splitScreen: false,
 };
 
 // ============================================================
@@ -161,14 +131,13 @@ const LIST_FIRST_SHAPE: WireShape = {
 
 describe("compileForPlatform — Android always list-first", () => {
 	it("emits inline shape for Android with no filter and no inputs", () => {
-		// Baseline Android case: empty case list, split-screen
-		// unavailable. The runtime shows the case list first
-		// regardless of any wire flag, so the compiler emits
-		// `inlineSearch: true` (the inline storage-instance reference
-		// is the Android-compatible wire shape) and every other flag
-		// false.
+		// Baseline Android case: empty case list. The runtime shows the
+		// case list first regardless of any wire flag, so the compiler
+		// emits `inlineSearch: true` (the inline storage-instance
+		// reference is the Android-compatible wire shape) and every
+		// other flag false.
 		expect(
-			compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, ANDROID_NO_SPLIT),
+			compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, ANDROID),
 		).toEqual(ANDROID_SHAPE);
 	});
 
@@ -177,7 +146,7 @@ describe("compileForPlatform — Android always list-first", () => {
 		// Android it never does. The decision tree's first branch
 		// dominates regardless of authored content.
 		expect(
-			compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, ANDROID_NO_SPLIT),
+			compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, ANDROID),
 		).toEqual(ANDROID_SHAPE);
 	});
 
@@ -186,59 +155,24 @@ describe("compileForPlatform — Android always list-first", () => {
 		// list-first inline shape — the runtime player ignores
 		// auto-launch / default-search semantics regardless.
 		expect(
-			compileForPlatform(INPUTS_ONLY_CONFIG, SEARCH_CONFIG, ANDROID_NO_SPLIT),
-		).toEqual(ANDROID_SHAPE);
-	});
-
-	it("emits inline shape for Android even when split-screen flag is true", () => {
-		// `splitScreenAvailable: true` is meaningless on Android —
-		// the split-screen UX is web-apps-only. The Android branch
-		// fires first; the flag does not influence the output.
-		expect(
-			compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, ANDROID_WITH_SPLIT),
+			compileForPlatform(INPUTS_ONLY_CONFIG, SEARCH_CONFIG, ANDROID),
 		).toEqual(ANDROID_SHAPE);
 	});
 });
 
 // ============================================================
-// SHELL 2 — Web + split-screen available
+// SHELL 2 — Web skip-to-results vs list-first
 // ============================================================
 
-describe("compileForPlatform — web + split-screen available", () => {
-	it("emits split-screen shape with search inputs configured", () => {
-		// Modern split-screen UX. Filters render in the sidebar and
-		// results in the main panel; the wire layer expresses this
-		// through `splitScreen: true` and the inline storage-instance
-		// reference.
-		expect(
-			compileForPlatform(INPUTS_ONLY_CONFIG, SEARCH_CONFIG, WEB_WITH_SPLIT),
-		).toEqual(WEB_SPLIT_SCREEN_SHAPE);
-	});
-
-	it("emits split-screen shape with no search inputs (flag dominates content)", () => {
-		// Pin that `splitScreenAvailable: true` dominates over the
-		// authored content. Even with the empty-list shape that would
-		// otherwise be a list-first fallback on web, the split-screen
-		// branch fires.
-		expect(
-			compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, WEB_WITH_SPLIT),
-		).toEqual(WEB_SPLIT_SCREEN_SHAPE);
-	});
-});
-
-// ============================================================
-// SHELL 3 — Web, split-screen unavailable
-// ============================================================
-
-describe("compileForPlatform — web + split-screen unavailable", () => {
+describe("compileForPlatform — web skip-to-results vs list-first", () => {
 	it("emits skip-to-results when filter is set and zero inputs", () => {
 		// Author intent is unambiguous: the filter narrows the case
 		// list and there is nothing for the user to type. The runtime
 		// executes the search on screen entry; the user sees the
 		// filtered results immediately.
-		expect(
-			compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT),
-		).toEqual(SKIP_TO_RESULTS_SHAPE);
+		expect(compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, WEB)).toEqual(
+			SKIP_TO_RESULTS_SHAPE,
+		);
 	});
 
 	it("emits list-first when filter is match-all and zero inputs (match-all is no-op)", () => {
@@ -249,7 +183,7 @@ describe("compileForPlatform — web + split-screen unavailable", () => {
 		// predicate — the resulting wire would silently widen to "all
 		// cases" but skip the case-list-first UX.
 		expect(
-			compileForPlatform(MATCH_ALL_FILTER_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT),
+			compileForPlatform(MATCH_ALL_FILTER_CONFIG, SEARCH_CONFIG, WEB),
 		).toEqual(LIST_FIRST_SHAPE);
 	});
 
@@ -257,9 +191,9 @@ describe("compileForPlatform — web + split-screen unavailable", () => {
 		// Empty case list. No authored filter means the runtime
 		// defaults to list-first; reach search via the explicit
 		// search action.
-		expect(
-			compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT),
-		).toEqual(LIST_FIRST_SHAPE);
+		expect(compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, WEB)).toEqual(
+			LIST_FIRST_SHAPE,
+		);
 	});
 
 	it("emits list-first when filter is set and inputs present", () => {
@@ -268,7 +202,7 @@ describe("compileForPlatform — web + split-screen unavailable", () => {
 		// first — the author can hit search to fill inputs and execute
 		// against the filtered scope.
 		expect(
-			compileForPlatform(FILTER_AND_INPUTS_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT),
+			compileForPlatform(FILTER_AND_INPUTS_CONFIG, SEARCH_CONFIG, WEB),
 		).toEqual(LIST_FIRST_SHAPE);
 	});
 
@@ -277,14 +211,14 @@ describe("compileForPlatform — web + split-screen unavailable", () => {
 		// search form before they see whether they have any local
 		// cases at all is a worse UX than letting them see the list
 		// first; the search button reaches the input flow on demand.
-		expect(
-			compileForPlatform(INPUTS_ONLY_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT),
-		).toEqual(LIST_FIRST_SHAPE);
+		expect(compileForPlatform(INPUTS_ONLY_CONFIG, SEARCH_CONFIG, WEB)).toEqual(
+			LIST_FIRST_SHAPE,
+		);
 	});
 });
 
 // ============================================================
-// SHELL 4 — Structural purity
+// SHELL 3 — Structural purity
 // ============================================================
 
 describe("compileForPlatform — structural purity", () => {
@@ -292,16 +226,8 @@ describe("compileForPlatform — structural purity", () => {
 		// Pure function — no module-level state, no Date / Math.random,
 		// no side effects. Repeated invocation against the same triple
 		// yields identical outputs structurally.
-		const first = compileForPlatform(
-			FILTER_ONLY_CONFIG,
-			SEARCH_CONFIG,
-			WEB_NO_SPLIT,
-		);
-		const second = compileForPlatform(
-			FILTER_ONLY_CONFIG,
-			SEARCH_CONFIG,
-			WEB_NO_SPLIT,
-		);
+		const first = compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, WEB);
+		const second = compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, WEB);
 		expect(first).toEqual(second);
 		expect(first).toEqual(SKIP_TO_RESULTS_SHAPE);
 	});
@@ -313,7 +239,7 @@ describe("compileForPlatform — structural purity", () => {
 		// before and after the call pins that the function does not
 		// mutate the slot the caller passed in.
 		const before = JSON.stringify(FILTER_ONLY_CONFIG);
-		compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT);
+		compileForPlatform(FILTER_ONLY_CONFIG, SEARCH_CONFIG, WEB);
 		expect(JSON.stringify(FILTER_ONLY_CONFIG)).toBe(before);
 	});
 
@@ -322,9 +248,8 @@ describe("compileForPlatform — structural purity", () => {
 		// function signature accepts it. Snapshot pin that the slot
 		// is never touched regardless of branch.
 		const before = JSON.stringify(SEARCH_CONFIG);
-		compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, ANDROID_NO_SPLIT);
-		compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, WEB_WITH_SPLIT);
-		compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, WEB_NO_SPLIT);
+		compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, ANDROID);
+		compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, WEB);
 		expect(JSON.stringify(SEARCH_CONFIG)).toBe(before);
 	});
 });

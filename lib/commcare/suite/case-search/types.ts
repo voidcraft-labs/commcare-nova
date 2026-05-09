@@ -4,7 +4,7 @@
 // `compileForPlatform.ts` produces a `WireShape` from an authored
 // `(caseListConfig, caseSearchConfig, platformContext)` triple; the
 // `<remote-request>` orchestrator and downstream sub-emitters
-// consume that shape to position the four wire flags in their
+// consume that shape to position the three wire flags in their
 // CCHQ-prescribed slots. Keeping `WireShape` and `PlatformContext`
 // here lets each consumer import only the shape it needs without
 // circling back through `compileForPlatform.ts`.
@@ -12,7 +12,7 @@
 // `WireShape` is Nova's internal compilation result — it is not
 // exposed on the authoring surface. The author configures the
 // content (filter, columns, search inputs); the platform context
-// is supplied at the export boundary; the four flags fall out of
+// is supplied at the export boundary; the three flags fall out of
 // pure inference. Authors never see this type, never set its
 // fields, and the schema layer carries no parallel surface.
 
@@ -26,35 +26,18 @@
 export type Platform = "android" | "web";
 
 /**
- * Per-deploy capability flags the export adapter consults. These
- * model the CommCare HQ project's enabled feature toggles —
- * features the runtime supports vary by deploy, and the wire
- * shape must adapt accordingly.
- *
- *   - `splitScreenAvailable` — whether the target deploy has CCHQ's
- *     `SPLIT_SCREEN_CASE_SEARCH` toggle enabled. Drives the
- *     filters-in-sidebar / results-in-main-panel UX on web. When
- *     unavailable, the compiler falls back to list-first or
- *     skip-to-results emission depending on authored content.
- */
-export interface PlatformFlags {
-	readonly splitScreenAvailable: boolean;
-}
-
-/**
  * Per-export platform context. Supplied at the export boundary by
- * the call site that knows which runtime player + deploy
- * configuration the wire output is being shaped for. The compiler
- * is total against this context — every `(platform, flags)` pair
- * picks exactly one branch of the decision tree, never throws.
+ * the call site that knows which runtime player the wire output is
+ * being shaped for. The compiler is total against this context —
+ * every platform value picks exactly one branch of the decision
+ * tree, never throws.
  */
 export interface PlatformContext {
 	readonly platform: Platform;
-	readonly flags: PlatformFlags;
 }
 
 /**
- * The four wire flags the `<remote-request>` orchestrator + case-
+ * The three wire flags the `<remote-request>` orchestrator + case-
  * list short-detail emitter consume. Each flag positions in a
  * specific CCHQ wire slot; the compiler produces a flag set, the
  * sub-emitters position them.
@@ -79,9 +62,6 @@ export interface PlatformContext {
  *     branches on `module_uses_inline_search(module)` to pick the
  *     instance name; the same flag also surfaces on the `<query
  *     inline_search>` attribute.
- *   - `splitScreen` — runtime UX hint: filters in sidebar, results
- *     in main panel. Positions on the `<query>` block per CCHQ's
- *     `SPLIT_SCREEN_CASE_SEARCH` machinery.
  *
  * The flag set is the only choice point. There is no parallel
  * "workflow mode" enum, no author override; every flag derives
@@ -91,5 +71,4 @@ export interface WireShape {
 	readonly autoLaunch: boolean;
 	readonly defaultSearch: boolean;
 	readonly inlineSearch: boolean;
-	readonly splitScreen: boolean;
 }

@@ -119,26 +119,28 @@ Tests: each `type` renders the right widget; debounced onChange fires per typed 
 
 **Files:** `components/preview/screens/CaseListScreen.tsx` (EDIT), tests.
 
-When the module's `caseListConfig.searchInputs.length > 0` AND the module has no `caseSearchConfig` (or has one whose platform compilation does not escalate to split-screen per Plan 4 Task 6's decision tree), render `<SearchInputForm />` at the top of the list. The form's onChange updates the screen's state; the screen re-runs the case-list query with the new runtime-bound predicate (debounced).
+When the module's `caseListConfig.searchInputs.length > 0` AND the module has no `caseSearchConfig`, render `<SearchInputForm />` at the top of the list. The form's onChange updates the screen's state; the screen re-runs the case-list query with the new runtime-bound predicate (debounced).
 
-When the module has `caseSearchConfig` AND the platform compilation says split-screen, the screen escalates to `<SplitScreenSearchScreen />` (Task 5) instead of the inline filter bar.
+When the module has `caseSearchConfig` AND `caseListConfig.searchInputs.length > 0`, the screen escalates to `<SplitScreenSearchScreen />` (Task 5) instead of the inline filter bar — the search-config presence + inputs-present pair is the preview-layer's split-screen gate. (The flipbook is a web-shaped preview surface; split-screen is the canonical web search UX.)
 
 Existing v2 rendering stays: module-name heading, visibility-filtered columns, calc cell rendering via `evaluateColumnValue`, sort directives via `buildCaseStoreSortKeys`.
 
-Tests: inline filter bar renders when `searchInputs.length > 0` and no split-screen; typing filters live; clearing inputs reverts to filter-only results.
+Tests: inline filter bar renders when `searchInputs.length > 0` and no `caseSearchConfig`; typing filters live; clearing inputs reverts to filter-only results.
 
 ### Task 5: Split-screen search screen
 
 **Files:** `components/preview/screens/SplitScreenSearchScreen.tsx` (NEW), tests.
 
-When the module has `caseSearchConfig` AND `caseListConfig.searchInputs.length > 0`, AND Plan 4 Task 6's decision tree returns `splitScreen: true`, render the split-screen layout: filters in a left sidebar, results in the main panel. The sidebar mounts:
+When the module has `caseSearchConfig` AND `caseListConfig.searchInputs.length > 0`, render the split-screen layout: filters in a left sidebar, results in the main panel. The sidebar mounts:
 - `<SearchInputForm />` (Task 3) for the inputs.
 
 The main panel renders the case-list rows (the same rendering CaseListScreen produces) against the runtime-bound predicate (the unified `caseListConfig.filter` AND the per-input contributions; the case-list filter is the same one the local case-list applies — there is no separate "default search filter" surfaced here).
 
 `@base-ui/react` provides the split-screen layout primitive (verify the canonical Base UI component during implementation; may use `@base-ui/react/dialog`'s split layout pattern or a plain CSS grid).
 
-Tests: typing filters results; clearing inputs reverts to filter-only results (the unified `caseListConfig.filter` still applies); split-screen renders only when Plan 4 Task 6's decision tree says so.
+The preview-layer gate is independent of `compileForPlatform`'s wire-emission output — `compileForPlatform` decides the suite-XML wire shape per platform (used at HQ-export time); the preview's split-screen is a Nova-side UX choice for the flipbook (always web-shaped). Formplayer's `SPLIT_SCREEN_CASE_SEARCH` toggle has no effect on Nova's wire output (verified: zero `split_screen` references in CCHQ's `suite_xml/` emission code; the toggle's effect is entirely in formplayer's runtime Java + JS layers), so there is nothing for the preview to mirror from the wire side.
+
+Tests: typing filters results; clearing inputs reverts to filter-only results (the unified `caseListConfig.filter` still applies); split-screen renders when `caseSearchConfig` is present AND `searchInputs.length > 0`.
 
 ### Task 6: Form running-app write-through wiring
 
