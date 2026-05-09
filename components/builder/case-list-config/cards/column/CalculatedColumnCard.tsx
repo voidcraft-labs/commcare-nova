@@ -20,12 +20,12 @@
 // kind-replace menu) is identical to every other kind's card.
 
 "use client";
+import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type { Column } from "@/lib/domain";
 import { calculatedColumn } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
-import { ExpressionCardEditor } from "../../ExpressionCardEditor";
-import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
 
 interface CalculatedColumnCardProps {
 	readonly value: Extract<Column, { kind: "calculated" }>;

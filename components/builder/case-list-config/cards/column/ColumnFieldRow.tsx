@@ -29,10 +29,10 @@
 // this.
 
 "use client";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import { InlineError } from "@/components/builder/shared/primitives/CardShell";
+import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
 import type { CaseProperty } from "@/lib/domain";
-import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
-import { InlineError } from "../../primitives/CardShell";
-import { PropertyPicker } from "../../primitives/PropertyPicker";
 
 interface ColumnFieldRowProps {
 	/** The column's selected case-property name. Empty string when

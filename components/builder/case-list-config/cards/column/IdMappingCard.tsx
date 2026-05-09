@@ -27,6 +27,8 @@ import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import { nodeId } from "@/components/builder/shared/nodeIdentity";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import {
 	type Column,
 	type IdMappingEntry,
@@ -34,8 +36,6 @@ import {
 	idMappingEntry,
 } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
-import { nodeId } from "../../nodeIdentity";
-import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 interface IdMappingCardProps {

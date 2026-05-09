@@ -51,6 +51,10 @@ import {
 	useValidityPropagator,
 } from "@/components/builder/shared/useInnerValidityShadow";
 import {
+	ReorderableRow,
+	useReorderableList,
+} from "@/components/builder/shared/useReorderableList";
+import {
 	type CaseListConfig,
 	type CaseType,
 	type Column,
@@ -60,7 +64,6 @@ import {
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { ColumnEditor } from "./ColumnEditor";
 import { DisplayPreview } from "./DisplayPreview";
-import { ReorderableRow, useReorderableList } from "./useReorderableList";
 import { newUuid } from "./uuid";
 
 // ── Public types ──────────────────────────────────────────────────

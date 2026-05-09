@@ -37,6 +37,8 @@
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useMemo, useRef } from "react";
+import { PredicateEditProvider } from "@/components/builder/shared/editorContext";
+import { CardShell } from "@/components/builder/shared/primitives/CardShell";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType, Column, ColumnKind } from "@/lib/domain";
 import {
@@ -62,8 +64,6 @@ import {
 	resolveColumnProperty,
 	resolveColumnPropertyDataType,
 } from "./columnEditorSchemas";
-import { PredicateEditProvider } from "./editorContext";
-import { CardShell } from "./primitives/CardShell";
 
 /**
  * Module-scoped empty validity-index passed to the predicate

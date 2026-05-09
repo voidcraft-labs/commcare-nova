@@ -41,11 +41,11 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
-import { PredicateCardEditor } from "@/components/builder/case-list-config/PredicateCardEditor";
-import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
+import { PredicateCardEditor } from "./PredicateCardEditor";
+import { useValidityPropagator } from "./useInnerValidityShadow";
 
 // ── Public types ──────────────────────────────────────────────────
 

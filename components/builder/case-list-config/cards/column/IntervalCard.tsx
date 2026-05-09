@@ -25,10 +25,10 @@
 //   - `text` — the runtime label whose role flips by `display`.
 
 "use client";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type { Column, IntervalDisplay, TimeSinceUnit } from "@/lib/domain";
 import { intervalColumn, isDateTyped } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
-import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 

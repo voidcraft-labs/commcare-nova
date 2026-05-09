@@ -38,10 +38,24 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSelect from "@iconify-icons/tabler/select";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useMemo, useRef } from "react";
+import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import {
+	buildValidityIndex,
+	PredicateEditProvider,
+} from "@/components/builder/shared/editorContext";
+import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import { InlineError } from "@/components/builder/shared/primitives/CardShell";
+import { PropertyRefPicker } from "@/components/builder/shared/primitives/PropertyRefPicker";
+import { RelationPathBuilder } from "@/components/builder/shared/primitives/RelationPathBuilder";
 import {
 	useInnerValidityShadow,
 	useValidityPropagator,
 } from "@/components/builder/shared/useInnerValidityShadow";
+import {
+	ReorderableRow,
+	useReorderableList,
+} from "@/components/builder/shared/useReorderableList";
 import {
 	advancedSearchInputDef,
 	applicableSearchModes,
@@ -84,14 +98,6 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { ExpressionCardEditor } from "./ExpressionCardEditor";
-import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
-import { PredicateCardEditor } from "./PredicateCardEditor";
-import { BlurCommitTextInput } from "./primitives/BlurCommitTextInput";
-import { InlineError } from "./primitives/CardShell";
-import { PropertyRefPicker } from "./primitives/PropertyRefPicker";
-import { RelationPathBuilder } from "./primitives/RelationPathBuilder";
-import { ReorderableRow, useReorderableList } from "./useReorderableList";
 import { newUuid } from "./uuid";
 
 // ── Public types ──────────────────────────────────────────────────

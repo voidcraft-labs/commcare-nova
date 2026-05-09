@@ -25,13 +25,13 @@
 // preset-vs-custom discriminator.
 
 "use client";
-import type { Column } from "@/lib/domain";
-import { dateColumn, isDateTyped } from "@/lib/domain";
-import type { ColumnEditContext } from "../../columnEditorSchemas";
 import {
 	CustomDatePatternInput,
 	type DatePatternPreset,
-} from "../../primitives/CustomDatePatternInput";
+} from "@/components/builder/shared/primitives/CustomDatePatternInput";
+import type { Column } from "@/lib/domain";
+import { dateColumn, isDateTyped } from "@/lib/domain";
+import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 /**

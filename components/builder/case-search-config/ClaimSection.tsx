@@ -47,6 +47,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
+import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import { Toggle } from "@/components/ui/Toggle";
@@ -58,7 +59,6 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { ExpressionCardEditor } from "../case-list-config/ExpressionCardEditor";
 import { nextConfig } from "./nextConfig";
 
 // ── Public types ──────────────────────────────────────────────────
