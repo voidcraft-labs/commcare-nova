@@ -711,6 +711,54 @@ Landed at commit `c454265f`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 
 **Next:** Task 11 fix-pass for the round-1 CR's findings (Critical: `filterSearchInputConflict` dedup ignoring `via`; Important: drop Rule 1 + add 4 type-check rules for the slots the plan claimed were covered but weren't).
 
+### Task 10 — Search prompts emission — 2026-05-08
+
+Landed across two commits: `da4db02b` (initial implementation; DONE_WITH_CONCERNS for two CCHQ-source corrections that contradicted the prompt) → `7541f127` (CR round-1 fix-pass: stale test-header comment + forward-projection cleanup + import-style alignment + attribute-order test tightening).
+
+Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) Approved with one Important + three Minors all addressed in `7541f127`.
+
+**Final shape:**
+
+- `lib/commcare/suite/case-search/searchPrompts.ts` (NEW, 343 lines) — pure emitter. Two exports:
+  - `emitSearchPrompts(searchInputs, moduleId)` returns the array of `<prompt>` element strings the orchestrator (Task 8) splices into `<query>` verbatim. Indent convention: 8 spaces from column zero, matching the canonical fixture's `<query>` body depth.
+  - `getAdvancedArmPredicates(searchInputs)` returns `ReadonlyArray<{ name, predicate }>` for advanced-arm inputs only. Source-array order preserved. Task 8's orchestrator AND-composes these into `<data key="_xpath_query">`.
+
+- `lib/commcare/suite/case-search/__tests__/searchPrompts.test.ts` (NEW, 449 lines) — 19 tests (one added in the fix-pass for `(barcode + default)` attribute ordering). Each `it()` pins one invariant. Coverage: 5 per-type mappings, simple-vs-advanced parity, `<display>` always-emit + label fallback, `@default` attribute on/off, attribute order pinned by exact-string equality, `getAdvancedArmPredicates` filtering + ordering, empty-input array, `moduleId` threading, golden-file comparison against `~/code/commcare-hq/.../tests/data/suite/remote_request.xml`.
+
+**CCHQ-source corrections vs the prompt:** the implementer used CCHQ source as the tiebreaker, correcting two prompt errors:
+
+1. **`@default` is the XML attribute on `<prompt>`, NOT a `<default>` child element** — verified at `commcare-hq/.../suite_xml/xml_models.py::QueryPrompt::default_value = StringField('@default', required=False)`. The prompt's proposed `<default>{xpath}</default>` shape would not match CCHQ's runtime parser; the attribute form is canonical.
+
+2. **`barcode` maps to `appearance="barcode_scan"`, NOT `input="barcode"`** — verified at `commcare-hq/.../views/modules.py::_update_search_properties`. CCHQ admits `@input` and `@appearance` as orthogonal `QueryPrompt` slots; barcode routes through `appearance` while date / daterange / select1 / select / checkbox route through `input_`. Treating barcode as `@input` would be a wire-shape error.
+
+**Per-`SearchInputType` wire mapping (CCHQ-authoritative):**
+
+| Nova `input.type` | Wire emission |
+|---|---|
+| `text` | bare `<prompt>` (no `@input`, no `@appearance`) |
+| `select` | `input="select1"` |
+| `date` | `input="date"` |
+| `date-range` | `input="daterange"` |
+| `barcode` | `appearance="barcode_scan"` |
+
+**Other structural choices:**
+- `<display>` always emits (matches CCHQ's unconditional `Display(text=Text(locale_id=…))`); when `input.label` is empty, the locale registers `input.name` as a sensible UX fallback.
+- Helper signature is `(searchInputs, moduleId)` — dropped speculative `caseTypes` / `currentCaseType` parameters because `emitOnDeviceExpression(expr: ValueExpression): string` doesn't need them.
+- Import style: sibling-relative for cross-`commcare` symbols + `@/lib/domain*` aliases for domain primitives (mirrors `lib/commcare/suite/case-list/columns.ts` + `sortKeys.ts`).
+
+**Test count:** 33/33 in the case-search package; full project: 3982 / 14 skipped after this task closes.
+
+**Acceptance gates landed:**
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean.
+- Drift sweeps clean: zero line-number citations, zero plan/spec references, zero forward-projection in the new files.
+
+**Two pre-existing test failures flagged but out of Task 10 scope:** `lib/commcare/validator/rules/case-search/__tests__/{blacklistedOwnerIdsTypeCheck,integration}.test.ts` — these belong to Task 11's in-flight 6-rule fix-pass. The Task 11 implementer is expected to resolve in their commit.
+
+**Whole-repo build state:** green within Task 10's scope; the Task 11 fix-pass is running and will close those validator failures.
+
+**Next:** Task 11's 6-rule fix-pass (in flight), Task 12 (workspace mount, in flight), Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`), Task 8 (`<remote-request>` orchestrator — depends on 9 + 10), Task 4 (cross-binding test, depends on 12), Task 13 (integration test, depends on all).
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
