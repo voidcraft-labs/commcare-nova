@@ -28,17 +28,15 @@
 // slot is absent (slot-presence short-circuit) and `valid: false`
 // when the slot is present and the expression's type-check verdict
 // is `false`. The expression editor stays mounted whenever the slot
-// is defined (the collapse only toggles visibility), so a backend-
-// loaded invalid expression keeps surfacing its verdict even on a
-// default-collapsed mount — without that contract, the parent's
-// save gate would silently un-block on a closed-collapse load.
+// is defined (the collapse only toggles visibility), so the editor's
+// type-check verdict keeps reaching the section's validity aggregate
+// regardless of collapse state.
 //
 // Header chrome shape mirrors the canonical `PredicateSlotCard`: the
 // Clear affordance lives in the header at `ml-auto`, surfacing
 // whenever the slot is defined regardless of collapse state. The
-// collapse toggle controls only the body's visibility — Clear is
-// always one click away when the slot is present, including on a
-// backend-loaded invalid expression that mounts default-collapsed.
+// collapse toggle controls only the body's visibility — Clear stays
+// reachable in one click whenever the slot is present.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -157,22 +155,17 @@ export function AdvancedSection({
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
 			    mounted regardless of collapse state so its type-check
-			    pass keeps firing and the section's validity verdict
-			    stays accurate even on a closed-collapse mount. Hiding
-			    the editor by unmounting would lose the most-recent
-			    verdict the moment a backend-loaded invalid expression
-			    rendered into a default-collapsed section, and the
-			    parent's save gate would silently un-block. */}
+			    verdict keeps reaching the section's validity aggregate
+			    on every render pass. */}
 			<div className="space-y-3">
 				{/* Section header — same shape as the canonical
 				    PredicateSlotCard header (violet rail → icon → h3 →
 				    hint → ml-auto Clear) with one addition: a chevron-
 				    toggle button sits between the violet rail and the
-				    section icon because this section is the only
-				    collapsible one on the page. The rail still leads so
-				    the header reads as a sibling of the Display
-				    section's PredicateSlotCard headers when both render
-				    on the same page. */}
+				    section icon to drive the body's collapse state.
+				    The rail still leads so the header reads as a
+				    sibling of the Display section's PredicateSlotCard
+				    headers when both render on the same page. */}
 				<header className="flex items-baseline gap-2">
 					<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
 					<button

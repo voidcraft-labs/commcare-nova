@@ -156,14 +156,16 @@ export const setCaseSearchDisplayTool = {
  * `null` inputs (the wholesale-clear semantic) skip the write so the
  * returned object's keys reflect only the slots the SA actually set.
  *
- * The schema derives the input slots and the config slots from the
- * same source nodes, so the runtime values are guaranteed
- * assignable; the cast localized here covers the K-by-K
- * parametricity the loop strips off.
+ * Return type mirrors the shape — `Partial<Pick<...>>` says "every
+ * slot named in `DISPLAY_SLOT_NAMES`, possibly absent". The schema
+ * derives the input slots and the config slots from the same source
+ * nodes, so the runtime values are guaranteed assignable; the cast
+ * on the return spans only the K-by-K parametricity the loop strips
+ * off after walking `DISPLAY_SLOT_NAMES` as a flat string list.
  */
 function buildDisplayLayer(
 	input: SetCaseSearchDisplayInput,
-): Pick<CaseSearchConfig, DisplaySlotName> {
+): Partial<Pick<CaseSearchConfig, DisplaySlotName>> {
 	const layer: Record<string, unknown> = {};
 	for (const slot of DISPLAY_SLOT_NAMES) {
 		const value = input[slot];
@@ -171,5 +173,5 @@ function buildDisplayLayer(
 			layer[slot] = value;
 		}
 	}
-	return layer as Pick<CaseSearchConfig, DisplaySlotName>;
+	return layer as Partial<Pick<CaseSearchConfig, DisplaySlotName>>;
 }

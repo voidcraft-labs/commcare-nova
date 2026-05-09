@@ -47,20 +47,26 @@ vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
 		"@/lib/routing/hooks",
 	);
+	// The mock matches the full `NavigateActions` shape so a real
+	// screen mount that reaches for any method finds it. The
+	// annotated return type pins the mock to the production hook's
+	// shape — any drift between the two fails the build here.
+	const buildNavigateMock = (): ReturnType<typeof actual.useNavigate> => ({
+		goHome: vi.fn(),
+		openModule: vi.fn(),
+		openCaseList: vi.fn(),
+		openCaseDetail: vi.fn(),
+		openSearchConfig: vi.fn(),
+		openForm: vi.fn(),
+		push: vi.fn(),
+		replace: vi.fn(),
+		back: vi.fn(),
+		up: vi.fn(),
+	});
 	return {
 		...actual,
 		useLocation: () => locationMock(),
-		useNavigate: () => ({
-			goHome: vi.fn(),
-			openModule: vi.fn(),
-			openCaseList: vi.fn(),
-			openCaseDetail: vi.fn(),
-			openForm: vi.fn(),
-			push: vi.fn(),
-			replace: vi.fn(),
-			back: vi.fn(),
-			up: vi.fn(),
-		}),
+		useNavigate: () => buildNavigateMock(),
 	};
 });
 

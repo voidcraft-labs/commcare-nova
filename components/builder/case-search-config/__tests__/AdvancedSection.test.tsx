@@ -181,10 +181,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		// Pins the canonical `PredicateSlotCard` shape for this
 		// section: Clear lives in the header at `ml-auto`, so a
 		// collapsed body (the default for a backend-loaded config)
-		// keeps the Clear affordance reachable without a prior
-		// expand click. Without this contract, an author landing on
-		// a populated slot would have to expand the body first to
-		// drop the slot — friction with no upside.
+		// keeps the Clear affordance reachable in one click.
 		render(
 			<AdvancedSection
 				value={{
@@ -224,9 +221,9 @@ describe("AdvancedSection — populated round-trip", () => {
 			/>,
 		);
 
-		// Pre-click: header reads collapsed, Clear is already
-		// reachable in the header (the load-bearing contract for
-		// this fix).
+		// Pre-click: header reads collapsed; Clear is already
+		// reachable in the header (header-resident affordance —
+		// independent of the body's collapse state).
 		expect(
 			screen.getByRole("button", {
 				expanded: false,
@@ -262,12 +259,10 @@ describe("AdvancedSection — populated round-trip", () => {
 		).toBeDefined();
 	});
 
-	it("Clear in the header drops the slot — works with the body collapsed (no expand prerequisite)", () => {
+	it("clear in the header drops the slot — works with the body collapsed (no expand prerequisite)", () => {
 		// Pins the user-actionable contract: a populated slot can be
-		// cleared without expanding the body. This is the failure
-		// mode the fix targets — a backend-loaded invalid expression
-		// mounts default-collapsed, and the user must be able to
-		// drop the slot in one click.
+		// cleared in one click without expanding the body, including
+		// on a backend-loaded mount that lands default-collapsed.
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<AdvancedSection
@@ -339,13 +334,10 @@ describe("AdvancedSection — validity propagation", () => {
 	});
 
 	it("reports valid: false when the blacklist references an unknown property — even with the collapse closed", () => {
-		// Pins the load-bearing decision that collapse is a VISIBILITY
-		// toggle, not a mount toggle: a backend-loaded invalid blacklist
-		// expression renders into the default-collapsed section, but its
-		// type-check pass still runs and the section's validity verdict
-		// propagates. Without the keep-mounted contract, the section
-		// would silently report `valid: true` while the user's blacklist
-		// held an invalid expression — a save-gate desync.
+		// Collapse is a visibility toggle, not a mount toggle: when
+		// the slot is defined the editor stays mounted across collapse
+		// state and its type-check verdict reaches the section's
+		// validity aggregate.
 		const invalidExpression: ValueExpression = term(
 			prop("patient", "DOES_NOT_EXIST"),
 		);
