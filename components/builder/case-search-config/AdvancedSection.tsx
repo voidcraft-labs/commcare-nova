@@ -138,10 +138,10 @@ export function AdvancedSection({
 	return (
 		<div className="space-y-6">
 			{/* ── Blacklisted owner IDs sub-control ──
-			    Collapsed by default. The chevron in the header below is
-			    the collapse trigger; the rest of the header (icon, h3,
-			    hint) is non-interactive chrome. The add/clear
-			    affordances live inside the body.
+			    Collapsed by default. The chevron in the header below
+			    is the collapse trigger; the violet rail, section icon,
+			    h3, and hint span are non-interactive chrome. The
+			    add/clear affordances live inside the body.
 
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
@@ -153,7 +153,16 @@ export function AdvancedSection({
 			    rendered into a default-collapsed section, and the
 			    parent's save gate would silently un-block. */}
 			<div className="space-y-3">
+				{/* Section header — same shape as the canonical
+				    PredicateSlotCard header (violet rail → icon → h3 →
+				    hint) with one addition: a chevron-toggle button
+				    sits between the violet rail and the section icon
+				    because this section is the only collapsible one on
+				    the page. The rail still leads so the header reads
+				    as a sibling of the Display section's PredicateSlotCard
+				    headers when both render on the same page. */}
 				<header className="flex items-baseline gap-2">
+					<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
 					<button
 						type="button"
 						onClick={() => setBlacklistOpen((prev) => !prev)}

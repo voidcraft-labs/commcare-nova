@@ -306,22 +306,17 @@ export function PreviewShell({
 					</Activity>
 				)}
 				{/*
-				 * Two parallel Activity boundaries cover the case-search
-				 * authoring URL — same dispatch shape as the case list.
-				 *
-				 *   - Edit mode: the CaseSearchConfigPanel authoring shell.
-				 *     Multi-section magazine layout (Display / Search
-				 *     Inputs / Advanced) for configuring the module's
-				 *     `caseSearchConfig` slot plus the cross-bound
-				 *     `caseListConfig.searchInputs` slot.
-				 *
-				 *   - Otherwise: a typed placeholder. The live-mode
-				 *     dispatch for case-search lands later — this branch
-				 *     prevents a runtime crash on `loc.kind ===
-				 *     "search-config"` without a visible target.
-				 *
-				 * Both arms key off `caseSearchConfigRef` so the ref-gate
-				 * pattern matches the case-list workspace.
+				 * Activity boundary for the case-search authoring URL.
+				 * The panel is an edit-mode-only authoring shell — the
+				 * multi-section magazine layout (Display / Search
+				 * Inputs / Advanced) writes the module's
+				 * `caseSearchConfig` slot plus the cross-bound
+				 * `caseListConfig.searchInputs` slot. Live-mode arms
+				 * for this URL do not exist; routes that resolve to
+				 * `searchConfig` outside edit mode hide every
+				 * boundary, leaving the scroll container empty rather
+				 * than mounting a stand-in. The ref-gate pattern
+				 * matches the case-list workspace.
 				 */}
 				{caseSearchConfigRef.current && (
 					<Activity
@@ -333,20 +328,6 @@ export function PreviewShell({
 						name="CaseSearchConfigPanel"
 					>
 						<CaseSearchConfigPanel moduleUuid={caseSearchConfigRef.current} />
-					</Activity>
-				)}
-				{caseSearchConfigRef.current && (
-					<Activity
-						mode={
-							screen.type === "searchConfig" && mode !== "edit"
-								? "visible"
-								: "hidden"
-						}
-						name="CaseSearchConfigLivePlaceholder"
-					>
-						<div className="p-6 text-sm text-nova-text-muted">
-							Live preview lands in a follow-up.
-						</div>
 					</Activity>
 				)}
 				{formScreenRef.current && (

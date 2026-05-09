@@ -74,15 +74,7 @@ export const setCaseSearchDisplayTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchDisplayResult>> {
-		const {
-			moduleIndex,
-			searchScreenTitle,
-			searchScreenSubtitle,
-			emptyListText,
-			searchButtonLabel,
-			searchAgainButtonLabel,
-			searchButtonDisplayCondition,
-		} = input;
+		const { moduleIndex } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid)
@@ -104,17 +96,16 @@ export const setCaseSearchDisplayTool = {
 			// reads from the same source-of-truth tuples the input
 			// schema derives from, so a future schema slot that lands
 			// on the advanced cluster preserves automatically.
+			//
+			// The display layer iterates `DISPLAY_SLOT_NAMES` directly so
+			// the slot list lives in exactly one place. Each slot whose
+			// input arrived non-null lands on `nextConfig` keyed by its
+			// name; null inputs (the wholesale-clear semantic) and
+			// genuinely undefined slots stay absent.
 			const existing = snapshotCaseSearchConfig(mod);
 			const nextConfig: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
-				...(searchScreenTitle !== null && { searchScreenTitle }),
-				...(searchScreenSubtitle !== null && { searchScreenSubtitle }),
-				...(emptyListText !== null && { emptyListText }),
-				...(searchButtonLabel !== null && { searchButtonLabel }),
-				...(searchAgainButtonLabel !== null && { searchAgainButtonLabel }),
-				...(searchButtonDisplayCondition !== null && {
-					searchButtonDisplayCondition,
-				}),
+				...buildDisplayLayer(input),
 			};
 
 			const mutations = updateModuleMutations(mod, {
@@ -128,20 +119,11 @@ export const setCaseSearchDisplayTool = {
 			);
 
 			// Surface which display slots landed non-null so the SA reads
-			// the outcome without re-parsing prose. The slot list mirrors
-			// `DISPLAY_SLOT_NAMES`; values are looked up off the typed
-			// input record so a future slot rename surfaces at compile
-			// time.
-			const supplied: Record<DisplaySlotName, unknown> = {
-				searchScreenTitle,
-				searchScreenSubtitle,
-				emptyListText,
-				searchButtonLabel,
-				searchAgainButtonLabel,
-				searchButtonDisplayCondition,
-			};
+			// the outcome without re-parsing prose. Reads `input[slot]`
+			// directly — same one-source-of-truth contract as the layer
+			// above.
 			const displaySlotsSet = DISPLAY_SLOT_NAMES.filter(
-				(slot) => supplied[slot] !== null,
+				(slot) => input[slot] !== null,
 			);
 
 			return {
@@ -166,3 +148,28 @@ export const setCaseSearchDisplayTool = {
 		}
 	},
 };
+
+/**
+ * Build the display-layer projection the wholesale-rebuild composes
+ * onto the carried-forward advanced cluster. Iterates
+ * `DISPLAY_SLOT_NAMES` so the slot list lives in exactly one place;
+ * `null` inputs (the wholesale-clear semantic) skip the write so the
+ * returned object's keys reflect only the slots the SA actually set.
+ *
+ * The schema derives the input slots and the config slots from the
+ * same source nodes, so the runtime values are guaranteed
+ * assignable; the cast localized here covers the K-by-K
+ * parametricity the loop strips off.
+ */
+function buildDisplayLayer(
+	input: SetCaseSearchDisplayInput,
+): Pick<CaseSearchConfig, DisplaySlotName> {
+	const layer: Record<string, unknown> = {};
+	for (const slot of DISPLAY_SLOT_NAMES) {
+		const value = input[slot];
+		if (value !== null) {
+			layer[slot] = value;
+		}
+	}
+	return layer as Pick<CaseSearchConfig, DisplaySlotName>;
+}

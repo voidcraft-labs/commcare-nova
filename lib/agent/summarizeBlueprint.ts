@@ -9,13 +9,16 @@
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
-	CaseSearchConfig,
 	Column,
 	Module,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+import {
+	ADVANCED_SLOT_NAMES,
+	DISPLAY_SLOT_NAMES,
+} from "./tools/case-search-config/shared";
 
 /**
  * Render a field and its children as nested bullet lines. Shows `id`,
@@ -163,25 +166,25 @@ function formatSearchInput(input: SearchInputDef): string {
 function summarizeCaseSearch(mod: Module): string | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
-	const displaySlots: Array<keyof CaseSearchConfig> = [
-		"searchScreenTitle",
-		"searchScreenSubtitle",
-		"emptyListText",
-		"searchButtonLabel",
-		"searchAgainButtonLabel",
-		"searchButtonDisplayCondition",
-	];
-	const setDisplaySlots = displaySlots.filter(
+	// Both summaries iterate the source-of-truth tuples that the SA
+	// tool surface partitions on. A new slot landing on either tuple
+	// flows into the SA-prompt summary here automatically — no
+	// per-slot `config.foo !== undefined` check to drift out of sync
+	// with the schema.
+	const setDisplaySlots = DISPLAY_SLOT_NAMES.filter(
 		(slot) => config[slot] !== undefined,
 	);
 	const displaySummary =
 		setDisplaySlots.length === 0
 			? "display={none}"
 			: `display={${setDisplaySlots.join(", ")}}`;
+	const setAdvancedSlots = ADVANCED_SLOT_NAMES.filter(
+		(slot) => config[slot] !== undefined,
+	);
 	const advancedSummary =
-		config.blacklistedOwnerIds !== undefined
-			? "advanced={blacklistedOwnerIds}"
-			: "advanced={none}";
+		setAdvancedSlots.length === 0
+			? "advanced={none}"
+			: `advanced={${setAdvancedSlots.join(", ")}}`;
 	return `    case_search: ${displaySummary} ${advancedSummary}`;
 }
 

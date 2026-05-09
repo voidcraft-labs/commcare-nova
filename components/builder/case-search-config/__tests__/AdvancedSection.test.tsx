@@ -187,17 +187,25 @@ describe("AdvancedSection — populated round-trip", () => {
 			/>,
 		);
 
-		// Editor body stays mounted (so its validity verdict keeps
-		// firing) but visually hidden via the `hidden` attribute on
-		// the wrapper. The "Clear blacklisted owner IDs" affordance
-		// lives inside the body; we read its nearest ancestor with
-		// the `hidden` attribute as the collapse signal.
-		const clearButton = screen.getByLabelText(
-			/^clear blacklisted owner ids$/i,
-			{ selector: "button" },
-		);
-		const collapseWrapper = clearButton.closest("[hidden]");
-		expect(collapseWrapper).not.toBeNull();
+		// Toggle reads as collapsed. `getByRole`'s default
+		// `hidden: false` filter excludes content inside the
+		// `hidden`-attributed body, so the Clear affordance — which
+		// lives inside that body — is unreachable through the
+		// accessibility tree until the toggle expands. Querying the
+		// toggle's `aria-expanded` state and the Clear button's
+		// accessibility presence is the keep-it-accessible signal
+		// for "the body is collapsed."
+		expect(
+			screen.getByRole("button", {
+				expanded: false,
+				name: /^expand blacklisted owner ids$/i,
+			}),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("button", {
+				name: /^clear blacklisted owner ids$/i,
+			}),
+		).toBeNull();
 	});
 
 	it("reveals the body on chevron click", () => {
@@ -212,12 +220,13 @@ describe("AdvancedSection — populated round-trip", () => {
 			/>,
 		);
 
-		const clearButton = screen.getByLabelText(
-			/^clear blacklisted owner ids$/i,
-			{ selector: "button" },
-		);
-		// Pre-click: closed.
-		expect(clearButton.closest("[hidden]")).not.toBeNull();
+		// Pre-click: collapsed body hides the Clear affordance from
+		// the accessibility tree.
+		expect(
+			screen.queryByRole("button", {
+				name: /^clear blacklisted owner ids$/i,
+			}),
+		).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -225,8 +234,20 @@ describe("AdvancedSection — populated round-trip", () => {
 				name: /^expand blacklisted owner ids$/i,
 			}),
 		);
-		// Post-click: open.
-		expect(clearButton.closest("[hidden]")).toBeNull();
+
+		// Post-click: toggle reads as expanded and the Clear
+		// affordance surfaces through the accessibility tree.
+		expect(
+			screen.getByRole("button", {
+				expanded: true,
+				name: /^collapse blacklisted owner ids$/i,
+			}),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", {
+				name: /^clear blacklisted owner ids$/i,
+			}),
+		).toBeDefined();
 	});
 });
 

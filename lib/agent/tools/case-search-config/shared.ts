@@ -42,22 +42,7 @@ import type { CaseSearchConfig, Module } from "@/lib/domain";
 import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 // ── Cluster slot tuples — source of truth ───────────────────────────
-//
-// The case-search config splits cleanly into two clusters: display
-// labels (search-screen titles, button labels, the search-button
-// display predicate) and advanced filters (niche search-side filters,
-// today only `blacklistedOwnerIds`). Each tuple is the canonical slot
-// list for its cluster — both the input schemas above (display body
-// keys + advanced body keys) and the cross-cluster preservation
-// pickers below derive from these tuples.
-//
-// The `_ClusterPartitionExhaustive` and `_ClusterPartitionDisjoint`
-// type-level assertions further down make the partition a compile-time
-// invariant: a new schema slot that lands in NEITHER tuple stops the
-// build until it gets a home, and a slot that accidentally lands in
-// BOTH tuples is rejected the same way. Without these guards the
-// pickers would silently drop a stray slot on every patch from the
-// other cluster.
+
 export const DISPLAY_SLOT_NAMES = [
 	"searchScreenTitle",
 	"searchScreenSubtitle",
@@ -72,11 +57,9 @@ export const ADVANCED_SLOT_NAMES = ["blacklistedOwnerIds"] as const;
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
 
-// Compile-time exhaustiveness — the union of the two tuples must
-// cover every key of `CaseSearchConfig`. If a new slot lands on the
-// schema without a tuple home, this check fails to compile and the
-// pickers below stop being trustworthy until the partition is
-// updated.
+// Partition exhaustiveness — every `CaseSearchConfig` key must land
+// in exactly one tuple, so a new schema slot without a home fails to
+// compile.
 type _ClusterPartitionExhaustive = [keyof CaseSearchConfig] extends [
 	DisplaySlotName | AdvancedSlotName,
 ]
@@ -87,9 +70,8 @@ type _ClusterPartitionExhaustive = [keyof CaseSearchConfig] extends [
 const _exhaustive: _ClusterPartitionExhaustive = true;
 void _exhaustive;
 
-// Compile-time disjointness — a slot must live in exactly one
-// cluster. An overlapping name would mean both pickers strip the
-// same slot and BOTH tools would lose it on patch.
+// Partition disjointness — a slot must live in exactly one cluster
+// so neither picker strips it.
 type _ClusterPartitionDisjoint =
 	Extract<DisplaySlotName, AdvancedSlotName> extends never ? true : never;
 const _disjoint: _ClusterPartitionDisjoint = true;
@@ -112,41 +94,45 @@ void _disjoint;
 
 /**
  * Pick the advanced cluster off an existing config — every slot in
- * `ADVANCED_SLOT_NAMES`, with truly absent keys for missing or
- * cleared values. Used by `setCaseSearchDisplay` to preserve the
- * advanced cluster while it rebuilds the display cluster around the
- * SA's input.
+ * `ADVANCED_SLOT_NAMES` whose source value is non-undefined; missing
+ * or cleared slots are absent from the returned object. Used by
+ * `setCaseSearchDisplay` to preserve the advanced cluster while it
+ * rebuilds the display cluster around the SA's input.
  */
 export function pickAdvancedCluster(
 	config: CaseSearchConfig | undefined,
-): CaseSearchConfig {
+): Partial<Pick<CaseSearchConfig, AdvancedSlotName>> {
 	return pickClusterSlots(config, ADVANCED_SLOT_NAMES);
 }
 
 /**
  * Pick the display cluster off an existing config — every slot in
- * `DISPLAY_SLOT_NAMES`, with truly absent keys for missing or cleared
- * values. Used by `setCaseSearchAdvanced` to preserve the display
- * cluster while it rebuilds the advanced cluster around the SA's
- * input.
+ * `DISPLAY_SLOT_NAMES` whose source value is non-undefined; missing
+ * or cleared slots are absent from the returned object. Used by
+ * `setCaseSearchAdvanced` to preserve the display cluster while it
+ * rebuilds the advanced cluster around the SA's input.
  */
 export function pickDisplayCluster(
 	config: CaseSearchConfig | undefined,
-): CaseSearchConfig {
+): Partial<Pick<CaseSearchConfig, DisplaySlotName>> {
 	return pickClusterSlots(config, DISPLAY_SLOT_NAMES);
 }
 
 /**
- * Internal — copy the named slots from `config` into a fresh object,
- * skipping slots that are absent or carry an `undefined` value. The
- * skip is what keeps cleared slots truly absent on the returned
- * object instead of leaking through as `key: undefined`.
+ * Internal — copy the named slots from `config` into a fresh object:
+ * every slot in `slots` whose source value is non-undefined; missing
+ * or cleared slots are absent from the returned object. The skip is
+ * what keeps cleared slots truly absent on the returned object
+ * instead of leaking through as `key: undefined`. Return type
+ * mirrors the contract — `Partial<Pick<CaseSearchConfig, K>>` says
+ * "every slot named in `slots`, possibly absent" without overstating
+ * to "any `CaseSearchConfig` key MIGHT be present".
  */
 function pickClusterSlots<K extends keyof CaseSearchConfig>(
 	config: CaseSearchConfig | undefined,
 	slots: readonly K[],
-): CaseSearchConfig {
-	const out: { [P in K]?: CaseSearchConfig[P] } = {};
+): Partial<Pick<CaseSearchConfig, K>> {
+	const out: Partial<Pick<CaseSearchConfig, K>> = {};
 	if (config === undefined) return out;
 	for (const slot of slots) {
 		const value = config[slot];
