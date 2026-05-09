@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/InCard.tsx
+// components/builder/shared/cards/InCard.tsx
 //
 // Renders the `in` predicate. Property picker on the left + a
 // literal-list editor (one row per literal, typed by the property's

@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/CustomDatePatternInput.tsx
+// components/builder/shared/primitives/CustomDatePatternInput.tsx
 //
 // Shared "preset row + custom CCHQ date pattern input" primitive.
 // Mounted by both `cards/expression/FormatDateCard.tsx` (the

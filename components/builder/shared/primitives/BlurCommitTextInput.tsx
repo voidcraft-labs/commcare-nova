@@ -1,7 +1,7 @@
-// components/builder/case-list-config/primitives/BlurCommitTextInput.tsx
+// components/builder/shared/primitives/BlurCommitTextInput.tsx
 //
 // Canonical blur-commit text primitive used by every text slot in
-// the case-list-config editor — column header inputs, id-mapping
+// the builder's section editors — column header inputs, id-mapping
 // table cells, interval `text` labels, search-input name + label
 // rows. The draft / commit handshake:
 //

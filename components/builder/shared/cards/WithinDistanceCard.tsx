@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/WithinDistanceCard.tsx
+// components/builder/shared/cards/WithinDistanceCard.tsx
 //
 // Renders the `within-distance` predicate. Property picker
 // (geopoint-typed only) + center-coordinate input (a Term-shaped

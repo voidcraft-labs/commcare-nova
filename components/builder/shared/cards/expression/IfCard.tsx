@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/IfCard.tsx
+// components/builder/shared/cards/expression/IfCard.tsx
 //
 // Renders the `if` ValueExpression — boolean-conditional value
 // selection. Three slots:

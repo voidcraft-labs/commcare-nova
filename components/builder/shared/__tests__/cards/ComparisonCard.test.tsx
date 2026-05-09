@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/ComparisonCard.test.tsx
+// components/builder/shared/__tests__/cards/ComparisonCard.test.tsx
 //
 // Inline-error rendering test for the comparison card. Pins the
 // validity-index path lookup contract — operand-level errors

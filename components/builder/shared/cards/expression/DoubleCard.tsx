@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/DoubleCard.tsx
+// components/builder/shared/cards/expression/DoubleCard.tsx
 //
 // Renders the `double` ValueExpression — forced numeric coercion via
 // CSQL's `double(...)` value function. Single-slot: a

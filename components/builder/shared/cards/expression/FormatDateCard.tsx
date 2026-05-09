@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/FormatDateCard.tsx
+// components/builder/shared/cards/expression/FormatDateCard.tsx
 //
 // Renders the `format-date` ValueExpression — render a date or
 // datetime as text. Two slots:

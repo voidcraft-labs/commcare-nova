@@ -1,4 +1,4 @@
-// components/builder/case-list-config/path.ts
+// components/builder/shared/path.ts
 //
 // Path-encoding helpers for the predicate card editor.
 //

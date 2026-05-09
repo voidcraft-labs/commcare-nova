@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/CoalesceCard.tsx
+// components/builder/shared/cards/expression/CoalesceCard.tsx
 //
 // Renders the `coalesce` ValueExpression — first-non-empty fallback
 // chain. Each `values[i]` is a recursive `ValueExpression`; the

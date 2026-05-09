@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/ConcatCard.tsx
+// components/builder/shared/cards/expression/ConcatCard.tsx
 //
 // Renders the `concat` ValueExpression — variadic string
 // concatenation. Each `parts[i]` is a recursive `ValueExpression`;

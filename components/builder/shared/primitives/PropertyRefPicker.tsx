@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/PropertyRefPicker.tsx
+// components/builder/shared/primitives/PropertyRefPicker.tsx
 //
 // Single primitive that owns ALL property picking across the
 // predicate card editor. Two slot vocabularies need property

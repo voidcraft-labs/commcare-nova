@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/LiteralValueInput.tsx
+// components/builder/shared/primitives/LiteralValueInput.tsx
 //
 // Typed input for a `Literal` AST value. Switches its visual /
 // keyboard behavior on the property's declared `data_type` so the

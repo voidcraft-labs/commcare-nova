@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/expression/IfCard.test.tsx
+// components/builder/shared/__tests__/cards/expression/IfCard.test.tsx
 //
 // Cross-family integration tests for the IfCard. The card's `cond`
 // slot mounts a `ChildPredicateEditor` (the Predicate-side dispatch

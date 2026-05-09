@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/BetweenCard.tsx
+// components/builder/shared/cards/BetweenCard.tsx
 //
 // Renders the `between` predicate. Property picker on the left
 // (ordered-typed only) + lower bound input + upper bound input

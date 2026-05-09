@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/ComparisonCard.tsx
+// components/builder/shared/cards/ComparisonCard.tsx
 //
 // Renders the six comparison kinds (`eq` / `neq` / `gt` / `gte`
 // / `lt` / `lte`) as a single card. Each shares the same

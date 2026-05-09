@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/MatchCard.tsx
+// components/builder/shared/cards/MatchCard.tsx
 //
 // Renders the `match` predicate. Property dropdown (text-shaped or
 // — for `fuzzy-date` — date / datetime), value input (typed by

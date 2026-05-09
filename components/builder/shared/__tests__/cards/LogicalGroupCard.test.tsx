@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/LogicalGroupCard.test.tsx
+// components/builder/shared/__tests__/cards/LogicalGroupCard.test.tsx
 //
 // Logical-group tests:
 //   - reduction-shape contract through the public `and` / `or` /

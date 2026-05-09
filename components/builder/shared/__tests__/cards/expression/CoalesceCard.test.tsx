@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/expression/CoalesceCard.test.tsx
+// components/builder/shared/__tests__/cards/expression/CoalesceCard.test.tsx
 //
 // Coalesce card tests — drag/reorder + non-empty invariant. Mirrors
 // `ConcatCard.test.tsx`'s pattern; the two cards share a body shape

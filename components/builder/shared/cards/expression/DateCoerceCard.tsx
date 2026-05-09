@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/DateCoerceCard.tsx
+// components/builder/shared/cards/expression/DateCoerceCard.tsx
 //
 // Renders the two single-slot date / datetime coercion expressions:
 //

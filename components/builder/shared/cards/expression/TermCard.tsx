@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/TermCard.tsx
+// components/builder/shared/cards/expression/TermCard.tsx
 //
 // Term-arm card for the ValueExpression editor — the universal value
 // carrier. Edits any of the five Term variants:

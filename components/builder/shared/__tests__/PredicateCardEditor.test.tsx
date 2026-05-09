@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/PredicateCardEditor.test.tsx
+// components/builder/shared/__tests__/PredicateCardEditor.test.tsx
 //
 // Top-level editor tests. Exercises the integration of the type
 // checker, the validity-index plumbing, the registry-driven

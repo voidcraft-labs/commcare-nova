@@ -1,4 +1,4 @@
-// components/builder/case-list-config/relationDestination.ts
+// components/builder/shared/relationDestination.ts
 //
 // Shared destination-case-type resolver for cards that mount an
 // inner `where` predicate against a relation walk's destination

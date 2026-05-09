@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/expression/SwitchCard.test.tsx
+// components/builder/shared/__tests__/cards/expression/SwitchCard.test.tsx
 //
 // Switch card tests — drag-orderable cases + non-empty invariant.
 // The card's drag surface targets `cases` (one per row); the `on`

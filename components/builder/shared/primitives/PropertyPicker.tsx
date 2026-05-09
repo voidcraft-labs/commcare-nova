@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/PropertyPicker.tsx
+// components/builder/shared/primitives/PropertyPicker.tsx
 //
 // Searchable case-property picker. Shows all properties of the
 // editor's `currentCaseType` (or, optionally, a caller-supplied

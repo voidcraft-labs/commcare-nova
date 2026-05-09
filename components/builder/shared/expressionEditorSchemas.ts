@@ -1,4 +1,4 @@
-// components/builder/case-list-config/expressionEditorSchemas.ts
+// components/builder/shared/expressionEditorSchemas.ts
 //
 // Declarative registry mapping every ValueExpression kind to its
 // card component, label, icon, default-value factory, and

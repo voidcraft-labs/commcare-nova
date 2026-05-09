@@ -1,4 +1,4 @@
-// components/builder/case-list-config/editorContext.tsx
+// components/builder/shared/editorContext.tsx
 //
 // React context for the predicate card editor. Carries the schema-
 // driven type-checking inputs (`caseTypes`, `currentCaseType`,

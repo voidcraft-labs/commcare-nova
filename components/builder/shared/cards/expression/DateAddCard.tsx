@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/DateAddCard.tsx
+// components/builder/shared/cards/expression/DateAddCard.tsx
 //
 // Renders the `date-add` ValueExpression: `date + (interval ×
 // quantity)`. Three slots:

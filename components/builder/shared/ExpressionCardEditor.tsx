@@ -1,4 +1,4 @@
-// components/builder/case-list-config/ExpressionCardEditor.tsx
+// components/builder/shared/ExpressionCardEditor.tsx
 //
 // Top-level ValueExpression AST authoring surface. Renders an
 // arbitrary `ValueExpression` as a tree of cards via the registry-

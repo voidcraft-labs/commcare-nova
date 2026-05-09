@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/expression/UnwrapListCard.test.tsx
+// components/builder/shared/__tests__/cards/expression/UnwrapListCard.test.tsx
 //
 // `unwrap-list` produces a sequence type with no scalar consumer.
 // The card mounts as a read-only badge so a saved AST containing

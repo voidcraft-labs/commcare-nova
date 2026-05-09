@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/IsNullCard.tsx
+// components/builder/shared/cards/IsNullCard.tsx
 //
 // Renders the `is-null` predicate (strict-absent). Property picker
 // only — the AST schema accepts any non-literal Term (property

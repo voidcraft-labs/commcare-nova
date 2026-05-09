@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/SentinelCards.tsx
+// components/builder/shared/cards/SentinelCards.tsx
 //
 // Discriminator-only sentinel cards — `match-all` (always true)
 // and `match-none` (always false). Each renders a no-config status

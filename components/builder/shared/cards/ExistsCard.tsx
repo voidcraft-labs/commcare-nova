@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/ExistsCard.tsx
+// components/builder/shared/cards/ExistsCard.tsx
 //
 // Renders the relational quantifiers `exists` and `missing`. Both
 // share one body — `via` (RelationPath) + optional inner `where`

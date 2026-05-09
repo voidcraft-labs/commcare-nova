@@ -1,4 +1,4 @@
-// components/builder/case-list-config/__tests__/expressionEditorSchemas.test.ts
+// components/builder/shared/__tests__/expressionEditorSchemas.test.ts
 //
 // Registry-shape tests for the expression card editor. Two
 // invariants pinned here (mirrors `editorSchemas.test.ts` on the

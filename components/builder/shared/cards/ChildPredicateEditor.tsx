@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/ChildPredicateEditor.tsx
+// components/builder/shared/cards/ChildPredicateEditor.tsx
 //
 // Dispatch shell for a single predicate node — looks up the
 // schema entry for `value.kind`, delegates rendering to the

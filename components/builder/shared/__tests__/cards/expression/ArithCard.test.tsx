@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/expression/ArithCard.test.tsx
+// components/builder/shared/__tests__/cards/expression/ArithCard.test.tsx
 //
 // Inline-error tests for the ArithCard. The type checker emits
 // numeric-required errors at `[..., "left"]` / `[..., "right"]`

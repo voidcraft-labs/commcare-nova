@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/MultiSelectContainsCard.tsx
+// components/builder/shared/cards/MultiSelectContainsCard.tsx
 //
 // Renders the `multi-select-contains` predicate. Property dropdown
 // (multi_select-typed only) + selectable token chips drawn from

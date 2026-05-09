@@ -1,4 +1,4 @@
-// components/builder/case-list-config/__tests__/relationDestination.test.ts
+// components/builder/shared/__tests__/relationDestination.test.ts
 //
 // Coverage for the shared destination-case-type resolver. Pins the
 // per-arm walk semantics against the type checker's

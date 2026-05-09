@@ -1,4 +1,4 @@
-// components/builder/case-list-config/useReorderableList.ts
+// components/builder/shared/useReorderableList.ts
 //
 // Shared drag-and-drop reorder primitives for every list-shaped
 // editor surface. Today's consumers:

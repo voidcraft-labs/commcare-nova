@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/ExpressionCardEditor.test.tsx
+// components/builder/shared/__tests__/ExpressionCardEditor.test.tsx
 //
 // Top-level expression editor tests. Exercises the integration of
 // the type checker (`checkValueExpression`), the validity-index

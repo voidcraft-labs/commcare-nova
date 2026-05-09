@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/expression/ConcatCard.test.tsx
+// components/builder/shared/__tests__/cards/expression/ConcatCard.test.tsx
 //
 // Concat card tests:
 //   - reorder-by-builder contract through the public `concat`

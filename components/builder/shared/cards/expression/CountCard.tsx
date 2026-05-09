@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/CountCard.tsx
+// components/builder/shared/cards/expression/CountCard.tsx
 //
 // Renders the `count` ValueExpression — relational aggregation. Two
 // slots:

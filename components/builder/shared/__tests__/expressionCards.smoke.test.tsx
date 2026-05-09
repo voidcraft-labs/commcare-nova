@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/expressionCards.smoke.test.tsx
+// components/builder/shared/__tests__/expressionCards.smoke.test.tsx
 //
 // Table-driven smoke test for every card in the expression registry.
 // Asserts each kind's `defaultValue(ctx)` factory produces a schema-

@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/IsBlankCard.tsx
+// components/builder/shared/cards/IsBlankCard.tsx
 //
 // Renders the `is-blank` predicate (absent or empty string). The
 // portable absent-or-empty operator — emits cleanly on every CCHQ

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/CustomDatePatternInput.test.tsx
+// components/builder/shared/__tests__/CustomDatePatternInput.test.tsx
 //
 // Empty-pattern signal tests for the shared
 // `CustomDatePatternInput` primitive. The primitive is mounted by

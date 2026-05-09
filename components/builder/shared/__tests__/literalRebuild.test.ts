@@ -1,4 +1,4 @@
-// components/builder/case-list-config/__tests__/literalRebuild.test.ts
+// components/builder/shared/__tests__/literalRebuild.test.ts
 //
 // Coverage for the qualifier-preserving literal rebuild helpers.
 // Pins the regression contract: every literal rebuild path the

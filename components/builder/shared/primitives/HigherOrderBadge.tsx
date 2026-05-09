@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/HigherOrderBadge.tsx
+// components/builder/shared/primitives/HigherOrderBadge.tsx
 //
 // Read-only badge surfaced by the property pickers when the authored
 // AST shape carries content the picker can't edit in place. Used by

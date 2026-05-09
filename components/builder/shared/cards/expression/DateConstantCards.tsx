@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/DateConstantCards.tsx
+// components/builder/shared/cards/expression/DateConstantCards.tsx
 //
 // Discriminator-only cards for the two date constants — `today`
 // (project-timezone ISO date) and `now` (UTC ISO datetime). No

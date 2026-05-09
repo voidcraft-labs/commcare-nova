@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/RelationPathBuilder.tsx
+// components/builder/shared/primitives/RelationPathBuilder.tsx
 //
 // Typed `RelationPath` composer.
 //

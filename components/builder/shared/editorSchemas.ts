@@ -1,4 +1,4 @@
-// components/builder/case-list-config/editorSchemas.ts
+// components/builder/shared/editorSchemas.ts
 //
 // Declarative registry mapping every Predicate kind to its card
 // component, label, icon, default-value factory, and applicability

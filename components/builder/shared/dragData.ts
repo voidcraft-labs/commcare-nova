@@ -1,4 +1,4 @@
-// components/builder/case-list-config/dragData.ts
+// components/builder/shared/dragData.ts
 //
 // Typed drag-and-drop payloads for the predicate / expression /
 // sort-key card editors.

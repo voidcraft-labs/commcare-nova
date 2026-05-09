@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/preservedOperandSwap.test.tsx
+// components/builder/shared/__tests__/preservedOperandSwap.test.tsx
 //
 // Operand-preserving kind-replace tests. The outer "Change" menu
 // in `ChildPredicateEditor` flips a card's kind via two

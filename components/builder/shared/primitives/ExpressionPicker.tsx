@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/ExpressionPicker.tsx
+// components/builder/shared/primitives/ExpressionPicker.tsx
 //
 // Recursive dispatch shell for a single ValueExpression node — the
 // ValueExpression-side analogue of `cards/ChildPredicateEditor.tsx`.

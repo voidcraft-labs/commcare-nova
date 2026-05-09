@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/LogicalGroupCard.tsx
+// components/builder/shared/cards/LogicalGroupCard.tsx
 //
 // Renders the logical operators `and` / `or` (multi-clause) and
 // `not` (single-clause). Composing through this card is how

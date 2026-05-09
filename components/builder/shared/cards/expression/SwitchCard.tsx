@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/SwitchCard.tsx
+// components/builder/shared/cards/expression/SwitchCard.tsx
 //
 // Renders the `switch` ValueExpression — value-driven multi-case
 // dispatch. Slots:

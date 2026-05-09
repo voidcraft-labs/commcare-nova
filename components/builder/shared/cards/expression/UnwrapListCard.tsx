@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/UnwrapListCard.tsx
+// components/builder/shared/cards/expression/UnwrapListCard.tsx
 //
 // Renders the `unwrap-list` ValueExpression as a read-only badge.
 // `unwrap-list` produces a `_sequence` resolved type that no scalar

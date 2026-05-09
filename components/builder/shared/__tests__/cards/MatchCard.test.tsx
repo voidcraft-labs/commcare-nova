@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards/MatchCard.test.tsx
+// components/builder/shared/__tests__/cards/MatchCard.test.tsx
 //
 // Inline-error regression test for the MatchCard's value-slot
 // rendering. The type checker (`checkMatch` in

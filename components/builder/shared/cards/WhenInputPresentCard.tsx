@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/WhenInputPresentCard.tsx
+// components/builder/shared/cards/WhenInputPresentCard.tsx
 //
 // Renders the `when-input-present` predicate — search-input
 // dropdown plus a nested predicate editor for the inner clause.

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/cards.smoke.test.tsx
+// components/builder/shared/__tests__/cards.smoke.test.tsx
 //
 // Table-driven smoke test for every card in the registry.
 // Asserts each kind's `defaultValue(ctx)` factory produces a

@@ -1,4 +1,4 @@
-// components/builder/case-list-config/literalRebuild.ts
+// components/builder/shared/literalRebuild.ts
 //
 // Shared helpers for rebuilding `Literal` AST values without
 // destroying their `data_type` qualifier. The `Literal` schema

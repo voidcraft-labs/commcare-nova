@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// components/builder/case-list-config/__tests__/roundTripPreservation.test.tsx
+// components/builder/shared/__tests__/roundTripPreservation.test.tsx
 //
 // Round-trip preservation contract for the picker primitives.
 //

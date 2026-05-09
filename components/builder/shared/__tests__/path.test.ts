@@ -1,4 +1,4 @@
-// components/builder/case-list-config/__tests__/path.test.ts
+// components/builder/shared/__tests__/path.test.ts
 //
 // Path-encoding round-trips. Mirrors the walker shape in
 // `lib/domain/predicate/typeChecker.ts` — the editor's path-build

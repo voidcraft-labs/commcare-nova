@@ -1,4 +1,4 @@
-// components/builder/case-list-config/cards/expression/ArithCard.tsx
+// components/builder/shared/cards/expression/ArithCard.tsx
 //
 // Renders the `arith` ValueExpression — five-op binary numeric
 // arithmetic (`+` / `-` / `*` / `div` / `mod`). The `op` discriminator

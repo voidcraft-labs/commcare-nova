@@ -1,4 +1,4 @@
-// components/builder/case-list-config/primitives/CardShell.tsx
+// components/builder/shared/primitives/CardShell.tsx
 //
 // Shared chrome for every predicate card: header (icon + label +
 // optional kebab menu), body slot, and inline-error footer. The

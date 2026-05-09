@@ -1,4 +1,4 @@
-// components/builder/case-list-config/__tests__/editorSchemas.test.ts
+// components/builder/shared/__tests__/editorSchemas.test.ts
 //
 // Registry-shape tests for the predicate card editor. Two
 // invariants pinned here:

@@ -1,4 +1,4 @@
-// components/builder/case-list-config/PredicateCardEditor.tsx
+// components/builder/shared/PredicateCardEditor.tsx
 //
 // Top-level Predicate AST authoring surface. Renders an arbitrary
 // `Predicate` as a tree of cards via the registry-driven dispatch

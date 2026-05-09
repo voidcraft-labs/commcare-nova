@@ -1,4 +1,4 @@
-// components/builder/case-list-config/nodeIdentity.ts
+// components/builder/shared/nodeIdentity.ts
 //
 // Stable per-AST-node identity for the predicate card editor.
 //
