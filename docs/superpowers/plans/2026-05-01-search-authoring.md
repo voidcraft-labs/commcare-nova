@@ -305,6 +305,7 @@ The XML shell follows `commcare-hq/corehq/apps/app_manager/tests/data/suite/remo
   - Each `caseListConfig.searchInputs[i]` whose `kind === "advanced"` — the `predicate` slot.
   - All contributions AND together at the AST level (`and(...)` builder) BEFORE compilation; the CSQL emitter receives one Predicate and emits one CSQL string. The wire layer carries one `<data key="_xpath_query">` element regardless of how many AST predicates contributed.
   - When the AND-composed result is `match-all` (no filter, no advanced inputs) the `<data key="_xpath_query">` element is omitted entirely (CCHQ accepts the absence cleanly).
+- `commcare_blacklisted_owner_ids` — emitted when `caseSearchConfig.blacklistedOwnerIds` is set. The `ref` attribute is the compiled `ValueExpression` for the blacklist (compile via the on-device emitter; the result is an XPath expression evaluating to a space-separated list of owner IDs). CCHQ's `<query>`-side blacklist filtering is owned at this layer (NOT the `<post>` element — verified against `~/code/commcare-hq/.../suite_xml/post_process/remote_requests.py::RemoteRequestFactory._remote_request_query_datums` and `~/code/commcare-hq/.../tests/data/suite/search_config_blacklisted_owners.xml`).
 - `commcare_sort` — NEVER emitted. ES default `_score` ranking applies for fuzzy / phonetic / starts-with match results.
 
 `<datum>`:
@@ -325,19 +326,37 @@ The XML shell follows `commcare-hq/corehq/apps/app_manager/tests/data/suite/remo
 
 **Files:** `lib/commcare/suite/case-search/claim.ts`, tests.
 
-`<post url="..." relevant="...">` element. `relevant` attribute compiles from:
+CCHQ shape verified against `~/code/commcare-hq/.../suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_post`, `~/code/commcare-hq/.../models.py::CaseSearch.get_relevant`, `~/code/commcare-hq/.../xpath.py::CaseClaimXpath.default_relevant`, `~/code/commcare-hq/.../tests/data/suite/remote_request.xml`. The blacklist `<data>` element is NOT a `<post>` child — it lives in `<query>`'s data list (Task 8 territory). Task 9 owns ONLY the `<post>` element + its `<data key="case_id">` child + the `relevant` attribute composition.
 
-- The base "case is not already in casedb" guard: `(count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0)`.
-- AND `claimCondition` (when present) — compiles via Plan 1's CSQL emitter (the on-device emitter; this attribute is on-device-evaluated).
-- AND the standard "not already owned" guard when `dontClaimAlreadyOwned` is true.
+`<post url="..." relevant="...">` element. `relevant` attribute compiles from CCHQ's `CaseSearch.get_relevant` shape:
 
-Inside `<post>`:
-- `<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>` — required, always present.
-- `<data key="blacklist" ref="..."/>` — when `blacklistedOwnerIds` is set; compiles via the on-device emitter on the supplied `ValueExpression`.
+- **Base guard (always present)** — CCHQ's `CaseClaimXpath.default_relevant`, lifted verbatim: `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0`. Structural defense against repeat-claim writes (the underlying cause of the `state hash mismatch` log spam in CCHQ webapps logs — Nova emits the guard so we never make it worse).
+- **AND optional `additional_relevant` clause** — Nova's wire emitter folds two contributions into one `additional_relevant` string that AND-composes with the base guard at the wire layer per CCHQ's pattern `({base}) and ({additional_relevant})`:
+  - `caseSearchConfig.claimCondition` (when present) — compiled via the on-device emitter (`emitCaseListFilter` from `lib/commcare/predicate/index.ts` — the `<post relevant>` slot is on-device-evaluated, same grammar as the case-list filter slot).
+  - `caseSearchConfig.dontClaimAlreadyOwned` clause when `true` — **TBD pending supervisor decision; see "Open question — `dontClaimAlreadyOwned` wire form" section below.**
 
-**Wire fixture verification gate.** Verify against `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_config_blacklisted_owners.xml` for the `<data key="blacklist">` shape and against `case-search-with-action.xml` / `case-search-again-with-action.xml` for the action-prompted claim flow shape.
+Inside `<post>`, ONLY:
+- `<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>` — required, always present. No other `<data>` children (the blacklist lives on `<query>`, not `<post>`).
 
-**Tests:** golden-file comparisons; `dontClaimAlreadyOwned` toggle modifies the `relevant` attribute correctly; `blacklistedOwnerIds` adds the `<data key="blacklist">` element when set; absent both = minimal `<post>` shape.
+**Wire fixture verification gate.** Verify against `~/code/commcare-hq/.../tests/data/suite/remote_request.xml` for the `<post>` element shape and child ordering, and against `case-search-with-action.xml` / `case-search-again-with-action.xml` for the action-prompted claim flow shape (action element lives on `m{N}_case_short` per Task 7's territory; Task 9 cross-references but doesn't emit).
+
+**Tests:** golden-file comparison against `remote_request.xml`'s `<post>` shape; minimal `<post>` (no claim condition, no dontClaimAlreadyOwned) = base guard only; `claimCondition` set produces `({base}) and ({additional_relevant})` composition; `dontClaimAlreadyOwned: true` produces the supervisor-decided clause AND-composed with the base guard (or claim-condition-bearing combined string).
+
+#### Open question — `dontClaimAlreadyOwned` wire form
+
+CCHQ has no canonical "skip already-owned" XPath form anywhere in the source. The only general-purpose hook is `additional_relevant` — a free-form XPath string CCHQ authors write themselves. Nova's `dontClaimAlreadyOwned: boolean` schema slot was specified in the spec, shipped via Task 1, and consumed by the UI (Task 2) and SA tools (Task 5). The wire emission needs to translate the boolean to a specific XPath clause, which Nova authors.
+
+**Three options the supervisor must pick before Task 9 ships:**
+
+A. **Drop the slot entirely** — remove `dontClaimAlreadyOwned` from the schema. Authors who want "skip already-owned" semantics write the XPath in `claimCondition` themselves. Reverts Task 1 schema + Task 2 UI + Task 5 SA tool surface. Honest about CCHQ's lack of native support; worse authoring UX.
+
+B. **Map to a Nova-authored XPath clause** — Nova's wire emitter generates a specific XPath form when the toggle is true. Candidate form: `instance('results')/results/case[@case_id=instance('commcaresession')/session/data/search_case_id]/@owner_id != instance('commcaresession')/session/context/userid`. Verifies the user is NOT the owner before claiming. Looks up the case in the search-results instance by case-id, reads its `@owner_id`, compares to the framework-provided `session/context/userid`. **Unverified** — no canonical CCHQ source for this exact form; this is Nova-authored XPath.
+
+C. **Defer the feature** — keep the schema slot but emit a no-op at the wire layer with a documented "not yet wired through" surface. Authors can toggle but the runtime ignores the toggle. Worst option (silently breaks the user's intent).
+
+**Recommendation:** Option B with a verified XPath form. The XPath needs runtime testing in a CCHQ webapps deployment to confirm the case-lookup-via-search-results-instance evaluates correctly post-selection. A reviewer pass on a deployed Nova-authored fixture (cycle once through CCHQ's `applyXForm` + restore loop, confirm the claim fires only when the user is not already the owner) would close the verification gap.
+
+The supervisor's decision needs to land in this section before Task 9 dispatches.
 
 ### Task 10: Search prompts emission (per-arm dispatch)
 
