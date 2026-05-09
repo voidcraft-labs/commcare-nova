@@ -759,6 +759,48 @@ Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) Approved with o
 
 **Next:** Task 11's 6-rule fix-pass (in flight), Task 12 (workspace mount, in flight), Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`), Task 8 (`<remote-request>` orchestrator — depends on 9 + 10), Task 4 (cross-binding test, depends on 12), Task 13 (integration test, depends on all).
 
+### Task 12 — CaseSearchConfigPanel + URL routing + ModuleScreen affordance — 2026-05-08
+
+Landed across two commits: `1cc1dd0a` (initial implementation; DONE_WITH_CONCERNS for cross-task interference + two prompt deviations the implementer correctly resolved) → `f54c3f0f` (CR round-1 fix-pass: dead-variable cleanup + test-contract pinning + case-less validity test).
+
+Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) APPROVED with two Minors + one observation, all addressed in `f54c3f0f`.
+
+**Final shape:**
+
+- `components/builder/case-search-config/CaseSearchConfigPanel.tsx` (NEW, 326 lines) — multi-section workspace shell mounting ClaimSection (Task 2) + DisplaySection (Task 3) + Plan 3's `SearchInputsSection` (cross-bound against `mod.caseListConfig.searchInputs`). Sticky violet-railed section headers via `CaseListSectionHeader`. Single-scroll magazine layout. Reads `mod.caseSearchConfig` and `mod.caseListConfig.searchInputs` from the doc store; writes via `useBlueprintDocApi().updateModule(moduleUuid, ...)`. Cross-binding load-bearing: SearchInputsSection edits write to `caseListConfig.searchInputs`, NOT a parallel slot.
+
+- `lib/routing/types.ts` (EDIT) — `Location` union extends with `{ kind: "search-config"; moduleUuid: Uuid }`.
+- `lib/routing/location.ts` (EDIT) — parser handles `[moduleUuid, "search-config"]` → `{ kind, moduleUuid }`; serializer round-trips; `recoverLocation` falls back to home when moduleUuid doesn't resolve.
+- `lib/routing/hooks.tsx` (EDIT) — `openSearchConfig(moduleUuid)` exposed via `useNavigate()`. `useBreadcrumbs` threads the new kind with label "Search Config".
+- `lib/routing/CLAUDE.md` (EDIT) — URL schema table updated.
+- `components/preview/PreviewShell.tsx` (EDIT) — `loc.kind === "search-config"` branch dispatches to CaseSearchConfigPanel in edit mode. Live mode renders a typed placeholder ("Live preview lands in a follow-up.") to prevent runtime crashes; Plan 5 owns the live-mode dispatch.
+- `components/preview/screens/ModuleScreen.tsx` (EDIT) — "Search Config" affordance card. Always-render-but-greyed pattern: `disabled={!hasCase}` + click suppression + hover hint when case-less.
+- `lib/preview/engine/types.ts` (EDIT) — `PreviewScreen` extended with `{ type: "searchConfig"; moduleIndex: number }` for dispatch uniformity. Load-bearing: `screenKey()` exhaustive switch + `screensEqual()` + `getParentScreen()` all carry the new arm.
+
+**Tests:** 14 in CaseSearchConfigPanel.test.tsx (one added in fix-pass for case-less validity), 4 new in ModuleScreen.test.tsx, 4 new in location.test.ts. Each `it()` pins one invariant.
+
+**Implementer's deviations from prompt (all defensible):**
+
+1. **Live-mode placeholder copy** — used "Live preview lands in a follow-up." instead of the prompt's "Live preview lands in Plan 5" because the latter violates the project's no-external-doc-references-in-code rule. Correct catch.
+
+2. **ModuleScreen affordance visibility** — the prompt was contradictory ("Visible when caseType is set" AND "greyed when caseType is undefined"). Implementer chose always-render-but-greyed (the disabled-state spec is the more specific signal). Diverges from the existing `CaseListCard` pattern (which only renders when case-typed). Surfaced for supervisor review; defensible — the disabled card with hint actively educates the user about the prerequisite.
+
+3. **Cross-task interference** — when isolating for verification, the implementer overwrote Task 11's uncommitted WIP via `git checkout HEAD --` + `rm`. Task 11's implementer (running in parallel with their session context intact) re-applied + committed at `1505c4e9`. No data loss. Worth noting for future workflow: parallel implementers on the shared worktree need explicit sequencing OR use of `git stash`. Documented for the next round.
+
+**Test count:** 4001 / 14 skipped after Task 12 + Task 11 fix-pass both land.
+
+**Acceptance gates landed:**
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean.
+- Drift sweeps clean.
+- User-runnable acceptance: a user can navigate to `/build/{appId}/{moduleUuid}/search-config` via the ModuleScreen affordance card, see the three-section UI, edit a claim condition, and the change persists across reload (URL round-trip + doc store + Firestore).
+
+**CR round-1 Minors all addressed in `f54c3f0f`:** dead-variable alias unified to `searchInputs`; seed test tightened with a `<DocSnapshotProbe>` consumer that reads post-mutation doc state; case-less validity contract pinned by an explicit test.
+
+**Whole-repo build state:** green throughout.
+
+**Next:** Task 11 round-2 CR's expectedType correction → plan-sync Task 11 → Task 9 (BLOCKED) → Task 8 → Task 4 → Task 13.
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
