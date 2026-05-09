@@ -31,12 +31,12 @@ Every file mapped to its owning task. NEW / EDIT annotated. UI components includ
 
 ### UI sections (Tasks 2-3 build sections; Task 12 mounts them in the shell)
 
-- `components/builder/case-search-config/ClaimSection.tsx` (NEW) — Task 2. Mount: `CaseSearchConfigPanel.tsx::ClaimSection` (Task 12 owns the mount line).
+- `components/builder/case-search-config/AdvancedSection.tsx` (NEW) — Task 2. Mount: `CaseSearchConfigPanel.tsx::AdvancedSection` (Task 12 owns the mount line).
 - `components/builder/case-search-config/DisplaySection.tsx` (NEW) — Task 3. Mount: `CaseSearchConfigPanel.tsx::DisplaySection` (Task 12 owns the mount line).
-- `components/builder/case-search-config/__tests__/ClaimSection.test.tsx` (NEW)
+- `components/builder/case-search-config/__tests__/AdvancedSection.test.tsx` (NEW)
 - `components/builder/case-search-config/__tests__/DisplaySection.test.tsx` (NEW)
 
-The cross-bound `SearchInputsSection` (Plan 3's discriminated UI, mounted against `mod.caseListConfig.searchInputs`) is mounted inline by Task 12 alongside ClaimSection and DisplaySection — Task 12 ships the three-section shell as a single coherent surface.
+The cross-bound `SearchInputsSection` (Plan 3's discriminated UI, mounted against `mod.caseListConfig.searchInputs`) is mounted inline by Task 12 alongside DisplaySection and AdvancedSection — Task 12 ships the three-section shell as a single coherent surface.
 
 ### Cross-binding verification (Task 4)
 
@@ -44,17 +44,16 @@ The cross-bound `SearchInputsSection` (Plan 3's discriminated UI, mounted agains
 
 ### SA tools (Task 5)
 
-- `lib/agent/tools/case-search-config/setCaseSearchClaim.ts` (NEW)
+- `lib/agent/tools/case-search-config/setCaseSearchAdvanced.ts` (NEW)
 - `lib/agent/tools/case-search-config/setCaseSearchDisplay.ts` (NEW)
 - `lib/agent/tools/case-search-config/shared.ts` (NEW) — `snapshotCaseSearchConfig` helper + Zod input schemas for the two tools' bodies (omitting `moduleIndex`).
-- `lib/agent/tools/case-search-config/__tests__/setCaseSearchClaim.test.ts` (NEW)
+- `lib/agent/tools/case-search-config/__tests__/setCaseSearchAdvanced.test.ts` (NEW)
 - `lib/agent/tools/case-search-config/__tests__/setCaseSearchDisplay.test.ts` (NEW)
 - `lib/agent/tools/case-search-config/__tests__/schema.test.ts` (NEW) — verifies both tools' input schemas pass `scripts/test-schema.ts` (Anthropic 8-optional-ceiling structural defense).
 - `lib/agent/tools/shared/moduleNotFoundResult.ts` (NEW) — relocate the helper out of `case-list-config/shared.ts` (first-duplication: caseSearchConfig tools need the same shape; extract before duplicating).
 - `lib/agent/tools/case-list-config/shared.ts` (EDIT) — re-export from the new shared location; remove the inline definition.
-- `lib/agent/blueprintHelpers.ts` (EDIT) — `setCaseSearchClaimMutation` + `setCaseSearchDisplayMutation` builders (mirror the case-list-config family's narrowed `(mod: Module, ...)` pattern from the reshape's audit-followup).
 - `lib/agent/solutionsArchitect.ts` (EDIT) — register the 2 new tools.
-- `lib/agent/summarizeBlueprint.ts` (EDIT) — surface `caseSearchConfig` presence + claim shape + display labels in the SA-facing module summary.
+- `lib/agent/summarizeBlueprint.ts` (EDIT) — surface `caseSearchConfig` presence + display labels + advanced-cluster state in the SA-facing module summary.
 - `lib/agent/prompts.ts` (EDIT) — system-prompt addition naming the 2 case-search tools + the "edit the same searchInputs through case-list tools" cross-binding rule.
 - `lib/agent/tools/getModule.ts` (EDIT) — projection includes `caseSearchConfig` verbatim.
 - `lib/agent/tools/updateModule.ts` (EDIT) — JSDoc references the new tool family alongside the existing case-list-config family.
@@ -80,18 +79,20 @@ The cross-bound `SearchInputsSection` (Plan 3's discriminated UI, mounted agains
 
 ### Validator rules (Task 11)
 
-- `lib/commcare/validator/rules/case-search/searchInputReferences.ts` (NEW) — Task 11.
-- `lib/commcare/validator/rules/case-search/claimConditionTypeCheck.ts` (NEW) — Task 11.
+- `lib/commcare/validator/rules/case-search/searchButtonDisplayConditionTypeCheck.ts` (NEW) — Task 11.
+- `lib/commcare/validator/rules/case-search/blacklistedOwnerIdsTypeCheck.ts` (NEW) — Task 11.
 - `lib/commcare/validator/rules/case-search/filterSearchInputConflict.ts` (NEW) — Task 11.
-- `lib/commcare/validator/rules/case-search/__tests__/searchInputReferences.test.ts` (NEW)
-- `lib/commcare/validator/rules/case-search/__tests__/claimConditionTypeCheck.test.ts` (NEW)
+- `lib/commcare/validator/rules/case-search/__tests__/searchButtonDisplayConditionTypeCheck.test.ts` (NEW)
+- `lib/commcare/validator/rules/case-search/__tests__/blacklistedOwnerIdsTypeCheck.test.ts` (NEW)
 - `lib/commcare/validator/rules/case-search/__tests__/filterSearchInputConflict.test.ts` (NEW)
-- `lib/commcare/validator/rules/case-search/__tests__/integration.test.ts` (NEW) — three rules wired through `runValidation`.
-- `lib/commcare/validator/rules/module.ts` (EDIT) — register the 3 new rules.
+- `lib/commcare/validator/rules/case-search/__tests__/integration.test.ts` (NEW) — case-search rules wired through `runValidation`.
+- `lib/commcare/validator/rules/case-list/searchInputDefaultTypeCheck.ts` (NEW) — Task 11. Lives under case-list because `searchInputs` is owned by `caseListConfig`.
+- `lib/commcare/validator/rules/case-list/searchInputPredicateTypeCheck.ts` (NEW) — Task 11. Same scope reason.
+- `lib/commcare/validator/rules/module.ts` (EDIT) — register the new rules.
 
 ### Workspace shell + URL routing (Task 12)
 
-- `components/builder/case-search-config/CaseSearchConfigPanel.tsx` (NEW) — Task 12. Multi-section workspace shell. Mounts ClaimSection (built by Task 2), DisplaySection (built by Task 3), and the Plan 3 `SearchInputsSection` (cross-bound against `mod.caseListConfig.searchInputs`).
+- `components/builder/case-search-config/CaseSearchConfigPanel.tsx` (NEW) — Task 12. Multi-section workspace shell. Mounts DisplaySection (built by Task 3), the Plan 3 `SearchInputsSection` (cross-bound against `mod.caseListConfig.searchInputs`), and AdvancedSection (built by Task 2). Section order top-to-bottom: Display → Search Inputs → Advanced.
 - `components/builder/case-search-config/__tests__/CaseSearchConfigPanel.test.tsx` (NEW)
 - `lib/routing/types.ts` (EDIT) — add `{ kind: "search-config"; moduleUuid: Uuid }` to the `Location` discriminated union.
 - `lib/routing/location.ts` (EDIT) — parse `[moduleUuid, "search-config"]` segments → `{ kind: "search-config", moduleUuid }`; serialize the kind back. Mirror the `cases` arm.
@@ -118,16 +119,6 @@ Add `caseSearchConfig?: CaseSearchConfig` to the module schema. The shape:
 
 ```ts
 interface CaseSearchConfig {
-  // Claim
-  // When `claimCondition` is absent, claim happens unconditionally on case
-  // selection from search results. When present, it gates the claim — claim
-  // fires only if the predicate evaluates true.
-  claimCondition?: Predicate;
-  // ValueExpression returning a space-separated list of owner IDs whose
-  // cases are excluded from the search-results scope. Wire form: `<data
-  // key="blacklist" ref="..."/>`. Rare; collapses default closed in the UI.
-  blacklistedOwnerIds?: ValueExpression;
-
   // Display
   searchScreenTitle?: string;
   searchScreenSubtitle?: string;            // markdown rendered at runtime
@@ -135,6 +126,13 @@ interface CaseSearchConfig {
   searchButtonLabel?: string;
   searchAgainButtonLabel?: string;
   searchButtonDisplayCondition?: Predicate; // hides/shows the search button
+
+  // Advanced
+  // ValueExpression returning a space-separated list of owner IDs whose
+  // cases are excluded from the search-results scope. The runtime applies
+  // the exclusion before paging results back to the search screen. Rare
+  // affordance — the editor collapses closed by default in the UI.
+  blacklistedOwnerIds?: ValueExpression;
 }
 ```
 
@@ -143,26 +141,26 @@ Notable schema decisions:
 - **No `defaultFilters` slot.** `caseListConfig.filter` is the single Predicate source. The wire emitter projects it onto both the case-list `<detail nodeset>` filter and the search-side `<data key="_xpath_query">` slot at emission time (Task 8).
 - **No `customSorts` / `sortByRelevance` slots.** `caseListConfig.columns[*].sort` is the single source for display sort; the wire emitter projects identical `<sort>` blocks onto both `m{N}_case_short` and `m{N}_search_short` (Task 7). Nova never emits `<data key="commcare_sort">` (the ES retrieval-sort override); ES's default `_score` ranking is in effect for fuzzy / phonetic match results.
 - **`searchInputs` does NOT live here.** It stays on `mod.caseListConfig.searchInputs` per Plan 3 + the v2 reshape, shared between the case-list inline-search experience and the case-search-config workspace.
-- **No `dontClaimAlreadyOwned` slot.** CCHQ's `additional_relevant` (the field a "skip already-owned" toggle would compile to) is gated behind the `CASE_SEARCH_DEPRECATED` feature flag for authoring; the runtime is alive but the authoring affordance is being wound down. Authors who want the semantic write the XPath in `claimCondition` themselves.
+- **No claim-condition authoring.** CCHQ's runtime fires the case-claim step automatically: the `<post relevant>` always emits the default guard `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0` regardless of any author input. The claim-condition slot CCHQ exposes (`additional_relevant`) is gated behind `CASE_SEARCH_DEPRECATED` for authoring — Nova does not expose an authoring affordance for it.
+- **The two clusters are display + advanced.** Display owns the search-screen labels (six text + predicate slots). Advanced owns niche search-side filters (today: `blacklistedOwnerIds`); the abstract name lets future advanced filters land here without a schema rename.
 
 Schema is `z.object({ ... }).strict()` with all-optional fields. `caseSearchConfig: undefined` on a module signals "no case-search authoring"; an empty `{}` signals "search authored, every slot uses runtime defaults" — both are valid persisted shapes, distinguishing the two states meaningfully.
 
 **Tests:** schema parse round-trip; empty-config round-trip; `.strict()` rejects unknown keys; explicit `undefined` admitted on optional slots; `caseSearchConfig: undefined` round-trips as the absent-slot shape on the Module.
 
-### Task 2: Claim section UI
+### Task 2: Advanced section UI
 
-**Files:** `components/builder/case-search-config/ClaimSection.tsx`, tests.
+**Files:** `components/builder/case-search-config/AdvancedSection.tsx`, tests.
 
-Two sub-controls:
+One sub-control today; the section name is intentionally abstract so future advanced filters land here without a rename.
 
-- **Claim condition** — `<PredicateCardEditor predicate={config.claimCondition} onChange={...} caseTypes={...} currentCaseType={...} knownInputs={mod.caseListConfig?.searchInputs ?? []} />` — optional; absent ≡ "always claim."
-- **Blacklisted owner IDs** — collapsed-by-default `<ExpressionCardEditor expression={config.blacklistedOwnerIds} onChange={...} />`. Returns a space-separated `ValueExpression`. Rare; collapse default closed.
+- **Blacklisted owner IDs** — collapsed-by-default `<ExpressionCardEditor expression={config.blacklistedOwnerIds} onChange={...} expectedType="text" />`. Returns a space-separated `ValueExpression` of owner IDs to exclude from the search-results scope. The editor stays mounted whenever the slot is defined (collapse toggles visibility via the `hidden` attribute, not unmount), so a backend-loaded invalid expression still surfaces its type-check verdict on a default-collapsed first render.
 
-Routes through `useValidityPropagator` for save-gate propagation (mirrors the `FiltersSection` pattern from Plan 3).
+Routes through `useValidityPropagator` for save-gate propagation (mirrors the `FiltersSection` pattern from Plan 3). Section validity = `!blacklistPresent || expressionValid` — slot-presence short-circuit when the blacklist is absent.
 
-**Mount site:** `CaseSearchConfigPanel.tsx::ClaimSection` (Task 12's shell mounts it).
+**Mount site:** `CaseSearchConfigPanel.tsx::AdvancedSection` (Task 12's shell mounts it as the third section, below Display and Search Inputs).
 
-**Tests:** round-trip; first-edit seed; blacklist expression validity; claim condition validity gates the save state via `useValidityPropagator`.
+**Tests:** empty-state render; add-path round-trip; populated-config round-trip; collapse-state visibility toggle preserves mount; blacklist expression validity propagates through `useValidityPropagator`.
 
 ### Task 3: Display section UI
 
@@ -197,12 +195,12 @@ The test mounts both `CaseListWorkspace` and `CaseSearchConfigPanel` against the
 
 Two wholesale tools — `caseSearchConfig` is a config bag, not an addressable list, so atomic-op decomposition doesn't apply. Each tool replaces a coherent cluster of related fields. Both reuse the relocated `moduleNotFoundResult` helper.
 
-- `setCaseSearchClaim({ moduleIndex, claimCondition?, blacklistedOwnerIds? })` — sets the entire claim cluster. `null`-clearing convention on the optional fields: pass `null` to clear `claimCondition` / `blacklistedOwnerIds`; omitted = unchanged.
+- `setCaseSearchAdvanced({ moduleIndex, blacklistedOwnerIds })` — sets the entire advanced cluster. The `blacklistedOwnerIds` slot is required-and-nullable on the SA boundary: pass `null` to clear, non-null to set (mirrors `setCaseListFilter`'s wholesale-replace shape). Today the cluster carries one slot; future advanced filters land here without a tool rename.
 - `setCaseSearchDisplay({ moduleIndex, searchScreenTitle?, searchScreenSubtitle?, emptyListText?, searchButtonLabel?, searchAgainButtonLabel?, searchButtonDisplayCondition? })` — sets the entire display cluster. `null`-clearing convention applies.
 
 Each tool's `execute` returns `MutatingToolResult<R>` per the shared contract; success result is structured `{ message, ... }` carrying the touched-field-count discriminator (mirror `setCaseListFilter`'s structured-success shape — the SA reads the discriminator without re-parsing prose).
 
-**Module-not-found defense** at the tool boundary, using the relocated `moduleNotFoundResult<TSuccess>(doc, moduleIndex, "set the case-search claim")` helper. Elm-style error: "Tried to set the case-search claim on module index N. Found no module at that index. Look at `getModule`'s projection for valid indices."
+**Module-not-found defense** at the tool boundary, using the relocated `moduleNotFoundResult<TSuccess>(doc, moduleIndex, "set the case-search advanced cluster")` helper. Elm-style error: "Tried to set the case-search advanced cluster on module index N. Found no module at that index. Look at `getModule`'s projection for valid indices."
 
 **Helper relocation (first-duplication discipline).** The reshape's `moduleNotFoundResult` lives at `lib/agent/tools/case-list-config/shared.ts`. Adding case-search-config as a second consumer triggers the first-duplication rule: relocate the helper to `lib/agent/tools/shared/moduleNotFoundResult.ts` BEFORE adding the second copy. The case-list-config tools' `shared.ts` re-exports from the new location to keep the same import path stable for those tools.
 
@@ -210,7 +208,7 @@ Each tool's `execute` returns `MutatingToolResult<R>` per the shared contract; s
 
 **Module addressing.** Both tools take `moduleIndex: number` (0-based), mirroring the existing case-list-config family's pattern (`setCaseListFilter` and the 8 atomic-op tools all use `moduleIndex`).
 
-**Read-tool projection.** `getModule` returns `mod.caseSearchConfig` verbatim when present. `summarizeBlueprint` adds a one-line surface per module: `"caseSearchConfig: claim={kind} display={titleSet/subtitleSet/...}"` so the SA can resume from a fresh-session prompt without re-reading.
+**Read-tool projection.** `getModule` returns `mod.caseSearchConfig` verbatim when present. `summarizeBlueprint` adds a one-line surface per module: `"case_search: display={titleSet/subtitleSet/...} advanced={blacklistedOwnerIds|none}"` so the SA can resume from a fresh-session prompt without re-reading.
 
 **Registration:** `lib/agent/solutionsArchitect.ts` adds the 2 tools to the shared set alongside the case-list-config family. `lib/mcp/server.ts` mirrors the registration.
 
@@ -314,36 +312,24 @@ The XML shell follows `commcare-hq/corehq/apps/app_manager/tests/data/suite/remo
 
 **Verification gate (carried over from spec):** before locking emission code, read `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py` to confirm `<query>` and `<datum>` attribute semantics. Cite by stable name (no line numbers).
 
-**Tests:** golden-file comparisons against `remote_request.xml`, one fixture per platform × content combination (Android-list-first / Web-split-screen / Web-skip-to-results / Web-list-first fallback). The `<data key="_xpath_query">` emission asserts AND-composition: a fixture with both a `caseListConfig.filter` AND an advanced-arm search input produces ONE `<data>` element whose CSQL is the AND-conjunction of both contributions.
+**Tests:** golden-file comparisons against `remote_request.xml`, one fixture per platform × content combination matching the three-branch `WireShape` decision tree (Android / Web-skip-to-results / Web-list-first fallback). The `<data key="_xpath_query">` emission asserts AND-composition: a fixture with both a `caseListConfig.filter` AND an advanced-arm search input produces ONE `<data>` element whose CSQL is the AND-conjunction of both contributions.
 
 ### Task 9: Claim emission
 
 **Files:** `lib/commcare/suite/case-search/claim.ts`, tests.
 
-CCHQ shape verified against `~/code/commcare-hq/.../suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_post`, `~/code/commcare-hq/.../models.py::CaseSearch.get_relevant`, `~/code/commcare-hq/.../xpath.py::CaseClaimXpath.default_relevant`, `~/code/commcare-hq/.../tests/data/suite/remote_request.xml`. The blacklist `<data>` element is NOT a `<post>` child — it lives in `<query>`'s data list (Task 8 territory). Task 9 owns ONLY the `<post>` element + its `<data key="case_id">` child + the `relevant` attribute composition.
+`<post url="..." relevant="...">` is the structural element CCHQ's runtime fires on case selection from search results to claim ownership. The element is wire-required regardless of authoring; Nova always emits it whenever a module carries `caseSearchConfig`.
 
-`<post url="..." relevant="...">` element. `relevant` attribute compiles from CCHQ's `CaseSearch.get_relevant` shape:
-
-- **Base guard (always present)** — CCHQ's `CaseClaimXpath.default_relevant`, lifted verbatim: `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0`. Structural defense against repeat-claim writes (the underlying cause of the `state hash mismatch` log spam in CCHQ webapps logs — Nova emits the guard so we never make it worse).
-- **AND optional `additional_relevant` clause** — Nova's wire emitter folds the `caseSearchConfig.claimCondition` predicate (when present) into the `additional_relevant` string that AND-composes with the base guard at the wire layer per CCHQ's pattern `({base}) and ({additional_relevant})`. Compiled via the on-device emitter (`emitCaseListFilter` from `lib/commcare/predicate/index.ts` — the `<post relevant>` slot is on-device-evaluated, same grammar as the case-list filter slot). When the predicate is absent, the `<post>` element carries only the base guard.
+The `relevant` attribute carries one static expression — CCHQ's `CaseClaimXpath.default_relevant`, lifted verbatim: `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0`. Structural defense against repeat-claim writes (the underlying cause of the `state hash mismatch` log spam in CCHQ webapps logs — Nova emits the guard so we never make it worse). There is no author-controlled composition: every emission carries this exact guard string.
 
 Inside `<post>`, ONLY:
-- `<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>` — required, always present. No other `<data>` children (the blacklist lives on `<query>`, not `<post>`).
+- `<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>` — required, always present. No other `<data>` children (the blacklist lives on `<query>`, not `<post>` — Task 8's territory).
 
-**Wire fixture verification gate.** Verify against `~/code/commcare-hq/.../tests/data/suite/remote_request.xml` for the `<post>` element shape and child ordering, and against `case-search-with-action.xml` / `case-search-again-with-action.xml` for the action-prompted claim flow shape (action element lives on `m{N}_case_short` per Task 7's territory; Task 9 cross-references but doesn't emit).
+The emitter is a small pure helper — five lines of XML produced from a fixed string template. No predicate compiler involvement, no AST traversal, no input dependency beyond knowing which case-search module is being emitted.
 
-**Tests:** golden-file comparison against `remote_request.xml`'s `<post>` shape; minimal `<post>` (no claim condition) = base guard only; `claimCondition` set produces `({base}) and ({additional_relevant})` composition.
+**Wire fixture verification gate.** Verify against `~/code/commcare-hq/.../tests/data/suite/remote_request.xml` for the `<post>` element shape and child ordering. CCHQ source citations for the static guard: `~/code/commcare-hq/.../models.py::CaseSearch.get_relevant`, `~/code/commcare-hq/.../xpath.py::CaseClaimXpath.default_relevant`. Cite by stable name (no line numbers).
 
-#### Resolution — no separate "skip already-owned" toggle
-
-CCHQ's `additional_relevant` field — the only general-purpose hook a "skip already-owned" toggle could compile to — has its **authoring UI gated behind the `CASE_SEARCH_DEPRECATED` feature flag** in `commcare-hq/.../models.py::CaseSearchProperty.get_relevant`. The runtime is alive (the field is still ANDed with the default condition at evaluation time) but the authoring affordance is being wound down upstream.
-
-A Nova-invented "skip already-owned" toggle that compiled into a synthesized XPath clause on `additional_relevant` would invent UX over a wind-down field. The right shape is:
-
-- **The schema has no `dontClaimAlreadyOwned` slot.** Authors who want the semantic write the XPath in `claimCondition` themselves — that's what CCHQ authors do upstream after the deprecated flag was set.
-- **The `claimCondition` predicate-card editor is the only authoring affordance for claim conditions.** It emits to the same active runtime field (`additional_relevant`) via the `claimCondition` AST.
-
-Original supervisor decision date: 2026-05-08.
+**Tests:** golden-file comparison against `remote_request.xml`'s `<post>` shape — the emission is a single static template, so one golden file pins the contract.
 
 ### Task 10: Search prompts emission (per-arm dispatch)
 
@@ -363,15 +349,17 @@ Each `caseListConfig.searchInputs[i]` becomes a `<prompt key="{input.name}" inpu
 
 ### Task 11: Validator rules
 
-**Files:** `lib/commcare/validator/rules/case-search/*.ts`, `lib/commcare/validator/rules/module.ts` (EDIT), tests.
+**Files:** `lib/commcare/validator/rules/case-search/*.ts`, `lib/commcare/validator/rules/case-list/*.ts`, `lib/commcare/validator/rules/module.ts` (EDIT), tests.
 
-Three rules registered in `module.ts`:
+Rules registered in `module.ts`:
 
-- **`searchInputReferences`** — every `input("name")` term reference in `caseSearchConfig.claimCondition` / `caseSearchConfig.searchButtonDisplayCondition` must resolve to a declared `mod.caseListConfig.searchInputs[i].name` (across both `simple` and `advanced` arms). Elm-style error names the bad reference and lists declared input names.
-- **`claimConditionTypeCheck`** — `caseSearchConfig.claimCondition` (when present) predicate type-checks via Plan 1's predicate type checker against the module's `caseTypes` schema map. The `searchButtonDisplayCondition` and `blacklistedOwnerIds` AST type-checks are covered by the existing predicate / expression typeCheck rules (Plan 3 ships them on the module-walker; Plan 4 leverages them).
-- **`filterSearchInputConflict`** — when `caseSearchConfig` is present (i.e., the module emits a `<remote-request>`), no property may appear as both a `prop(...)` term inside `caseListConfig.filter` AND a simple-arm `caseListConfig.searchInputs[i].property`. Both contribute clauses to the same `<data key="_xpath_query">` AND-composition; CCHQ's runtime treats this as a config error. Elm-style error names the conflicting property + both surfaces.
+- **`searchButtonDisplayConditionTypeCheck`** — `caseSearchConfig.searchButtonDisplayCondition` (when present) predicate type-checks via Plan 1's predicate type checker against the module's `caseTypes` schema map. `input(...)` term references resolve through the type checker's native `knownInputs` mechanism — no separate input-reference rule needed; an unknown input name surfaces as a type-check failure.
+- **`blacklistedOwnerIdsTypeCheck`** — `caseSearchConfig.blacklistedOwnerIds` (when present) value-expression type-checks with `expectedType: "text"`. The slot's authoring meaning is "evaluates to a space-separated text string of owner IDs," and the AST-strict contract narrows the top-level expectation to text.
+- **`filterSearchInputConflict`** — when `caseSearchConfig` is present (i.e., the module emits a `<remote-request>`), no property may appear as both a `prop(...)` term inside `caseListConfig.filter` AND a simple-arm `caseListConfig.searchInputs[i].property`. Both contribute clauses to the same `<data key="_xpath_query">` AND-composition; CCHQ's runtime treats this as a config error. Dedup is via-aware: keys on `(destinationCaseType, property)` after via-walk via `checkRelationPath`. Elm-style error names the conflicting property + both surfaces.
+- **`searchInputDefaultTypeCheck`** (under `case-list/`) — `caseListConfig.searchInputs[i].default` value-expression type-checks with per-widget `expectedType` from a `SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES` lookup. Lives under `case-list/` because `searchInputs` is owned by `caseListConfig`.
+- **`searchInputPredicateTypeCheck`** (under `case-list/`) — advanced-arm `caseListConfig.searchInputs[i].predicate` predicate type-checks with `knownInputs` for cross-input ref resolution. Same scope reason.
 
-**Tests:** each rule fires on bad input + passes on clean input. Integration test wires all three through `runValidation` against a fixture with overlapping property names.
+**Tests:** each rule fires on bad input + passes on clean input. Integration test wires the case-search rules through `runValidation` against a fixture with overlapping property names + an unknown input reference inside `searchButtonDisplayCondition`.
 
 ### Task 12: `CaseSearchConfigPanel` + URL routing + ModuleScreen affordance
 
@@ -387,7 +375,7 @@ Three rules registered in `module.ts`:
 - `components/preview/screens/ModuleScreen.tsx` (EDIT)
 - `components/preview/screens/__tests__/ModuleScreen.test.tsx` (EDIT)
 
-**`CaseSearchConfigPanel.tsx`** — multi-section UI shell. Renders three sections in order: Claim → Display → Search Inputs. Sticky violet-railed section headers (mirror Plan 3's `CaseListSectionHeader` pattern). Single-scroll magazine layout. Reads `mod.caseSearchConfig` (every per-section mutator spreads `...(value ?? {})` before applying its patch, so first-edit emits a strict-parse-valid empty-but-present config) and `mod.caseListConfig.searchInputs` from the doc store; writes via `useBlueprintDocApi().updateModule(moduleUuid, ...)`.
+**`CaseSearchConfigPanel.tsx`** — multi-section UI shell. Renders three sections in order: **Display → Search Inputs → Advanced**. Section order is load-bearing — Display sits at the top because the search-screen title and subtitle are the most prominent slots on the page; Advanced sits at the bottom because its current contents are niche affordances most authors never reach for. Sticky violet-railed section headers (mirror Plan 3's `CaseListSectionHeader` pattern). Single-scroll magazine layout. Reads `mod.caseSearchConfig` (every per-section mutator spreads `...(value ?? {})` before applying its patch, so first-edit emits a strict-parse-valid empty-but-present config) and `mod.caseListConfig.searchInputs` from the doc store; writes via `useBlueprintDocApi().updateModule(moduleUuid, ...)`.
 
 **URL routing changes (the load-bearing fix vs the prior plan, which mis-cited `lib/preview/engine/types.ts`):**
 
@@ -396,13 +384,13 @@ Three rules registered in `module.ts`:
 - `lib/routing/hooks.tsx` — add `openSearchConfig(moduleUuid: Uuid)` to the actions returned by `useNavigate()`. Thread the new `kind` through `useBreadcrumbs` (label: `"Search Config"`).
 - `lib/routing/CLAUDE.md` — add `/build/[id]/{moduleUuid}/search-config → search config` to the URL schema table.
 
-**`PreviewShell.tsx`** — add a `loc.kind === "search-config"` branch. Edit mode: dispatch to `<CaseSearchConfigPanel moduleUuid={loc.moduleUuid} />`. Live mode: render a typed placeholder `"Live preview lands in Plan 5"`. Plan 5 owns the live-mode dispatch; Plan 4's placeholder is a sentinel that prevents a runtime `Cannot dispatch on kind: "search-config"` throw and gives the user a non-crash path while Plan 5 lands.
+**`PreviewShell.tsx`** — add a `loc.kind === "search-config"` branch. Edit mode: dispatch to `<CaseSearchConfigPanel moduleUuid={loc.moduleUuid} />`. Live mode: render a typed placeholder ("Live preview lands in a follow-up.") so the runtime never throws on the new kind. The live-mode dispatch lands in a follow-up plan; Plan 4's placeholder is a sentinel that gives the user a non-crash path until then.
 
 **`ModuleScreen.tsx`** — add a "Search Config" affordance card alongside the existing "Case List" card. Card visibility: `mod.caseType !== undefined` (case-search authoring requires a declared case type). Click handler: `useNavigate().openSearchConfig(moduleUuid)`. Disabled-state rendering: when the module has no `caseType`, the card is greyed with a hover hint "Set a case type on this module to enable search authoring."
 
 **Mount site (locked):** dedicated `/search-config` URL alongside `/cases`. The case-list workspace's three-section magazine stays focused on the case list; the case-search workspace lives separately. Two parallel scrolling workspaces is clearer than one mega-workspace, mirrors the spec's separation of "Case list config" and "Case search config" concerns, and respects the user's "no 4th tab in CaseListWorkspace" directive.
 
-**User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed module, sees the "Search Config" affordance card on the module screen, clicks it. URL changes to `/build/{appId}/{moduleUuid}/search-config`. Sees the multi-section authoring UI (Claim / Display / Search Inputs). Edits the claim condition via `PredicateCardEditor`. Reloads the page. Sees the change persist (route round-trip; `mod.caseSearchConfig.claimCondition` round-tripped through Firestore + the doc store).
+**User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed module, sees the "Search Config" affordance card on the module screen, clicks it. URL changes to `/build/{appId}/{moduleUuid}/search-config`. Sees the three-section authoring UI in order: Display, Search Inputs, Advanced. In the Display section, edits the search-screen title. Reloads the page. Sees the change persist (route round-trip; `mod.caseSearchConfig.searchScreenTitle` round-tripped through Firestore + the doc store).
 
 **Tests:** Panel round-trip; URL round-trip via `parsePathToLocation` + `serializePath`; `useNavigate().openSearchConfig` triggers the right history-state push; ModuleScreen affordance card visible / disabled / click-dispatches under the three case-type states.
 
@@ -412,14 +400,14 @@ Three rules registered in `module.ts`:
 
 End-to-end against the testcontainer harness:
 
-- Build a fixture blueprint with `caseListConfig` (columns + sort + searchInputs) AND `caseSearchConfig` (claim + display).
+- Build a fixture blueprint with `caseListConfig` (columns + sort + searchInputs) AND `caseSearchConfig` (display + advanced).
 - Run the validator; assert clean.
-- Construct a synthetic broken predicate (input ref to a non-declared name in `claimCondition`); assert `searchInputReferences` rule fires with Elm-style error.
+- Construct a synthetic broken predicate (input ref to a non-declared name in `searchButtonDisplayCondition`); assert `searchButtonDisplayConditionTypeCheck` fires with Elm-style error.
 - Construct a `filterSearchInputConflict` fixture (property `status` in both `caseListConfig.filter` AND a simple-arm `searchInputs[i].property`); assert rule fires.
 - Emit `<remote-request>` via `remoteRequest.ts`; compare against golden file.
 - Emit dual `<detail>` blocks via the case-list emitter (Task 7); compare against `search_command_detail.xml` golden file.
-- Round-trip via `compileForPlatform` for Android + Web (split-screen-available + split-screen-unavailable + skip-to-results); verify the four `WireShape` outputs.
-- SA path: call `setCaseSearchClaim` and `setCaseSearchDisplay` through the agent layer; assert mutation effects on the doc store; assert the structured success result discriminator.
+- Round-trip via `compileForPlatform` for Android + Web (skip-to-results + list-first fallback); verify the `WireShape` outputs against the three-branch decision tree.
+- SA path: call `setCaseSearchAdvanced` and `setCaseSearchDisplay` through the agent layer; assert mutation effects on the doc store; assert the structured success result.
 - Module-not-found Elm error arms for both tools.
 
 **No Plan 5 dependencies.** This test verifies the authoring-side wire emission only. Postgres-side runtime behavior of the search-input UI lands in Plan 5.
@@ -438,7 +426,7 @@ End-to-end against the testcontainer harness:
 - 9 depends on 1 + Plan 1.
 - 10 depends on 1 + Plan 3's discriminated `SearchInputDef`.
 - 11 depends on 1 + Plan 1.
-- 12 depends on 1, 2, 3 (the shell mounts ClaimSection, DisplaySection, and the cross-bound SearchInputsSection from Plan 3).
+- 12 depends on 1, 2, 3 (the shell mounts DisplaySection, the cross-bound SearchInputsSection from Plan 3, and AdvancedSection).
 - 13 depends on all prior.
 
 **Topological ordering for the executor:** 1 → {2, 3, 5, 6} → {7, 9, 10, 11} → 8 → 12 → 4 → 13. Task 4 sits AFTER Task 12 in execution order despite its lower task ID — Task 4 verifies a contract Task 12 establishes. The numbering reflects authoring grouping (UI sections cluster as Tasks 2-4); the executor follows dependencies, not numbers.
@@ -467,7 +455,7 @@ Reviewers report any structural divergence at the element-tree shape level (tag 
 - [ ] Cross-check `<remote-request>` emission against `remote_request.xml`.
 - [ ] Cross-check dual-detail emission against `search_command_detail.xml`.
 - [ ] Cross-check claim wire shape against `search_config_blacklisted_owners.xml`.
-- [ ] **User-runnable acceptance:** User runs `npm run dev`, opens an existing case-typed module, clicks the "Search Config" affordance card on the module screen. URL changes to `/build/{appId}/{moduleUuid}/search-config`. Sees the three-section authoring UI (Claim / Display / Search Inputs). Edits a claim condition via `PredicateCardEditor`. Reloads the page. Sees the change persist (the AST round-tripped through the doc store + Firestore + the route).
+- [ ] **User-runnable acceptance:** User runs `npm run dev`, opens an existing case-typed module, clicks the "Search Config" affordance card on the module screen. URL changes to `/build/{appId}/{moduleUuid}/search-config`. Sees the three-section authoring UI in order: Display, Search Inputs, Advanced. In the Display section, edits the search-screen title. Reloads the page. Sees the change persist (the value round-tripped through the doc store + Firestore + the route).
 
 ## Plan shape
 
