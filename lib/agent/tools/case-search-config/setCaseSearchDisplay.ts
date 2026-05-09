@@ -28,6 +28,9 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
+	DISPLAY_SLOT_NAMES,
+	type DisplaySlotName,
+	pickAdvancedCluster,
 	setCaseSearchDisplayBodySchema,
 	snapshotCaseSearchConfig,
 } from "./shared";
@@ -46,23 +49,6 @@ export const setCaseSearchDisplayInputSchema = z
 export type SetCaseSearchDisplayInput = z.infer<
 	typeof setCaseSearchDisplayInputSchema
 >;
-
-/**
- * The six display-cluster slot names. Listed once so the success
- * result and the strip-and-rebuild logic stay aligned. The shared
- * input schema's keys are the same set (verified at compile time by
- * the index-signature destructure below).
- */
-const DISPLAY_SLOT_NAMES = [
-	"searchScreenTitle",
-	"searchScreenSubtitle",
-	"emptyListText",
-	"searchButtonLabel",
-	"searchAgainButtonLabel",
-	"searchButtonDisplayCondition",
-] as const;
-
-type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 
 /**
  * Success result. `displaySlotsSet` is the discriminator the SA reads
@@ -113,24 +99,14 @@ export const setCaseSearchDisplayTool = {
 					"set the case-search display cluster",
 				);
 
-			// Strip the display cluster's keys from the snapshot so the
-			// rebuild carries only the advanced cluster forward — then
-			// layer the input's display values back on. When no
-			// existing config exists, the strip starts from an empty
-			// object so a display-only edit on a fresh module still
-			// produces a valid config.
+			// Carry the advanced cluster forward via the shared picker,
+			// then layer the input's display values on top. The picker
+			// reads from the same source-of-truth tuples the input
+			// schema derives from, so a future schema slot that lands
+			// on the advanced cluster preserves automatically.
 			const existing = snapshotCaseSearchConfig(mod);
-			const {
-				searchScreenTitle: _existingSearchScreenTitle,
-				searchScreenSubtitle: _existingSearchScreenSubtitle,
-				emptyListText: _existingEmptyListText,
-				searchButtonLabel: _existingSearchButtonLabel,
-				searchAgainButtonLabel: _existingSearchAgainButtonLabel,
-				searchButtonDisplayCondition: _existingSearchButtonDisplayCondition,
-				...advancedCluster
-			} = existing ?? {};
 			const nextConfig: CaseSearchConfig = {
-				...advancedCluster,
+				...pickAdvancedCluster(existing),
 				...(searchScreenTitle !== null && { searchScreenTitle }),
 				...(searchScreenSubtitle !== null && { searchScreenSubtitle }),
 				...(emptyListText !== null && { emptyListText }),

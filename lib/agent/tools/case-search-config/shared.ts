@@ -26,14 +26,136 @@
  * and gives zero optional fields per arm under the Anthropic 8-optional
  * compiler ceiling.
  *
- * Cross-cluster preservation lives in each tool's `execute` body — the
- * tool reads the existing config via `snapshotCaseSearchConfig`, strips
- * its own cluster keys, and rebuilds with the input.
+ * Cross-cluster preservation runs through the cluster-pick helpers
+ * (`pickAdvancedCluster` / `pickDisplayCluster`) below — each tool
+ * reads the existing config via `snapshotCaseSearchConfig`, picks the
+ * OTHER cluster's slots forward, and layers the input over them.
+ * Both pickers and the SA-boundary input schemas derive their slot
+ * sets from the same source-of-truth tuples (`DISPLAY_SLOT_NAMES` /
+ * `ADVANCED_SLOT_NAMES`); two compile-time partition checks make a
+ * stray schema slot or an overlapping cluster placement fail the
+ * build rather than silently drop on patch.
  */
 
 import { z } from "zod";
 import type { CaseSearchConfig, Module } from "@/lib/domain";
 import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
+
+// ── Cluster slot tuples — source of truth ───────────────────────────
+//
+// The case-search config splits cleanly into two clusters: display
+// labels (search-screen titles, button labels, the search-button
+// display predicate) and advanced filters (niche search-side filters,
+// today only `blacklistedOwnerIds`). Each tuple is the canonical slot
+// list for its cluster — both the input schemas above (display body
+// keys + advanced body keys) and the cross-cluster preservation
+// pickers below derive from these tuples.
+//
+// The `_ClusterPartitionExhaustive` and `_ClusterPartitionDisjoint`
+// type-level assertions further down make the partition a compile-time
+// invariant: a new schema slot that lands in NEITHER tuple stops the
+// build until it gets a home, and a slot that accidentally lands in
+// BOTH tuples is rejected the same way. Without these guards the
+// pickers would silently drop a stray slot on every patch from the
+// other cluster.
+export const DISPLAY_SLOT_NAMES = [
+	"searchScreenTitle",
+	"searchScreenSubtitle",
+	"emptyListText",
+	"searchButtonLabel",
+	"searchAgainButtonLabel",
+	"searchButtonDisplayCondition",
+] as const;
+
+export const ADVANCED_SLOT_NAMES = ["blacklistedOwnerIds"] as const;
+
+export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
+export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
+
+// Compile-time exhaustiveness — the union of the two tuples must
+// cover every key of `CaseSearchConfig`. If a new slot lands on the
+// schema without a tuple home, this check fails to compile and the
+// pickers below stop being trustworthy until the partition is
+// updated.
+type _ClusterPartitionExhaustive = [keyof CaseSearchConfig] extends [
+	DisplaySlotName | AdvancedSlotName,
+]
+	? [DisplaySlotName | AdvancedSlotName] extends [keyof CaseSearchConfig]
+		? true
+		: never
+	: never;
+const _exhaustive: _ClusterPartitionExhaustive = true;
+void _exhaustive;
+
+// Compile-time disjointness — a slot must live in exactly one
+// cluster. An overlapping name would mean both pickers strip the
+// same slot and BOTH tools would lose it on patch.
+type _ClusterPartitionDisjoint =
+	Extract<DisplaySlotName, AdvancedSlotName> extends never ? true : never;
+const _disjoint: _ClusterPartitionDisjoint = true;
+void _disjoint;
+
+// ── Cross-cluster preservation pickers ──────────────────────────────
+//
+// Each tool replaces its own cluster wholesale and preserves the
+// other cluster byte-identically. The pickers below do the
+// preservation half — `setCaseSearchDisplay` calls
+// `pickAdvancedCluster(existing)` to harvest the slots it MUST keep,
+// then layers the input's display values on top; `setCaseSearchAdvanced`
+// is symmetric.
+//
+// Output shape: every preserved slot becomes a real key on the
+// returned object; missing or cleared slots are TRULY absent (not
+// `undefined`). Consumers downstream check slot presence via the
+// `key in config` operator — emitting an explicit `undefined` would
+// flip those checks to `true` and persist a slot the user cleared.
+
+/**
+ * Pick the advanced cluster off an existing config — every slot in
+ * `ADVANCED_SLOT_NAMES`, with truly absent keys for missing or
+ * cleared values. Used by `setCaseSearchDisplay` to preserve the
+ * advanced cluster while it rebuilds the display cluster around the
+ * SA's input.
+ */
+export function pickAdvancedCluster(
+	config: CaseSearchConfig | undefined,
+): CaseSearchConfig {
+	return pickClusterSlots(config, ADVANCED_SLOT_NAMES);
+}
+
+/**
+ * Pick the display cluster off an existing config — every slot in
+ * `DISPLAY_SLOT_NAMES`, with truly absent keys for missing or cleared
+ * values. Used by `setCaseSearchAdvanced` to preserve the display
+ * cluster while it rebuilds the advanced cluster around the SA's
+ * input.
+ */
+export function pickDisplayCluster(
+	config: CaseSearchConfig | undefined,
+): CaseSearchConfig {
+	return pickClusterSlots(config, DISPLAY_SLOT_NAMES);
+}
+
+/**
+ * Internal — copy the named slots from `config` into a fresh object,
+ * skipping slots that are absent or carry an `undefined` value. The
+ * skip is what keeps cleared slots truly absent on the returned
+ * object instead of leaking through as `key: undefined`.
+ */
+function pickClusterSlots<K extends keyof CaseSearchConfig>(
+	config: CaseSearchConfig | undefined,
+	slots: readonly K[],
+): CaseSearchConfig {
+	const out: { [P in K]?: CaseSearchConfig[P] } = {};
+	if (config === undefined) return out;
+	for (const slot of slots) {
+		const value = config[slot];
+		if (value !== undefined) {
+			out[slot] = value;
+		}
+	}
+	return out;
+}
 
 // ── Input schemas — advanced cluster ────────────────────────────────
 

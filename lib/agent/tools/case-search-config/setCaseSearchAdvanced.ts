@@ -6,10 +6,10 @@
  * owns the advanced cluster — niche search-side filters most authors
  * never reach for. Today the cluster holds a single slot
  * (`blacklistedOwnerIds`). Display labels stay untouched and round-
- * trip byte-identically through the patch — the tool reads the
- * existing config, strips the advanced keys, and rebuilds with the
- * input. The display tool (`setCaseSearchDisplay`) is the parallel
- * for the other cluster.
+ * trip byte-identically through the patch — the tool harvests them
+ * via `pickDisplayCluster` and layers the input's advanced values on
+ * top. The display tool (`setCaseSearchDisplay`) is the parallel for
+ * the other cluster.
  *
  * Wholesale-with-`null`-clears semantic — every cluster slot is
  * required-and-nullable on the SA boundary; `null` clears, non-null
@@ -30,6 +30,7 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
+	pickDisplayCluster,
 	setCaseSearchAdvancedBodySchema,
 	snapshotCaseSearchConfig,
 } from "./shared";
@@ -90,17 +91,14 @@ export const setCaseSearchAdvancedTool = {
 					"set the case-search advanced cluster",
 				);
 
-			// Strip the advanced cluster's keys from the snapshot so the
-			// rebuild below carries only the display cluster forward —
-			// then layer the input's advanced values back on. Display
-			// slots (`searchScreenTitle`, button labels, search-button
-			// display predicate) are untouched, matching the per-tool
-			// cluster boundary the SA expects.
+			// Carry the display cluster forward via the shared picker,
+			// then layer the input's advanced values on top. The picker
+			// reads from the same source-of-truth tuples the input
+			// schema derives from, so a future schema slot that lands
+			// on the display cluster preserves automatically.
 			const existing = snapshotCaseSearchConfig(mod);
-			const { blacklistedOwnerIds: _existingBlacklist, ...displayCluster } =
-				existing ?? {};
 			const nextConfig: CaseSearchConfig = {
-				...displayCluster,
+				...pickDisplayCluster(existing),
 				...(blacklistedOwnerIds !== null && { blacklistedOwnerIds }),
 			};
 

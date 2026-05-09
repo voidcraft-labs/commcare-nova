@@ -310,8 +310,8 @@ export function PreviewShell({
 				 * authoring URL — same dispatch shape as the case list.
 				 *
 				 *   - Edit mode: the CaseSearchConfigPanel authoring shell.
-				 *     Multi-section magazine layout (Claim / Display /
-				 *     Search Inputs) for configuring the module's
+				 *     Multi-section magazine layout (Display / Search
+				 *     Inputs / Advanced) for configuring the module's
 				 *     `caseSearchConfig` slot plus the cross-bound
 				 *     `caseListConfig.searchInputs` slot.
 				 *

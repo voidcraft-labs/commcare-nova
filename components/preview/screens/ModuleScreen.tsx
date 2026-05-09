@@ -289,7 +289,7 @@ function SearchConfigCard({ hasCase, onClick }: SearchConfigCardProps) {
 				</div>
 				<div className="text-xs text-nova-text-muted mt-0.5">
 					{hasCase
-						? "Author claim flow + display labels for case search."
+						? "Author display labels and advanced search filters."
 						: "Requires a case type."}
 				</div>
 			</div>

@@ -86,8 +86,7 @@ export interface AdvancedSectionProps {
 
 /**
  * Composes the advanced cluster of the case-search authoring surface.
- * Renders one collapsible sub-control today (`blacklistedOwnerIds`);
- * named for the role, not the contents.
+ * Renders one collapsible sub-control today (`blacklistedOwnerIds`).
  */
 export function AdvancedSection({
 	value,
@@ -139,10 +138,10 @@ export function AdvancedSection({
 	return (
 		<div className="space-y-6">
 			{/* ── Blacklisted owner IDs sub-control ──
-			    Collapsed by default. The header doubles as the collapse
-			    trigger — clicking anywhere on the header row toggles
-			    `blacklistOpen`. The add/clear affordances live inside
-			    the body so the header stays a single control.
+			    Collapsed by default. The chevron in the header below is
+			    the collapse trigger; the rest of the header (icon, h3,
+			    hint) is non-interactive chrome. The add/clear
+			    affordances live inside the body.
 
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
@@ -154,18 +153,24 @@ export function AdvancedSection({
 			    rendered into a default-collapsed section, and the
 			    parent's save gate would silently un-block. */}
 			<div className="space-y-3">
-				<button
-					type="button"
-					onClick={() => setBlacklistOpen((prev) => !prev)}
-					aria-expanded={blacklistOpen}
-					className="w-full flex items-baseline gap-2 text-left cursor-pointer hover:text-nova-violet-bright transition-colors"
-				>
-					<Icon
-						icon={blacklistOpen ? tablerChevronDown : tablerChevronRight}
-						width="12"
-						height="12"
-						className="text-nova-text-muted/70 self-center"
-					/>
+				<header className="flex items-baseline gap-2">
+					<button
+						type="button"
+						onClick={() => setBlacklistOpen((prev) => !prev)}
+						aria-expanded={blacklistOpen}
+						aria-label={
+							blacklistOpen
+								? "Collapse blacklisted owner IDs"
+								: "Expand blacklisted owner IDs"
+						}
+						className="self-center cursor-pointer text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors"
+					>
+						<Icon
+							icon={blacklistOpen ? tablerChevronDown : tablerChevronRight}
+							width="12"
+							height="12"
+						/>
+					</button>
 					<Icon
 						icon={tablerForbid}
 						width="14"
@@ -180,7 +185,7 @@ export function AdvancedSection({
 							? "Cases owned by these IDs are hidden from search results."
 							: "Optional. Hide cases owned by specific user IDs from search results."}
 					</span>
-				</button>
+				</header>
 
 				{blacklist !== undefined ? (
 					// Defined slot: editor stays mounted unconditionally.

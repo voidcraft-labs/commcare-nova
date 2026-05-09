@@ -9,8 +9,8 @@
 //
 //   - Empty state: an undefined config renders the collapsed header
 //     only — no "Clear" button, no editor mounted.
-//   - Add path: clicking the header opens the body; clicking Add seeds
-//     `term(literal(""))` and emits the next config.
+//   - Add path: clicking the chevron toggle opens the body; clicking
+//     Add seeds `term(literal(""))` and emits the next config.
 //   - Round-trip with populated slot: the editor mounts hidden by
 //     default (collapse keeps the body invisible until expanded) but
 //     the Clear affordance is reachable inside the hidden wrapper, so
@@ -56,12 +56,16 @@ describe("AdvancedSection — empty state", () => {
 			/>,
 		);
 
-		// Header is present and reads as collapsed.
-		const header = screen.getByRole("button", {
+		// Chevron toggle is present and reads as collapsed.
+		const toggle = screen.getByRole("button", {
 			expanded: false,
-			name: /exclude cases/i,
+			name: /^expand blacklisted owner ids$/i,
 		});
-		expect(header).toBeDefined();
+		expect(toggle).toBeDefined();
+		// Heading is rendered as a sibling, not as button text.
+		expect(
+			screen.getByRole("heading", { name: /exclude cases/i }),
+		).toBeDefined();
 
 		// No Clear / Add affordances surface — both live inside the
 		// hidden body. A regression that mounted the body unconditionally
@@ -76,7 +80,7 @@ describe("AdvancedSection — empty state", () => {
 // ── Add path ──────────────────────────────────────────────────────
 
 describe("AdvancedSection — add path", () => {
-	it("opens the collapse on header click and surfaces the Add affordance", () => {
+	it("opens the collapse on chevron click and surfaces the Add affordance", () => {
 		render(
 			<AdvancedSection
 				value={undefined}
@@ -89,15 +93,15 @@ describe("AdvancedSection — add path", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /exclude cases/i,
+				name: /^expand blacklisted owner ids$/i,
 			}),
 		);
 
-		// Header now reads as expanded; Add affordance is visible.
+		// Toggle now reads as expanded; Add affordance is visible.
 		expect(
 			screen.getByRole("button", {
 				expanded: true,
-				name: /exclude cases/i,
+				name: /^collapse blacklisted owner ids$/i,
 			}),
 		).toBeDefined();
 		expect(screen.getByLabelText(/^add blacklisted owner ids$/i)).toBeDefined();
@@ -123,7 +127,7 @@ describe("AdvancedSection — add path", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /exclude cases/i,
+				name: /^expand blacklisted owner ids$/i,
 			}),
 		);
 		fireEvent.click(screen.getByLabelText(/^add blacklisted owner ids$/i));
@@ -155,7 +159,7 @@ describe("AdvancedSection — add path", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /exclude cases/i,
+				name: /^expand blacklisted owner ids$/i,
 			}),
 		);
 		fireEvent.click(screen.getByLabelText(/^add blacklisted owner ids$/i));
@@ -196,7 +200,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		expect(collapseWrapper).not.toBeNull();
 	});
 
-	it("reveals the body on header click", () => {
+	it("reveals the body on chevron click", () => {
 		render(
 			<AdvancedSection
 				value={{
@@ -218,7 +222,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /exclude cases/i,
+				name: /^expand blacklisted owner ids$/i,
 			}),
 		);
 		// Post-click: open.
