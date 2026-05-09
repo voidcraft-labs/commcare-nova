@@ -801,6 +801,46 @@ Spec review (sonnet, ONCE) clean; CR round 1 (opus, fresh agent) APPROVED with t
 
 **Next:** Task 11 round-2 CR's expectedType correction → plan-sync Task 11 → Task 9 (BLOCKED) → Task 8 → Task 4 → Task 13.
 
+### Task 11 — Validator rules — 2026-05-08
+
+Landed across three commits:
+- `c203d611` — initial 3-rule shipment + canonical AST walker (`lib/domain/predicate/walk.ts`).
+- `1505c4e9` — round-1 CR fix-pass: dropped redundant Rule 1, added 4 type-check rules for slots the plan claimed were covered (but weren't), fixed Rule 4 dedup to use via-aware `(destinationCaseType, property)` key.
+- `04ee212d` — round-2 CR fix-pass: tightened `expectedType` on `blacklistedOwnerIdsTypeCheck` + `searchInputDefaultTypeCheck` to match AST-strict contract.
+
+Spec review (sonnet, ONCE) clean; CR rounds 1 + 2 (opus, fresh agent each) both Approved with progressive fix-pass cycles.
+
+**Final rule family (6 rules):**
+
+In `lib/commcare/validator/rules/case-search/`:
+1. `claimConditionTypeCheck` — predicate type-check on `caseSearchConfig.claimCondition`.
+2. `searchButtonDisplayConditionTypeCheck` — predicate type-check on `caseSearchConfig.searchButtonDisplayCondition`.
+3. `blacklistedOwnerIdsTypeCheck` — value-expression type-check on `caseSearchConfig.blacklistedOwnerIds` with `expectedType: "text"` (AST-strict contract; the slot's authoring meaning is "evaluates to a space-separated text string of owner IDs").
+4. `filterSearchInputConflict` — when `caseSearchConfig` is present, no property may appear as both a `prop(...)` term in `caseListConfig.filter` AND a simple-arm `caseListConfig.searchInputs[i].property`. Dedup is via-aware: keys on `(destinationCaseType, property)` after via-walk via `checkRelationPath` (mirrors `searchInputModeMatchesPropertyType`'s pattern). Cross-walk no-fire pinned by regression test.
+
+In `lib/commcare/validator/rules/case-list/` (because `searchInputs` lives on `caseListConfig`):
+5. `searchInputDefaultTypeCheck` — value-expression type-check on `searchInputs[i].default` with per-widget `expectedType` from the new `SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES` lookup at `lib/domain/modules.ts`.
+6. `searchInputPredicateTypeCheck` — predicate type-check on advanced-arm `searchInputs[i].predicate` with `knownInputs` for cross-input ref resolution.
+
+**Key supporting work:**
+- `lib/domain/predicate/walk.ts` (NEW, 241 lines) — first canonical public AST walker. Three exports (`walkTerms`, `walkInputRefs`, `walkPropertyRefs`) exhaustive over both `Predicate` and `ValueExpression` unions, with TypeScript `never` exhaustiveness assertions at every default branch. Future kind addition fails to compile rather than silently being skipped.
+- `lib/domain/modules.ts::SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES` — single-source-of-truth lookup mapping each `SearchInputType` enum value to the `CasePropertyDataType` Nova's authoring layer demands for the `default` slot. `text → "text"`, `select → "text"` (widens via `typesCompatible(text, single_select|multi_select)`), `date → "date"`, `date-range → "date"` (CCHQ `daterange` widget renders a calendar picker), `barcode → "text"`.
+
+**Drop:** `searchInputReferences` (the original Rule 1) was redundant with the predicate type-checker's native `knownInputs`-based input-ref resolution. Removed entirely; `CASE_SEARCH_INPUT_REFERENCE_UNKNOWN` error code dropped.
+
+**Test count:** 84 / 84 passing in the validator surface (was 65 before Task 11; +19 net). Full project: 4003 / 14 skipped.
+
+**Acceptance gates landed:**
+- `npm run lint` clean.
+- `npx tsc --noEmit` clean (in scope; 3 pre-existing errors flagged in Task 4's in-flight test file are not Task 11's).
+- Drift sweeps clean.
+
+**Plan correction:** the original Task 11 plan body claimed `searchButtonDisplayCondition` and `blacklistedOwnerIds` were "covered by existing predicate / expression typeCheck rules (Plan 3 ships them on the module-walker)" — this premise was FALSE. There was no module-walker; `filterTypeCheck` was scoped to `caseListConfig.filter` only. Round-1 CR caught the gap; the fix-pass added the missing 4 rules. Future Plan 4 readers should treat the original "covered by existing rules" claim as superseded by this SHIPPED block.
+
+**Whole-repo build state:** green throughout.
+
+**Next:** Task 4 (cross-binding test, in flight), Task 9 (BLOCKED on supervisor decision for `dontClaimAlreadyOwned`), Task 8 (`<remote-request>` orchestrator, depends on Task 9), Task 13 (integration test, depends on all). Plus the queued predicate-editor-subtree reorg (slated between Tasks 12 ✓ and 13).
+
 ## Audit followups — Task 3 — 2026-05-08
 
 Task 3's CR + the implementer's family-grep surfaced the same "spurious onChange on focus-blur of an empty undefined slot" regression class at two pre-existing call sites of `useCommitField` outside Task 3's scope. Per the "audit family in flight" supervision rule, the family fix landed as its own commit.
