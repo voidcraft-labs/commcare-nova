@@ -1,8 +1,9 @@
 /**
- * Tests for the `filterSearchInputConflict` rule. One invariant per
- * `it(...)` block; pins the AND-composition conflict (filter +
+ * Tests for the `filterSearchInputConflict` rule. One invariant
+ * per `it(...)` block; pins the AND-composition conflict (filter +
  * simple-arm input) the wire layer rejects when `caseSearchConfig`
- * is present.
+ * is present, with via-aware dedup so cross-walk paths don't false-
+ * positive.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,13 +14,22 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, matchAll, prop } from "@/lib/domain/predicate";
+import {
+	ancestorPath,
+	eq,
+	literal,
+	matchAll,
+	prop,
+	relationStep,
+} from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("filterSearchInputConflict", () => {
-	it("fires when a property appears in both the filter and a simple-arm search input", () => {
-		// Filter references `region`; simple-arm input also targets
-		// `region` — the two AND-compose into one wire query.
+	it("fires when filter and simple-arm input resolve to the same `(destination, property)` pair", () => {
+		// Self-walk-vs-self-walk: filter `prop("patient", "region")`
+		// + simple input `{ property: "region" }` both resolve to
+		// `(patient, region)` — same runtime path, AND-composition
+		// conflict at the wire layer.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -39,9 +49,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
-					},
+					caseSearchConfig: { dontClaimAlreadyOwned: false },
 					forms: [
 						{
 							name: "Reg",
@@ -78,19 +86,97 @@ describe("filterSearchInputConflict", () => {
 			(e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		);
 		expect(hits.length).toBe(1);
-		// Elm-style three-component message: pin the conflicting
-		// property name AND surface the dual-binding shape so the
-		// author understands why the wire layer rejects it.
+		// Elm-style three-component message: pin the property +
+		// destination case type (the runtime path) so the author
+		// understands which binding the wire layer would reject.
 		expect(hits[0].message).toContain('"region"');
+		expect(hits[0].message).toContain('"patient"');
 		expect(hits[0].message).toContain("caseListConfig.filter");
-		expect(hits[0].message).toContain("caseListConfig.searchInputs");
 	});
 
-	it("emits one error per conflicting property name even when the filter references it multiple times", () => {
-		// Filter references `region` twice (an `eq` and another `eq`
-		// inside an `and`). Only one error surfaces — the rule
-		// dedupes by property name so the author isn't drowned in
-		// duplicates.
+	it("does NOT fire when filter (cross-walk) and simple-arm input (self-walk) target distinct destinations", () => {
+		// Cross-walk vs self-walk on the same bare property name:
+		// filter `prop("patient", "region", ancestor[parent])` →
+		// destination `household.region`; simple input `{ property:
+		// "region" }` → destination `patient.region`. The wire layer
+		// AND-composes both bindings against DIFFERENT cases — no
+		// conflict, so the rule must silently admit.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						filter: eq(
+							prop(
+								"patient",
+								"region",
+								ancestorPath(relationStep("parent", "household")),
+							),
+							literal("North"),
+						),
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-region"),
+								"region_search",
+								"Region",
+								"text",
+								"region",
+							),
+						],
+					},
+					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "text",
+									id: "region",
+									label: "Region",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "region", label: "Region", data_type: "text" },
+					],
+				},
+				{
+					name: "household",
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
+				},
+			],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
+			),
+		).toBe(false);
+	});
+
+	it("emits one error per `(destination, property)` pair even with multiple filter references", () => {
+		// Filter references `region` twice on the same self-walk
+		// destination. The dedup keys on the resolved
+		// `(destinationCaseType, property)` pair so only one error
+		// surfaces.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -116,9 +202,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
-					},
+					caseSearchConfig: { dontClaimAlreadyOwned: false },
 					forms: [
 						{
 							name: "Reg",
@@ -157,7 +241,7 @@ describe("filterSearchInputConflict", () => {
 		expect(hits.length).toBe(1);
 	});
 
-	it("does not fire when the filter and simple-arm inputs use disjoint properties", () => {
+	it("does not fire when filter and simple-arm inputs target disjoint properties", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -177,9 +261,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
-					},
+					caseSearchConfig: { dontClaimAlreadyOwned: false },
 					forms: [
 						{
 							name: "Reg",
@@ -230,7 +312,8 @@ describe("filterSearchInputConflict", () => {
 		// Advanced-arm inputs author their own predicate; they don't
 		// bind a single property at the schema layer, so a filter
 		// reference to the same property can't structurally collide
-		// with them at the wire layer.
+		// with them. The advanced predicate's references are covered
+		// by `searchInputPredicateTypeCheck`.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -250,9 +333,7 @@ describe("filterSearchInputConflict", () => {
 							),
 						],
 					},
-					caseSearchConfig: {
-						dontClaimAlreadyOwned: false,
-					},
+					caseSearchConfig: { dontClaimAlreadyOwned: false },
 					forms: [
 						{
 							name: "Reg",
@@ -293,9 +374,6 @@ describe("filterSearchInputConflict", () => {
 	});
 
 	it("short-circuits when `caseSearchConfig` is absent", () => {
-		// Without `caseSearchConfig`, no `<remote-request>` is emitted
-		// — the filter and search inputs may share property names
-		// without the AND-composition conflict the wire layer rejects.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -344,6 +422,50 @@ describe("filterSearchInputConflict", () => {
 						{ name: "case_name", label: "Name", data_type: "text" },
 						{ name: "region", label: "Region", data_type: "text" },
 					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
+			),
+		).toBe(false);
+	});
+
+	it("short-circuits when `mod.caseType` is absent", () => {
+		// Without `caseType`, the originating scope for the simple
+		// input's via-walk is unknowable. The structural module rules
+		// (`NO_CASE_TYPE`) catch this elsewhere — this rule passes
+		// silently to avoid emitting noise on a doc with the deeper
+		// structural error.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					// No caseType
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						filter: eq(prop("patient", "region"), literal("North")),
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-region"),
+								"region_search",
+								"Region",
+								"text",
+								"region",
+							),
+						],
+					},
+					caseSearchConfig: { dontClaimAlreadyOwned: false },
+					forms: [],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
 				},
 			],
 		});

@@ -1,29 +1,55 @@
 /**
  * Cross-rule integration tests for the case-search-config validator
- * surface. Two pins: a single blueprint can simultaneously trigger
- * all three rules (orphan input ref + claim-condition type error +
- * filter/input property conflict); a structurally clean blueprint
- * stays silent across every case-search rule.
+ * surface. Two pins:
+ *
+ *   1. A blueprint that violates each of the five new type-check
+ *      rules + the `filter / simple-input` conflict rule surfaces
+ *      every error simultaneously through `runValidation`.
+ *   2. A structurally-clean blueprint exercising every covered
+ *      slot (claim condition, search-button display condition,
+ *      blacklisted owner ids, simple-input default, advanced-input
+ *      predicate, advanced-input default, cross-walk filter
+ *      reference) stays silent on every case-search-config rule.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, plainColumn, simpleSearchInputDef } from "@/lib/domain";
-import { eq, gt, input, literal, prop } from "@/lib/domain/predicate";
+import {
+	advancedSearchInputDef,
+	asUuid,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	ancestorPath,
+	eq,
+	gt,
+	input,
+	literal,
+	prop,
+	relationStep,
+	today,
+	toValueExpression,
+} from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("case-search validator — cross-rule integration", () => {
-	it("surfaces all three errors on the same blueprint", () => {
-		// Blueprint structurally violates each rule:
+	it("surfaces every case-search rule's error simultaneously when each violates", () => {
+		// Single blueprint that structurally violates all six rules:
 		//
-		//   1. claim condition references `ghost_input` (orphan ref)
-		//   2. claim condition uses `gt` against a `text` property —
-		//      strings aren't ordered, so the type checker rejects it
-		//   3. filter and a simple-arm input both target `region`,
-		//      AND-composition conflict at the wire layer
-		//
-		// Each rule fires independently — the validator emits one
-		// error per pinned invariant.
+		//   1. claimCondition: `gt` on text-typed `case_name`
+		//      → CASE_SEARCH_CLAIM_CONDITION_TYPE_ERROR
+		//   2. searchButtonDisplayCondition: `eq` against unknown property
+		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR
+		//   3. blacklistedOwnerIds: ill-typed value (prop reference to
+		//      unknown property)
+		//      → CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR
+		//   4. searchInputs[0].default: ill-typed value
+		//      → CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR
+		//   5. searchInputs[1] (advanced).predicate: ill-typed
+		//      → CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR
+		//   6. filter + simple-arm input target same `(patient.region)`
+		//      runtime path → CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -32,27 +58,47 @@ describe("case-search validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						// Filter targets `region` (self-walk on patient) — same
+						// destination as the simple-arm input below.
 						filter: eq(prop("patient", "region"), literal("North")),
 						searchInputs: [
+							// Simple input sharing `(patient.region)` with the filter.
+							// Default is ill-typed (`gt` predicate result fed as a
+							// value would be ill-formed; use a comparison-shaped
+							// expression that resolves wrong instead — pass a literal
+							// pretending to be of an incompatible type via `prop` to
+							// an unknown property).
 							simpleSearchInputDef(
 								asUuid("si-region"),
 								"region_search",
 								"Region",
 								"text",
 								"region",
+								// Default referencing an unknown property triggers the
+								// per-input default type check.
+								{ default: { kind: "term", term: prop("patient", "ghost") } },
+							),
+							// Advanced input with an ill-typed predicate (gt against
+							// text-typed `case_name`).
+							advancedSearchInputDef(
+								asUuid("si-advanced"),
+								"adv_input",
+								"Advanced",
+								"text",
+								gt(prop("patient", "case_name"), literal("M")),
 							),
 						],
 					},
 					caseSearchConfig: {
 						dontClaimAlreadyOwned: false,
-						claimCondition: {
-							kind: "and",
-							clauses: [
-								// Type error — `gt` on text-typed `case_name`.
-								gt(prop("patient", "case_name"), literal("M")),
-								// Orphan input ref — `ghost_input` isn't declared.
-								eq(prop("patient", "case_name"), input("ghost_input")),
-							],
+						claimCondition: gt(prop("patient", "case_name"), literal("M")),
+						searchButtonDisplayCondition: eq(
+							prop("patient", "phantom"),
+							literal("x"),
+						),
+						blacklistedOwnerIds: {
+							kind: "term",
+							term: prop("patient", "phantom_property"),
 						},
 					},
 					forms: [
@@ -89,26 +135,44 @@ describe("case-search validator — cross-rule integration", () => {
 		});
 		const errors = runValidation(doc);
 		expect(
-			errors.some((e) => e.code === "CASE_SEARCH_INPUT_REFERENCE_UNKNOWN"),
+			errors.some((e) => e.code === "CASE_SEARCH_CLAIM_CONDITION_TYPE_ERROR"),
 		).toBe(true);
 		expect(
-			errors.some((e) => e.code === "CASE_SEARCH_CLAIM_CONDITION_TYPE_ERROR"),
+			errors.some(
+				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			),
+		).toBe(true);
+		expect(
+			errors.some(
+				(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+			),
+		).toBe(true);
+		expect(
+			errors.some(
+				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			),
+		).toBe(true);
+		expect(
+			errors.some(
+				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
+			),
 		).toBe(true);
 		expect(
 			errors.some((e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT"),
 		).toBe(true);
 	});
 
-	it("admits a fully-valid case-search-config without spurious cross-rule firings", () => {
-		// Structurally clean fixture — every rule should stay silent:
+	it("admits a fully-valid case-search-config + case-list-config without spurious firings", () => {
+		// Structurally clean fixture exercising every covered slot:
 		//
-		//   - declared input names match every `input(...)` reference
-		//   - claim condition type-checks against the augmented case-
-		//     type list
-		//   - filter and search inputs target disjoint properties
-		//
-		// Pins all three case-search codes against the no-emit
-		// expectation simultaneously.
+		//   - claim condition resolves against augmented case types
+		//   - search-button display condition resolves
+		//   - blacklisted owner ids expression resolves
+		//   - simple-arm input default resolves (`today()` is well-typed)
+		//   - advanced-arm input predicate resolves
+		//   - cross-walk filter ref → distinct destination (parent's
+		//     `region`) from the simple input (patient's `region`),
+		//     so the conflict rule's via-aware dedup admits the pair
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -117,16 +181,34 @@ describe("case-search validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						// Filter targets `status`; inputs target `region` —
-						// disjoint property sets, no conflict.
-						filter: eq(prop("patient", "status"), literal("active")),
+						// Filter walks via `parent` to `household.region` — distinct
+						// runtime path from the simple input's `(patient.region)`.
+						filter: eq(
+							prop(
+								"patient",
+								"region",
+								ancestorPath(relationStep("parent", "household")),
+							),
+							literal("North"),
+						),
 						searchInputs: [
+							// Simple input on patient's region (self-walk) with a
+							// well-typed `today()` default.
 							simpleSearchInputDef(
 								asUuid("si-region"),
 								"region_search",
 								"Region",
 								"text",
 								"region",
+								{ default: today() },
+							),
+							// Advanced input with a well-typed predicate.
+							advancedSearchInputDef(
+								asUuid("si-advanced"),
+								"adv_input",
+								"Advanced",
+								"text",
+								eq(prop("patient", "case_name"), literal("Alice")),
 							),
 						],
 					},
@@ -140,6 +222,7 @@ describe("case-search validator — cross-rule integration", () => {
 							prop("patient", "case_name"),
 							literal("Alice"),
 						),
+						blacklistedOwnerIds: toValueExpression(literal("user-123")),
 					},
 					forms: [
 						{
@@ -158,12 +241,6 @@ describe("case-search validator — cross-rule integration", () => {
 									label: "Region",
 									case_property_on: "patient",
 								}),
-								f({
-									kind: "text",
-									id: "status",
-									label: "Status",
-									case_property_on: "patient",
-								}),
 							],
 						},
 					],
@@ -172,18 +249,25 @@ describe("case-search validator — cross-rule integration", () => {
 			caseTypes: [
 				{
 					name: "patient",
+					parent_type: "household",
 					properties: [
 						{ name: "case_name", label: "Name", data_type: "text" },
 						{ name: "region", label: "Region", data_type: "text" },
-						{ name: "status", label: "Status", data_type: "text" },
 					],
+				},
+				{
+					name: "household",
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
 				},
 			],
 		});
 		const errors = runValidation(doc);
 		const caseSearchCodes = new Set([
-			"CASE_SEARCH_INPUT_REFERENCE_UNKNOWN",
 			"CASE_SEARCH_CLAIM_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 			"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		]);
 		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);
