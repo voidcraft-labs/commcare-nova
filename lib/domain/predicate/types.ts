@@ -854,10 +854,9 @@ const coalesceSchema = z
  * branches are `ValueExpression`. CCHQ's on-device wire form is
  * `if(cond, then, else)`; CSQL has no native `if` value function,
  * so the CSQL wire emitter hoists `if` arms out of CSQL fragments
- * at the wire-emission boundary. The branch slot names match the
- * spec — `then` and `else` — even though `else` is a JS reserved
- * word in statement positions; both are legal property names
- * everywhere this AST surfaces.
+ * at the wire-emission boundary. The branch slot names are `then`
+ * and `else` — `else` is a JS reserved word in statement positions,
+ * but both are legal property names everywhere this AST surfaces.
  *
  * `then`-property hazard explained: Biome's `noThenProperty` rule
  * defends against accidentally creating a thenable that
