@@ -15,6 +15,7 @@ import type {
 	SearchInputType,
 } from "@/lib/domain";
 import type {
+	Literal,
 	Predicate,
 	PropertyRef,
 	SwitchCase,
@@ -31,7 +32,6 @@ import {
 	multiSelectAny,
 	prop,
 	reduceAnd,
-	term,
 } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 
@@ -219,7 +219,14 @@ function buildMultiSelectClause(
 		.map((token) => token.trim())
 		.filter((token) => token.length > 0);
 	if (tokens.length === 0) return undefined;
-	const [first, ...rest] = tokens.map(literal);
+	// Explicit arrow guards against `Array.prototype.map`'s
+	// `(value, index, array)` callback signature: a bare
+	// `tokens.map(literal)` would silently bind the per-token index
+	// to any second parameter `literal` ever grows (e.g. a
+	// `data_type` qualifier), producing position-dependent literals.
+	// The arrow's two-character cost buys permanent protection
+	// against that future-widening footgun.
+	const [first, ...rest] = tokens.map((token) => literal(token));
 	if (mode.quantifier === "all") {
 		return multiSelectAll(property, first, ...rest);
 	}
@@ -268,16 +275,16 @@ function buildRangeClause(
  * catches mid-edit empty / partial values from the date input
  * widget; consumers handle anything else.
  *
- * Returns a `ValueExpression` (the `term`-wrapped literal) so the
- * caller can splice the result directly into `between`'s
- * `lower` / `upper` slots without an extra wrap. Returns `undefined`
- * when the bound is empty / malformed.
+ * Returns a bare `Literal` so the caller can splice into `between`'s
+ * `lower` / `upper` slots; the builder lifts every bound through
+ * `toValueExpression` internally. Returns `undefined` when the
+ * bound is empty / malformed.
  */
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-function parseDateBound(raw: string | undefined): ValueExpression | undefined {
+function parseDateBound(raw: string | undefined): Literal | undefined {
 	if (raw === undefined || raw === "") return undefined;
 	if (!ISO_DATE_PATTERN.test(raw)) return undefined;
-	return term(dateLiteral(raw));
+	return dateLiteral(raw);
 }
 
 /**
@@ -422,54 +429,28 @@ function substituteInputInPredicate(
 				values: predicate.values,
 				quantifier: predicate.quantifier,
 			};
-		case "between": {
-			const base = {
-				kind: "between" as const,
-				left: substituteInputInExpression(predicate.left, targetName, value),
-				lowerInclusive: predicate.lowerInclusive,
-				upperInclusive: predicate.upperInclusive,
-			};
-			// Mirror `between`'s absent-not-undefined contract — Zod's
-			// `.optional()` strips absent keys on parse, so a builder
-			// that materialized `lower: undefined` would silently break
-			// the round-trip equality assertions consumers rely on.
-			if (predicate.lower !== undefined && predicate.upper !== undefined) {
-				return {
-					...base,
-					lower: substituteInputInExpression(
-						predicate.lower,
-						targetName,
-						value,
-					),
-					upper: substituteInputInExpression(
-						predicate.upper,
-						targetName,
-						value,
-					),
-				};
-			}
-			if (predicate.lower !== undefined) {
-				return {
-					...base,
-					lower: substituteInputInExpression(
-						predicate.lower,
-						targetName,
-						value,
-					),
-				};
-			}
-			if (predicate.upper !== undefined) {
-				return {
-					...base,
-					upper: substituteInputInExpression(
-						predicate.upper,
-						targetName,
-						value,
-					),
-				};
-			}
-			return base;
-		}
+		case "between":
+			// Routes through the `between(...)` builder so the
+			// absent-not-undefined construction stays in one place.
+			// The schema's `.refine(...)` rejects both-bounds-absent
+			// at parse time, so an AST that reached this rewriter is
+			// guaranteed to carry at least one bound — the builder
+			// will never see both-undefined.
+			return between(
+				substituteInputInExpression(predicate.left, targetName, value),
+				{
+					lower:
+						predicate.lower === undefined
+							? undefined
+							: substituteInputInExpression(predicate.lower, targetName, value),
+					upper:
+						predicate.upper === undefined
+							? undefined
+							: substituteInputInExpression(predicate.upper, targetName, value),
+					lowerInclusive: predicate.lowerInclusive,
+					upperInclusive: predicate.upperInclusive,
+				},
+			);
 		case "is-null":
 			return {
 				kind: "is-null",
@@ -496,15 +477,13 @@ function substituteInputInPredicate(
 				clause: substituteInputInPredicate(predicate.clause, targetName, value),
 			};
 		case "when-input-present":
-			// `whenInputPresent.input` is the trigger slot — typed
-			// `SearchInputRef`, NOT a value-position term. Replacing it
-			// with a literal would violate that slot's discriminator and
-			// also conflate the runtime-presence check with the runtime-
-			// value substitution (the validator rule on this operator
-			// gates the whole subtree on the trigger's presence at
-			// runtime, regardless of what value the input carries). The
-			// trigger ref is preserved as-is; only the inner clause is
-			// recursed into.
+			// The trigger slot is a `SearchInputRef` discriminator, not
+			// a value-position term — substituting a literal would
+			// violate the schema's `input: searchInputRefSchema` shape.
+			// The empty-value short-circuit in `buildAdvancedArmClause`
+			// already gates the entire advanced-arm contribution on the
+			// trigger's runtime presence, so the wrap stays even when
+			// the trigger's name matches the target.
 			return {
 				kind: "when-input-present",
 				input: predicate.input,
