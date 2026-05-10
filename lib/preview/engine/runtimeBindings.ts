@@ -39,39 +39,18 @@ import {
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 
 /**
- * Per-input value bag. Keys are search-input `name` slots; values are
- * the user's typed strings. An empty string OR absent key means the
- * user has not filled the input — per-input contributions short-
- * circuit to "no clause".
- *
- * Range-typed inputs use TWO keys: `<name>:from` for the lower bound
- * and `<name>:to` for the upper bound. The widget emits both; this
- * module reads both. Picking colon-suffixed keys (rather than array
- * indices or a nested map) keeps the value bag's shape uniform —
- * every entry is `string → string`, debounce-driven client state
- * stays flat, and an empty bound is the same shape as an absent one
- * ("not present in the map").
- *
- * The named alias preserves the domain-role tag at every call site
- * (`inputValues: SearchInputValues` reads as the runtime-bindings
- * input bag, not as a generic string map) without inventing a
- * single-field wrapper.
+ * Search-input value bag. `<name>:from` / `<name>:to` for range
+ * bounds; bare `<name>` otherwise. Empty / absent → input
+ * contributes nothing.
  */
 export type SearchInputValues = ReadonlyMap<string, string>;
 
 /**
  * Compose every contributing search-input's runtime predicate into
- * one Predicate representing the input-driven contribution. The
- * caller (the helper layer binding to the case store) AND-composes
- * this result with the unified `caseListConfig.filter` slot so the
- * slot remains the single source for both the case-list always-on
- * filter and the search-input contributions.
- *
- * Empty / absent input values short-circuit at the per-input level —
- * the input contributes nothing. Zero-input or all-empty input
- * returns `match-all` (the conjunction identity element) so the
- * caller can AND-compose unconditionally without a "did anything
- * contribute" check.
+ * one Predicate representing the input-driven contribution. Empty /
+ * absent input values short-circuit per-input. Zero-input or all-
+ * empty input returns `match-all` so the caller can AND-compose
+ * unconditionally.
  *
  * `caseType` threads to every `prop(caseType, property, via?)` Term
  * construction so the predicate compiler can resolve the property's
@@ -87,29 +66,11 @@ export function composeRuntimeFilter(
 		const clause = clauseForInput(input, inputValues, caseType);
 		if (clause !== undefined) clauses.push(clause);
 	}
-	// `reduceAnd` returns the canonical sentinel for empty input
-	// (`match-all`), unwraps a single clause, and signals "use the
-	// n-ary form" with `undefined` — the same dispatch the `and`
-	// builder runs internally. Routing through the reducer pins the
-	// reduction contract to a single source of truth and avoids
-	// re-creating the dispatch by hand.
 	const reduced = reduceAnd(clauses);
 	if (reduced !== undefined) return reduced;
-	// Two-or-more clauses: construct the standard `and` envelope
-	// directly. The cast through `as` mirrors `and`'s own
-	// implementation site — TypeScript can't see the
-	// `reduceAnd === undefined` guarantee that the array is
-	// non-empty-with-second-element from inside this branch.
 	return { kind: "and", clauses: clauses as [Predicate, ...Predicate[]] };
 }
 
-// ── Per-arm dispatch ──────────────────────────────────────────────
-
-/**
- * Build a single per-input clause, or return `undefined` if the input
- * contributes nothing (empty / absent value). Discriminates on the
- * input's `kind` and routes to the per-arm builder.
- */
 function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
@@ -134,21 +95,12 @@ function clauseForInput(
 	}
 }
 
-// ── Simple arm ────────────────────────────────────────────────────
-
 /**
- * Build the simple-arm clause: `(property, mode, via)` → per-mode
- * comparison.
- *
- * Dispatches on the full `SearchInputMode` object (not just its
- * `kind`) so the multi-select arm's `quantifier` slot narrows
- * naturally inside the switch — the discriminated-union arm carries
- * the slot at the type level. Absent `mode` falls back to the per-
- * `type` default via `defaultModeFor(type)`, matching the wire
- * layer's per-type default contract.
- *
- * Range mode is the only kind that reads two keys (`:from` / `:to`);
- * every other mode reads the bare `<input.name>` key.
+ * Simple-arm dispatch: `(property, mode, via)` → per-mode comparison.
+ * The full `SearchInputMode` object (not just `kind`) drives the
+ * switch so the multi-select arm's `quantifier` slot narrows
+ * naturally. Range mode reads `:from` / `:to` keys; every other mode
+ * reads the bare `<input.name>` key.
  */
 function buildSimpleArmClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
@@ -161,10 +113,7 @@ function buildSimpleArmClause(
 	}
 
 	const value = inputValues.get(input.name);
-	if (value === undefined || value === "") return undefined;
-	// Whitespace-only values pass through verbatim — the widget
-	// layer trims before calling, so a non-empty string here is an
-	// explicit value the user typed.
+	if (value === undefined || value.trim() === "") return undefined;
 
 	const property = prop(caseType, input.property, input.via);
 	switch (mode.kind) {
@@ -179,8 +128,6 @@ function buildSimpleArmClause(
 		case "fuzzy-date":
 			return match(property, literal(value), "fuzzy-date");
 		case "multi-select-contains":
-			// `mode` narrows to the multi-select arm here — its
-			// `quantifier` slot is reachable directly without a cast.
 			return buildMultiSelectClause(mode, property, value);
 		default: {
 			const _exhaustive: never = mode;
@@ -204,15 +151,6 @@ function buildSimpleArmClause(
 	}
 }
 
-/**
- * Build the multi-select clause: comma-split the value into per-token
- * literals, route through the quantifier-specific builder.
- *
- * Empty list after split + trim + filter-empty → no clause for the
- * input. `multiSelectAny` / `multiSelectAll` require at least one
- * literal at the type level, so a zero-element spread would fail at
- * the call site; the early return is the structural defense.
- */
 function buildMultiSelectClause(
 	mode: Extract<SearchInputMode, { kind: "multi-select-contains" }>,
 	property: PropertyRef,
@@ -223,13 +161,10 @@ function buildMultiSelectClause(
 		.map((token) => token.trim())
 		.filter((token) => token.length > 0);
 	if (tokens.length === 0) return undefined;
-	// Explicit arrow guards against `Array.prototype.map`'s
-	// `(value, index, array)` callback signature: a bare
-	// `tokens.map(literal)` would silently bind the per-token index
-	// to any second parameter `literal` ever grows (e.g. a
-	// `data_type` qualifier), producing position-dependent literals.
-	// The arrow's two-character cost buys permanent protection
-	// against that future-widening footgun.
+	// Explicit arrow defends against `Array.prototype.map`'s
+	// `(value, index, array)` callback contract: `tokens.map(literal)`
+	// would silently bind the per-token index to any second parameter
+	// `literal` ever grows.
 	const [first, ...rest] = tokens.map((token) => literal(token));
 	if (mode.quantifier === "all") {
 		return multiSelectAll(property, first, ...rest);
@@ -237,19 +172,6 @@ function buildMultiSelectClause(
 	return multiSelectAny(property, first, ...rest);
 }
 
-/**
- * Build a range clause: read `<name>:from` / `<name>:to`, gate each
- * bound's format, omit malformed / empty bounds, return `undefined`
- * if both are absent.
- *
- * Range mode applies to `date` / `date-range` inputs (see
- * `SEARCH_INPUT_TYPE_PROPERTY_TYPES` in `lib/domain/modules.ts`), so
- * each bound flows through `dateLiteral(...)` after the format check.
- * Non-`YYYY-MM-DD` strings would construct a typed-but-malformed
- * literal that fails downstream at SQL emission; gating here treats
- * malformed bounds as absent so a stale / partially-typed value
- * doesn't crash the query.
- */
 function buildRangeClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
 	inputValues: SearchInputValues,
@@ -258,31 +180,14 @@ function buildRangeClause(
 	const lower = parseDateBound(inputValues.get(`${input.name}:from`));
 	const upper = parseDateBound(inputValues.get(`${input.name}:to`));
 	if (lower === undefined && upper === undefined) return undefined;
-	// `between(...)` dispatches the lower / upper / both / neither
-	// cascade itself, including the absent-not-undefined contract
-	// that strips omitted bounds from the constructed shape. Routing
-	// every bound permutation through the builder keeps the
-	// construction-rule contract in one place.
 	return between(prop(caseType, input.property, input.via), { lower, upper });
 }
 
 /**
- * Format-gate a single date bound. Treats malformed / empty values
- * as absent so a stale or partially-typed value (e.g. `2025-` while
- * the user is mid-edit) is filtered out before reaching the SQL
- * layer.
- *
- * Pattern matches the wire-form `YYYY-MM-DD` shape. Calendar
- * validity (month 13, February 30) is the SQL layer's concern —
- * Postgres rejects invalid calendar dates at the date cast inside
- * `compileLiteral`. This gate's job is the surface check that
- * catches mid-edit empty / partial values from the date input
- * widget; consumers handle anything else.
- *
- * Returns a bare `Literal` so the caller can splice into `between`'s
- * `lower` / `upper` slots; the builder lifts every bound through
- * `toValueExpression` internally. Returns `undefined` when the
- * bound is empty / malformed.
+ * Calendar validity is enforced at SQL emission via the `date` cast
+ * in `compileLiteral`; this gate filters mid-edit shapes that would
+ * crash the cast. Returns a bare `Literal` so `between(...)` lifts
+ * it via `toValueExpression`.
  */
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 function parseDateBound(raw: string | undefined): Literal | undefined {
@@ -292,25 +197,16 @@ function parseDateBound(raw: string | undefined): Literal | undefined {
 }
 
 /**
- * Mode kinds eligible to seed a per-`type` default — every kind
- * EXCEPT `multi-select-contains`. The exclusion is structural: the
- * multi-select arm requires a `quantifier` slot the default-table
- * can't supply, and no `APPLICABLE_SEARCH_MODES` row lists it first
- * anyway. Type-system enforcement of "the default table can never
- * point at multi-select" is more durable than a runtime narrowing
- * guard.
+ * `multi-select-contains` is structurally excluded from the
+ * default-mode table because its arm requires a `quantifier` slot
+ * the table can't supply, and no `APPLICABLE_SEARCH_MODES` row
+ * lists it first anyway.
  */
 type DefaultableModeKind = Exclude<
 	SearchInputMode["kind"],
 	"multi-select-contains"
 >;
 
-/**
- * Per-`type` default mode kind. Matches the head of each tuple in
- * `APPLICABLE_SEARCH_MODES` (`lib/domain/modules.ts`) — the test
- * suite pins the agreement so the two tables stay in lockstep
- * without coupling this construction site to a runtime table walk.
- */
 const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	Record<SearchInputType, DefaultableModeKind>
 > = {
@@ -321,59 +217,32 @@ const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	barcode: "exact",
 };
 
-/**
- * Per-`type` default `SearchInputMode`. Reads the kind off the
- * `DEFAULT_SEARCH_MODE_KIND` table and wraps it in a discriminator-
- * only mode object; the `multi-select-contains` arm (the only mode
- * carrying additional slots) is excluded by the table's value type.
- */
 function defaultModeFor(type: SearchInputType): SearchInputMode {
 	return { kind: DEFAULT_SEARCH_MODE_KIND[type] };
 }
 
-// ── Advanced arm ──────────────────────────────────────────────────
-
 /**
- * Build the advanced-arm clause: when the value is non-empty,
- * recurse into `substituteInputInPredicate` to bind the input ref
- * at every value-position match. The walker functions below are
- * the authoritative site for arm-by-arm substitution semantics.
+ * Advanced-arm dispatch: when the value is non-empty, recurse into
+ * `substituteInputInPredicate` to bind the input ref at every value-
+ * position match. The walker functions below are the authoritative
+ * site for arm-by-arm substitution semantics.
  */
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
 ): Predicate | undefined {
 	const value = inputValues.get(input.name);
-	if (value === undefined || value === "") return undefined;
+	if (value === undefined || value.trim() === "") return undefined;
 	return substituteInputInPredicate(input.predicate, input.name, value);
 }
 
-// ── Advanced-arm AST rewriter ────────────────────────────────────
-//
-// Recursive substitution over the `Predicate` / `ValueExpression` /
-// `Term` unions. Every value-position `{ kind: "term", term: { kind:
-// "input", name } }` whose `name` matches the target is rewritten to
-// a literal-bearing `term` arm; every other shape is rebuilt
-// structurally (so the rewriter is a fresh tree, not a mutation of
-// the input AST — the input AST is treated as read-only).
-//
-// Why a fresh tree: Predicates are persisted in Firestore alongside
-// the blueprint document. Mutating a node would mutate the saved
-// AST in-place; the doc store's zundo undo/redo machinery relies on
-// reference equality to detect changes, and an in-place mutation
-// would corrupt the history. Rebuilding is structural and cheap —
-// every consumer ships a tree-walker shape regardless.
+// Recursive substitution over `Predicate` / `ValueExpression` /
+// `Term`. The rewriter rebuilds every operator envelope fresh and
+// shares only literal-only / discriminator-only / non-substituting
+// Term slots by reference. It never mutates a shared reference, so
+// the input AST stays observable to its other consumers (Firestore
+// persistence, zundo history) unchanged.
 
-/**
- * Walk a `Predicate` and substitute matching `input(name)` value-
- * position terms. Every operator envelope is rebuilt fresh;
- * literal-only and discriminator-only slots, plus the sentinel
- * arms (`match-all` / `match-none`) and non-substituting Term
- * arms, are shared by reference. The rewriter never mutates a
- * shared reference, so the input AST stays observable to its
- * other consumers (Firestore persistence, zundo history)
- * unchanged.
- */
 function substituteInputInPredicate(
 	predicate: Predicate,
 	targetName: string,
@@ -394,18 +263,12 @@ function substituteInputInPredicate(
 				left: substituteInputInExpression(predicate.left, targetName, value),
 				right: substituteInputInExpression(predicate.right, targetName, value),
 			};
-		case "in": {
-			const left = substituteInputInExpression(
-				predicate.left,
-				targetName,
-				value,
-			);
-			// `in.values` is literal-only at the schema layer; literals
-			// carry no input refs, so the values list passes through
-			// unchanged. Rebuilding the array shape with the original
-			// references is sufficient.
-			return { kind: "in", left, values: predicate.values };
-		}
+		case "in":
+			return {
+				kind: "in",
+				left: substituteInputInExpression(predicate.left, targetName, value),
+				values: predicate.values,
+			};
 		case "within-distance":
 			return {
 				kind: "within-distance",
@@ -419,10 +282,6 @@ function substituteInputInPredicate(
 				unit: predicate.unit,
 			};
 		case "match":
-			// `match.value` is a `ValueExpression` slot; recurse so a
-			// match value driven by a search-input substitutes cleanly.
-			// `match.property` is a `PropertyRef`, structurally a `prop`
-			// Term — it carries no input ref.
 			return {
 				kind: "match",
 				property: predicate.property,
@@ -430,36 +289,37 @@ function substituteInputInPredicate(
 				mode: predicate.mode,
 			};
 		case "multi-select-contains":
-			// Same shape as `in.values` — literal-only by schema, so the
-			// values list passes through unchanged.
 			return {
 				kind: "multi-select-contains",
 				property: predicate.property,
 				values: predicate.values,
 				quantifier: predicate.quantifier,
 			};
-		case "between":
-			// Routes through the `between(...)` builder so the
-			// absent-not-undefined construction stays in one place.
-			// The schema's `.refine(...)` rejects both-bounds-absent
-			// at parse time, so an AST that reached this rewriter is
-			// guaranteed to carry at least one bound — the builder
-			// will never see both-undefined.
-			return between(
-				substituteInputInExpression(predicate.left, targetName, value),
-				{
-					lower:
-						predicate.lower === undefined
-							? undefined
-							: substituteInputInExpression(predicate.lower, targetName, value),
-					upper:
-						predicate.upper === undefined
-							? undefined
-							: substituteInputInExpression(predicate.upper, targetName, value),
-					lowerInclusive: predicate.lowerInclusive,
-					upperInclusive: predicate.upperInclusive,
-				},
-			);
+		case "between": {
+			// Conditional-property-add preserves absent-not-undefined
+			// (Zod's `.optional()` strips absent keys on parse).
+			const next: Extract<Predicate, { kind: "between" }> = {
+				kind: "between",
+				left: substituteInputInExpression(predicate.left, targetName, value),
+				lowerInclusive: predicate.lowerInclusive,
+				upperInclusive: predicate.upperInclusive,
+			};
+			if (predicate.lower !== undefined) {
+				next.lower = substituteInputInExpression(
+					predicate.lower,
+					targetName,
+					value,
+				);
+			}
+			if (predicate.upper !== undefined) {
+				next.upper = substituteInputInExpression(
+					predicate.upper,
+					targetName,
+					value,
+				);
+			}
+			return next;
+		}
 		case "is-null":
 			return {
 				kind: "is-null",
@@ -473,12 +333,16 @@ function substituteInputInPredicate(
 		case "and":
 			return {
 				kind: "and",
-				clauses: rebuildClauseTuple(predicate.clauses, targetName, value),
+				clauses: predicate.clauses.map((c) =>
+					substituteInputInPredicate(c, targetName, value),
+				) as [Predicate, ...Predicate[]],
 			};
 		case "or":
 			return {
 				kind: "or",
-				clauses: rebuildClauseTuple(predicate.clauses, targetName, value),
+				clauses: predicate.clauses.map((c) =>
+					substituteInputInPredicate(c, targetName, value),
+				) as [Predicate, ...Predicate[]],
 			};
 		case "not":
 			return {
@@ -489,7 +353,7 @@ function substituteInputInPredicate(
 			// The trigger slot is a `SearchInputRef` discriminator, not
 			// a value-position term — substituting a literal would
 			// violate the schema's `input: searchInputRefSchema` shape.
-			// The empty-value short-circuit in `buildAdvancedArmClause`
+			// `buildAdvancedArmClause`'s empty-value short-circuit
 			// already gates the entire advanced-arm contribution on the
 			// trigger's runtime presence, so the wrap stays even when
 			// the trigger's name matches the target.
@@ -558,34 +422,6 @@ function substituteInputInPredicate(
 	}
 }
 
-/**
- * Rebuild a non-empty clause tuple — `and.clauses` / `or.clauses`
- * carry the tuple-with-rest shape `[Predicate, ...Predicate[]]` per
- * the schema. Mapping over the array preserves the non-empty witness:
- * the caller hands in a tuple, every entry maps to a Predicate, and
- * the result is the same length. The cast is unavoidable because
- * `Array.prototype.map` widens the return type to `Predicate[]`; the
- * `as` is structurally safe and mirrors the same cast site in
- * `builders.ts::and`.
- */
-function rebuildClauseTuple(
-	clauses: readonly [Predicate, ...Predicate[]],
-	targetName: string,
-	value: string,
-): [Predicate, ...Predicate[]] {
-	return clauses.map((clause) =>
-		substituteInputInPredicate(clause, targetName, value),
-	) as [Predicate, ...Predicate[]];
-}
-
-/**
- * Walk a `ValueExpression` and substitute matching `input(name)`
- * value-position terms. Every operator envelope is rebuilt fresh;
- * discriminator-only slots, the constant arms (`today` / `now`),
- * and non-substituting Term arms are shared by reference. The
- * rewriter never mutates a shared reference, so the input AST
- * stays observable to its other consumers unchanged.
- */
 function substituteInputInExpression(
 	expr: ValueExpression,
 	targetName: string,
@@ -639,10 +475,6 @@ function substituteInputInExpression(
 			return { kind: "coalesce", values };
 		}
 		case "if":
-			// `if.cond` is a `Predicate` (cross-family) — recurse via the
-			// predicate-side rewriter so a search-input drives a
-			// conditional's condition cleanly. Both branches are
-			// `ValueExpression`.
 			return {
 				kind: "if",
 				cond: substituteInputInPredicate(expr.cond, targetName, value),
@@ -651,9 +483,6 @@ function substituteInputInExpression(
 				else: substituteInputInExpression(expr.else, targetName, value),
 			};
 		case "switch": {
-			// `switch.cases[].when` is a `Literal` — literals carry no
-			// input refs, so the `when` slot passes through unchanged.
-			// `switch.cases[].then` is a `ValueExpression` and recurses.
 			const cases = expr.cases.map((c) => ({
 				when: c.when,
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; `then` holds a ValueExpression object, never a callable.
@@ -667,8 +496,6 @@ function substituteInputInExpression(
 			};
 		}
 		case "count":
-			// `count.where` is a `Predicate` (cross-family). The `via`
-			// slot is a `RelationPath` (no value slots).
 			return expr.where === undefined
 				? { kind: "count", via: expr.via }
 				: {
@@ -718,16 +545,8 @@ function substituteInputInExpression(
 }
 
 /**
- * Substitute a Term whose kind is `input` and whose `name` matches
- * the target, leaving every other Term shape unchanged. Returns a
- * `ValueExpression` (the `term` arm is the structural lifter consumed
- * by every value slot) so the caller can splice the result into a
- * value position regardless of whether substitution fired.
- *
- * The parameter is named `node` (not `term`) to avoid shadowing the
- * `term` builder import at the file's top — foundation code
- * structurally prevents shadowing footguns rather than relying on
- * "the shadow is currently safe" to hold across edits.
+ * Parameter named `node` (not `term`) to avoid shadowing the `term`
+ * builder import.
  */
 function substituteInputInTerm(
 	node: Term,
@@ -736,13 +555,6 @@ function substituteInputInTerm(
 ): ValueExpression {
 	switch (node.kind) {
 		case "input":
-			// Match-target check: substitute only when the input ref's
-			// `name` matches THIS input's name. Orphan `input(other)`
-			// references (a different input's name) are preserved
-			// untouched — the validator caught structurally-orphan refs
-			// at parse time, and value-position refs to a SIBLING input
-			// in the same screen are this input's neighbor's job to
-			// substitute when the runtime composes that input's clause.
 			if (node.name === targetName) {
 				return { kind: "term", term: { kind: "literal", value } };
 			}

@@ -122,6 +122,21 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 		);
 		expect(result).toEqual(matchAll());
 	});
+
+	it("treats a whitespace-only value as absent (defensive trim)", () => {
+		// The widget layer is expected to pre-trim, but this module
+		// also defensively trims so a stale "   " value doesn't reach
+		// the SQL layer as an explicit-but-empty filter.
+		const inputs = [
+			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+		];
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map(Object.entries({ name: "   " })),
+			PATIENT,
+		);
+		expect(result).toEqual(matchAll());
+	});
 });
 
 describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
