@@ -285,9 +285,8 @@ describe("CaseSearchConfigPanel — section composition", () => {
 		).toBeDefined();
 		expect(screen.getByRole("heading", { name: /^Advanced$/ })).toBeDefined();
 
-		// Each section header carries the violet rail divider —
-		// pin the rail's presence so a future header refactor that
-		// strips the chrome surfaces here.
+		// Each section header carries the violet rail divider — three
+		// sections, three rails, one per `CaseListSectionHeader` mount.
 		const rails = document.querySelectorAll("[data-section-rail]");
 		expect(rails.length).toBe(3);
 	});
@@ -329,10 +328,9 @@ describe("CaseSearchConfigPanel — section composition", () => {
 
 describe("CaseSearchConfigPanel — slot routing", () => {
 	it("routes DisplaySection's onChange through updateModule's caseSearchConfig slot", () => {
-		// Pin the routing — the panel's mutator writes to
-		// `caseSearchConfig`, NOT `caseListConfig`. A future bug
-		// flipping the slot would persist display edits to the wrong
-		// part of the module schema.
+		// The panel's mutator writes display edits to
+		// `caseSearchConfig` and never to `caseListConfig` — display
+		// labels live on the case-search slot, not the case-list slot.
 		render(
 			renderPanel({
 				caseSearchConfig: {},
@@ -503,16 +501,14 @@ describe("CaseSearchConfigPanel — defensive guards", () => {
 	});
 
 	it("reports valid: true to the parent on a case-less module (no validity-bearing controls mounted)", () => {
-		// Pins the contract: when the panel renders nothing because
-		// the module has no case type, the composite verdict still
-		// fires `true` to the parent. No validity-bearing sub-control
-		// mounted = no failure surface = trivially valid.
-		//
-		// The effect runs through `useValidityPropagator` BEFORE the
-		// case-less early return, so the propagation contract holds
-		// uniformly across the case-typed and case-less arms. A
-		// future caller gating its save affordance on this verdict
-		// can rely on case-less modules NOT blocking the save.
+		// When the panel renders nothing because the module has no
+		// case type, the composite verdict still fires `true` to the
+		// parent. No validity-bearing sub-control mounted = no failure
+		// surface = trivially valid. The effect runs through
+		// `useValidityPropagator` BEFORE the case-less early return, so
+		// the propagation contract holds uniformly across the case-
+		// typed and case-less arms — a save affordance gated on this
+		// verdict isn't blocked by case-less modules.
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(renderPanel({ caseType: undefined, onValidityChange }));
 		expect(onValidityChange).toHaveBeenLastCalledWith(true);

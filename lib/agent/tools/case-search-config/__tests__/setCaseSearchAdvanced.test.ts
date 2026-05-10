@@ -220,10 +220,9 @@ describe("setCaseSearchAdvanced", () => {
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		// Cross-surface parity sentinel. The tool body is ctx-shape-
-		// agnostic by construction; this test pins the contract so
-		// future ctx-aware logic added to the tool surface would get
-		// caught.
+		// The tool body is ctx-shape-agnostic — chat and MCP contexts
+		// route through the same `recordMutations` interface and emit
+		// structurally identical mutation batches for the same input.
 		const { doc, ctx: chatCtx } = makeCaseSearchFixture();
 		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
 		const input = {

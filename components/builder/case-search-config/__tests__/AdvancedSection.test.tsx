@@ -292,16 +292,15 @@ describe("AdvancedSection — populated round-trip", () => {
 			}),
 		);
 
-		// `clearBlacklist` spreads `...(value ?? {})` and assigns
-		// `blacklistedOwnerIds: undefined`, so the unrelated
-		// `searchScreenTitle` slot survives and the cleared slot
-		// reads as `undefined`. The doc-store strict parse on the
-		// next save would otherwise lose the title.
+		// Clearing drops the `blacklistedOwnerIds` key entirely from
+		// the emitted config (not a leaky `key: undefined` assignment)
+		// and leaves unrelated slots intact. `toEqual` treats absent
+		// and `undefined` keys equivalently, so the absent-key contract
+		// needs an explicit `in` probe alongside the shape compare.
 		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			blacklistedOwnerIds: undefined,
-			searchScreenTitle: "Find a patient",
-		});
+		const emitted = onChange.mock.calls[0]?.[0];
+		expect(emitted).toEqual({ searchScreenTitle: "Find a patient" });
+		expect("blacklistedOwnerIds" in (emitted ?? {})).toBe(false);
 	});
 });
 

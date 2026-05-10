@@ -94,14 +94,15 @@ export const setCaseSearchDisplayTool = {
 				);
 
 			// Carry the advanced cluster forward via the shared picker,
-			// then layer the input's display values on top. Both helpers
-			// derive their slot sets from the source-of-truth tuples the
-			// schema uses; the partition assertions in `shared.ts` catch
-			// any cluster-home omission at compile time.
+			// then layer the input's display values on top via the
+			// shared cluster-patch helper. Both halves derive their
+			// slot sets from the same source-of-truth tuples the input
+			// schema uses; the partition assertions in `shared.ts`
+			// catch any cluster-home omission at compile time.
 			const existing = snapshotCaseSearchConfig(mod);
 			const nextConfig: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
-				...buildDisplayLayer(input),
+				...applyClusterPatch(input, DISPLAY_SLOT_NAMES),
 			};
 
 			const mutations = updateModuleMutations(mod, {
@@ -143,17 +144,3 @@ export const setCaseSearchDisplayTool = {
 		}
 	},
 };
-
-/**
- * Build the display-layer projection the wholesale-rebuild composes
- * onto the carried-forward advanced cluster. Routes through the
- * shared `applyClusterPatch` helper so the slot list (`DISPLAY_SLOT_NAMES`)
- * lives in exactly one place; `null` inputs (the wholesale-clear
- * semantic) skip the write so the returned object's keys reflect
- * only the slots the SA actually set.
- */
-function buildDisplayLayer(
-	input: SetCaseSearchDisplayInput,
-): Partial<Pick<CaseSearchConfig, DisplaySlotName>> {
-	return applyClusterPatch(input, DISPLAY_SLOT_NAMES);
-}

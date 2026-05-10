@@ -1,51 +1,36 @@
 // components/builder/shared/PredicateSlotCard.tsx
 //
-// Optional-Predicate slot card. Composes the chrome that several
-// authoring surfaces share when authoring a single optional
-// `Predicate` slot:
+// Optional-Predicate slot card. Thin specialization of the generic
+// `OptionalSlotCard<T>` primitive, fixing `T` to `Predicate` and
+// supplying:
 //
-//   1. A section header — violet rail + per-consumer icon + title +
-//      hint line, plus a "Clear" affordance on the right when the
-//      slot is defined.
-//   2. The body switch — `<PredicateCardEditor>` when the slot is
-//      defined; a dashed "Add ..." CTA when the slot is undefined.
-//   3. The validity contract — when the slot is undefined the card
-//      reports `valid: true` (slot-presence short-circuit);
-//      otherwise it forwards the predicate editor's verdict.
+//   - The `matchAll()` add-seed — the canonical "always true"
+//     sentinel for an optional Predicate slot. `match-all()` mounts
+//     as a sentinel card whose kind-replace menu lets the author
+//     swap in any concrete operator on first interaction without
+//     seeing a false-error state pre-emptively (a comparison-card
+//     scaffold would surface `valid: false` immediately because the
+//     literal-vs-property type-check hasn't been satisfied; match-
+//     all stays `valid: true`).
+//   - A `renderEditor` wrapping `<PredicateCardEditor>` with the
+//     inner-validity callback piped to the primitive's shadow.
 //
-// Consumed by any section authoring surface that holds a single
-// optional `Predicate` slot — wherever a section needs the same
-// "add a predicate / edit the predicate / clear it" affordance,
-// this card is the chrome. Wrapping sections compose siblings
-// around it (preview panels, neighbouring sub-controls) without
-// reaching inside the card's body.
+// The card does NOT enable collapse — when the slot is defined, the
+// editor mounts and stays mounted until the consumer's
+// `onChange(undefined)` flips it. Consumers that need a collapse
+// affordance specialize `OptionalSlotCard` directly instead of
+// reaching for this card.
 //
-// The card hard-codes the add-affordance seed to `matchAll()` — the
-// canonical "always true" sentinel for an optional Predicate slot.
-// `match-all()` mounts as a sentinel card whose kind-replace menu
-// lets the author swap in any concrete operator on first interaction
-// without seeing a false-error state pre-emptively (a comparison-
-// card scaffold would surface `valid: false` immediately because
-// the literal-vs-property type-check hasn't been satisfied; match-
-// all stays `valid: true`).
-//
-// The card does NOT collapse the editor visually — the editor mounts
-// when the slot is defined and stays mounted until the consumer's
-// `onChange(undefined)` flips the slot. Consumers that need a
-// collapse affordance compose around the card; the card itself does
-// not implement collapse so that the slot-presence short-circuit
-// stays the only validity gate.
+// Consumed by `FiltersSection` (the case-list filter slot) and
+// `DisplaySection` (the case-search display-condition slot).
 
 "use client";
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerPlus from "@iconify-icons/tabler/plus";
-import { useState } from "react";
+import type { IconifyIcon } from "@iconify/react/offline";
 import type { CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
+import { OptionalSlotCard } from "./OptionalSlotCard";
 import { PredicateCardEditor } from "./PredicateCardEditor";
-import { SlotCardHeader } from "./SlotCardHeader";
-import { useValidityPropagator } from "./useInnerValidityShadow";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -60,33 +45,22 @@ export interface PredicateSlotCardProps {
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
 	readonly description: string;
-	/** Empty-state CTA label. Used for both the dashed "Add ..."
-	 *  button (when the slot is undefined) and as the seed for the
-	 *  `aria-label`, so the consumer's authored copy reads
-	 *  consistently in screen readers. */
+	/** Empty-state CTA label — visible button text + `aria-label`. */
 	readonly addLabel: string;
-	/** Header "Clear ..." label — used as both the visible button
-	 *  text AND the `aria-label` so screen readers and visual
-	 *  readers see the same words. Consumers can choose a tight
-	 *  visible label (e.g., "Clear") and the same string flows to
-	 *  the accessible name. */
+	/** Header "Clear ..." label — visible button text + `aria-label`. */
 	readonly clearLabel: string;
-	/** Current Predicate slot value. `undefined` ≡ slot empty (the
-	 *  card surfaces the dashed add affordance and reports
-	 *  trivially-valid). */
+	/** Current Predicate slot value. `undefined` ≡ slot empty. */
 	readonly value: Predicate | undefined;
-	/** Fired when the slot transitions. Receives `undefined` on
-	 *  Clear; receives a `Predicate` on Add (seeded with `matchAll()`)
-	 *  and on every inner edit. The consumer routes this back into
-	 *  its source-of-truth (the doc store's slot). */
+	/** Fired when the slot transitions. Receives `undefined` on Clear;
+	 *  receives a `Predicate` on Add (seeded with `matchAll()`) and on
+	 *  every inner edit. */
 	readonly onChange: (next: Predicate | undefined) => void;
 	/** Blueprint case-type definitions — drives the property pickers
 	 *  inside the predicate editor. */
 	readonly caseTypes: readonly CaseType[];
-	/** The case-type the predicate runs against. Property
-	 *  references resolve against this scope; relation walks
-	 *  inside `exists`/`missing` flip the destination scope as
-	 *  authored. */
+	/** The case-type the predicate runs against. Property references
+	 *  resolve against this scope; relation walks inside
+	 *  `exists`/`missing` flip the destination scope as authored. */
 	readonly currentCaseType: string;
 	/** Search-input declarations from the parent screen. Threaded
 	 *  into the predicate editor so `input(...)` terms resolve. */
@@ -100,16 +74,10 @@ export interface PredicateSlotCardProps {
 // ── Component ─────────────────────────────────────────────────────
 
 /**
- * Optional-Predicate slot card. Owns the section-header chrome +
- * add/clear affordance + slot-presence body switch + validity
- * propagation contract that authoring surfaces share when
- * presenting a single optional `Predicate` slot.
- *
- * Validity contract: when `value === undefined` the card reports
- * `valid: true` regardless of any stale inner shadow. The
- * slot-presence short-circuit defends against a verdict left behind
- * by a cleared editor leaking past the clear — without it, the next
- * Add would flash invalid for one frame on the editor's mount.
+ * Optional-Predicate slot card. Specializes `OptionalSlotCard<Predicate>`
+ * with the `matchAll()` add-seed and a `<PredicateCardEditor>` body.
+ * No collapse — the editor mounts when the slot is defined and stays
+ * mounted until cleared.
  */
 export function PredicateSlotCard({
 	icon,
@@ -124,70 +92,27 @@ export function PredicateSlotCard({
 	knownInputs = [],
 	onValidityChange,
 }: PredicateSlotCardProps) {
-	// Inner predicate-editor verdict shadow. Default `true` — when
-	// the slot is undefined, the editor is unmounted and the verdict
-	// stays trivially valid. When the slot is defined, the editor's
-	// `onValidityChange` overrides this on its first effect tick.
-	const [predicateValid, setPredicateValid] = useState(true);
-
-	const slotPresent = value !== undefined;
-	// When the slot is undefined the card is trivially valid
-	// regardless of `predicateValid`'s stash. Without the slot-
-	// presence guard, a stale `false` left behind by a cleared
-	// predicate would leak past the clear.
-	const isValid = !slotPresent || predicateValid;
-
-	useValidityPropagator({ isValid, onValidityChange });
-
-	// ── Mutators ──
-	const handleAdd = () => {
-		// `matchAll()` seed — the canonical "always true" sentinel.
-		// The kind-replace menu inside `PredicateCardEditor` lets
-		// the author swap in any concrete operator on first
-		// interaction. Routes through the typed builder so the
-		// constructed shape stays in lockstep with the schema.
-		onChange(matchAll());
-	};
-	const handleClear = () => {
-		onChange(undefined);
-	};
-
 	return (
-		<div className="space-y-3">
-			<SlotCardHeader
-				icon={icon}
-				title={title}
-				description={description}
-				clear={
-					slotPresent ? { onClick: handleClear, label: clearLabel } : undefined
-				}
-			/>
-
-			{/* Body — predicate editor when the slot is defined; the
-			    dashed empty-state CTA when undefined. The two arms are
-			    mutually exclusive. */}
-			{value !== undefined ? (
-				<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
-					<PredicateCardEditor
-						value={value}
-						onChange={onChange}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
-						onValidityChange={setPredicateValid}
-					/>
-				</div>
-			) : (
-				<button
-					type="button"
-					onClick={handleAdd}
-					className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-					aria-label={addLabel}
-				>
-					<Icon icon={tablerPlus} width="12" height="12" />
-					<span>{addLabel}</span>
-				</button>
+		<OptionalSlotCard<Predicate>
+			icon={icon}
+			title={title}
+			description={description}
+			addLabel={addLabel}
+			clearLabel={clearLabel}
+			value={value}
+			onChange={onChange}
+			addSeed={matchAll()}
+			renderEditor={(predicate, onPredicateChange, onValidityChangeInner) => (
+				<PredicateCardEditor
+					value={predicate}
+					onChange={onPredicateChange}
+					caseTypes={caseTypes}
+					currentCaseType={currentCaseType}
+					knownInputs={knownInputs}
+					onValidityChange={onValidityChangeInner}
+				/>
 			)}
-		</div>
+			onValidityChange={onValidityChange}
+		/>
 	);
 }

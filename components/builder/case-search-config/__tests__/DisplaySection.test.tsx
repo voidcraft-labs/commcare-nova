@@ -23,8 +23,10 @@
 // `OptionalTextRow` primitive (built on top of `useCommitField`),
 // so per-slot edit tests are mechanical — the parameterized
 // `it.each` block covers the four single-line inputs in one
-// declaration; the textarea's commit path gets its own `it()` so a
-// future divergence between the two layouts surfaces directly.
+// declaration. The textarea's commit path gets its own `it()`
+// because the markdown row's layout (textarea + live preview)
+// differs from the single-line input rows, and pinning the commit
+// path on the textarea independently keeps both layouts under test.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -155,9 +157,9 @@ describe("DisplaySection — per-slot edits", () => {
 	it("types into the Subtitle markdown textarea and emits onChange with the new value", () => {
 		// Markdown subtitle uses the same blur-commit semantics as the
 		// plain text rows; the only authoring-layer difference is the
-		// textarea + the live `<PreviewMarkdown />` render. Pin the
-		// commit path on its own so a future tweak to the markdown
-		// row's commit semantics surfaces here directly.
+		// textarea + the live `<PreviewMarkdown />` render. Pinning
+		// the textarea's commit path independently keeps the markdown
+		// row's commit semantics under direct test.
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<DisplaySection
@@ -283,14 +285,13 @@ describe("DisplaySection — validity propagation", () => {
 
 describe("DisplaySection — cross-slot preservation", () => {
 	it("typing into a display slot leaves unrelated `caseSearchConfig` slots intact", () => {
-		// Pins the `...(value ?? {}), [slot]: next` spread on every
-		// per-slot patch path — any sibling slot the patch doesn't
-		// touch must flow through. `blacklistedOwnerIds` is the canary
-		// because the display section never reads or writes it
-		// directly (it lives on the advanced cluster); if a future
-		// per-slot mutator dropped the base spread, the title commit
-		// would emit a config missing the blacklist and the parent's
-		// strict parse would silently lose it on the next save.
+		// Per-slot patches spread `value` forward, so any sibling slot
+		// the patch doesn't touch flows through every emission.
+		// `blacklistedOwnerIds` is the canary — the display section
+		// never reads or writes it directly (it lives on the advanced
+		// cluster), so its presence on the emitted config exercises the
+		// base spread without any code path inside the section being
+		// able to fake the result.
 		const blacklistedOwnerIds: ValueExpression = term(literal("owner-a"));
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(

@@ -274,18 +274,20 @@ export function CaseSearchConfigPanel({
  * Display-section status. Counts authored label slots and reports
  * whether the search-button display condition is set. A blank state
  * surfaces "Defaults" so the user immediately knows the runtime is
- * using built-in copy.
+ * using built-in copy. Optional-chains the value lookups so an
+ * undefined config flows through the same arm as a defined-but-empty
+ * one — both have zero authored slots and resolve to the defaults
+ * line via the empty-`parts` branch below.
  */
 function buildDisplayStatus(value: CaseSearchConfig | undefined): string {
-	if (!value) return "Defaults — runtime uses built-in copy.";
 	const labels = [
-		value.searchScreenTitle,
-		value.searchScreenSubtitle,
-		value.emptyListText,
-		value.searchButtonLabel,
-		value.searchAgainButtonLabel,
+		value?.searchScreenTitle,
+		value?.searchScreenSubtitle,
+		value?.emptyListText,
+		value?.searchButtonLabel,
+		value?.searchAgainButtonLabel,
 	].filter((s): s is string => s !== undefined && s.length > 0).length;
-	const hasDisplayCondition = value.searchButtonDisplayCondition !== undefined;
+	const hasDisplayCondition = value?.searchButtonDisplayCondition !== undefined;
 	const parts: string[] = [];
 	if (labels > 0) {
 		parts.push(`${labels} ${labels === 1 ? "label" : "labels"} authored`);
@@ -311,12 +313,14 @@ function buildSearchInputsStatus(count: number): string {
 /**
  * Advanced-section status. Surfaces which advanced filters are
  * authored. A blank state reads "None" so the user sees the section
- * is intentionally empty rather than misconfigured.
+ * is intentionally empty rather than misconfigured. Optional-chains
+ * the value lookup so an undefined config flows through the same arm
+ * as a defined-but-empty one — both have zero authored slots and
+ * resolve to the empty-`parts` branch below.
  */
 function buildAdvancedStatus(value: CaseSearchConfig | undefined): string {
-	if (!value) return "None — no advanced filters set.";
 	const parts: string[] = [];
-	if (value.blacklistedOwnerIds !== undefined) parts.push("excluded owners");
+	if (value?.blacklistedOwnerIds !== undefined) parts.push("excluded owners");
 	if (parts.length === 0) return "None — no advanced filters set.";
 	return parts.join(" · ");
 }

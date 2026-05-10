@@ -43,8 +43,8 @@ const PATIENT: CaseType = {
 const CASE_TYPES = [PATIENT];
 
 // Common props shape — every test renders against these unless it
-// overrides a slot. Centralizes the test-side defaults so a future
-// prop addition has one place to update.
+// overrides a slot. One declaration is the single source of truth
+// for the test-side defaults across the file.
 const baseProps = {
 	icon: tablerFilter,
 	title: "Filter",
