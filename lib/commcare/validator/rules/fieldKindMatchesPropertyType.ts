@@ -199,8 +199,7 @@ export function fieldKindMatchesPropertyType(
 		}
 
 		// (b) Cross-writer disagreement — one error per writer in
-		// the disagreeing set, mirroring the spec's "one error per
-		// writer" contract. Disagreement means the set of expected
+		// the disagreeing set. Disagreement means the set of expected
 		// data types across all writers has more than one entry; the
 		// rule reports each writer so authors can see every site that
 		// participates in the conflict.

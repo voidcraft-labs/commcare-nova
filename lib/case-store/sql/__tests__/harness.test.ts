@@ -111,7 +111,6 @@ describe("case-store harness — schema", () => {
 			bucket.add(column_name);
 		}
 
-		// Spec-line citations match `lib/case-store/schema.sql`.
 		// `case_name` is a top-level scalar column on `cases` (the
 		// CCHQ-platform-required display name that lives outside the
 		// JSONB property document); `cases_quarantine` mirrors it

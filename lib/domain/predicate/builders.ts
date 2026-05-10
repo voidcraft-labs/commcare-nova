@@ -921,8 +921,7 @@ export function isNull(
  *
  * The `left` slot is parallel-shaped to `isNull` — every Term
  * variant is admitted at the schema layer, with literal-shaped
- * `left` rejected by the type checker as a category error. Spec
- * subsection: "Null vs blank semantics" under the Predicate family.
+ * `left` rejected by the type checker as a category error.
  */
 export function isBlank(
 	left: Term | ValueExpression,
@@ -1113,13 +1112,13 @@ export function now(): Extract<ValueExpression, { kind: "now" }> {
  * on-device emitter falls back to XPath operator arithmetic
  * (`date(...) + N`) for `days`-only emissions.
  *
- * The signature follows the spec's slot order: `date` (the date or
- * datetime base), `interval` (the unit name from
- * `DATE_ADD_INTERVALS`), `quantity` (the multiplier). Arguments
- * stay strictly typed — the builder doesn't auto-wrap Term inputs
- * here because both slots are always already value-shaped at the
- * call site (a `today()` constant, a `prop`-via-`term(...)`
- * lift, or a recursive `arith(...)` for relative-date arithmetic).
+ * The signature: `date` (the date or datetime base), `interval`
+ * (the unit name from `DATE_ADD_INTERVALS`), `quantity` (the
+ * multiplier). Arguments stay strictly typed — the builder doesn't
+ * auto-wrap Term inputs here because both slots are always already
+ * value-shaped at the call site (a `today()` constant, a
+ * `prop`-via-`term(...)` lift, or a recursive `arith(...)` for
+ * relative-date arithmetic).
  */
 export function dateAdd(
 	date: ValueExpression,
@@ -1235,14 +1234,14 @@ export function coalesce(
  * hoists `if` arms out of CSQL fragments at the wire-emission
  * boundary.
  *
- * The slot order matches the spec — `cond` / `then` / `else` —
- * even though `else` is a JS reserved word in statement positions;
- * it is a legal property name in object literal contexts.
+ * The three slots: `cond` is the boolean test, `then` is the value
+ * selected when `cond` resolves true, and `else` is the fallback
+ * when `cond` resolves false. `else` is a JS reserved word in
+ * statement positions but is a legal property name in object literal
+ * contexts, so it surfaces verbatim on the AST.
  *
  * The builder is named `ifExpr` (not `if`) to avoid colliding with
- * JS's `if` statement keyword. Authors who want the spec-aligned
- * read at the call site can re-export under an alias at consumer
- * scope.
+ * JS's `if` statement keyword.
  */
 export function ifExpr(
 	cond: Predicate,

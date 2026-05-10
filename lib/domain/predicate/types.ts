@@ -871,8 +871,8 @@ const coalesceSchema = z
  * AST objects also never reach a Promise-resolution boundary —
  * predicates and expressions are typed AST values manipulated via
  * builders, the validator, and wire emitters, none of which await
- * an AST node. Suppressing the rule preserves the spec's authored
- * vocabulary (`{ cond, then, else }`) at the AST without forcing a
+ * an AST node. Suppressing the rule preserves the authored
+ * vocabulary `{ cond, then, else }` at the AST without forcing a
  * downstream rename pass at every consumer.
  */
 const ifSchema = z
@@ -900,7 +900,7 @@ const ifSchema = z
  * non-function shapes), never a callable function, and the AST
  * objects never reach a Promise-resolution boundary. The
  * `noThenProperty` lint rule defends against an unrelated thenable-
- * hazard pattern; the suppression here preserves the spec's
+ * hazard pattern; the suppression here preserves the
  * `{ when, then }` shape at the AST.
  */
 const switchCaseSchema = z
@@ -918,9 +918,6 @@ const switchCaseSchema = z
  * is non-empty for the same reason `concat.parts` is — an empty
  * `cases` list collapses to `fallback`, and the canonical shape for
  * that is `fallback` directly.
- *
- * Spec subsection: "Expression family", `if` / `switch` row of the
- * value-expression table.
  */
 const switchSchema = z
 	.object({

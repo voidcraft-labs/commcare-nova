@@ -269,9 +269,8 @@ describe("FiltersPreview — editing the filter updates the result count", () =>
 	});
 
 	it("retriggers the action when the filter clears (defined → undefined)", async () => {
-		// Spec § "clearing the filter shows all cases" — the action
-		// must re-fire when the filter slot transitions from
-		// defined to undefined so the "all cases" count surfaces.
+		// The action must re-fire when the filter slot transitions
+		// from defined to undefined so the "all cases" count surfaces.
 		const filteredConfig = makeConfig({
 			columns: [plainColumn(FIXTURE_COL_NAME_UUID, "name", "Name")],
 			filter: eq(prop("patient", "status"), literal("active")),

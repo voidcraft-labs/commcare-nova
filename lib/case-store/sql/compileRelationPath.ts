@@ -43,7 +43,6 @@
 //
 // ## Tenant filtering lives in this module
 //
-// Spec § "Risk #1" commits to structural enforcement —
 // `(app_id, owner_id)` must be threaded by the layer emitting the
 // `cases` read, not the caller. Pushing the filter to callers
 // would duplicate the relation-walk traversal and invite a leak.

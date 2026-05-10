@@ -1160,10 +1160,10 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		// From `patient`, walking the parent index reaches `household`;
 		// the where-clause filters that destination by `household.region`.
 		// The where-clause's `prop` references explicitly name
-		// `household` as the originating scope (matching the spec's
-		// originating-scope contract — the case type qualifier names
-		// the predicate's "self" position, which inside a where-clause
-		// is the destination of the outer `via`).
+		// `household` as the originating scope — the case type
+		// qualifier names the predicate's "self" position, which
+		// inside a where-clause is the destination of the outer
+		// `via`.
 		const p = exists(
 			ancestorPath(relationStep("parent")),
 			eq(prop("household", "region"), literal("north")),

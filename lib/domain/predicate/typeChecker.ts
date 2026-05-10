@@ -1324,12 +1324,10 @@ export function checkRelationPath(
  * enforcing the destination-scope contract uniformly across
  * top-level and nested arms.
  *
- * Spec contract: the where-clause's `prop` references must name the
- * destination case type as their originating scope (the spec's
- * "originating-scope rule" locked by the JSDoc on
- * `propertyRefSchema.caseType`). The constraint is encoded inside
- * `resolveTermType` rather than walked here because it's a per-term
- * rule, not a structural recursion shape.
+ * The where-clause's `prop` references must name the destination
+ * case type as their originating scope. The constraint is encoded
+ * inside `resolveTermType` rather than walked here because it's a
+ * per-term rule, not a structural recursion shape.
  */
 export function checkInDestinationScope(
 	predicate: Predicate,
@@ -1447,8 +1445,8 @@ export function resolveTermType(
 			// (top-level by the caller, inside a where-clause by
 			// `checkInDestinationScope`'s rebinding), the term's
 			// originating-scope qualifier MUST equal it. The pin enforces
-			// the spec contract that a where-clause's `prop` references
-			// name the destination of the surrounding `via`. The check
+			// the contract that a where-clause's `prop` references name
+			// the destination of the surrounding `via`. The check
 			// gates on `currentCaseType !== undefined` so call sites that
 			// don't exercise relational features (existing comparison /
 			// membership / absence tests) compose the context without a
