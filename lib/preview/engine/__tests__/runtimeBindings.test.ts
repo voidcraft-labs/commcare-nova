@@ -754,7 +754,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// The author's predicate references TWO inputs by name (`q` and
 		// `region`). Only `q` is declared in this test's input list, so
 		// only `input("q")` substitutes; `input("region")` stays as-is.
-		// (Plan 4's validator catches structurally-orphan refs at parse
+		// (The validator catches structurally-orphan refs at parse
 		// time; this test confirms the runtime substitution doesn't
 		// silently rewrite a different input's ref.)
 		const advanced = advancedSearchInputDef(

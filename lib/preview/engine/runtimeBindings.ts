@@ -1,81 +1,13 @@
 // lib/preview/engine/runtimeBindings.ts
 //
-// Runtime-bindings layer for the running-app case list. Translates the
-// current per-input typed values into ONE `Predicate` that the helper
-// layer (`readCases`) AND-composes with the always-on
-// `caseListConfig.filter` slot before handing the unified predicate to
-// `CaseStore.query(...)`. The unified-filter slot stays the single
-// source for both the case-list always-on filter and the live search-
-// input contributions — there is no parallel "search default filter"
-// in the authoring layer.
+// Runtime-bindings layer for the running-app case list. Translates
+// per-input typed values into ONE `Predicate` that the helper layer
+// (`readCases`) AND-composes with `caseListConfig.filter`.
 //
-// ## Why this lives outside the helpers module
-//
-// The helpers module (`./caseDataBindingHelpers.ts`) carries
-// `import "server-only"` because it touches the `CaseStore` connector
-// graph. The bindings layer touches NO I/O: it walks the typed AST
-// against an in-memory map of `name → string` values. Keeping the
-// composition pure lets server-only helpers AND client-side code
-// (the upcoming `SearchInputForm` widget that needs to display the
-// composed predicate's effect previewing locally, plus tests) value-
-// import from one canonical site without dragging the case-store's
+// Pure module — no I/O, no `import "server-only"`, no `"use client"`
+// directive — so server helpers AND client-side widgets can value-
+// import one composition site without dragging the case-store's
 // Cloud SQL graph through the client bundle.
-//
-// ## Per-arm dispatch — what this module actually does
-//
-// For each `SearchInputDef`:
-//
-//   - `kind: "simple"` — value flows through `(property, mode, via)`
-//     into a per-mode comparison built via the predicate AST builders.
-//     The `mode` slot is a discriminated-union object; when absent,
-//     the per-`type` first entry of `APPLICABLE_SEARCH_MODES` picks
-//     the default. The mode's `kind` discriminator drives the
-//     comparison shape (`exact` → `eq`, `fuzzy` → `match("fuzzy")`,
-//     `range` → `between`, `multi-select-contains` → `multi-select-
-//     contains` with the mode's quantifier, etc.).
-//
-//   - `kind: "advanced"` — the input's `predicate` AST is bound
-//     against an `input(name)` term reference; the runtime walks the
-//     AST and substitutes the value at every value-position
-//     `input(name)` Term whose `name` matches THIS input's name.
-//     Every other Term shape is left in place. The substitution
-//     replaces `{ kind: "term", term: { kind: "input", name } }` with
-//     `{ kind: "term", term: { kind: "literal", value } }` — a bare
-//     string literal regardless of the input's declared `type`. Type
-//     coercion is the wire / Postgres layer's concern; the AST
-//     captures intent, not the destination type.
-//
-// ## Why the trigger slot on `whenInputPresent` is preserved
-//
-// The Predicate AST has a non-value `input` slot on
-// `whenInputPresent.input` (typed `SearchInputRef`, not a value-
-// position term). Replacing the trigger ref with a literal would
-// violate that slot's schema discriminator and would also conflate
-// the runtime-presence check with the runtime-value substitution.
-// The trigger slot stays as-is; only value-position
-// `{ kind: "term", term: { kind: "input", name } }` shapes are
-// rewritten when `name` matches.
-//
-// ## Empty-value short-circuit + match-all identity
-//
-// Per-input contributions short-circuit on empty / absent values. The
-// `range` mode reads `<input.name>:from` and `<input.name>:to` keys
-// (the date-range widget at Plan 5 Task 3 emits both) and omits a
-// bound that's empty / malformed; both bounds empty → the input
-// contributes nothing. Multi-select values comma-split + trim +
-// filter-empty; an empty list after the split → no clause for the
-// input. When NO input contributes, the function returns `matchAll()`
-// — the `and(...)` builder's reduction collapses a one-clause `and`
-// to the lone clause and an empty `and` to `match-all`, so the helper
-// layer can AND-compose unconditionally without a "did anything
-// contribute" check.
-//
-// ## SearchInputDef.default — explicitly NOT honored here
-//
-// The schema carries an optional `default: ValueExpression` slot
-// (`today()` for date-typed inputs, etc.). Honoring it requires a
-// JS-side ValueExpression evaluator that doesn't exist today; the
-// running-app surface ships with empty initial input values for v1.
 
 import type {
 	SearchInputDef,
@@ -106,12 +38,12 @@ import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
  * circuit to "no clause".
  *
  * Range-typed inputs use TWO keys: `<name>:from` for the lower bound
- * and `<name>:to` for the upper bound. The widget (Plan 5 Task 3)
- * emits both; this module reads both. Picking colon-suffixed keys
- * (rather than array indices or a nested map) keeps the value bag's
- * shape uniform — every entry is `string → string`, debounce-driven
- * client state stays flat, and an empty bound is the same shape as an
- * absent one ("not present in the map").
+ * and `<name>:to` for the upper bound. The widget emits both; this
+ * module reads both. Picking colon-suffixed keys (rather than array
+ * indices or a nested map) keeps the value bag's shape uniform —
+ * every entry is `string → string`, debounce-driven client state
+ * stays flat, and an empty bound is the same shape as an absent one
+ * ("not present in the map").
  */
 export interface SearchInputValues {
 	readonly values: ReadonlyMap<string, string>;
@@ -144,29 +76,9 @@ export function composeRuntimeFilter(
 		const clause = clauseForInput(input, inputValues, caseType);
 		if (clause !== undefined) clauses.push(clause);
 	}
-	// Per-arity dispatch through the `and(...)` overload set:
-	//
-	//   - zero clauses → `match-all` (conjunction identity)
-	//   - one clause   → the lone clause unwrapped
-	//   - two or more  → the standard `{ kind: "and", clauses }`
-	//
-	// The builder applies these reductions internally; calling
-	// per-arity here picks the correctly-typed overload at the call
-	// site rather than spreading through a `Predicate[]` (which would
-	// erase the non-empty witness the variadic overload demands).
-	if (clauses.length === 0) return and();
-	if (clauses.length === 1) {
-		// `clauses[0]` is provably defined (length-1 guard), but TS's
-		// non-uncheckedIndexedAccess mode doesn't narrow array index
-		// reads. Pull the value via destructuring for a non-undefined
-		// type without a non-null assertion.
-		const [only] = clauses;
-		if (only === undefined) return matchAll();
-		return and(only);
-	}
-	const [first, second, ...rest] = clauses;
-	if (first === undefined || second === undefined) return matchAll();
-	return and(first, second, ...rest);
+	if (clauses.length === 0) return matchAll();
+	if (clauses.length === 1) return clauses[0];
+	return and(clauses[0], clauses[1], ...clauses.slice(2));
 }
 
 // ── Per-arm dispatch ──────────────────────────────────────────────
@@ -206,10 +118,12 @@ function clauseForInput(
  * Build the simple-arm clause: `(property, mode, via)` → per-mode
  * comparison.
  *
- * The `mode` slot is a discriminated-union object; when absent, the
- * per-`type` first entry of `APPLICABLE_SEARCH_MODES` picks the
- * default. Routes through `defaultModeKindFor(input.type)` so the
- * runtime here matches the wire layer's per-type default.
+ * Dispatches on the full `SearchInputMode` object (not just its
+ * `kind`) so the multi-select arm's `quantifier` slot narrows
+ * naturally inside the switch — the discriminated-union arm carries
+ * the slot at the type level. Absent `mode` falls back to the per-
+ * `type` default via `defaultModeFor(type)`, matching the wire
+ * layer's per-type default contract.
  *
  * Range mode is the only kind that reads two keys (`:from` / `:to`);
  * every other mode reads the bare `<input.name>` key.
@@ -219,8 +133,8 @@ function buildSimpleArmClause(
 	inputValues: SearchInputValues,
 	caseType: string,
 ): Predicate | undefined {
-	const modeKind = input.mode?.kind ?? defaultModeKindFor(input.type);
-	if (modeKind === "range") {
+	const mode = input.mode ?? defaultModeFor(input.type);
+	if (mode.kind === "range") {
 		return buildRangeClause(input, inputValues, caseType);
 	}
 
@@ -228,7 +142,7 @@ function buildSimpleArmClause(
 	if (value === undefined || value === "") return undefined;
 
 	const property = prop(caseType, input.property, input.via);
-	switch (modeKind) {
+	switch (mode.kind) {
 		case "exact":
 			return eq(property, literal(value));
 		case "fuzzy":
@@ -240,14 +154,16 @@ function buildSimpleArmClause(
 		case "fuzzy-date":
 			return match(property, literal(value), "fuzzy-date");
 		case "multi-select-contains":
-			return buildMultiSelectClause(input.mode, property, value);
+			// `mode` narrows to the multi-select arm here — its
+			// `quantifier` slot is reachable directly without a cast.
+			return buildMultiSelectClause(mode, property, value);
 		default: {
-			const _exhaustive: never = modeKind;
+			const _exhaustive: never = mode;
 			throw new Error(
 				unhandledKindMessage({
 					where: "buildSimpleArmClause",
 					family: "SearchInputMode",
-					received: _exhaustive,
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 					knownKinds: [
 						"exact",
 						"fuzzy",
@@ -267,23 +183,13 @@ function buildSimpleArmClause(
  * Build the multi-select clause: comma-split the value into per-token
  * literals, route through the quantifier-specific builder.
  *
- * The quantifier lives on the mode object (`mode.quantifier`); `mode`
- * is only ever `multi-select-contains`-shaped here because the caller
- * dispatched on `mode.kind`. When `mode` is `undefined` the input was
- * relying on the per-type default — and no per-type default selects
- * `multi-select-contains`, so reaching this branch without a
- * `quantifier` is a type-checker bypass. The `?? "any"` fallback
- * keeps the runtime defensive without throwing — `any` is the wider
- * of the two quantifiers, matching CCHQ's default OR-of-`selected()`
- * shape on the on-device dialect.
- *
- * Empty list after split + trim + filter → no clause for the input.
- * `multiSelectAny` / `multiSelectAll` require at least one literal at
- * the type level, so a zero-element spread would fail at the call
- * site; the early return is the structural defense.
+ * Empty list after split + trim + filter-empty → no clause for the
+ * input. `multiSelectAny` / `multiSelectAll` require at least one
+ * literal at the type level, so a zero-element spread would fail at
+ * the call site; the early return is the structural defense.
  */
 function buildMultiSelectClause(
-	mode: SearchInputMode | undefined,
+	mode: Extract<SearchInputMode, { kind: "multi-select-contains" }>,
 	property: ReturnType<typeof prop>,
 	rawValue: string,
 ): Predicate | undefined {
@@ -293,12 +199,7 @@ function buildMultiSelectClause(
 		.filter((token) => token.length > 0);
 	if (tokens.length === 0) return undefined;
 	const [first, ...rest] = tokens.map((token) => literal(token));
-	if (first === undefined) return undefined;
-	const quantifier =
-		mode !== undefined && mode.kind === "multi-select-contains"
-			? mode.quantifier
-			: "any";
-	if (quantifier === "all") {
+	if (mode.quantifier === "all") {
 		return multiSelectAll(property, first, ...rest);
 	}
 	return multiSelectAny(property, first, ...rest);
@@ -309,7 +210,7 @@ function buildMultiSelectClause(
  * bound's format, omit malformed / empty bounds, return `undefined`
  * if both are absent.
  *
- * Range mode in v1 only applies to `date` / `date-range` inputs (see
+ * Range mode applies to `date` / `date-range` inputs (see
  * `SEARCH_INPUT_TYPE_PROPERTY_TYPES` in `lib/domain/modules.ts`), so
  * each bound flows through `dateLiteral(...)` after the format check.
  * Non-`YYYY-MM-DD` strings would construct a typed-but-malformed
@@ -364,12 +265,15 @@ function parseDateBound(raw: string | undefined): ValueExpression | undefined {
 }
 
 /**
- * Per-`type` default `mode.kind`. The first entry of
+ * Per-`type` default `SearchInputMode`. The first entry of
  * `APPLICABLE_SEARCH_MODES[type]` is canonical — same source the wire
- * layer reads. The `as const` widening of the array entry makes the
- * return type the discriminator value the caller switches on.
+ * layer reads. None of the declared defaults is `multi-select-
+ * contains` (which would require a `quantifier` slot), so building
+ * the mode object from the kind name alone is safe; the
+ * `multi-select-contains` arm only ever appears when an author sets
+ * it explicitly on the input, never via this fallback.
  */
-function defaultModeKindFor(type: SearchInputType): SearchInputMode["kind"] {
+function defaultModeFor(type: SearchInputType): SearchInputMode {
 	const modes = APPLICABLE_SEARCH_MODES[type];
 	const first = modes[0];
 	if (first === undefined) {
@@ -379,14 +283,36 @@ function defaultModeKindFor(type: SearchInputType): SearchInputMode["kind"] {
 		// future divergence between the type set and the table.
 		throw new Error(
 			unhandledKindMessage({
-				where: "defaultModeKindFor",
+				where: "defaultModeFor",
 				family: "SearchInputType",
 				received: type,
 				knownKinds: Object.keys(APPLICABLE_SEARCH_MODES),
 			}),
 		);
 	}
-	return first;
+	if (first === "multi-select-contains") {
+		// Schema-locked invariant: `APPLICABLE_SEARCH_MODES` does not
+		// declare `multi-select-contains` as any type's first entry.
+		// Catching it here protects the file's narrowing invariant if
+		// the table ever changes — the multi-select default would
+		// require a quantifier slot the fallback can't supply.
+		throw new Error(
+			unhandledKindMessage({
+				where: "defaultModeFor",
+				family: "SearchInputMode",
+				received: first,
+				knownKinds: [
+					"exact",
+					"fuzzy",
+					"starts-with",
+					"phonetic",
+					"fuzzy-date",
+					"range",
+				],
+			}),
+		);
+	}
+	return { kind: first };
 }
 
 // ── Advanced arm ──────────────────────────────────────────────────
@@ -405,8 +331,8 @@ function defaultModeKindFor(type: SearchInputType): SearchInputMode["kind"] {
  *
  * Orphan `input(other)` references (a different input's name) and
  * the trigger slot of `whenInputPresent` are preserved untouched —
- * Plan 4's validator caught structurally-orphan refs at parse time,
- * and the `whenInputPresent.input` slot is structurally a
+ * the validator catches structurally-orphan refs at parse time, and
+ * the `whenInputPresent.input` slot is structurally a
  * `SearchInputRef`, not a value-position term.
  */
 function buildAdvancedArmClause(
@@ -732,10 +658,7 @@ function substituteInputInExpression(
 			// `if.cond` is a `Predicate` (cross-family) — recurse via the
 			// predicate-side rewriter so a search-input drives a
 			// conditional's condition cleanly. Both branches are
-			// `ValueExpression`. The `then` slot's `noThenProperty` Biome
-			// suppression mirrors the source-of-truth rationale on
-			// `ifSchema.then` in the AST package — `then` holds a
-			// non-callable AST object, never a thenable function.
+			// `ValueExpression`.
 			return {
 				kind: "if",
 				cond: substituteInputInPredicate(expr.cond, targetName, value),
