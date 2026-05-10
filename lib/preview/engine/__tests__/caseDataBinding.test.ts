@@ -471,9 +471,10 @@ describe("readCases — running-app search-input composition", () => {
 
 	it("narrows the row set when an advanced-arm input substitutes its value", async () => {
 		// Advanced-arm: the input's `predicate` AST carries an
-		// `input(name)` term reference; Task 1's substituter walks
-		// the AST and binds the typed value at every value-position
-		// match before the predicate reaches `store.query(...)`.
+		// `input(name)` term reference; `composeRuntimeFilter`'s
+		// substituter walks the AST and binds the typed value at every
+		// value-position match before the predicate reaches
+		// `store.query(...)`.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");

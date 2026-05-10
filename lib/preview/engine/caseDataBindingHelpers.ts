@@ -145,11 +145,12 @@ export async function readCases(
  *   - Both slots populated — call `composeRuntimeFilter` and AND-
  *     compose its result with `caseListConfig.filter`. The runtime
  *     filter is allowed to be `match-all` (the all-empty
- *     short-circuit on Task 1); we explicitly drop `match-all`
- *     clauses before reduction so a trivially-true contribution
- *     doesn't bloat the constructed envelope. `reduceAnd` handles
- *     the empty + single-clause cases canonically; only the multi-
- *     clause arm falls through to an explicit conjunction envelope.
+ *     short-circuit `composeRuntimeFilter` returns when no input
+ *     contributes a clause); we explicitly drop `match-all` clauses
+ *     before reduction so a trivially-true contribution doesn't
+ *     bloat the constructed envelope. `reduceAnd` handles the empty
+ *     + single-clause cases canonically; only the multi-clause arm
+ *     falls through to an explicit conjunction envelope.
  */
 function composeQueryPredicate(
 	caseListConfig: CaseListConfig | undefined,
