@@ -7,16 +7,6 @@
 // is defined. This component owns that chrome so consumers can't drift
 // each one's layout (icon size, rail width, Clear glyph) independently.
 //
-// Two consumers at landing time:
-//
-//   - `PredicateSlotCard` — the optional-Predicate slot primitive
-//     (filter, search-button display condition). No collapse — the
-//     editor mounts when the slot is defined.
-//   - `AdvancedSection` — the case-search advanced cluster's
-//     `blacklistedOwnerIds` ValueExpression slot. Niche affordance, so
-//     the body collapses by default and the header carries a chevron
-//     toggle between the rail and the icon.
-//
 // Affordances compose through grouped optional props so the type
 // system encodes "either this surface is on, or it's absent" without
 // half-on states:

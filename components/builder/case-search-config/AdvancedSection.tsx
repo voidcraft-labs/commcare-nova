@@ -2,9 +2,7 @@
 //
 // Composes the case-search authoring surface's Advanced section. Holds
 // niche search-side filters — affordances most authors never reach for
-// but a small subset depend on. The section name is intentionally
-// abstract: it scopes the section to the cluster's role (niche
-// filters), not its contents.
+// but a small subset depend on.
 //
 // Slot inventory:
 //

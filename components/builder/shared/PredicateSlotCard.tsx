@@ -20,9 +20,6 @@
 // `onChange(undefined)` flips it. Consumers that need a collapse
 // affordance specialize `OptionalSlotCard` directly instead of
 // reaching for this card.
-//
-// Consumed by `FiltersSection` (the case-list filter slot) and
-// `DisplaySection` (the case-search display-condition slot).
 
 "use client";
 import type { IconifyIcon } from "@iconify/react/offline";

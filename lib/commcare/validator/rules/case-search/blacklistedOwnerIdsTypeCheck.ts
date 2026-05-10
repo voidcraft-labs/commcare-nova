@@ -12,7 +12,7 @@
  * `checkPredicate`.
  *
  * The slot's authoring contract is "evaluates to a space-separated
- * list of owner IDs" — text-typed by the AST-strict null /
+ * list of owner ids" — text-typed by the AST-strict null /
  * representability invariant. The validator enforces that contract
  * at authoring time by passing `expectedType: "text"`. Authors who
  * need a non-text-typed property to seed the blacklist must
@@ -53,7 +53,7 @@ export function blacklistedOwnerIdsTypeCheck(
 		return validationError(
 			"CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
 			"module",
-			`Module "${mod.name}" case-search blacklisted owner ids expression has a type error${suffix}: ${err.message}. The slot must resolve to a text-typed value (the runtime parses it as a space-separated list of owner IDs). Open \`caseSearchConfig.blacklistedOwnerIds\` and either pick a property whose \`data_type\` widens to text (\`text\` / \`single_select\` / \`multi_select\`), wrap the existing expression in \`concat(...)\` to coerce to text, or remove the slot entirely (the wire layer omits the blacklist when absent).`,
+			`Module "${mod.name}" case-search blacklisted owner ids expression has a type error${suffix}: ${err.message}. The slot must resolve to a text-typed value (the runtime parses it as a space-separated list of owner ids). Open \`caseSearchConfig.blacklistedOwnerIds\` and either pick a property whose \`data_type\` widens to text (\`text\` / \`single_select\` / \`multi_select\`), wrap the existing expression in \`concat(...)\` to coerce to text, or remove the slot entirely (the wire layer omits the blacklist when absent).`,
 			{ moduleUuid, moduleName: mod.name },
 			{ path: at },
 		);

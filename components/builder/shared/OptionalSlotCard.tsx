@@ -34,18 +34,16 @@
 //      empty-state surface aligned with the accessibility tree role
 //      queries report.
 //
-// Consumers specialize the primitive with a typed `T` (Predicate
-// for `PredicateSlotCard` / ValueExpression for `AdvancedSection`)
-// plus a `renderEditor` render prop that mounts the matching
-// tree-editor and an `addSeed` value that constructs the initial
-// `T` when the author clicks Add. The primitive's `onChange` emits
-// `T | undefined`; consumers route that into their source-of-truth
-// (a parent slot on a doc-store entity, typically). When the
-// consumer's source-of-truth shape requires a "drop key on clear"
-// emit (rather than `key: undefined`), the translation lives in
-// the consumer's wrapper — the primitive's `onChange(undefined)`
-// is the clean trigger and the consumer shapes the emit shape from
-// there.
+// Consumers specialize the primitive with a typed `T` plus a
+// `renderEditor` render prop that mounts the matching tree-editor
+// and an `addSeed` value that constructs the initial `T` when the
+// author clicks Add. The primitive's `onChange` emits `T | undefined`;
+// consumers route that into their source-of-truth (a parent slot on
+// a doc-store entity, typically). When the consumer's source-of-truth
+// shape requires a "drop key on clear" emit (rather than
+// `key: undefined`), the translation lives in the consumer's wrapper
+// — the primitive's `onChange(undefined)` is the clean trigger and
+// the consumer shapes the emit shape from there.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";

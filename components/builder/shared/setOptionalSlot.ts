@@ -15,11 +15,7 @@
 // set emits the object WITH the slot key bound to the next value.
 //
 // Set-vs-clear branches the emitted shape so `key in obj` is the
-// genuine slot-presence check on every persisted document. This
-// matters across the case-search authoring surfaces — Display +
-// Advanced both compose against `caseSearchConfig`, both share this
-// emit-shape contract, and downstream emitters and pickers both
-// depend on the shape being honest.
+// genuine slot-presence check on every persisted document.
 
 /**
  * Set of keys on `C` whose value type includes `undefined` — i.e., the
