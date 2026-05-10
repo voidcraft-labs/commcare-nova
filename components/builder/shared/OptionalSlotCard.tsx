@@ -62,8 +62,7 @@ import { useValidityPropagator } from "./useInnerValidityShadow";
  */
 export interface OptionalSlotCardCollapse {
 	/** Initial open state on first mount. `false` collapses the body
-	 *  by default (the right shape for niche affordances like the
-	 *  case-search advanced cluster); `true` opens it on first render. */
+	 *  by default; `true` opens it on first render. */
 	readonly defaultOpen: boolean;
 	/** Aria-label when the body is closed (the click expands). */
 	readonly expandLabel: string;

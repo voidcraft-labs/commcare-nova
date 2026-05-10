@@ -86,11 +86,14 @@ export interface DisplaySectionProps {
 
 // ── Optional-text-slot row ────────────────────────────────────────
 //
-// One row primitive that drives every label slot in this section.
-// Two layout variants vary on the textarea-vs-input flag and the
-// presence of a markdown live preview; every other piece (label
-// chrome, hint line, blur-commit handshake, empty-clears
-// normalization) is identical across all six visible rows.
+// One row primitive that drives the section's text-input rows. Two
+// layout variants vary on the textarea-vs-input flag and the
+// presence of a markdown live preview; the rest (label chrome, hint
+// line, blur-commit handshake, empty-clears normalization) is
+// identical across every text row. The section also renders a
+// Predicate slot for `searchButtonDisplayCondition`; that row uses
+// a separate primitive (`PredicateSlotCard`) and is not driven by
+// this row.
 //
 // Empty-string-clears comes from `useCommitField`'s `onEmpty`
 // callback — when the user empties the input and blurs, the hook

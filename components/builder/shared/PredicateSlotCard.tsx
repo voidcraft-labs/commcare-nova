@@ -32,12 +32,10 @@ import { PredicateCardEditor } from "./PredicateCardEditor";
 // ── Public types ──────────────────────────────────────────────────
 
 export interface PredicateSlotCardProps {
-	/** Header icon — chosen by the consumer to match the surface
-	 *  (e.g., `tabler/filter` for the case-list filter, `tabler/eye`
-	 *  for the search-button display condition). */
+	/** Header icon — the section's leading glyph. */
 	readonly icon: IconifyIcon;
-	/** Header title — short uppercase label (e.g., "Filter",
-	 *  "Display condition"). */
+	/** Header title — short uppercase label rendered as the section's
+	 *  heading text. */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
