@@ -4,8 +4,8 @@
 //
 // AdvancedSection composition tests — pin the public contract of the
 // niche-search-filter section. The section hosts the
-// `blacklistedOwnerIds` sub-control; tests exercise the section
-// through that slot:
+// `blacklistedOwnerIds` sub-control (rendered to authors as "Excluded
+// owners"); tests exercise the section through that slot:
 //
 //   - Empty state: an undefined config renders the collapsed header
 //     only — no "Clear" button, no editor mounted.
@@ -19,7 +19,7 @@
 //   - Validity propagation: an absent slot reports `valid: true`; an
 //     invalid populated expression reports `valid: false` even when
 //     the body is collapsed (mount-stays-on contract).
-//   - Cross-slot preservation: editing the blacklist leaves unrelated
+//   - Cross-slot preservation: editing the slot leaves unrelated
 //     `caseSearchConfig` slots intact.
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -60,7 +60,7 @@ describe("AdvancedSection — empty state", () => {
 		// Chevron toggle is present and reads as collapsed.
 		const toggle = screen.getByRole("button", {
 			expanded: false,
-			name: /^expand blacklisted owner ids$/i,
+			name: /^expand excluded owners$/i,
 		});
 		expect(toggle).toBeDefined();
 		// Heading is rendered as a sibling, not as button text.
@@ -76,12 +76,12 @@ describe("AdvancedSection — empty state", () => {
 		// surfaces neither.
 		expect(
 			screen.queryByRole("button", {
-				name: /^clear blacklisted owner ids$/i,
+				name: /^clear excluded owners$/i,
 			}),
 		).toBeNull();
 		expect(
 			screen.queryByRole("button", {
-				name: /^add blacklisted owner ids$/i,
+				name: /^add excluded owners$/i,
 			}),
 		).toBeNull();
 	});
@@ -103,7 +103,7 @@ describe("AdvancedSection — add path", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /^expand blacklisted owner ids$/i,
+				name: /^expand excluded owners$/i,
 			}),
 		);
 
@@ -111,10 +111,10 @@ describe("AdvancedSection — add path", () => {
 		expect(
 			screen.getByRole("button", {
 				expanded: true,
-				name: /^collapse blacklisted owner ids$/i,
+				name: /^collapse excluded owners$/i,
 			}),
 		).toBeDefined();
-		expect(screen.getByLabelText(/^add blacklisted owner ids$/i)).toBeDefined();
+		expect(screen.getByLabelText(/^add excluded owners$/i)).toBeDefined();
 	});
 
 	it('seeds caseSearchConfig with `term(literal(""))` when Add is clicked from an undefined section', () => {
@@ -137,10 +137,10 @@ describe("AdvancedSection — add path", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /^expand blacklisted owner ids$/i,
+				name: /^expand excluded owners$/i,
 			}),
 		);
-		fireEvent.click(screen.getByLabelText(/^add blacklisted owner ids$/i));
+		fireEvent.click(screen.getByLabelText(/^add excluded owners$/i));
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
@@ -170,10 +170,10 @@ describe("AdvancedSection — add path", () => {
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /^expand blacklisted owner ids$/i,
+				name: /^expand excluded owners$/i,
 			}),
 		);
-		fireEvent.click(screen.getByLabelText(/^add blacklisted owner ids$/i));
+		fireEvent.click(screen.getByLabelText(/^add excluded owners$/i));
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
@@ -208,12 +208,12 @@ describe("AdvancedSection — populated round-trip", () => {
 		expect(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /^expand blacklisted owner ids$/i,
+				name: /^expand excluded owners$/i,
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByRole("button", {
-				name: /^clear blacklisted owner ids$/i,
+				name: /^clear excluded owners$/i,
 			}),
 		).toBeDefined();
 	});
@@ -236,19 +236,19 @@ describe("AdvancedSection — populated round-trip", () => {
 		expect(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /^expand blacklisted owner ids$/i,
+				name: /^expand excluded owners$/i,
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByRole("button", {
-				name: /^clear blacklisted owner ids$/i,
+				name: /^clear excluded owners$/i,
 			}),
 		).toBeDefined();
 
 		fireEvent.click(
 			screen.getByRole("button", {
 				expanded: false,
-				name: /^expand blacklisted owner ids$/i,
+				name: /^expand excluded owners$/i,
 			}),
 		);
 
@@ -258,12 +258,12 @@ describe("AdvancedSection — populated round-trip", () => {
 		expect(
 			screen.getByRole("button", {
 				expanded: true,
-				name: /^collapse blacklisted owner ids$/i,
+				name: /^collapse excluded owners$/i,
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByRole("button", {
-				name: /^clear blacklisted owner ids$/i,
+				name: /^clear excluded owners$/i,
 			}),
 		).toBeDefined();
 	});
@@ -288,7 +288,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		// Body is collapsed (default), but Clear is reachable.
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: /^clear blacklisted owner ids$/i,
+				name: /^clear excluded owners$/i,
 			}),
 		);
 

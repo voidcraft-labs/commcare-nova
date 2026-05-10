@@ -4,7 +4,7 @@
  *
  * The case-search config carries two clusters — display labels (search-
  * screen titles, button labels, search-button display predicate) and
- * the advanced cluster (niche search-side filters; today only the
+ * the advanced cluster (niche search-side filters; the
  * `blacklistedOwnerIds` value expression). Each cluster has its own
  * wholesale-replace tool (`setCaseSearchDisplay` / `setCaseSearchAdvanced`);
  * this file owns the SA-boundary input shapes and the typed snapshot
@@ -185,9 +185,9 @@ export function applyClusterPatch<K extends keyof CaseSearchConfig>(
 /**
  * SA boundary shape for `setCaseSearchAdvanced`. Required-and-nullable
  * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it. The cluster carries one slot at present
- * (`blacklistedOwnerIds`); the abstract framing keeps the schema
- * stable as future advanced filters land alongside it.
+ * value sets it. The cluster carries the `blacklistedOwnerIds` slot;
+ * the abstract framing scopes the schema to the cluster's role (niche
+ * filters), not its contents.
  *
  * `moduleIndex` omitted from the named export so callers can wrap it
  * (`setCaseSearchAdvanced` adds the slot back in its tool input

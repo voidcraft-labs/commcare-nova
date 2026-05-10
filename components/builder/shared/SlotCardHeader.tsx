@@ -62,11 +62,11 @@ export interface SlotCardHeaderCollapse {
 }
 
 /**
- * Optional Clear-affordance wiring. Pairing the handler with its label
- * in one slot makes "handler without label" and "label without handler"
- * unrepresentable — a regression that drops one half fails the build.
- * The label is used both as visible button text AND as `aria-label`
- * so visual readers and screen readers see the same words.
+ * Optional Clear-affordance wiring. Both halves are required when the
+ * slot is present — handler and label travel together so consumers
+ * can't ship a silent no-op or an unlabelled button. The label is used
+ * both as visible button text AND as `aria-label` so visual readers
+ * and screen readers see the same words.
  */
 export interface SlotCardHeaderClear {
 	readonly onClick: () => void;

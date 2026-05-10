@@ -4,8 +4,7 @@
 // niche search-side filters — affordances most authors never reach for
 // but a small subset depend on. The section name is intentionally
 // abstract: it scopes the section to the cluster's role (niche
-// filters), not its current contents, so future advanced filters land
-// here without a rename.
+// filters), not its contents.
 //
 // Slot inventory:
 //
@@ -13,7 +12,7 @@
 //     to a space-separated list of owner ids whose cases are excluded
 //     from the search-results scope. The runtime applies this exclusion
 //     before paging the results back to the search screen, so a row
-//     owned by a blacklisted user never surfaces — distinct from a
+//     owned by an excluded user never surfaces — distinct from a
 //     case-by-case filter, which would suppress rows post-paging. The
 //     affordance collapses closed by default so it doesn't crowd the
 //     section.
@@ -153,7 +152,7 @@ export function AdvancedSection({
 
 	return (
 		<div className="space-y-6">
-			{/* ── Blacklisted owner IDs sub-control ──
+			{/* ── Excluded owners sub-control ──
 			    Collapsed by default. The shared `SlotCardHeader`
 			    primitive owns the header chrome; the chevron toggle
 			    threads in via its `collapse` prop (carrying the
@@ -173,23 +172,19 @@ export function AdvancedSection({
 				<SlotCardHeader
 					icon={tablerForbid}
 					title="Excluded owners"
-					description={
-						blacklistPresent
-							? "Cases owned by these IDs are hidden from search results."
-							: "Optional. Hide cases owned by specific user IDs from search results."
-					}
+					description="Hide cases owned by specific user IDs."
 					collapse={{
 						isOpen: blacklistOpen,
 						onToggle: () => setBlacklistOpen((prev) => !prev),
-						expandLabel: "Expand blacklisted owner IDs",
-						collapseLabel: "Collapse blacklisted owner IDs",
+						expandLabel: "Expand excluded owners",
+						collapseLabel: "Collapse excluded owners",
 						controlsId: blacklistRegionId,
 					}}
 					clear={
 						blacklistPresent
 							? {
 									onClick: clearBlacklist,
-									label: "Clear blacklisted owner IDs",
+									label: "Clear excluded owners",
 								}
 							: undefined
 					}
@@ -237,10 +232,10 @@ export function AdvancedSection({
 							type="button"
 							onClick={addBlacklist}
 							className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-							aria-label="Add blacklisted owner IDs"
+							aria-label="Add excluded owners"
 						>
 							<Icon icon={tablerPlus} width="12" height="12" />
-							<span>Add blacklisted owner IDs</span>
+							<span>Add excluded owners</span>
 						</button>
 					)}
 				</div>

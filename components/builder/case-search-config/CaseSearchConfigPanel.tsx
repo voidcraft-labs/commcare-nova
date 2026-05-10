@@ -9,8 +9,8 @@
 // search-screen title + subtitle are the most important fields on the
 // page — every author authoring a search screen edits them first.
 // Search Inputs comes next because it's the core search affordance.
-// Advanced is the bottom because its current contents are niche (an
-// owner blacklist most authors never reach for); pulling it down to
+// Advanced is the bottom because its contents are niche (an owner
+// exclusion list most authors never reach for); pulling it down to
 // the bottom keeps the section out of the way of authors who don't
 // use it.
 //
@@ -76,10 +76,9 @@ export interface CaseSearchConfigPanelProps {
 //
 // When the panel writes a `searchInputs` change but the module's
 // `caseListConfig` slot is undefined, the schema-required `columns`
-// and `searchInputs` arrays must be present. Mirrors the
-// `nextConfig` seed pattern: route the empty-slot case through a
-// single helper so the emit shape stays in lockstep with the schema
-// and a future schema addition lands in one place.
+// and `searchInputs` arrays must be present. Routes the empty-slot
+// case through a single helper so the emit shape stays in lockstep
+// with the schema.
 
 /**
  * Build the next `CaseListConfig` from a possibly-undefined current
@@ -250,14 +249,13 @@ export function CaseSearchConfigPanel({
 			{/*
 			 * Section: Advanced.
 			 *
-			 * Owns niche search-side filters — the cluster currently
-			 * hosts `blacklistedOwnerIds` (a search-results owner
-			 * exclusion list). The section sits at the bottom because
-			 * most authors never reach into it; keeping it out of the
-			 * way of the more common authoring above. The abstract
+			 * Owns niche search-side filters — the cluster carries
+			 * `blacklistedOwnerIds` (a search-results owner exclusion
+			 * list). The section sits at the bottom because most
+			 * authors never reach into it; keeping it out of the way
+			 * of the more common authoring above. The abstract
 			 * "Advanced" framing scopes the section to its role
-			 * (niche filters), not its current contents, so future
-			 * advanced filters land here without a rename.
+			 * (niche filters), not its contents.
 			 */}
 			<section>
 				<CaseListSectionHeader
@@ -332,7 +330,7 @@ function buildSearchInputsStatus(count: number): string {
 function buildAdvancedStatus(value: CaseSearchConfig | undefined): string {
 	if (!value) return "None — no advanced filters set.";
 	const parts: string[] = [];
-	if (value.blacklistedOwnerIds !== undefined) parts.push("owner blacklist");
+	if (value.blacklistedOwnerIds !== undefined) parts.push("excluded owners");
 	if (parts.length === 0) return "None — no advanced filters set.";
 	return parts.join(" · ");
 }

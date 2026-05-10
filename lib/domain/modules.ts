@@ -929,11 +929,10 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 //     `searchButtonDisplayCondition` predicate that gates the search
 //     button.
 //   - The advanced cluster — niche search-side filters. The cluster
-//     carries `blacklistedOwnerIds` at present, a `ValueExpression`
-//     that evaluates to a space-separated list of owner ids whose
-//     cases are excluded from the search-results scope. Framed
-//     abstractly so future advanced filters land alongside without a
-//     schema reshape.
+//     carries `blacklistedOwnerIds`, a `ValueExpression` that evaluates
+//     to a space-separated list of owner ids whose cases are excluded
+//     from the search-results scope. Framed abstractly so the cluster
+//     name describes its role (niche filters), not its contents.
 //
 // The runtime case-claim step (which fires when an author picks a
 // case from search results) runs unconditionally on the CCHQ

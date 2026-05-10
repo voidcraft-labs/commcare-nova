@@ -159,9 +159,9 @@ function formatSearchInput(input: SearchInputDef): string {
  *
  * Display cluster summary: comma-separated list of the slot names that
  * are non-undefined; `none` when every slot is cleared. Advanced
- * cluster summary: names each authored slot (today only the blacklist);
- * `none` when no advanced filter is set. The one-liner stays at a
- * fixed width to keep the prompt cheap.
+ * cluster summary: names each authored slot (the blacklist); `none`
+ * when no advanced filter is set. The one-liner stays at a fixed width
+ * to keep the prompt cheap.
  */
 function summarizeCaseSearch(mod: Module): string | undefined {
 	const config = mod.caseSearchConfig;

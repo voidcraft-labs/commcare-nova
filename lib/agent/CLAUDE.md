@@ -64,7 +64,7 @@ The case-list-config tools accept the typed AST shape directly via Zod — `Colu
 The `caseSearchConfig` shape is a settings bag, not an addressable list, so its tool surface is two wholesale-replace tools rather than atomic ops:
 
 - **`setCaseSearchDisplay`** owns the display cluster: `searchScreenTitle`, `searchScreenSubtitle`, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`, `searchButtonDisplayCondition`.
-- **`setCaseSearchAdvanced`** owns the advanced cluster — niche search-side filters that most authors never reach for. The cluster carries one slot at present: `blacklistedOwnerIds` (value expression naming owner ids whose cases are excluded from search results). The abstract "advanced" framing scopes the tool to its role (niche filters), not its current contents — future advanced filters land here without a rename.
+- **`setCaseSearchAdvanced`** owns the advanced cluster — niche search-side filters that most authors never reach for. The cluster carries the `blacklistedOwnerIds` slot (value expression naming owner ids whose cases are excluded from search results). The abstract "advanced" framing scopes the tool to its role (niche filters), not its contents.
 
 Each tool replaces its own cluster in one call and preserves the other cluster byte-identically — pick the OTHER cluster's slots forward off the existing config, layer the input over them. Wholesale-with-`null`-clears semantic mirrors `setCaseListFilter`: every cluster slot is required-and-nullable on the SA boundary; `null` clears, non-null sets. That keeps the per-tool optional count at zero (well under the Anthropic 8-optional ceiling) and removes the "absent vs null" ambiguity the SA would otherwise have to resolve.
 
