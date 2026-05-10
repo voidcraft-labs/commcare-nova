@@ -1036,6 +1036,36 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		expect(predicateSchema.parse(result)).toEqual(result);
 	});
 
+	it("substitutes through `between.left` (advanced arm)", () => {
+		// Pins the `between.left` substitution path independently from
+		// the bound-substitution test above. A regression that dropped
+		// the `left: substituteInputInExpression(...)` recursion and
+		// replaced it with `predicate.left` would compile cleanly and
+		// pass the previous test (whose input ref sits in `upper`).
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"age",
+			"Age",
+			"text",
+			between(input("age"), {
+				lower: literal(0),
+				upper: literal(100),
+			}),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ age: "42" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			between(literal("42"), {
+				lower: literal(0),
+				upper: literal(100),
+			}),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
 	it("substitutes through `gt` (a comparison-family alias) inside an `and`", () => {
 		// Verifies the comparison family's `gt` arm specifically — the
 		// switch handles all six comparison kinds via one fall-through,
