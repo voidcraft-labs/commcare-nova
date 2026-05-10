@@ -172,7 +172,7 @@ export function AdvancedSection({
 				<SlotCardHeader
 					icon={tablerForbid}
 					title="Excluded owners"
-					description="Hide cases owned by specific user IDs."
+					description="Hide cases owned by specific owner ids."
 					collapse={{
 						isOpen: blacklistOpen,
 						onToggle: () => setBlacklistOpen((prev) => !prev),
@@ -214,7 +214,7 @@ export function AdvancedSection({
 						<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
 							<ExpressionCardEditor
 								value={blacklist}
-								onChange={(next) => setBlacklist(next)}
+								onChange={setBlacklist}
 								caseTypes={caseTypes}
 								currentCaseType={currentCaseType}
 								knownInputs={knownInputs}

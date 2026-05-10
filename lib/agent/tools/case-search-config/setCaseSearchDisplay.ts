@@ -33,6 +33,7 @@ import {
 	type DisplaySlotName,
 	pickAdvancedCluster,
 	setCaseSearchDisplayBodySchema,
+	slotsSetByInput,
 	snapshotCaseSearchConfig,
 } from "./shared";
 
@@ -114,12 +115,11 @@ export const setCaseSearchDisplayTool = {
 			);
 
 			// Surface which display slots landed non-null so the SA reads
-			// the outcome without re-parsing prose. Reads `input[slot]`
-			// directly — same one-source-of-truth contract as the layer
-			// above.
-			const displaySlotsSet = DISPLAY_SLOT_NAMES.filter(
-				(slot) => input[slot] !== null,
-			);
+			// the outcome without re-parsing prose. Routes through the
+			// shared `slotsSetByInput` helper so the slot list lives in
+			// exactly one place — same one-source-of-truth contract as
+			// the layer above.
+			const displaySlotsSet = slotsSetByInput(input, DISPLAY_SLOT_NAMES);
 
 			return {
 				kind: "mutate" as const,

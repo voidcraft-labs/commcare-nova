@@ -5,15 +5,6 @@
 // three sections — Display, Search Inputs, Advanced — vertically inside
 // violet-railed sticky section headers.
 //
-// Section order is load-bearing. Display sits at the top because the
-// search-screen title + subtitle are the most important fields on the
-// page — every author authoring a search screen edits them first.
-// Search Inputs comes next because it's the core search affordance.
-// Advanced is the bottom because its contents are niche (an owner
-// exclusion list most authors never reach for); pulling it down to
-// the bottom keeps the section out of the way of authors who don't
-// use it.
-//
 // Layout choice. Single-scroll magazine: every section is always
 // visible; the user moves between them by scrolling. The shape mirrors
 // the case-list workspace's three-section magazine — one shell pattern,
@@ -191,9 +182,7 @@ export function CaseSearchConfigPanel({
 			 *
 			 * Owns the search-screen labels + the optional
 			 * `searchButtonDisplayCondition` predicate. The status
-			 * line counts authored labels. Sits at the top because
-			 * the title and subtitle are the most prominent slots on
-			 * the page.
+			 * line counts authored labels.
 			 */}
 			<section>
 				<CaseListSectionHeader
@@ -251,11 +240,8 @@ export function CaseSearchConfigPanel({
 			 *
 			 * Owns niche search-side filters — the cluster carries
 			 * `blacklistedOwnerIds` (a search-results owner exclusion
-			 * list). The section sits at the bottom because most
-			 * authors never reach into it; keeping it out of the way
-			 * of the more common authoring above. The abstract
-			 * "Advanced" framing scopes the section to its role
-			 * (niche filters), not its contents.
+			 * list). The abstract "Advanced" framing scopes the section
+			 * to its role (niche filters), not its contents.
 			 */}
 			<section>
 				<CaseListSectionHeader

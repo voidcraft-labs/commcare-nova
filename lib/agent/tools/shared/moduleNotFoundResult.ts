@@ -8,7 +8,7 @@
  * `setCaseListFilter`, …) was the first family; the case-search-config
  * tools (`setCaseSearchDisplay`, `setCaseSearchAdvanced`) are the second.
  * Centralizing the shape keeps the SA-facing message uniform across
- * families and means a future error-shape edit lands in one place.
+ * families.
  *
  * The helper is generic over the success arm so each tool can pin its
  * own structured result type. The returned union widens to

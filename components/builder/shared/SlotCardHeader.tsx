@@ -29,8 +29,7 @@
 //     take, not the current state.
 //   - `clear` carries the click handler AND the visible / accessible
 //     label as one slot — handler-without-label and label-without-
-//     handler are unrepresentable, so a future consumer can't ship a
-//     silent no-op or an unlabelled button.
+//     handler are unrepresentable in the type.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -62,11 +61,10 @@ export interface SlotCardHeaderCollapse {
 }
 
 /**
- * Optional Clear-affordance wiring. Both halves are required when the
- * slot is present — handler and label travel together so consumers
- * can't ship a silent no-op or an unlabelled button. The label is used
- * both as visible button text AND as `aria-label` so visual readers
- * and screen readers see the same words.
+ * Optional Clear-affordance wiring. Handler and label travel together
+ * — handler-without-label and label-without-handler are unrepresentable
+ * in the type. The label is used both as visible button text AND as
+ * `aria-label` so visual readers and screen readers see the same words.
  */
 export interface SlotCardHeaderClear {
 	readonly onClick: () => void;

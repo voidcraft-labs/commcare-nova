@@ -67,10 +67,10 @@ describe("setCaseSearchAdvanced", () => {
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
-	it("returns a confirmation message that names the slot operation", async () => {
-		// Single-slot wholesale tool — there's no `kind` discriminator on
-		// the success result (the prose message is the only signal). Pin
-		// that the message names the blacklist slot so the SA can confirm
+	it("surfaces the slot the SA set on the success result", async () => {
+		// Both surfaces — the structured `advancedSlotsSet` array AND
+		// the prose message — derive from `ADVANCED_SLOT_NAMES` via the
+		// shared `slotsSetByInput` projection, so the SA can confirm
 		// the tool ran without re-reading the config.
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchAdvancedTool.execute(
@@ -84,7 +84,8 @@ describe("setCaseSearchAdvanced", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		expect(result.result.message).toContain("blacklisted owner ids");
+		expect(result.result.advancedSlotsSet).toEqual(["blacklistedOwnerIds"]);
+		expect(result.result.message).toContain("blacklistedOwnerIds");
 	});
 
 	it("clears the blacklisted owner ids slot when null is passed", async () => {
@@ -123,7 +124,11 @@ describe("setCaseSearchAdvanced", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		expect(result.result.message).toContain("cleared");
+		// Wholesale-clear shape — empty `advancedSlotsSet` array AND a
+		// "Cleared every …" prose branch. Both surfaces drop in lockstep
+		// off the same `slotsSetByInput` projection.
+		expect(result.result.advancedSlotsSet).toEqual([]);
+		expect(result.result.message).toContain("Cleared every");
 	});
 
 	it("preserves display cluster when setting advanced", async () => {

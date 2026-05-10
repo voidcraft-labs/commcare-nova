@@ -146,6 +146,21 @@ function pickClusterSlots<K extends keyof CaseSearchConfig>(
 // ── Patch-projection helper for SA-input layering ───────────────────
 
 /**
+ * The SA-boundary input shape both wholesale tools take: every named
+ * slot is required and may be `null` (the wholesale-clear semantic).
+ * `NonNullable<CaseSearchConfig[P]>` strips the schema's `optional()`-
+ * derived `undefined` from the per-slot type so the input cannot
+ * smuggle `undefined` past the `value !== null` filter — which would
+ * write `out[slot] = undefined` and break the "missing or cleared
+ * slots are TRULY absent" contract `pickClusterSlots` enforces. The
+ * SA-boundary schemas use `.nullable()` (not `.nullish()`), so the
+ * tightened shape is what callers actually pass.
+ */
+export type ClusterPatchInput<K extends keyof CaseSearchConfig> = {
+	readonly [P in K]: NonNullable<CaseSearchConfig[P]> | null;
+};
+
+/**
  * Project a wholesale-with-`null`-clears SA-input batch into the
  * cluster-shaped layer the tools compose onto the carried-forward
  * other cluster. Iterates `slots` so the slot list lives in exactly
@@ -157,17 +172,12 @@ function pickClusterSlots<K extends keyof CaseSearchConfig>(
  * filter on a per-slot guard. The generic correlation
  * `K extends keyof CaseSearchConfig` keeps per-slot assignment
  * well-typed without a return cast: `slot: K` and
- * `input[slot]: CaseSearchConfig[K] | null` correlate per-call so
- * `out[slot] = value` lands at the right slot's value type.
- *
- * The input shape is the SA-boundary's wholesale-clears mapping —
- * every slot in `K` is required and may be `null`. Tools whose body
- * schemas are derived from the same `slots` tuple (the partition
- * exhaustiveness checks above guarantee this) feed the schema-typed
- * input here directly.
+ * `input[slot]: NonNullable<CaseSearchConfig[K]> | null` correlate
+ * per-call so `out[slot] = value` lands at the right slot's value
+ * type.
  */
 export function applyClusterPatch<K extends keyof CaseSearchConfig>(
-	input: { readonly [P in K]: CaseSearchConfig[P] | null },
+	input: ClusterPatchInput<K>,
 	slots: readonly K[],
 ): Partial<Pick<CaseSearchConfig, K>> {
 	const out: Partial<Pick<CaseSearchConfig, K>> = {};
@@ -178,6 +188,22 @@ export function applyClusterPatch<K extends keyof CaseSearchConfig>(
 		}
 	}
 	return out;
+}
+
+/**
+ * Surface the slot names the SA actually set on this call — every
+ * slot in `slots` whose input is non-null. Both wholesale tools
+ * derive their success message from this projection (the empty
+ * array branch reports a wholesale-clear; the populated branch lists
+ * the slots that landed). Iterating one tuple keeps the slot list in
+ * lockstep with `applyClusterPatch`'s emit set: a slot the patch
+ * skipped is the same slot this projection drops, by construction.
+ */
+export function slotsSetByInput<K extends keyof CaseSearchConfig>(
+	input: ClusterPatchInput<K>,
+	slots: readonly K[],
+): readonly K[] {
+	return slots.filter((slot) => input[slot] !== null);
 }
 
 // ── Input schemas — advanced cluster ────────────────────────────────

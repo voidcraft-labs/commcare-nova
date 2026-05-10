@@ -20,8 +20,8 @@
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
  *   1. Module index out of range → `{ error }`, no mutations.
- *   2. Success → `{ message }` plus the persisted mutation, tagged
- *      `module:M:caseSearch:advanced`.
+ *   2. Success → `{ message, advancedSlotsSet }` plus the persisted
+ *      mutation, tagged `module:M:caseSearch:advanced`.
  */
 
 import { z } from "zod";
@@ -32,9 +32,11 @@ import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
 	ADVANCED_SLOT_NAMES,
+	type AdvancedSlotName,
 	applyClusterPatch,
 	pickDisplayCluster,
 	setCaseSearchAdvancedBodySchema,
+	slotsSetByInput,
 	snapshotCaseSearchConfig,
 } from "./shared";
 
@@ -54,14 +56,16 @@ export type SetCaseSearchAdvancedInput = z.infer<
 >;
 
 /**
- * Success result for `setCaseSearchAdvanced`. Single-slot wholesale
- * tools don't carry a `kind`-discriminator the way the display tool's
- * `displaySlotsSet` array discriminator does — there's no useful
- * branching for the SA off "blacklist set vs cleared" beyond what
- * the prose message already conveys.
+ * Success result for `setCaseSearchAdvanced`. `advancedSlotsSet` is
+ * the structured discriminator the SA reads to confirm which slots
+ * received a non-null value on this call, mirroring the parallel
+ * `displaySlotsSet` field on `setCaseSearchDisplay` and removing the
+ * need to re-parse the prose message. Empty array means every
+ * advanced slot was cleared.
  */
 export interface SetCaseSearchAdvancedSuccess {
 	message: string;
+	advancedSlotsSet: readonly AdvancedSlotName[];
 }
 
 export type SetCaseSearchAdvancedResult =
@@ -77,7 +81,7 @@ export const setCaseSearchAdvancedTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchAdvancedResult>> {
-		const { moduleIndex, blacklistedOwnerIds } = input;
+		const { moduleIndex } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid)
@@ -116,15 +120,22 @@ export const setCaseSearchAdvancedTool = {
 				`module:${moduleIndex}:caseSearch:advanced`,
 			);
 
+			// Derive the message from the same slot tuple `applyClusterPatch`
+			// projects against. A new entry on `ADVANCED_SLOT_NAMES`
+			// flows into the message verbatim — no per-slot literal in
+			// the tool body to keep in lockstep.
+			const advancedSlotsSet = slotsSetByInput(input, ADVANCED_SLOT_NAMES);
+
 			return {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: {
 					message:
-						blacklistedOwnerIds === null
-							? `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): blacklisted owner ids cleared.`
-							: `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): blacklisted owner ids set.`,
+						advancedSlotsSet.length === 0
+							? `Cleared every case-search advanced slot on module "${mod.name}" (index ${moduleIndex}).`
+							: `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): ${advancedSlotsSet.join(", ")}.`,
+					advancedSlotsSet,
 				},
 			};
 		} catch (err) {

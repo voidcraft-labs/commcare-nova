@@ -170,7 +170,7 @@ export function PredicateSlotCard({
 				<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
 					<PredicateCardEditor
 						value={value}
-						onChange={(next) => onChange(next)}
+						onChange={onChange}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
 						knownInputs={knownInputs}
