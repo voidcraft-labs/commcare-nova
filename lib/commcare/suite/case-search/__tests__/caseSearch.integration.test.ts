@@ -336,11 +336,11 @@ describe("case-search integration — validator surface", () => {
 	});
 
 	it("fires CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR when the value expression resolves to a non-text type", () => {
-		// `excludedOwnerIds` requires a text-typed (or text-widening)
-		// resolution. A reference to an unknown property fails to
-		// resolve and surfaces as a type error — the rule's
-		// short-circuit on `expression === undefined` is bypassed
-		// because the expression is set, just ill-typed.
+		// Pins that the rule fires when `excludedOwnerIds` is set to a
+		// value expression that doesn't resolve to a text-typed (or
+		// text-widening) result. Authoring contract: the slot must
+		// resolve to text because the runtime parses it as a
+		// space-separated list of owner ids.
 		const doc = buildSearchBlueprint();
 		const broken: BlueprintDoc = {
 			...doc,
@@ -409,7 +409,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		// Step 2 — set the advanced cluster against the doc that
 		// just received the display update. The advanced tool must
 		// preserve the display labels written in Step 1.
-		const excluded = term({ kind: "literal", value: "owner-x" });
+		const excluded = term(literal("owner-x"));
 		const r2 = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
@@ -469,14 +469,12 @@ describe("case-search integration — SA tool round-trip", () => {
 //
 // One realistic blueprint feeds through `expandDoc` + `compileCcz`;
 // structural pins on the resulting `suite.xml` exercise every
-// every case-search wire-emission surface in composition. CCHQ's
+// case-search wire-emission surface in composition. CCHQ's
 // canonical fixtures carry registry / smart-link / sort-property
 // content Nova doesn't emit — direct byte comparison would fail on
 // those, so these pins are element-shape assertions over the
 // canonical shape, not byte snapshots. The per-emitter unit tests
-// (`remoteRequest.test.ts`, `searchSession.test.ts`,
-// `dualDetailEmission.test.ts`) own fine-grained shape coverage;
-// this layer pins composition.
+// own fine-grained shape coverage; this layer pins composition.
 
 describe("case-search integration — suite XML wire emission", () => {
 	it("emits both case-target and search-target detail blocks for the search-enabled module", () => {
@@ -609,7 +607,7 @@ describe("case-search integration — suite XML wire emission", () => {
 		// `autoLaunch: false`) emits `auto_launch="false()"` per
 		// `lib/commcare/suite/case-list/shortDetail.ts::emitSearchActionBlock`.
 		expect(caseShortBlock).toContain('auto_launch="false()"');
-		expect(caseShortBlock).toContain("redo_last=");
+		expect(caseShortBlock).toContain('redo_last="false"');
 		// `relevant` carries the compiled on-device XPath of the
 		// authored predicate (`case_name = 'Alice'`).
 		expect(caseShortBlock).toMatch(/relevant="[^"]*case_name[^"]*Alice/);
