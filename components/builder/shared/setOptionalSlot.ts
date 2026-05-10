@@ -22,31 +22,55 @@
 // depend on the shape being honest.
 
 /**
+ * Set of keys on `C` whose value type includes `undefined` — i.e., the
+ * slots a Zod `.optional()` declaration produces in the inferred type.
+ * `undefined extends C[K]` is the predicate that admits Zod's
+ * `T | undefined` inference; required keys whose value type is `T` (no
+ * `undefined`) get mapped to `never` and dropped from the union.
+ *
+ * Constraining the slot key to this set is what makes the clear path
+ * type-sound: a destructured drop on a required key would produce an
+ * object missing a key the caller's static type still claims is
+ * present. The constraint forces a compile-time error at the call
+ * site instead of silently shipping a runtime gap behind a passing
+ * type check.
+ */
+type OptionalKeyOf<C> = {
+	[K in keyof C]-?: undefined extends C[K] ? K : never;
+}[keyof C];
+
+/**
  * Build the next value of an object with an optional slot. When `next`
  * is `undefined`, the returned object omits the slot key entirely (a
  * destructured drop, not a `key: undefined` assignment); when `next`
  * is defined, the returned object carries the slot key bound to the
  * value. Other keys on `current` flow through unchanged.
  *
- * Generic over the container `C` and the slot key `K extends keyof C`,
+ * Generic over the container `C` and the slot key `K extends OptionalKeyOf<C>`,
  * so the returned object's static shape stays equivalent to the input
- * — consumers don't need a cast at the call site.
+ * — consumers don't need a cast at the call site, and a non-optional
+ * slot key fails to compile rather than emitting a runtime object that
+ * lies about its static shape.
  *
  * The helper accepts `current: C | undefined` so authoring sections
  * whose parent slot is itself optional (a section receiving
  * `caseSearchConfig: CaseSearchConfig | undefined`) can route through
  * the same helper. The `undefined` arm materializes an empty object
- * before the slot patch, mirroring the `...(value ?? {})` pattern
- * sections used before this helper centralized the spread.
+ * before the slot patch, so the consumer's emit shape stays the same
+ * whether the parent slot exists or not.
  *
  * @param current The current object value, or `undefined` if the
  *                parent slot is itself absent.
- * @param slot    The key of the slot to set or drop.
+ * @param slot    The key of the slot to set or drop. Must be an
+ *                optional key on `C` — the constraint guarantees a
+ *                clear path can drop the key without leaving the
+ *                returned object's static shape inconsistent with its
+ *                runtime shape.
  * @param next    The next value for the slot, or `undefined` to drop
  *                the key from the returned object.
  * @returns       The next object value with the slot set or omitted.
  */
-export function setOptionalSlot<C extends object, K extends keyof C>(
+export function setOptionalSlot<C extends object, K extends OptionalKeyOf<C>>(
 	current: C | undefined,
 	slot: K,
 	next: C[K] | undefined,

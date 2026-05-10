@@ -28,9 +28,11 @@
 //      toggle, not a mount toggle: when the slot is defined, the
 //      editor stays mounted across collapse state so its validity
 //      verdict keeps reaching the inner shadow on every render pass.
-//      Add (when the slot is undefined) flips the collapse open as a
-//      side-effect so the freshly-mounted editor is immediately
-//      visible.
+//      The Add CTA lives inside the disclosed region, so opening the
+//      collapse is a prerequisite for clicking Add — `hidden` excludes
+//      the wrapper from the click-handling tree, which keeps the
+//      empty-state surface aligned with the accessibility tree role
+//      queries report.
 //
 // Consumers specialize the primitive with a typed `T` (Predicate
 // for `PredicateSlotCard` / ValueExpression for `AdvancedSection`)
@@ -171,12 +173,14 @@ export function OptionalSlotCard<T>({
 	useValidityPropagator({ isValid, onValidityChange });
 
 	// ── Mutators ──
+	// `handleAdd` only fires when the Add CTA is clicked, and the CTA
+	// lives inside the disclosed region (`<div hidden={!isOpen}>` when
+	// collapse is enabled). The `hidden` attribute removes the wrapper
+	// from the click-handling tree, so the CTA is unreachable while the
+	// body is closed — the chevron expand is the implicit prerequisite.
+	// No collapse-open side-effect is needed here.
 	const handleAdd = () => {
 		onChange(addSeed);
-		// When the consumer opted into collapse, opening the body on
-		// Add makes the freshly-mounted editor immediately visible —
-		// otherwise the author would click Add and see no result.
-		if (collapse) setIsOpen(true);
 	};
 	const handleClear = () => {
 		onChange(undefined);
