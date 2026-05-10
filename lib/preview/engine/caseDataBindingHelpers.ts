@@ -30,8 +30,10 @@ import type {
 	CaseUpdate,
 } from "@/lib/case-store";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
+import type { Predicate } from "@/lib/domain/predicate";
 import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { reduceAnd } from "@/lib/domain/predicate/reduction";
 import type {
 	JsonObject,
 	LoadCaseDataResult,
@@ -42,6 +44,10 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
+import {
+	composeRuntimeFilter,
+	type SearchInputValues,
+} from "./runtimeBindings";
 
 /**
  * Default row count for `populateSampleCasesAction`. 30 rows is
@@ -76,6 +82,19 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * accepts the narrow shape directly. The Server Action at
  * `./caseDataBinding.ts` does the `BlueprintDoc → ReadonlyMap`
  * conversion once at the request edge via `buildCaseTypeMap`.
+ *
+ * `inputValues` carries the running-app surface's per-search-input
+ * typed values. When supplied alongside a `caseListConfig` whose
+ * `searchInputs` slot is non-empty, the helper composes
+ * `composeRuntimeFilter(...)` over the input bag and AND-joins the
+ * result with `caseListConfig.filter` to form the predicate that
+ * flows to `store.query(...)`. The unified-filter slot is the single
+ * source for both the case-list always-on filter and the search-
+ * input contributions — there is no separate "search default filter"
+ * parameter. Absent / undefined inputs OR an empty `searchInputs`
+ * slot short-circuit to the existing `caseListConfig?.filter`
+ * passthrough so the helper's callers (raw-row reads, calc preview
+ * surfaces) don't pay for a no-op composition.
  */
 export async function readCases(
 	store: CaseStore,
@@ -84,13 +103,18 @@ export async function readCases(
 		caseType: string;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
+		inputValues?: SearchInputValues;
 	},
 ): Promise<LoadCasesResult> {
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		predicate: args.caseListConfig?.filter,
+		predicate: composeQueryPredicate(
+			args.caseListConfig,
+			args.inputValues,
+			args.caseType,
+		),
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		calculated: args.caseListConfig?.columns.filter(
 			(col) => col.kind === "calculated",
@@ -98,6 +122,80 @@ export async function readCases(
 	});
 	if (rows.length === 0) return { kind: "empty" };
 	return { kind: "rows", rows };
+}
+
+/**
+ * Compose the predicate that flows to `store.query(...)` from the
+ * always-on `caseListConfig.filter` slot and the per-input runtime
+ * contributions. The two sources collapse into one predicate so the
+ * case-store sees a single WHERE clause regardless of how many
+ * surfaces contributed.
+ *
+ * Short-circuit policy:
+ *
+ *   - `caseListConfig === undefined` — the raw-row read path. No
+ *     filter, no inputs; return `undefined` and the case-store falls
+ *     through to the unfiltered scan.
+ *   - `caseListConfig.searchInputs.length === 0` OR `inputValues`
+ *     absent — no runtime contribution exists. Skip
+ *     `composeRuntimeFilter` entirely and pass `caseListConfig.filter`
+ *     through verbatim. The current behavior, preserved for every
+ *     non-running-app caller (Filters / Display previews, calc
+ *     surface).
+ *   - Both slots populated — call `composeRuntimeFilter` and AND-
+ *     compose its result with `caseListConfig.filter`. The runtime
+ *     filter is allowed to be `match-all` (the all-empty
+ *     short-circuit on Task 1); we explicitly drop `match-all`
+ *     clauses before reduction so a trivially-true contribution
+ *     doesn't bloat the constructed envelope. `reduceAnd` handles
+ *     the empty + single-clause cases canonically; only the multi-
+ *     clause arm falls through to an explicit conjunction envelope.
+ */
+function composeQueryPredicate(
+	caseListConfig: CaseListConfig | undefined,
+	inputValues: SearchInputValues | undefined,
+	caseType: string,
+): Predicate | undefined {
+	if (caseListConfig === undefined) return undefined;
+	const baseFilter = caseListConfig.filter;
+	if (inputValues === undefined || caseListConfig.searchInputs.length === 0) {
+		return baseFilter;
+	}
+
+	const runtimeFilter = composeRuntimeFilter(
+		caseListConfig.searchInputs,
+		inputValues,
+		caseType,
+	);
+
+	// `match-all` clauses are conjunction-identity — including them
+	// in the AND envelope produces a structurally noisy predicate
+	// that emits a redundant `TRUE` operand into the SQL. Drop them
+	// here so the case-store sees the same shape it would have seen
+	// with the unfiltered passthrough.
+	const clauses: Predicate[] = [];
+	if (baseFilter !== undefined && baseFilter.kind !== "match-all") {
+		clauses.push(baseFilter);
+	}
+	if (runtimeFilter.kind !== "match-all") {
+		clauses.push(runtimeFilter);
+	}
+
+	// `reduceAnd` returns `match-all` for an empty clause set and the
+	// single clause unchanged for a one-element set. Surfacing
+	// `match-all` to the case-store is structurally identical to an
+	// `undefined` predicate (both produce an unfiltered scan), but
+	// passing `undefined` keeps the SQL compiler from emitting a
+	// `TRUE` clause it would otherwise have to elide.
+	const reduced = reduceAnd(clauses);
+	if (reduced === undefined) {
+		return {
+			kind: "and",
+			clauses: clauses as [Predicate, ...Predicate[]],
+		};
+	}
+	if (reduced.kind === "match-all") return undefined;
+	return reduced;
 }
 
 /**
@@ -381,6 +479,39 @@ export async function seedSampleCases(
 		caseType: args.caseType,
 		count: SAMPLE_CASE_DEFAULT_COUNT,
 		seed: `${Date.now()}`,
+	});
+	return { kind: "ok", inserted: result.inserted };
+}
+
+/**
+ * Drop every existing sample row for `(appId, caseType)` and
+ * regenerate a fresh `SAMPLE_CASE_DEFAULT_COUNT` population. Mirror
+ * of `seedSampleCases` over the case-store's atomic
+ * `resetSampleData` method — the delete + regenerate run in one
+ * Postgres transaction, so a mid-operation failure rolls back to
+ * the pre-call population.
+ *
+ * `resetSampleData` returns `{ deleted, inserted }`; the
+ * `PopulateSampleCasesResult` success arm carries only `inserted`
+ * because the user-facing UX names the action "regenerate" rather
+ * than "delete then regenerate" — surfacing the deleted count would
+ * leak the two-step composition the case-store's atomic contract
+ * was designed to hide.
+ *
+ * The case-store picks a fresh seed at call time (no `seed` arg on
+ * `ResetSampleDataArgs`), so the regenerated population differs
+ * from the prior one with high probability — what authors expect
+ * when iterating on schema + filter changes against fresh sample
+ * data.
+ */
+export async function resetSampleCases(
+	store: CaseStore,
+	args: { appId: string; caseType: CaseType },
+): Promise<PopulateSampleCasesResult> {
+	const result = await store.resetSampleData({
+		appId: args.appId,
+		caseType: args.caseType,
+		count: SAMPLE_CASE_DEFAULT_COUNT,
 	});
 	return { kind: "ok", inserted: result.inserted };
 }

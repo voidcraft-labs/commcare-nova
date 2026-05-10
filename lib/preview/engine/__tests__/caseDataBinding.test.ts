@@ -68,6 +68,7 @@ import {
 	readCaseListPreview,
 	readCases,
 	readFilterPreview,
+	resetSampleCases,
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
@@ -323,6 +324,545 @@ describe("readCases", () => {
 			caseType: "patient",
 		});
 		expect(result.kind).toBe("empty");
+	});
+});
+
+// ---------------------------------------------------------------
+// `readCases` — runtime-bindings composition
+// ---------------------------------------------------------------
+//
+// Acceptance tests for the `inputValues?` extension. The helper
+// composes `composeRuntimeFilter(searchInputs, inputValues, caseType)`
+// (from `../runtimeBindings`) and AND-joins the result with
+// `caseListConfig.filter` to form the predicate that flows to
+// `store.query(...)`. The unified-filter slot is the single source
+// for both the case-list always-on filter and the search-input
+// contributions. The tests below pin each compositional arm against
+// real Postgres state — the SQL layer is the authoritative semantic.
+
+import {
+	advancedSearchInputDef as advancedSearchInput,
+	asUuid as asUuidForRuntime,
+	exactMode,
+	multiSelectContainsMode,
+	simpleSearchInputDef as simpleSearchInput,
+	startsWithMode,
+} from "@/lib/domain";
+import {
+	gt as gtPredicate,
+	input as inputTerm,
+	literal as literalValue,
+	prop as propTerm,
+} from "@/lib/domain/predicate";
+import type { SearchInputValues } from "../runtimeBindings";
+
+const READCASES_PRIMARY_INPUT_UUID = asUuidForRuntime(
+	"60000000-0000-0000-0000-000000000001",
+);
+const READCASES_SECONDARY_INPUT_UUID = asUuidForRuntime(
+	"60000000-0000-0000-0000-000000000002",
+);
+const READCASES_ADVANCED_INPUT_UUID = asUuidForRuntime(
+	"60000000-0000-0000-0000-000000000003",
+);
+
+describe("readCases — running-app search-input composition", () => {
+	it("reads as before when caseListConfig has no search inputs (filter alone)", async () => {
+		// Pins the no-runtime-contribution short-circuit. The helper
+		// MUST pass `caseListConfig.filter` through to `store.query`
+		// verbatim when `searchInputs` is empty — the running-app
+		// fallback when the author hasn't declared any inputs.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 25 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [],
+				// `age > 30` — only Bob matches the always-on filter.
+				filter: gtPredicate(propTerm("patient", "age"), literalValue(30)),
+			},
+			// Even with `inputValues` defined, the helper must skip
+			// `composeRuntimeFilter` because `searchInputs.length === 0`.
+			inputValues: new Map(),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
+	});
+
+	it("narrows the row set when a simple-arm exact input matches a single row", async () => {
+		// Simple-arm dispatch with `exact` mode. Two cases differ on
+		// the `name` property; typing one value into the input must
+		// drop the other from the result.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					simpleSearchInput(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name",
+						"text",
+						"name",
+						{ mode: exactMode() },
+					),
+				],
+			},
+			inputValues: new Map([["name", "Alice"]]),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
+	});
+
+	it("narrows the row set when an advanced-arm input substitutes its value", async () => {
+		// Advanced-arm: the input's `predicate` AST carries an
+		// `input(name)` term reference; Task 1's substituter walks
+		// the AST and binds the typed value at every value-position
+		// match before the predicate reaches `store.query(...)`.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		// `prop("name") starts-with input("name_prefix")` — the
+		// `inputValues` map binds "Al" at the substitution site, so
+		// only Alice survives.
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					advancedSearchInput(
+						READCASES_ADVANCED_INPUT_UUID,
+						"name_prefix",
+						"Name starts with",
+						"text",
+						// Wire-shape: match(prop(...), "starts-with", input(...))
+						{
+							kind: "match",
+							property: propTerm("patient", "name"),
+							value: { kind: "term", term: inputTerm("name_prefix") },
+							mode: "starts-with",
+						},
+					),
+				],
+			},
+			inputValues: new Map([["name_prefix", "Al"]]),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
+	});
+
+	it("AND-composes multiple contributing inputs across simple-arm modes", async () => {
+		// Mixed-arm composition: a `select` exact match on `status`
+		// AND a `text` starts-with match on `name`. Each contributes
+		// a clause; the helper folds them into one conjunction that
+		// reaches `store.query`. Three cases sit in the store; only
+		// the row matching BOTH inputs survives.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		const CAROL_CASE_ID = "40000000-0000-0000-0000-000000000003";
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				// Bob's status is closed — the status input drops him.
+				status: "closed",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: CAROL_CASE_ID,
+				case_type: "patient",
+				case_name: "Carol",
+				// Carol matches the status input but not the name input.
+				status: "open",
+				properties: { name: "Carol", age: 35 },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					// `name` starts-with — text-mode input the widget
+					// would render as a text field with a starts-with
+					// mode. Matches Alice (starts with "Al"); skips Bob
+					// + Carol.
+					simpleSearchInput(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name starts with",
+						"text",
+						"name",
+						{ mode: startsWithMode() },
+					),
+					// `status` exact — select-mode input. Matches
+					// Alice + Carol; drops Bob.
+					simpleSearchInput(
+						READCASES_SECONDARY_INPUT_UUID,
+						"status",
+						"Status",
+						"select",
+						"status",
+						{ mode: exactMode() },
+					),
+				],
+			},
+			// `name=Al, status=open` — the intersection is Alice
+			// alone.
+			inputValues: new Map([
+				["name", "Al"],
+				["status", "open"],
+			]),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
+	});
+
+	it("short-circuits to filter-only results when every search-input value is empty", async () => {
+		// All-empty `inputValues`: `composeRuntimeFilter` returns
+		// `match-all` (the conjunction-identity element), the helper
+		// drops it before AND-composing, and the case-store sees the
+		// same predicate it would have seen with the no-input
+		// passthrough. The always-on `caseListConfig.filter` still
+		// applies.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 25 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					simpleSearchInput(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name",
+						"text",
+						"name",
+					),
+				],
+				// Filter only — `age > 30`. Bob alone survives.
+				filter: gtPredicate(propTerm("patient", "age"), literalValue(30)),
+			},
+			// Empty values bag — no runtime contribution. The
+			// constructed predicate must equal the filter-only path.
+			inputValues: new Map() satisfies SearchInputValues,
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
+	});
+
+	it("AND-composes the unified filter with the runtime contribution", async () => {
+		// Both halves contribute non-trivially. `caseListConfig.filter`
+		// narrows to `age > 30`; the simple-arm `name` input adds an
+		// equality clause. Only the row passing BOTH predicates lands.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				// `age > 30` rejects Alice.
+				status: "open",
+				properties: { name: "Alice", age: 25 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				// Bob clears `age > 30` AND matches `name = "Bob"`.
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					simpleSearchInput(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name",
+						"text",
+						"name",
+						{ mode: exactMode() },
+					),
+				],
+				filter: gtPredicate(propTerm("patient", "age"), literalValue(30)),
+			},
+			inputValues: new Map([["name", "Bob"]]),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
+	});
+
+	it("AND-composes simple-arm multi-select-contains across a single property", async () => {
+		// Pins the multi-select arm: the input value is a
+		// comma-separated token list; the runtime layer expands it to
+		// a `multi-select-contains` predicate. The case-store's JSONB
+		// `?` / `@>` operators select rows whose array property
+		// contains the supplied token(s). Two rows differ on a
+		// multi-select-typed `tags` property; the input narrows to
+		// rows containing "vip".
+		const TAGGED_CASE_TYPE: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{
+					name: "tags",
+					label: "Tags",
+					data_type: "multi_select",
+					options: [
+						{ value: "vip", label: "VIP" },
+						{ value: "new", label: "New" },
+						{ value: "review", label: "Review" },
+					],
+				},
+			],
+		};
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([TAGGED_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", tags: ["vip", "review"] },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", tags: ["new"] },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					simpleSearchInput(
+						READCASES_PRIMARY_INPUT_UUID,
+						"tags",
+						"Tags",
+						"select",
+						"tags",
+						{ mode: multiSelectContainsMode("any") },
+					),
+				],
+			},
+			inputValues: new Map([["tags", "vip"]]),
+		});
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(1);
+		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
+	});
+});
+
+// ---------------------------------------------------------------
+// `resetSampleCases`
+// ---------------------------------------------------------------
+
+describe("resetSampleCases", () => {
+	it("deletes the prior sample population and regenerates a fresh row set", async () => {
+		// The helper wraps `CaseStore.resetSampleData` — the atomic
+		// delete-then-regenerate path. After the call, the case-type
+		// MUST hold `SAMPLE_CASE_DEFAULT_COUNT` rows with case_ids
+		// that differ from the prior population (the store picks a
+		// fresh seed at call time, so the regenerated rows have new
+		// uuids and likely differ in property content).
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		// Seed the initial population so the reset has something to
+		// drop. Snapshot the resulting case_ids — they're the
+		// distinct-row check below.
+		const seeded = await seedSampleCases(store, {
+			appId: APP_ID,
+			caseType: PATIENT_CASE_TYPE,
+		});
+		expect(seeded.kind).toBe("ok");
+		if (seeded.kind !== "ok") return;
+		expect(seeded.inserted).toBe(SAMPLE_CASE_DEFAULT_COUNT);
+		const before = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		if (before.kind !== "rows") throw new Error("expected seeded rows");
+		const beforeIds = new Set(before.rows.map((r) => r.case_id));
+
+		const result = await resetSampleCases(store, {
+			appId: APP_ID,
+			caseType: PATIENT_CASE_TYPE,
+		});
+		expect(result.kind).toBe("ok");
+		if (result.kind !== "ok") return;
+		expect(result.inserted).toBe(SAMPLE_CASE_DEFAULT_COUNT);
+
+		// Population after reset MUST equal the default count — the
+		// helper deleted the old rows before regenerating.
+		const after = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		if (after.kind !== "rows") throw new Error("expected regenerated rows");
+		expect(after.rows).toHaveLength(SAMPLE_CASE_DEFAULT_COUNT);
+
+		// Every regenerated row's case_id must be new — the reset
+		// path generates fresh uuid v7 values, never reuses the
+		// prior population's ids.
+		for (const row of after.rows) {
+			expect(beforeIds.has(row.case_id)).toBe(false);
+		}
 	});
 });
 
