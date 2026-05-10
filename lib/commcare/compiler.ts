@@ -170,14 +170,6 @@ export function compileCcz(
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
-						// `searchButtonDisplayCondition` lands on the
-						// `<action relevant>` attribute when authored —
-						// CCHQ's
-						// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_relevant_expression`.
-						// Threaded via spread so an absent slot stays
-						// absent on the structure (rather than landing
-						// as an explicit `displayCondition: undefined`
-						// the strict-parse layer would surface).
 						...(mod.caseSearchConfig?.searchButtonDisplayCondition !==
 							undefined && {
 							displayCondition:

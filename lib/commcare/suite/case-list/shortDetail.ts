@@ -288,10 +288,11 @@ function emitDetailShell(
  * (the multi-select wire shape is a CCHQ-specific runtime
  * affordance).
  *
- * `redo_last="false"` ships unconditionally — the attribute exists
- * on CCHQ's wire but Nova does not surface "search again" as a
- * separate authoring affordance distinct from the primary search
- * action. Verified against
+ * `redo_last="false"` ships unconditionally. CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_action_kwargs`
+ * binds `redo_last` to its `in_search` parameter; the `<action>`
+ * here mounts only on the case-target detail
+ * (`m{N}_case_short`), where `in_search=False`. Verified against
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_case_short']/action`.
  */
 function emitSearchActionBlock(
