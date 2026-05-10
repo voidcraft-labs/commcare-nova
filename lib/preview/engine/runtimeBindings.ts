@@ -14,7 +14,6 @@ import type {
 	SearchInputMode,
 	SearchInputType,
 } from "@/lib/domain";
-import { APPLICABLE_SEARCH_MODES } from "@/lib/domain";
 import type {
 	Predicate,
 	PropertyRef,
@@ -85,6 +84,13 @@ export function composeRuntimeFilter(
 		const clause = clauseForInput(input, inputValues, caseType);
 		if (clause !== undefined) clauses.push(clause);
 	}
+	// `and(...)`'s overload set rejects a bare `Predicate[]` spread —
+	// the variadic public signatures require a tuple-typed argument
+	// list. Width-1 short-circuits as the lone clause; width-2+
+	// routes through `and(...)`, which applies `reduceAndImpl` and
+	// flattens any nested `and` envelope on the way through. The
+	// `matchAll()` short-circuit on the empty case matches the
+	// builder's own empty-args reduction.
 	if (clauses.length === 0) return matchAll();
 	if (clauses.length === 1) return clauses[0];
 	const [first, second, ...rest] = clauses;
@@ -211,7 +217,7 @@ function buildMultiSelectClause(
 		.map((token) => token.trim())
 		.filter((token) => token.length > 0);
 	if (tokens.length === 0) return undefined;
-	const [first, ...rest] = tokens.map((token) => literal(token));
+	const [first, ...rest] = tokens.map(literal);
 	if (mode.quantifier === "all") {
 		return multiSelectAll(property, first, ...rest);
 	}
@@ -270,57 +276,43 @@ function parseDateBound(raw: string | undefined): ValueExpression | undefined {
 }
 
 /**
- * Per-`type` default `SearchInputMode`. The first entry of
- * `APPLICABLE_SEARCH_MODES[type]` is canonical — same source the wire
- * layer reads. None of the declared defaults is `multi-select-
- * contains` (which would require a `quantifier` slot), so building
- * the mode object from the kind name alone is safe; the
- * `multi-select-contains` arm only ever appears when an author sets
- * it explicitly on the input, never via this fallback.
+ * Mode kinds eligible to seed a per-`type` default — every kind
+ * EXCEPT `multi-select-contains`. The exclusion is structural: the
+ * multi-select arm requires a `quantifier` slot the default-table
+ * can't supply, and no `APPLICABLE_SEARCH_MODES` row lists it first
+ * anyway. Type-system enforcement of "the default table can never
+ * point at multi-select" is more durable than a runtime narrowing
+ * guard.
+ */
+type DefaultableModeKind = Exclude<
+	SearchInputMode["kind"],
+	"multi-select-contains"
+>;
+
+/**
+ * Per-`type` default mode kind. Matches the head of each tuple in
+ * `APPLICABLE_SEARCH_MODES` (`lib/domain/modules.ts`) — the test
+ * suite pins the agreement so the two tables stay in lockstep
+ * without coupling this construction site to a runtime table walk.
+ */
+const DEFAULT_SEARCH_MODE_KIND: Readonly<
+	Record<SearchInputType, DefaultableModeKind>
+> = {
+	text: "exact",
+	select: "exact",
+	date: "exact",
+	"date-range": "range",
+	barcode: "exact",
+};
+
+/**
+ * Per-`type` default `SearchInputMode`. Reads the kind off the
+ * `DEFAULT_SEARCH_MODE_KIND` table and wraps it in a discriminator-
+ * only mode object; the `multi-select-contains` arm (the only mode
+ * carrying additional slots) is excluded by the table's value type.
  */
 function defaultModeFor(type: SearchInputType): SearchInputMode {
-	const modes = APPLICABLE_SEARCH_MODES[type];
-	const first = modes[0];
-	if (first === undefined) {
-		// Unreachable: every `SearchInputType` carries a non-empty
-		// applicability tuple. Surfaces as an internal-bug message
-		// rather than silently picking a fallback that could mask a
-		// future divergence between the type set and the table.
-		throw new Error(
-			unhandledKindMessage({
-				where: "defaultModeFor",
-				family: "SearchInputType",
-				received: type,
-				knownKinds: Object.keys(APPLICABLE_SEARCH_MODES),
-			}),
-		);
-	}
-	if (first === "multi-select-contains") {
-		// Table-locked invariant: no entry in `APPLICABLE_SEARCH_MODES`
-		// lists `"multi-select-contains"` as the first (default) mode
-		// for any input type — the per-type tuples in
-		// `lib/domain/modules.ts` are the authoring contract. The
-		// narrowing bridge below is the type-system reflection of that
-		// table fact; the throw fires only if the table changes
-		// without updating this fallback (which would require a
-		// quantifier slot it can't supply).
-		throw new Error(
-			unhandledKindMessage({
-				where: "defaultModeFor",
-				family: "SearchInputMode",
-				received: first,
-				knownKinds: [
-					"exact",
-					"fuzzy",
-					"starts-with",
-					"phonetic",
-					"fuzzy-date",
-					"range",
-				],
-			}),
-		);
-	}
-	return { kind: first };
+	return { kind: DEFAULT_SEARCH_MODE_KIND[type] };
 }
 
 // ── Advanced arm ──────────────────────────────────────────────────

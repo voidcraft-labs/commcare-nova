@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	APPLICABLE_SEARCH_MODES,
 	advancedSearchInputDef,
 	asUuid,
 	exactMode,
@@ -35,6 +36,7 @@ import {
 	multiSelectContainsMode,
 	phoneticMode,
 	rangeMode,
+	type SearchInputType,
 	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
@@ -45,7 +47,11 @@ import {
 	between,
 	coalesce,
 	concat,
+	dateAdd,
+	dateCoerce,
 	dateLiteral,
+	datetimeCoerce,
+	double,
 	eq,
 	exists,
 	formatDate,
@@ -54,13 +60,16 @@ import {
 	input,
 	isBlank,
 	isIn,
+	isNull,
 	literal,
 	match,
 	matchAll,
 	matchNone,
+	missing,
 	multiSelectAll,
 	multiSelectAny,
 	not,
+	now,
 	or,
 	predicateSchema,
 	prop,
@@ -69,6 +78,8 @@ import {
 	switchCase,
 	switchExpr,
 	term,
+	today,
+	unwrapList,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
@@ -1239,6 +1250,349 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 			throw new Error(
 				`expected the result to be a \`between\` clause; got \`${result.kind}\`.`,
 			);
+		}
+	});
+});
+
+describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm coverage", () => {
+	// Exhaustive-switch coverage in the AST rewriter catches missing-arm
+	// regressions at compile time, but existing-arm regressions (wrong
+	// slot recursed, wrong slot preserved) compile cleanly. The tests
+	// below pin per-arm rewrite behavior so a future edit that breaks
+	// one arm fails one named test rather than slipping past as a
+	// silent miscompile.
+
+	it("substitutes through `is-null.left` (advanced arm)", () => {
+		// `isNull` carries a single `left: ValueExpression` slot. The
+		// input ref sits in value position via the `term` arm.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			isNull(input("q")),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "alice" })),
+			PATIENT,
+		);
+		expect(result).toEqual(isNull(literal("alice")));
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("substitutes through `missing.where` (advanced arm)", () => {
+		// `missing.where` is a `Predicate` (cross-family). The
+		// `via` slot is a `RelationPath` and carries no input refs.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			missing(
+				subcasePath("parent", "household"),
+				eq(prop("household", "owner"), input("q")),
+			),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "alice@example.com" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			missing(
+				subcasePath("parent", "household"),
+				eq(prop("household", "owner"), literal("alice@example.com")),
+			),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("preserves `match-all` unchanged when wrapped in an advanced predicate", () => {
+		// `match-all` is a discriminator-only sentinel; the rewriter
+		// hits the no-op return arm and the sentinel node flows
+		// through unchanged. The wrapping `and` puts a substitutable
+		// sibling next to it so the rewriter must actually recurse
+		// through both clauses — a regression that touches the
+		// sentinel surfaces as a structural mismatch on the `and.clauses[0]`
+		// slot. The builder's `reduceAndImpl` only collapses
+		// empty / single-clause inputs (per `lib/domain/predicate/reduction.ts`),
+		// so the constructed multi-clause `and` keeps the sentinel
+		// at index 0 and substitution flows through to index 1.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			and(matchAll(), eq(prop(PATIENT, "name"), input("q"))),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "alice" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			and(matchAll(), eq(prop(PATIENT, "name"), literal("alice"))),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("preserves `match-none` unchanged when wrapped in an advanced predicate", () => {
+		// Symmetric to the match-all test — `match-none` flows
+		// through the rewriter's no-op return arm. `or` keeps both
+		// clauses intact (the builder reducer doesn't drop sentinels
+		// from a multi-clause envelope), so the sentinel survives at
+		// index 0 and substitution flows through to index 1.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			or(matchNone(), eq(prop(PATIENT, "name"), input("q"))),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "alice" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			or(matchNone(), eq(prop(PATIENT, "name"), literal("alice"))),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+});
+
+describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side arm coverage", () => {
+	it("substitutes through `date-add` operands (both `date` AND `quantity` slots)", () => {
+		// Two-input fixture so we can pin that BOTH the `date` slot
+		// and the `quantity` slot recurse. A single-input + single-
+		// slot fixture would let a regression that recurses only one
+		// slot pass; the two-slot pin catches that bug class.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"base",
+			"Base date",
+			"date",
+			eq(
+				dateAdd(term(input("base")), "days", term(input("offset"))),
+				literal("2025-01-15"),
+			),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ base: "2025-01-01", offset: "14" })),
+			PATIENT,
+		);
+		// `input("base")` substitutes because the input def's name is
+		// `base`. `input("offset")` is an orphan ref (no matching
+		// input def in this fixture's list); it survives unchanged —
+		// the rewriter only substitutes for the target input's name.
+		expect(result).toEqual(
+			eq(
+				dateAdd(term(literal("2025-01-01")), "days", term(input("offset"))),
+				literal("2025-01-15"),
+			),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("substitutes through `date-add`'s `quantity` slot when the input drives that operand", () => {
+		// Sister test: substitution lands on the `quantity` slot when
+		// the input ref sits there. Combined with the previous test,
+		// both slots have explicit coverage.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"offset",
+			"Offset",
+			"text",
+			eq(
+				dateAdd(term(prop(PATIENT, "dob")), "days", term(input("offset"))),
+				literal("2025-01-15"),
+			),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ offset: "30" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			eq(
+				dateAdd(term(prop(PATIENT, "dob")), "days", term(literal("30"))),
+				literal("2025-01-15"),
+			),
+		);
+	});
+
+	it("substitutes through `date-coerce.value` (advanced arm)", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"raw",
+			"Raw date",
+			"text",
+			eq(dateCoerce(term(input("raw"))), literal("2025-01-01")),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ raw: "2025-01-01" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			eq(dateCoerce(term(literal("2025-01-01"))), literal("2025-01-01")),
+		);
+	});
+
+	it("substitutes through `datetime-coerce.value` (advanced arm)", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"raw",
+			"Raw datetime",
+			"text",
+			eq(datetimeCoerce(term(input("raw"))), literal("2025-01-01T00:00:00")),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ raw: "2025-01-01T00:00:00" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			eq(
+				datetimeCoerce(term(literal("2025-01-01T00:00:00"))),
+				literal("2025-01-01T00:00:00"),
+			),
+		);
+	});
+
+	it("substitutes through `double.value` (advanced arm)", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			eq(double(term(input("q"))), literal(42)),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "42" })),
+			PATIENT,
+		);
+		expect(result).toEqual(eq(double(term(literal("42"))), literal(42)));
+	});
+
+	it("substitutes through `unwrap-list.value` (advanced arm)", () => {
+		// `unwrap-list` is the CSQL-only value function lifting a
+		// JSON-encoded array property. The runtime rewriter still
+		// has to recurse into the `value` slot — substitution is
+		// AST-level and indifferent to the wire target.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			eq(unwrapList(term(input("q"))), literal("tag")),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "tags-json" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			eq(unwrapList(term(literal("tags-json"))), literal("tag")),
+		);
+	});
+
+	it("preserves `today` unchanged (no-op return arm)", () => {
+		// `today` is a discriminator-only constant — no slots, no
+		// substitution. The rewriter hits the no-op return arm and
+		// the AST flows through unchanged.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			eq(today(), term(input("q"))),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "2025-01-01" })),
+			PATIENT,
+		);
+		// `today()` survives untouched; `input("q")` substitutes.
+		expect(result).toEqual(eq(today(), term(literal("2025-01-01"))));
+	});
+
+	it("preserves `now` unchanged (no-op return arm)", () => {
+		// Symmetric to the `today` test — `now` is a discriminator-
+		// only constant.
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			eq(now(), term(input("q"))),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map(Object.entries({ q: "2025-01-01T00:00:00" })),
+			PATIENT,
+		);
+		expect(result).toEqual(eq(now(), term(literal("2025-01-01T00:00:00"))));
+	});
+});
+
+describe("composeRuntimeFilter — default-mode table contract", () => {
+	// Pins the agreement between the runtime's internal default-
+	// mode table and `APPLICABLE_SEARCH_MODES` in
+	// `lib/domain/modules.ts`. The contract: each type's default
+	// mode is the FIRST entry of its applicable-modes tuple. The
+	// runtime construction reads off a typed table, but the test
+	// asserts the values agree with the canonical source so a
+	// table-drift regression fails one named test rather than
+	// surfacing through a downstream wire-emission divergence.
+
+	it("each type's default-mode dispatch agrees with the head of its applicable-modes tuple", () => {
+		const types: ReadonlyArray<SearchInputType> = [
+			"text",
+			"select",
+			"date",
+			"date-range",
+			"barcode",
+		];
+		for (const type of types) {
+			const expected = APPLICABLE_SEARCH_MODES[type][0];
+			const inputs = [
+				simpleSearchInputDef(asUuid("a"), "field", "Field", type, "field"),
+			];
+			// Use the input.name key for non-range defaults; the
+			// `:from`/`:to` key shape for the range default.
+			const inputValues =
+				expected === "range"
+					? new Map(
+							Object.entries({
+								"field:from": "2025-01-01",
+								"field:to": "2025-12-31",
+							}),
+						)
+					: new Map(Object.entries({ field: "value" }));
+			const result = composeRuntimeFilter(inputs, inputValues, PATIENT);
+			// Confirm the expected wire shape per the head-of-tuple
+			// expected mode. The Postgres compiler / wire emitters
+			// downstream branch on this kind, so getting it wrong here
+			// silently produces wrong wire output.
+			switch (expected) {
+				case "exact":
+					expect(result.kind).toBe("eq");
+					break;
+				case "range":
+					expect(result.kind).toBe("between");
+					break;
+				default:
+					throw new Error(
+						`unexpected default mode \`${expected}\` for type \`${type}\` — ` +
+							"the default-mode test asserts only the modes that any " +
+							"current type defaults to. Adding a new default kind in " +
+							"`APPLICABLE_SEARCH_MODES` requires extending this switch.",
+					);
+			}
 		}
 	});
 });
