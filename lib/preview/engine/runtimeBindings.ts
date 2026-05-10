@@ -1,8 +1,11 @@
 // lib/preview/engine/runtimeBindings.ts
 //
 // Runtime-bindings layer for the running-app case list. Translates
-// per-input typed values into ONE `Predicate` that the helper layer
-// (`readCases`) AND-composes with `caseListConfig.filter`.
+// per-input typed values into ONE `Predicate` representing the
+// input-driven contribution to the case-list query. AND-composition
+// with the unified `caseListConfig.filter` slot happens at the
+// helper layer (the case-store binding site) so this module ships
+// only the contribution, not the composed query predicate.
 //
 // Pure module — no I/O, no `import "server-only"`, no `"use client"`
 // directive — so server helpers AND client-side widgets can value-
@@ -58,16 +61,17 @@ export type SearchInputValues = ReadonlyMap<string, string>;
 
 /**
  * Compose every contributing search-input's runtime predicate into
- * one Predicate. Caller-side AND-composition with
- * `caseListConfig.filter` happens at the helper layer (`readCases`)
- * so the unified-filter slot remains the single source for both the
- * case-list always-on filter and the search-input contributions.
+ * one Predicate representing the input-driven contribution. The
+ * caller (the helper layer binding to the case store) AND-composes
+ * this result with the unified `caseListConfig.filter` slot so the
+ * slot remains the single source for both the case-list always-on
+ * filter and the search-input contributions.
  *
  * Empty / absent input values short-circuit at the per-input level —
  * the input contributes nothing. Zero-input or all-empty input
- * returns `matchAll()` (the conjunction identity element) so the
- * helper layer can AND-compose unconditionally without a "did
- * anything contribute" check.
+ * returns `match-all` (the conjunction identity element) so the
+ * caller can AND-compose unconditionally without a "did anything
+ * contribute" check.
  *
  * `caseType` threads to every `prop(caseType, property, via?)` Term
  * construction so the predicate compiler can resolve the property's
@@ -362,8 +366,13 @@ function buildAdvancedArmClause(
 
 /**
  * Walk a `Predicate` and substitute matching `input(name)` value-
- * position terms. Every operator arm rebuilds its slots so the
- * returned tree shares no nodes with the input AST below the root.
+ * position terms. Every operator envelope is rebuilt fresh;
+ * literal-only and discriminator-only slots, plus the sentinel
+ * arms (`match-all` / `match-none`) and non-substituting Term
+ * arms, are shared by reference. The rewriter never mutates a
+ * shared reference, so the input AST stays observable to its
+ * other consumers (Firestore persistence, zundo history)
+ * unchanged.
  */
 function substituteInputInPredicate(
 	predicate: Predicate,
@@ -571,8 +580,11 @@ function rebuildClauseTuple(
 
 /**
  * Walk a `ValueExpression` and substitute matching `input(name)`
- * value-position terms. Every arm rebuilds its slots so the returned
- * tree shares no nodes with the input AST below the root.
+ * value-position terms. Every operator envelope is rebuilt fresh;
+ * discriminator-only slots, the constant arms (`today` / `now`),
+ * and non-substituting Term arms are shared by reference. The
+ * rewriter never mutates a shared reference, so the input AST
+ * stays observable to its other consumers unchanged.
  */
 function substituteInputInExpression(
 	expr: ValueExpression,
