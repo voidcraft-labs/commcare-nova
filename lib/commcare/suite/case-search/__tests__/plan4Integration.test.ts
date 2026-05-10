@@ -1,0 +1,713 @@
+// lib/commcare/suite/case-search/__tests__/plan4Integration.test.ts
+//
+// End-to-end integration test for the case-search authoring →
+// wire emission pipeline. The per-emitter, per-rule, and per-tool
+// tests pin fine-grained behavior on each surface; this file wires
+// every surface together against ONE realistic blueprint and pins
+// the composition contract: schema → validator → SA tool →
+// mutations → blueprint state → compile → suite XML.
+//
+// Coverage map (one assertion-cluster per surface; no duplication
+// of fine-grained per-surface coverage):
+//
+//   1. `caseSearchConfig` round-trips through `caseSearchConfigSchema`.
+//   2. `runValidation` stays silent on a structurally-clean blueprint
+//      that exercises every covered slot; one error code is sampled
+//      to confirm the validator wires through the same realistic
+//      shape.
+//   3. `setCaseSearchDisplay` then `setCaseSearchAdvanced` chain
+//      through the same context — both clusters land, neither
+//      clobbers the other.
+//   4. `compileCcz` produces suite XML carrying the canonical
+//      `<remote-request>` shape (post → command → instance → session
+//      → stack), the dual-detail blocks (`m{N}_case_*` +
+//      `m{N}_search_*`), `<action auto_launch>` on the case target
+//      with `relevant` set when `searchButtonDisplayCondition` is
+//      authored, the `<query>` `<data>` slot order
+//      (`case_type` → `commcare_blacklisted_owner_ids` → `_xpath_query`),
+//      `<title>` + `<prompt>` blocks per the search inputs, the
+//      `<datum>` referencing `m{N}_search_short` /
+//      `m{N}_search_long`, and the `<stack>` rewind frame.
+//   5. `compileForPlatform` returns the right `WireShape` per
+//      branch of the platform decision tree.
+//
+// CCHQ verification gates for the wire shape (cited by stable name):
+//
+//   - `~/code/commcare-hq/.../tests/data/suite/remote_request.xml` —
+//     canonical `<remote-request>` child order.
+//   - `~/code/commcare-hq/.../tests/data/suite/search_config_blacklisted_owners.xml` —
+//     blacklist-on-`<query>` shape.
+//   - `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml` —
+//     dual-detail emission with `<action auto_launch>` on the case
+//     target only.
+//   - `~/code/commcare-hq/.../suite_xml/post_process/remote_requests.py::RemoteRequestFactory` —
+//     orchestrator Nova mirrors.
+//   - `~/code/commcare-hq/.../suite_xml/sections/details.py::DetailContributor._get_relevant_expression` —
+//     `<action relevant>` wiring.
+//   - `~/code/commcare-hq/.../case_search/const.py::EXCLUDE_RELATED_CASES_FILTER` —
+//     `[not(commcare_is_related_case=true())]`.
+//   - `~/code/commcare-hq/.../case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY` /
+//     `CASE_SEARCH_XPATH_QUERY_KEY` — wire-key constants.
+
+import AdmZip from "adm-zip";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { makeCaseSearchFixture } from "@/lib/agent/tools/case-search-config/__tests__/fixtures";
+import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
+import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import {
+	advancedSearchInputDef,
+	asUuid,
+	type BlueprintDoc,
+	caseSearchConfigSchema,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	eq,
+	literal,
+	matchAll,
+	prop,
+	term,
+	toValueExpression,
+} from "@/lib/domain/predicate";
+import { compileForPlatform } from "../compileForPlatform";
+
+// ============================================================
+// Test fixture — realistic search-enabled blueprint
+// ============================================================
+//
+// Every test in this file boots from this single fixture. Using one
+// shape across the file means every slot the integration test pins
+// (validator silence, suite-XML compile, schema round-trip) sees
+// the same realistic blueprint — drift in one surface surfaces
+// across the file.
+//
+// The fixture exercises every slot the case-search authoring
+// surface introduces:
+//
+//   - `caseSearchConfig.searchScreenTitle` + `searchButtonLabel` —
+//     display cluster slots that land in `app_strings.txt` and on
+//     the `<query>` `<title>` block.
+//   - `caseSearchConfig.searchButtonDisplayCondition` — the predicate
+//     compiled to on-device XPath and stamped on
+//     `<action relevant>`.
+//   - `caseSearchConfig.excludedOwnerIds` — the value expression
+//     that emits as `<data key="commcare_blacklisted_owner_ids">` on
+//     `<query>`.
+//   - `caseListConfig.filter` + `caseListConfig.searchInputs` (one
+//     simple + one advanced) — AND-composed into one
+//     `<data key="_xpath_query">` element on `<query>`.
+
+const MOD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
+const COL_NAME_UUID = asUuid("22222222-2222-2222-2222-aaaaaaaa0001");
+const COL_REGION_UUID = asUuid("22222222-2222-2222-2222-aaaaaaaa0002");
+const SI_NAME_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0001");
+const SI_STATUS_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0002");
+
+/**
+ * Build the realistic search-enabled blueprint. Returns a fully-
+ * normalized `BlueprintDoc` (uuids, fieldParent, formOrder, etc.)
+ * via `buildDoc`. Every test in this file calls this helper rather
+ * than rebuilding the spec inline — drift in the spec surfaces
+ * across the file.
+ *
+ * Filter and simple input target distinct runtime paths so the
+ * `filterSearchInputConflict` rule admits the pair. The filter walks
+ * `region` directly on `patient`; the simple input targets a
+ * different property (`status`) on the same case type. The advanced
+ * input is a free-form predicate over `case_name`.
+ */
+function buildSearchBlueprint(): BlueprintDoc {
+	return buildDoc({
+		appName: "Clinic Intake",
+		modules: [
+			{
+				uuid: MOD_UUID,
+				name: "Patient",
+				caseType: "patient",
+				caseListConfig: {
+					columns: [
+						plainColumn(COL_NAME_UUID, "case_name", "Name"),
+						plainColumn(COL_REGION_UUID, "region", "Region"),
+					],
+					// Filter on `region` — a self-walk on the patient case.
+					filter: eq(prop("patient", "region"), literal("North")),
+					searchInputs: [
+						// Simple input on `status` — distinct destination from
+						// the filter's `region` so the filter/simple-input
+						// conflict rule admits the pair.
+						simpleSearchInputDef(
+							SI_NAME_UUID,
+							"name_search",
+							"Search by name",
+							"text",
+							"case_name",
+						),
+						// Advanced input — the predicate body composes into
+						// `<data key="_xpath_query">` alongside the filter.
+						advancedSearchInputDef(
+							SI_STATUS_UUID,
+							"status_search",
+							"Status",
+							"text",
+							eq(prop("patient", "status"), literal("active")),
+						),
+					],
+				},
+				caseSearchConfig: {
+					searchScreenTitle: "Find a patient",
+					searchButtonLabel: "Search patients",
+					searchButtonDisplayCondition: eq(
+						prop("patient", "case_name"),
+						literal("Alice"),
+					),
+					excludedOwnerIds: toValueExpression(literal("excluded-owner-id")),
+				},
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "patient",
+							}),
+							f({
+								kind: "text",
+								id: "region",
+								label: "Region",
+								case_property_on: "patient",
+							}),
+							f({
+								kind: "text",
+								id: "status",
+								label: "Status",
+								case_property_on: "patient",
+							}),
+						],
+					},
+				],
+			},
+		],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name", data_type: "text" },
+					{ name: "region", label: "Region", data_type: "text" },
+					{ name: "status", label: "Status", data_type: "text" },
+				],
+			},
+		],
+	});
+}
+
+/**
+ * Run the doc through the expander + compiler and pull the bundled
+ * `suite.xml` back out of the resulting `.ccz` archive. This is the
+ * single end-to-end compile path every case-search wire-emission
+ * surface composes onto: dual-detail blocks, `<remote-request>`
+ * orchestrator, `<query>` body, `<action auto_launch>` threading,
+ * instance accumulation, app-strings registration.
+ */
+function compileSuiteXml(doc: BlueprintDoc): string {
+	const hqJson = expandDoc(doc);
+	const ccz = compileCcz(hqJson, doc.appName, doc);
+	const zip = new AdmZip(ccz);
+	const entry = zip.getEntry("suite.xml");
+	if (!entry) {
+		throw new Error(
+			"Compiled .ccz archive is missing the expected suite.xml entry. " +
+				"Check that compileCcz ran to completion and that the input " +
+				"BlueprintDoc was well-formed.",
+		);
+	}
+	return entry.getData().toString("utf-8");
+}
+
+// SA-tool tests need the Firestore writes mocked. The mock is at
+// module scope per the project's standing pattern (see
+// `setCaseSearchAdvanced.test.ts`).
+vi.mock("@/lib/db/apps", () => ({
+	updateApp: vi.fn(() => Promise.resolve()),
+	updateAppForRun: vi.fn(() => Promise.resolve()),
+	completeApp: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("@/lib/db/applyBlueprintChange", () => ({
+	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+}));
+
+beforeEach(() => {
+	vi.clearAllMocks();
+});
+
+// ============================================================
+// 1. Schema round-trip
+// ============================================================
+
+describe("case-search integration — schema round-trip", () => {
+	it("authors a caseSearchConfig that round-trips through caseSearchConfigSchema", () => {
+		// The fixture's `caseSearchConfig` exercises every slot the
+		// case-search authoring surface introduces — both display
+		// labels, the search-button display condition, and the
+		// excluded-owners value expression. The `.strict()` schema
+		// rejects unknown keys; a clean parse pins that the fixture's
+		// keys match the schema's declared shape.
+		const doc = buildSearchBlueprint();
+		const config = doc.modules[MOD_UUID]?.caseSearchConfig;
+		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
+	});
+});
+
+// ============================================================
+// 2. Validator surface
+// ============================================================
+//
+// `runValidation` stays silent on the clean fixture; a single
+// targeted mutation flips the validator into firing the matching
+// case-search rule. Cross-rule simultaneity is pinned in
+// `lib/commcare/validator/rules/case-search/__tests__/integration.test.ts`
+// — this layer's job is to confirm the validator wires through the
+// same realistic blueprint the compiler walks.
+
+describe("case-search integration — validator surface", () => {
+	it("admits the realistic search-enabled blueprint with no case-search-config errors", () => {
+		const doc = buildSearchBlueprint();
+		const errors = runValidation(doc);
+		const caseSearchCodes = new Set([
+			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
+			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
+			"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
+		]);
+		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);
+	});
+
+	it("fires CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR when the predicate references an unknown property", () => {
+		// One representative violation of one type-check rule confirms
+		// the rule wires through `runValidation` against this fixture
+		// shape. Per-rule fine-grained coverage lives in the rule's
+		// own test file; the all-rules-fire-simultaneously proof lives
+		// in the case-search rules' integration file.
+		const doc = buildSearchBlueprint();
+		const broken: BlueprintDoc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_UUID]: {
+					...doc.modules[MOD_UUID],
+					caseSearchConfig: {
+						...doc.modules[MOD_UUID].caseSearchConfig,
+						searchButtonDisplayCondition: eq(
+							prop("patient", "phantom_property"),
+							literal("x"),
+						),
+					},
+				},
+			},
+		};
+		const errors = runValidation(broken);
+		expect(
+			errors.some(
+				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			),
+		).toBe(true);
+	});
+
+	it("fires CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR when the value expression resolves to a non-text type", () => {
+		// `excludedOwnerIds` requires a text-typed (or text-widening)
+		// resolution. A reference to an unknown property fails to
+		// resolve and surfaces as a type error — the rule's
+		// short-circuit on `expression === undefined` is bypassed
+		// because the expression is set, just ill-typed.
+		const doc = buildSearchBlueprint();
+		const broken: BlueprintDoc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_UUID]: {
+					...doc.modules[MOD_UUID],
+					caseSearchConfig: {
+						...doc.modules[MOD_UUID].caseSearchConfig,
+						excludedOwnerIds: term(prop("patient", "phantom_property")),
+					},
+				},
+			},
+		};
+		const errors = runValidation(broken);
+		expect(
+			errors.some(
+				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
+			),
+		).toBe(true);
+	});
+});
+
+// ============================================================
+// 3. SA tool round-trip
+// ============================================================
+//
+// The two case-search-config SA tools (`setCaseSearchDisplay` +
+// `setCaseSearchAdvanced`) share the cross-cluster preservation
+// contract: each tool replaces its own cluster wholesale and
+// preserves the OTHER cluster byte-identically. The fine-grained
+// preservation tests live in each tool's dedicated test file. This
+// layer confirms the contract holds when both tools fire in
+// sequence on the same context, simulating the SA's typical
+// authoring flow.
+
+describe("case-search integration — SA tool round-trip", () => {
+	it("chains setCaseSearchDisplay then setCaseSearchAdvanced — both clusters land, neither clobbers the other", async () => {
+		// Boot the SA fixture's minimal one-module doc — the tool tests'
+		// established context. Calls run through the chat-side
+		// `GenerationContext`; the cross-surface MCP parity is pinned in
+		// each tool's own file.
+		const { doc, ctx } = makeCaseSearchFixture();
+
+		// Step 1 — set the display cluster.
+		const r1 = await setCaseSearchDisplayTool.execute(
+			{
+				moduleIndex: 0,
+				searchScreenTitle: "Find a patient",
+				searchScreenSubtitle: null,
+				emptyListText: null,
+				searchButtonLabel: "Search",
+				searchAgainButtonLabel: null,
+				searchButtonDisplayCondition: matchAll(),
+			},
+			ctx,
+			doc,
+		);
+		expect(r1.kind).toBe("mutate");
+		if ("error" in r1.result) {
+			throw new Error(`unexpected error: ${r1.result.error}`);
+		}
+		expect(r1.result.displaySlotsSet).toContain("searchScreenTitle");
+		expect(r1.result.displaySlotsSet).toContain("searchButtonLabel");
+
+		// Step 2 — set the advanced cluster against the doc that
+		// just received the display update. The advanced tool must
+		// preserve the display labels written in Step 1.
+		const excluded = term({ kind: "literal", value: "owner-x" });
+		const r2 = await setCaseSearchAdvancedTool.execute(
+			{
+				moduleIndex: 0,
+				excludedOwnerIds: excluded,
+			},
+			ctx,
+			r1.newDoc,
+		);
+		expect(r2.kind).toBe("mutate");
+		if ("error" in r2.result) {
+			throw new Error(`unexpected error: ${r2.result.error}`);
+		}
+		expect(r2.result.advancedSlotsSet).toEqual(["excludedOwnerIds"]);
+
+		// Final state — both clusters present.
+		const moduleUuid = r2.newDoc.moduleOrder[0];
+		const config = r2.newDoc.modules[moduleUuid]?.caseSearchConfig;
+		expect(config?.searchScreenTitle).toBe("Find a patient");
+		expect(config?.searchButtonLabel).toBe("Search");
+		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
+		expect(config?.excludedOwnerIds).toEqual(excluded);
+		// Strict-schema round-trip — confirms no extra keys leak through
+		// the chained mutation path.
+		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
+	});
+
+	it("returns an Elm-style error for an out-of-range moduleIndex", async () => {
+		// One representative not-found arm proves the shared
+		// `moduleNotFoundResult` wiring routes through the integration
+		// path. Per-tool coverage of this arm lives in each tool's own
+		// test file.
+		const { doc, ctx } = makeCaseSearchFixture();
+		const result = await setCaseSearchDisplayTool.execute(
+			{
+				moduleIndex: 99,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				emptyListText: null,
+				searchButtonLabel: null,
+				searchAgainButtonLabel: null,
+				searchButtonDisplayCondition: null,
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("Found no module");
+	});
+});
+
+// ============================================================
+// 4. Wire emission — end-to-end suite XML compile
+// ============================================================
+//
+// One realistic blueprint feeds through `expandDoc` + `compileCcz`;
+// structural pins on the resulting `suite.xml` exercise every
+// every case-search wire-emission surface in composition. CCHQ's
+// canonical fixtures carry registry / smart-link / sort-property
+// content Nova doesn't emit — direct byte comparison would fail on
+// those, so these pins are element-shape assertions over the
+// canonical shape, not byte snapshots. The per-emitter unit tests
+// (`remoteRequest.test.ts`, `searchSession.test.ts`,
+// `dualDetailEmission.test.ts`) own fine-grained shape coverage;
+// this layer pins composition.
+
+describe("case-search integration — suite XML wire emission", () => {
+	it("emits both case-target and search-target detail blocks for the search-enabled module", () => {
+		// Per `commcare-hq/.../tests/data/suite/search_command_detail.xml`,
+		// a search-enabled module emits four `<detail>` blocks:
+		// `m{N}_case_short`, `m{N}_case_long`, `m{N}_search_short`,
+		// `m{N}_search_long`.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		expect(suite).toContain('<detail id="m0_case_short">');
+		expect(suite).toContain('<detail id="m0_case_long">');
+		expect(suite).toContain('<detail id="m0_search_short">');
+		expect(suite).toContain('<detail id="m0_search_long">');
+	});
+
+	it("emits a <remote-request> with the canonical child order: post → command → instance → session → stack", () => {
+		// CCHQ's `RemoteRequestFactory.build_remote_request` composes
+		// the children in a fixed order; the canonical fixture
+		// `remote_request.xml` pins that shape. A regression on the
+		// orchestrator's composition order would break CCHQ's parser
+		// at import time.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		const remoteOpenIdx = suite.indexOf("<remote-request>");
+		expect(remoteOpenIdx).toBeGreaterThan(-1);
+		const postIdx = suite.indexOf("<post ", remoteOpenIdx);
+		const commandIdx = suite.indexOf("<command ", remoteOpenIdx);
+		const instanceIdx = suite.indexOf("<instance ", remoteOpenIdx);
+		const sessionIdx = suite.indexOf("<session>", remoteOpenIdx);
+		const stackIdx = suite.indexOf("<stack>", remoteOpenIdx);
+		expect(postIdx).toBeGreaterThan(remoteOpenIdx);
+		expect(commandIdx).toBeGreaterThan(postIdx);
+		expect(instanceIdx).toBeGreaterThan(commandIdx);
+		expect(sessionIdx).toBeGreaterThan(instanceIdx);
+		expect(stackIdx).toBeGreaterThan(sessionIdx);
+	});
+
+	it("emits <post> with the structural default-guard relevant attribute and a single case_id data child", () => {
+		// `CaseClaimXpath.default_relevant` is the structural guard
+		// every `<remote-request>` carries verbatim — there is no
+		// authoring affordance for the claim condition (Option B
+		// removed it wholesale). The `<post>` body carries only the
+		// `case_id` data child.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		expect(suite).toContain(
+			"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0",
+		);
+		expect(suite).toContain(
+			'<data key="case_id" ref="instance(\'commcaresession\')/session/data/search_case_id"/>',
+		);
+	});
+
+	it("emits <query> data slots in canonical order: case_type → commcare_blacklisted_owner_ids → _xpath_query", () => {
+		// Slot order verified against
+		// `commcare-hq/.../suite_xml/post_process/remote_requests.py::RemoteRequestFactory._remote_request_query_datums`
+		// and the fixtures `remote_request.xml` +
+		// `search_config_blacklisted_owners.xml`.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		const caseTypeIdx = suite.indexOf('<data key="case_type"');
+		const blacklistedIdx = suite.indexOf(
+			'<data key="commcare_blacklisted_owner_ids"',
+		);
+		const xpathIdx = suite.indexOf('<data key="_xpath_query"');
+		expect(caseTypeIdx).toBeGreaterThan(-1);
+		expect(blacklistedIdx).toBeGreaterThan(caseTypeIdx);
+		expect(xpathIdx).toBeGreaterThan(blacklistedIdx);
+	});
+
+	it("emits <query> with <title> + <prompt> elements per authored search inputs", () => {
+		// The `<title>` references `case_search.{moduleId}.inputs`
+		// (CCHQ's `case_search_title_translation` locale); each
+		// search input emits a `<prompt key="...">` carrying the
+		// input name.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		expect(suite).toContain('<locale id="case_search.m0.inputs"/>');
+		// Both inputs (simple + advanced) emit `<prompt>` elements;
+		// the advanced arm contributes both a prompt AND a clause
+		// inside `_xpath_query`.
+		expect(suite).toContain('<prompt key="name_search"');
+		expect(suite).toContain('<prompt key="status_search"');
+	});
+
+	it("emits a <datum> referencing m{N}_search_short / m{N}_search_long detail ids", () => {
+		// The `<datum>` inside `<remote-request>/<session>` references
+		// the search-target detail ids — distinct from the case-list
+		// entry's `detail-select="m{N}_case_short"`.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		expect(suite).toContain('detail-confirm="m0_search_long"');
+		expect(suite).toContain('detail-select="m0_search_short"');
+		// CCHQ's `EXCLUDE_RELATED_CASES_FILTER` constant rides on
+		// the datum nodeset.
+		expect(suite).toContain("[not(commcare_is_related_case=true())]");
+	});
+
+	it("emits <stack> with a single rewind frame targeting the search_case_id session datum", () => {
+		// `RemoteRequestFactory.build_stack`'s no-smart-link branch
+		// emits one push frame containing one rewind value.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		expect(suite).toContain(
+			"<rewind value=\"instance('commcaresession')/session/data/search_case_id\"/>",
+		);
+	});
+
+	it("emits <action auto_launch> on m{N}_case_short with relevant set when searchButtonDisplayCondition is authored", () => {
+		// CCHQ's `DetailContributor._get_relevant_expression` wires
+		// the search-config display condition onto `<action relevant>`;
+		// CCHQ's `AUTO_LAUNCH_EXPRESSIONS["single-select"]` carries
+		// `auto_launch`. The case-target detail (m0_case_short) hosts
+		// the action; the search-target detail (m0_search_short)
+		// never carries an `<action>` child (the search results
+		// screen IS the action's destination).
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		// The action mounts on `m0_case_short`. The fixture's filter
+		// lands on `caseListConfig.filter`, which the platform
+		// compiler treats as effective; combined with non-empty
+		// `searchInputs`, the web fallback branch fires
+		// (autoLaunch=false). The `relevant` attribute carries the
+		// authored display condition compiled to on-device XPath.
+		const caseShortIdx = suite.indexOf('<detail id="m0_case_short">');
+		const caseShortEndIdx = suite.indexOf("</detail>", caseShortIdx);
+		const caseShortBlock = suite.slice(caseShortIdx, caseShortEndIdx);
+		expect(caseShortBlock).toContain("<action ");
+		expect(caseShortBlock).toContain("auto_launch=");
+		expect(caseShortBlock).toContain("redo_last=");
+		// `relevant` carries the compiled on-device XPath of the
+		// authored predicate (`case_name = 'Alice'`).
+		expect(caseShortBlock).toMatch(/relevant="[^"]*case_name[^"]*Alice/);
+		// The search-target detail carries no `<action>` child.
+		const searchShortIdx = suite.indexOf('<detail id="m0_search_short">');
+		const searchShortEndIdx = suite.indexOf("</detail>", searchShortIdx);
+		const searchShortBlock = suite.slice(searchShortIdx, searchShortEndIdx);
+		expect(searchShortBlock).not.toContain("<action ");
+	});
+
+	it("registers the authored search command label and screen title in app_strings via locale ids", () => {
+		// `case_search.{m}` ← search button label;
+		// `case_search.{m}.inputs` ← search screen title. Both
+		// register at suite-XML emission and serialize into the
+		// per-language `app_strings.txt` file the runtime resolves.
+		const doc = buildSearchBlueprint();
+		const hqJson = expandDoc(doc);
+		const ccz = compileCcz(hqJson, doc.appName, doc);
+		const zip = new AdmZip(ccz);
+		const stringsEntry = zip.getEntry("default/app_strings.txt");
+		if (!stringsEntry) {
+			throw new Error(
+				"Compiled .ccz archive is missing the expected default/app_strings.txt entry. " +
+					"Check that compileCcz threaded the per-language string table through the bundler.",
+			);
+		}
+		const strings = stringsEntry.getData().toString("utf-8");
+		expect(strings).toContain("case_search.m0=Search patients");
+		expect(strings).toContain("case_search.m0.inputs=Find a patient");
+	});
+
+	it("emits the AND-composed _xpath_query carrying both the filter and the advanced-arm predicate", () => {
+		// CCHQ's `<data key="_xpath_query">` accepts at most one
+		// element per `<query>`. Multiple authored predicates
+		// (filter + every advanced-arm predicate) AND-compose at the
+		// AST level before the CSQL emitter walks the result.
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		const matches = suite.match(/<data key="_xpath_query"/g) ?? [];
+		expect(matches.length).toBe(1);
+		// Both predicate fragments compose into the same wire
+		// string via CSQL's `and` operator.
+		expect(suite).toContain("region = 'North'");
+		expect(suite).toContain("status = 'active'");
+	});
+});
+
+// ============================================================
+// 5. Platform decision tree
+// ============================================================
+//
+// `compileForPlatform` is a pure function from `(content, platform)`
+// to a `WireShape` flag set. The per-branch fine-grained tests live
+// in `compileForPlatform.test.ts`; this layer pins the integration
+// contract — the same realistic blueprint produces different shapes
+// per platform per the decision tree's branch table.
+
+describe("case-search integration — platform decision tree", () => {
+	it("returns the web fallback shape (list-first) on Web for the realistic blueprint", () => {
+		// Web + (filter set + non-empty searchInputs) → list-first.
+		// The fixture's filter is set, but searchInputs has two
+		// entries — skip-to-results requires the simpler
+		// "filter set + zero inputs" shape.
+		const doc = buildSearchBlueprint();
+		const mod = doc.modules[MOD_UUID];
+		const config = mod.caseListConfig;
+		if (!config) throw new Error("expected caseListConfig");
+		const searchConfig = mod.caseSearchConfig;
+		if (!searchConfig) throw new Error("expected caseSearchConfig");
+		const wire = compileForPlatform(config, searchConfig, { platform: "web" });
+		expect(wire).toEqual({
+			autoLaunch: false,
+			defaultSearch: false,
+			inlineSearch: false,
+		});
+	});
+
+	it("returns the Android shape (inline + every other flag false) on Android regardless of authored content", () => {
+		// Android always picks the inline list-first shape — the
+		// runtime player ignores the `auto_launch` /
+		// `default_search` semantics.
+		const doc = buildSearchBlueprint();
+		const mod = doc.modules[MOD_UUID];
+		const config = mod.caseListConfig;
+		if (!config) throw new Error("expected caseListConfig");
+		const searchConfig = mod.caseSearchConfig;
+		if (!searchConfig) throw new Error("expected caseSearchConfig");
+		const wire = compileForPlatform(config, searchConfig, {
+			platform: "android",
+		});
+		expect(wire).toEqual({
+			autoLaunch: false,
+			defaultSearch: false,
+			inlineSearch: true,
+		});
+	});
+
+	it("returns the skip-to-results shape on Web when filter is set and searchInputs is empty", () => {
+		// The third branch — author intent unambiguous: filter
+		// narrows the case list and there is nothing to type. The
+		// runtime executes the search immediately on screen entry.
+		const config = {
+			columns: [],
+			filter: eq(prop("patient", "active"), literal("yes")),
+			searchInputs: [],
+		};
+		const searchConfig = {};
+		const wire = compileForPlatform(config, searchConfig, {
+			platform: "web",
+		});
+		expect(wire).toEqual({
+			autoLaunch: true,
+			defaultSearch: true,
+			inlineSearch: false,
+		});
+	});
+});
