@@ -335,12 +335,14 @@ describe("case-search integration — validator surface", () => {
 		).toBe(true);
 	});
 
-	it("fires CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR when the value expression resolves to a non-text type", () => {
-		// Pins that the rule fires when `excludedOwnerIds` is set to a
-		// value expression that doesn't resolve to a text-typed (or
-		// text-widening) result. Authoring contract: the slot must
-		// resolve to text because the runtime parses it as a
-		// space-separated list of owner ids.
+	it("fires CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR when the value expression references an unknown property", () => {
+		// Pins that the rule fires when `excludedOwnerIds` references
+		// a property absent from the module's case-type schema. The
+		// type checker's `resolveTermType` arm surfaces the orphan
+		// reference as an "Unknown property" error, which the rule
+		// lifts into the structured validation code. The non-text-
+		// typed-resolution failure mode is covered separately in the
+		// per-rule unit test file.
 		const doc = buildSearchBlueprint();
 		const broken: BlueprintDoc = {
 			...doc,
@@ -515,9 +517,8 @@ describe("case-search integration — suite XML wire emission", () => {
 	it("emits <post> with the structural default-guard relevant attribute and a single case_id data child", () => {
 		// `CaseClaimXpath.default_relevant` is the structural guard
 		// every `<remote-request>` carries verbatim — there is no
-		// authoring affordance for the claim condition (Option B
-		// removed it wholesale). The `<post>` body carries only the
-		// `case_id` data child.
+		// authoring affordance for the claim condition. The `<post>`
+		// body carries only the `case_id` data child.
 		const doc = buildSearchBlueprint();
 		const suite = compileSuiteXml(doc);
 		expect(suite).toContain(
