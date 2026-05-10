@@ -49,7 +49,20 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 // tables — package-private, so the test reaches in via the
 // internal subpath rather than the curated public barrel.
 import type { Database } from "@/lib/case-store/sql/database";
-import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import {
+	advancedSearchInputDef,
+	asUuid,
+	type BlueprintDoc,
+	type CaseListConfig,
+	type CaseType,
+	calculatedColumn,
+	exactMode,
+	multiSelectContainsMode,
+	plainColumn,
+	simpleSearchInputDef,
+	startsWithMode,
+} from "@/lib/domain";
+import { eq, gt, input, literal, prop, term } from "@/lib/domain/predicate";
 import {
 	caseRowDisplayValue,
 	caseRowToFormPreload,
@@ -73,6 +86,7 @@ import {
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
+import type { SearchInputValues } from "../runtimeBindings";
 
 // ---------------------------------------------------------------
 // Module mocks for the `submitFormAction` Server Action tests
@@ -340,29 +354,13 @@ describe("readCases", () => {
 // contributions. The tests below pin each compositional arm against
 // real Postgres state — the SQL layer is the authoritative semantic.
 
-import {
-	advancedSearchInputDef as advancedSearchInput,
-	asUuid as asUuidForRuntime,
-	exactMode,
-	multiSelectContainsMode,
-	simpleSearchInputDef as simpleSearchInput,
-	startsWithMode,
-} from "@/lib/domain";
-import {
-	gt as gtPredicate,
-	input as inputTerm,
-	literal as literalValue,
-	prop as propTerm,
-} from "@/lib/domain/predicate";
-import type { SearchInputValues } from "../runtimeBindings";
-
-const READCASES_PRIMARY_INPUT_UUID = asUuidForRuntime(
+const READCASES_PRIMARY_INPUT_UUID = asUuid(
 	"60000000-0000-0000-0000-000000000001",
 );
-const READCASES_SECONDARY_INPUT_UUID = asUuidForRuntime(
+const READCASES_SECONDARY_INPUT_UUID = asUuid(
 	"60000000-0000-0000-0000-000000000002",
 );
-const READCASES_ADVANCED_INPUT_UUID = asUuidForRuntime(
+const READCASES_ADVANCED_INPUT_UUID = asUuid(
 	"60000000-0000-0000-0000-000000000003",
 );
 
@@ -404,7 +402,7 @@ describe("readCases — running-app search-input composition", () => {
 				columns: [],
 				searchInputs: [],
 				// `age > 30` — only Bob matches the always-on filter.
-				filter: gtPredicate(propTerm("patient", "age"), literalValue(30)),
+				filter: gt(prop("patient", "age"), literal(30)),
 			},
 			// Even with `inputValues` defined, the helper must skip
 			// `composeRuntimeFilter` because `searchInputs.length === 0`.
@@ -451,7 +449,7 @@ describe("readCases — running-app search-input composition", () => {
 			caseListConfig: {
 				columns: [],
 				searchInputs: [
-					simpleSearchInput(
+					simpleSearchInputDef(
 						READCASES_PRIMARY_INPUT_UUID,
 						"name",
 						"Name",
@@ -509,7 +507,7 @@ describe("readCases — running-app search-input composition", () => {
 			caseListConfig: {
 				columns: [],
 				searchInputs: [
-					advancedSearchInput(
+					advancedSearchInputDef(
 						READCASES_ADVANCED_INPUT_UUID,
 						"name_prefix",
 						"Name starts with",
@@ -517,8 +515,8 @@ describe("readCases — running-app search-input composition", () => {
 						// Wire-shape: match(prop(...), "starts-with", input(...))
 						{
 							kind: "match",
-							property: propTerm("patient", "name"),
-							value: { kind: "term", term: inputTerm("name_prefix") },
+							property: prop("patient", "name"),
+							value: { kind: "term", term: input("name_prefix") },
 							mode: "starts-with",
 						},
 					),
@@ -586,7 +584,7 @@ describe("readCases — running-app search-input composition", () => {
 					// would render as a text field with a starts-with
 					// mode. Matches Alice (starts with "Al"); skips Bob
 					// + Carol.
-					simpleSearchInput(
+					simpleSearchInputDef(
 						READCASES_PRIMARY_INPUT_UUID,
 						"name",
 						"Name starts with",
@@ -596,7 +594,7 @@ describe("readCases — running-app search-input composition", () => {
 					),
 					// `status` exact — select-mode input. Matches
 					// Alice + Carol; drops Bob.
-					simpleSearchInput(
+					simpleSearchInputDef(
 						READCASES_SECONDARY_INPUT_UUID,
 						"status",
 						"Status",
@@ -657,7 +655,7 @@ describe("readCases — running-app search-input composition", () => {
 			caseListConfig: {
 				columns: [],
 				searchInputs: [
-					simpleSearchInput(
+					simpleSearchInputDef(
 						READCASES_PRIMARY_INPUT_UUID,
 						"name",
 						"Name",
@@ -666,7 +664,7 @@ describe("readCases — running-app search-input composition", () => {
 					),
 				],
 				// Filter only — `age > 30`. Bob alone survives.
-				filter: gtPredicate(propTerm("patient", "age"), literalValue(30)),
+				filter: gt(prop("patient", "age"), literal(30)),
 			},
 			// Empty values bag — no runtime contribution. The
 			// constructed predicate must equal the filter-only path.
@@ -715,7 +713,7 @@ describe("readCases — running-app search-input composition", () => {
 			caseListConfig: {
 				columns: [],
 				searchInputs: [
-					simpleSearchInput(
+					simpleSearchInputDef(
 						READCASES_PRIMARY_INPUT_UUID,
 						"name",
 						"Name",
@@ -724,7 +722,7 @@ describe("readCases — running-app search-input composition", () => {
 						{ mode: exactMode() },
 					),
 				],
-				filter: gtPredicate(propTerm("patient", "age"), literalValue(30)),
+				filter: gt(prop("patient", "age"), literal(30)),
 			},
 			inputValues: new Map([["name", "Bob"]]),
 		});
@@ -789,7 +787,7 @@ describe("readCases — running-app search-input composition", () => {
 			caseListConfig: {
 				columns: [],
 				searchInputs: [
-					simpleSearchInput(
+					simpleSearchInputDef(
 						READCASES_PRIMARY_INPUT_UUID,
 						"tags",
 						"Tags",
@@ -1347,14 +1345,6 @@ describe("mapPopulateSampleCasesError", () => {
 // UI dispatches on — the empty arm, the rows arm with calculated
 // projection, and the typed-error mapping (mirrors the
 // `mapPopulateSampleCasesError` pattern).
-
-import {
-	asUuid,
-	type CaseListConfig,
-	calculatedColumn,
-	plainColumn,
-} from "@/lib/domain";
-import { eq, gt, literal, prop, term } from "@/lib/domain/predicate";
 
 /**
  * Build a v2 `CaseListConfig` snapshot. The schema collapses to

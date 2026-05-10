@@ -31,9 +31,8 @@ import type {
 } from "@/lib/case-store";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
-import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
+import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
-import { reduceAnd } from "@/lib/domain/predicate/reduction";
 import type {
 	JsonObject,
 	LoadCaseDataResult,
@@ -142,15 +141,10 @@ export async function readCases(
  *     through verbatim. The current behavior, preserved for every
  *     non-running-app caller (Filters / Display previews, calc
  *     surface).
- *   - Both slots populated — call `composeRuntimeFilter` and AND-
- *     compose its result with `caseListConfig.filter`. The runtime
- *     filter is allowed to be `match-all` (the all-empty
- *     short-circuit `composeRuntimeFilter` returns when no input
- *     contributes a clause); we explicitly drop `match-all` clauses
- *     before reduction so a trivially-true contribution doesn't
- *     bloat the constructed envelope. `reduceAnd` handles the empty
- *     + single-clause cases canonically; only the multi-clause arm
- *     falls through to an explicit conjunction envelope.
+ *   - Both slots populated — compose the at-most-two contributing
+ *     predicates through the `and(...)` builder; the `match-all`
+ *     conjunction-identity is short-circuited to `undefined` so the
+ *     case-store sees the same shape as the unfiltered passthrough.
  */
 function composeQueryPredicate(
 	caseListConfig: CaseListConfig | undefined,
@@ -182,21 +176,16 @@ function composeQueryPredicate(
 		clauses.push(runtimeFilter);
 	}
 
-	// `reduceAnd` returns `match-all` for an empty clause set and the
-	// single clause unchanged for a one-element set. Surfacing
-	// `match-all` to the case-store is structurally identical to an
-	// `undefined` predicate (both produce an unfiltered scan), but
-	// passing `undefined` keeps the SQL compiler from emitting a
-	// `TRUE` clause it would otherwise have to elide.
-	const reduced = reduceAnd(clauses);
-	if (reduced === undefined) {
-		return {
-			kind: "and",
-			clauses: clauses as [Predicate, ...Predicate[]],
-		};
-	}
-	if (reduced.kind === "match-all") return undefined;
-	return reduced;
+	if (clauses.length === 0) return undefined;
+	if (clauses.length === 1) return clauses[0];
+	// `and`'s public overloads are `(): match-all`, `<T>(only: T): T`,
+	// and `(first, second, ...rest): and-envelope`. The arity-explicit
+	// spread is the only shape that resolves to the two-or-more
+	// overload — `and(...clauses)` against a `Predicate[]` rest-arg
+	// fails the overload set (TS2556). Matches the canonical
+	// composition shape at
+	// `searchSession.ts::composeXPathQueryEmission`.
+	return and(clauses[0], clauses[1], ...clauses.slice(2));
 }
 
 /**
