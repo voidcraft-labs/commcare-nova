@@ -15,7 +15,13 @@ import type {
 	SearchInputType,
 } from "@/lib/domain";
 import { APPLICABLE_SEARCH_MODES } from "@/lib/domain";
-import type { Predicate, Term, ValueExpression } from "@/lib/domain/predicate";
+import type {
+	Predicate,
+	PropertyRef,
+	SwitchCase,
+	Term,
+	ValueExpression,
+} from "@/lib/domain/predicate";
 import {
 	and,
 	between,
@@ -44,10 +50,13 @@ import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
  * every entry is `string → string`, debounce-driven client state
  * stays flat, and an empty bound is the same shape as an absent one
  * ("not present in the map").
+ *
+ * The named alias preserves the domain-role tag at every call site
+ * (`inputValues: SearchInputValues` reads as the runtime-bindings
+ * input bag, not as a generic string map) without inventing a
+ * single-field wrapper.
  */
-export interface SearchInputValues {
-	readonly values: ReadonlyMap<string, string>;
-}
+export type SearchInputValues = ReadonlyMap<string, string>;
 
 /**
  * Compose every contributing search-input's runtime predicate into
@@ -78,7 +87,8 @@ export function composeRuntimeFilter(
 	}
 	if (clauses.length === 0) return matchAll();
 	if (clauses.length === 1) return clauses[0];
-	return and(clauses[0], clauses[1], ...clauses.slice(2));
+	const [first, second, ...rest] = clauses;
+	return and(first, second, ...rest);
 }
 
 // ── Per-arm dispatch ──────────────────────────────────────────────
@@ -138,8 +148,11 @@ function buildSimpleArmClause(
 		return buildRangeClause(input, inputValues, caseType);
 	}
 
-	const value = inputValues.values.get(input.name);
+	const value = inputValues.get(input.name);
 	if (value === undefined || value === "") return undefined;
+	// Whitespace-only values pass through verbatim — the widget
+	// layer trims before calling, so a non-empty string here is an
+	// explicit value the user typed.
 
 	const property = prop(caseType, input.property, input.via);
 	switch (mode.kind) {
@@ -190,7 +203,7 @@ function buildSimpleArmClause(
  */
 function buildMultiSelectClause(
 	mode: Extract<SearchInputMode, { kind: "multi-select-contains" }>,
-	property: ReturnType<typeof prop>,
+	property: PropertyRef,
 	rawValue: string,
 ): Predicate | undefined {
 	const tokens = rawValue
@@ -223,23 +236,15 @@ function buildRangeClause(
 	inputValues: SearchInputValues,
 	caseType: string,
 ): Predicate | undefined {
-	const fromKey = `${input.name}:from`;
-	const toKey = `${input.name}:to`;
-	const fromRaw = inputValues.values.get(fromKey);
-	const toRaw = inputValues.values.get(toKey);
-	const lower = parseDateBound(fromRaw);
-	const upper = parseDateBound(toRaw);
+	const lower = parseDateBound(inputValues.get(`${input.name}:from`));
+	const upper = parseDateBound(inputValues.get(`${input.name}:to`));
 	if (lower === undefined && upper === undefined) return undefined;
-
-	const property = prop(caseType, input.property, input.via);
-	if (lower !== undefined && upper !== undefined) {
-		return between(property, { lower, upper });
-	}
-	if (lower !== undefined) {
-		return between(property, { lower });
-	}
-	// `upper` defined; `lower` undefined.
-	return between(property, { upper });
+	// `between(...)` dispatches the lower / upper / both / neither
+	// cascade itself, including the absent-not-undefined contract
+	// that strips omitted bounds from the constructed shape. Routing
+	// every bound permutation through the builder keeps the
+	// construction-rule contract in one place.
+	return between(prop(caseType, input.property, input.via), { lower, upper });
 }
 
 /**
@@ -291,11 +296,14 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 		);
 	}
 	if (first === "multi-select-contains") {
-		// Schema-locked invariant: `APPLICABLE_SEARCH_MODES` does not
-		// declare `multi-select-contains` as any type's first entry.
-		// Catching it here protects the file's narrowing invariant if
-		// the table ever changes — the multi-select default would
-		// require a quantifier slot the fallback can't supply.
+		// Table-locked invariant: no entry in `APPLICABLE_SEARCH_MODES`
+		// lists `"multi-select-contains"` as the first (default) mode
+		// for any input type — the per-type tuples in
+		// `lib/domain/modules.ts` are the authoring contract. The
+		// narrowing bridge below is the type-system reflection of that
+		// table fact; the throw fires only if the table changes
+		// without updating this fallback (which would require a
+		// quantifier slot it can't supply).
 		throw new Error(
 			unhandledKindMessage({
 				where: "defaultModeFor",
@@ -339,7 +347,7 @@ function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
 ): Predicate | undefined {
-	const value = inputValues.values.get(input.name);
+	const value = inputValues.get(input.name);
 	if (value === undefined || value === "") return undefined;
 	return substituteInputInPredicate(input.predicate, input.name, value);
 }
@@ -674,10 +682,7 @@ function substituteInputInExpression(
 				when: c.when,
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; `then` holds a ValueExpression object, never a callable.
 				then: substituteInputInExpression(c.then, targetName, value),
-			})) as [
-				{ when: (typeof expr.cases)[0]["when"]; then: ValueExpression },
-				...{ when: (typeof expr.cases)[0]["when"]; then: ValueExpression }[],
-			];
+			})) as [SwitchCase, ...SwitchCase[]];
 			return {
 				kind: "switch",
 				on: substituteInputInExpression(expr.on, targetName, value),

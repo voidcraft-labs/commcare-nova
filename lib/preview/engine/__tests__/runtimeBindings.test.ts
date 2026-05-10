@@ -72,21 +72,17 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
-import {
-	composeRuntimeFilter,
-	type SearchInputValues,
-} from "../runtimeBindings";
+import { composeRuntimeFilter } from "../runtimeBindings";
 
 const PATIENT = "patient";
 
-/** Tiny ergonomic helper — most tests just need a name → value bag. */
-function values(entries: Record<string, string>): SearchInputValues {
-	return { values: new Map(Object.entries(entries)) };
-}
-
 describe("composeRuntimeFilter — empty-input contributions", () => {
 	it("returns matchAll() when no search inputs are declared", () => {
-		const result = composeRuntimeFilter([], values({}), PATIENT);
+		const result = composeRuntimeFilter(
+			[],
+			new Map(Object.entries({})),
+			PATIENT,
+		);
 		expect(result).toEqual(matchAll());
 		expect(predicateSchema.parse(result)).toEqual(result);
 	});
@@ -96,7 +92,11 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
 			simpleSearchInputDef(asUuid("b"), "status", "Status", "select", "status"),
 		];
-		const result = composeRuntimeFilter(inputs, values({}), PATIENT);
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map(Object.entries({})),
+			PATIENT,
+		);
 		expect(result).toEqual(matchAll());
 	});
 
@@ -104,7 +104,11 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 		const inputs = [
 			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
 		];
-		const result = composeRuntimeFilter(inputs, values({ name: "" }), PATIENT);
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map(Object.entries({ name: "" })),
+			PATIENT,
+		);
 		expect(result).toEqual(matchAll());
 	});
 });
@@ -118,7 +122,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "alice" }),
+			new Map(Object.entries({ name: "alice" })),
 			PATIENT,
 		);
 		const expected = eq(prop(PATIENT, "name"), literal("alice"));
@@ -135,7 +139,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "alice" }),
+			new Map(Object.entries({ name: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("alice")));
@@ -147,7 +151,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ status: "open" }),
+			new Map(Object.entries({ status: "open" })),
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "status"), literal("open")));
@@ -165,7 +169,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ barcode_id: "BC-1234" }),
+			new Map(Object.entries({ barcode_id: "BC-1234" })),
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "barcode_id"), literal("BC-1234")));
@@ -179,7 +183,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "alic" }),
+			new Map(Object.entries({ name: "alic" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -196,7 +200,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "ali" }),
+			new Map(Object.entries({ name: "ali" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -212,7 +216,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "alis" }),
+			new Map(Object.entries({ name: "alis" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -228,7 +232,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ dob: "2000-01-01" }),
+			new Map(Object.entries({ dob: "2000-01-01" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -245,7 +249,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ region: "north" }),
+			new Map(Object.entries({ region: "north" })),
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "region", via), literal("north")));
@@ -262,7 +266,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ tags: "red, green, blue" }),
+			new Map(Object.entries({ tags: "red, green, blue" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -284,7 +288,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ tags: "vip,priority" }),
+			new Map(Object.entries({ tags: "vip,priority" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -306,7 +310,11 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 		// empty list. The input contributes nothing; the global call
 		// returns the conjunction identity.
 		expect(
-			composeRuntimeFilter(inputs, values({ tags: ", , " }), PATIENT),
+			composeRuntimeFilter(
+				inputs,
+				new Map(Object.entries({ tags: ", , " })),
+				PATIENT,
+			),
 		).toEqual(matchAll());
 	});
 
@@ -318,7 +326,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ tags: "  red  ,  green  " }),
+			new Map(Object.entries({ tags: "  red  ,  green  " })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -336,10 +344,12 @@ describe("composeRuntimeFilter — range mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({
-				"dob:from": "2000-01-01",
-				"dob:to": "2010-12-31",
-			}),
+			new Map(
+				Object.entries({
+					"dob:from": "2000-01-01",
+					"dob:to": "2010-12-31",
+				}),
+			),
 			PATIENT,
 		);
 		expect(result).toMatchObject({
@@ -370,10 +380,12 @@ describe("composeRuntimeFilter — range mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({
-				"visit_dates:from": "2025-01-01",
-				"visit_dates:to": "2025-06-30",
-			}),
+			new Map(
+				Object.entries({
+					"visit_dates:from": "2025-01-01",
+					"visit_dates:to": "2025-06-30",
+				}),
+			),
 			PATIENT,
 		);
 		expect(result).toMatchObject({
@@ -401,7 +413,7 @@ describe("composeRuntimeFilter — range mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ "visit_dates:from": "2025-01-01" }),
+			new Map(Object.entries({ "visit_dates:from": "2025-01-01" })),
 			PATIENT,
 		);
 		expect(result).toMatchObject({
@@ -433,7 +445,7 @@ describe("composeRuntimeFilter — range mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ "visit_dates:to": "2025-06-30" }),
+			new Map(Object.entries({ "visit_dates:to": "2025-06-30" })),
 			PATIENT,
 		);
 		expect(result).toMatchObject({
@@ -459,9 +471,9 @@ describe("composeRuntimeFilter — range mode", () => {
 				"visit_date",
 			),
 		];
-		expect(composeRuntimeFilter(inputs, values({}), PATIENT)).toEqual(
-			matchAll(),
-		);
+		expect(
+			composeRuntimeFilter(inputs, new Map(Object.entries({})), PATIENT),
+		).toEqual(matchAll());
 	});
 
 	it("treats malformed date bounds as absent (mid-edit value safety)", () => {
@@ -480,7 +492,12 @@ describe("composeRuntimeFilter — range mode", () => {
 		expect(
 			composeRuntimeFilter(
 				inputs,
-				values({ "visit_dates:from": "2025-", "visit_dates:to": "xx" }),
+				new Map(
+					Object.entries({
+						"visit_dates:from": "2025-",
+						"visit_dates:to": "xx",
+					}),
+				),
 				PATIENT,
 			),
 		).toEqual(matchAll());
@@ -498,7 +515,12 @@ describe("composeRuntimeFilter — range mode", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ "visit_dates:from": "2025-01-01", "visit_dates:to": "junk" }),
+			new Map(
+				Object.entries({
+					"visit_dates:from": "2025-01-01",
+					"visit_dates:to": "junk",
+				}),
+			),
 			PATIENT,
 		);
 		expect(result).toMatchObject({
@@ -526,7 +548,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ name_search: "alice" }),
+			new Map(Object.entries({ name_search: "alice" })),
 			PATIENT,
 		);
 		// Substitution replaces `term(input("name_search"))` with
@@ -545,7 +567,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alic" }),
+			new Map(Object.entries({ q: "alic" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -569,7 +591,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -601,7 +623,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ min_age: "5" }),
+			new Map(Object.entries({ min_age: "5" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -634,7 +656,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -667,7 +689,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ alias: "ALICE-VIP" }),
+			new Map(Object.entries({ alias: "ALICE-VIP" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -697,7 +719,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ status_filter: "alice@example.com" }),
+			new Map(Object.entries({ status_filter: "alice@example.com" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -719,7 +741,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(not(eq(prop(PATIENT, "name"), literal("alice"))));
@@ -739,7 +761,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		// The trigger slot stays as `input("q")`; the inner-clause
@@ -769,7 +791,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -788,9 +810,9 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"text",
 			eq(prop(PATIENT, "name"), input("q")),
 		);
-		expect(composeRuntimeFilter([advanced], values({}), PATIENT)).toEqual(
-			matchAll(),
-		);
+		expect(
+			composeRuntimeFilter([advanced], new Map(Object.entries({})), PATIENT),
+		).toEqual(matchAll());
 	});
 
 	it("substitutes through `is-blank.left` (advanced arm)", () => {
@@ -808,7 +830,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(isBlank(literal("alice")));
@@ -830,7 +852,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ suffix: "-vip" }),
+			new Map(Object.entries({ suffix: "-vip" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -856,7 +878,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -879,7 +901,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ raw_date: "2025-01-01" }),
+			new Map(Object.entries({ raw_date: "2025-01-01" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -900,7 +922,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ user_location: "37.7749,-122.4194" }),
+			new Map(Object.entries({ user_location: "37.7749,-122.4194" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -932,7 +954,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ q: "alice" }),
+			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -960,7 +982,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ max_age: "100" }),
+			new Map(Object.entries({ max_age: "100" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -989,7 +1011,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
-			values({ min_age: "18" }),
+			new Map(Object.entries({ min_age: "18" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -1019,7 +1041,7 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		);
 		const result = composeRuntimeFilter(
 			[simple, advanced],
-			values({ status: "open", q: "alice" }),
+			new Map(Object.entries({ status: "open", q: "alice" })),
 			PATIENT,
 		);
 		expect(result).toEqual(
@@ -1042,7 +1064,7 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ status: "open" }),
+			new Map(Object.entries({ status: "open" })),
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "status"), literal("open")));
@@ -1066,11 +1088,13 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		);
 		const result = composeRuntimeFilter(
 			[simple, advanced],
-			values({
-				"visit_dates:from": "2025-01-01",
-				"visit_dates:to": "2025-12-31",
-				q: "alice",
-			}),
+			new Map(
+				Object.entries({
+					"visit_dates:from": "2025-01-01",
+					"visit_dates:to": "2025-12-31",
+					q: "alice",
+				}),
+			),
 			PATIENT,
 		);
 		// The range arm contributes a between; the advanced arm
@@ -1108,7 +1132,7 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "alice", status: "", alias: "" }),
+			new Map(Object.entries({ name: "alice", status: "", alias: "" })),
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("alice")));
@@ -1147,13 +1171,15 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({
-				name: "alic",
-				tags: "vip,priority",
-				"visit_dates:from": "2025-01-01",
-				"visit_dates:to": "2025-12-31",
-				q: "alice",
-			}),
+			new Map(
+				Object.entries({
+					name: "alic",
+					tags: "vip,priority",
+					"visit_dates:from": "2025-01-01",
+					"visit_dates:to": "2025-12-31",
+					q: "alice",
+				}),
+			),
 			PATIENT,
 		);
 		// The exact AST shape isn't asserted here — the test above
@@ -1177,7 +1203,7 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({ name: "alice" }),
+			new Map(Object.entries({ name: "alice" })),
 			PATIENT,
 		);
 		expect(result).not.toEqual(matchNone());
@@ -1198,10 +1224,12 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 		];
 		const result = composeRuntimeFilter(
 			inputs,
-			values({
-				"visit_dates:from": "2025-01-01",
-				"visit_dates:to": "2025-12-31",
-			}),
+			new Map(
+				Object.entries({
+					"visit_dates:from": "2025-01-01",
+					"visit_dates:to": "2025-12-31",
+				}),
+			),
 			PATIENT,
 		);
 		if (result.kind === "between") {
