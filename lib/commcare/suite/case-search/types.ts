@@ -60,8 +60,19 @@ export interface PlatformContext {
  *     `instance('results:inline')` (inline-results). CCHQ's
  *     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_query_datums`
  *     branches on `module_uses_inline_search(module)` to pick the
- *     instance name; the same flag also surfaces on the `<query
- *     inline_search>` attribute.
+ *     instance name. The same flag also drives the `<query
+ *     storage-instance>` attribute (the wire token differs from the
+ *     instance id only on the inline arm: storage-instance carries
+ *     `results` or `results:inline` to match the chosen datum
+ *     instance). CCHQ does NOT emit a separate `<query
+ *     inline_search>` attribute — verified against
+ *     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_queries`,
+ *     which sets `default_search` unconditionally and `search_on_clear`
+ *     conditionally but never `inline_search` or `dynamic_search`,
+ *     and against the canonical fixtures
+ *     `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`
+ *     and `search_config_blacklisted_owners.xml`, both of which carry
+ *     only `url default_search storage-instance template` on `<query>`.
  *
  * The flag set is the only choice point. There is no parallel
  * "workflow mode" enum, no author override; every flag derives

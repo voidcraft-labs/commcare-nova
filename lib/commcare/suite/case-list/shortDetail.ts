@@ -57,8 +57,28 @@
 // Authors who want to override the title register `cchq.case`
 // themselves at the app-strings layer (Nova has no such authoring
 // surface today; the runtime fallback is the rendered title).
+//
+// Search-action element. When the parent module has a
+// `caseSearchConfig`, the case-target short detail carries a
+// `<action>` child after the `<field>` block — the affordance the
+// runtime renders as the "Search Cases" button on top of the case
+// list. The action's `auto_launch` attribute carries the wire
+// expression CCHQ chooses based on `WireShape.autoLaunch`:
+// `false()` when off; the canonical
+// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["single-select"]`
+// expression when on. The `<action>` element only mounts on the
+// case-target detail (the `m{N}_case_short` wire id); the search-
+// target detail (`m{N}_search_short`) carries no `<action>` because
+// the search results screen is itself the action's destination.
+// Verified against
+// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_case_short']/action`
+// (present) and the same fixture's `detail[@id='m0_search_short']`
+// (no `<action>` child).
 
 import type { BlueprintDoc, Module } from "@/lib/domain";
+import type { Predicate } from "@/lib/domain/predicate/types";
+import { emitCaseListFilter } from "../../predicate";
+import { escapeXml } from "../../xml";
 import { emitColumnField } from "./columns";
 import { buildSortDirectives } from "./sortKeys";
 import type {
@@ -66,6 +86,42 @@ import type {
 	CaseListEmitContext,
 	DetailTarget,
 } from "./types";
+
+/**
+ * Optional search-action context passed by the orchestrator at
+ * `lib/commcare/compiler.ts` when the module has a
+ * `caseSearchConfig`. Carries the `WireShape.autoLaunch` flag the
+ * orchestrator already computed via `compileForPlatform`, plus the
+ * optional `searchButtonDisplayCondition` predicate the case-search
+ * config carries. When this arg is present, the short-detail emitter
+ * renders an `<action>` child after the `<field>` block on the
+ * case-target detail; when absent, no `<action>` element is emitted
+ * (the case-list-only path for modules without case search).
+ *
+ * `displayCondition` lands on the `<action relevant>` attribute when
+ * set — CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_relevant_expression`
+ * puts the search-config's display-condition predicate there to
+ * gate visibility of the search affordance. When the predicate is
+ * absent, the `relevant` attribute is omitted entirely (CCHQ's
+ * default: action always visible).
+ */
+export interface SearchActionContext {
+	readonly autoLaunch: boolean;
+	readonly displayCondition?: Predicate;
+}
+
+/**
+ * The `auto_launch` XPath expression CCHQ uses for single-select
+ * modules when auto-launch is enabled. Lifted verbatim from
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["single-select"]`.
+ * The `$next_input` reference is a session-scoped variable CCHQ's
+ * runtime resolves at evaluation time; Nova passes the expression
+ * through unchanged because the variable is part of CCHQ's runtime
+ * vocabulary, not Nova's authoring surface.
+ */
+const AUTO_LAUNCH_SINGLE_SELECT_EXPR =
+	"$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0";
 
 /**
  * Compose the suite-XML `<detail>` block for one module's case-list
@@ -102,10 +158,17 @@ export function emitShortDetail(args: {
 	readonly moduleIndex: number;
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
+	readonly searchAction?: SearchActionContext;
 }): CaseListEmission {
 	const { module: mod, moduleIndex, doc } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_short`;
+	// `<action>` lives only on the case-target detail per the
+	// canonical fixture. A `searchAction` arg passed alongside
+	// `target: "search"` would be a logic error at the orchestrator
+	// (the search-target detail is the action's destination, not
+	// its host); the emitter ignores the arg defensively.
+	const searchAction = target === "case" ? args.searchAction : undefined;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -114,7 +177,7 @@ export function emitShortDetail(args: {
 	// zero-field detail still emits the `<title>` element.
 	if (!mod.caseType || !mod.caseListConfig) {
 		return {
-			xml: emitDetailShell(detailId, []),
+			xml: emitDetailShell(detailId, [], searchAction, moduleIndex),
 			strings: {},
 		};
 	}
@@ -153,7 +216,7 @@ export function emitShortDetail(args: {
 	}
 
 	return {
-		xml: emitDetailShell(detailId, fields),
+		xml: emitDetailShell(detailId, fields, searchAction, moduleIndex),
 		strings,
 	};
 }
@@ -167,8 +230,19 @@ export function emitShortDetail(args: {
  * suite-XML layout — `<detail>` and its children indent by two
  * spaces from the `<suite>` root; nested `<field>` content adds
  * two more.
+ *
+ * When `searchAction` is supplied (the case-target detail of a
+ * search-enabled module), an `<action>` element is appended after
+ * the `<field>` block. The action mounts only on the case target;
+ * search-target details never carry an action child, so the
+ * caller passes `searchAction: undefined` for the search target.
  */
-function emitDetailShell(detailId: string, fields: readonly string[]): string {
+function emitDetailShell(
+	detailId: string,
+	fields: readonly string[],
+	searchAction: SearchActionContext | undefined,
+	moduleIndex: number,
+): string {
 	const titleBlock = [
 		`    <title>`,
 		`      <text>`,
@@ -177,14 +251,80 @@ function emitDetailShell(detailId: string, fields: readonly string[]): string {
 		`    </title>`,
 	].join("\n");
 
-	if (fields.length === 0) {
-		return `  <detail id="${detailId}">\n${titleBlock}\n  </detail>`;
+	const actionBlock =
+		searchAction !== undefined
+			? emitSearchActionBlock(searchAction, moduleIndex)
+			: undefined;
+
+	const bodyLines: string[] = [titleBlock];
+	if (fields.length > 0) {
+		bodyLines.push(fields.join("\n"));
+	}
+	if (actionBlock !== undefined) {
+		bodyLines.push(actionBlock);
 	}
 
 	return [
 		`  <detail id="${detailId}">`,
-		titleBlock,
-		fields.join("\n"),
+		bodyLines.join("\n"),
 		`  </detail>`,
+	].join("\n");
+}
+
+/**
+ * Compose the `<action>` element CCHQ mounts on `m{N}_case_short`
+ * when the module has a case-search config. The element renders as
+ * the search button at the top of the case list. CCHQ's runtime
+ * fires the action's `<stack>` push frame to navigate into the
+ * search command (`search_command.{m}`) when the user activates
+ * the action.
+ *
+ * The `auto_launch` attribute carries an XPath expression. CCHQ's
+ * convention from `details.py::AUTO_LAUNCH_EXPRESSIONS`: `false()`
+ * when off; the single-select expression `$next_input = '' or
+ * count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0`
+ * when on. Nova emits the single-select form because Nova's
+ * authoring surface does not expose multi-select case selection
+ * (the multi-select wire shape is a CCHQ-specific runtime
+ * affordance).
+ *
+ * `redo_last="false"` ships unconditionally — the attribute exists
+ * on CCHQ's wire but Nova does not surface "search again" as a
+ * separate authoring affordance distinct from the primary search
+ * action. Verified against
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_case_short']/action`.
+ */
+function emitSearchActionBlock(
+	searchAction: SearchActionContext,
+	moduleIndex: number,
+): string {
+	const moduleId = `m${moduleIndex}`;
+	const autoLaunchExpr = searchAction.autoLaunch
+		? AUTO_LAUNCH_SINGLE_SELECT_EXPR
+		: "false()";
+	// `relevant` carries the search-button display-condition predicate
+	// when authored. The on-device XPath emitter produces the wire
+	// string the runtime evaluates against the casedb / session
+	// instances; the attribute escapes for XML attribute-value
+	// embedding so any inner string literal containing `<` / `>` /
+	// `"` stays well-formed.
+	const relevantAttr =
+		searchAction.displayCondition !== undefined
+			? ` relevant="${escapeXml(emitCaseListFilter(searchAction.displayCondition))}"`
+			: "";
+	return [
+		`    <action auto_launch="${autoLaunchExpr}" redo_last="false"${relevantAttr}>`,
+		`      <display>`,
+		`        <text>`,
+		`          <locale id="case_search.${moduleId}"/>`,
+		`        </text>`,
+		`      </display>`,
+		`      <stack>`,
+		`        <push>`,
+		`          <mark/>`,
+		`          <command value="'search_command.${moduleId}'"/>`,
+		`        </push>`,
+		`      </stack>`,
+		`    </action>`,
 	].join("\n");
 }

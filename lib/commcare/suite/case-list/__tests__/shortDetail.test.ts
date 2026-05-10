@@ -600,3 +600,128 @@ describe("emitShortDetail — multi-kind integration", () => {
 		});
 	});
 });
+
+// ============================================================
+// Search-action emission
+// ============================================================
+//
+// When the surrounding compiler emits a `<remote-request>` for a
+// module, it threads a `searchAction` arg into the case-target
+// short-detail emitter. The emitter renders an `<action>` element
+// after the `<field>` block carrying the search affordance per
+// CCHQ's
+// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_case_short']/action`
+// and `case-search-with-action.xml`. The action mounts only on the
+// case target — search-target details never carry an action child.
+
+describe("emitShortDetail — search-action emission", () => {
+	const moduleWithName = (caseType: string): Module =>
+		makeModule({
+			caseType,
+			caseListConfig: {
+				columns: [plainColumn(COL(1), "name", "Name")],
+				searchInputs: [],
+			},
+		});
+
+	it("emits no <action> element when searchAction is undefined", () => {
+		const mod = moduleWithName("patient");
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({ module: mod }),
+		});
+		expect(out.xml).not.toContain("<action ");
+	});
+
+	it("emits <action auto_launch='false()'> when searchAction.autoLaunch is false", () => {
+		const mod = moduleWithName("patient");
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({ module: mod }),
+			searchAction: { autoLaunch: false },
+		});
+		expect(out.xml).toContain(
+			`<action auto_launch="false()" redo_last="false">`,
+		);
+		expect(out.xml).toContain(`<command value="'search_command.m0'"/>`);
+	});
+
+	it("emits the canonical AUTO_LAUNCH_EXPRESSIONS['single-select'] expression when searchAction.autoLaunch is true", () => {
+		// CCHQ's
+		// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["single-select"]`:
+		// `$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0`.
+		// Lifted verbatim into the wire form.
+		const mod = moduleWithName("patient");
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({ module: mod }),
+			searchAction: { autoLaunch: true },
+		});
+		expect(out.xml).toContain(
+			`auto_launch="$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0"`,
+		);
+	});
+
+	it("emits the action only on the case target — search-target details carry no <action>", () => {
+		const mod = moduleWithName("patient");
+		const searchOut = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({ module: mod }),
+			target: "search",
+			searchAction: { autoLaunch: true },
+		});
+		expect(searchOut.xml).not.toContain("<action ");
+	});
+
+	it("renders the relevant attribute when searchAction.displayCondition is supplied", () => {
+		// CCHQ's
+		// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_relevant_expression`
+		// sources the `<action relevant>` attribute from
+		// `module.search_config.search_button_display_condition`.
+		// The on-device XPath emitter compiles the predicate; the
+		// attribute carries the escaped result.
+		const mod = moduleWithName("patient");
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({
+				module: mod,
+				caseTypes: [{ name: "patient", properties: [{ name: "active" }] }],
+			}),
+			searchAction: {
+				autoLaunch: false,
+				displayCondition: {
+					kind: "eq",
+					left: { kind: "term", term: prop("patient", "active") },
+					right: {
+						kind: "term",
+						term: { kind: "literal", value: "yes" },
+					},
+				},
+			},
+		});
+		// `escapeXml` leaves single quotes literal — HQ accepts the
+		// literal `'` inside double-quoted XPath attributes (e.g.
+		// `instance('casedb')`). The on-device emitter produces
+		// `active = 'yes'`; the attribute carries the bare form.
+		expect(out.xml).toContain(`relevant="active = 'yes'"`);
+	});
+
+	it("omits the relevant attribute when searchAction.displayCondition is absent", () => {
+		const mod = moduleWithName("patient");
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({ module: mod }),
+			searchAction: { autoLaunch: false },
+		});
+		expect(out.xml).toContain(
+			`<action auto_launch="false()" redo_last="false">`,
+		);
+		expect(out.xml).not.toContain(` relevant=`);
+	});
+});

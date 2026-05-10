@@ -35,6 +35,7 @@ import {
 import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
+import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
@@ -69,6 +70,15 @@ export function compileCcz(
 	const suiteMenus: string[] = [];
 	const suiteDetails: string[] = [];
 	const suiteResources: string[] = [];
+	// `<remote-request>` elements accumulate alongside the other
+	// top-level suite-XML element families. CCHQ's wire layout has
+	// no canonical position for `<remote-request>` relative to
+	// `<detail>` / `<entry>` / `<menu>`, so the compiler splices
+	// these elements after the case-detail block and before the
+	// `<entry>` block — placing them adjacent to the detail blocks
+	// they reference (`m{N}_search_short` / `m{N}_search_long`)
+	// keeps the rendered suite.xml structurally local.
+	const suiteRemoteRequests: string[] = [];
 
 	// Walk HQ modules and `doc.moduleOrder` in lockstep. `expandDoc`
 	// produces HQ modules in the same order as `moduleOrder`, so
@@ -126,10 +136,55 @@ export function compileCcz(
 		// `cchq.case` at the app-strings layer (Nova has no such
 		// authoring surface today).
 		if (caseType) {
+			// `<remote-request>` orchestrator. Computes the
+			// `WireShape` for this module via `compileForPlatform`
+			// (default platform context: web) and emits the full
+			// `<remote-request>` element. The orchestrator returns
+			// the `WireShape` so the surrounding short-detail
+			// emission can render the `<action auto_launch>` element
+			// with the matching expression — the action attribute
+			// lives on `m{N}_case_short`, not on `<query>`, per
+			// CCHQ's
+			// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_action_kwargs`.
+			//
+			// Modules without `caseSearchConfig` skip this emission
+			// entirely; their case-list short detail renders without
+			// an `<action>` child. The two paths compose without
+			// branch-doubling at the detail emitter — `searchAction`
+			// is `undefined` when no case-search config is present.
+			const remoteRequestEmission = mod.caseSearchConfig
+				? emitRemoteRequest({
+						module: mod,
+						moduleIndex: mIdx,
+					})
+				: undefined;
+			if (remoteRequestEmission !== undefined) {
+				suiteRemoteRequests.push(remoteRequestEmission.xml);
+				Object.assign(appStrings, remoteRequestEmission.strings);
+			}
+
 			const shortEmission = emitShortDetail({
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(remoteRequestEmission !== undefined && {
+					searchAction: {
+						autoLaunch: remoteRequestEmission.wire.autoLaunch,
+						// `searchButtonDisplayCondition` lands on the
+						// `<action relevant>` attribute when authored —
+						// CCHQ's
+						// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_relevant_expression`.
+						// Threaded via spread so an absent slot stays
+						// absent on the structure (rather than landing
+						// as an explicit `displayCondition: undefined`
+						// the strict-parse layer would surface).
+						...(mod.caseSearchConfig?.searchButtonDisplayCondition !==
+							undefined && {
+							displayCondition:
+								mod.caseSearchConfig.searchButtonDisplayCondition,
+						}),
+					},
+				}),
 			});
 			suiteDetails.push(shortEmission.xml);
 			Object.assign(appStrings, shortEmission.strings);
@@ -148,6 +203,9 @@ export function compileCcz(
 			// references rewrite their instance root from `casedb` to
 			// `results` per the canonical fixture
 			// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`.
+			// The search-target short detail does NOT carry an
+			// `<action>` element — the search results screen IS the
+			// action's destination.
 			if (mod.caseSearchConfig) {
 				const searchShort = emitShortDetail({
 					module: mod,
@@ -265,7 +323,16 @@ export function compileCcz(
 			`  <locale language="${dir}">\n    <resource id="app_strings_${lang}" version="1">\n      <location authority="local">./${dir}/app_strings.txt</location>\n    </resource>\n  </locale>`,
 	);
 
-	const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join("\n")}\n${localeResources.join("\n")}\n${suiteDetails.join("\n")}\n${suiteEntries.join("\n")}\n${suiteMenus.join("\n")}\n</suite>`;
+	// `<remote-request>` elements live alongside `<entry>` elements
+	// in CCHQ's wire layout — both are top-level entry points the
+	// runtime dispatches through. The compiler positions
+	// `<remote-request>` before `<entry>` blocks so the rendered
+	// suite reads "details for these cases, then the
+	// remote-request that fetches them, then the form entries that
+	// edit them."
+	const remoteRequestsBlock =
+		suiteRemoteRequests.length > 0 ? `${suiteRemoteRequests.join("\n")}\n` : "";
+	const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join("\n")}\n${localeResources.join("\n")}\n${suiteDetails.join("\n")}\n${remoteRequestsBlock}${suiteEntries.join("\n")}\n${suiteMenus.join("\n")}\n</suite>`;
 
 	// Parse-check the suite XML — HQ's build pipeline also parses it,
 	// and failing here gives a clearer error than an opaque mobile
