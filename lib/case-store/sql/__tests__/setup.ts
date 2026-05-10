@@ -94,7 +94,7 @@ export interface CaseStoreFixtures {
  * next test's view.
  */
 export const test = baseTest.extend<CaseStoreFixtures>({
-	// biome-ignore lint/correctness/noEmptyPattern: Vitest requires an object destructuring pattern as the fixture's first argument (`@vitest/runner/dist/chunk-artifact.js:528`).
+	// biome-ignore lint/correctness/noEmptyPattern: Vitest requires an object destructuring pattern as the fixture's first argument; an empty `{}` is the documented form when the fixture takes no upstream dependencies.
 	pgClient: async ({}, use) => {
 		const client = await pool.connect();
 		try {

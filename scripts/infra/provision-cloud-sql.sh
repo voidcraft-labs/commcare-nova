@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
-# Plan 2 Task 0 — record-of-truth Cloud SQL provisioning script.
+# Record-of-truth provisioning script for the case-store's Cloud SQL Postgres
+# instance. Provisions, in this order:
 #
-# Transcribes the exact gcloud commands executed against project commcare-nova
-# on 2026-05-03 to provision the nova-cases Cloud SQL instance. See
-# docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md
-# for the decisions, expected output, and rollback procedure.
+#   - Cloud SQL Admin + Service Networking APIs (Phase 0)
+#   - VPC peering range and Service Networking peering (Phase 1)
+#   - The Postgres 18 instance with private IP only, IAM auth, daily backup,
+#     and PITR with 4-day WAL retention (Phase 2)
+#   - The application database (Phase 3)
+#   - Project IAM bindings + Cloud SQL database users for the runtime SA and
+#     the developer principal (Phase 4)
+#   - Cloud Run wiring (Direct VPC Egress + the env vars `connection.ts`
+#     reads) (Phase 6)
 #
 # Re-runnability — the script is structured so a future re-run after a partial
-# failure can pick up cleanly. Phases 1–6 each guard their primary mutation
+# failure can pick up cleanly. Phases 1-6 each guard their primary mutation
 # behind an existence check; existing resources are left in place rather than
-# re-created. Phase 5 (extension installs + grants) is intentionally NOT in
-# this script — that work runs interactively in Cloud SQL Studio under the
-# postgres superuser, then closes the postgres account back. See the runbook
-# §Phase 5 for the SQL block and the open-then-close password ritual.
+# re-created.
+#
+# Phase 5 (extension installs + grants) is intentionally NOT in this script.
+# `CREATE EXTENSION pg_trgm / fuzzystrmatch / postgis` requires the
+# `cloudsqlsuperuser` role; only Cloud SQL's built-in `postgres` account
+# carries that role at instance creation, and the runtime SA atlas runs as
+# does not. The Phase 5 stub at the bottom of this script enumerates the
+# four manual steps that run interactively in Cloud SQL Studio.
 #
 # Usage: ./scripts/infra/provision-cloud-sql.sh [--dry-run]
 
@@ -209,17 +219,28 @@ fi
 #
 # Extension installs (pg_trgm / fuzzystrmatch / postgis) require the
 # cloudsqlsuperuser role, which only the built-in `postgres` account has at
-# instance creation. Phase 5 runs interactively in Cloud SQL Studio:
+# instance creation. The instance is private-IP-only, so there is no
+# laptop-to-private-IP path; this work runs through Cloud SQL Studio in the
+# Google Cloud Console:
 #
 #   1. Set a temporary postgres password
 #      (gcloud sql users set-password postgres --prompt-for-password).
-#   2. Sign into Studio as postgres, run CREATE EXTENSION + GRANTs.
-#   3. Sign out, rotate postgres back to a fresh-random-unknown password.
-#   4. Verify each extension via IAM auth as the developer user.
+#   2. Sign into Studio as postgres; run
+#      `CREATE EXTENSION pg_trgm`, `CREATE EXTENSION fuzzystrmatch`,
+#      `CREATE EXTENSION postgis` (each `IF NOT EXISTS`); GRANT USAGE ON
+#      SCHEMA public to the runtime SA and developer database users.
+#   3. Sign out, rotate the postgres account back to a fresh-random-unknown
+#      password (no human knows it before, during briefly, or after).
+#   4. Verify each extension is reachable under IAM auth as the developer
+#      user (a smoke query against `pg_extension`).
 #
-# See runbook §Phase 5 for the exact SQL block and the password ritual.
+# The split exists because PostGIS specifically requires `cloudsqlsuperuser`
+# per Cloud SQL's documented extension allowlist, and atlas-applied schema
+# migrations can only assume the runtime SA's privilege set. Once the
+# extensions are installed, every subsequent schema migration runs through
+# atlas under the runtime SA at Cloud Run startup.
 # ---------------------------------------------------------------------------
-echo "=== Phase 5: SKIPPED (interactive — see runbook) ==="
+echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) ==="
 
 # ---------------------------------------------------------------------------
 # Phase 6 — Wire Cloud Run to Cloud SQL via Direct VPC Egress.
