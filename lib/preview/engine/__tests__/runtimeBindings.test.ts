@@ -137,6 +137,22 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 		);
 		expect(result).toEqual(matchAll());
 	});
+
+	it("trims surrounding whitespace before constructing the literal", () => {
+		// A pasted-from-clipboard value carries padding the user
+		// didn't intend. The trim normalizes the value so equality
+		// against unpadded case data still matches; a literal with
+		// padding (`"  alice  "`) would silently miss every row.
+		const inputs = [
+			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+		];
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map(Object.entries({ name: "  alice  " })),
+			PATIENT,
+		);
+		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("alice")));
+	});
 });
 
 describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
@@ -1147,7 +1163,7 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		expect(predicateSchema.parse(result)).toEqual(result);
 	});
 
-	it("produces matchAll() when one populated input is empty among others", () => {
+	it("unwraps to the lone clause when one input is populated and others are empty", () => {
 		// The `name` input is populated; the `status` input is empty.
 		// Only `name` contributes; the result collapses to the lone
 		// clause (single-clause `and` reduction).

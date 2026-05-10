@@ -35,8 +35,8 @@ import {
 	multiSelectAny,
 	prop,
 	reduceAnd,
+	unhandledKindMessage,
 } from "@/lib/domain/predicate";
-import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 
 /**
  * Search-input value bag. `<name>:from` / `<name>:to` for range
@@ -112,8 +112,11 @@ function buildSimpleArmClause(
 		return buildRangeClause(input, inputValues, caseType);
 	}
 
-	const value = inputValues.get(input.name);
-	if (value === undefined || value.trim() === "") return undefined;
+	// Trim once at read so downstream `literal(value)` calls see the
+	// normalized value — pasted-from-clipboard padding (`"  alice  "`)
+	// must not silently bypass equality against unpadded case data.
+	const value = inputValues.get(input.name)?.trim();
+	if (value === undefined || value === "") return undefined;
 
 	const property = prop(caseType, input.property, input.via);
 	switch (mode.kind) {
@@ -231,8 +234,11 @@ function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
 ): Predicate | undefined {
-	const value = inputValues.get(input.name);
-	if (value === undefined || value.trim() === "") return undefined;
+	// Trim once at read so the value substituted into every
+	// `term(input(name))` slot is the normalized form — symmetric
+	// with `buildSimpleArmClause`'s trim-once contract.
+	const value = inputValues.get(input.name)?.trim();
+	if (value === undefined || value === "") return undefined;
 	return substituteInputInPredicate(input.predicate, input.name, value);
 }
 
