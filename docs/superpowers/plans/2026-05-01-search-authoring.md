@@ -495,7 +495,7 @@ Landed across three commits: `f10a82e6` (initial schema + 9 tests) → `4915690f
 - `npx tsc --noEmit` clean (purely additive change — no consumer breakage).
 - Sweeps clean: zero line-number citations, zero CCHQ-leak field name references, zero external-doc references.
 
-**Deltas from the planned shape:** none structural. Voice/clarity iterations across two CR rounds shaped the JSDoc + test comments to match the project's authoring-vs-wire-emission separation.
+**Deltas from the planned shape:** none structural.
 
 **Whole-repo build state:** green throughout (the schema addition is purely additive; consumers ignore the new optional slot until Task 12 mounts the workspace).
 
@@ -528,11 +528,9 @@ Landed across six commits: `fa6ef683` (initial ClaimSection + 8 tests) → `a8de
 - `npm test` 3858 / 14 skipped.
 - Drift sweeps clean: zero `case-list-config/useInnerValidityShadow` references after the relocation; zero `tablerFilter` glyphs in the cross-section primitive or the inline excluded-owners chrome; zero `Today's consumers|Currently used by` snapshot lists in `shared/`; zero `wire emitter|wire layer` references in the Task 2-scope authoring-voice surfaces (the cross-layer wire-coordination comments in `DisplaySection` and `SearchInputsSection` stay — they name load-bearing contracts the authoring code's correctness depends on).
 
-**Deltas from the planned shape:**
+**Deltas from the planned shape:** The plan named `ClaimSection.tsx` + tests. Scope expanded to extract `PredicateSlotCard` (first-duplication on FiltersSection) and to relocate `useValidityPropagator` to its cross-family home in `shared/`. Both expansions were structurally justified.
 
-The plan's literal file list named `ClaimSection.tsx` + tests. The supervisor expanded scope mid-loop, applying the first-duplication rule to extract `PredicateSlotCard` (FiltersSection had the duplicate chrome shape) and the no-scope-excuses rule to relocate `useValidityPropagator` to its right cross-family home. Both expansions were structurally justified and the implementer correctly stress-tested a third over-broad expansion (a workspace-wide grep that would have stripped load-bearing wire-coordination comments in DisplaySection and SearchInputsSection). The corrected discipline: gratuitous wire-narration in authoring-voice surfaces violates Rule 9; load-bearing wire-contract comments where the authoring code's correctness depends on the wire's order/shape stay (tightened phrasing if needed).
-
-**Acknowledged structural debt:** `PredicateCardEditor` itself wasn't relocated to `shared/` — its transitive import graph (~25-30 files: `cards/ChildPredicateEditor` → all 13 predicate cards → `editorContext` + `path` + `editorSchemas` + `expressionEditorSchemas` + `ExpressionCardEditor` + `primitives/`) is a half-directory rename, not a Task 2 follow-up commit. Tracked at the supervisor's task list as a separate item slated to land between Plan 4 Task 12 (workspace mount) and Task 13 (integration test). The `OptionalSlotCard<T>` generalization that would unify `PredicateSlotCard`'s chrome with `ClaimSection`'s inline `ValueExpression` excluded-owners chrome is part of the same reorg's scope.
+**Acknowledged structural debt:** `PredicateCardEditor` itself wasn't relocated to `shared/` — its transitive import graph (~25-30 files: `cards/ChildPredicateEditor` → all 13 predicate cards → `editorContext` + `path` + `editorSchemas` + `expressionEditorSchemas` + `ExpressionCardEditor` + `primitives/`) is a half-directory rename, slated between Task 12 (workspace mount) and Task 13 (integration test). The `OptionalSlotCard<T>` generalization that would unify `PredicateSlotCard`'s chrome with `ClaimSection`'s inline `ValueExpression` excluded-owners chrome is part of the same reorg.
 
 **Whole-repo build state:** green throughout. Task 2's deliverables compose into Task 12's workspace shell when that lands.
 
@@ -565,9 +563,7 @@ Landed across two commits: `4c71b1f4` (initial DisplaySection + tests + extracte
 - `npm test` 3869 / 14 skipped.
 - Drift sweeps clean: zero `wire emitter|wire layer|wire emit` references in the Task 3-scope authoring-voice surfaces, zero `Today's consumers|Currently used by|Consumers right now|Filters and Claim sections|sections consume` snapshot lists, zero line-number citations in committed comments, zero `Plan 4|Plan N|spec section|SHIPPED` references.
 
-**Deltas from the planned shape:**
-
-The plan listed only `DisplaySection.tsx` + tests. The supervisor scope expanded to extract `nextConfig` (first-duplication on the second consumer of the helper) and a local `OptionalTextRow` primitive that owns the five text-slot chrome. Both expansions were structurally justified by the project's discipline rules.
+**Deltas from the planned shape:** The plan listed only `DisplaySection.tsx` + tests. Scope expanded to extract `nextConfig` (first-duplication on the second consumer) and a local `OptionalTextRow` primitive owning the five text-slot chrome.
 
 **Whole-repo build state:** green throughout. Task 3's deliverables compose into Task 12's workspace shell when that lands.
 
@@ -602,9 +598,7 @@ Landed at commit `4f97c7da`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 - `npm test` 3913 / 14 skipped.
 - Drift sweeps clean: zero `Today's consumers|Currently used by|Consumers right now` snapshot lists, zero `Plan 4|Plan N|spec section|SHIPPED` references, zero line-number citations in committed comments, zero wire-emit narration in the schema-touching tool surfaces.
 
-**Deltas from the planned shape:**
-
-The plan listed `setCaseSearchClaim` + `setCaseSearchDisplay` + `setCaseSearchDefaultFilters` + `setCaseSearchCustomSorts` (4 tools) at the time the spec was first drafted; the 2026-05-08 reshape dropped `defaultFilters` / `customSorts` / `sortByRelevance` from the schema, leaving 2 tools. The reshape's drop is consistent across schema (Task 1) → SA tools (Task 5) → wire emission (Tasks 8-10). Plan 5 was synced for the same drop.
+**Deltas from the planned shape:** The plan originally listed four tools (`setCaseSearchClaim` / `setCaseSearchDisplay` / `setCaseSearchDefaultFilters` / `setCaseSearchCustomSorts`); the 2026-05-08 reshape dropped `defaultFilters` / `customSorts` / `sortByRelevance` from the schema, leaving two. The drop is consistent across schema (Task 1) → SA tools (Task 5) → wire emission (Tasks 8-10); Plan 5 synced.
 
 **CR round-1 observation-only Minors (none blocking):**
 1. Commit body's test-count delta cited as `+25` against the 3874 baseline; actual delta is `+39` to 3913. Captured here in the SHIPPED block at the correct count.
@@ -644,7 +638,7 @@ Landed at commit `45b91fe3`. Spec review (sonnet, ONCE) clean; CR round 1 (opus,
 - Drift sweeps clean: zero line-number citations in committed code, zero Plan 4 / spec section / SHIPPED references, zero consumer-inventory snapshots.
 - CR-spotted side observation: pre-existing line-number citation in `lib/commcare/expression/csqlEmitter.ts:163`'s throw-message body — NOT introduced by Task 6, but a real "no line numbers in committed code" hard-gate violation. Cleanup tracked separately.
 
-**Deltas from the planned shape:** none. The decision tree implementation matches the plan's branch table exactly; the `types.ts` decomposition into `Platform | PlatformFlags | PlatformContext` (rather than the flat `PlatformContext` the prompt suggested) is a structural improvement that makes the function signature cleaner and matches the case-list package's existing convention.
+**Deltas from the planned shape:** None. The implementation matches the plan's branch table exactly. `types.ts` decomposed into `Platform | PlatformFlags | PlatformContext` rather than the flat shape the prompt suggested — matches the case-list package's existing convention.
 
 **Whole-repo build state:** green throughout. Task 6's `WireShape` type is the contract Task 8's `<remote-request>` orchestrator consumes.
 

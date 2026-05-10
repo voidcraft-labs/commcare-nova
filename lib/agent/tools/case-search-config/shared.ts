@@ -1,47 +1,33 @@
 /**
- * Shared input schemas + snapshot helper for the case-search-config SA
- * tools.
+ * Shared input schemas + snapshot helper for the case-search-config
+ * SA tools. The config carries two clusters — display labels and the
+ * advanced cluster (today: `excludedOwnerIds`); each has its own
+ * wholesale-replace tool (`setCaseSearchDisplay` /
+ * `setCaseSearchAdvanced`).
  *
- * The case-search config carries two clusters — display labels (search-
- * screen titles, button labels, search-button display predicate) and
- * the advanced cluster (niche search-side filters; the
- * `excludedOwnerIds` value expression). Each cluster has its own
- * wholesale-replace tool (`setCaseSearchDisplay` / `setCaseSearchAdvanced`);
- * this file owns the SA-boundary input shapes and the typed snapshot
- * accessor both tools read before constructing the next config.
+ * Wholesale-with-`null`-clears: every cluster field is required-and-
+ * nullable on the SA boundary; `null` clears, non-null sets. Mirrors
+ * `setCaseListFilter`. Removes the absent-vs-null ambiguity and keeps
+ * the per-tool optional count at zero (well under the Anthropic
+ * 8-optional ceiling).
  *
- * The advanced cluster's `excludedOwnerIds` slot translates at
- * suite-XML emission time to CCHQ's literal wire field
- * `commcare_blacklisted_owner_ids` per
- * `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
- * Nova's authoring vocabulary uses `excludedOwnerIds` throughout;
- * the wire token is CCHQ-controlled vocabulary.
+ * Cross-cluster preservation runs through `pickAdvancedCluster` /
+ * `pickDisplayCluster`: each tool harvests the OTHER cluster's slots
+ * via `snapshotCaseSearchConfig` and layers the input over them.
+ * Both pickers and the SA-boundary schemas key off the same slot
+ * tuples (`DISPLAY_SLOT_NAMES` / `ADVANCED_SLOT_NAMES`); two compile-
+ * time partition checks make a stray schema slot or overlapping
+ * cluster placement fail the build rather than silently drop on patch.
  *
- * The `searchInputs` cross-binding lives on `caseListConfig.searchInputs`
- * (one source of truth across both screens), so the case-search-config
- * tools intentionally do NOT carry a `searchInputs` slot — the SA
- * authors search inputs through the existing case-list-config tool
- * family (`addSearchInput` / `updateSearchInput` / `removeSearchInput`
- * / `reorderSearchInputs`).
+ * The advanced cluster's `excludedOwnerIds` slot translates at suite-
+ * XML emission to CCHQ's wire token `commcare_blacklisted_owner_ids`
+ * (lifted from `CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`). Authoring
+ * vocabulary stays Nova-side; the wire token is CCHQ-controlled.
  *
- * Wholesale-with-`null`-clears semantic — every cluster field is
- * required-and-nullable on the SA boundary. The SA always supplies
- * every field of the cluster it's authoring; `null` explicitly clears
- * a slot, a non-null value sets it. Mirrors the case-list-config
- * `setCaseListFilter` pattern — required-and-nullable removes the
- * "absent vs null" ambiguity the SA would otherwise have to resolve
- * and gives zero optional fields per arm under the Anthropic 8-optional
- * compiler ceiling.
- *
- * Cross-cluster preservation runs through the cluster-pick helpers
- * (`pickAdvancedCluster` / `pickDisplayCluster`) below — each tool
- * reads the existing config via `snapshotCaseSearchConfig`, picks the
- * OTHER cluster's slots forward, and layers the input over them.
- * Both pickers and the SA-boundary input schemas derive their slot
- * sets from the same source-of-truth tuples (`DISPLAY_SLOT_NAMES` /
- * `ADVANCED_SLOT_NAMES`); two compile-time partition checks make a
- * stray schema slot or an overlapping cluster placement fail the
- * build rather than silently drop on patch.
+ * `searchInputs` lives on `caseListConfig.searchInputs` (one source
+ * across both screens), so case-search-config tools intentionally do
+ * NOT carry a `searchInputs` slot — the SA edits search inputs
+ * through the existing case-list-config tool family.
  */
 
 import { z } from "zod";
@@ -86,25 +72,16 @@ void _disjoint;
 
 // ── Cross-cluster preservation pickers ──────────────────────────────
 //
-// Each tool replaces its own cluster wholesale and preserves the
-// other cluster byte-identically. The pickers below do the
-// preservation half — `setCaseSearchDisplay` calls
-// `pickAdvancedCluster(existing)` to harvest the slots it MUST keep,
-// then layers the input's display values on top; `setCaseSearchAdvanced`
-// is symmetric.
-//
-// Output shape: every preserved slot becomes a real key on the
-// returned object; missing or cleared slots are TRULY absent (not
-// `undefined`). Consumers downstream check slot presence via the
-// `key in config` operator — emitting an explicit `undefined` would
-// flip those checks to `true` and persist a slot the user cleared.
+// Each tool replaces its own cluster and preserves the other byte-
+// identically. The pickers harvest only non-undefined slots so cleared
+// slots stay TRULY absent — downstream consumers check `key in config`,
+// and an explicit `undefined` would flip that check to `true` and
+// persist a slot the user cleared.
 
 /**
- * Pick the advanced cluster off an existing config — every slot in
- * `ADVANCED_SLOT_NAMES` whose source value is non-undefined; missing
- * or cleared slots are absent from the returned object. Used by
- * `setCaseSearchDisplay` to preserve the advanced cluster while it
- * rebuilds the display cluster around the SA's input.
+ * Pick the advanced cluster off an existing config. Used by
+ * `setCaseSearchDisplay` to preserve advanced slots while it
+ * rebuilds the display cluster.
  */
 export function pickAdvancedCluster(
 	config: CaseSearchConfig | undefined,
@@ -113,11 +90,9 @@ export function pickAdvancedCluster(
 }
 
 /**
- * Pick the display cluster off an existing config — every slot in
- * `DISPLAY_SLOT_NAMES` whose source value is non-undefined; missing
- * or cleared slots are absent from the returned object. Used by
- * `setCaseSearchAdvanced` to preserve the display cluster while it
- * rebuilds the advanced cluster around the SA's input.
+ * Pick the display cluster off an existing config. Used by
+ * `setCaseSearchAdvanced` to preserve display slots while it
+ * rebuilds the advanced cluster.
  */
 export function pickDisplayCluster(
 	config: CaseSearchConfig | undefined,
@@ -126,14 +101,9 @@ export function pickDisplayCluster(
 }
 
 /**
- * Internal — copy the named slots from `config` into a fresh object:
- * every slot in `slots` whose source value is non-undefined; missing
- * or cleared slots are absent from the returned object. The skip is
- * what keeps cleared slots truly absent on the returned object
- * instead of leaking through as `key: undefined`. Return type
- * mirrors the contract — `Partial<Pick<CaseSearchConfig, K>>` says
- * "every slot named in `slots`, possibly absent" without overstating
- * to "any `CaseSearchConfig` key MIGHT be present".
+ * Copy the named non-undefined slots from `config`. Skipping
+ * undefined values is what keeps cleared slots truly absent rather
+ * than leaking through as `key: undefined`.
  */
 function pickClusterSlots<K extends keyof CaseSearchConfig>(
 	config: CaseSearchConfig | undefined,
@@ -153,35 +123,21 @@ function pickClusterSlots<K extends keyof CaseSearchConfig>(
 // ── Patch-projection helper for SA-input layering ───────────────────
 
 /**
- * The SA-boundary input shape both wholesale tools take: every named
- * slot is required and may be `null` (the wholesale-clear semantic).
- * `NonNullable<CaseSearchConfig[P]>` strips the schema's `optional()`-
- * derived `undefined` from the per-slot type so the input cannot
- * smuggle `undefined` past the `value !== null` filter — which would
- * write `out[slot] = undefined` and break the "missing or cleared
- * slots are TRULY absent" contract `pickClusterSlots` enforces. The
- * SA-boundary schemas use `.nullable()` (not `.nullish()`), so the
- * tightened shape is what callers actually pass.
+ * The SA-boundary input shape — every slot required-and-nullable.
+ * `NonNullable<CaseSearchConfig[P]>` strips the schema's `optional()`
+ * `undefined` so an `undefined` input can't smuggle past the
+ * `value !== null` filter and break `pickClusterSlots`'s "cleared
+ * slots are truly absent" contract. The SA-boundary schemas use
+ * `.nullable()`, so this tightened shape matches what callers pass.
  */
 export type ClusterPatchInput<K extends keyof CaseSearchConfig> = {
 	readonly [P in K]: NonNullable<CaseSearchConfig[P]> | null;
 };
 
 /**
- * Project a wholesale-with-`null`-clears SA-input batch into the
- * cluster-shaped layer the tools compose onto the carried-forward
- * other cluster. Iterates `slots` so the slot list lives in exactly
- * one place; `null` inputs (the wholesale-clear semantic) skip the
- * write so the returned object's keys reflect only the slots the SA
- * actually set.
- *
- * Structural twin of `pickClusterSlots` — both walk a slot list and
- * filter on a per-slot guard. The generic correlation
- * `K extends keyof CaseSearchConfig` keeps per-slot assignment
- * well-typed without a return cast: `slot: K` and
- * `input[slot]: NonNullable<CaseSearchConfig[K]> | null` correlate
- * per-call so `out[slot] = value` lands at the right slot's value
- * type.
+ * Project an SA-input batch into a cluster-shaped patch. Iterates
+ * `slots` so the slot list lives in one place; `null` inputs skip
+ * the write so the returned keys reflect only what the SA set.
  */
 export function applyClusterPatch<K extends keyof CaseSearchConfig>(
 	input: ClusterPatchInput<K>,
@@ -198,13 +154,10 @@ export function applyClusterPatch<K extends keyof CaseSearchConfig>(
 }
 
 /**
- * Surface the slot names the SA actually set on this call — every
- * slot in `slots` whose input is non-null. Both wholesale tools
- * derive their success message from this projection (the empty
- * array branch reports a wholesale-clear; the populated branch lists
- * the slots that landed). Iterating one tuple keeps the slot list in
- * lockstep with `applyClusterPatch`'s emit set: a slot the patch
- * skipped is the same slot this projection drops, by construction.
+ * Surface the slot names the SA actually set — every slot in
+ * `slots` whose input is non-null. Iterating the same tuple keeps
+ * this projection's emit set in lockstep with `applyClusterPatch`'s
+ * by construction.
  */
 export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 	input: ClusterPatchInput<K>,
@@ -216,15 +169,9 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 // ── Input schemas — advanced cluster ────────────────────────────────
 
 /**
- * SA boundary shape for `setCaseSearchAdvanced`. Required-and-nullable
- * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it. The cluster carries the `excludedOwnerIds` slot;
- * the abstract framing scopes the schema to the cluster's role (niche
- * filters), not its contents.
- *
- * `moduleIndex` omitted from the named export so callers can wrap it
- * (`setCaseSearchAdvanced` adds the slot back in its tool input
- * schema).
+ * SA boundary shape for `setCaseSearchAdvanced`. `moduleIndex` is
+ * omitted from this body schema so `setCaseSearchAdvanced` can wrap
+ * it back in its full tool input schema.
  */
 export const setCaseSearchAdvancedBodySchema = z
 	.object({
@@ -239,12 +186,10 @@ export const setCaseSearchAdvancedBodySchema = z
 // ── Input schemas — display cluster ─────────────────────────────────
 
 /**
- * SA boundary shape for `setCaseSearchDisplay`. Six required-and-
- * nullable fields cover the search-screen labels and the search-button
- * display predicate. `null` clears any slot; a non-null value sets it.
- *
- * Six required-and-nullable fields = zero optional fields per arm,
- * well under the Anthropic 8-optional compiler ceiling.
+ * SA boundary shape for `setCaseSearchDisplay`. Six fields cover
+ * the search-screen labels and the search-button display predicate.
+ * Required-and-nullable on every slot means zero optional fields,
+ * well under the Anthropic 8-optional ceiling.
  */
 export const setCaseSearchDisplayBodySchema = z
 	.object({
@@ -289,11 +234,9 @@ export const setCaseSearchDisplayBodySchema = z
 // ── Snapshot helper ─────────────────────────────────────────────────
 
 /**
- * Pick the existing `caseSearchConfig` off the supplied module entity.
- * Returns `undefined` when the module has none — the tools handle the
- * empty-config rebuild themselves over the `existing ?? {}` pattern.
- *
- * Mirrors `snapshotCaseListConfig` shape.
+ * Pick the existing `caseSearchConfig` off a module. Returns
+ * `undefined` when absent; the tools handle the rebuild over
+ * `existing ?? {}`. Mirrors `snapshotCaseListConfig`.
  */
 export function snapshotCaseSearchConfig(
 	mod: Module,

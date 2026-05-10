@@ -1,43 +1,22 @@
 // components/builder/case-search-config/AdvancedSection.tsx
 //
-// Composes the case-search authoring surface's Advanced section. Holds
-// niche search-side filters — affordances most authors never reach for
-// but a small subset depend on.
+// The Advanced section of the case-search authoring surface. Today
+// it carries one niche affordance — `excludedOwnerIds`, an expression
+// resolving to a space-separated list of owner ids whose cases are
+// hidden from search results. The runtime applies the exclusion
+// before paging, so excluded-owner rows never surface (distinct from
+// a per-case filter, which would suppress rows after paging).
 //
-// Slot inventory:
+// First edit through the section seeds an empty `caseSearchConfig`
+// plus the changed slot; subsequent edits compose against the
+// existing config. Validity short-circuits to `true` when the slot
+// is absent. The expression editor stays mounted across collapse
+// toggles so its type-check verdict keeps reaching the section's
+// aggregate.
 //
-//   - `excludedOwnerIds: ValueExpression?` — when present, evaluates
-//     to a space-separated list of owner ids whose cases are excluded
-//     from the search-results scope. The runtime applies this exclusion
-//     before paging the results back to the search screen, so a row
-//     owned by an excluded user never surfaces — distinct from a
-//     case-by-case filter, which would suppress rows post-paging. The
-//     affordance collapses closed by default so it doesn't crowd the
-//     section.
-//
-// `caseSearchConfig` itself is OPTIONAL on the Module schema — a
-// module without search authored omits the slot entirely. The first
-// edit through this section seeds the slot as an empty object plus
-// whatever the user changed; subsequent edits compose against the
-// existing slot.
-//
-// Validity propagation. The excluded-owners expression has its own
-// validity via the type checker. The section reports `valid: true`
-// when the slot is absent (slot-presence short-circuit) and
-// `valid: false` when the slot is present and the expression's type-
-// check verdict is `false`. The expression editor stays mounted
-// whenever the slot is defined (the collapse only toggles
-// visibility), so the editor's type-check verdict keeps reaching the
-// section's validity aggregate regardless of collapse state.
-//
-// Header chrome + collapse + Clear/Add affordances all compose
-// through the shared `OptionalSlotCard<T>` primitive — the same
-// primitive `PredicateSlotCard` specializes — so every slot-card
-// consumer reads as a sibling. The section's job here is the typed
-// `T = ValueExpression` specialization: the `term(literal(""))`
-// add-seed, the `<ExpressionCardEditor expectedType="text">` body,
-// and the per-slot mutator that routes through the shared
-// `setOptionalSlot` helper.
+// Chrome composes through the shared `OptionalSlotCard<T>` primitive
+// (the same primitive `PredicateSlotCard` specializes); this
+// section is the `T = ValueExpression` specialization.
 
 "use client";
 import tablerForbid from "@iconify-icons/tabler/forbid";
@@ -86,9 +65,9 @@ export interface AdvancedSectionProps {
 // ── Top-level component ───────────────────────────────────────────
 
 /**
- * Composes the advanced cluster of the case-search authoring surface.
- * Renders the `excludedOwnerIds` slot via `OptionalSlotCard<ValueExpression>`
- * with collapse on (the niche affordance defaults to closed).
+ * The advanced cluster of the case-search authoring surface. Renders
+ * `excludedOwnerIds` via `OptionalSlotCard<ValueExpression>`,
+ * collapsed by default since most authors don't reach for it.
  */
 export function AdvancedSection({
 	value,
@@ -112,9 +91,9 @@ export function AdvancedSection({
 				clearLabel="Clear excluded owners"
 				value={value?.excludedOwnerIds}
 				onChange={setExcludedOwners}
-				// Empty-string seed — the editor body renders the literal-
-				// text input which the author fills in with the space-
-				// separated owner ids.
+				// Empty-string seed — the editor body renders a text
+				// literal input the author fills with the space-separated
+				// owner ids.
 				addSeed={term(literal(""))}
 				renderEditor={(
 					expression,
@@ -122,10 +101,9 @@ export function AdvancedSection({
 					onValidityChangeInner,
 				) => (
 					// `expectedType="text"` narrows the type checker's
-					// top-level expectation to text. The value is
-					// interpreted as a space-separated list of owner ids,
-					// so a non-text expression is rejected at authoring
-					// time rather than at the validator pass.
+					// top-level expectation. A non-text expression is
+					// rejected at authoring time rather than at the
+					// validator pass.
 					<ExpressionCardEditor
 						value={expression}
 						onChange={onExpressionChange}

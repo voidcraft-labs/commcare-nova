@@ -1,49 +1,20 @@
 // components/builder/shared/OptionalSlotCard.tsx
 //
-// Generic optional-slot card primitive. Composes the shape every
-// authoring surface shares when presenting a single optional value
-// behind a dashed Add CTA / inline editor / Clear affordance:
+// Generic optional-slot card primitive. Owns the shape every authoring
+// surface shares around a single optional value: section header
+// (violet rail + icon + title + hint, with a Clear button when the
+// slot is defined), body switch (consumer-supplied editor when set,
+// dashed "Add ..." CTA when unset), validity short-circuit, and an
+// optional collapse affordance.
 //
-//   1. A section header — violet rail + per-consumer icon + title +
-//      hint line, plus a `ml-auto` Clear button when the slot is
-//      defined. Threaded through the shared `SlotCardHeader`
-//      primitive so every consumer's header reads as a sibling.
+// Consumers specialize with a typed `T` plus a `renderEditor` render
+// prop and an `addSeed` value. `onChange(T | undefined)` emits into
+// the consumer's source-of-truth; routing the `undefined` clear into
+// a "drop key" emit on the doc store is the consumer's call.
 //
-//   2. The body switch — consumer-supplied editor when the slot is
-//      defined (via the `renderEditor` render prop); a dashed
-//      "Add ..." CTA when the slot is undefined. The editor mounts
-//      and unmounts in lockstep with the slot's presence — when the
-//      slot is `undefined` the editor is not in the tree.
-//
-//   3. The validity contract — an inner shadow caches the editor's
-//      `onValidityChange` verdict; the aggregate the card propagates
-//      is `!slotPresent || innerValid`. The slot-presence short-
-//      circuit defends against a stale `false` left behind by a
-//      cleared editor leaking past the clear.
-//
-//   4. (Optional) A collapse affordance — when the consumer opts
-//      into the `collapse` prop, the header gains a chevron toggle
-//      between the rail and the icon, and the body wraps in a
-//      `hidden`-toggled disclosed region. The collapse is a VISIBILITY
-//      toggle, not a mount toggle: when the slot is defined, the
-//      editor stays mounted across collapse state so its validity
-//      verdict keeps reaching the inner shadow on every render pass.
-//      The Add CTA lives inside the disclosed region, so opening the
-//      collapse is a prerequisite for clicking Add — `hidden` excludes
-//      the wrapper from the click-handling tree, which keeps the
-//      empty-state surface aligned with the accessibility tree role
-//      queries report.
-//
-// Consumers specialize the primitive with a typed `T` plus a
-// `renderEditor` render prop that mounts the matching tree-editor
-// and an `addSeed` value that constructs the initial `T` when the
-// author clicks Add. The primitive's `onChange` emits `T | undefined`;
-// consumers route that into their source-of-truth (a parent slot on
-// a doc-store entity, typically). When the consumer's source-of-truth
-// shape requires a "drop key on clear" emit (rather than
-// `key: undefined`), the translation lives in the consumer's wrapper
-// — the primitive's `onChange(undefined)` is the clean trigger and
-// the consumer shapes the emit shape from there.
+// The collapse is a visibility toggle, not a mount toggle — when the
+// slot is defined, the editor stays mounted across collapse state so
+// its validity verdict keeps reaching the inner shadow.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -55,10 +26,9 @@ import { useValidityPropagator } from "./useInnerValidityShadow";
 // ── Public types ──────────────────────────────────────────────────
 
 /**
- * Optional collapse-toggle wiring. Consumers with a collapsible body
- * pass this; consumers without one omit it and the chevron is never
- * rendered. The disclosed region's DOM id is generated internally
- * via `useId` — the consumer doesn't need to thread one through.
+ * Optional collapse-toggle wiring. The disclosed region's DOM id
+ * comes from an internal `useId` — the consumer doesn't thread one
+ * through.
  */
 export interface OptionalSlotCardCollapse {
 	/** Initial open state on first mount. `false` collapses the body
@@ -124,17 +94,12 @@ export interface OptionalSlotCardProps<T> {
 // ── Component ─────────────────────────────────────────────────────
 
 /**
- * Optional-slot card primitive. Owns the shared chrome (header +
- * dashed Add CTA + editor wrapper + slot-presence validity short-
- * circuit + optional collapse) every authoring surface composes
- * around an optional `T`-typed slot.
- *
- * Validity contract: when `value === undefined` the card reports
- * `valid: true` regardless of any stale inner shadow. Without the
- * slot-presence short-circuit, a stale `false` left behind by a
- * cleared editor would leak past the clear — the section's parent
- * would still see the cleared slot reporting invalid until the next
- * editor mount overwrote the shadow.
+ * Optional-slot card primitive. The validity short-circuit is load-
+ * bearing: when `value === undefined` the card reports `valid: true`
+ * regardless of any stale inner shadow. Without it, a stale `false`
+ * left behind by a cleared editor leaks past the clear and the
+ * parent keeps seeing the cleared slot as invalid until the next
+ * editor mount overwrites the shadow.
  */
 export function OptionalSlotCard<T>({
 	icon,
@@ -164,18 +129,9 @@ export function OptionalSlotCard<T>({
 	const regionId = useId();
 
 	const slotPresent = value !== undefined;
-	// Slot-presence short-circuit. When the slot is undefined the card
-	// is trivially valid regardless of `innerValid`'s stash.
 	const isValid = !slotPresent || innerValid;
 	useValidityPropagator({ isValid, onValidityChange });
 
-	// ── Mutators ──
-	// `handleAdd` only fires when the Add CTA is clicked, and the CTA
-	// lives inside the disclosed region (`<div hidden={!isOpen}>` when
-	// collapse is enabled). The `hidden` attribute removes the wrapper
-	// from the click-handling tree, so the CTA is unreachable while the
-	// body is closed — the chevron expand is the implicit prerequisite.
-	// No collapse-open side-effect is needed here.
 	const handleAdd = () => {
 		onChange(addSeed);
 	};
@@ -183,24 +139,13 @@ export function OptionalSlotCard<T>({
 		onChange(undefined);
 	};
 
-	// Body content — the editor when the slot is defined, the dashed
-	// Add CTA when the slot is undefined. Hoisted into a const so the
-	// optional-collapse wrapper can wrap it once below without
-	// duplicating the ternary. Reuses the `slotPresent` constant from
-	// the validity short-circuit so the body branch and the validity
-	// branch read off one source.
+	// `slotPresent` reused so the body branch and the validity branch
+	// read off one source.
 	const body = slotPresent ? (
-		// Defined slot: render the consumer's editor inside the
-		// shared violet-tinted wrapper. The editor receives the
-		// inner-validity callback so the shadow stays current; the
-		// inner `onChange` pipes back into the primitive's
-		// `onChange` unchanged (consumers route at the boundary).
 		<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
 			{renderEditor(value, onChange, setInnerValid)}
 		</div>
 	) : (
-		// Undefined slot: dashed Add CTA. Same className pattern
-		// every authoring surface uses for an empty-state add row.
 		<button
 			type="button"
 			onClick={handleAdd}
@@ -234,14 +179,10 @@ export function OptionalSlotCard<T>({
 				}
 			/>
 			{collapse ? (
-				// Collapsed-aware body wrapper. The wrapper carries the
-				// id the chevron's `aria-controls` points at, so the W3C
-				// disclosure relationship resolves uniformly across all
-				// four (collapsed/open × undefined/defined) states.
-				// `hidden={!isOpen}` puts the visibility toggle on the
-				// wrapper, not on the inner conditional, so a closed-
-				// undefined render keeps the region present in the DOM
-				// (empty body, but resolvable via `aria-controls`).
+				// `hidden={!isOpen}` toggles on the wrapper, not on the
+				// inner conditional, so the region stays present in the
+				// DOM and resolvable via `aria-controls` across all four
+				// (collapsed/open × undefined/defined) states.
 				<div id={regionId} hidden={!isOpen}>
 					{body}
 				</div>

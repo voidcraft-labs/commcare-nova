@@ -1,27 +1,16 @@
 /**
  * SA tool: `setCaseSearchAdvanced` — set the advanced cluster of a
- * module's case-search config in one call.
+ * module's case-search config (the niche search-side filters most
+ * authors never reach for; today, the `excludedOwnerIds` slot).
  *
- * The case-search config carries two independent clusters; this tool
- * owns the advanced cluster — niche search-side filters most authors
- * never reach for. The cluster carries the `excludedOwnerIds` slot.
- * The abstract framing scopes the tool to the cluster's role (niche
- * filters), not its contents. Display labels stay untouched and
- * round-trip byte-identically through the patch — the tool harvests
- * them via `pickDisplayCluster` and layers the input's advanced values
- * on top. The display tool (`setCaseSearchDisplay`) is the parallel for
- * the other cluster.
+ * Wholesale-with-`null`-clears: every slot is required-and-nullable
+ * on the SA boundary; `null` clears, non-null sets. Mirrors
+ * `setCaseListFilter`. The display cluster round-trips byte-identically
+ * (harvested via `pickDisplayCluster`).
  *
- * Wholesale-with-`null`-clears semantic — every cluster slot is
- * required-and-nullable on the SA boundary; `null` clears, non-null
- * sets. Mirrors `setCaseListFilter`.
- *
- * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Two exit branches:
- *
- *   1. Module index out of range → `{ error }`, no mutations.
- *   2. Success → `{ message, advancedSlotsSet }` plus the persisted
- *      mutation, tagged `module:M:caseSearch:advanced`.
+ * Two exit branches: module-index-out-of-range returns `{ error }`
+ * with no mutations; success returns `{ message, advancedSlotsSet }`
+ * with the persisted mutation tagged `module:M:caseSearch:advanced`.
  */
 
 import { z } from "zod";
@@ -56,12 +45,10 @@ export type SetCaseSearchAdvancedInput = z.infer<
 >;
 
 /**
- * Success result for `setCaseSearchAdvanced`. `advancedSlotsSet` is
- * the structured discriminator the SA reads to confirm which slots
- * received a non-null value on this call, mirroring the parallel
- * `displaySlotsSet` field on `setCaseSearchDisplay` and removing the
- * need to re-parse the prose message. Empty array means every
- * advanced slot was cleared.
+ * Success result. `advancedSlotsSet` is the structured discriminator
+ * the SA reads to confirm which slots landed non-null without re-
+ * parsing the prose message; empty array means every advanced slot
+ * was cleared.
  */
 export interface SetCaseSearchAdvancedSuccess {
 	message: string;
@@ -98,12 +85,10 @@ export const setCaseSearchAdvancedTool = {
 					"set the case-search advanced cluster",
 				);
 
-			// Carry the display cluster forward via the shared picker,
-			// then layer the input's advanced values on top via the
-			// shared cluster-patch helper. Both halves derive their
-			// slot sets from the same source-of-truth tuples the input
-			// schema uses; the partition assertions in `shared.ts`
-			// catch any cluster-home omission at compile time.
+			// Preserve the display cluster, layer the advanced patch on
+			// top. Both halves key off the same slot tuples; partition
+			// assertions in `shared.ts` catch cluster-home omissions at
+			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
 			const nextConfig: CaseSearchConfig = {
 				...pickDisplayCluster(existing),
@@ -120,10 +105,8 @@ export const setCaseSearchAdvancedTool = {
 				`module:${moduleIndex}:caseSearch:advanced`,
 			);
 
-			// Derive the message from the same slot tuple `applyClusterPatch`
-			// projects against. A new entry on `ADVANCED_SLOT_NAMES`
-			// flows into the message verbatim — no per-slot literal in
-			// the tool body to keep in lockstep.
+			// Derive the message from the same slot tuple. A new entry
+			// on `ADVANCED_SLOT_NAMES` flows through verbatim.
 			const advancedSlotsSet = slotsSetByInput(input, ADVANCED_SLOT_NAMES);
 
 			return {

@@ -1,9 +1,8 @@
 # Case List & Search — Design (v2)
 
-**Status:** Draft (v2 — supersedes v1)
+**Status:** Draft (v2)
 **Date:** 2026-05-01
 **Authors:** Braxton Perry, Claude
-**Supersedes:** v1 of this same file dated 2026-04-30, which had structural gaps in operator coverage, conflated wire targets, and miscategorized calculated columns. This v2 is the result of an independent design pass plus advisor pressure-test that surfaced the v1 gaps, plus a follow-up Opus review that surfaced additional gaps still present after the first v2 draft.
 
 ## Overview
 
@@ -582,5 +581,3 @@ This is foundational work that ships across five separately-reviewable, separate
 - **Plan 3 (Case list authoring):** Module schema + migration script + case-list config UI + SA tools + validator + wire emission for short/long detail.
 - **Plan 4 (Search authoring):** Module schema for `caseSearchConfig` (claim + display only — filter and sort reuse `caseListConfig`) + case-search-config workspace UI + 2 wholesale SA tools + platform-aware compilation + wire emission for `<remote-request>` + claim + dual-detail block emission (`m{N}_search_short` / `m{N}_search_long` carrying identical content to the case-list detail blocks).
 - **Plan 5 (Running-app search execution):** Running-app surface (the flipbook's "using" view) + split-screen search + inline filter + form write-through. There is no separate preview lifecycle; the running-app view operates on the same `cases` rows the editor inspects.
-
-The v1 of this spec made an effort estimate that was off by ~5x for Plan 1 alone. The v2 estimates were no more reliable — agentic execution velocity and the iteration tightness of typed-AST work both make conventional day-counts misleading. Effort estimates are removed from this spec and from all five plans.

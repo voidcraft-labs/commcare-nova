@@ -1,24 +1,16 @@
 /**
  * SA tool: `setCaseSearchDisplay` — set the display cluster of a
- * module's case-search config in one call.
+ * module's case-search config (search-screen labels + the search-
+ * button display predicate).
  *
- * The case-search config carries two independent clusters; this tool
- * owns the display cluster (search-screen labels + the search-button
- * display predicate). The advanced cluster (niche search-side filters
- * — the `excludedOwnerIds` expression) stays untouched and round-
- * trips byte-identically through the patch. The advanced tool
- * (`setCaseSearchAdvanced`) is the parallel for the other cluster.
+ * Wholesale-with-`null`-clears: every slot is required-and-nullable
+ * on the SA boundary; `null` clears, non-null sets. Mirrors
+ * `setCaseListFilter`. The advanced cluster round-trips byte-identically
+ * (harvested via `pickAdvancedCluster`).
  *
- * Wholesale-with-`null`-clears semantic — every display slot is
- * required-and-nullable on the SA boundary; `null` clears, non-null
- * sets. Mirrors `setCaseListFilter`.
- *
- * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Two exit branches:
- *
- *   1. Module index out of range → `{ error }`, no mutations.
- *   2. Success → `{ message, displaySlotsSet }` plus the persisted
- *      mutation, tagged `module:M:caseSearch:display`.
+ * Two exit branches: module-index-out-of-range returns `{ error }`
+ * with no mutations; success returns `{ message, displaySlotsSet }`
+ * with the persisted mutation tagged `module:M:caseSearch:display`.
  */
 
 import { z } from "zod";
@@ -53,10 +45,10 @@ export type SetCaseSearchDisplayInput = z.infer<
 >;
 
 /**
- * Success result. `displaySlotsSet` is the discriminator the SA reads
- * to confirm which slots received a non-null value on this call,
- * mirroring the `kind`-discriminator pattern on `setCaseListFilter`.
- * Empty array means every display slot was cleared.
+ * Success result. `displaySlotsSet` is the structured discriminator
+ * the SA reads to confirm which slots landed non-null without re-
+ * parsing the prose message; empty array means every display slot
+ * was cleared.
  */
 export interface SetCaseSearchDisplaySuccess {
 	message: string;
@@ -93,12 +85,10 @@ export const setCaseSearchDisplayTool = {
 					"set the case-search display cluster",
 				);
 
-			// Carry the advanced cluster forward via the shared picker,
-			// then layer the input's display values on top via the
-			// shared cluster-patch helper. Both halves derive their
-			// slot sets from the same source-of-truth tuples the input
-			// schema uses; the partition assertions in `shared.ts`
-			// catch any cluster-home omission at compile time.
+			// Preserve the advanced cluster, layer the display patch on
+			// top. Both halves key off the same slot tuples; partition
+			// assertions in `shared.ts` catch cluster-home omissions at
+			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
 			const nextConfig: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
@@ -115,11 +105,8 @@ export const setCaseSearchDisplayTool = {
 				`module:${moduleIndex}:caseSearch:display`,
 			);
 
-			// Surface which display slots landed non-null so the SA reads
-			// the outcome without re-parsing prose. Routes through the
-			// shared `slotsSetByInput` helper so the slot list lives in
-			// exactly one place — same one-source-of-truth contract as
-			// the layer above.
+			// Derive the message from the same slot tuple. A new entry
+			// on `DISPLAY_SLOT_NAMES` flows through verbatim.
 			const displaySlotsSet = slotsSetByInput(input, DISPLAY_SLOT_NAMES);
 
 			return {

@@ -1,25 +1,18 @@
 // components/builder/shared/SlotCardHeader.tsx
 //
-// Shared section-header chrome for optional-slot cards. Multiple
-// section authoring surfaces present a slot (Predicate, ValueExpression)
-// behind the same header shape — violet rail, icon, uppercase title,
-// hint span, and a `ml-auto` Clear button that surfaces when the slot
-// is defined. This component owns that chrome so consumers can't drift
-// each one's layout (icon size, rail width, Clear glyph) independently.
+// Shared header chrome for optional-slot cards: violet rail, icon,
+// uppercase title, hint span, and an `ml-auto` Clear button when the
+// slot is defined. Owning the layout here keeps consumers from
+// drifting icon sizes, rail widths, and Clear glyphs independently.
 //
 // Affordances compose through grouped optional props so the type
-// system encodes "either this surface is on, or it's absent" without
-// half-on states:
-//
-//   - `collapse` carries the chevron toggle wiring AND the disclosed
-//     region's `id` (so the chevron's `aria-controls` points at the
-//     consumer's body wrapper per the W3C disclosure pattern). The
-//     chevron's aria-label flips on open/close (`expandLabel` ↔
-//     `collapseLabel`) so screen readers see the action the click would
-//     take, not the current state.
-//   - `clear` carries the click handler AND the visible / accessible
-//     label as one slot — handler-without-label and label-without-
-//     handler are unrepresentable in the type.
+// encodes "on or absent" without half-on states. `collapse` carries
+// the chevron wiring AND the disclosed region's `id` so the W3C
+// disclosure pattern resolves; the chevron's aria-label flips on
+// open/close so screen readers hear the action a click would take,
+// not the current state. `clear` carries handler AND label as one
+// slot — handler-without-label and label-without-handler don't
+// typecheck.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -30,12 +23,10 @@ import tablerX from "@iconify-icons/tabler/x";
 // ── Public types ──────────────────────────────────────────────────
 
 /**
- * Optional collapse-toggle wiring. Consumers with a collapsible body
- * pass this; consumers without one omit it and the chevron is never
- * rendered. Aria-label on the toggle flips on `isOpen` so the click
- * action stays self-describing for screen readers; `controlsId` is
- * the disclosed region's DOM id so the chevron's `aria-controls`
- * points at it (W3C disclosure pattern).
+ * Optional collapse-toggle wiring. Aria-label flips on `isOpen` so
+ * the click action stays self-describing for screen readers;
+ * `controlsId` points the chevron's `aria-controls` at the disclosed
+ * region (W3C disclosure pattern).
  */
 export interface SlotCardHeaderCollapse {
 	readonly isOpen: boolean;
@@ -51,10 +42,9 @@ export interface SlotCardHeaderCollapse {
 }
 
 /**
- * Optional Clear-affordance wiring. Handler and label travel together
- * — handler-without-label and label-without-handler are unrepresentable
- * in the type. The label is used both as visible button text AND as
- * `aria-label` so visual readers and screen readers see the same words.
+ * Optional Clear-affordance wiring. Label is the visible button text
+ * AND the `aria-label` so screen readers and visual readers see the
+ * same words.
  */
 export interface SlotCardHeaderClear {
 	readonly onClick: () => void;
@@ -83,10 +73,8 @@ export interface SlotCardHeaderProps {
 // ── Component ─────────────────────────────────────────────────────
 
 /**
- * Shared header chrome for optional-slot cards. Renders the violet
- * rail, optional collapse chevron, icon, title, hint span, and the
- * `ml-auto` Clear affordance — every consumer's header reads as a
- * sibling of every other consumer's because the layout lives here.
+ * Shared header chrome for optional-slot cards. Every consumer's
+ * header reads as a sibling because the layout lives here.
  */
 export function SlotCardHeader({
 	icon,

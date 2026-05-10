@@ -1,70 +1,47 @@
 // components/builder/shared/setOptionalSlot.ts
 //
-// Per-slot "set or drop" helper for objects whose schema treats every
-// key as optional. Sectional authoring panels apply patches to a parent
-// object one slot at a time; clearing a slot needs the emitted object
-// to omit the key entirely, not carry it as `key: undefined`.
+// Per-slot "set or drop" helper for objects with optional keys.
+// Sectional authoring panels patch the parent one slot at a time;
+// clearing a slot needs the emitted object to omit the key entirely
+// rather than carry `key: undefined`.
 //
 // The doc store applies module patches via `Object.assign(mod, patch)`,
 // which lands a `key: undefined` source as a real own enumerable
-// property on the persisted document. That breaks the "key in config"
-// genuine-presence check downstream consumers rely on (the SA-side
-// cluster pickers, the wire-emission layer's distinguish-cleared-vs-
-// untouched tie-break). The destructure-and-drop emitted shape solves
-// it: clear emits the object WITHOUT the slot key (a structural drop);
-// set emits the object WITH the slot key bound to the next value.
-//
-// Set-vs-clear branches the emitted shape so `key in obj` is the
-// genuine slot-presence check on every persisted document.
+// property on the persisted document. That breaks the `key in config`
+// presence checks downstream (SA cluster pickers, wire-emission tie-
+// breaks). Branching the emitted shape — set carries the key, clear
+// destructures it out — is what makes `key in obj` the genuine
+// slot-presence check on every persisted document.
 
 /**
- * Set of keys on `C` whose value type includes `undefined` — i.e., the
- * slots a Zod `.optional()` declaration produces in the inferred type.
- * `undefined extends C[K]` is the predicate that admits Zod's
- * `T | undefined` inference; required keys whose value type is `T` (no
- * `undefined`) get mapped to `never` and dropped from the union.
+ * Keys on `C` whose value type includes `undefined` — the slots a
+ * Zod `.optional()` declaration produces in the inferred type.
  *
- * Constraining the slot key to this set is what makes the clear path
+ * Constraining the slot key to this set is what keeps the clear path
  * type-sound: a destructured drop on a required key would produce an
  * object missing a key the caller's static type still claims is
- * present. The constraint forces a compile-time error at the call
- * site instead of silently shipping a runtime gap behind a passing
- * type check.
+ * present. The constraint surfaces that mismatch as a compile error
+ * rather than a silent runtime gap.
  */
 type OptionalKeyOf<C> = {
 	[K in keyof C]-?: undefined extends C[K] ? K : never;
 }[keyof C];
 
 /**
- * Build the next value of an object with an optional slot. When `next`
- * is `undefined`, the returned object omits the slot key entirely (a
- * destructured drop, not a `key: undefined` assignment); when `next`
- * is defined, the returned object carries the slot key bound to the
- * value. Other keys on `current` flow through unchanged.
+ * Build the next value of an object with an optional slot. `next ===
+ * undefined` destructures the key out; a defined `next` writes the
+ * key. Other keys on `current` flow through unchanged.
  *
- * Generic over the container `C` and the slot key `K extends OptionalKeyOf<C>`,
- * so the returned object's static shape stays equivalent to the input
- * — consumers don't need a cast at the call site, and a non-optional
- * slot key fails to compile rather than emitting a runtime object that
- * lies about its static shape.
+ * `current: C | undefined` lets authoring sections whose parent slot
+ * is itself optional route through the same helper — the `undefined`
+ * arm materializes an empty object first.
  *
- * The helper accepts `current: C | undefined` so authoring sections
- * whose parent slot is itself optional (a section receiving
- * `caseSearchConfig: CaseSearchConfig | undefined`) can route through
- * the same helper. The `undefined` arm materializes an empty object
- * before the slot patch, so the consumer's emit shape stays the same
- * whether the parent slot exists or not.
- *
- * @param current The current object value, or `undefined` if the
- *                parent slot is itself absent.
- * @param slot    The key of the slot to set or drop. Must be an
- *                optional key on `C` — the constraint guarantees a
- *                clear path can drop the key without leaving the
- *                returned object's static shape inconsistent with its
- *                runtime shape.
- * @param next    The next value for the slot, or `undefined` to drop
- *                the key from the returned object.
- * @returns       The next object value with the slot set or omitted.
+ * @param current The current object, or `undefined` if the parent
+ *                slot is absent.
+ * @param slot    Key to set or drop. Must be an optional key on `C`
+ *                — the constraint surfaces a non-optional slot as a
+ *                compile error rather than a runtime gap.
+ * @param next    Next value, or `undefined` to drop the key.
  */
 export function setOptionalSlot<C extends object, K extends OptionalKeyOf<C>>(
 	current: C | undefined,
@@ -73,10 +50,9 @@ export function setOptionalSlot<C extends object, K extends OptionalKeyOf<C>>(
 ): C {
 	const base = current ?? ({} as C);
 	if (next === undefined) {
-		// Destructured drop. The destructure-and-rest emits the object
-		// WITHOUT the slot key, so a downstream `key in obj` check sees
-		// genuine absence — distinct from a `key: undefined` write that
-		// would land as an own enumerable property.
+		// Destructure-and-rest emits the object WITHOUT the slot key —
+		// distinct from a `key: undefined` write that would land as an
+		// own enumerable property and fool downstream `key in obj`.
 		const { [slot]: _drop, ...rest } = base;
 		void _drop;
 		return rest as C;

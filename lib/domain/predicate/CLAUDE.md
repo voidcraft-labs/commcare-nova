@@ -5,10 +5,7 @@ families: `Predicate` (boolean-typed expressions for filters, default
 search filters, search-button display conditions, EXISTS clauses) and
 `ValueExpression` (typed-value expressions for calculated columns,
 sort calculations, search-input defaults, conditional branches,
-aggregation operands). Spec source:
-`docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
-"Two AST families" section and "Wire emission" section for V1 operator
-coverage.
+aggregation operands).
 
 ## Why two families share one package
 
@@ -46,7 +43,7 @@ __tests__/      — per-module test suite; reduction tests exercise the
 ## The Predicate AST family
 
 Boolean-typed expressions. Every arm resolves to true or false at
-evaluation time. Coverage matches the spec's V1-IN list:
+evaluation time:
 
 - **Sentinels:** `match-all`, `match-none` — boolean-algebra
   identity / absorbing elements. Builders return precise per-kind
@@ -80,14 +77,12 @@ evaluation time. Coverage matches the spec's V1-IN list:
 - **Conditional:** `when-input-present` — compile-time short-
   circuit on a search-input binding's presence.
 - **Null / blank:** `is-null` (strict-absent) / `is-blank` (absent
-  or empty). The two operators encode the spec's locked
-  null-vs-blank semantic — see "Null vs blank semantics" below.
+  or empty). See "Null vs blank semantics" below.
 
 ## The ValueExpression AST family
 
 Typed-value expressions. Every arm resolves to a value of a
-specific Postgres / wire type at evaluation time. Coverage matches
-the spec's V1-IN list:
+specific Postgres / wire type at evaluation time:
 
 - **Term lift:** `term` — structural lifter for any `Term`. Lets a
   property / input / session ref / literal flow through any value
