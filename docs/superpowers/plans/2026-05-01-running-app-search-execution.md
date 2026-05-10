@@ -2,23 +2,37 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Plan 5 of 5. Depends on Plans 1, 2, 3 (case-list authoring shipped end-to-end at v2 shape per the 2026-05-07 reshape), Plan 4 (case-search authoring, including platform-aware compilation + `<remote-request>` emission). After Plan 5 ships, the flipbook's running-app view executes searches end-to-end against the typed case data; forms write through `CaseStore` so the user can walk through full registration → search → followup workflows on the same `cases` rows the editor inspects.
+**Status:** Plan 5 of 5. Depends on Plans 1, 2, 3 (case-list authoring shipped end-to-end at v2 shape per the 2026-05-07 reshape), Plan 4 (case-search authoring — `caseSearchConfig.{excludedOwnerIds, searchScreen*, emptyListText, search*ButtonLabel, searchButtonDisplayCondition}`, `searchInputs` on `caseListConfig`, dual-detail emission, `<remote-request>` orchestrator + sub-emitters, `compileForPlatform` decision tree, six-rule validator family, `setCaseSearchDisplay` / `setCaseSearchAdvanced` SA tools, `CaseSearchConfigPanel` mounted in edit mode, `CaseSearchConfigInteractEmptyState` mounted in pointer mode). After Plan 5 ships, the flipbook's running-app surface (cursor-mode `pointer` → `useEditMode() === "test"`) executes search-input filtering end-to-end against the Postgres `cases` rows; forms write through the case-store so the user can walk through registration → list → followup workflows on the same rows the editor inspects.
 
-**Goal:** Wire Plans 1-4 into the running-app view of the flipbook. The case-list screen reads through `CaseStore.query(...)` with runtime-bound search-input values; the case-search screen renders as split-screen with inline filter — the canonical web-apps shape, which is Nova's authoring target. Forms write through `CaseStore` so subsequent searches see new cases. "Generate sample data" / "Reset sample data" buttons wire Plan 2's actions to the UI.
+**Goal:** Wire Plans 1-4 into the running-app `CaseListScreen` rendering. The running-app case list reads through `loadCasesAction` with runtime-bound search-input values composed from the user's per-input typed text; the existing inline filter bar lands at the top of the list when `caseListConfig.searchInputs.length > 0`. Forms submitted in test mode dispatch through `submitFormAction` so the next case-list render reflects the write. A "Reset sample data" affordance pairs with the existing "Generate sample data" button so authors can iterate on schema + filter changes against fresh data.
 
-**Architecture summary:** Running-app rendering is web-apps-shaped per the spec's "One surface, no mode picker, no platform toggle" rule. Authors see one canonical rendering — split-screen with filters in the sidebar, results in the main panel, inline-search; the modern UX. There is no Android-vs-Web toggle and no per-platform preview surface; CCHQ's runtime fragmentation is a CCHQ-side concern that the export adapter handles silently when the app ships. There is no separate preview lifecycle — the running-app view operates on the same `cases` rows the editor inspects, and form submissions write to the same Cloud SQL Postgres rows that case-list editing reads.
+**Architecture summary:** Running-app rendering is web-apps-shaped per the spec's "One surface, no mode picker, no platform toggle" rule — one `CaseListScreen`, no separate split-screen surface. The cross-bound `caseListConfig.searchInputs` carry the runtime-filterable inputs (Plan 3's reshape); whether the module also carries `caseSearchConfig` doesn't change the preview's rendering shape — `caseSearchConfig` configures search-screen labels + claim-flow emission (CCHQ-runtime concerns the wire layer handles) and the rare `excludedOwnerIds` filter (CCHQ-runtime; Nova's preview ignores it because preview rows are tenant-scoped already and there is no concept of "another user's row" inside one author's preview). There is no separate preview lifecycle — the running-app surface operates on the same `cases` rows the editor inspects, and form submissions write to the same Cloud SQL Postgres rows that case-list editing reads.
 
-**Already shipped (foundation that Plan 5 extends):**
-- `lib/preview/engine/caseDataBindingHelpers.ts` (server-only) — `readCases`, `readCaseListPreview`, `readFilterPreview`, `seedSampleCases`, `apply{Registration,Followup,Close,Survey}Mutation` over `CaseStore.query(...)` (post-pattern-A-fix, the helpers accept `caseTypeSchemas` directly).
+**Already shipped (foundation Plan 5 extends):**
+- `lib/preview/engine/caseDataBindingHelpers.ts` (server-only) — `readCases` / `readCaseListPreview` / `readFilterPreview` / `seedSampleCases` / `apply{Registration,Followup,Close,Survey}Mutation` over `CaseStore.query(...)`. `readCases` already accepts `(caseTypeSchemas, caseListConfig)` and threads `caseListConfig.filter` into the predicate.
 - `lib/preview/engine/caseDataBindingClient.ts` (client-safe) — pure projections + typed-error mappers + `pickBlueprintDoc`.
-- `lib/preview/engine/caseDataBinding.ts` (Server Actions) — `loadCasesAction`, `populateSampleCasesAction`, `submitFormAction`, etc.
-- `components/preview/screens/CaseListScreen.tsx` — v2 case-list rendering (module-name heading, visibility-filtered columns, calc cell rendering via `evaluateColumnValue`).
-- `components/preview/screens/FormScreen.tsx` — running-app form rendering (forms render against case data via `useCaseData`).
-- `components/preview/PreviewShell.tsx` — edit-vs-live mode dispatcher mounting `CaseListWorkspace` (edit) and `CaseListScreen` (live) for `screen.kind === "cases"`.
+- `lib/preview/engine/caseDataBinding.ts` (Server Actions) — `loadCasesAction`, `loadCaseDataAction`, `populateSampleCasesAction`, `loadCaseListPreviewAction`, `loadFilterPreviewAction`, `submitFormAction`. The submit action dispatches every `SubmissionMutation` arm; the case-list and filter-preview actions are authoring-surface helpers (separate from running-app rendering).
+- `lib/preview/hooks/useCaseDataBinding.ts` — `useCases`, `useCaseData`, `usePopulateSampleCases`. The `useCases` hook owns the reload-key trigger that re-fires after sample-data writes.
+- `components/preview/screens/CaseListScreen.tsx` — running-app case-list rendering (module-name heading, visibility-filtered columns, calc cell rendering via `evaluateColumnValue`, sort directives via `buildCaseStoreSortKeys`, inline "Generate sample data" button on the empty arm).
+- `components/preview/screens/FormScreen.tsx` — running-app form rendering (forms render against case data via `useCaseData`; `controller.computeSubmissionMutation` exists on the engine controller; `validateAll` exists). The submit button currently navigates only — the case-store write call is the gap Plan 5 closes.
+- `components/preview/PreviewShell.tsx` — Activity-boundary dispatcher routing `(screen.type, useEditMode())` pairs: edit `caseList` → `CaseListWorkspace`; non-edit `caseList` → `CaseListScreen`; edit `searchConfig` → `CaseSearchConfigPanel`; non-edit `searchConfig` → `CaseSearchConfigInteractEmptyState`; `module` → `ModuleScreen`; `form` → `FormScreen`; `home` → `HomeScreen`.
+- `lib/case-store/store.ts::CaseStore.resetSampleData` — atomic delete + regenerate, transactional. The case-store seam exists; the Server Action wrapper does not.
 
-Plan 5 EXTENDS this foundation; it does not rewrite it. The v2 shape is in place. The work below adds the runtime-bindings layer, the split-screen search rendering, the form write-through wiring at the running-app form-completion path, the sample-data buttons, and a `PreviewSurface` shell that wraps live-mode rendering with shared affordances.
+Plan 5 EXTENDS this foundation; it does not rewrite it. The running-app shell, the doc-store + session-store wiring, the form engine, the case-store I/O, and the case-search authoring surfaces are all in place. The work below adds the runtime-bindings layer (per-input value → predicate composition), the inline `SearchInputForm` widget mounted at the top of `CaseListScreen` when `searchInputs.length > 0`, the `submitFormAction` call from `FormScreen.handleSubmit`, and the `resetSampleCasesAction` Server Action wrapper + paired button.
 
-**Tech Stack:** Plans 1-4 + the existing preview engine + `motion/react` for transitions, `@base-ui/react` for split-screen layout primitives.
+**Tech Stack:** Plans 1-4 + the existing preview engine + `motion/react` for entry animations.
+
+---
+
+## Vocabulary lock
+
+The plan references the following project vocabulary verbatim. Mismatches surfaced during the 2026-05-10 sync against Plan 4's landed reality.
+
+- **Cursor mode** — `cursorMode: "edit" | "pointer"` in the session store. The running-app surface activates when `cursorMode === "pointer"`. The hook `useEditMode()` derives `"test"` from `"pointer"` and `"edit"` from `"edit"`; consumer code branches on `useEditMode() === "test"` to mean "running-app preview is live".
+- **Screen shape** — `PreviewScreen` is a `{ type: "home" | "module" | "caseList" | "searchConfig" | "form", ... }` discriminated union (key is `type`, not `kind`). The case-list arm is `type: "caseList"`, not `type: "cases"`.
+- **`caseSearchConfig` slots** — `excludedOwnerIds`, `searchScreenTitle`, `searchScreenSubtitle`, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`, `searchButtonDisplayCondition`. There is no `claim` cluster, no `claimCondition`, no `dontClaimAlreadyOwned`. Claim-flow `<post>` emission is structural (always emits the default guard); CCHQ's runtime fires it automatically.
+- **`SearchInputDef` arms** — `kind: "simple"` (carries `property` + optional `mode` + optional `via`) and `kind: "advanced"` (carries `predicate`). Both arms carry an optional `default: ValueExpression` slot. Plan 5 defers honoring the `default` slot to a follow-up surface (see "Deferred to follow-up specs" below).
+- **`compileForPlatform`** — produces a three-flag `WireShape` (`autoLaunch` / `defaultSearch` / `inlineSearch`). The function is wire-emission concern; Plan 5's preview is platform-agnostic and does NOT branch on this output.
 
 ---
 
@@ -26,22 +40,32 @@ Plan 5 EXTENDS this foundation; it does not rewrite it. The v2 shape is in place
 
 ```
 lib/preview/engine/
-├── runtimeBindings.ts                                       # NEW — search-input values → predicate context
-├── caseDataBindingHelpers.ts                                # EXTEND — readCases takes runtime input values
+├── runtimeBindings.ts                                       # NEW — per-input values → predicate
+├── caseDataBinding.ts                                       # EDIT — add resetSampleCasesAction
+├── caseDataBindingHelpers.ts                                # EDIT — readCases accepts inputValues; new resetSampleCases helper
+└── __tests__/
+    └── runtimeBindings.test.ts                              # NEW
+
+lib/preview/hooks/
+└── useCaseDataBinding.ts                                    # EDIT — add useResetSampleCases
 
 components/preview/
-├── PreviewSurface.tsx                                       # NEW — shell wrapping live-mode rendering with shared affordances
-├── shared/
-│   ├── SearchInputForm.tsx                                  # NEW — collects search-input values; handles both arms
-│   ├── SampleDataActions.tsx                                # NEW — generate / reset sample-data buttons
-│   └── ResetPreviewButton.tsx                               # NEW — clears any per-session in-memory state (no-op for v1; placeholder)
-├── screens/
-│   ├── CaseListScreen.tsx                                   # EXTEND — inline filter bar when search inputs configured + no split-screen
-│   └── SplitScreenSearchScreen.tsx                          # NEW — sidebar filters + main-panel results
-└── __tests__/
+├── shared/                                                  # NEW directory
+│   ├── SearchInputForm.tsx                                  # NEW — collects search-input values; per-arm widget
+│   └── __tests__/
+│       └── SearchInputForm.test.tsx                         # NEW
+└── screens/
+    ├── CaseListScreen.tsx                                   # EDIT — mount SearchInputForm; render Reset button
+    ├── FormScreen.tsx                                       # EDIT — wire handleSubmit through submitFormAction
+    └── __tests__/
+        ├── CaseListScreen.test.tsx                          # EDIT — extend with search-input + reset coverage
+        └── FormScreen.test.tsx                              # NEW — write-through coverage
+
+__tests__/integration/
+└── case-list-search-running-app.test.ts                     # NEW
 ```
 
-Existing files in `components/preview/screens/` stay at their current paths; the reshape's Task 7 already brought them to v2. Plan 5 extends rather than relocates.
+The existing `components/preview/screens/CaseSearchConfigInteractEmptyState.tsx` stays unchanged — it is the canonical "search-config has no running-app surface" arm that the Plan 4 mount work shipped. The dispatcher in `PreviewShell.tsx` already routes `(screen.type === "searchConfig", mode !== "edit")` to it; Plan 5 does not introduce any new screen type or PreviewShell branch.
 
 ---
 
@@ -49,184 +73,251 @@ Existing files in `components/preview/screens/` stay at their current paths; the
 
 ### Task 1: Runtime bindings layer
 
-**Files:** `lib/preview/engine/runtimeBindings.ts` (NEW), tests.
+**Files:** `lib/preview/engine/runtimeBindings.ts` (NEW), `lib/preview/engine/__tests__/runtimeBindings.test.ts` (NEW).
 
-Translates current search-input values into a runtime context the predicate compiler consumes. The contract:
+Pure module that translates current search-input values into one Predicate the case-list query AND-composes with `caseListConfig.filter`. Server-safe and client-safe — no `CaseStore` dependency, no Server Action import, so the module can be value-imported from both `caseDataBindingHelpers.ts` and the running-app screen.
+
+The contract:
 
 ```ts
+// Map from input.name → user-typed string value. An empty string
+// (or absent key) means the user has not filled the input —
+// per-input contributions short-circuit to "no clause".
 export interface SearchInputValues {
-  // Map from input.name → user-typed string value (empty string ≡ user has not filled).
   readonly values: ReadonlyMap<string, string>;
 }
 
-// Compose per-input runtime contributions into one Predicate that flows to
-// store.query(...). Per-arm dispatch:
-//
-//   - kind: "simple" — value flows through (property, mode, via) into a per-mode
-//     comparison (eq / fuzzy / starts-with / etc.) AND'd into the composed result.
-//   - kind: "advanced" — value is bound to the input(name) term reference inside
-//     the input's predicate; the predicate is AND'd into the composed result.
-//
-// Empty values short-circuit per the search-input default-mode contract — an
-// input whose value is "" contributes no predicate clause (per-mode behavior
-// follows the wire-emission contract Plan 4 Task 10 ships).
-//
-// `caseListConfig.filter` is the unified case-list-and-search filter — it
-// composes in at the helper layer (`readCases`), not here. This function
-// adds only the per-input runtime contributions on top of the unified filter.
+/**
+ * Compose every contributing search-input's runtime predicate into
+ * one Predicate. Caller-side AND-composition with
+ * `caseListConfig.filter` happens at the helper layer (`readCases`)
+ * so the unified-filter slot remains the single source for both the
+ * case-list always-on filter and the search-input contributions.
+ *
+ * Per-arm dispatch:
+ *
+ *   - `kind: "simple"` — value flows through `(property, mode, via)`
+ *     into a per-mode comparison built via the `lib/domain/predicate`
+ *     builder set:
+ *       - `exact` (default for text / select / barcode) →
+ *         `eq(prop(caseType, property), literal(value))`
+ *       - `fuzzy` → `match(prop(...), "fuzzy", literal(value))`
+ *       - `starts-with` → `match(prop(...), "starts-with", literal(value))`
+ *       - `phonetic` → `match(prop(...), "phonetic", literal(value))`
+ *       - `fuzzy-date` → `match(prop(...), "fuzzy-date", literal(value))`
+ *       - `range` (default for date-range) → handled at the widget
+ *         layer (two values produce one `between` clause)
+ *       - `multi-select-contains` → `multiSelectContains(prop(...),
+ *         quantifier, literal-array)`
+ *
+ *   - `kind: "advanced"` — the input's `predicate` AST is bound
+ *     against an `input(name)` term reference; the runtime walks the
+ *     AST and substitutes the value at every `input(name)` Term node.
+ *     The substituted predicate AND-composes into the result.
+ *
+ * Empty values short-circuit (the input contributes no clause).
+ * Zero-input or all-empty input call returns the conjunction
+ * identity element `match-all` so the helper layer can AND-compose
+ * unconditionally without a "did anything contribute" check.
+ *
+ * `via` (relation walk) on the simple arm composes a relation-walked
+ * `prop` reference; the predicate compiler resolves the JOIN at
+ * compile time.
+ */
 export function composeRuntimeFilter(
   searchInputs: ReadonlyArray<SearchInputDef>,
   inputValues: SearchInputValues,
+  caseType: string,
 ): Predicate;
 ```
 
-`composeRuntimeFilter` returns a single Predicate carrying just the per-input runtime contributions. The case-list screen passes the composed result through `readCases` / `readCaseListPreview`, where the helper layer AND-composes it with `caseListConfig.filter` before the predicate flows to `store.query(...)`. The unified filter is the single source for both case-list and search filtering — Plan 4's reshape eliminated the separate `caseSearchConfig.defaultFilters` slot.
+The `caseType` parameter threads to every `prop(caseType, property)` Term construction so the predicate compiler can resolve the property's `data_type` from the case-type schema map.
 
-Tests: simple-arm `(property, mode, via)` mapping per mode (exact / fuzzy / starts-with / phonetic / fuzzy-date / range / multi-select-contains); advanced-arm `input(name)` term substitution; empty-value short-circuit per input.
+**Range-mode value shape.** A `date-range` input emits two values into the map under `<name>:from` and `<name>:to` — the widget at Task 3 pairs them; the binding layer reads both keys; an empty either-end omits the range. (`<name>` is the input's `name` slot, not `kind`.)
 
-### Task 2: Extend `readCases` for runtime values
+**`SearchInputDef.default` slot.** The schema carries an optional `default: ValueExpression` slot — `today()` for date-typed inputs, etc. Plan 5 does NOT honor the slot in the preview; the JS-side has no `ValueExpression` evaluator (the AST is Postgres-strict). Initial input values render empty; the user types to filter. Honoring `default` requires a JS-side AST evaluator and lands in a follow-up spec — see "Deferred to follow-up specs" below.
 
-**Files:** `lib/preview/engine/caseDataBindingHelpers.ts` (EDIT), tests.
+**Tests:** simple-arm `(property, mode, via)` mapping for each mode (the test fixtures cover exact / fuzzy / starts-with / phonetic / fuzzy-date / range / multi-select-contains); advanced-arm `input(name)` Term substitution against a representative AST; empty-value short-circuit per input; mixed-arm composition produces a single AND chain.
 
-`readCases` currently takes `caseListConfig?: CaseListConfig` and threads `config?.filter` into `store.query(...)`. Extend it to accept `inputValues?: SearchInputValues`. When supplied, the helper composes `composeRuntimeFilter(caseListConfig.searchInputs, inputValues)` and AND's the result with `caseListConfig.filter` to produce the predicate that flows to `store.query(...)`. The unified filter slot is the single source for both case-list and search filtering — there is no separate "search default filter" parameter.
+### Task 2: Extend `readCases` for runtime values + new `resetSampleCases` helper
 
-The Server Action `loadCasesAction` accepts the typed values from the running-app surface, projects them through `pickBlueprintDoc` + `buildCaseTypeMap` (the post-pattern-A-fix shape), and forwards.
+**Files:** `lib/preview/engine/caseDataBindingHelpers.ts` (EDIT), `lib/preview/engine/__tests__/caseDataBinding.test.ts` (EDIT).
 
-Tests: case-list with no search inputs reads as before; case-list with simple-arm inputs filters correctly; case-list with advanced-arm inputs filters correctly; mixed-arm composition AND's clauses.
+Two extensions to the helpers module.
+
+**`readCases` accepts `inputValues?: SearchInputValues`.** When supplied, the helper composes `composeRuntimeFilter(caseListConfig.searchInputs, inputValues, caseType)` (Task 1) and AND-composes the result with `caseListConfig.filter` to produce the predicate that flows to `store.query(...)`. The unified filter slot is the single source for both case-list and search filtering — there is no separate "search default filter" parameter.
+
+When `inputValues` is undefined OR `caseListConfig` is undefined, the helper short-circuits to the existing behavior (no runtime contribution). When `caseListConfig.searchInputs.length === 0`, the helper short-circuits without invoking `composeRuntimeFilter`.
+
+**New `resetSampleCases` helper.** Mirror of `seedSampleCases` over `store.resetSampleData`:
+
+```ts
+export async function resetSampleCases(
+  store: CaseStore,
+  args: { appId: string; caseType: CaseType },
+): Promise<PopulateSampleCasesResult> {
+  const result = await store.resetSampleData({
+    appId: args.appId,
+    caseType: args.caseType,
+    count: SAMPLE_CASE_DEFAULT_COUNT,
+  });
+  return { kind: "ok", inserted: result.inserted };
+}
+```
+
+The case-store's `resetSampleData` runs delete + regenerate in one transaction (per `lib/case-store/CLAUDE.md` § sample-data); a mid-operation failure rolls back.
+
+**Tests:** running-app case list with no search inputs reads as before; running-app case list with simple-arm inputs filters correctly; running-app case list with advanced-arm inputs filters correctly; mixed-arm composition AND's clauses; empty-value short-circuit produces unfiltered rows; reset helper deletes existing rows and regenerates a fresh population.
 
 ### Task 3: SearchInputForm component
 
-**Files:** `components/preview/shared/SearchInputForm.tsx` (NEW), tests.
+**Files:** `components/preview/shared/SearchInputForm.tsx` (NEW), `components/preview/shared/__tests__/SearchInputForm.test.tsx` (NEW).
 
-Renders one widget per `SearchInputDef` based on `input.type` (text / select / date / date-range / barcode):
+Renders one widget per `SearchInputDef` based on `input.type`:
+
 - `type: "text"` → text input.
-- `type: "select"` → option dropdown sourced from the case property's declared `options` (resolved via case-type schema).
-- `type: "date"` → single date picker.
-- `type: "date-range"` → two date pickers.
-- `type: "barcode"` → text input + camera/scanner affordance (placeholder for v1; renders as text input with a camera icon).
+- `type: "select"` → option dropdown sourced from the case property's declared `options` (resolved via the case-type schema map). Property resolution uses the simple-arm `property` slot directly. Advanced-arm inputs of `type: "select"` reference a predicate AST whose option-source property is structurally ambiguous (the AST may compose multiple property terms); the widget falls back to a text input on the advanced arm. Surfacing a select on the advanced arm is a follow-up affordance once a "primary input property" annotation lands on `AdvancedSearchInputDef` — until then, ambiguity means text-input fallback.
+- `type: "date"` → single date picker (HTML `<input type="date">`; the value emits as ISO `YYYY-MM-DD`).
+- `type: "date-range"` → two date pickers; values emit under `<name>:from` and `<name>:to` (matches the runtime-bindings layer's range-mode key shape).
+- `type: "barcode"` → text input. Barcode-scanned values are plain strings on the wire side; the text input mirrors that shape and accepts pasted scanner output. A camera/scanner widget is a follow-up affordance — `getUserMedia` + barcode-decode bundle weight is meaningful, and the typed-string fallback covers every input path the scanner widget would.
 
-The widget shape is the same regardless of `input.kind` — a user filling in a search input doesn't see the simple-vs-advanced distinction. The arm distinction is purely about how the value binds to the predicate at runtime (Task 1).
+The widget shape is the same regardless of `input.kind` — a user filling a search input doesn't see the simple-vs-advanced distinction. The arm distinction is purely about how the value binds to the predicate (Task 1).
 
-Debounced onChange (300ms) emits a fresh `SearchInputValues` map up to the parent (CaseListScreen or SplitScreenSearchScreen).
+`onChange` debounces 300 ms before emitting a fresh `SearchInputValues` map upward. `value` flows from the parent's controlled state.
 
-**Mount sites:**
-- `components/preview/screens/CaseListScreen.tsx` — inline filter bar when `searchInputs.length > 0` and no case-search-config / split-screen.
-- `components/preview/screens/SplitScreenSearchScreen.tsx` — sidebar in split-screen mode.
+**Mount site:** `components/preview/screens/CaseListScreen.tsx` — top of the list when `caseListConfig.searchInputs.length > 0`, at every state arm (`empty`, `rows`, `loading`).
 
-Tests: each `type` renders the right widget; debounced onChange fires per typed character; empty value clears the input.
+**Tests:** each `type` renders the right widget; debounced `onChange` fires once per type-burst (300 ms); empty value clears the input; `date-range` emits both `:from` and `:to` keys; `select` options render from the resolved property's declared options.
 
-### Task 4: Extend CaseListScreen with inline filter bar
+### Task 4: Mount `SearchInputForm` in CaseListScreen
 
-**Files:** `components/preview/screens/CaseListScreen.tsx` (EDIT), tests.
+**Files:** `components/preview/screens/CaseListScreen.tsx` (EDIT), `components/preview/screens/__tests__/CaseListScreen.test.tsx` (EDIT).
 
-When the module's `caseListConfig.searchInputs.length > 0` AND the module has no `caseSearchConfig`, render `<SearchInputForm />` at the top of the list. The form's onChange updates the screen's state; the screen re-runs the case-list query with the new runtime-bound predicate (debounced).
+When `caseListConfig.searchInputs.length > 0`, render `<SearchInputForm />` at the top of the running-app case list, regardless of the load state arm. The form's debounced `onChange` updates a `useState<SearchInputValues>` in the screen; the screen passes `inputValues` through to `useCases` (Task 5 wires the hook).
 
-When the module has `caseSearchConfig` AND `caseListConfig.searchInputs.length > 0`, the screen escalates to `<SplitScreenSearchScreen />` (Task 5) instead of the inline filter bar — the search-config presence + inputs-present pair is the preview-layer's split-screen gate. (The flipbook is a web-shaped preview surface; split-screen is the canonical web search UX.)
+`useCases` re-fires when `inputValues` is a new reference — debounce in the form keeps the action-call cadence sane.
 
-Existing v2 rendering stays: module-name heading, visibility-filtered columns, calc cell rendering via `evaluateColumnValue`, sort directives via `buildCaseStoreSortKeys`.
+The existing `CaseListScreen` heading (module name + "Select a case to continue" subtitle), the empty-state "Generate sample data" button, the column-rendering, and the row-click navigation all stay unchanged. The Reset button (Task 6) lands alongside the existing Generate button on the empty arm; the populated arm's chrome lands as a small toolbar row beneath the heading carrying both Generate-on-non-empty + Reset.
 
-Tests: inline filter bar renders when `searchInputs.length > 0` and no `caseSearchConfig`; typing filters live; clearing inputs reverts to filter-only results.
+The split-screen / inline-search distinction is a CCHQ-runtime UX choice driven by `compileForPlatform`'s `WireShape`. Nova's preview surface is web-apps-shaped (one canonical surface) — there is no Android-vs-Web toggle and no separate split-screen screen. The supervisor-locked decision: `caseSearchConfig` presence does NOT change CaseListScreen's rendering shape; the surface is always inline-search-shaped (search inputs above the list, no left sidebar, no separate search screen). Authors who want to verify the CCHQ-side split-screen UX consult the wire emission, not the preview.
 
-### Task 5: Split-screen search screen
+**Tests:** search-input form renders when `searchInputs.length > 0`; typing filters the rendered rows; clearing inputs reverts to filter-only results (the `caseListConfig.filter` always-on filter still applies); zero-search-input config skips the form entirely.
 
-**Files:** `components/preview/screens/SplitScreenSearchScreen.tsx` (NEW), tests.
+### Task 5: useCases extension + useResetSampleCases hook
 
-When the module has `caseSearchConfig` AND `caseListConfig.searchInputs.length > 0`, render the split-screen layout: filters in a left sidebar, results in the main panel. The sidebar mounts:
-- `<SearchInputForm />` (Task 3) for the inputs.
+**Files:** `lib/preview/hooks/useCaseDataBinding.ts` (EDIT), `lib/preview/hooks/__tests__/useCaseDataBinding.test.ts` (EDIT).
 
-The main panel renders the case-list rows (the same rendering CaseListScreen produces) against the runtime-bound predicate (the unified `caseListConfig.filter` AND the per-input contributions; the case-list filter is the same one the local case-list applies — there is no separate "default search filter" surfaced here).
+Two hook-layer changes.
 
-`@base-ui/react` provides the split-screen layout primitive (verify the canonical Base UI component during implementation; may use `@base-ui/react/dialog`'s split layout pattern or a plain CSS grid).
+**`useCases` accepts `inputValues?: SearchInputValues`.** Threads through to `loadCasesAction` so the action's `readCases` call composes the runtime predicate. Fresh-reference `inputValues` triggers the effect's reload path (added to the dep list).
 
-The preview-layer gate is independent of `compileForPlatform`'s wire-emission output — `compileForPlatform` decides the suite-XML wire shape per platform (used at HQ-export time); the preview's split-screen is a Nova-side UX choice for the flipbook (always web-shaped). Formplayer's `SPLIT_SCREEN_CASE_SEARCH` toggle has no effect on Nova's wire output (verified: zero `split_screen` references in CCHQ's `suite_xml/` emission code; the toggle's effect is entirely in formplayer's runtime Java + JS layers), so there is nothing for the preview to mirror from the wire side.
+**New `useResetSampleCases` hook.** Mirror of `usePopulateSampleCases` over a new `resetSampleCasesAction` Server Action (Task 6). Same `(appId, caseType, blueprint) → () => Promise<PopulateSampleCasesResult>` shape; same not-wrapped-in-`useCallback` rationale.
 
-Tests: typing filters results; clearing inputs reverts to filter-only results (the unified `caseListConfig.filter` still applies); split-screen renders when `caseSearchConfig` is present AND `searchInputs.length > 0`.
+`loadCasesAction` extends to accept the new `inputValues` parameter and forward to `readCases`.
 
-### Task 6: Form running-app write-through wiring
+**Tests:** `useCases` re-fires on `inputValues` change; `useResetSampleCases` returns a fresh callback per render; `unauthenticated` / `error` arms map cleanly.
 
-**Files:** `components/preview/screens/FormScreen.tsx` (EDIT — verify which file owns the form-submit path), tests, `components/preview/shared/FormHandoff.tsx` (NEW if extraction is justified).
+### Task 6: resetSampleCasesAction Server Action + Reset button on the populated arm
 
-When a running-app form completes, the consumer:
-1. Calls `controller.validateAll()`; on validate-pass:
-2. Calls `controller.computeSubmissionMutation({ caseId, caseTypes })` with `caseTypes` from the session-store and `caseId` from the URL nav stack.
-3. Dispatches the resulting mutation to `submitFormAction(mutation, appId)` (Server Action; resolves session, constructs `withOwnerContext`, routes to the matching `CaseStore` method per `mutation.kind`).
-4. Invalidates the case-list query for the affected `(appId, caseType)` so the case list re-queries on next render.
+**Files:** `lib/preview/engine/caseDataBinding.ts` (EDIT), `components/preview/screens/CaseListScreen.tsx` (EDIT), tests.
 
-The author can walk through registration → list → followup → list and see their changes — operating on the same `cases` rows the editor inspects.
+**`resetSampleCasesAction` Server Action.** Mirror of `populateSampleCasesAction` — resolves the session, looks up the `CaseType` from the blueprint, constructs `withOwnerContext(session.user.id)`, delegates to `resetSampleCases` (Task 2's helper). Same typed-error shape (`PopulateSampleCasesResult` reused — the success arm carries `inserted: number`, the count of regenerated rows).
 
-If `FormScreen.tsx` already has partial wiring from prior work, verify against the current code and extend; don't duplicate.
+**One button per arm — Generate on empty, Reset on populated.** The empty arm keeps the existing "Generate sample data" button unchanged (it has nothing to reset; populating is the only sensible action). The populated arm gets a new "Reset sample data" button surfaced in a small toolbar row beneath the heading. Reset's action call:
 
-Tests: registration form adds a case to the list; followup form's update shows in the list; close form transitions the case to status `closed` and removes from default-open queries.
+```ts
+const reset = useResetSampleCases({ appId, caseType: caseType?.name, blueprint });
+const handleReset = async () => {
+  setResetStatus({ kind: "running" });
+  const result = await reset();
+  /* same arm dispatch as handleGenerate */
+};
+```
 
-### Task 7: Generate / Reset sample data UI
+The pending state UX mirrors the existing Generate button (`tabler/loader-2` spinner; disabled while `running`; toast on success/error using the same shape the empty-state error message uses).
 
-**Files:** `components/preview/shared/SampleDataActions.tsx` (NEW), tests.
+**Confirmation dialog.** `resetSampleData` deletes ALL rows for the `(appId, caseType)` pair (per `CaseStore.resetSampleData`'s contract). The author may have hand-edited rows via running-app form submissions — a misclick should not silently destroy them. The button surfaces a confirm dialog ("This will delete every case in this case type and replace it with fresh sample data. Continue?") before invoking the action. The dialog uses the project's existing dialog primitive — verify the canonical primitive during implementation (look for the case-list-config workspace's existing destructive-action confirms; reuse the same shape).
 
-Two buttons:
-- **Generate sample data** — calls `populateSampleCasesAction(appId, caseType, blueprint, count)`. On empty case-type, the action populates via `HeuristicCaseGenerator`.
-- **Reset sample data** — calls `resetSampleCasesAction(appId, caseType, blueprint, count)`. Deletes existing rows and regenerates with a fresh seed.
+**Tests:** Reset action invoked on confirm; canceled confirm leaves data untouched; pending UX disables the Reset button while in flight; toast renders on success/error; empty arm renders Generate (no Reset); populated arm renders Reset (no Generate).
 
-Buttons surface with disabled-state UX during the action's pending phase. Toast on success/error (use the project's existing toast primitive — verify path during implementation).
+### Task 7: Form running-app write-through wiring
 
-**Mount site:** `components/preview/PreviewSurface.tsx` (Task 8) — shared affordances overlay anchored at a corner of the live-mode surface, visible across both `CaseListScreen` and `SplitScreenSearchScreen`.
+**Files:** `components/preview/screens/FormScreen.tsx` (EDIT), `components/preview/screens/__tests__/FormScreen.test.tsx` (NEW).
 
-Tests: each button triggers the corresponding action; rendering reflects the regenerated data after re-query.
+Existing `FormScreen.handleSubmit` calls `controller.validateAll()` and navigates on validate-pass without writing to the case store. Plan 5 closes the gap.
 
-### Task 8: PreviewSurface shell + mount site
+The new flow on validate-pass:
 
-**Files:**
-- `components/preview/PreviewSurface.tsx` (NEW) — shell that wraps the live-mode rendering with shared affordances. Mounts `<SampleDataActions />` + the screen-specific component routed via `screen.kind`:
-  - `screen.kind === "cases"` → render `<CaseListScreen />` (which itself escalates to `<SplitScreenSearchScreen />` per Task 5).
-  - `screen.kind === "form"` → render `<FormScreen />`.
-- `components/preview/__tests__/PreviewSurface.test.tsx` (NEW).
-- `components/preview/PreviewShell.tsx` (EDIT) — live-mode dispatcher mounts `<PreviewSurface screen={screen} />` instead of the bare screen-specific component. Edit-mode dispatcher unchanged (`CaseListWorkspace` for cases, `CaseSearchConfigPanel` for search-config per Plan 4 Task 12, etc.).
+1. `controller.computeSubmissionMutation({ caseId, caseTypes })` — `caseTypes` from `useCaseTypes()`; `caseId` from the URL nav stack. Already exists on the controller.
+2. `submitFormAction(mutation, appId)` — already exists. Returns a typed `SubmissionResult`.
+3. On success, dispatch the same navigation the current code does (`form.postSubmit ?? defaultPostSubmit(form.type)`).
+4. On `unauthenticated` / `error` / `case-not-found` / `case-properties-validation` / `missing-case-type` / `schema-not-synced` arms, surface a toast or an inline error (the form stays on screen for the user to amend; the engine's touched/validated state is preserved).
+5. After success, the parent `CaseListScreen`'s `useCases` hook re-fetches on next mount (its reload key) — Activity-revealed CaseListScreen on `back` navigation re-fetches naturally because the screen's effect reads fresh `inputValues` + `caseListConfig`. No explicit invalidation is needed; the screen-level reload key handles refresh patterns the user observes.
 
-**Mount site (locked):** `PreviewSurface` mounts inside `PreviewShell` for live-mode arms. The URL schema is unchanged — the dispatcher target changes from `<CaseListScreen />` → `<PreviewSurface screen={screen} />`. After Plan 5 ships, the routing is:
-- Edit + `kind === "cases"` → `CaseListWorkspace` (Plan 3 surface, authoring).
-- Edit + `kind === "search-config"` → `CaseSearchConfigPanel` (Plan 4 Task 12 surface, authoring).
-- Live + `kind === "cases"` or `kind === "form"` → `PreviewSurface` (Plan 5 surface, running-app).
+**Pending UX.** The submit button switches to a spinner during the in-flight action; the form's input set disables. On error, the spinner clears and the error message renders below the submit row.
 
-`PreviewSurface` keeps the live-mode rendering composable: any future shared affordance (a "running app help" panel, a session inspector, etc.) lands in `PreviewSurface` once and surfaces everywhere live-mode renders.
+**Edge cases.**
+- Survey form (`form.type === "survey"`) — `mutation.kind === "survey"` is a structural no-op at the case-store; the navigation still dispatches.
+- Followup form without `caseId` — already handled by the existing "No cases available" empty state (same code path).
+- Registration form with empty children — `mutation.children: []` is the no-children path; `applyRegistrationMutation` writes the primary only.
 
-**User-runnable acceptance.** User runs `npm run dev`, opens an existing case-typed app, navigates to a module's case list at `/build/{appId}/{moduleUuid}/cases`. Toggles to live mode (existing builder toolbar). Sees actual case rows from `CaseStore` rendering with the configured columns / sort / filter / calc applied. If the module has search inputs, sees an inline filter bar above the list (or a split-screen sidebar if the module has case-search-config). Types into a search input; sees the list filter live (debounced). Clicks "Generate sample data" (Task 7); sees additional rows appear. Submits a registration form for that case type via the running-app surface. Returns to the case list. Sees the new case appear. Clicks "Reset sample data". Sees the cases collection clear back to its prior state. End-to-end running-app loop reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
+**Tests:** registration form submit writes the primary case to the store; followup form submit updates the bound case; close form transitions the case to `closed` and removes it from default-open queries; survey form submit dispatches navigation without writing; error arms render inline errors and keep the user on the form.
 
-### Task 9: Plan 5 integration test
+### Task 8: Plan 5 integration test
 
 **Files:** `__tests__/integration/case-list-search-running-app.test.ts` (NEW).
 
 End-to-end against the testcontainer harness:
-- Build a fixture blueprint with full `caseListConfig` (columns + sort + filter + searchInputs) + `caseSearchConfig` (claim + display).
-- Mount `<PreviewSurface />` against the fixture (use React Testing Library's `render` against a test-wrapped `PreviewShell`).
-- Verify the rendering matches the web-apps split-screen-with-inline-filter shape.
-- Type values into the search inputs; assert the filtered list re-renders via the runtime-bindings layer.
-- Submit a registration form via the running-app surface; assert the case persists through subsequent `CaseStore.query(...)` calls against the live Cloud SQL Postgres `cases` rows.
-- Reset sample data; assert the case-list re-queries to the regenerated rows.
-- Cover all four `WireShape` arms from Plan 4 Task 6 implicitly (the running-app surface always renders the web-apps split-screen shape regardless of platform compilation; the integration test verifies the rendering doesn't accidentally branch on platform context).
+
+1. Build a fixture blueprint with full `caseListConfig` (columns + sort + filter + searchInputs covering every `SearchInputType` + every applicable mode) + `caseSearchConfig` (excludedOwnerIds + display labels).
+2. Mount the running-app `<PreviewShell />` against the fixture (use React Testing Library `render` against a test-wrapped `BuilderProvider`).
+3. Switch cursor mode to `pointer` so `useEditMode() === "test"` and `CaseListScreen` is the active Activity arm.
+4. Verify the rendering: heading is the module name, columns reflect `visibleInList`, calc cells render via `evaluateColumnValue`, sort directives produce the expected row order.
+5. Type values into the search inputs; assert the filtered rows re-render with the AND-composed `(filter, runtime-predicate)` shape.
+6. Submit a registration form via the running-app surface; navigate back to the case list; assert the new case is present in the rows.
+7. Submit a followup; assert the row's properties + `case_name` reflect the patch.
+8. Submit a close; assert the row no longer surfaces in default-open queries.
+9. Click Reset; confirm the dialog; assert the case-list re-queries with the regenerated row population.
+
+The test verifies Plan 5's surface area against the live Postgres `cases` table — no in-memory store, no mocked case-store. The harness's `setupPerTestDatabase` per `lib/case-store/CLAUDE.md` § testcontainers harness handles the per-test database isolation.
+
+**No platform-flag branching.** The integration test does not branch on `compileForPlatform`'s `WireShape` — the running-app preview is platform-agnostic and renders the inline-search shape regardless of platform context. The wire-emission tests (Plan 4 Task 13) cover `WireShape` permutations; Plan 5 covers the preview rendering.
 
 ---
 
 ## Dependencies between tasks
 
-- 1 standalone (depends on Plan 1 + the v2 reshape's `SearchInputDef` discriminated union).
-- 2 depends on 1 + Plan 2's `CaseStore.query(...)` shape (post-pattern-A-fix `caseTypeSchemas` parameter).
-- 3 depends on 1 + the v2 `SearchInputDef` discriminated union.
-- 4 depends on 2 + 3 + Plan 3's reshape Task 7 (the v2 `CaseListScreen` foundation).
-- 5 depends on 3 + 4 + Plan 4 Task 6 (the platform-aware decision tree).
-- 6 depends on 2 + Plan 2's `CaseStore` write methods + the form engine's `computeSubmissionMutation`.
-- 7 depends on Plan 2's `generateSampleData` / `resetSampleData` actions.
-- 8 depends on 4, 5, 6, 7 + Plan 3 reshape Task 7 (the live-mode dispatch pattern).
-- 9 depends on all prior.
+- 1 standalone (depends on `lib/domain/predicate` builders + `lib/domain/modules.ts::SearchInputDef` + `lib/domain/expression`).
+- 2 depends on 1 + Plan 2's `CaseStore.query` / `CaseStore.resetSampleData`.
+- 3 depends on `SearchInputDef` + the case-type schema's `options` slot.
+- 4 depends on 3.
+- 5 depends on 1, 2, 4 (the hook surface composes the running-app screen's data flow).
+- 6 depends on 5.
+- 7 depends on the existing `submitFormAction` + `controller.computeSubmissionMutation` + `useCaseTypes`.
+- 8 depends on all prior.
+
+Tasks 1-2 (engine) and 3-4 (UI) can interleave; task 5 (hook) merges them; task 6 extends the empty arm + adds the action; task 7 closes the form-submit gap; task 8 is the integration test.
 
 ## Final verification
 
 - [ ] `npm run lint` clean.
-- [ ] `npm run typecheck` clean.
+- [ ] `npx tsc --noEmit` clean.
 - [ ] `npm run build` clean.
 - [ ] `npm test` green (full suite, deterministic two consecutive runs).
-- [ ] Integration test (Task 9) passes.
-- [ ] Manual smoke: full registration → search → followup workflow round-trips through the running-app view against live Cloud SQL Postgres.
-- [ ] Web-apps split-screen rendering verified end-to-end (no platform toggle; this is the only rendering).
-- [ ] **User-runnable acceptance:** User runs `npm run dev`, navigates to `/build/{appId}/{moduleUuid}/cases` in live mode, sees actual case rows. Submits a registration form via the running-app surface. Returns to case list. Sees the new case appear. Types into a search input; sees the list filter live. Clicks "Generate sample data"; sees additional rows. End-to-end running-app loop reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
+- [ ] Integration test (Task 8) passes.
+- [ ] Manual smoke: full registration → search-input filter → followup → reset workflow round-trips through the running-app surface against Postgres.
+- [ ] **User-runnable acceptance:** User runs `npm run dev`, opens an existing case-typed app, navigates to a module's case list at `/build/{appId}/{moduleUuid}/cases`. Toggles cursor mode to `pointer` (live preview). Sees actual case rows from `CaseStore` rendering with the configured columns / sort / filter / calc applied. If the module has search inputs, sees a search-input form above the list. Types into a search input; sees the rows filter live (debounced ~300 ms). Submits a registration form via the running-app surface. Returns to the case list. Sees the new case appear. Clicks "Reset"; confirms; sees the cases collection clear and regenerate. End-to-end running-app loop reachable from a fresh `npm run dev` session WITHOUT any "configure first" handholding.
+
+## Deferred to follow-up specs
+
+Four surfaces fall out of scope for Plan 5 and require dedicated follow-up:
+
+- **`SearchInputDef.default` slot honored at first render** — the schema carries `default: ValueExpression` (e.g. `today()` for date-typed inputs). Honoring it in the preview requires a JS-side `ValueExpression` AST evaluator. The Postgres-strict AST has no JS evaluator today (every value-expression evaluates at the SQL layer via `compileExpression`). A follow-up spec ships the JS-side evaluator and threads it through `SearchInputForm`'s initial-value path. Plan 5 renders inputs empty.
+- **`searchButtonDisplayCondition` honored as a Nova-side affordance** — the schema slot exists, validates, and emits to the wire. CCHQ's runtime hides the search button when the predicate is false. Nova's preview surface has no separate "search button" (the inputs filter inline as the user types), so there is structurally nothing to hide. If a future preview surface introduces an explicit "Run search" affordance, the predicate gates it then. Plan 5 ignores the slot in the preview.
+- **`excludedOwnerIds` honored as a preview filter** — the schema slot exists and emits to the wire (`commcare_blacklisted_owner_ids`). CCHQ's runtime excludes the named owners from the search-result population at query time. Nova's preview rows are tenant-scoped (one author = one owner = one tenant); excluding "another user's rows" is structurally meaningless because there are no other users' rows in the preview's row set. The slot is wire-only.
+- **Search-screen display labels rendered in the preview** — `caseSearchConfig.{searchScreenTitle, searchScreenSubtitle, emptyListText, searchButtonLabel, searchAgainButtonLabel}` are five label slots that exist on the schema and emit to the wire. The CCHQ runtime renders them on its dedicated search screen — a separate surface from the case list. Nova's preview surface is one canonical inline-search shape: `CaseListScreen` shows the module name as the heading and the rows below; there is no separate search screen and no search-results screen. Honoring the labels in the preview would require either (a) inserting a search-screen-shaped surface that conflicts with the inline-search principle, or (b) overloading `CaseListScreen`'s heading/subtitle/empty-state with `caseSearchConfig`-conditional fallback logic that contradicts the "module-name heading" rule the v2 reshape locked. Both shapes are larger than Plan 5; a dedicated follow-up that rationalizes the case-list heading family across `caseListConfig` + `caseSearchConfig` ships the rendering.
+
+The four deferrals are explicit decisions, not omissions — the load-bearing surfaces (runtime-bindings, UI mount, write-through, reset) ship in Plan 5; the four deferrals stay where they are because the alternative is extending Plan 5 with infrastructure that has no Plan-5 caller.
 
 ## ⚠️ Pre-deploy: run the migration script BEFORE the v2 code goes live
 
@@ -258,13 +349,13 @@ Re-running the live migration after deploy is safe — already-v2 docs skip clea
 
 ## Plan shape
 
-The bulk of work is in the runtime-bindings layer (Task 1), the split-screen search screen (Task 5), and the form-completion / write-through wiring (Task 6). After Plan 5 ships, the case-list-and-search foundation is end-to-end exercised in the flipbook's running-app view against live Cloud SQL Postgres rows. The running-app view is web-apps-shaped per the spec's "One surface, no mode picker, no platform toggle" rule — Plans 4 and 5 do not produce per-platform preview affordances; CCHQ runtime fragmentation is handled silently by the export adapter when the app ships.
+The bulk of work is the runtime-bindings layer (Task 1), the `SearchInputForm` widget (Task 3), and the form-submit write-through (Task 7). After Plan 5 ships, the case-list-and-search foundation is end-to-end exercised in the running-app surface against live Postgres rows. The running-app view is web-apps-shaped per the spec's "One surface, no mode picker, no platform toggle" rule — Plans 4 and 5 do not produce per-platform preview affordances; CCHQ runtime fragmentation is handled silently by the export adapter when the app ships.
 
 ---
 
 ## Program-level summary (after Plan 5 ships)
 
-The five plans together produce: typed Predicate AST + typed Expression AST, three per-dialect wire emitters, Postgres compiler via Kysely, Cloud SQL Postgres `CaseStore` (the live runtime from v1), schema-driven sample data generator, case-list authoring UI with typed cards + wire emission for short/long detail, case-search authoring UI + wire emission for `<remote-request>`, platform-aware compilation (export-adapter-side, silent), and the flipbook's web-apps-shaped running-app surface with split-screen search, inline filter, and write-through forms. Each plan ships separately-reviewable, separately-testable software.
+The five plans together produce: typed Predicate AST + typed Expression AST, three per-dialect wire emitters, Postgres compiler via Kysely, Cloud SQL Postgres `CaseStore` (the live runtime from v1), schema-driven sample data generator, case-list authoring UI with typed cards + wire emission for short/long detail, case-search authoring UI + wire emission for `<remote-request>`, platform-aware compilation (export-adapter-side, silent), and the flipbook's web-apps-shaped running-app surface with inline search-input filtering and write-through forms. Each plan ships separately-reviewable, separately-testable software.
 
 What ships:
 - Typed Predicate AST + Expression AST (Plan 1)
@@ -273,12 +364,13 @@ What ships:
 - `HeuristicCaseGenerator` writing through `PostgresCaseStore` (Plan 2)
 - Case-list authoring UI with typed cards + the v2 schema reshape (Plan 3 + 2026-05-07 reshape)
 - Wire emission for case-list short / long detail (Plan 3)
-- Case-search authoring UI (Plan 4)
-- Wire emission for `<remote-request>` (Plan 4)
+- Case-search authoring UI — Display + Advanced sections + `searchInputs` cross-binding (Plan 4)
+- Wire emission for `<remote-request>` + dual `<detail>` blocks (Plan 4)
 - Platform-aware compilation, export-adapter-side (Plan 4)
-- Flipbook running-app surface — web-apps-shaped, with split-screen search, inline filter, write-through forms (Plan 5)
+- Flipbook running-app surface — web-apps-shaped, with inline search-input filtering and write-through forms (Plan 5)
 
 What ships in follow-up specs:
+- JS-side `ValueExpression` evaluator + `SearchInputDef.default` initial-value seeding (default-values spec)
 - Visual / geo formats + case tiles (visual/geo formats spec)
 - Related-case detail tabs (advanced detail spec)
 - Multi-select case lists (multi-select spec)
