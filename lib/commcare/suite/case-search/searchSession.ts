@@ -86,13 +86,10 @@ const XPATH_QUERY_KEY = "_xpath_query";
  *     locale (`case_search.{module_id}.inputs`) registers here so
  *     the runtime renders the authored search-screen title; per-
  *     prompt locale ids accumulate from `emitSearchPrompts`.
- *   - `instances` — the per-fixture instance ids the orchestrator
- *     accumulates from term-walking AST contributions. The base
- *     instance set (`casedb`, `commcaresession`, results-instance)
- *     surfaces structurally on every emission; this list flows
- *     through the orchestrator so future term-walks (e.g.
- *     non-casedb fixture references in `_xpath_query`) accumulate
- *     uniformly.
+ *   - `instances` — the per-fixture instance ids declared on the
+ *     surrounding `<remote-request>`. The structural set is
+ *     `casedb` + `commcaresession` + the chosen results instance
+ *     (`results` or `results:inline`).
  */
 export interface SearchSessionEmission {
 	readonly xml: string;

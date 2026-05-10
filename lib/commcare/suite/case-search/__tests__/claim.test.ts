@@ -45,11 +45,12 @@ describe("emitClaimPost — structural shape", () => {
 	});
 
 	it("references the canonical CCHQ claim URL with the domain placeholder", () => {
-		// CCHQ regenerates suite.xml server-side on `import_app`,
-		// substituting the live domain at import time. The literal
-		// `__DOMAIN__` placeholder reaching the wire matches what
-		// CCHQ replaces; direct .ccz sideload is not a current Nova
-		// path.
+		// CCHQ regenerates suite.xml at BUILD time via
+		// `commcare-hq/corehq/apps/app_manager/models.py::Application.create_suite`
+		// (delegating to `SuiteGenerator.generate_suite`), substituting
+		// the live domain into the `__DOMAIN__` placeholder. The
+		// literal placeholder reaching the wire matches what CCHQ
+		// replaces; direct .ccz sideload is not a current Nova path.
 		const xml = emitClaimPost();
 		expect(xml).toContain(
 			`url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"`,
