@@ -182,11 +182,15 @@ describe("DisplaySection — per-slot edits", () => {
 	});
 
 	it("clearing a populated text slot emits onChange with the slot omitted (empty-string-clears)", () => {
-		// Pins the omit-on-empty contract — the per-key setter writes
-		// `undefined` on `""` so strict-parse on the next mount drops
-		// the key. `toEqual` ignores the present-with-undefined key,
-		// so the assertion compares against the seeded shape WITHOUT
-		// the slot.
+		// Pins the omit-on-empty contract — clearing the only slot on
+		// the input config emits the empty object, AND the slot key is
+		// genuinely absent on the emitted object (a destructured drop,
+		// not a `key: undefined` assignment). `toEqual` is satisfied by
+		// either shape, so the explicit `in` probe pins the absent-key
+		// half of the contract loudly — a regression to the leaky
+		// `key: undefined` shape would land the key as an own enumerable
+		// property under the doc store's `Object.assign(mod, patch)`
+		// merge and break downstream `key in config` presence checks.
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<DisplaySection
@@ -205,7 +209,9 @@ describe("DisplaySection — per-slot edits", () => {
 		fireEvent.blur(input);
 
 		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange.mock.calls[0]?.[0]).toEqual({});
+		const emitted = onChange.mock.calls[0]?.[0];
+		expect(emitted).toEqual({});
+		expect("searchScreenTitle" in (emitted ?? {})).toBe(false);
 	});
 
 	it("does not emit onChange when focusing and blurring an empty input on an undefined config", () => {

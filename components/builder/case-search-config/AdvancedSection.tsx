@@ -38,13 +38,14 @@
 // consumer reads as a sibling. The section's job here is the typed
 // `T = ValueExpression` specialization: the `term(literal(""))`
 // add-seed, the `<ExpressionCardEditor expectedType="text">` body,
-// and the slot-key-asymmetric emit shape (set emits the slot as a
-// real key; clear emits the config without the slot key).
+// and the per-slot mutator that routes through the shared
+// `setOptionalSlot` helper.
 
 "use client";
 import tablerForbid from "@iconify-icons/tabler/forbid";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { OptionalSlotCard } from "@/components/builder/shared/OptionalSlotCard";
+import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {
 	literal,
@@ -99,23 +100,8 @@ export function AdvancedSection({
 	knownInputs = [],
 	onValidityChange,
 }: AdvancedSectionProps) {
-	// ── Blacklist mutators ──
-	//
-	// Set-vs-clear branches the emitted shape so `key in config` is
-	// the genuine slot-presence check on the persisted doc. Setting
-	// emits the slot as a real key; clearing emits the config WITHOUT
-	// the slot key (a destructured drop, not a `key: undefined`
-	// assignment). The asymmetric shape matches the SA-side cluster
-	// pickers in `lib/agent/tools/case-search-config/shared.ts` —
-	// missing or cleared slots are TRULY absent on the persisted doc,
-	// so wire-emit time can distinguish "cleared" from "leaked
-	// undefined".
 	const setBlacklist = (next: ValueExpression | undefined) => {
-		const { blacklistedOwnerIds: _drop, ...rest } = value ?? {};
-		void _drop;
-		onChange(
-			next === undefined ? rest : { ...rest, blacklistedOwnerIds: next },
-		);
+		onChange(setOptionalSlot(value, "blacklistedOwnerIds", next));
 	};
 
 	return (

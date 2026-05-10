@@ -133,8 +133,9 @@ export interface OptionalSlotCardProps<T> {
  * Validity contract: when `value === undefined` the card reports
  * `valid: true` regardless of any stale inner shadow. Without the
  * slot-presence short-circuit, a stale `false` left behind by a
- * cleared editor would leak past the clear and the next Add would
- * flash invalid for one frame on the editor's mount.
+ * cleared editor would leak past the clear — the section's parent
+ * would still see the cleared slot reporting invalid until the next
+ * editor mount overwrote the shadow.
  */
 export function OptionalSlotCard<T>({
 	icon,
@@ -184,30 +185,31 @@ export function OptionalSlotCard<T>({
 	// Body content — the editor when the slot is defined, the dashed
 	// Add CTA when the slot is undefined. Hoisted into a const so the
 	// optional-collapse wrapper can wrap it once below without
-	// duplicating the ternary.
-	const body =
-		value !== undefined ? (
-			// Defined slot: render the consumer's editor inside the
-			// shared violet-tinted wrapper. The editor receives the
-			// inner-validity callback so the shadow stays current; the
-			// inner `onChange` pipes back into the primitive's
-			// `onChange` unchanged (consumers route at the boundary).
-			<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
-				{renderEditor(value, onChange, setInnerValid)}
-			</div>
-		) : (
-			// Undefined slot: dashed Add CTA. Same className pattern
-			// every authoring surface uses for an empty-state add row.
-			<button
-				type="button"
-				onClick={handleAdd}
-				className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				aria-label={addLabel}
-			>
-				<Icon icon={tablerPlus} width="12" height="12" />
-				<span>{addLabel}</span>
-			</button>
-		);
+	// duplicating the ternary. Reuses the `slotPresent` constant from
+	// the validity short-circuit so the body branch and the validity
+	// branch read off one source.
+	const body = slotPresent ? (
+		// Defined slot: render the consumer's editor inside the
+		// shared violet-tinted wrapper. The editor receives the
+		// inner-validity callback so the shadow stays current; the
+		// inner `onChange` pipes back into the primitive's
+		// `onChange` unchanged (consumers route at the boundary).
+		<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
+			{renderEditor(value, onChange, setInnerValid)}
+		</div>
+	) : (
+		// Undefined slot: dashed Add CTA. Same className pattern
+		// every authoring surface uses for an empty-state add row.
+		<button
+			type="button"
+			onClick={handleAdd}
+			className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+			aria-label={addLabel}
+		>
+			<Icon icon={tablerPlus} width="12" height="12" />
+			<span>{addLabel}</span>
+		</button>
+	);
 
 	return (
 		<div className="space-y-3">

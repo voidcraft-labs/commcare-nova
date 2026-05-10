@@ -34,13 +34,17 @@
 // `caseSearchConfig` itself is OPTIONAL on the Module schema. A
 // module without case-search authored receives an empty config the
 // moment any one of these six slots takes its first value; the
-// per-slot mutators spread `...(value ?? {})` before applying the
-// patch so untouched siblings flow through unchanged.
+// per-slot mutators route through the shared `setOptionalSlot`
+// helper so untouched siblings flow through unchanged AND a clear
+// emits a destructured drop (the slot key is absent on the next
+// config, not a `key: undefined` assignment that would land as an
+// own enumerable property under `Object.assign(mod, patch)`).
 
 "use client";
 import tablerEye from "@iconify-icons/tabler/eye";
 import { useId, useState } from "react";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
+import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import type { Predicate, SearchInputDecl } from "@/lib/domain/predicate";
@@ -237,29 +241,31 @@ export function DisplaySection({
 	const [predicateValid, setPredicateValid] = useState(true);
 	useValidityPropagator({ isValid: predicateValid, onValidityChange });
 
-	// Per-slot mutators. `...(value ?? {})` materializes the empty
-	// config on first edit so a fresh module emits a strict-parse-
-	// valid `CaseSearchConfig` immediately, and spreads existing
-	// siblings forward so a per-slot patch never loses the rest.
-	// Setting a slot to `undefined` clears it — strict parse on the
-	// next mount drops the key.
+	// Per-slot mutators. The shared `setOptionalSlot` helper routes
+	// every slot's set-or-drop through one shape — set spreads the
+	// existing value forward and binds the slot to its next value;
+	// clear destructures the slot key out and emits the rest. The
+	// rest-without-key shape matters because the doc store applies
+	// patches via `Object.assign(mod, patch)` (a `key: undefined`
+	// source would land as a real own enumerable property and break
+	// the `key in config` genuine-presence check).
 	const setSearchScreenTitle = (next: string | undefined) => {
-		onChange({ ...(value ?? {}), searchScreenTitle: next });
+		onChange(setOptionalSlot(value, "searchScreenTitle", next));
 	};
 	const setSearchScreenSubtitle = (next: string | undefined) => {
-		onChange({ ...(value ?? {}), searchScreenSubtitle: next });
+		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
 	};
 	const setEmptyListText = (next: string | undefined) => {
-		onChange({ ...(value ?? {}), emptyListText: next });
+		onChange(setOptionalSlot(value, "emptyListText", next));
 	};
 	const setSearchButtonLabel = (next: string | undefined) => {
-		onChange({ ...(value ?? {}), searchButtonLabel: next });
+		onChange(setOptionalSlot(value, "searchButtonLabel", next));
 	};
 	const setSearchAgainButtonLabel = (next: string | undefined) => {
-		onChange({ ...(value ?? {}), searchAgainButtonLabel: next });
+		onChange(setOptionalSlot(value, "searchAgainButtonLabel", next));
 	};
 	const setSearchButtonDisplayCondition = (next: Predicate | undefined) => {
-		onChange({ ...(value ?? {}), searchButtonDisplayCondition: next });
+		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
 	};
 
 	return (

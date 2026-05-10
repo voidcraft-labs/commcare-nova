@@ -138,8 +138,12 @@ export function SlotCardHeader({
 			<span className="ml-1 text-[10px] text-nova-text-muted/70">
 				{description}
 			</span>
-			<div className="ml-auto">
-				{clear ? (
+			{clear ? (
+				// Wrapper and button render together — without `clear`,
+				// neither the button nor an empty `ml-auto` container
+				// lands in the DOM, so a cleared-slot header has no
+				// stray spacer node.
+				<div className="ml-auto">
 					<button
 						type="button"
 						onClick={clear.onClick}
@@ -149,8 +153,8 @@ export function SlotCardHeader({
 						<Icon icon={tablerX} width="11" height="11" />
 						<span>{clear.label}</span>
 					</button>
-				) : null}
-			</div>
+				</div>
+			) : null}
 		</header>
 	);
 }
