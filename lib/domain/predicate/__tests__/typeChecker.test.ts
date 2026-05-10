@@ -561,11 +561,11 @@ describe("checkPredicate — in operator membership compatibility", () => {
 
 describe("checkPredicate — within-distance geopoint requirement", () => {
 	// `within-distance` resolves to CCHQ's `case_property_geo_distance`
-	// (corehq/apps/es/case_search.py:386), which queries the
-	// `PROPERTY_GEOPOINT_VALUE` field — only properties stored as a
-	// geopoint participate. The center may be a wire-form coordinate
-	// string (`"lat lon altitude accuracy"` per
-	// corehq/apps/case_search/xpath_functions/query_functions.py:60,
+	// (`corehq/apps/es/case_search.py::case_property_geo_distance`),
+	// which queries the `PROPERTY_GEOPOINT_VALUE` field — only properties
+	// stored as a geopoint participate. The center may be a wire-form
+	// coordinate string (`"lat lon altitude accuracy"` per
+	// `corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`,
 	// where CCHQ parses the center via `GeoPoint.from_string(...,
 	// flexible=True)`) or a typed-geopoint search input, so the
 	// allow-list for the center slot is `geopoint | text`.
@@ -674,7 +674,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 
 	// `fuzzy-date` widens the allow-list to additionally accept date /
 	// datetime properties. CCHQ's `fuzzy_date` (verified at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:101-113`)
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::fuzzy_date`)
 	// is specifically designed to recover from transposed YYYY-MM-DD
 	// inputs, so authors targeting a `date`-typed property must be able
 	// to use the operator without re-declaring the property as text —
@@ -772,7 +772,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 describe("checkPredicate — multi-select-contains property requirement", () => {
 	// `multi-select-contains` is the typed structural shape for CCHQ's
 	// `selected-any` / `selected-all` query functions. The dispatch at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`
 	// (`_selected_query` calls `case_property_query`) accepts text /
 	// single_select / multi_select properties uniformly, but the *Nova*
 	// authoring-time policy is stricter: only a multi_select property

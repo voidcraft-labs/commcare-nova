@@ -207,7 +207,7 @@ describe("emitOnDeviceExpression — format-date", () => {
 
 describe("emitOnDeviceExpression — date-add", () => {
 	// CCHQ's wire signature: `date-add(date, interval, quantity)` —
-	// three separate arguments. Source: `value_functions.py:115`
+	// three separate arguments. Source: `value_functions.py::date_add`
 	// (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`).
 	it("emits date-add(<date>, '<interval>', <quantity>)", () => {
 		const expr = dateAdd(today(), "days", term(literal(-1)));

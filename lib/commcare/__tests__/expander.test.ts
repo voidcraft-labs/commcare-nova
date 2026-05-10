@@ -1028,8 +1028,11 @@ describe("#form/ hashtag expansion", () => {
 
 	// Regression: validate_msg must round-trip through CommCare HQ.
 	//
-	// HQ's XForm parser (`corehq/apps/app_manager/xform.py:1167`) only reads
-	// `jr:constraintMsg` when it points at an itext id via `jr:itext(...)` —
+	// HQ's XForm parser
+	// (`corehq/apps/app_manager/xform.py::XForm.get_questions` —
+	// inside the inner `_get_select_question_option`, where the
+	// `'{jr}constraintMsg'` lookup lives) only reads `jr:constraintMsg`
+	// when it points at an itext id via `jr:itext(...)` —
 	// inline text values are silently dropped at import time. The expander
 	// must therefore (a) emit the bind attribute as an itext reference and
 	// (b) register a matching `<text>` entry in the form's translation block.

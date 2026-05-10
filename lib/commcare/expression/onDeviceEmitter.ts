@@ -27,16 +27,16 @@
 // Operator surface (every arm of `ValueExpression`):
 //
 //   - `today` / `now` — discriminator-only. Emit `today()` / `now()`
-//     (zero-arg value functions registered at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33-34`;
+//     (zero-arg value functions registered on
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`;
 //     also XPath 1.0 standard functions).
 //   - `date-coerce(value)` → `date(<value>)`; `datetime-coerce(value)`
 //     → `datetime(<value>)`. The AST kind name diverges from the wire
 //     function name intentionally — authors see semantic naming
 //     (`dateCoerce(...)`) while the wire layer uses CCHQ's vocabulary.
 //   - `double(value)` → `double(<value>)`. CCHQ's forced numeric
-//     coercion value function at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:32`.
+//     coercion value function on
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 //   - `arith(left, op, right)` → `(<left> <op> <right>)`. The five
 //     CCHQ-vocabulary operators (`+`, `-`, `*`, `div`, `mod`); paren-
 //     wrapping is unconditional so a recursive composition stays
@@ -66,15 +66,15 @@
 //     surfaces here.
 //   - `date-add(value, interval, quantity)` → `date-add(<value>,
 //     '<interval>', <quantity>)`. CCHQ wire signature per
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py:115`
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::date_add`
 //     (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`) — three
 //     separate arguments, `interval` quoted as a CSQL/XPath string
 //     literal. Whether a runtime player dispatches `date-add` is
 //     Dimagi's concern; the wire shape is well-formed XPath function-
 //     call syntax.
 //   - `unwrap-list(value)` → `unwrap-list(<value>)`. CCHQ value
-//     function at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:35`.
+//     function at the `unwrap-list` entry on
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 //   - `term(t)` → delegate to the shared on-device term emitter at
 //     `../predicate/termEmitter:emitTerm`. The structural lifter for
 //     `Term` flavors (property, input, session-user, session-context,
@@ -131,28 +131,28 @@ export function emitOnDeviceExpression(expr: ValueExpression): string {
 			// refs, session refs, and literals all flow through here.
 			return emitTerm(expr.term);
 		case "today":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33`;
-			// also a JavaRosa zero-arg dispatch.
+			// CCHQ value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (the `today` entry); also a JavaRosa zero-arg dispatch.
 			return "today()";
 		case "now":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:34`;
-			// also a JavaRosa zero-arg dispatch.
+			// CCHQ value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (the `now` entry); also a JavaRosa zero-arg dispatch.
 			return "now()";
 		case "date-coerce":
 			// AST `date-coerce(value)` → wire `date(<value>)`. CCHQ
-			// registration at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:28`.
+			// registration at the `date` entry on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 			return `date(${emitOnDeviceExpression(expr.value)})`;
 		case "datetime-coerce":
 			// AST `datetime-coerce(value)` → wire `datetime(<value>)`.
-			// CCHQ registration at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:30`.
+			// CCHQ registration at the `datetime` entry on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 			return `datetime(${emitOnDeviceExpression(expr.value)})`;
 		case "double":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:32`.
+			// CCHQ value function at the `double` entry on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 			return `double(${emitOnDeviceExpression(expr.value)})`;
 		case "arith":
 			// Paren-wrapping is unconditional so a recursive composition
@@ -196,7 +196,7 @@ export function emitOnDeviceExpression(expr: ValueExpression): string {
 		case "date-add":
 			// CCHQ wire signature: `date-add(date, interval, quantity)`
 			// — three separate arguments. Source citation:
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py:115`
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::date_add`
 			// (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`).
 			// Interval flows through `quoteLiteral` because it is a
 			// CSQL/XPath string literal at the wire layer; the schema's
@@ -205,8 +205,8 @@ export function emitOnDeviceExpression(expr: ValueExpression): string {
 			// other string literals keeps the escape rule centralised.
 			return `date-add(${emitOnDeviceExpression(expr.date)}, ${quoteLiteral(expr.interval, "case-list-filter")}, ${emitOnDeviceExpression(expr.quantity)})`;
 		case "unwrap-list":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:35`.
+			// CCHQ value function at the `unwrap-list` entry on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 			return `unwrap-list(${emitOnDeviceExpression(expr.value)})`;
 		default: {
 			const _exhaustive: never = expr;

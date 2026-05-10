@@ -220,9 +220,9 @@ describe("quoteLiteral — csql per-quote-style swap", () => {
 		// CSQL has no portable inline escape that handles both quote
 		// styles in the same literal. `concat()` is not in CSQL's
 		// value-function whitelist (per
-		// `corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
-		// where `XPATH_VALUE_FUNCTIONS` lists 8 functions and `concat`
-		// is not among them) and XPath 1.0 string literals can carry
+		// `corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`,
+		// which lists 8 functions and `concat` is not among them) and
+		// XPath 1.0 string literals can carry
 		// only one of the two quote styles at a time. The helper throws
 		// rather than emit broken wire output; authors must split the
 		// value into a different filter shape or strip one quote type
@@ -274,7 +274,7 @@ describe("quoteIdentifier", () => {
 
 describe("formatNumeric", () => {
 	// CommCare's XPath grammar at
-	// `lib/commcare/xpath/grammar.lezer.grammar:133-136` admits
+	// `lib/commcare/xpath/grammar.lezer.grammar::NumberLiteral` admits
 	// `digit+ ('.' digit*)? | '.' digit+` only and rejects exponent
 	// syntax. JavaScript's `String(n)` switches to exponent form for
 	// very small magnitudes (below ~1e-6) and very large ones (at or

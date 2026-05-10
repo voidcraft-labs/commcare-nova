@@ -5,9 +5,10 @@
 // dialect evaluated by ElasticSearch on the CCHQ server when a
 // case-search remote-request fires; the wire form is documented at
 // `commcare-hq/docs/case_search_query_language.rst`. Two CSQL function
-// whitelists at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-54`
-// constrain what the inner CSQL fragment may contain.
+// whitelists on
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+// and `__init__.py::XPATH_QUERY_FUNCTIONS` constrain what the inner
+// CSQL fragment may contain.
 //
 // The emitter runs a three-stage pipeline:
 //
@@ -25,8 +26,8 @@
 //      fragment at runtime. The segment list, not a re-parse of an
 //      emitted string, is the source for the concat-wrapping pass.
 //   3. Map the segment list into a `concat(...)` XPath expression — the
-//      canonical CCHQ pattern at
-//      `commcare-hq/docs/case_search_query_language.rst:403-407`. Every
+//      canonical CCHQ pattern documented in
+//      `commcare-hq/docs/case_search_query_language.rst`. Every
 //      CSQL value is wrapped in `concat(...)`, even predicates with no
 //      runtime interpolation, so the downstream wire layer reads one
 //      uniform shape.
@@ -39,8 +40,8 @@
 // CSQL value strings interpolating runtime refs use double-quoted
 // CSQL string literals (`= "<value>"`) so the surrounding XPath
 // `concat(...)` arguments can use single-quoted XPath string literals
-// without an embedded-quote conflict — the canonical CCHQ pattern at
-// `case_search_query_language.rst:403-407`. Constant-only string
+// without an embedded-quote conflict — the canonical CCHQ pattern
+// documented in `case_search_query_language.rst`. Constant-only string
 // emissions route through `quoteLiteral(value, "csql")` from
 // `stringQuoting.ts`, which uses single-quoted CSQL by default and
 // switches to double-quoted CSQL when the value contains a single
@@ -62,8 +63,8 @@
 //     hoist pass before the predicate emitter walks the AST; the only
 //     `count` shape that survives is the `subcase`-direction `count`
 //     in comparison-LHS position, which CCHQ's `_is_subcase_count`
-//     recogniser at
-//     `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`
+//     recogniser nested inside
+//     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
 //     dispatches as native `subcase-count(...)`.
 
 import type {
@@ -113,10 +114,11 @@ export interface CsqlEmissionResult {
 /**
  * Comparison-operator AST kind → CSQL wire token. CSQL inherits the
  * six XPath-1.0 binary comparison operators (`=`, `!=`, `<`, `<=`,
- * `>`, `>=`); the parser dispatches them at
- * `commcare-hq/corehq/apps/case_search/filter_dsl.py:88-90` via
- * `property_comparison_query`, drawing the comparator set from
- * `commcare-hq/corehq/apps/case_search/const.py:124-132`
+ * `>`, `>=`); the parser dispatches them through
+ * `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
+ * (the inner `_comparison` calls `property_comparison_query`),
+ * drawing the comparator set from
+ * `commcare-hq/corehq/apps/case_search/const.py::COMPARISON_OPERATORS`
  * (`COMPARISON_OPERATORS = [EQ, NEQ] + list(RANGE_OP_MAPPING.keys())`).
  */
 const COMPARISON_OPS: Record<ComparisonKind, string> = {
@@ -220,12 +222,12 @@ function emitPredicateSegments(
 ): CsqlSegment[] {
 	switch (p.kind) {
 		case "match-all":
-			// CCHQ's zero-arg query function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52`.
+			// CCHQ's zero-arg query function `match-all` registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			return [{ kind: "constant", text: "match-all()" }];
 		case "match-none":
-			// CCHQ's zero-arg query function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:53`.
+			// CCHQ's zero-arg query function `match-none` registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			return [{ kind: "constant", text: "match-none()" }];
 		case "eq":
 		case "neq":
@@ -239,8 +241,8 @@ function emitPredicateSegments(
 		case "or":
 			return emitLogicalSegments(p.clauses, " or ", PREC_OR, parentPrec);
 		case "not": {
-			// `not(...)` is in CCHQ's query-function whitelist at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:40`.
+			// `not(...)` is in CCHQ's query-function whitelist on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			// The parens around the inner are the function-call argument
 			// list; the inner recurses with `parentPrec: 0` so no outer
 			// paren wraps a logical-operator inner.
@@ -260,7 +262,7 @@ function emitPredicateSegments(
 			// Both emit as `<term> = ''` on CSQL — the server-side
 			// `case_property_query()` short-circuits to
 			// `case_property_missing()` semantics at
-			// `commcare-hq/corehq/apps/es/case_search.py:241-246`,
+			// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
 			// matching absent / cleared / empty alike. The strict-
 			// absent intent of `is-null` is faithfully expressed as the
 			// closest CSQL form (the same wire that `is-blank` uses);
@@ -343,17 +345,17 @@ function emitComparisonSegments(
 /**
  * Compile a comparison operand to a segment list. CSQL's value-
  * position wire form for runtime-resolved values uses double-quoted
- * brackets (`<prop> = "<runtime-value>"`) per the canonical pattern at
- * `commcare-hq/docs/case_search_query_language.rst:403-407`; this
- * emitter is responsible for that wrap layer.
+ * brackets (`<prop> = "<runtime-value>"`) per the canonical pattern
+ * documented in `commcare-hq/docs/case_search_query_language.rst`;
+ * this emitter is responsible for that wrap layer.
  *
  * Three operand shapes can reach this slot after the hoist pass:
  *
  *   - `count(subcasePath, ...)` — CCHQ's recognised `subcase-count`
- *     form per `_is_subcase_count` at
- *     `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`. The
- *     filter argument's segments splice inline so any runtime refs
- *     compose into the outer concat. `count` in this position
+ *     form per `_is_subcase_count` nested inside
+ *     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
+ *     The filter argument's segments splice inline so any runtime
+ *     refs compose into the outer concat. `count` in this position
  *     survives the hoist pass; everywhere else it lifts.
  *   - `term`-arm ValueExpression — wrap via the shared
  *     `wrapTermAsSegmentList` helper so a runtime-resolved term
@@ -437,9 +439,9 @@ function emitLogicalSegments(
  * `selected-any` because `selected-any` tokenizes its value argument
  * by whitespace via ElasticSearch's `match`-query analyzer, which
  * `case_property_text_query` at
- * `commcare-hq/corehq/apps/es/case_search.py:291-302` forwards to;
- * `selected-any` would silently break `in` semantics on multi-word
- * values.
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`
+ * forwards to; `selected-any` would silently break `in` semantics on
+ * multi-word values.
  */
 function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
 	const left = emitComparisonOperandSegments(p.left);
@@ -467,8 +469,8 @@ function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
  * Emit a `between` predicate by expanding into the conjunction of two
  * boundary comparisons. CSQL recognises the six binary comparison
  * operators per
- * `commcare-hq/corehq/apps/case_search/const.py:124-132`; expanding
- * `between` keeps the wire form within that vocabulary.
+ * `commcare-hq/corehq/apps/case_search/const.py::COMPARISON_OPERATORS`;
+ * expanding `between` keeps the wire form within that vocabulary.
  *
  * The `lowerInclusive` / `upperInclusive` flags pick the per-bound
  * operator (`>=` / `>` for the lower, `<=` / `<` for the upper). When
@@ -518,8 +520,8 @@ function emitBetweenSegments(
 /**
  * Emit `is-blank` / `is-null` as `<term> = ''`. CCHQ's server-side
  * `case_property_query()` at
- * `commcare-hq/corehq/apps/es/case_search.py:241-246` short-circuits
- * `value == ''` to `case_property_missing()` semantics, matching
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
+ * short-circuits `value == ''` to `case_property_missing()` semantics, matching
  * absent / cleared / empty alike on every CSQL emission. The two
  * predicate kinds map to the same wire form because CSQL has no
  * mechanism for distinguishing strict-absent from cleared from empty
@@ -535,17 +537,18 @@ function emitAbsenceSegments(
 
 /**
  * Emit a `match` predicate. Each mode maps to a CCHQ query function
- * registered at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`:
+ * registered on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`:
  *
- *   - `fuzzy` → `fuzzy-match` (line 48; ES `queries.fuzzy` against
- *     `PROPERTY_VALUE`).
- *   - `phonetic` → `phonetic-match` (line 49; Soundex via
- *     `sounds_like_text_query` at `query_functions.py:84-89`).
- *   - `fuzzy-date` → `fuzzy-date` (line 47; digit-permutation
- *     date match at `query_functions.py:101-113`).
- *   - `starts-with` → `starts-with` (line 50;
- *     `case_property_starts_with` at `query_functions.py:31-35`).
+ *   - `fuzzy` → `fuzzy-match` (ES `queries.fuzzy` against
+ *     `PROPERTY_VALUE`; implementation at `query_functions.py::fuzzy_match`).
+ *   - `phonetic` → `phonetic-match` (Soundex via
+ *     `sounds_like_text_query`; implementation at
+ *     `query_functions.py::phonetic_match`).
+ *   - `fuzzy-date` → `fuzzy-date` (digit-permutation
+ *     date match at `query_functions.py::fuzzy_date`).
+ *   - `starts-with` → `starts-with`
+ *     (`case_property_starts_with` at `query_functions.py::starts_with`).
  *
  * `value` is a plain string — the schema rejects empty values per
  * `matchSchema`'s `.min(1)` rule. The property reference flows through
@@ -605,14 +608,14 @@ function matchModeToWireFunction(
  * picks between `selected` / `selected-any` / `selected-all`; the
  * single-value `any` shape collapses to bare `selected(prop, 'v')`
  * because CCHQ's whitelist registers `selected` as an alias for
- * `selected-any` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43`
+ * `selected-any` on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
  * ("selected and selected_any function identically.").
  *
  * Multi-value `any` and any-arity `all` share the space-joined-token
  * shape — CCHQ's `case_property_text_query` at
- * `commcare-hq/corehq/apps/es/case_search.py:291-302` forwards the
- * value argument to ElasticSearch's `match` query, whose analyzer
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`
+ * forwards the value argument to ElasticSearch's `match` query, whose analyzer
  * tokenizes by whitespace and applies the per-quantifier `OR` /
  * `AND` operator.
  *
@@ -664,12 +667,12 @@ function stringifyLiteralValue(
 /**
  * Emit a `within-distance` predicate. CCHQ's wire form is
  * `within-distance(property, '<lat lon>', distance, 'unit')` per
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`.
  * The function's signature: `confirm_args_count(node, 4)` →
  * (1) property name (string), (2) coordinate string parsed via
  * `GeoPoint.from_string`, (3) numeric distance (parsed via `float`),
  * (4) unit identifier validated against
- * `commcare-hq/corehq/apps/es/queries.py:22-23`'s `DISTANCE_UNITS`.
+ * `commcare-hq/corehq/apps/es/queries.py::DISTANCE_UNITS`.
  *
  * The center coordinate is a ValueExpression slot — usually a
  * `literal("<lat,lon>")` term but possibly a search-input ref for
@@ -695,12 +698,12 @@ function emitWithinDistanceSegments(
  * direction-specific query functions:
  *
  *   - `via.kind === "ancestor"` → `ancestor-exists(<slash-joined steps>, <filter>)`
- *     per `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`.
+ *     per `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`.
  *     The first argument is a slash-separated path serialized from
  *     the `RelationStep[]` chain; CCHQ parses it as an ancestor path
- *     expression at `ancestor_functions.py:74-87`.
+ *     expression at `ancestor_functions.py::_is_ancestor_path_expression`.
  *   - `via.kind === "subcase"` → `subcase-exists('<identifier>', <filter>)`
- *     per `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`.
+ *     per `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::subcase`.
  *
  * `via.kind === "any-relation"` is direction-agnostic and expands to
  * `(<ancestor-form> or <subcase-form>)` so the predicate matches a
@@ -717,8 +720,8 @@ function emitWithinDistanceSegments(
  * position is its own grouping boundary). The filter's segments
  * splice into the outer call's argument list — runtime refs inside
  * the filter compose into the outer concat, matching CCHQ's
- * canonical pattern at
- * `commcare-hq/docs/case_search_query_language.rst:299-303` where a
+ * canonical pattern documented in
+ * `commcare-hq/docs/case_search_query_language.rst` where a
  * `subcase-exists("parent", ... clinic_case_id = "', instance(...),
  * '")')` interpolates a runtime user clinic id into the inner CSQL.
  */
@@ -775,12 +778,12 @@ function emitExistsCallSegments(
  * Emit a single `ancestor-exists('<path>', <filter>)` call. CCHQ's
  * `ancestor-exists` requires exactly two arguments per
  * `confirm_args_count(node, 2)` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:109`.
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`.
  * When `where` is absent, inject `match-all()` as the filter — the
  * natural "any case along this ancestor path exists" semantic,
  * expressed in a single grammar-compliant CSQL function. `match-all()`
- * is a CSQL query function at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52`.
+ * is a CSQL query function registered on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
  *
  * The path argument routes through `quoteLiteral` so the
  * slash-joined identifier list emits as a properly-quoted CSQL
@@ -807,7 +810,7 @@ function emitAncestorExistsCall(
 /**
  * Emit a single `subcase-exists('<id>', <filter>)` call. CCHQ's
  * `subcase-exists` accepts a 1-or-2-arg form per
- * `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:201`
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::_extract_subcase_query_parts`
  * (`if not 1 <= len(args) <= 2`), so the no-where case emits as a
  * single-arg call.
  *

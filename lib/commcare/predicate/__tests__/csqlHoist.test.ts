@@ -3,11 +3,12 @@
 // Acceptance tests for the CSQL hoisting pass. Each `it` constructs a
 // predicate AST via the typed builders and asserts the rewritten AST
 // plus wrapper list. The hoist pass exists because CCHQ's CSQL
-// function whitelists at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-54`
-// admit a narrow vocabulary; lifting non-grammar shapes into on-device
-// wrappers is the canonical pattern at
-// `commcare-hq/docs/case_search_query_language.rst:299-303`.
+// function whitelists on
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+// and `__init__.py::XPATH_QUERY_FUNCTIONS` admit a narrow vocabulary;
+// lifting non-grammar shapes into on-device wrappers is the canonical
+// pattern documented in
+// `commcare-hq/docs/case_search_query_language.rst`.
 //
 // Coverage spans four layers: (1) grammar shapes flow through
 // untouched; (2) non-grammar value expressions in any position lift
@@ -74,8 +75,8 @@ describe("hoistForCsql — non-hoisting paths", () => {
 
 	it("leaves grammar shapes intact through the walker", () => {
 		// `today` / `now` / `date-add` / `double` are members of CCHQ's
-		// CSQL value-function whitelist at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+		// CSQL value-function whitelist on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 		// They survive the walker even when nested several layers deep.
 		const p = isBlank(term(prop("patient", "name")));
 		const result = hoistForCsql(p);
@@ -156,8 +157,8 @@ describe("hoistForCsql — value-position hoists", () => {
 
 	it("lifts a format-date expression in a comparison's right operand", () => {
 		// `format-date` is absent from CSQL's value-function whitelist
-		// at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
+		// on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`,
 		// so the entire expression lifts as a wrapper that runs on
 		// device (where `format-date` is available via JavaRosa).
 		const original = formatDate(term(prop("patient", "dob")), "iso");
@@ -169,8 +170,8 @@ describe("hoistForCsql — value-position hoists", () => {
 
 	it("preserves date-coerce / datetime-coerce intact through the walker", () => {
 		// Both arms map to CSQL value functions (`date(...)` /
-		// `datetime(...)` per
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:28,30`)
+		// `datetime(...)` per the `date` and `datetime` entries on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
 		// — the AST kind names diverge from the wire function names,
 		// but the hoist pass leaves them intact and the emitter
 		// renames at output time.
@@ -205,10 +206,10 @@ describe("hoistForCsql — value-position hoists", () => {
 describe("hoistForCsql — count operator", () => {
 	it("leaves subcase-count in a comparison's left operand untouched", () => {
 		// `count(subcasePath(...)) op N` is CCHQ's recognised
-		// `subcase-count` form per
-		// `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`
-		// (`_is_subcase_count` matches a BinaryExpression whose left is
-		// a FunctionCall named `subcase-count`).
+		// `subcase-count` form per `_is_subcase_count` nested inside
+		// `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
+		// (matches a BinaryExpression whose left is a FunctionCall named
+		// `subcase-count`).
 		const p = gt(count(subcasePath("child")), literal(2));
 		const result = hoistForCsql(p);
 		expect(result.wrappers).toEqual([]);

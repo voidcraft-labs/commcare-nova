@@ -218,15 +218,16 @@ const casePropertyField = (label: string) =>
 // upstream line numbers drift across versions. The CSQL dialect lowers
 // to `ancestor-exists(parent/host, ...)` / `subcase-exists('parent',
 // ...)` per
-// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`,
-// `ancestor_functions.py:39-94`, and `subcase_functions.py:51-62`.
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`,
+// `ancestor_functions.py::walk_ancestor_hierarchy`, and
+// `subcase_functions.py::subcase`.
 // The Postgres dialect lowers to a JOIN on the `case_indices` table.
 //
 // The four kinds (`self`, `ancestor`, `subcase`, `any-relation`) capture
 // the direction of the walk — no traversal, up via parent/host index,
 // down via reverse index, or unknown direction. They do NOT encode
 // CommCare's relationship-id (CHILD = 1, EXTENSION = 2 at
-// `commcare-hq/corehq/form_processor/models/cases.py:1085-1090`); the
+// `commcare-hq/corehq/form_processor/models/cases.py::CommCareCaseIndex`); the
 // `identifier` slot carries the user-named index (`parent`, `host`, or
 // custom) and the relationship-id is derived at the case-store layer
 // when the AST is lowered to SQL.
@@ -395,9 +396,9 @@ export type PropertyRef = z.infer<typeof propertyRefSchema>;
  * `instance('search-input:results')/input/field[@name='<name>']`;
  * SQL: a bound parameter). The CCHQ search-input instance is
  * registered at
- * `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py:354`
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py::search_input_instances`
  * and the canonical path is documented at
- * `commcare-hq/docs/case_search_query_language.rst:299`.
+ * `commcare-hq/docs/case_search_query_language.rst`.
  *
  * `name` is constrained to XML element-name vocabulary (no hyphens) —
  * the wire form `<input>/<field @name='...'>` makes the name surface
@@ -695,7 +696,7 @@ export type ArithOp = (typeof ARITH_OPS)[number];
 /**
  * Closed set of `date-add` interval kinds. The canonical CCHQ value-
  * function set verified at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
  * — CSQL accepts each via the `date-add` / `datetime-add` value
  * functions; the on-device dispatcher does not register a handler
  * (the representability checker rejects non-day intervals for
@@ -941,7 +942,8 @@ const switchSchema = z
  * compositions land cleanly: `gt(count(via), literal(2))`,
  * `eq(count(via), prop("expected_visits"))`. CCHQ's wire `subcase-count`
  * is recognised only as the LHS of a binary comparison
- * (`commcare-hq/.../filter_dsl.py:89-95`), so a `count(...)` outside
+ * (`commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
+ * via `_is_subcase_count`), so a `count(...)` outside
  * a comparison context is unrepresentable in CSQL — the
  * representability checker flags this at authoring time. The
  * Postgres compiler executes the count natively in any value
@@ -958,8 +960,9 @@ const countSchema = z
 /**
  * CSQL's `unwrap-list` value function: pull a JSON-encoded array
  * stored in a property's value and surface it as a sequence of
- * values. The wire form is one of the eight CSQL value functions at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+ * values. The wire form is one of the eight CSQL value functions
+ * registered on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
  *
  * v1 has no AST consumer for the resulting sequence type —
  * `in.values` and `multi-select-contains.values` stay literal-only
@@ -1118,7 +1121,7 @@ const inSchema = z
  * unit vocabulary. CCHQ accepts nine units (`miles`, `yards`, `feet`,
  * `inch`, `kilometers`, `meters`, `centimeters`, `millimeters`,
  * `nauticalmiles` per
- * `commcare-hq/corehq/apps/es/queries.py:22-23`); Nova exposes the
+ * `commcare-hq/corehq/apps/es/queries.py::DISTANCE_UNITS`); Nova exposes the
  * two imperial/metric anchor units. Authors who need other units
  * coerce upstream of the AST.
  */
@@ -1130,7 +1133,7 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
  * within `distance` of `center`. `property` is a direct property
  * reference (the geopoint can't be a literal or an input — those
  * shapes don't make geometric sense, and the wire layer at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`
  * dispatches `within-distance` against a property name, not a value
  * expression). `center` is a `ValueExpression` so a date-driven or
  * arithmetic-derived center coordinate (rare but representable via
@@ -1162,21 +1165,22 @@ const withinDistanceSchema = z
  * the builder's accepted argument set rather than requiring parallel
  * maintenance.
  *
- * Each mode maps to a CCHQ query function registered at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`:
+ * Each mode maps to a CCHQ query function registered on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`:
  *
  *   - `fuzzy` → `fuzzy-match` (Elasticsearch `queries.fuzzy` against
  *     `PROPERTY_VALUE`, edit-distance match)
- *     — `query_functions.py:92-98`.
+ *     — `query_functions.py::fuzzy_match`.
  *   - `phonetic` → `phonetic-match` (Soundex / metaphone-style match
  *     via `sounds_like_text_query`)
- *     — `query_functions.py:84-89`.
+ *     — `query_functions.py::phonetic_match`.
  *   - `fuzzy-date` → `fuzzy-date` (digit-permutation date match for
  *     transposed YYYY-MM-DD inputs)
- *     — `query_functions.py:101-113`.
+ *     — `query_functions.py::fuzzy_date`.
  *   - `starts-with` → `starts-with` (`case_property_starts_with` →
  *     `prefix` filter on `PROPERTY_VALUE_EXACT`)
- *     — `query_functions.py:31-35` and `case_search.py:312-323`.
+ *     — `query_functions.py::starts_with` and
+ *     `case_search.py::case_property_starts_with`.
  */
 export const MATCH_MODES = [
 	"fuzzy",
@@ -1191,11 +1195,11 @@ export type MatchMode = (typeof MATCH_MODES)[number];
  * top-level-tuple-feeds-schema pattern as `MATCH_MODES` /
  * `COMPARISON_KINDS` / `DISTANCE_UNITS`. `any` maps to CCHQ's
  * `selected-any` (any token matches); `all` maps to `selected-all`
- * (every token matches). Both registered at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:44-45`
+ * (every token matches). Both registered on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
  * and dispatched through `_selected_query` →
  * `case_property_query(..., multivalue_mode='or' | 'and')` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`.
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`.
  */
 export const MULTI_SELECT_QUANTIFIERS = ["any", "all"] as const;
 export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
@@ -1226,8 +1230,8 @@ export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
  * use case for case-search authoring. The wire target supports
  * runtime substitution via the on-device wrapper that builds the
  * CSQL `_xpath_query` string — see CCHQ's `unwrap_value` at
- * `commcare-hq/corehq/apps/case_search/dsl_utils.py:11-42` and the
- * canonical concat pattern in
+ * `commcare-hq/corehq/apps/case_search/dsl_utils.py::unwrap_value`
+ * and the canonical concat pattern in
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`.
  *
  * The type checker rejects values that don't resolve to a text-
@@ -1299,8 +1303,9 @@ const matchSchema = z
  * `is-blank(prop)` (absent-or-empty, the CCHQ-portable form;
  * emits `prop = ''` on every CCHQ dialect, with the server-side
  * `case_property_query()` short-circuit at
- * `commcare-hq/corehq/apps/es/case_search.py:241-246` collapsing
- * empty-value queries into the absent-or-empty match set in CSQL).
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
+ * collapsing empty-value queries into the absent-or-empty match set
+ * in CSQL).
  * Reject the all-null list here so downstream consumers don't have
  * to encode the policy. Source citations live next to the
  * `.refine(...)` call below.
@@ -1308,8 +1313,9 @@ const matchSchema = z
  * Wire-side whitespace tokenization on `values`: CCHQ's `selected-any`
  * / `selected-all` tokenize the values argument by whitespace at the
  * wire layer (`case_property_text_query` docstring at
- * `commcare-hq/corehq/apps/es/case_search.py:294-296` — "If the value
- * has multiple words, they will be OR'd together in this query"). A
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`
+ *  — "If the value has multiple words, they will be OR'd together in
+ * this query"). A
  * literal like `"foo bar"` emits as `selected-any(prop, 'foo bar')`
  * and is expanded by CCHQ to "contains any of {foo, bar}" rather than
  * "contains the literal token 'foo bar'". Multi-select option values
@@ -1346,22 +1352,22 @@ const multiSelectContainsSchema = z
 	// emits `prop = ''` on every CCHQ dialect).
 	//
 	// CSQL: `case_property_query(name, '', multivalue_mode=...)`
-	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py:241-246`
+	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
 	// (the `value == ''` arm) to `case_property_missing(name)` —
 	// "the property is missing" — before reaching the multivalue
 	// tokenization branch. `case_property_missing` is a Python helper
-	// at the same file's line 378, not a CSQL function authors can
-	// write; the empty-equality form is the only authorable shape and
-	// CCHQ does the right thing internally. Every null literal lowers
-	// to the wire-form empty string at the term emitter, so an all-
-	// null list never reaches the `selected-any` / `selected-all` per-
-	// token logic; the entire predicate is a single absence check
+	// at the same file's `case_property_missing`, not a CSQL function
+	// authors can write; the empty-equality form is the only authorable
+	// shape and CCHQ does the right thing internally. Every null literal
+	// lowers to the wire-form empty string at the term emitter, so an
+	// all-null list never reaches the `selected-any` / `selected-all`
+	// per-token logic; the entire predicate is a single absence check
 	// duplicated by `quantifier`'s OR / AND. The CCHQ wire match-set
 	// covers absent / cleared / empty — the same match set
 	// `is-blank(prop)` expresses cleanly at the AST layer.
 	//
 	// On-device: `XPathSelectedFunc.multiSelected` at
-	// `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathSelectedFunc.java:38-54`
+	// `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathSelectedFunc.java::XPathSelectedFunc.multiSelected`
 	// trims the candidate token before searching: with the candidate
 	// trimming to the empty string, the substring test
 	// `(" " + s1 + " ").contains(" " + "" + " ")` reduces to
@@ -1385,10 +1391,12 @@ const multiSelectContainsSchema = z
 // `match-all` and `match-none` are the boolean-algebra identity and
 // absorbing elements — always-true and always-false predicates that
 // carry no payload other than their discriminator. CCHQ exposes the
-// same pair as zero-arg query functions registered at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`
+// same pair as zero-arg query functions registered on
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
 // and implemented at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:162-177`
+// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::match_all`
+// and
+// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::match_none`
 // (each implementation rejects any argument with an
 // `XPathFunctionException`).
 //
@@ -1411,9 +1419,10 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 // On every CCHQ dialect, `prop = ''` matches all three states; in
 // CSQL the server-side `case_property_query()` short-circuits empty-
 // value queries to `case_property_missing()` semantics at
-// `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching
-// all three states. (`case_property_missing` is a Python helper at
-// the same file's line 378 — not a CSQL function authors can write.)
+// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
+// also matching all three states. (`case_property_missing` is a
+// Python helper at the same file's `case_property_missing` — not a
+// CSQL function authors can write.)
 // The wire conflation is a CCHQ-side accumulation; **Nova's AST and
 // runtime are not bound by it**.
 // Postgres JSONB distinguishes "key absent" from "key present with
@@ -1457,11 +1466,12 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 //     `prop = ''` (the on-device idiom for absent-or-empty; CSQL
 //     server-side `case_property_query()` short-circuits empty-value
 //     queries to `case_property_missing()` semantics at
-//     `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching
-//     absent / cleared / empty alike). `case_property_missing` is a
-//     Python helper at the same file's line 378, not a CSQL function
-//     authors can write — the empty-equality form is the only
-//     authorable shape, and CCHQ does the right thing on the server.
+//     `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
+//     matching absent / cleared / empty alike).
+//     `case_property_missing` is a Python helper at the same file's
+//     `case_property_missing`, not a CSQL function authors can write
+//     — the empty-equality form is the only authorable shape, and
+//     CCHQ does the right thing on the server.
 //     Search-input refs in case-list / post-ES filters wrap the
 //     equality in `if(count(input), real_predicate, match-all())`
 //     so absent inputs short-circuit cleanly.
@@ -1700,12 +1710,12 @@ const whenInputPresentSchema = z
 //
 // CCHQ exposes the corresponding query functions in two spots:
 //   - `subcase-exists` at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`.
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::subcase`.
 //     It accepts a one-or-two-argument form — the filter argument is
 //     optional per the parser at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`.
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::_extract_subcase_query_parts`.
 //   - `ancestor-exists` at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`.
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`.
 //     It unconditionally requires two arguments (the implementation
 //     calls `confirm_args_count(node, 2)`).
 //

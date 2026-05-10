@@ -43,8 +43,8 @@
 //     each value as a single equality RHS, so spaces inside a value
 //     stay wire-side opaque (CCHQ's `selected-any` would tokenize the
 //     value argument by whitespace per
-//     `commcare-hq/corehq/apps/es/case_search.py:291-296`, breaking
-//     space-bearing values).
+//     `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`,
+//     breaking space-bearing values).
 //   - `between`: expand to `gte`/`gt` and/or `lte`/`lt` clauses
 //     joined by `and`, picking the strict / non-strict comparator
 //     from each `*Inclusive` flag. Single-bound forms emit as a
@@ -54,24 +54,24 @@
 //   - `match`: each mode emits the named CCHQ wire function call.
 //     `starts-with(prop, 'v')` is XPath 1.0 standard; `fuzzy-match`,
 //     `phonetic-match`, and `fuzzy-date` are CCHQ extensions
-//     registered in CSQL's query-function table at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+//     registered on CSQL's query-function table at
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 //   - `within-distance`: emit
 //     `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
 //     per the CCHQ wire signature at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`.
 //   - `exists` / `missing` with `via.kind === "ancestor"`:
 //     `count(...) > 0` / `count(...) = 0` against an
 //     `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]`
 //     join. Multi-hop ancestors compose nested `[@case_id=...]`
 //     joins. The hashtag-replacement pattern at
-//     `commcare-hq/corehq/apps/app_manager/xpath.py:101-103` builds
-//     the same wire shape (`#parent` / `#host` expand to
+//     `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
+//     builds the same wire shape (`#parent` / `#host` expand to
 //     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
 //   - `exists` / `missing` with `via.kind === "subcase"`: reverse-
 //     direction join — `[index/<rel>=current()/@case_id]`. The
 //     canonical CCHQ example pinning this shape is at
-//     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`.
+//     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
 //   - `exists` / `missing` with `via.kind === "self"`: collapses to
 //     a no-op. `exists(self, filter)` reduces to `filter`;
 //     `exists(self)` to `true()`; `missing(self, filter)` to
@@ -231,7 +231,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 		case "within-distance":
 			// CCHQ wire signature:
 			// `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
-			// per `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`
+			// per `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`
 			// (`confirm_args_count(node, 4)` with arg order
 			// property / coords / distance / unit).
 			//
@@ -267,9 +267,9 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
  * but carries multi-select-token semantics: ES's
  * `case_property_text_query` tokenizes the value string by
  * whitespace and matches ANY token (verified at
- * `commcare-hq/corehq/apps/es/case_search.py:291-296` — the
- * docstring states "If the value has multiple words, they will be
- * OR'd together in this query"). That breaks `in` on space-bearing
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`
+ *  — the docstring states "If the value has multiple words, they will
+ * be OR'd together in this query"). That breaks `in` on space-bearing
  * values: `isIn(name, "Alice Smith")` (one literal) and
  * `isIn(name, "Alice Smith", "Bob")` (a list of two) would land on
  * different result sets if `in` routed through `selected-any`.
@@ -344,8 +344,8 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
  *   - `fuzzy-date` → `fuzzy-date(prop, <value>)`.
  *
  * The three CCHQ extensions (`fuzzy-match`, `phonetic-match`,
- * `fuzzy-date`) are registered in CSQL's query-function table at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+ * `fuzzy-date`) are registered on CSQL's query-function table at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
  * The wire syntax is the same well-formed function-call shape
  * regardless of slot.
  *
@@ -445,13 +445,13 @@ function emitMultiSelectContains(
  *   - **Ancestor** walks anchor on `current()/index/<rel>`. Multi-hop
  *     walks compose by using the full nodeset of the previous hop as
  *     the next hop's `@case_id` anchor. CCHQ's hashtag-replacement
- *     pattern at `commcare-hq/corehq/apps/app_manager/xpath.py:101-103`
+ *     pattern at `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
  *     builds the same wire shape (`#parent` / `#host` expand to
  *     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
  *   - **Subcase** walks reverse direction:
  *     `[index/<rel>=current()/@case_id]`. The canonical CCHQ example
  *     pinning this shape is at
- *     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`.
+ *     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
  *
  * `via.kind === "self"` is degenerate — a relational walk with no
  * traversal — so the emitter reduces it to non-relational shape:

@@ -58,6 +58,15 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_search_input` | Remove one search input by uuid. |
 | `reorder_search_inputs` | Reorder search inputs by passing the desired uuid sequence. |
 
+## Working on case search
+
+Case search is the search experience that surrounds the case list — the screen title, helper text, and button labels the user sees, plus a few niche search-side filters most authors never reach for. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent — pass `null` on any slot to clear it.
+
+| Tool | What it does |
+|---|---|
+| `set_case_search_display` | Set the search-screen labels: title, subtitle, empty-list text, search and search-again button labels, and the predicate that decides when to show the search button. |
+| `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results. |
+
 ## Working on forms
 
 CommCare has four form types: `registration` creates a new case, `followup` updates a case, `close` loads and closes a case, `survey` is standalone (no case).

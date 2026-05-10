@@ -852,12 +852,13 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
  * On-device, `prop = ''` matches all three states; in CSQL, the
  * server-side `case_property_query()` short-circuits `value == ''`
  * to `case_property_missing()` semantics at
- * `commcare-hq/corehq/apps/es/case_search.py:241-246`, also matching
- * all three states. There is no CSQL function authors can write to
- * select strict-absent only — `case_property_missing` is a Python
- * helper at `commcare-hq/corehq/apps/es/case_search.py:378`, not a
- * CSQL function in the table at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
+ * also matching all three states. There is no CSQL function authors
+ * can write to select strict-absent only — `case_property_missing`
+ * is a Python helper at
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_missing`,
+ * not a CSQL function in the table at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
  * Emitting `is-null` against any CCHQ target would silently widen
  * the match set and lose the AST's strictness signal. The
  * representability checker errors at authoring time when an
@@ -907,11 +908,12 @@ export function isNull(
  *   - **CSQL:** wire form `prop = ''`. The CCHQ server-side
  *     `case_property_query()` short-circuits empty-value queries to
  *     `case_property_missing()` semantics at
- *     `commcare-hq/corehq/apps/es/case_search.py:241-246`, matching
- *     absent / cleared / empty alike. (`case_property_missing` is a
- *     Python helper at the same file's line 378 — not a CSQL
- *     function authors can write; the empty-equality form is the
- *     only authorable shape, and CCHQ does the right thing.)
+ *     `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
+ *     matching absent / cleared / empty alike.
+ *     (`case_property_missing` is a Python helper at the same file's
+ *     `case_property_missing` — not a CSQL function authors can
+ *     write; the empty-equality form is the only authorable shape,
+ *     and CCHQ does the right thing.)
  *   - **Case-list / post-ES filter:** `prop = ''` for property refs
  *     (CCHQ's on-device idiom for absent-or-empty), with the
  *     `if(count(input), real, match-all())` wrapper for refs that
@@ -1085,8 +1087,8 @@ export function term(t: Term): Extract<ValueExpression, { kind: "term" }> {
 /**
  * `today` constant — resolves to the project-timezone ISO date at
  * evaluation time. Discriminator-only shape; no payload. CCHQ wire
- * form: `today()` (zero-arg value function at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33`).
+ * form: `today()` (zero-arg value function registered on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
  */
 export function today(): Extract<ValueExpression, { kind: "today" }> {
 	return { kind: "today" };

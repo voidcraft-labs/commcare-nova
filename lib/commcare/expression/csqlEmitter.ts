@@ -8,7 +8,7 @@
 //
 // Emission policy: emit the eight `ValueExpression` arms that ARE in
 // CCHQ's CSQL value-function whitelist
-// (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`).
+// (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
 // The remaining seven arms (`arith`, `concat`, `coalesce`, `if`,
 // `switch`, `count`, `format-date`) lift in the predicate-side hoist
 // pass at `lib/commcare/predicate/csqlHoist.ts` before this emitter
@@ -33,23 +33,23 @@
 // `XPATH_VALUE_FUNCTIONS` registry):
 //
 //   - `today` / `now` — discriminator-only. Emit `today()` / `now()`
-//     constant segments. CCHQ registrations at lines 33-34 of the
-//     whitelist.
+//     constant segments. CCHQ registrations at the `today` and `now`
+//     entries on `XPATH_VALUE_FUNCTIONS`.
 //   - `date-coerce(value)` → `date(<value>)`; `datetime-coerce(value)`
 //     → `datetime(<value>)`. AST kind names diverge from wire function
-//     names; emitter performs the rename. Registrations at lines 28
-//     and 30.
+//     names; emitter performs the rename. Registrations at the `date`
+//     and `datetime` entries.
 //   - `double(value)` → `double(<value>)`. Forced numeric coercion.
-//     Registration at line 32.
+//     Registration at the `double` entry.
 //   - `date-add(value, interval, quantity)` → `date-add(<value>,
 //     '<interval>', <quantity>)`. CCHQ wire signature per
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py:115`
+//     `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::date_add`
 //     (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`) — three
-//     separate arguments. Whitelist registrations at lines 29 and 31
-//     cover both `date-add` and `datetime-add`; the AST `date-add`
-//     kind covers both wire forms via the `interval` discriminator.
+//     separate arguments. Whitelist registrations at the `date-add` and
+//     `datetime-add` entries cover both wire forms; the AST `date-add`
+//     kind covers both via the `interval` discriminator.
 //   - `unwrap-list(value)` → `unwrap-list(<value>)`. Sequence-source
-//     value function. Registration at line 35.
+//     value function. Registration at the `unwrap-list` entry.
 //   - `term(t)` → delegate to the shared CSQL term-segment emitter at
 //     `../predicate/termEmitter:emitTermSegment`. Property refs and
 //     literals emit as constant segments; runtime refs emit as
@@ -88,8 +88,8 @@ export function emitCsqlExpressionSegments(
 			// outermost runtime ref via `wrapTermAsSegmentList` because
 			// CSQL value-position equality (`<prop> = "<value>"`)
 			// requires the double-quote brackets per the canonical
-			// pattern at
-			// `commcare-hq/docs/case_search_query_language.rst:403-407`.
+			// pattern documented in
+			// `commcare-hq/docs/case_search_query_language.rst`.
 			//
 			// Constant arms (property refs, literals) emit as one
 			// constant segment regardless of position.
@@ -100,29 +100,33 @@ export function emitCsqlExpressionSegments(
 			return [{ kind: "runtime", xpath: inner.xpath }];
 		}
 		case "today":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33`.
+			// CCHQ value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (the `today` entry).
 			return [{ kind: "constant", text: "today()" }];
 		case "now":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:34`.
+			// CCHQ value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (the `now` entry).
 			return [{ kind: "constant", text: "now()" }];
 		case "date-coerce":
 			// AST `date-coerce(value)` → wire `date(<value>)`. CCHQ
-			// registration at line 28.
+			// registration at the `date` entry on `XPATH_VALUE_FUNCTIONS`.
 			return emitFunctionCallSegments(
 				"date",
 				emitCsqlExpressionSegments(expr.value),
 			);
 		case "datetime-coerce":
 			// AST `datetime-coerce(value)` → wire `datetime(<value>)`.
-			// CCHQ registration at line 30.
+			// CCHQ registration at the `datetime` entry on
+			// `XPATH_VALUE_FUNCTIONS`.
 			return emitFunctionCallSegments(
 				"datetime",
 				emitCsqlExpressionSegments(expr.value),
 			);
 		case "double":
-			// CCHQ value function at line 32.
+			// CCHQ value function at the `double` entry on
+			// `XPATH_VALUE_FUNCTIONS`.
 			return emitFunctionCallSegments(
 				"double",
 				emitCsqlExpressionSegments(expr.value),
@@ -130,7 +134,7 @@ export function emitCsqlExpressionSegments(
 		case "date-add":
 			// CCHQ wire signature: `date-add(date, interval, quantity)`
 			// — three separate arguments. Source citation:
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py:115`
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::date_add`
 			// (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`).
 			// Interval flows through `quoteLiteral(..., "csql")` because
 			// it is a CSQL string literal at the wire layer; the
@@ -139,7 +143,8 @@ export function emitCsqlExpressionSegments(
 			// keeps the escape rule centralised.
 			return emitDateAddSegments(expr);
 		case "unwrap-list":
-			// CCHQ value function at line 35.
+			// CCHQ value function at the `unwrap-list` entry on
+			// `XPATH_VALUE_FUNCTIONS`.
 			return emitFunctionCallSegments(
 				"unwrap-list",
 				emitCsqlExpressionSegments(expr.value),
@@ -160,7 +165,7 @@ export function emitCsqlExpressionSegments(
 			// the bypass path ever surfaced one of these arms here, the
 			// throw defends against emitting broken CSQL.
 			throw new Error(
-				`csqlExpressionEmitter: ValueExpression arm '${expr.kind}' should have been hoisted before this emitter ran. The CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36) does not include this arm; the predicate-side hoist pass at lib/commcare/predicate/csqlHoist.ts is the wire-encoding solution.`,
+				`csqlExpressionEmitter: ValueExpression arm '${expr.kind}' should have been hoisted before this emitter ran. The CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm; the predicate-side hoist pass at lib/commcare/predicate/csqlHoist.ts is the wire-encoding solution.`,
 			);
 		default: {
 			const _exhaustive: never = expr;
@@ -198,7 +203,7 @@ function emitFunctionCallSegments(
 /**
  * Emit `date-add(<date>, '<interval>', <quantity>)` as a segment list.
  * CCHQ's `_date_or_datetime_add` calls `confirm_args_count(node, 3)`
- * at `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py:135`,
+ * at `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::_date_or_datetime_add`,
  * so the three-argument shape is mandatory.
  *
  * The interval is one of `DATE_ADD_INTERVALS` (a closed enum at

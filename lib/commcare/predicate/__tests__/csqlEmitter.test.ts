@@ -152,10 +152,10 @@ describe("emitCsql — comparison operators", () => {
 
 describe("emitCsql — reserved case attributes", () => {
 	// CCHQ's `INDEXED_METADATA_BY_KEY` at
-	// `commcare-hq/corehq/apps/case_search/const.py:53-103` registers
-	// `case_id`, `case_type`, `owner_id`, and `status` with the `@`
-	// prefix. The four below get the prefix; user-defined properties
-	// emit bare.
+	// `commcare-hq/corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`
+	// registers `case_id`, `case_type`, `owner_id`, and `status` with
+	// the `@` prefix. The four below get the prefix; user-defined
+	// properties emit bare.
 
 	it.each([
 		"case_id",
@@ -219,8 +219,9 @@ describe("emitCsql — logical operators", () => {
 
 describe("emitCsql — sentinel predicates", () => {
 	// `match-all` / `match-none` are CCHQ's zero-arg query functions
-	// at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`.
+	// registered on
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
+	// (the `match-all` and `match-none` entries).
 	it("emits match-all() as a native zero-arg query function", () => {
 		expect(emitCsql(matchAll()).wrapper).toBe("concat('match-all()')");
 	});
@@ -328,9 +329,9 @@ describe("emitCsql — is-blank", () => {
 		// double-quoted CSQL brackets; the trailing `' = '''` constant
 		// fragment carries both `'` and `"` quote styles, so the wrap
 		// step splits at quote-style boundaries. The XPath
-		// concat-of-alternating-quotes idiom at
-		// `lib/commcare/xpath/grammar.lezer.grammar:128-131` produces
-		// the segment chain.
+		// concat-of-alternating-quotes idiom built on
+		// `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`
+		// produces the segment chain.
 		const result = emitCsql(isBlank(input("name_query")));
 		expect(result.wrapper).toBe(
 			`concat('"', instance('search-input:results')/input/field[@name='name_query'], '" = ', "'", '', "'", '')`,
@@ -348,8 +349,8 @@ describe("emitCsql — is-blank", () => {
 describe("emitCsql — is-null faithful emission", () => {
 	it("emits is-null as <term> = '' (the same wire form is-blank uses)", () => {
 		// CCHQ's wire absent/cleared/empty collapse at
-		// `commcare-hq/corehq/apps/es/case_search.py:241-246` makes
-		// the strict-absent intent of `is-null` emit the same wire
+		// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
+		// makes the strict-absent intent of `is-null` emit the same wire
 		// form `is-blank` produces. The strict semantic surfaces only
 		// on the Postgres target where JSONB key presence is
 		// observable; CSQL gets the closest faithful emission.
@@ -360,13 +361,13 @@ describe("emitCsql — is-null faithful emission", () => {
 
 describe("emitCsql — when-input-present conditional dispatch", () => {
 	it("emits if(count(<trigger>), <inner-csql>, 'match-all()')", () => {
-		// CCHQ's canonical pattern at
-		// `commcare-hq/docs/case_search_query_language.rst:299-303`
+		// CCHQ's canonical pattern documented in
+		// `commcare-hq/docs/case_search_query_language.rst`
 		// keeps the conditional dispatch OUTSIDE the inner CSQL by
 		// emitting an XPath `if(count(<trigger>), <inner>, <fallback>)`
 		// wrapper. The fallback is `'match-all()'` (CSQL's
-		// AND-identity at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52`):
+		// AND-identity — the `match-all` entry on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`):
 		// when the trigger is unset, the wrapper returns
 		// `'match-all()'`, which AND-combines with sibling clauses as
 		// a no-op; when the trigger is set, the wrapper returns the
@@ -405,11 +406,12 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 
 describe("emitCsql — multi-select-contains", () => {
 	// CCHQ wire functions:
-	// - `selected` is registered as an alias for `selected-any` at
-	//   `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:43`.
+	// - `selected` is registered as an alias for `selected-any` at the
+	//   `selected` entry on
+	//   `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 	// - Multi-value `selected-any` / `selected-all` use one
 	//   space-joined token string per
-	//   `commcare-hq/corehq/apps/es/case_search.py:291-302`'s
+	//   `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`'s
 	//   `case_property_text_query` whitespace-tokenization rule.
 
 	it("emits single-value any quantifier as bare selected(prop, 'v')", () => {
@@ -450,8 +452,8 @@ describe("emitCsql — multi-select-contains", () => {
 });
 
 describe("emitCsql — match", () => {
-	// Each mode maps to a CCHQ wire query function at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:39-54`.
+	// Each mode maps to a CCHQ wire query function on
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 
 	it("emits match mode=fuzzy as fuzzy-match(prop, 'v')", () => {
 		const result = emitCsql(match(prop("patient", "name"), "alice", "fuzzy"));
@@ -483,7 +485,7 @@ describe("emitCsql — match", () => {
 describe("emitCsql — within-distance", () => {
 	// CCHQ's `within-distance(property, coords, distance, unit)` is
 	// 4-arg per
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`.
 
 	it("emits within-distance with a literal center and miles", () => {
 		const result = emitCsql(
@@ -536,16 +538,16 @@ describe("emitCsql — within-distance", () => {
 describe("emitCsql — exists / missing", () => {
 	// Direction dispatch:
 	// - `subcase` → `subcase-exists('<id>', <filter>)` per
-	//   `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`.
+	//   `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::subcase`.
 	// - `ancestor` → `ancestor-exists(<slash-path>, <filter>)` per
-	//   `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`.
+	//   `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`.
 	// - `missing` wraps the corresponding `<...>-exists(...)` in
 	//   `not(...)`.
 
 	it("emits exists subcase with a filter", () => {
 		// `state` is a user-defined property — `status` triggers the
 		// reserved-attribute `@`-prefix per CCHQ's `INDEXED_METADATA_BY_KEY`
-		// at `commcare-hq/corehq/apps/case_search/const.py:53-103`,
+		// at `commcare-hq/corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`,
 		// which would distract the test from the exists-subcase shape
 		// being pinned.
 		const result = emitCsql(
@@ -591,10 +593,10 @@ describe("emitCsql — exists / missing", () => {
 	it("emits exists ancestor without a filter by injecting match-all()", () => {
 		// CCHQ's `ancestor-exists` requires exactly two arguments per
 		// `confirm_args_count(node, 2)` at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:109`.
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`.
 		// The no-where case injects `match-all()` (a CSQL query
-		// function at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52`)
+		// function at the `match-all` entry on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`)
 		// to satisfy the arity requirement; the natural "any case
 		// along this ancestor path exists" semantic.
 		const result = emitCsql(exists(ancestorPath(relationStep("parent"))));
@@ -604,8 +606,8 @@ describe("emitCsql — exists / missing", () => {
 	});
 
 	it("emits exists subcase with a runtime ref inside the filter", () => {
-		// CCHQ's canonical pattern at
-		// `commcare-hq/docs/case_search_query_language.rst:299-303`
+		// CCHQ's canonical pattern documented in
+		// `commcare-hq/docs/case_search_query_language.rst`
 		// uses `subcase-exists("parent", ... clinic_case_id = "',
 		// instance(...), '")')` — a runtime user clinic id
 		// interpolates inside the inner CSQL filter via the outer
@@ -683,11 +685,11 @@ describe("emitCsql — exists / missing", () => {
 	it("expands exists any-relation without a where filter using injected match-all() on the ancestor side", () => {
 		// CCHQ's `ancestor-exists` requires exactly two arguments
 		// (`confirm_args_count(node, 2)` at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:109`),
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`),
 		// so the no-where path injects `match-all()` on the ancestor
 		// side. `subcase-exists` accepts the 1-arg form per
-		// `subcase_functions.py:201` and emits without a filter
-		// argument.
+		// `subcase_functions.py::_extract_subcase_query_parts` and
+		// emits without a filter argument.
 		const result = emitCsql(exists(anyRelationPath("rel")));
 		expect(result.wrapper).toBe(
 			`concat("(ancestor-exists('rel', match-all()) or subcase-exists('rel'))")`,
@@ -734,8 +736,8 @@ describe("emitCsql — between", () => {
 });
 
 describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
-	// CCHQ's `_is_subcase_count` recogniser at
-	// `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`
+	// CCHQ's `_is_subcase_count` recogniser nested inside
+	// `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
 	// matches `subcase-count` literally as the LHS of a binary
 	// comparison. The hoist pass leaves it untouched; the inner
 	// emitter must produce the wire form natively.
@@ -943,8 +945,8 @@ describe("emitCsql — non-term ValueExpression arms hoist into wrappers", () =>
 
 	it("lifts a format-date expression into the wrapper list", () => {
 		// `format-date` is absent from CSQL's value-function whitelist
-		// at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`,
+		// on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`,
 		// so the entire expression lifts as a wrapper that runs on-
 		// device (where `format-date` is available via JavaRosa) and
 		// produces the formatted string injected into the CSQL fragment
@@ -963,10 +965,11 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 	// AST kind names diverge from CCHQ's CSQL value-function names.
 	// The hoist pass leaves both arms intact; the emitter renames at
 	// output time per CCHQ's `XPATH_VALUE_FUNCTIONS` registration at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 
 	it("emits date-coerce(literal) as date('<value>') in operand position", () => {
-		// AST `date-coerce(value)` maps to wire `date(value)` (line 28).
+		// AST `date-coerce(value)` maps to wire `date(value)` (the `date`
+		// entry on `XPATH_VALUE_FUNCTIONS`).
 		const result = emitCsql(
 			eq(prop("patient", "dob"), dateCoerce(term(literal("2024-12-03")))),
 		);
@@ -975,7 +978,7 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 
 	it("emits datetime-coerce(literal) as datetime('<value>') in operand position", () => {
 		// AST `datetime-coerce(value)` maps to wire `datetime(value)`
-		// (line 30).
+		// (the `datetime` entry on `XPATH_VALUE_FUNCTIONS`).
 		const result = emitCsql(
 			eq(
 				prop("patient", "modified_on"),
@@ -1016,7 +1019,7 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 
 describe("emitCsql — value-function whitelist arms in operand position", () => {
 	// The remaining CSQL value-function whitelist arms (per
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`)
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
 	// — `today`, `now`, `double`, `date-add`, `unwrap-list` — survive
 	// the hoist pass and emit through the value-expression emitter at
 	// `lib/commcare/expression/csqlEmitter.ts`. The predicate emitter
@@ -1047,7 +1050,7 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 
 	it("emits date-add with three arguments per CCHQ's wire signature", () => {
 		// CCHQ's wire signature: `date-add(date, interval, quantity)`.
-		// Source: `value_functions.py:115` —
+		// Source: `value_functions.py::date_add` —
 		// `date-add('2022-01-01', 'days', -1) => '2021-12-31'`.
 		// The interval `'days'` carries an inner single quote, which
 		// flips the outer XPath wrap to double-quoted.

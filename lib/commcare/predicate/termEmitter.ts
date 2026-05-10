@@ -52,13 +52,12 @@ import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
  *
  * Sources (production code, not tests):
  *
- *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py:237-246`
- *     — `CaseDBXMLGenerator.get_root_element()` sets exactly these
- *     four as XML attributes on `<case>`; everything else is emitted
- *     as a child element.
- *   - `corehq/apps/case_search/const.py:53-103` —
- *     `INDEXED_METADATA_BY_KEY` registers ten system metadata keys;
- *     these four carry the `@` prefix while the other six do not.
+ *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py::CaseDBXMLGenerator.get_root_element`
+ *     — sets exactly these four as XML attributes on `<case>`;
+ *     everything else is emitted as a child element.
+ *   - `corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`
+ *     registers ten system metadata keys; these four carry the `@`
+ *     prefix while the other six do not.
  *
  * Both dialects share the same set because both target the same
  * underlying case storage shape.
@@ -91,8 +90,8 @@ export const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
  * `instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
  *
  * Source: CCHQ's hashtag-replacement pattern at
- * `commcare-hq/corehq/apps/app_manager/xpath.py:101-103` builds the
- * same wire shape (`#parent` / `#host` expand to
+ * `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
+ * builds the same wire shape (`#parent` / `#host` expand to
  * `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
  *
  * Accepts a non-empty list of relation steps; the
@@ -119,7 +118,7 @@ export function buildAncestorJoinNodeset(
  * the case being filtered).
  *
  * The canonical CCHQ example pinning this shape is at
- * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`.
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
  */
 export function buildSubcaseJoinNodeset(identifier: string): string {
 	return `instance('casedb')/casedb/case[index/${identifier}=current()/@case_id]`;
@@ -139,24 +138,23 @@ export function buildSubcaseJoinNodeset(identifier: string): string {
  *     direction-agnostic walks use XPath's node-set union operator
  *     `|` to combine both directions. See `emitOnDevicePropertyRef`.
  *   - `input` — `instance('search-input:results')/input/field[@name='<name>']`,
- *     the canonical search-input read documented at
- *     `commcare-hq/docs/case_search_query_language.rst:299` and
- *     registered at
- *     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py:354`
- *     (`SEARCH_INPUT_INSTANCE_FACTORY`).
+ *     the canonical search-input read documented in
+ *     `commcare-hq/docs/case_search_query_language.rst` and registered
+ *     at
+ *     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py::search_input_instances`.
  *   - `session-user` — open-namespace
  *     `instance('commcaresession')/session/user/data/<field>`,
- *     populated by `addUserProperties` in
- *     `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`
- *     (the `addUserProperties` writer iterates an arbitrary
- *     `userFields` Hashtable and writes each as a `<data>` child
- *     under `<user>`). CCHQ's `session_var(var, path='user/data')`
- *     in `commcare-hq/corehq/apps/app_manager/xpath.py:114-119`
+ *     populated by
+ *     `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addUserProperties`
+ *     (iterates an arbitrary `userFields` Hashtable and writes each
+ *     as a `<data>` child under `<user>`). CCHQ's
+ *     `session_var(var, path='user/data')` in
+ *     `commcare-hq/corehq/apps/app_manager/xpath.py::session_var`
  *     builds the same path.
  *   - `session-context` — closed-namespace
  *     `instance('commcaresession')/session/context/<field>`,
- *     populated by `addMetadata` in the same
- *     `SessionInstanceBuilder.java` symbol anchor.
+ *     populated by `SessionInstanceBuilder.addMetadata` in the same
+ *     class.
  *   - `literal` — primitive value via `emitOnDeviceLiteralValue`.
  */
 export function emitTerm(term: Term): string {
@@ -328,15 +326,15 @@ export function emitTermSegment(t: Term): TermEmission {
  * Compile a property reference to its CSQL identifier text. Reserved
  * case attributes (`case_id`, `case_type`, `owner_id`, `status`) get
  * the `@`-prefix per CCHQ's `INDEXED_METADATA_BY_KEY` registration at
- * `commcare-hq/corehq/apps/case_search/const.py:53-103`. User-defined
- * properties pass through bare.
+ * `commcare-hq/corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`.
+ * User-defined properties pass through bare.
  *
  * The `via` slot — relation walks reaching a property on a related
  * case — is dropped at this emission layer because CCHQ's CSQL
  * comparison-form for relational reads uses the slash-path shape on
  * the comparison's left side (`<rel>/<prop> = <value>` parsed via
  * `is_ancestor_comparison` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:13-22`),
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::is_ancestor_comparison`),
  * which the emitter does not generate. The intended path for
  * relational reads is `exists` / `missing` predicates that carry the
  * relation walk explicitly.
@@ -364,10 +362,9 @@ export function emitCsqlPropertyRefSegment(
 /**
  * Compile a search-input ref to its CSQL runtime XPath. The wire form
  * `instance('search-input:results')/input/field[@name='<name>']` is
- * the canonical search-input read documented at
- * `commcare-hq/docs/case_search_query_language.rst:299-303` and
- * registered at
- * `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py:354`.
+ * the canonical search-input read documented in
+ * `commcare-hq/docs/case_search_query_language.rst` and registered at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py::search_input_instances`.
  *
  * `name` is constrained at the schema layer to XML element-name
  * vocabulary (no hyphens, no quotes), so direct interpolation is
@@ -381,8 +378,7 @@ export function emitSearchInputXPath(t: SearchInputRef): string {
  * Compile a session-user ref to its on-device XPath. The wire form
  * `instance('commcaresession')/session/user/data/<field>` reads from
  * the open-namespace custom user-data tree populated by
- * `addUserProperties` in
- * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+ * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addUserProperties`.
  */
 export function emitSessionUserXPath(t: SessionUserRef): string {
 	return `instance('commcaresession')/session/user/data/${t.field}`;
@@ -392,8 +388,7 @@ export function emitSessionUserXPath(t: SessionUserRef): string {
  * Compile a session-context ref to its on-device XPath. The wire form
  * `instance('commcaresession')/session/context/<field>` reads from
  * the closed-namespace framework-controlled context tree populated by
- * `addMetadata` in
- * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+ * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addMetadata`.
  */
 export function emitSessionContextXPath(t: SessionContextRef): string {
 	return `instance('commcaresession')/session/context/${t.field}`;
@@ -425,8 +420,8 @@ export function emitCsqlLiteralSegment(
  * Wrap a single `TermEmission` into a `CsqlSegment[]`. Constant
  * emissions become a single constant segment; runtime emissions wrap
  * in CSQL double-quoted brackets so the runtime XPath result
- * interpolates as a CSQL string value (the canonical pattern at
- * `commcare-hq/docs/case_search_query_language.rst:403-407`).
+ * interpolates as a CSQL string value (the canonical pattern
+ * documented in `commcare-hq/docs/case_search_query_language.rst`).
  *
  * Centralising the wrap shape here keeps every operand emission path
  * — comparison operands, `in` values, `between` bounds, expression-
@@ -445,10 +440,11 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
 
 /**
  * Slash-join a relation-step chain into the path serialization CCHQ
- * parses at `ancestor_functions.py:74-87`. The walker there reads the
- * argument as a binary expression of `Step / Step / ...` nodes, where
- * each `Step` carries a single identifier; serializing the chain as
- * `parent/host` matches the parser's expected shape.
+ * parses at `ancestor_functions.py::_is_ancestor_path_expression`. The
+ * walker there reads the argument as a binary expression of `Step /
+ * Step / ...` nodes, where each `Step` carries a single identifier;
+ * serializing the chain as `parent/host` matches the parser's
+ * expected shape.
  */
 export function serializeAncestorPath(steps: readonly RelationStep[]): string {
 	return steps.map((s) => s.identifier).join("/");

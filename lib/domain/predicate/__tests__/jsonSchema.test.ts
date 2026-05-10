@@ -157,7 +157,7 @@ describe("caseTypeToJsonSchema", () => {
 		const re = new RegExp(propSchema.pattern);
 
 		// Real CommCare wire-format values from
-		// corehq/ex-submodules/couchforms/tests/test_geopoint.py:10-17.
+		// `corehq/ex-submodules/couchforms/tests/test_geopoint.py::test_valid_geopoint_properties`.
 		expect(re.test("42.3739063 -71.1109113 0.0 886.0")).toBe(true);
 		expect(re.test("-7.130 -41.563 7.53E-4 8.0")).toBe(true);
 		expect(re.test("-7.130 -41.563 -2.2709742188453674E-4 8.0")).toBe(true);
@@ -167,7 +167,7 @@ describe("caseTypeToJsonSchema", () => {
 		expect(re.test("1.23e-5 2.0e10 0 0")).toBe(true);
 
 		// Things the regex must reject — values from
-		// corehq/ex-submodules/couchforms/tests/test_geopoint.py:31-39
+		// `corehq/ex-submodules/couchforms/tests/test_geopoint.py::test_invalid_geopoint_properties`
 		// plus structural negatives (wrong separator, etc).
 		expect(re.test("these are not decimals")).toBe(false);
 		expect(re.test("42.3739063 -71.1109113 0.0 whoops")).toBe(false);

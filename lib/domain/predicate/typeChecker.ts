@@ -255,8 +255,8 @@ export const ORDERED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 //
 // CCHQ's underlying Elasticsearch index stores every case property's
 // value as text on the `PROPERTY_VALUE` field
-// (`commcare-hq/corehq/apps/es/case_search.py:50`, defined as
-// `f'{CASE_PROPERTIES_PATH}.{VALUE}'`), so the wire layer accepts
+// (`commcare-hq/corehq/apps/es/case_search.py::PROPERTY_VALUE`, defined
+// as `f'{CASE_PROPERTIES_PATH}.{VALUE}'`), so the wire layer accepts
 // every match mode against any property regardless of declared type.
 // The Nova type checker is stricter: each mode has a per-mode allow-
 // list, rejecting property types where the mode's semantics produce
@@ -269,15 +269,16 @@ export const ORDERED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 // the allow-list narrows to text-shaped properties. Per-mode CCHQ
 // dispatch:
 //
-//   - `fuzzy-match` (`commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:92-98`)
+//   - `fuzzy-match` (`commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::fuzzy_match`)
 //     calls `case_property_query(..., fuzzy=True)`.
-//   - `phonetic-match` (`query_functions.py:84-89`) calls
-//     `sounds_like_text_query` (`case_search.py:305`).
-//   - `starts-with` (`query_functions.py:31-35`) calls
-//     `case_property_starts_with` (`case_search.py:312-323`), a prefix
-//     match on `PROPERTY_VALUE_EXACT`.
+//   - `phonetic-match` (`query_functions.py::phonetic_match`) calls
+//     `sounds_like_text_query` (`case_search.py::sounds_like_text_query`).
+//   - `starts-with` (`query_functions.py::starts_with`) calls
+//     `case_property_starts_with`
+//     (`case_search.py::case_property_starts_with`), a prefix match
+//     on `PROPERTY_VALUE_EXACT`.
 //
-// `fuzzy-date` (`query_functions.py:101-113`) is special. It builds
+// `fuzzy-date` (`query_functions.py::fuzzy_date`) is special. It builds
 // digit-permutation candidates from the input via `date_permutations`
 // and matches them against the same `PROPERTY_VALUE` text field via
 // `case_property_query(..., boost_first=True)`. The operator is
@@ -636,14 +637,15 @@ function checkIn(
 /**
  * Property + center type check for `within-distance`. The property
  * slot must resolve to `geopoint` because CCHQ's
- * `case_property_geo_distance` (corehq/apps/es/case_search.py:386)
+ * `case_property_geo_distance`
+ * (`corehq/apps/es/case_search.py::case_property_geo_distance`)
  * queries the `PROPERTY_GEOPOINT_VALUE` field — only properties stored
  * as a geopoint participate in the geo-distance query. The center
  * slot's allow-list is `geopoint | text`: a typed-geopoint search
  * input is the natural shape, but CCHQ also accepts a wire-form
  * coordinate string (`"lat lon altitude accuracy"`, parsed via
  * `GeoPoint.from_string(..., flexible=True)` at
- * corehq/apps/case_search/xpath_functions/query_functions.py:60),
+ * `corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`),
  * which carries through Nova's pipeline as a `text`-typed literal.
  *
  * Both operands resolve unconditionally (no early return on
@@ -807,7 +809,7 @@ function checkMatch(
  * across `values`. CCHQ's wire layer dispatches `selected-any` /
  * `selected-all` through `_selected_query` →
  * `case_property_query(..., multivalue_mode='or' | 'and')` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:46-51`,
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`,
  * and that path accepts text / single_select / multi_select uniformly.
  * The Nova rule is stricter: only a `multi_select` property has the
  * structural notion of "contains" (multi-token storage, per-token
@@ -1098,19 +1100,21 @@ function unwrapLiteralOperand(
  *     The current `CaseType` schema models at most one parent, so each
  *     hop is `origin.parent_type` lookup. `throughCaseType` (when
  *     provided) validates `origin.parent_type === step.throughCaseType`
- *     at the hop. CCHQ source: `ancestor-exists` registered at
- *     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:51`,
- *     implementation at `ancestor_functions.py:97-118` (mandatory
- *     2-arg `confirm_args_count` at `:109` — the wire-layer optionality
- *     diverges from this schema's uniformly-optional `where`, but
- *     that's a representability concern, not a type-checker rule).
+ *     at the hop. CCHQ source: `ancestor-exists` registered on
+ *     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`,
+ *     implementation at `ancestor_functions.py::ancestor_exists`
+ *     (mandatory 2-arg `confirm_args_count` — the wire-layer
+ *     optionality diverges from this schema's uniformly-optional
+ *     `where`, but that's a representability concern, not a type-
+ *     checker rule).
  *
  *   - `subcase` — find case types whose `parent_type` matches the
  *     origin. `ofCaseType` disambiguates when multiple candidates
  *     exist; with one candidate, the qualifier is optional. CCHQ
- *     source: `subcase-exists` registered at `__init__.py:41`,
- *     implementation at `subcase_functions.py:51-62` with the
- *     optional-filter check at `:207` — this matches the schema's
+ *     source: `subcase-exists` registered on
+ *     `__init__.py::XPATH_QUERY_FUNCTIONS`, implementation at
+ *     `subcase_functions.py::subcase` with the optional-filter check
+ *     at `_extract_subcase_query_parts` — this matches the schema's
  *     uniformly-optional `where` shape.
  *
  *   - `any-relation` — direction-agnostic. The current `CaseType`

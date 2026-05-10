@@ -48,25 +48,24 @@ export type WireDialect = "case-list-filter" | "csql" | "search-filter";
  *     quote falls back to `concat('part', "'", 'part')`. XPath 1.0
  *     has no string-escape syntax, so the alternating-quote concat is
  *     the portable form the grammar at
- *     `lib/commcare/xpath/grammar.lezer.grammar:128-131` admits (both
- *     single- and double-quoted string literals are accepted as
+ *     `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral` admits
+ *     (both single- and double-quoted string literals are accepted as
  *     `concat()` arguments). The fallback always emits boundary
  *     segments even when empty (e.g. a value of `"'"` produces
  *     `concat('', "'", '')`) so the segment count tracks the input
  *     quote count predictably as `n + 1` segments for `n` quotes.
  *   - In `csql`, `concat()` is excluded from CCHQ's
- *     `XPATH_VALUE_FUNCTIONS` whitelist (verified at
- *     `corehq/apps/case_search/xpath_functions/__init__.py:27-36`).
- *     Comparison-RHS values pass through `unwrap_value` at
- *     `corehq/apps/case_search/dsl_utils.py:32-40`, which raises
- *     `CaseFilterError` on any function name outside the whitelist;
- *     `corehq/apps/case_search/dsl_utils.py:1-30` (the `unwrap_value`
- *     callsite plus `XPathFunctionExpression` handling) is the
- *     parser path that triggers the rejection. CSQL admits both
- *     single- and double-quoted string literals natively (see
- *     `docs/case_search_query_language.rst:417` for the canonical
- *     concat-wrapped CSQL fragment example with double-quoted
- *     property values), so the helper switches to a double-quoted
+ *     `XPATH_VALUE_FUNCTIONS` whitelist (verified on
+ *     `corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
+ *     Comparison-RHS values pass through
+ *     `corehq/apps/case_search/dsl_utils.py::unwrap_value`, which
+ *     raises `CaseFilterError` on any function name outside the
+ *     whitelist (the `unwrap_value` callsite plus
+ *     `XPathFunctionExpression` handling defined in the same module).
+ *     CSQL admits both single- and double-quoted string literals
+ *     natively (see `docs/case_search_query_language.rst` for the
+ *     canonical concat-wrapped CSQL fragment example with double-
+ *     quoted property values), so the helper switches to a double-quoted
  *     literal `"<value>"` when the value contains a single quote.
  *     If the value contains BOTH a single and a double quote, no
  *     portable inline escape exists — `concat()` is unavailable and
@@ -130,7 +129,7 @@ export function quoteIdentifier(name: string): string {
 /**
  * Compile a finite numeric value to its wire-form decimal literal,
  * avoiding scientific notation. CommCare's XPath grammar at
- * `lib/commcare/xpath/grammar.lezer.grammar:133-136` admits decimal
+ * `lib/commcare/xpath/grammar.lezer.grammar::NumberLiteral` admits decimal
  * literals only — `digit+ ('.' digit*)? | '.' digit+` — and rejects
  * exponent syntax, so a wire-form value with an `e` or `E` would
  * parse-fail downstream.

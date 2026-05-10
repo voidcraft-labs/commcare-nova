@@ -520,9 +520,10 @@ describe("predicate schema", () => {
 
 	// Each match mode dispatches to a different CCHQ wire form on the
 	// CSQL target — `fuzzy-match` (verified at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:92-98`),
-	// `phonetic-match` (line 84-89), `fuzzy-date` (line 101-113), and
-	// `starts-with` (line 31-35). Pinning each mode through round-trip
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::fuzzy_match`),
+	// `phonetic-match` (`query_functions.py::phonetic_match`),
+	// `fuzzy-date` (`query_functions.py::fuzzy_date`), and `starts-with`
+	// (`query_functions.py::starts_with`). Pinning each mode through round-trip
 	// parse locks the discriminator-only payload (`{ property, value,
 	// mode }`) for every variant; a regression that dropped one mode
 	// from the enum would surface here rather than at the emitter.
@@ -581,8 +582,8 @@ describe("predicate schema", () => {
 	});
 
 	// `multi-select-contains` is the typed structural shape for CCHQ's
-	// `selected-any` / `selected-all` query functions (registered at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:44-45`).
+	// `selected-any` / `selected-all` query functions (registered on
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`).
 	// The `quantifier` discriminator distinguishes the two; the schema
 	// keeps them in one operator so a UI surface or reducer toggling
 	// "any of" ↔ "all of" doesn't have to reshape the parent object.
@@ -908,8 +909,8 @@ describe("predicate schema", () => {
 // (`self`, `ancestor`, `subcase`, `any-relation`) capture direction
 // (no-traversal / up via parent or host index / down via reverse index /
 // ambiguous) without committing to CommCare's relationship-id encoding
-// (CHILD = 1, EXTENSION = 2 at
-// `commcare-hq/corehq/form_processor/models/cases.py:1085-1090`). The
+// (CHILD = 1, EXTENSION = 2 on
+// `commcare-hq/corehq/form_processor/models/cases.py::CommCareCaseIndex`). The
 // `identifier` slot carries the user-named index (`parent`, `host`, or
 // custom names) and the `throughCaseType` / `ofCaseType` slots carry
 // optional case-type qualifiers used by the type checker to narrow
@@ -937,7 +938,8 @@ describe("relationPath schema", () => {
 		// `CaseChildElement.buildIndexTreeElement` in
 		// `commcare-core/src/main/java/org/commcare/cases/instance/`; the
 		// CSQL path is verified at
-		// `commcare-hq/.../ancestor_functions.py:39-94`. The single-hop
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::walk_ancestor_hierarchy`.
+		// The single-hop
 		// shape is the most common authored form (parent → patient).
 		const result = relationPathSchema.parse({
 			kind: "ancestor",
@@ -988,7 +990,8 @@ describe("relationPath schema", () => {
 
 	it("parses a subcase path", () => {
 		// `subcase` matches CCHQ's `subcase-exists('parent', ...)` form
-		// at `commcare-hq/.../subcase_functions.py:51-62`. The
+		// at `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::subcase`.
+		// The
 		// `identifier` is the index name ON THE CHILD case pointing
 		// back at the current (parent) case. `ofCaseType` narrows
 		// type-checker resolution inside the subcase filter; this
@@ -1256,12 +1259,12 @@ describe("propertyRef with via (relational read)", () => {
 // algebra so a UI surface or a reducer can produce a well-typed
 // "empty filter" / "no matches" predicate without picking an arbitrary
 // tautology / contradiction encoding. CCHQ exposes the same pair as
-// zero-arg query functions registered at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:52-53`
+// zero-arg query functions registered on
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
 // and implemented at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py:162-177`
-// (each implementation rejects any argument with an
-// `XPathFunctionException`).
+// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::match_all`
+// and `query_functions.py::match_none` (each implementation rejects
+// any argument with an `XPathFunctionException`).
 describe("sentinel predicates", () => {
 	it("parses match-all", () => {
 		const result = predicateSchema.parse({ kind: "match-all" });
@@ -1384,7 +1387,8 @@ describe("is-null predicate", () => {
 // (the on-device idiom for absent-or-empty; CSQL server-side
 // `case_property_query()` short-circuits empty-value queries to
 // `case_property_missing()` semantics at
-// `commcare-hq/corehq/apps/es/case_search.py:241-246`), with the
+// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`),
+// with the
 // `if(count(input), real, match-all())` wrapper for input refs in
 // case-list / post-ES dialects so absent inputs short-circuit
 // cleanly. Authors who need a portable "field set / unset" check
@@ -1621,11 +1625,11 @@ describe("between predicate", () => {
 //
 // CCHQ exposes the corresponding query functions as `subcase-exists`
 // at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:51-62`
+// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::subcase`
 // (filter-optional per the parser at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`)
+// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::_extract_subcase_query_parts`)
 // and `ancestor-exists` at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py:97-118`
+// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`
 // (filter mandatory — the implementation calls
 // `confirm_args_count(node, 2)`). The asymmetry sits at the CCHQ
 // wire boundary, not at this AST: the schema accepts the no-`where`
@@ -1666,7 +1670,7 @@ describe("exists predicate", () => {
 		// schema accepts the no-`where` shape; CCHQ's `subcase-exists`
 		// happens to be the one CCHQ relational quantifier that admits
 		// a one-argument form natively (per the parser at
-		// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py:207`),
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/subcase_functions.py::_extract_subcase_query_parts`),
 		// but that's a CCHQ wire-layer fact, not a constraint on the
 		// AST.
 		const result = predicateSchema.parse({

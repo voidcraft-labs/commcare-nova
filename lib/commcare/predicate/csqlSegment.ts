@@ -48,7 +48,7 @@ export type CsqlSegment =
  * Compile a constant CSQL fragment to a sequence of one or more XPath
  * string literals. XPath 1.0 string literals admit either `'` or `"`
  * as the bracketing character but never both within one literal — see
- * the grammar at `lib/commcare/xpath/grammar.lezer.grammar:128-131`.
+ * the grammar at `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`.
  * The wrap layer must emit each constant's content faithfully; when
  * the content contains both quote styles, we split it into sub-runs
  * of "no embedded `'`" (wrap in `'...'`) and "embedded `'` only" (wrap

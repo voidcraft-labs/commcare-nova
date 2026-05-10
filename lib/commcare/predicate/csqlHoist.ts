@@ -6,12 +6,12 @@
 // `ValueExpression` as a wrapper that the on-device XPath builds before
 // the CSQL fragment is interpolated.
 //
-// CSQL's two function whitelists at
-// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-54`
-// register the inner CSQL fragment's vocabulary: 8 value functions
-// (lines 27-36: `date`, `date-add`, `datetime`, `datetime-add`,
-// `double`, `now`, `today`, `unwrap-list`) plus 14 query functions
-// (lines 39-54). Every other shape — conditionals (`if`, `switch`),
+// CSQL's two function whitelists on
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+// and `__init__.py::XPATH_QUERY_FUNCTIONS` register the inner CSQL
+// fragment's vocabulary: 8 value functions (`date`, `date-add`,
+// `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`)
+// plus 14 query functions. Every other shape — conditionals (`if`, `switch`),
 // arithmetic (`arith`), string concatenation (`concat`, `coalesce`),
 // `count(...)` outside the comparison-LHS slot CCHQ recognises as
 // `subcase-count`, on-device formatting (`format-date`) — lifts into
@@ -24,11 +24,11 @@
 // authoring AST and the wire vocabulary. The hoist pass leaves them
 // intact and the emitter performs the rename at output time.
 //
-// The pattern follows CCHQ's canonical example at
-// `commcare-hq/docs/case_search_query_language.rst:299-303` and
-// `:403-407`: an outer XPath `concat(...)` builds the CSQL string
-// from constant fragments and runtime-resolved instance reads. The
-// hoist pass generalises that pattern to every non-grammar shape.
+// The pattern follows CCHQ's canonical examples documented in
+// `commcare-hq/docs/case_search_query_language.rst`: an outer XPath
+// `concat(...)` builds the CSQL string from constant fragments and
+// runtime-resolved instance reads. The hoist pass generalises that
+// pattern to every non-grammar shape.
 //
 // The pass is total: every input AST produces a CSQL-emission-
 // compatible output AST plus a wrapper list. There is no error
@@ -37,8 +37,8 @@
 //
 // `when-input-present(trigger, clause)` is preserved through the
 // hoist pass; the emitter handles it directly by emitting the
-// canonical CCHQ pattern at
-// `commcare-hq/docs/case_search_query_language.rst:299-303`:
+// canonical CCHQ pattern documented in
+// `commcare-hq/docs/case_search_query_language.rst`:
 // `if(count(<trigger-xpath>), <clause-csql>, 'match-all()')`. The
 // hoist still walks the inner clause so any nested non-grammar value
 // expression lifts normally; the trigger ref and the conditional
@@ -76,9 +76,9 @@ import type {
  *   - `comparison-operand` — directly underneath one of the six
  *     comparison operators. `count` with `via.kind === "subcase"`
  *     survives here as native `subcase-count(...)` per CCHQ's
- *     `_is_subcase_count` recogniser at
- *     `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`. Other
- *     count shapes still lift into the wrapper.
+ *     `_is_subcase_count` recogniser nested inside
+ *     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
+ *     Other count shapes still lift into the wrapper.
  *   - `value` — every other ValueExpression slot. All count shapes
  *     lift; grammar value functions survive intact.
  */
@@ -493,8 +493,8 @@ function rebuildBetween(
  * whether to (a) leave the node intact (CSQL grammar arm) or (b) lift
  * it as a wrapper expression.
  *
- * CSQL's value-function whitelist at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`
+ * CSQL's value-function whitelist on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
  * registers exactly eight value functions: `date`, `date-add`,
  * `datetime`, `datetime-add`, `double`, `now`, `today`, `unwrap-list`.
  * Plus terms (which are not function calls). The AST's `date-coerce`
@@ -516,15 +516,16 @@ function walkValueExpression(
 			return expr;
 		case "today":
 		case "now":
-			// CCHQ value functions at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:33-34`.
-			// Discriminator-only; no descendant slots to walk.
+			// CCHQ value functions registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (`today` and `now` entries). Discriminator-only; no
+			// descendant slots to walk.
 			return expr;
 		case "date-add":
-			// CCHQ value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:29`.
-			// Recurse into operand slots so a nested non-grammar shape
-			// (e.g. `arith` inside `quantity`) lifts.
+			// CCHQ value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (`date-add` entry). Recurse into operand slots so a nested
+			// non-grammar shape (e.g. `arith` inside `quantity`) lifts.
 			return {
 				kind: "date-add",
 				date: walkValueExpression(expr.date, state, "value"),
@@ -533,18 +534,19 @@ function walkValueExpression(
 			};
 		case "date-coerce":
 			// AST's `date-coerce(value)` maps to CSQL's `date(value)`
-			// value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:28`.
-			// The emitter performs the name rename; the hoist walks
-			// recursively so any nested non-grammar shape lifts.
+			// value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (the `date` entry). The emitter performs the name rename; the
+			// hoist walks recursively so any nested non-grammar shape lifts.
 			return {
 				kind: "date-coerce",
 				value: walkValueExpression(expr.value, state, "value"),
 			};
 		case "datetime-coerce":
 			// AST's `datetime-coerce(value)` maps to CSQL's
-			// `datetime(value)` value function at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:30`.
+			// `datetime(value)` value function registered on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// (the `datetime` entry).
 			return {
 				kind: "datetime-coerce",
 				value: walkValueExpression(expr.value, state, "value"),
@@ -561,8 +563,8 @@ function walkValueExpression(
 			};
 		case "format-date":
 			// `format-date` is absent from CSQL's value-function
-			// whitelist at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`.
+			// whitelist on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 			// On-device XPath has `format-date` available via JavaRosa,
 			// so the entire expression lifts as a wrapper that runs at
 			// runtime and produces the formatted string injected into
@@ -573,8 +575,9 @@ function walkValueExpression(
 		case "coalesce":
 		case "if":
 		case "switch":
-			// Absent from CSQL's whitelists at
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-54`.
+			// Absent from CSQL's whitelists on
+			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
+			// and `__init__.py::XPATH_QUERY_FUNCTIONS`.
 			// Lift the entire expression as a wrapper that runs on-device
 			// and produces the resolved value string at evaluation time.
 			return liftAsWrapper(expr, state);
@@ -594,8 +597,8 @@ function walkValueExpression(
  * fully determines the outcome:
  *
  *   - In `comparison-operand` position with `via.kind === "subcase"`:
- *     CCHQ's `_is_subcase_count` recogniser at
- *     `commcare-hq/corehq/apps/case_search/filter_dsl.py:80-86`
+ *     CCHQ's `_is_subcase_count` recogniser nested inside
+ *     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
  *     reaches the comparison's LHS to detect `subcase-count` as a
  *     native CSQL function. Survive unmodified; the optional
  *     `where` clause walks normally so any nested non-grammar

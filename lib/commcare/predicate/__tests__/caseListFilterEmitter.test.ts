@@ -511,7 +511,7 @@ describe("emitCaseListFilter — match", () => {
 describe("emitCaseListFilter — within-distance", () => {
 	it("emits within-distance with a literal center and miles", () => {
 		// Wire signature: `within-distance(prop, '<lat,lon>', <distance>,
-		// '<unit>')` per `corehq/apps/case_search/xpath_functions/query_functions.py:54-81`.
+		// '<unit>')` per `corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`.
 		// Arg 2 is the coord string; arg 3 is a bare numeric literal;
 		// arg 4 is the schema-validated unit enum.
 		const p = within(
@@ -662,10 +662,11 @@ describe("emitCaseListFilter — prop term with non-self via (inline relational 
 describe("emitCaseListFilter — exists / missing (relational quantifiers)", () => {
 	// Ancestor walks anchor on `current()/index/<rel>` per the CCHQ
 	// hashtag-replacement pattern at
-	// `corehq/apps/app_manager/xpath.py:101-103` (`#parent` / `#host`
-	// build `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
+	// `corehq/apps/app_manager/xpath.py::interpolate_xpath` (`#parent` /
+	// `#host` build
+	// `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
 	// Subcase walks reverse direction per the canonical example at
-	// `corehq/apps/app_manager/suite_xml/sections/entries.py:1118-1131`
+	// `corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`
 	// (`[index/parent = <case-id>]` on a subcase nodeset).
 
 	it("emits ancestor exists as count(.../case[@case_id=current()/index/<rel>][filter]) > 0", () => {

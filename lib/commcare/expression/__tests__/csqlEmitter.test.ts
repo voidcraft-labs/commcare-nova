@@ -2,7 +2,7 @@
 //
 // Acceptance tests for the CSQL value-expression emitter. The CSQL
 // dialect has a closed value-function whitelist
-// (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py:27-36`):
+// (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`):
 // `date`, `date-add`, `datetime`, `datetime-add`, `double`, `now`,
 // `today`, `unwrap-list`. The eight whitelist arms — when surfaced to
 // the AST: `today`, `now`, `date-coerce` (→ `date`),
@@ -115,7 +115,7 @@ describe("emitCsqlExpressionSegments — coercion functions", () => {
 
 describe("emitCsqlExpressionSegments — date-add", () => {
 	// CCHQ's wire signature: `date-add(date, interval, quantity)` —
-	// three separate arguments. Source: `value_functions.py:115`.
+	// three separate arguments. Source: `value_functions.py::date_add`.
 	// Emitter returns raw segment lists; adjacent constants merge at
 	// the wrap layer (`mergeAdjacentConstants` in csqlSegment.ts).
 	it("emits date-add(<date>, '<interval>', <quantity>) for a literal date", () => {

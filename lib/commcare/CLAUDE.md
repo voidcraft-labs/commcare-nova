@@ -71,6 +71,18 @@ Three modes via `repeat_mode` discriminator, each emits different wire shape:
 
 Case-list wire emission lives at `suite/case-list/`. The orchestrators (`shortDetail.ts`, `longDetail.ts`) walk `module.caseListConfig` and produce `<detail id="m{n}_case_short">` / `<detail id="m{n}_case_long">` blocks; per-kind emitters in `columns.ts` lower each `Column` arm to its `<field>` shape; `sortKeys.ts` resolves comparator types and emits `<sort>` blocks; `nodesetFilter.ts` wraps the `caseListConfig.filter` predicate's compiled XPath into the entry's nodeset. The two detail surfaces share `columns.ts` via a `DetailKind` discriminator (`"short" | "long"`) — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice.
 
+### Case-search emission
+
+Case-search wire emission lives at `suite/case-search/`. The orchestrator (`remoteRequest.ts`) walks one module's `caseSearchConfig` + `caseListConfig` and produces the full `<remote-request>` block, composing four child element families: `<post>` (the claim guard from `claim.ts`), `<command>` (the search command label keyed to the `case_search.{m}` locale), `<instance>` declarations (one per accumulated id — `casedb`, `commcaresession`, plus the chosen results instance), `<session>` (the search-execution body from `searchSession.ts`), and `<stack>` (the single-frame rewind back to the `search_case_id` datum). Verified against CCHQ's `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py::RemoteRequestFactory` and the canonical fixture `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`.
+
+`compileForPlatform.ts` is the pure decision tree from authored content (`caseListConfig.filter`, `caseListConfig.searchInputs`) plus `PlatformContext` to a three-flag `WireShape` (`autoLaunch`, `defaultSearch`, `inlineSearch`). The flag set drives the orchestrator's `<query>` attributes + storage-instance choice + `<datum nodeset>` instance reference, plus the case-list short-detail emitter's `<action auto_launch>` attribute. Author intent is unambiguous on every input — Android always emits the list-first / inline-results shape; web with an effective filter and zero search inputs emits skip-to-results; web fallback is list-first.
+
+`searchSession.ts` composes the `<session>` body — `<query>` (with the CCHQ search endpoint URL, the three required attributes, the `<title>` referencing the `case_search.{m}.inputs` locale, the `<data>` slot list in CCHQ's canonical order: `case_type` → `commcare_blacklisted_owner_ids` (when set) → hoist wrappers → `_xpath_query` (when present and non-trivial)), and the `<datum>` selecting one search-side case via the search-side detail-confirm / detail-select pair. The `<data>` slot order is verified against CCHQ's `RemoteRequestFactory._remote_request_query_datums`. AND-composes `caseListConfig.filter` with every advanced-arm search input's predicate before running the result through the CSQL emitter.
+
+`searchPrompts.ts` emits per-input `<prompt>` elements consumed by the orchestrator — one per `caseListConfig.searchInputs` entry, with simple-arm inputs producing a property-bound prompt and advanced-arm inputs producing the wider hint/required/default/appearance shape CCHQ recognises.
+
+`claim.ts` owns the `<post>` claim-guard literal — a five-line structural template scoping the claim URL and the `relevant` guard to the search-side case id. `compileForPlatform.ts` and `claim.ts` route their CCHQ wire-key strings (`commcare_blacklisted_owner_ids`, `_xpath_query`) verbatim from CCHQ's `commcare-hq/corehq/apps/case_search/models.py` constants — the authoring vocabulary calls the slot `excludedOwnerIds`, the wire token is CCHQ-controlled.
+
 Sort lives on each column. The wire emitter walks `caseListConfig.columns`, drops columns without a `sort` slot, sorts the survivors by `priority` ascending (tie-break to source-array index — the rule binds uniformly at the saga, preview, and wire-emission layers; no layer assumes priority uniqueness), and emits one `<sort>` block per column carrying its 1-based `order` attribute. The schema has no parallel `SortKey[]` array — sort directives can't refer to a non-existent column, so the silent-drop bug class is structurally impossible.
 
 The comparator type for each `<sort>` is derived at wire emission, not authored. The dispatch lives in `sortKeys.ts::resolveColumnSortType`: property-rooted columns (plain / date / phone / id-mapping / interval) consult `applicableSortTypes(propertyDataType)[0]`; calculated columns consult `checkExpression(expression)` mapped to a `SortType`. Three explicit failure shapes — `undefined` (resolution failure), `ANY_TYPE` (e.g. on a `null` literal arm), or a `ResolvedType` with no mapping (defensive — covers schema drift) — route to comparator type `"plain"` (lexicographic). Three separate test cases pin one shape each so the implementation can't collapse them.
@@ -94,7 +106,7 @@ Two workarounds live on the import endpoint because HQ's decorators on it are in
 
 HQ features the pipeline does not cover yet — the validator's `app`/`module`/`form`/`field` rules gate additions as they land:
 
-- Shadow modules, parent-select cycles, case-search config
+- Shadow modules, parent-select cycles
 - Case tile configuration, smart links, case list field actions
 - Sort field format regex, multimedia, multi-language
 - Itemset nodeset/label/copy/value relationships

@@ -34,15 +34,16 @@ import { unhandledKindMessage } from "./errors";
 // accuracy`.
 //
 // Pattern verified against CCHQ's own parser test suite at
-// corehq/ex-submodules/couchforms/tests/test_geopoint.py:10-17, which
-// exercises the strict (4-element) and flexible (2-element) acceptance
-// paths. Concrete accepted examples from that test:
+// `corehq/ex-submodules/couchforms/tests/test_geopoint.py::test_valid_geopoint_properties`,
+// which exercises the strict (4-element) and flexible (2-element)
+// acceptance paths. Concrete accepted examples from that test:
 //   '42.3739063 -71.1109113 0.0 886.0'
 //   '-7.130 -41.563 7.53E-4 8.0'
 //   '-7.130 -41.563 -2.2709742188453674E-4 8.0'
 // Splitting + element-count semantics come from the parser at
-// corehq/ex-submodules/couchforms/geopoint.py:44, 48 — `split(' ')` on
-// a literal single ASCII space, then a strict-mode count of exactly 4.
+// `corehq/ex-submodules/couchforms/geopoint.py::_extract_elements` —
+// `split(' ')` on a literal single ASCII space, then a strict-mode
+// count of exactly 4.
 //
 // We accept:
 //   - 4 space-separated decimals (single ASCII space, not \s — tabs and
@@ -57,13 +58,14 @@ import { unhandledKindMessage } from "./errors";
 //     and the case-list search XPath functions, not from stored case
 //     data, so they don't belong on the case-database write path.
 //   - Out-of-range lat/lon — CCHQ's `_validate_range` catches those at
-//     parse time (geopoint.py:68-71); here the schema is structural, so
-//     range enforcement belongs in a downstream layer (the type checker
-//     or a runtime check).
+//     parse time (`geopoint.py::_validate_range`); here the schema is
+//     structural, so range enforcement belongs in a downstream layer
+//     (the type checker or a runtime check).
 //   - Bare `NaN` literals — CCHQ rejects these on lat/lon (see
-//     test_geopoint.py:38). Altitude/accuracy on the wire are decimal
-//     numbers; NaN appears only as the in-memory default after a
-//     flexible 2-element parse extends to 4.
+//     `test_geopoint.py::test_invalid_geopoint_properties`).
+//     Altitude/accuracy on the wire are decimal numbers; NaN appears
+//     only as the in-memory default after a flexible 2-element parse
+//     extends to 4.
 //
 // Build the pattern from a `DECIMAL` fragment so the four-element
 // repetition is obvious at a glance and so future tweaks (e.g.
