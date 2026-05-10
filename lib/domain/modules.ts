@@ -929,7 +929,7 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 //     `searchButtonDisplayCondition` predicate that gates the search
 //     button.
 //   - The advanced cluster — niche search-side filters. The cluster
-//     carries `blacklistedOwnerIds`, a `ValueExpression` that evaluates
+//     carries `excludedOwnerIds`, a `ValueExpression` that evaluates
 //     to a space-separated list of owner ids whose cases are excluded
 //     from the search-results scope. Framed abstractly so the cluster
 //     name describes its role (niche filters), not its contents.
@@ -944,12 +944,20 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 export const caseSearchConfigSchema = z
 	.object({
 		// Advanced cluster.
-		// `blacklistedOwnerIds` evaluates to a space-separated list of
+		// `excludedOwnerIds` evaluates to a space-separated list of
 		// owner ids whose cases are excluded from the search-results
 		// scope. Rare in practice; the case-search-config UI collapses
 		// this affordance into a dedicated "Advanced" section that
 		// hosts niche search-side filters.
-		blacklistedOwnerIds: valueExpressionSchema.optional(),
+		//
+		// Wire-name continuity: at suite-XML emission time the slot
+		// translates to CCHQ's literal wire field
+		// `commcare_blacklisted_owner_ids` per
+		// `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
+		// The wire token is a CCHQ-controlled vocabulary; Nova's
+		// authoring vocabulary is `excludedOwnerIds`. The translation
+		// lives at `lib/commcare/suite/case-search/searchSession.ts`.
+		excludedOwnerIds: valueExpressionSchema.optional(),
 
 		// Display labels for the search screen. The runtime renders the
 		// subtitle through a markdown formatter; the others are plain

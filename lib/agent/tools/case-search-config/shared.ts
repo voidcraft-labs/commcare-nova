@@ -5,10 +5,17 @@
  * The case-search config carries two clusters — display labels (search-
  * screen titles, button labels, search-button display predicate) and
  * the advanced cluster (niche search-side filters; the
- * `blacklistedOwnerIds` value expression). Each cluster has its own
+ * `excludedOwnerIds` value expression). Each cluster has its own
  * wholesale-replace tool (`setCaseSearchDisplay` / `setCaseSearchAdvanced`);
  * this file owns the SA-boundary input shapes and the typed snapshot
  * accessor both tools read before constructing the next config.
+ *
+ * The advanced cluster's `excludedOwnerIds` slot translates at
+ * suite-XML emission time to CCHQ's literal wire field
+ * `commcare_blacklisted_owner_ids` per
+ * `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
+ * Nova's authoring vocabulary uses `excludedOwnerIds` throughout;
+ * the wire token is CCHQ-controlled vocabulary.
  *
  * The `searchInputs` cross-binding lives on `caseListConfig.searchInputs`
  * (one source of truth across both screens), so the case-search-config
@@ -52,7 +59,7 @@ export const DISPLAY_SLOT_NAMES = [
 	"searchButtonDisplayCondition",
 ] as const;
 
-export const ADVANCED_SLOT_NAMES = ["blacklistedOwnerIds"] as const;
+export const ADVANCED_SLOT_NAMES = ["excludedOwnerIds"] as const;
 
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
@@ -211,7 +218,7 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 /**
  * SA boundary shape for `setCaseSearchAdvanced`. Required-and-nullable
  * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it. The cluster carries the `blacklistedOwnerIds` slot;
+ * value sets it. The cluster carries the `excludedOwnerIds` slot;
  * the abstract framing scopes the schema to the cluster's role (niche
  * filters), not its contents.
  *
@@ -221,7 +228,7 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
  */
 export const setCaseSearchAdvancedBodySchema = z
 	.object({
-		blacklistedOwnerIds: valueExpressionSchema
+		excludedOwnerIds: valueExpressionSchema
 			.nullable()
 			.describe(
 				"ValueExpression evaluating to a space-separated list of owner ids whose cases are excluded from the search-results scope, or `null` to clear. Rare in practice; pass `null` unless the author has a known set of owner ids to hide.",

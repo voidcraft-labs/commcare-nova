@@ -338,7 +338,7 @@ export function createSolutionsArchitect(
 		// Two wholesale tools — one per cluster of `caseSearchConfig`.
 		// `setCaseSearchDisplay` owns the search-screen labels;
 		// `setCaseSearchAdvanced` owns niche search-side filters (the
-		// `blacklistedOwnerIds` expression). Search inputs themselves
+		// `excludedOwnerIds` expression). Search inputs themselves
 		// remain on `caseListConfig.searchInputs` (cross-bound with the
 		// case-list search affordance) and are authored through the
 		// existing case-list-config family — these two tools never touch

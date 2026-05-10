@@ -6,7 +6,7 @@
  *      plus the `filter / simple-input` conflict rule surfaces every
  *      error simultaneously through `runValidation`.
  *   2. A structurally-clean blueprint exercising every covered slot
- *      (search-button display condition, blacklisted owner ids,
+ *      (search-button display condition, excluded owner ids,
  *      simple-input default, advanced-input predicate, cross-walk
  *      filter reference) stays silent on every case-search-config
  *      rule.
@@ -38,9 +38,9 @@ describe("case-search validator — cross-rule integration", () => {
 		//
 		//   1. searchButtonDisplayCondition: `eq` against unknown property
 		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR
-		//   2. blacklistedOwnerIds: ill-typed value (prop reference to
+		//   2. excludedOwnerIds: ill-typed value (prop reference to
 		//      unknown property)
-		//      → CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR
+		//      → CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR
 		//   3. searchInputs[0].default: ill-typed value
 		//      → CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR
 		//   4. searchInputs[1] (advanced).predicate: ill-typed
@@ -86,7 +86,7 @@ describe("case-search validator — cross-rule integration", () => {
 							prop("patient", "phantom"),
 							literal("x"),
 						),
-						blacklistedOwnerIds: {
+						excludedOwnerIds: {
 							kind: "term",
 							term: prop("patient", "phantom_property"),
 						},
@@ -131,7 +131,7 @@ describe("case-search validator — cross-rule integration", () => {
 		).toBe(true);
 		expect(
 			errors.some(
-				(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			),
 		).toBe(true);
 		expect(
@@ -153,7 +153,7 @@ describe("case-search validator — cross-rule integration", () => {
 		// Structurally clean fixture exercising every covered slot:
 		//
 		//   - search-button display condition resolves
-		//   - blacklisted owner ids expression resolves
+		//   - excluded owner ids expression resolves
 		//   - simple-arm input default resolves (text literal matches
 		//     the `text` widget's pinned expectedType)
 		//   - advanced-arm input predicate resolves
@@ -205,7 +205,7 @@ describe("case-search validator — cross-rule integration", () => {
 							prop("patient", "case_name"),
 							literal("Alice"),
 						),
-						blacklistedOwnerIds: toValueExpression(literal("user-123")),
+						excludedOwnerIds: toValueExpression(literal("user-123")),
 					},
 					forms: [
 						{
@@ -247,7 +247,7 @@ describe("case-search validator — cross-rule integration", () => {
 		const errors = runValidation(doc);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
-			"CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 			"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",

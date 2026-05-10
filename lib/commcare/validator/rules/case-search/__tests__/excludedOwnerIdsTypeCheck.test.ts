@@ -1,6 +1,11 @@
 /**
- * Tests for the `blacklistedOwnerIdsTypeCheck` rule. One invariant
+ * Tests for the `excludedOwnerIdsTypeCheck` rule. One invariant
  * per `it(...)` block.
+ *
+ * Schema/authoring vocabulary: `excludedOwnerIds`. CCHQ's wire
+ * vocabulary at suite-XML emission time is the unrelated
+ * `commcare_blacklisted_owner_ids` token; the wire-name lives only
+ * inside `lib/commcare/suite/case-search/searchSession.ts`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -9,7 +14,7 @@ import { asUuid, plainColumn } from "@/lib/domain";
 import { literal, prop, toValueExpression } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
-describe("blacklistedOwnerIdsTypeCheck", () => {
+describe("excludedOwnerIdsTypeCheck", () => {
 	it("fires when the expression references an unknown property", () => {
 		const doc = buildDoc({
 			appName: "Test",
@@ -22,7 +27,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						blacklistedOwnerIds: {
+						excludedOwnerIds: {
 							kind: "term",
 							term: prop("patient", "phantom_property"),
 						},
@@ -51,13 +56,13 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 			],
 		});
 		const hits = runValidation(doc).filter(
-			(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+			(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
 		// Elm-style three-component message: identifies what was tried,
 		// expected condition, what to look at to resolve.
-		expect(hits[0].message).toContain("blacklisted owner ids");
-		expect(hits[0].message).toContain("caseSearchConfig.blacklistedOwnerIds");
+		expect(hits[0].message).toContain("excluded owner ids");
+		expect(hits[0].message).toContain("caseSearchConfig.excludedOwnerIds");
 	});
 
 	it("does not fire on a well-typed expression", () => {
@@ -74,7 +79,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						blacklistedOwnerIds: toValueExpression(
+						excludedOwnerIds: toValueExpression(
 							literal("user-1 user-2 user-3"),
 						),
 					},
@@ -103,7 +108,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 		});
 		expect(
 			runValidation(doc).some(
-				(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			),
 		).toBe(false);
 	});
@@ -144,14 +149,15 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 		});
 		expect(
 			runValidation(doc).some(
-				(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			),
 		).toBe(false);
 	});
 
-	it("short-circuits when the blacklistedOwnerIds slot is omitted", () => {
-		// `caseSearchConfig` present but no `blacklistedOwnerIds` — the
-		// wire layer omits the blacklist from the remote-request body.
+	it("short-circuits when the excludedOwnerIds slot is omitted", () => {
+		// `caseSearchConfig` present but no `excludedOwnerIds` — the
+		// wire layer omits the excluded-owners filter from the
+		// remote-request body.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -188,7 +194,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 		});
 		expect(
 			runValidation(doc).some(
-				(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			),
 		).toBe(false);
 	});
@@ -211,7 +217,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						blacklistedOwnerIds: { kind: "term", term: prop("patient", "age") },
+						excludedOwnerIds: { kind: "term", term: prop("patient", "age") },
 					},
 					forms: [
 						{
@@ -246,7 +252,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 			],
 		});
 		const hits = runValidation(doc).filter(
-			(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+			(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
 		// The inner per-checker message names the expected type and the
@@ -273,7 +279,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						blacklistedOwnerIds: {
+						excludedOwnerIds: {
 							kind: "term",
 							term: prop("patient", "category"),
 						},
@@ -310,7 +316,7 @@ describe("blacklistedOwnerIdsTypeCheck", () => {
 		});
 		expect(
 			runValidation(doc).some(
-				(e) => e.code === "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR",
+				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			),
 		).toBe(false);
 	});

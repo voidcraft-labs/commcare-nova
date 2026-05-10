@@ -5,8 +5,8 @@
  *
  *   1. Effect on the doc — the supplied advanced cluster lands on the
  *      module's `caseSearchConfig`.
- *   2. `null` clears `blacklistedOwnerIds` (key omitted on the
- *      persisted doc).
+ *   2. `null` clears `excludedOwnerIds` (key omitted on the
+ *      persisted doc; cleared with no key collision).
  *   3. Display cluster (search-screen labels) survives the patch.
  *   4. Module-not-found surfaces an Elm-style error.
  *   5. Cross-surface parity — chat + MCP contexts produce
@@ -45,12 +45,12 @@ beforeEach(() => {
 describe("setCaseSearchAdvanced", () => {
 	it("sets the advanced cluster to the supplied values", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
-		const blacklist = term({ kind: "literal", value: "owner-a owner-b" });
+		const excluded = term({ kind: "literal", value: "owner-a owner-b" });
 
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				blacklistedOwnerIds: blacklist,
+				excludedOwnerIds: excluded,
 			},
 			ctx,
 			doc,
@@ -58,7 +58,7 @@ describe("setCaseSearchAdvanced", () => {
 
 		expect(result.kind).toBe("mutate");
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.blacklistedOwnerIds).toEqual(blacklist);
+		expect(config?.excludedOwnerIds).toEqual(excluded);
 		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
 		// so the persisted config's key set must be exactly the schema's
 		// declared slots. Catches the shape drift the observable-shape
@@ -76,7 +76,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				blacklistedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
 			doc,
@@ -84,11 +84,11 @@ describe("setCaseSearchAdvanced", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
-		expect(result.result.advancedSlotsSet).toEqual(["blacklistedOwnerIds"]);
-		expect(result.result.message).toContain("blacklistedOwnerIds");
+		expect(result.result.advancedSlotsSet).toEqual(["excludedOwnerIds"]);
+		expect(result.result.message).toContain("excludedOwnerIds");
 	});
 
-	it("clears the blacklisted owner ids slot when null is passed", async () => {
+	it("clears the excluded owner ids slot when null is passed", async () => {
 		// Seed a config with the slot populated, then null-clear it.
 		// The persisted shape must omit the cleared key rather than carry
 		// `key: undefined` — same convention as `setCaseListFilter`'s
@@ -100,7 +100,7 @@ describe("setCaseSearchAdvanced", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
-						blacklistedOwnerIds: term({
+						excludedOwnerIds: term({
 							kind: "literal",
 							value: "owner-a",
 						}),
@@ -112,15 +112,15 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				blacklistedOwnerIds: null,
+				excludedOwnerIds: null,
 			},
 			ctx,
 			seededDoc,
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.blacklistedOwnerIds).toBeUndefined();
-		expect(config && "blacklistedOwnerIds" in config).toBe(false);
+		expect(config?.excludedOwnerIds).toBeUndefined();
+		expect(config && "excludedOwnerIds" in config).toBe(false);
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
@@ -156,7 +156,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				blacklistedOwnerIds: term({ kind: "literal", value: "owner-x" }),
+				excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 			},
 			ctx,
 			seededDoc,
@@ -170,7 +170,7 @@ describe("setCaseSearchAdvanced", () => {
 		expect(config?.searchAgainButtonLabel).toBe("Search again");
 		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
 		// Advanced cluster updated.
-		expect(config?.blacklistedOwnerIds).toBeDefined();
+		expect(config?.excludedOwnerIds).toBeDefined();
 	});
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
@@ -178,7 +178,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 99,
-				blacklistedOwnerIds: null,
+				excludedOwnerIds: null,
 			},
 			ctx,
 			doc,
@@ -208,7 +208,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
 				moduleIndex: 0,
-				blacklistedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
 			docWithoutConfig,
@@ -216,7 +216,7 @@ describe("setCaseSearchAdvanced", () => {
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config).toBeDefined();
-		expect(config?.blacklistedOwnerIds).toBeDefined();
+		expect(config?.excludedOwnerIds).toBeDefined();
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
@@ -227,7 +227,7 @@ describe("setCaseSearchAdvanced", () => {
 		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
 		const input = {
 			moduleIndex: 0,
-			blacklistedOwnerIds: term({ kind: "literal", value: "owner-x" }),
+			excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 		};
 
 		const r1 = await setCaseSearchAdvancedTool.execute(input, chatCtx, doc);

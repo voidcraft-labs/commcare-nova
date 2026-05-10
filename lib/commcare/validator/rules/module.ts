@@ -15,7 +15,7 @@ import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
-import { blacklistedOwnerIdsTypeCheck } from "./case-search/blacklistedOwnerIdsTypeCheck";
+import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 
@@ -177,6 +177,6 @@ export const MODULE_RULES = [
 	// `<remote-request>` and these rules have no authoring concern
 	// to gate.
 	searchButtonDisplayConditionTypeCheck,
-	blacklistedOwnerIdsTypeCheck,
+	excludedOwnerIdsTypeCheck,
 	filterSearchInputConflict,
 ];

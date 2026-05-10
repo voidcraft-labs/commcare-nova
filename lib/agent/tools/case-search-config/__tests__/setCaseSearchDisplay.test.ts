@@ -8,7 +8,7 @@
  *   2. Structured success carries the `displaySlotsSet` discriminator.
  *   3. `null` clears any display slot (key omitted on the persisted
  *      doc).
- *   4. Advanced cluster (blacklisted owners) survives the patch
+ *   4. Advanced cluster (excluded owners) survives the patch
  *      byte-identically.
  *   5. Module-not-found surfaces an Elm-style error.
  *   6. Cross-surface parity — chat + MCP contexts produce
@@ -176,7 +176,7 @@ describe("setCaseSearchDisplay", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseSearchConfig: {
-						blacklistedOwnerIds: seededOwners,
+						excludedOwnerIds: seededOwners,
 					},
 				},
 			},
@@ -197,7 +197,7 @@ describe("setCaseSearchDisplay", () => {
 		);
 
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
-		expect(config?.blacklistedOwnerIds).toEqual(seededOwners);
+		expect(config?.excludedOwnerIds).toEqual(seededOwners);
 		// Display update landed.
 		expect(config?.searchScreenTitle).toBe("Find patients");
 	});

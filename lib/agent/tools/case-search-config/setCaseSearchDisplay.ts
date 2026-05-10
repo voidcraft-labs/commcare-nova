@@ -5,7 +5,7 @@
  * The case-search config carries two independent clusters; this tool
  * owns the display cluster (search-screen labels + the search-button
  * display predicate). The advanced cluster (niche search-side filters
- * — the `blacklistedOwnerIds` expression) stays untouched and round-
+ * — the `excludedOwnerIds` expression) stays untouched and round-
  * trips byte-identically through the patch. The advanced tool
  * (`setCaseSearchAdvanced`) is the parallel for the other cluster.
  *
@@ -69,7 +69,7 @@ export type SetCaseSearchDisplayResult =
 
 export const setCaseSearchDisplayTool = {
 	description:
-		"Set the display cluster of a module's case-search config: search-screen title + subtitle + empty-list text + search button labels + the search-button display predicate. Pass `null` on any slot to clear it. The advanced cluster (niche search-side filters; the `blacklistedOwnerIds` expression) is not touched — use setCaseSearchAdvanced for that.",
+		"Set the display cluster of a module's case-search config: search-screen title + subtitle + empty-list text + search button labels + the search-button display predicate. Pass `null` on any slot to clear it. The advanced cluster (niche search-side filters; the `excludedOwnerIds` expression) is not touched — use setCaseSearchAdvanced for that.",
 	inputSchema: setCaseSearchDisplayInputSchema,
 	async execute(
 		input: SetCaseSearchDisplayInput,

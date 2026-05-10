@@ -17,7 +17,7 @@
 //     an invalid display-condition reports `false`.
 //   - Cross-slot preservation: a display-cluster edit doesn't
 //     clobber unrelated `caseSearchConfig` slots (e.g.,
-//     `blacklistedOwnerIds`).
+//     `excludedOwnerIds`).
 //
 // The five visible label slots all share the section's local
 // `OptionalTextRow` primitive (built on top of `useCommitField`),
@@ -293,17 +293,17 @@ describe("DisplaySection — cross-slot preservation", () => {
 	it("typing into a display slot leaves unrelated `caseSearchConfig` slots intact", () => {
 		// Per-slot patches spread `value` forward, so any sibling slot
 		// the patch doesn't touch flows through every emission.
-		// `blacklistedOwnerIds` is the canary — the display section
+		// `excludedOwnerIds` is the canary — the display section
 		// never reads or writes it directly (it lives on the advanced
 		// cluster), so its presence on the emitted config exercises the
 		// base spread without any code path inside the section being
 		// able to fake the result.
-		const blacklistedOwnerIds: ValueExpression = term(literal("owner-a"));
+		const excludedOwnerIds: ValueExpression = term(literal("owner-a"));
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
 			<DisplaySection
 				value={{
-					blacklistedOwnerIds,
+					excludedOwnerIds,
 				}}
 				onChange={onChange}
 				caseTypes={CASE_TYPES}
@@ -318,7 +318,7 @@ describe("DisplaySection — cross-slot preservation", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			blacklistedOwnerIds,
+			excludedOwnerIds,
 			searchScreenTitle: "Find a patient",
 		});
 	});

@@ -6,7 +6,7 @@
 //
 // Slot inventory:
 //
-//   - `blacklistedOwnerIds: ValueExpression?` — when present, evaluates
+//   - `excludedOwnerIds: ValueExpression?` — when present, evaluates
 //     to a space-separated list of owner ids whose cases are excluded
 //     from the search-results scope. The runtime applies this exclusion
 //     before paging the results back to the search screen, so a row
@@ -21,14 +21,14 @@
 // whatever the user changed; subsequent edits compose against the
 // existing slot.
 //
-// Validity propagation. The blacklist expression has its own validity
-// via the type checker. The section reports `valid: true` when the
-// slot is absent (slot-presence short-circuit) and `valid: false`
-// when the slot is present and the expression's type-check verdict
-// is `false`. The expression editor stays mounted whenever the slot
-// is defined (the collapse only toggles visibility), so the editor's
-// type-check verdict keeps reaching the section's validity aggregate
-// regardless of collapse state.
+// Validity propagation. The excluded-owners expression has its own
+// validity via the type checker. The section reports `valid: true`
+// when the slot is absent (slot-presence short-circuit) and
+// `valid: false` when the slot is present and the expression's type-
+// check verdict is `false`. The expression editor stays mounted
+// whenever the slot is defined (the collapse only toggles
+// visibility), so the editor's type-check verdict keeps reaching the
+// section's validity aggregate regardless of collapse state.
 //
 // Header chrome + collapse + Clear/Add affordances all compose
 // through the shared `OptionalSlotCard<T>` primitive — the same
@@ -68,18 +68,18 @@ export interface AdvancedSectionProps {
 	 *  inside the expression editor. */
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the search runs against. Property references in
-	 *  the blacklist expression resolve against this scope; relation
-	 *  walks inside the expression flip the destination scope as
-	 *  authored. */
+	 *  the excluded-owners expression resolve against this scope;
+	 *  relation walks inside the expression flip the destination
+	 *  scope as authored. */
 	readonly currentCaseType: string;
 	/** Search-input declarations from the parent screen. Threaded
 	 *  into the expression editor so an `input(...)` term resolves
 	 *  the binding name. The case-search-config panel draws these
 	 *  from `mod.caseListConfig?.searchInputs ?? []`. */
 	readonly knownInputs?: readonly SearchInputDecl[];
-	/** Aggregated validity verdict. `true` when the blacklist slot is
-	 *  absent OR its expression type-checks. The parent gates its
-	 *  save affordance on this. */
+	/** Aggregated validity verdict. `true` when the excluded-owners
+	 *  slot is absent OR its expression type-checks. The parent
+	 *  gates its save affordance on this. */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
 
@@ -87,7 +87,7 @@ export interface AdvancedSectionProps {
 
 /**
  * Composes the advanced cluster of the case-search authoring surface.
- * Renders the `blacklistedOwnerIds` slot via `OptionalSlotCard<ValueExpression>`
+ * Renders the `excludedOwnerIds` slot via `OptionalSlotCard<ValueExpression>`
  * with collapse on (the niche affordance defaults to closed).
  */
 export function AdvancedSection({
@@ -98,8 +98,8 @@ export function AdvancedSection({
 	knownInputs = [],
 	onValidityChange,
 }: AdvancedSectionProps) {
-	const setBlacklist = (next: ValueExpression | undefined) => {
-		onChange(setOptionalSlot(value, "blacklistedOwnerIds", next));
+	const setExcludedOwners = (next: ValueExpression | undefined) => {
+		onChange(setOptionalSlot(value, "excludedOwnerIds", next));
 	};
 
 	return (
@@ -110,8 +110,8 @@ export function AdvancedSection({
 				description="Hide cases owned by specific owner ids."
 				addLabel="Add excluded owners"
 				clearLabel="Clear excluded owners"
-				value={value?.blacklistedOwnerIds}
-				onChange={setBlacklist}
+				value={value?.excludedOwnerIds}
+				onChange={setExcludedOwners}
 				// Empty-string seed — the editor body renders the literal-
 				// text input which the author fills in with the space-
 				// separated owner ids.

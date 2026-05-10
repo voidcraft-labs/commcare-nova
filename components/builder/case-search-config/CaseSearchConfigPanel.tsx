@@ -239,7 +239,7 @@ export function CaseSearchConfigPanel({
 			 * Section: Advanced.
 			 *
 			 * Owns niche search-side filters — the cluster carries
-			 * `blacklistedOwnerIds` (a search-results owner exclusion
+			 * `excludedOwnerIds` (a search-results owner exclusion
 			 * list). The abstract "Advanced" framing scopes the section
 			 * to its role (niche filters), not its contents.
 			 */}
@@ -320,7 +320,7 @@ function buildSearchInputsStatus(count: number): string {
  */
 function buildAdvancedStatus(value: CaseSearchConfig | undefined): string {
 	const parts: string[] = [];
-	if (value?.blacklistedOwnerIds !== undefined) parts.push("excluded owners");
+	if (value?.excludedOwnerIds !== undefined) parts.push("excluded owners");
 	if (parts.length === 0) return "None — no advanced filters set.";
 	return parts.join(" · ");
 }

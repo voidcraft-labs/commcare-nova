@@ -82,7 +82,7 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 	it("setCaseSearchAdvanced: parses a representative payload (slot supplied)", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			blacklistedOwnerIds: {
+			excludedOwnerIds: {
 				kind: "term",
 				term: { kind: "literal", value: "owner-a owner-b" },
 			},
@@ -93,7 +93,7 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 	it("setCaseSearchAdvanced: parses with the slot cleared via null", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			blacklistedOwnerIds: null,
+			excludedOwnerIds: null,
 		});
 		expect(result.success).toBe(true);
 	});

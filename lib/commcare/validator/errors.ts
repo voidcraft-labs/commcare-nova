@@ -36,7 +36,7 @@ export type ValidationErrorCode =
 	// emitted, so each rule short-circuits cleanly when the config
 	// slot is absent.
 	| "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR"
-	| "CASE_SEARCH_BLACKLISTED_OWNER_IDS_TYPE_ERROR"
+	| "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR"
 	| "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT"
 	// Form-level
 	| "EMPTY_FORM"

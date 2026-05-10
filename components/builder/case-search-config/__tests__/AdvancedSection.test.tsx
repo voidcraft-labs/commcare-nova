@@ -4,7 +4,7 @@
 //
 // AdvancedSection composition tests — pin the public contract of the
 // niche-search-filter section. The section hosts the
-// `blacklistedOwnerIds` sub-control (rendered to authors as "Excluded
+// `excludedOwnerIds` sub-control (rendered to authors as "Excluded
 // owners"); tests exercise the section through that slot:
 //
 //   - Empty state: an undefined config renders the collapsed header
@@ -120,7 +120,7 @@ describe("AdvancedSection — add path", () => {
 	it('seeds caseSearchConfig with `term(literal(""))` when Add is clicked from an undefined section', () => {
 		// Pins the first-edit contract: the panel may receive a module
 		// without `caseSearchConfig`, and the first edit emits a config
-		// carrying only the freshly-seeded blacklist slot. Every slot on
+		// carrying only the freshly-seeded excluded-owners slot. Every slot on
 		// `caseSearchConfigSchema` is optional, so an otherwise-empty
 		// config is a valid persisted shape.
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
@@ -144,7 +144,7 @@ describe("AdvancedSection — add path", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			blacklistedOwnerIds: term(literal("")),
+			excludedOwnerIds: term(literal("")),
 		});
 	});
 
@@ -177,7 +177,7 @@ describe("AdvancedSection — add path", () => {
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toEqual({
-			blacklistedOwnerIds: term(literal("")),
+			excludedOwnerIds: term(literal("")),
 			searchScreenTitle: "Find a patient",
 		});
 	});
@@ -194,7 +194,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		render(
 			<AdvancedSection
 				value={{
-					blacklistedOwnerIds: term(literal("owner-a owner-b")),
+					excludedOwnerIds: term(literal("owner-a owner-b")),
 				}}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
@@ -222,7 +222,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		render(
 			<AdvancedSection
 				value={{
-					blacklistedOwnerIds: term(literal("owner-a")),
+					excludedOwnerIds: term(literal("owner-a")),
 				}}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
@@ -276,7 +276,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		render(
 			<AdvancedSection
 				value={{
-					blacklistedOwnerIds: term(literal("owner-a")),
+					excludedOwnerIds: term(literal("owner-a")),
 					searchScreenTitle: "Find a patient",
 				}}
 				onChange={onChange}
@@ -292,7 +292,7 @@ describe("AdvancedSection — populated round-trip", () => {
 			}),
 		);
 
-		// Clearing drops the `blacklistedOwnerIds` key entirely from
+		// Clearing drops the `excludedOwnerIds` key entirely from
 		// the emitted config (not a leaky `key: undefined` assignment)
 		// and leaves unrelated slots intact. `toEqual` treats absent
 		// and `undefined` keys equivalently, so the absent-key contract
@@ -300,7 +300,7 @@ describe("AdvancedSection — populated round-trip", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		const emitted = onChange.mock.calls[0]?.[0];
 		expect(emitted).toEqual({ searchScreenTitle: "Find a patient" });
-		expect("blacklistedOwnerIds" in (emitted ?? {})).toBe(false);
+		expect("excludedOwnerIds" in (emitted ?? {})).toBe(false);
 	});
 });
 
@@ -341,7 +341,7 @@ describe("AdvancedSection — validity propagation", () => {
 		expect(onValidityChange).toHaveBeenLastCalledWith(true);
 	});
 
-	it("reports valid: false when the blacklist references an unknown property — even with the collapse closed", () => {
+	it("reports valid: false when the excluded-owners expression references an unknown property — even with the collapse closed", () => {
 		// Collapse is a visibility toggle, not a mount toggle: when
 		// the slot is defined the editor stays mounted across collapse
 		// state and its type-check verdict reaches the section's
@@ -353,7 +353,7 @@ describe("AdvancedSection — validity propagation", () => {
 		render(
 			<AdvancedSection
 				value={{
-					blacklistedOwnerIds: invalidExpression,
+					excludedOwnerIds: invalidExpression,
 				}}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}

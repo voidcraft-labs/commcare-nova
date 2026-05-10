@@ -4,7 +4,7 @@
  *
  * The case-search config carries two independent clusters; this tool
  * owns the advanced cluster — niche search-side filters most authors
- * never reach for. The cluster carries the `blacklistedOwnerIds` slot.
+ * never reach for. The cluster carries the `excludedOwnerIds` slot.
  * The abstract framing scopes the tool to the cluster's role (niche
  * filters), not its contents. Display labels stay untouched and
  * round-trip byte-identically through the patch — the tool harvests
@@ -74,7 +74,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set the advanced cluster of a module's case-search config: niche search-side filters most authors never reach for. The cluster carries a `blacklistedOwnerIds` expression — pass `null` to clear that slot. The display cluster (search-screen labels) is not touched — use setCaseSearchDisplay for that.",
+		"Set the advanced cluster of a module's case-search config: niche search-side filters most authors never reach for. The cluster carries a `excludedOwnerIds` expression — pass `null` to clear that slot. The display cluster (search-screen labels) is not touched — use setCaseSearchDisplay for that.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,

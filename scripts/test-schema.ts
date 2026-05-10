@@ -158,7 +158,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setCaseSearchAdvancedTool.description,
 		schema: setCaseSearchAdvancedTool.inputSchema,
 		prompt:
-			"Use setCaseSearchAdvanced on module 0 to clear the blacklisted owner ids (null).",
+			"Use setCaseSearchAdvanced on module 0 to clear the excluded owner ids (null).",
 	},
 	{
 		mode: "tool-input",
