@@ -22,16 +22,15 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import {
-	and,
 	between,
 	dateLiteral,
 	eq,
 	literal,
 	match,
-	matchAll,
 	multiSelectAll,
 	multiSelectAny,
 	prop,
+	reduceAnd,
 	term,
 } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
@@ -84,17 +83,20 @@ export function composeRuntimeFilter(
 		const clause = clauseForInput(input, inputValues, caseType);
 		if (clause !== undefined) clauses.push(clause);
 	}
-	// `and(...)`'s overload set rejects a bare `Predicate[]` spread —
-	// the variadic public signatures require a tuple-typed argument
-	// list. Width-1 short-circuits as the lone clause; width-2+
-	// routes through `and(...)`, which applies `reduceAndImpl` and
-	// flattens any nested `and` envelope on the way through. The
-	// `matchAll()` short-circuit on the empty case matches the
-	// builder's own empty-args reduction.
-	if (clauses.length === 0) return matchAll();
-	if (clauses.length === 1) return clauses[0];
-	const [first, second, ...rest] = clauses;
-	return and(first, second, ...rest);
+	// `reduceAnd` returns the canonical sentinel for empty input
+	// (`match-all`), unwraps a single clause, and signals "use the
+	// n-ary form" with `undefined` — the same dispatch the `and`
+	// builder runs internally. Routing through the reducer pins the
+	// reduction contract to a single source of truth and avoids
+	// re-creating the dispatch by hand.
+	const reduced = reduceAnd(clauses);
+	if (reduced !== undefined) return reduced;
+	// Two-or-more clauses: construct the standard `and` envelope
+	// directly. The cast through `as` mirrors `and`'s own
+	// implementation site — TypeScript can't see the
+	// `reduceAnd === undefined` guarantee that the array is
+	// non-empty-with-second-element from inside this branch.
+	return { kind: "and", clauses: clauses as [Predicate, ...Predicate[]] };
 }
 
 // ── Per-arm dispatch ──────────────────────────────────────────────
@@ -254,14 +256,17 @@ function buildRangeClause(
 }
 
 /**
- * Format-gate a single date bound. Treats malformed / empty values as
- * absent so a stale or partially-typed value (e.g. `2025-` while the
- * user is mid-edit) is filtered out before reaching the SQL layer.
+ * Format-gate a single date bound. Treats malformed / empty values
+ * as absent so a stale or partially-typed value (e.g. `2025-` while
+ * the user is mid-edit) is filtered out before reaching the SQL
+ * layer.
  *
- * Pattern matches CommCare's wire-form `YYYY-MM-DD`. Stricter
- * calendar-validity checks (month 13, February 30) live at the wire-
- * emission boundary; this module's job is to keep obviously broken
- * shapes from crashing the query.
+ * Pattern matches the wire-form `YYYY-MM-DD` shape. Calendar
+ * validity (month 13, February 30) is the SQL layer's concern —
+ * Postgres rejects invalid calendar dates at the date cast inside
+ * `compileLiteral`. This gate's job is the surface check that
+ * catches mid-edit empty / partial values from the date input
+ * widget; consumers handle anything else.
  *
  * Returns a `ValueExpression` (the `term`-wrapped literal) so the
  * caller can splice the result directly into `between`'s
@@ -318,22 +323,10 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 // ── Advanced arm ──────────────────────────────────────────────────
 
 /**
- * Build the advanced-arm clause: substitute the input's value at
- * every value-position `input(name)` Term whose `name` matches THIS
- * input's name, leaving every other Term shape in place.
- *
- * Empty / absent value → no clause for this input (early return
- * before substitution). Substitution replaces
- * `{ kind: "term", term: { kind: "input", name } }` with
- * `{ kind: "term", term: { kind: "literal", value } }` — a bare
- * string literal regardless of the input's declared `type`. Type
- * coercion is the wire / Postgres layer's job.
- *
- * Orphan `input(other)` references (a different input's name) and
- * the trigger slot of `whenInputPresent` are preserved untouched —
- * the validator catches structurally-orphan refs at parse time, and
- * the `whenInputPresent.input` slot is structurally a
- * `SearchInputRef`, not a value-position term.
+ * Build the advanced-arm clause: when the value is non-empty,
+ * recurse into `substituteInputInPredicate` to bind the input ref
+ * at every value-position match. The walker functions below are
+ * the authoritative site for arm-by-arm substitution semantics.
  */
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
