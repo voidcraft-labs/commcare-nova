@@ -550,10 +550,6 @@ function substituteInputInExpression(
 	}
 }
 
-/**
- * Parameter named `node` (not `term`) to avoid shadowing the `term`
- * builder import.
- */
 function substituteInputInTerm(
 	node: Term,
 	targetName: string,
