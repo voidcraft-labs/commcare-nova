@@ -83,9 +83,8 @@ The contract:
 // Map from input.name → user-typed string value. An empty string
 // (or absent key) means the user has not filled the input —
 // per-input contributions short-circuit to "no clause".
-export interface SearchInputValues {
-  readonly values: ReadonlyMap<string, string>;
-}
+// `<name>:from` / `<name>:to` for range bounds; bare `<name>` otherwise.
+export type SearchInputValues = ReadonlyMap<string, string>;
 
 /**
  * Compose every contributing search-input's runtime predicate into
@@ -94,35 +93,50 @@ export interface SearchInputValues {
  * so the unified-filter slot remains the single source for both the
  * case-list always-on filter and the search-input contributions.
  *
- * Per-arm dispatch:
+ * Per-arm dispatch (matches the actual `lib/domain/predicate`
+ * builder signatures — `match(property, value, mode)`):
  *
  *   - `kind: "simple"` — value flows through `(property, mode, via)`
  *     into a per-mode comparison built via the `lib/domain/predicate`
  *     builder set:
- *       - `exact` (default for text / select / barcode) →
- *         `eq(prop(caseType, property), literal(value))`
- *       - `fuzzy` → `match(prop(...), "fuzzy", literal(value))`
- *       - `starts-with` → `match(prop(...), "starts-with", literal(value))`
- *       - `phonetic` → `match(prop(...), "phonetic", literal(value))`
- *       - `fuzzy-date` → `match(prop(...), "fuzzy-date", literal(value))`
- *       - `range` (default for date-range) → handled at the widget
- *         layer (two values produce one `between` clause)
- *       - `multi-select-contains` → `multiSelectContains(prop(...),
- *         quantifier, literal-array)`
+ *       - `exact` (per-type default for text / select / date / barcode) →
+ *         `eq(prop(caseType, property, via?), literal(value))`
+ *       - `fuzzy` → `match(prop(...), literal(value), "fuzzy")`
+ *       - `starts-with` → `match(prop(...), literal(value), "starts-with")`
+ *       - `phonetic` → `match(prop(...), literal(value), "phonetic")`
+ *       - `fuzzy-date` → `match(prop(...), literal(value), "fuzzy-date")`
+ *       - `range` (per-type default for date-range) →
+ *         `between(term(prop(...)), { lower: dateLiteral?, upper: dateLiteral? })`
+ *         — reads `<name>:from` and `<name>:to` keys; absent / empty / non-ISO
+ *         either-end omits that bound.
+ *       - `multi-select-contains` → `multiSelectAny(prop(...), ...literals)`
+ *         or `multiSelectAll(prop(...), ...literals)` per quantifier; tokens
+ *         comma-split + trim + filter empties.
  *
  *   - `kind: "advanced"` — the input's `predicate` AST is bound
  *     against an `input(name)` term reference; the runtime walks the
- *     AST and substitutes the value at every `input(name)` Term node.
- *     The substituted predicate AND-composes into the result.
+ *     AST and substitutes the value at every `input(name)` Term node
+ *     whose `name` matches THIS input's name. Other input refs
+ *     (orphans / other inputs) stay un-substituted. The substituted
+ *     predicate AND-composes into the result.
  *
- * Empty values short-circuit (the input contributes no clause).
- * Zero-input or all-empty input call returns the conjunction
- * identity element `match-all` so the helper layer can AND-compose
+ * Per-arm empty-value short-circuit: trim once at read; absent map
+ * key OR whitespace-only value → input contributes no clause.
+ * Zero-input or all-empty call returns the conjunction identity
+ * element `match-all` so the helper layer can AND-compose
  * unconditionally without a "did anything contribute" check.
  *
- * `via` (relation walk) on the simple arm composes a relation-walked
- * `prop` reference; the predicate compiler resolves the JOIN at
- * compile time.
+ * Default-mode dispatch is a typed Record table
+ * (`DEFAULT_SEARCH_MODE_KIND: Record<SearchInputType, DefaultableModeKind>`)
+ * — the kind is `Exclude<SearchInputMode["kind"], "multi-select-contains">`
+ * so the construction site reads off the table directly with no
+ * runtime narrowing-throw. A typed test pins agreement with
+ * `APPLICABLE_SEARCH_MODES[type][0]` so the editor's "first entry
+ * is the default" contract stays the source of truth.
+ *
+ * The advanced-arm walker is a fresh-tree builder (no in-place
+ * mutation) so persisted Firestore predicates and the doc store's
+ * zundo undo/redo retain reference equality on the input AST.
  */
 export function composeRuntimeFilter(
   searchInputs: ReadonlyArray<SearchInputDef>,
@@ -133,11 +147,13 @@ export function composeRuntimeFilter(
 
 The `caseType` parameter threads to every `prop(caseType, property)` Term construction so the predicate compiler can resolve the property's `data_type` from the case-type schema map.
 
-**Range-mode value shape.** A `date-range` input emits two values into the map under `<name>:from` and `<name>:to` — the widget at Task 3 pairs them; the binding layer reads both keys; an empty either-end omits the range. (`<name>` is the input's `name` slot, not `kind`.)
+**Range-mode value shape.** A `date-range` input emits two values into the map under `<name>:from` and `<name>:to` — the widget at Task 3 pairs them; the binding layer reads both keys; an empty either-end omits the range. (`<name>` is the input's `name` slot, not `kind`.) Calendar validity (month 13, Feb 30) is enforced at SQL emission via the `date` cast in `compileLiteral`; the runtime-bindings layer's `parseDateBound` gates on the wire-form `YYYY-MM-DD` shape so mid-edit empty / partial values from the date input widget don't crash the cast.
 
 **`SearchInputDef.default` slot.** The schema carries an optional `default: ValueExpression` slot — `today()` for date-typed inputs, etc. Plan 5 does NOT honor the slot in the preview; the JS-side has no `ValueExpression` evaluator (the AST is Postgres-strict). Initial input values render empty; the user types to filter. Honoring `default` requires a JS-side AST evaluator and lands in a follow-up spec — see "Deferred to follow-up specs" below.
 
-**Tests:** simple-arm `(property, mode, via)` mapping for each mode (the test fixtures cover exact / fuzzy / starts-with / phonetic / fuzzy-date / range / multi-select-contains); advanced-arm `input(name)` Term substitution against a representative AST; empty-value short-circuit per input; mixed-arm composition produces a single AND chain.
+**Tests:** simple-arm `(property, mode, via)` mapping for each mode (the test fixtures cover exact / fuzzy / starts-with / phonetic / fuzzy-date / range / multi-select-contains); advanced-arm `input(name)` Term substitution across every Predicate / ValueExpression / Term arm including `between.left` / `between.lower` / `between.upper` / `if.cond` cross-family / `count.where` cross-family / `whenInputPresent.input` trigger preservation / orphan-input preservation; empty-value short-circuit per input; padded-value trim normalization; mixed-arm composition produces a single AND chain.
+
+> **SHIPPED.** Task 1 landed at `lib/preview/engine/runtimeBindings.ts` (commits `0f00b85d` through `bf446018`) with 65 contract tests. `composeRuntimeFilter` and `SearchInputValues` are exported.
 
 ### Task 2: Extend `readCases` for runtime values + new `resetSampleCases` helper
 
