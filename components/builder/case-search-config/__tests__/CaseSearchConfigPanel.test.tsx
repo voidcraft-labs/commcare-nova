@@ -368,45 +368,38 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 	});
 
 	it("routes SearchInputsSection's onChange through updateModule's caseListConfig.searchInputs (cross-binding)", () => {
-		// THE LOAD-BEARING INVARIANT for case-search authoring. The
-		// panel must NOT spawn a parallel `caseSearchConfig.search
-		// Inputs` slot when the user edits search inputs from this
-		// surface — the case-list workspace and the case-search panel
-		// both author the SAME source. A regression here would silently
-		// fork the data and let the wire emitter pick whichever copy
-		// won the last write.
+		// Pins the load-bearing invariant for case-search authoring:
+		// search-input edits from this panel write through
+		// `caseListConfig.searchInputs` — the same source the case-list
+		// workspace edits — never a parallel `caseSearchConfig.search
+		// Inputs` slot. One source, two views.
 		render(renderPanel());
 		const searchInputsMock = vi.mocked(SearchInputsSectionMock);
 		searchInputsMock.mockClear();
 		fireEvent.click(screen.getByTestId("search-inputs-section-fire-change"));
 
 		const lastCall = searchInputsMock.mock.calls.at(-1);
-		// After the update, the section receives the new array as its
-		// `value` prop (cross-binding routes through caseListConfig).
-		// Confirm one row landed and its name matches the click
-		// handler's payload.
+		// Cross-binding routes through caseListConfig — the section
+		// receives the new array as its `value` prop. Confirm one row
+		// landed and its name matches the click handler's payload.
 		expect(lastCall?.[0].value.length).toBe(1);
 		expect(lastCall?.[0].value[0]?.name).toBe("input_added");
 
-		// CRITICAL: the cross-binding lands on `caseListConfig`, not
+		// Pins that the write lands on `caseListConfig` only, not on
 		// `caseSearchConfig`. The Display + Advanced sections share the
-		// `caseSearchConfig` slot — verify their `value` is unchanged
-		// (still undefined for an unauthored module) so a regression
-		// that wrote to `caseSearchConfig.searchInputs` would surface
-		// as Display's value flipping to a partial config.
+		// `caseSearchConfig` slot — their `value` stays undefined for
+		// an unauthored module after a search-input edit.
 		const displayMock = vi.mocked(DisplaySectionMock);
 		const lastDisplayCall = displayMock.mock.calls.at(-1);
 		expect(lastDisplayCall?.[0].value).toBeUndefined();
 	});
 
 	it("seeds caseListConfig with required slots when the module has no caseListConfig and search inputs change for the first time", () => {
-		// First-edit semantics. The panel may receive a module without
-		// `caseListConfig`; the schema requires `columns` AND
-		// `searchInputs` on the slot. The cross-binding mutator MUST
-		// seed `columns: []` so the emitted shape passes strict parse.
-		// A regression here would surface as a silent zod failure on
-		// the next save (no UI signal — the parse runs in the
-		// persistence layer).
+		// Pins first-edit semantics. The panel may receive a module
+		// without `caseListConfig`; the schema requires `columns` AND
+		// `searchInputs` on the slot, so the cross-binding mutator
+		// seeds `columns: []` alongside the new searchInputs and the
+		// emitted shape passes strict parse.
 		const moduleSnapshotRef: MutableRefObject<Module | undefined> = {
 			current: undefined,
 		};
@@ -417,9 +410,7 @@ describe("CaseSearchConfigPanel — slot routing", () => {
 		// mutator routes the cross-binding write through
 		// `nextCaseListConfigFromSearchInputs(undefined, [...])`,
 		// which seeds `columns: []` alongside the new searchInputs.
-		// Asserting against both keys pins the seed-helper's
-		// contract — a regression that dropped `columns` would surface
-		// here even before the zod parse on the next save.
+		// Asserting against both keys pins the seed-helper's contract.
 		const persistedConfig = moduleSnapshotRef.current?.caseListConfig;
 		expect(persistedConfig).toBeDefined();
 		expect(persistedConfig?.columns).toEqual([]);
@@ -436,9 +427,8 @@ describe("CaseSearchConfigPanel — first-edit seed", () => {
 		// the panel forwards `value: undefined` to DisplaySection +
 		// AdvancedSection. Each section's first edit emits a fully-
 		// formed config via its own `...(value ?? {})` spread, and
-		// the panel persists it. A regression here — e.g. the panel
-		// pre-seeding an empty config itself — would produce two
-		// write paths for the same edit.
+		// the panel persists it. The panel itself does not pre-seed
+		// the slot — first-edit semantics live inside each section.
 		render(renderPanel({ caseSearchConfig: undefined }));
 
 		const display = screen.getByTestId("display-section-stub");

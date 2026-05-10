@@ -3,9 +3,9 @@
 // components/builder/case-search-config/__tests__/AdvancedSection.test.tsx
 //
 // AdvancedSection composition tests — pin the public contract of the
-// niche-search-filter section. Today the section hosts a single sub-
-// control (`blacklistedOwnerIds`); tests exercise the section through
-// that slot:
+// niche-search-filter section. The section hosts the
+// `blacklistedOwnerIds` sub-control; tests exercise the section
+// through that slot:
 //
 //   - Empty state: an undefined config renders the collapsed header
 //     only — no "Clear" button, no editor mounted.
@@ -65,17 +65,25 @@ describe("AdvancedSection — empty state", () => {
 		expect(toggle).toBeDefined();
 		// Heading is rendered as a sibling, not as button text.
 		expect(
-			screen.getByRole("heading", { name: /exclude cases/i }),
+			screen.getByRole("heading", { name: /^excluded owners$/i }),
 		).toBeDefined();
 
-		// Empty-state mount surface: neither Clear nor Add appears.
-		// Clear is header-resident and surfaces only when the slot
-		// is defined; Add lives in the body and surfaces only when
-		// the body is open AND the slot is undefined.
+		// Empty-state surface: neither Clear nor Add is reachable.
+		// Clear is header-resident and surfaces only when the slot is
+		// defined; Add lives inside the disclosed region and is hidden
+		// from the accessibility tree until the body opens. Role-based
+		// queries honor `hidden`, so a closed-and-undefined render
+		// surfaces neither.
 		expect(
-			screen.queryByLabelText(/^clear blacklisted owner ids$/i),
+			screen.queryByRole("button", {
+				name: /^clear blacklisted owner ids$/i,
+			}),
 		).toBeNull();
-		expect(screen.queryByLabelText(/^add blacklisted owner ids$/i)).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: /^add blacklisted owner ids$/i,
+			}),
+		).toBeNull();
 	});
 });
 

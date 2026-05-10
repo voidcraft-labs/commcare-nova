@@ -185,7 +185,9 @@ export function applyClusterPatch<K extends keyof CaseSearchConfig>(
 /**
  * SA boundary shape for `setCaseSearchAdvanced`. Required-and-nullable
  * mirrors `setCaseListFilter` — `null` clears the slot, a non-null
- * value sets it. Today the cluster carries one slot.
+ * value sets it. The cluster carries one slot at present
+ * (`blacklistedOwnerIds`); the abstract framing keeps the schema
+ * stable as future advanced filters land alongside it.
  *
  * `moduleIndex` omitted from the named export so callers can wrap it
  * (`setCaseSearchAdvanced` adds the slot back in its tool input

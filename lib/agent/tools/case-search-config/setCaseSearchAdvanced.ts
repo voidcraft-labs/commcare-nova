@@ -4,12 +4,14 @@
  *
  * The case-search config carries two independent clusters; this tool
  * owns the advanced cluster — niche search-side filters most authors
- * never reach for. Today the cluster holds a single slot
- * (`blacklistedOwnerIds`). Display labels stay untouched and round-
- * trip byte-identically through the patch — the tool harvests them
- * via `pickDisplayCluster` and layers the input's advanced values on
- * top. The display tool (`setCaseSearchDisplay`) is the parallel for
- * the other cluster.
+ * never reach for. The cluster's `blacklistedOwnerIds` slot is the
+ * only sub-slot at the moment; the abstract framing scopes the tool
+ * to the cluster's role (niche filters), not its current contents,
+ * so future advanced filters land here without a tool rename. Display
+ * labels stay untouched and round-trip byte-identically through the
+ * patch — the tool harvests them via `pickDisplayCluster` and layers
+ * the input's advanced values on top. The display tool
+ * (`setCaseSearchDisplay`) is the parallel for the other cluster.
  *
  * Wholesale-with-`null`-clears semantic — every cluster slot is
  * required-and-nullable on the SA boundary; `null` clears, non-null
@@ -30,6 +32,8 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
+	ADVANCED_SLOT_NAMES,
+	applyClusterPatch,
 	pickDisplayCluster,
 	setCaseSearchAdvancedBodySchema,
 	snapshotCaseSearchConfig,
@@ -67,7 +71,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set the advanced cluster of a module's case-search config: niche search-side filters most authors never reach for. Today the cluster holds the blacklisted owner ids expression — pass `null` for `blacklistedOwnerIds` to clear that slot. The display cluster (search-screen labels) is not touched — use setCaseSearchDisplay for that.",
+		"Set the advanced cluster of a module's case-search config: niche search-side filters most authors never reach for. The cluster currently holds the blacklisted owner ids expression — pass `null` for `blacklistedOwnerIds` to clear that slot. The display cluster (search-screen labels) is not touched — use setCaseSearchDisplay for that.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,
@@ -92,14 +96,17 @@ export const setCaseSearchAdvancedTool = {
 				);
 
 			// Carry the display cluster forward via the shared picker,
-			// then layer the input's advanced values on top. The picker
-			// reads from the same source-of-truth tuples the input
-			// schema derives from, so a future schema slot that lands
-			// on the display cluster preserves automatically.
+			// then layer the input's advanced values on top via the
+			// shared cluster-patch helper. Both halves derive their
+			// slot sets from the same source-of-truth tuples the input
+			// schema uses, so a future cluster slot is picked up
+			// automatically by name in both directions; the partition
+			// assertions in `shared.ts` catch any cluster-home omission
+			// at compile time.
 			const existing = snapshotCaseSearchConfig(mod);
 			const nextConfig: CaseSearchConfig = {
 				...pickDisplayCluster(existing),
-				...(blacklistedOwnerIds !== null && { blacklistedOwnerIds }),
+				...applyClusterPatch(input, ADVANCED_SLOT_NAMES),
 			};
 
 			const mutations = updateModuleMutations(mod, {

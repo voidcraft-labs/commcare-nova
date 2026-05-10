@@ -250,11 +250,14 @@ export function CaseSearchConfigPanel({
 			{/*
 			 * Section: Advanced.
 			 *
-			 * Owns niche search-side filters. Today the section hosts
-			 * `blacklistedOwnerIds` (a search-results owner exclusion
-			 * list). Sits at the bottom because most authors never
-			 * reach into this section — keeping it out of the way of
-			 * the more common authoring above.
+			 * Owns niche search-side filters — the cluster currently
+			 * hosts `blacklistedOwnerIds` (a search-results owner
+			 * exclusion list). The section sits at the bottom because
+			 * most authors never reach into it; keeping it out of the
+			 * way of the more common authoring above. The abstract
+			 * "Advanced" framing scopes the section to its role
+			 * (niche filters), not its current contents, so future
+			 * advanced filters land here without a rename.
 			 */}
 			<section>
 				<CaseListSectionHeader

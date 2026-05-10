@@ -158,8 +158,9 @@ export function PredicateSlotCard({
 				icon={icon}
 				title={title}
 				description={description}
-				onClear={slotPresent ? handleClear : undefined}
-				clearLabel={clearLabel}
+				clear={
+					slotPresent ? { onClick: handleClear, label: clearLabel } : undefined
+				}
 			/>
 
 			{/* Body — predicate editor when the slot is defined; the

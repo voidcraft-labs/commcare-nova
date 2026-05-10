@@ -289,10 +289,10 @@ describe("PreviewShell — case-search config dispatch", () => {
 	});
 
 	it("clicking the empty-state CTA invokes switchCursorMode('edit')", () => {
-		// Pins the actionable contract: the live-mode arm isn't a
-		// placeholder — the CTA flips back to edit mode through the
-		// canonical `switchCursorMode` action (preserves sidebar
-		// stash). Without this the arm would be a v1-punt narrative.
+		// Pins the actionable contract: the live-mode arm's CTA flips
+		// back to edit mode through the canonical `switchCursorMode`
+		// action (which preserves the sidebar stash) — clicking it
+		// returns the user to the authoring panel rather than no-op'ing.
 		editModeMock.mockReturnValue("test");
 		locationMock.mockReturnValue({
 			kind: "search-config",

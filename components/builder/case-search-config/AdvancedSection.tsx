@@ -2,9 +2,10 @@
 //
 // Composes the case-search authoring surface's Advanced section. Holds
 // niche search-side filters — affordances most authors never reach for
-// but a small subset depend on. Today the section hosts a single slot;
-// the section name is intentionally abstract so future advanced
-// filters can land here without a rename.
+// but a small subset depend on. The section name is intentionally
+// abstract: it scopes the section to the cluster's role (niche
+// filters), not its current contents, so future advanced filters land
+// here without a rename.
 //
 // Slot inventory:
 //
@@ -39,13 +40,15 @@
 // the slot is defined regardless of collapse state. The collapse
 // toggle is opt-in via the primitive's `collapse` prop and controls
 // only the body's visibility — Clear stays reachable in one click
-// whenever the slot is present.
+// whenever the slot is present. The chevron's `aria-controls` points
+// at the disclosed body's `id` so the screen-reader contract names
+// the toggle ↔ region relationship per the W3C disclosure pattern.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerForbid from "@iconify-icons/tabler/forbid";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { SlotCardHeader } from "@/components/builder/shared/SlotCardHeader";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
@@ -92,7 +95,8 @@ export interface AdvancedSectionProps {
 
 /**
  * Composes the advanced cluster of the case-search authoring surface.
- * Renders one collapsible sub-control today (`blacklistedOwnerIds`).
+ * Renders the `blacklistedOwnerIds` slot as a single collapsible
+ * sub-control inside the section's chrome.
  */
 export function AdvancedSection({
 	value,
@@ -113,6 +117,12 @@ export function AdvancedSection({
 	// body hides until the author opens it. Header click flips the
 	// state; collapsed view shows only the header chrome.
 	const [blacklistOpen, setBlacklistOpen] = useState(false);
+
+	// DOM id for the disclosed region — the chevron toggle's
+	// `aria-controls` points at this id so the screen-reader contract
+	// names the toggle ↔ region relationship (W3C disclosure pattern).
+	// `useId` produces a stable per-instance id that survives re-renders.
+	const blacklistRegionId = useId();
 
 	const blacklist = value?.blacklistedOwnerIds;
 	const blacklistPresent = blacklist !== undefined;
@@ -145,12 +155,14 @@ export function AdvancedSection({
 		<div className="space-y-6">
 			{/* ── Blacklisted owner IDs sub-control ──
 			    Collapsed by default. The shared `SlotCardHeader`
-			    primitive owns the header chrome; the chevron toggle is
-			    threaded in via its `collapse` prop and the Clear
-			    button via `onClear`, so the affordances surface
-			    whenever the slot is defined regardless of collapse
-			    state. The Add affordance lives inside the body (only
-			    shown when the body is open and the slot is undefined).
+			    primitive owns the header chrome; the chevron toggle
+			    threads in via its `collapse` prop (carrying the
+			    disclosed body's `id` so `aria-controls` resolves) and
+			    the Clear button via the grouped `clear` prop, so the
+			    affordances surface whenever the slot is defined
+			    regardless of collapse state. The Add affordance lives
+			    inside the body (only shown when the body is open and
+			    the slot is undefined).
 
 			    Collapse is a VISIBILITY toggle, not a mount toggle —
 			    when the slot is defined, `ExpressionCardEditor` stays
@@ -160,7 +172,7 @@ export function AdvancedSection({
 			<div className="space-y-3">
 				<SlotCardHeader
 					icon={tablerForbid}
-					title="Exclude cases owned by these users from search results"
+					title="Excluded owners"
 					description={
 						blacklistPresent
 							? "Cases owned by these IDs are hidden from search results."
@@ -171,52 +183,67 @@ export function AdvancedSection({
 						onToggle: () => setBlacklistOpen((prev) => !prev),
 						expandLabel: "Expand blacklisted owner IDs",
 						collapseLabel: "Collapse blacklisted owner IDs",
+						controlsId: blacklistRegionId,
 					}}
-					onClear={blacklistPresent ? clearBlacklist : undefined}
-					clearLabel="Clear blacklisted owner IDs"
+					clear={
+						blacklistPresent
+							? {
+									onClick: clearBlacklist,
+									label: "Clear blacklisted owner IDs",
+								}
+							: undefined
+					}
 				/>
 
-				{blacklist !== undefined ? (
-					// Defined slot: editor stays mounted unconditionally.
-					// `hidden` swaps the visual presentation while
-					// preserving the editor's mount state so its validity
-					// verdict keeps reaching the section across collapse
-					// toggles.
-					//
-					// `expectedType="text"` narrows the type checker's
-					// top-level expectation to text. The value is
-					// interpreted as a space-separated list of owner
-					// IDs, so a non-text expression is rejected at
-					// authoring time rather than at the validator pass.
-					<div
-						hidden={!blacklistOpen}
-						className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3"
-					>
-						<ExpressionCardEditor
-							value={blacklist}
-							onChange={(next) => setBlacklist(next)}
-							caseTypes={caseTypes}
-							currentCaseType={currentCaseType}
-							knownInputs={knownInputs}
-							expectedType="text"
-							onValidityChange={setExpressionValid}
-						/>
-					</div>
-				) : blacklistOpen ? (
-					// Undefined slot, body open: surface the add affordance.
-					// The collapsed-undefined state shows only the header —
-					// the section's "set this slot" surface lives behind
-					// the deliberate collapse expand.
-					<button
-						type="button"
-						onClick={addBlacklist}
-						className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-						aria-label="Add blacklisted owner IDs"
-					>
-						<Icon icon={tablerPlus} width="12" height="12" />
-						<span>Add blacklisted owner IDs</span>
-					</button>
-				) : null}
+				{/* Disclosed region — wrapper carries the id the chevron's
+				    `aria-controls` points at, so the W3C disclosure
+				    relationship resolves uniformly across all four
+				    (collapsed/open × undefined/defined) states.
+				    `hidden={!blacklistOpen}` puts the visibility toggle on
+				    the wrapper, not on the inner conditional, so a
+				    closed-undefined render keeps the region present in the
+				    DOM (empty body, but resolvable via `aria-controls`). */}
+				<div id={blacklistRegionId} hidden={!blacklistOpen}>
+					{blacklist !== undefined ? (
+						// Defined slot: editor stays mounted unconditionally.
+						// `hidden` on the wrapper swaps the visual
+						// presentation while preserving the editor's mount
+						// state so its validity verdict keeps reaching the
+						// section across collapse toggles.
+						//
+						// `expectedType="text"` narrows the type checker's
+						// top-level expectation to text. The value is
+						// interpreted as a space-separated list of owner
+						// IDs, so a non-text expression is rejected at
+						// authoring time rather than at the validator pass.
+						<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
+							<ExpressionCardEditor
+								value={blacklist}
+								onChange={(next) => setBlacklist(next)}
+								caseTypes={caseTypes}
+								currentCaseType={currentCaseType}
+								knownInputs={knownInputs}
+								expectedType="text"
+								onValidityChange={setExpressionValid}
+							/>
+						</div>
+					) : (
+						// Undefined slot: surface the add affordance inside
+						// the disclosed region. The chevron's
+						// `aria-controls` points at the wrapper above, so
+						// expanding reveals the Add button as the disclosed
+						// content.
+						<button
+							type="button"
+							onClick={addBlacklist}
+							className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+							aria-label="Add blacklisted owner IDs"
+						>
+							<Icon icon={tablerPlus} width="12" height="12" />
+							<span>Add blacklisted owner IDs</span>
+						</button>
+					)}
+				</div>
 			</div>
 		</div>
 	);

@@ -17,17 +17,20 @@
 //     the body collapses by default and the header carries a chevron
 //     toggle between the rail and the icon.
 //
-// The chevron is opt-in via the `collapse` prop. Consumers without a
-// collapse affordance (PredicateSlotCard) simply omit the prop and the
-// chevron is never rendered. The chevron's aria-label flips on open/
-// close (`expandLabel` ↔ `collapseLabel`) so screen readers see the
-// action the click would take, not the current state.
+// Affordances compose through grouped optional props so the type
+// system encodes "either this surface is on, or it's absent" without
+// half-on states:
 //
-// The Clear button is opt-in via `onClear` — the consumer drives whether
-// the slot is "present enough" to clear (typically `value !== undefined`)
-// and passes the handler. Without `onClear`, no Clear button renders.
-// Aria-label uses the consumer-supplied `clearLabel` so the visible
-// text and the accessible name read identically.
+//   - `collapse` carries the chevron toggle wiring AND the disclosed
+//     region's `id` (so the chevron's `aria-controls` points at the
+//     consumer's body wrapper per the W3C disclosure pattern). The
+//     chevron's aria-label flips on open/close (`expandLabel` ↔
+//     `collapseLabel`) so screen readers see the action the click would
+//     take, not the current state.
+//   - `clear` carries the click handler AND the visible / accessible
+//     label as one slot — handler-without-label and label-without-
+//     handler are unrepresentable, so a future consumer can't ship a
+//     silent no-op or an unlabelled button.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -41,7 +44,9 @@ import tablerX from "@iconify-icons/tabler/x";
  * Optional collapse-toggle wiring. Consumers with a collapsible body
  * pass this; consumers without one omit it and the chevron is never
  * rendered. Aria-label on the toggle flips on `isOpen` so the click
- * action stays self-describing for screen readers.
+ * action stays self-describing for screen readers; `controlsId` is
+ * the disclosed region's DOM id so the chevron's `aria-controls`
+ * points at it (W3C disclosure pattern).
  */
 export interface SlotCardHeaderCollapse {
 	readonly isOpen: boolean;
@@ -50,6 +55,22 @@ export interface SlotCardHeaderCollapse {
 	readonly expandLabel: string;
 	/** Aria-label when the body is currently open (the click collapses). */
 	readonly collapseLabel: string;
+	/** DOM id of the disclosed region this toggle controls. The chevron
+	 *  emits `aria-controls={controlsId}` so screen readers can navigate
+	 *  the toggle ↔ region relationship. */
+	readonly controlsId: string;
+}
+
+/**
+ * Optional Clear-affordance wiring. Pairing the handler with its label
+ * in one slot makes "handler without label" and "label without handler"
+ * unrepresentable — a regression that drops one half fails the build.
+ * The label is used both as visible button text AND as `aria-label`
+ * so visual readers and screen readers see the same words.
+ */
+export interface SlotCardHeaderClear {
+	readonly onClick: () => void;
+	readonly label: string;
 }
 
 export interface SlotCardHeaderProps {
@@ -65,14 +86,10 @@ export interface SlotCardHeaderProps {
 	/** Optional collapse-toggle wiring. When present, a chevron button
 	 *  renders between the rail and the icon. */
 	readonly collapse?: SlotCardHeaderCollapse;
-	/** Clear handler. When present, a `ml-auto` Clear button renders
-	 *  on the right end of the header. The consumer decides when the
-	 *  Clear affordance is reachable (typically when the slot is
-	 *  defined). */
-	readonly onClear?: () => void;
-	/** Aria-label and visible button text for the Clear affordance.
-	 *  Required when `onClear` is supplied. */
-	readonly clearLabel?: string;
+	/** Optional Clear-affordance wiring. When present, an `ml-auto`
+	 *  Clear button renders on the right end of the header; the
+	 *  consumer drives presence (typically when the slot is defined). */
+	readonly clear?: SlotCardHeaderClear;
 }
 
 // ── Component ─────────────────────────────────────────────────────
@@ -88,8 +105,7 @@ export function SlotCardHeader({
 	title,
 	description,
 	collapse,
-	onClear,
-	clearLabel,
+	clear,
 }: SlotCardHeaderProps) {
 	return (
 		<header className="flex items-baseline gap-2">
@@ -99,6 +115,7 @@ export function SlotCardHeader({
 					type="button"
 					onClick={collapse.onToggle}
 					aria-expanded={collapse.isOpen}
+					aria-controls={collapse.controlsId}
 					aria-label={
 						collapse.isOpen ? collapse.collapseLabel : collapse.expandLabel
 					}
@@ -124,15 +141,15 @@ export function SlotCardHeader({
 				{description}
 			</span>
 			<div className="ml-auto">
-				{onClear && clearLabel ? (
+				{clear ? (
 					<button
 						type="button"
-						onClick={onClear}
+						onClick={clear.onClick}
 						className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
-						aria-label={clearLabel}
+						aria-label={clear.label}
 					>
 						<Icon icon={tablerX} width="11" height="11" />
-						<span>{clearLabel}</span>
+						<span>{clear.label}</span>
 					</button>
 				) : null}
 			</div>
