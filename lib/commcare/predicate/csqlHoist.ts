@@ -347,8 +347,8 @@ function collectInputRefIndex(name: string, out: number[]): void {
  * `exists` / `missing` filters recurse normally — runtime refs
  * (input / session) inside the filter compose into the outer
  * `concat(...)` via the segment-list IR, matching CCHQ's documented
- * pattern at `case_search_query_language.rst:299-303` where a
- * `subcase-exists("parent", ... clinic_case_id = "', instance(...),
+ * pattern at `case_search_query_language.rst::"Filtering on related cases" → "Examples"`
+ * where a `subcase-exists("parent", ... clinic_case_id = "', instance(...),
  * '")')` interpolates a runtime user clinic id into the inner CSQL.
  */
 function walkPredicate(p: Predicate, state: HoistState): Predicate {
@@ -430,7 +430,7 @@ function walkPredicate(p: Predicate, state: HoistState): Predicate {
 			// the inner clause and the canonical
 			// `if(count(<trigger-xpath>), <inner-csql>, 'match-all()')`
 			// wrapper documented at
-			// `commcare-hq/docs/case_search_query_language.rst:299-303`.
+			// `case_search_query_language.rst::"Filtering on related cases" → "Examples"`.
 			// The hoist still walks the inner clause so any nested
 			// non-grammar value expressions lift normally.
 			return {

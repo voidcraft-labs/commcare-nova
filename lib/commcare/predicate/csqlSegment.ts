@@ -3,7 +3,7 @@
 // Shared segment-list IR for the CSQL emitter family. The CSQL wire
 // dialect lives inside an on-device XPath `concat(...)` wrapper that
 // builds the `_xpath_query` string at runtime — the canonical CCHQ
-// pattern at `commcare-hq/docs/case_search_query_language.rst:403-407`.
+// pattern at `case_search_query_language.rst::"Example Query + Tips"`.
 // Each emitter (predicate-side `csqlEmitter.ts`, value-expression-side
 // `lib/commcare/expression/csqlEmitter.ts`) walks a sub-AST and emits
 // a `CsqlSegment[]`. The wrap layer composes the lists from every

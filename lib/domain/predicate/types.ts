@@ -93,12 +93,12 @@ import { casePropertyDataTypeSchema } from "../casePropertyTypes";
 // `CASE_TYPE_REGEX` / `CASE_PROPERTY_REGEX` / `XML_ELEMENT_NAME_REGEX`
 // constants. A drift guard in
 // `__tests__/types.test.ts` crosses the boundary at test time
-// (where the `noRestrictedImports` rule does not apply per
-// `biome.json:61`) and asserts the inlined patterns' `.source`
-// equals the canonical constants' `.source`. If the source-of-truth
-// constants are updated, the test fails until the inlined copies
-// here are updated to match. Each pattern is exported below so the
-// guard test can compare it.
+// (the `noRestrictedImports` rule's scope excludes `__tests__/**`)
+// and asserts the inlined patterns' `.source` equals the canonical
+// constants' `.source`. If the source-of-truth constants are
+// updated, the test fails until the inlined copies here are updated
+// to match. Each pattern is exported below so the guard test can
+// compare it.
 
 /**
  * Permitted shape of a CommCare case type identifier — leading

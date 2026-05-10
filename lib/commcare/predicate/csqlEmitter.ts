@@ -293,7 +293,7 @@ function emitPredicateSegments(
 /**
  * Emit `when-input-present(trigger, clause)` as the canonical CCHQ
  * pattern at
- * `commcare-hq/docs/case_search_query_language.rst:299-303`:
+ * `case_search_query_language.rst::"Filtering on related cases" → "Examples"`:
  *
  *   `if(count(<trigger-xpath>), <inner-csql>, 'match-all()')`
  *
@@ -843,8 +843,8 @@ function emitSubcaseExistsCall(
  * refs, session refs, synthetic hoist refs) compose into the filter
  * argument naturally via the outer `concat(...)` wrapper — see CCHQ's
  * canonical pattern at
- * `commcare-hq/docs/case_search_query_language.rst:299-303`, where
- * `subcase-exists("parent", ... clinic_case_id = "', instance(...),
+ * `case_search_query_language.rst::"Filtering on related cases" → "Examples"`,
+ * where `subcase-exists("parent", ... clinic_case_id = "', instance(...),
  * '")')` interpolates a runtime user clinic id inside the
  * subcase-exists filter argument. The runtime XPath result becomes
  * part of the CSQL string the server parses.

@@ -1033,7 +1033,8 @@ describe("applyRegistrationMutation", () => {
 		// only `case_name` against a case-type carrying `format: date`,
 		// `format: time`, `format: date-time`, geopoint, and numeric
 		// properties must clear AJV. The engine's empty-value filter
-		// (`raw === undefined || raw === ""` at `formEngine.ts:402`)
+		// (`raw === undefined || raw === ""` inside
+		// `formEngine.ts::FormEngine.computeSubmissionMutation`)
 		// guarantees the absent properties never reach the helper, and
 		// `caseTypeToJsonSchema` emits `{ type: "object" }` with no
 		// `required` keys — so the empty document trivially passes.
@@ -1303,11 +1304,11 @@ describe("applyCloseMutation", () => {
 		// The followup test above asserts the same skip via a
 		// `modified_on` snapshot — that approach doesn't translate to
 		// the close arm because `PostgresCaseStore.close()` stamps
-		// `modified_on` itself (`postgres/store.ts:572`), so a real
-		// close always advances the timestamp regardless of whether
-		// the empty patch was short-circuited. A spy on `store.update`
-		// is the durable detector: `close()` writes via a direct
-		// `db.updateTable(...)` chain, NOT through the public
+		// `modified_on` itself (`postgres/store.ts::PostgresCaseStore.close`),
+		// so a real close always advances the timestamp regardless of
+		// whether the empty patch was short-circuited. A spy on
+		// `store.update` is the durable detector: `close()` writes via
+		// a direct `db.updateTable(...)` chain, NOT through the public
 		// `update()` method, so the spy fires only when
 		// `applyPrimaryUpdate` (the shared helper for followup + close
 		// primary writes) actually invokes the update path. Pins the

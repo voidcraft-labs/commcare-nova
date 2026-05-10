@@ -323,7 +323,7 @@ describe("hoistForCsql — naming + multi-hoist composition", () => {
 	it("hoists nodes inside an exists filter", () => {
 		// Runtime refs inside an exists filter are valid per CCHQ's
 		// canonical pattern at
-		// `commcare-hq/docs/case_search_query_language.rst:299-303`.
+		// `case_search_query_language.rst::"Filtering on related cases" → "Examples"`.
 		// Non-grammar shapes lift into the wrapper; grammar shapes
 		// (terms, comparisons, logical, value functions) compose into
 		// the outer concat via the segment-list IR at the emitter
@@ -347,7 +347,7 @@ describe("hoistForCsql — when-input-present pass-through", () => {
 		// emission of the inner clause and the canonical
 		// `if(count(<trigger>), <inner-csql>, 'match-all()')` wrapper
 		// at
-		// `commcare-hq/docs/case_search_query_language.rst:299-303`.
+		// `case_search_query_language.rst::"Filtering on related cases" → "Examples"`.
 		const inner = eq(prop("patient", "name"), literal("Alice"));
 		const p = whenInput(input("trigger"), inner);
 		const result = hoistForCsql(p);

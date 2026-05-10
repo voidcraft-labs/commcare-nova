@@ -76,7 +76,7 @@
 //   - **Advanced arm.** The row carries a Predicate that references
 //     the input by name through `input("name")` terms; the
 //     `<prompt>` element declares the input slot identically; the
-//     orchestrator (`<remote-request>` Task) AND-composes every
+//     `<remote-request>` orchestrator AND-composes every
 //     advanced-arm predicate into the `<query>`'s
 //     `<data key="_xpath_query">` CSQL string. The empty-input
 //     wrapping (`whenInputPresent(input("name"), predicate)`) is the

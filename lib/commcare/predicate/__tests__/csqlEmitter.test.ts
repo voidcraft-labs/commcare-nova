@@ -235,7 +235,7 @@ describe("emitCsql — string-literal escape", () => {
 	it("emits embedded single quote with double-quoted CSQL string", () => {
 		// CSQL admits both single- and double-quoted string literals
 		// natively per the canonical example at
-		// `commcare-hq/docs/case_search_query_language.rst:417`. The
+		// `case_search_query_language.rst::"Example Query + Tips"`. The
 		// inner CSQL emitter routes the value through `quoteLiteral`
 		// in csql mode, which switches to double-quoted CSQL when the
 		// value contains a single quote; the resulting CSQL fragment
@@ -884,7 +884,7 @@ describe("emitCsql — hoist consumption", () => {
 	it("lifts non-grammar shapes inside an exists filter as wrappers", () => {
 		// Runtime refs inside an exists filter are valid per CCHQ's
 		// canonical pattern at
-		// `commcare-hq/docs/case_search_query_language.rst:299-303`.
+		// `case_search_query_language.rst::"Filtering on related cases" → "Examples"`.
 		// Non-grammar value expressions (like `arith` here) lift into
 		// the on-device wrapper for runtime resolution; grammar shapes
 		// compose into the outer concat via the segment-list IR.

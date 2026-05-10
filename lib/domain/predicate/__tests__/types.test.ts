@@ -1843,10 +1843,11 @@ describe("missing predicate", () => {
 // the one-way emission target and prevents domain types from
 // depending on CommCare's wire vocabulary at the source-graph level.
 //
-// Tests are exempt from that boundary (`biome.json:61` excludes
-// `**/__tests__/**`), so this block crosses the boundary at test
-// time only and asserts that the inlined patterns' `.source` field
-// equals the source-of-truth constants in `lib/commcare/constants`.
+// Tests are exempt from that boundary (the `noRestrictedImports`
+// rule's scope excludes `**/__tests__/**`), so this block crosses
+// the boundary at test time only and asserts that the inlined
+// patterns' `.source` field equals the source-of-truth constants
+// in `lib/commcare/constants`.
 // If `lib/commcare`'s identifier vocabulary changes, the test fails
 // until the inlined copies in `types.ts` are updated to match. The
 // `.source` comparison is the right shape because two `RegExp`

@@ -449,10 +449,10 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 	it("admits hyphenated property names and transforms them to underscores in the composed index name", async () => {
 		// Property names follow `CASE_PROPERTY_PATTERN` from
-		// `lib/domain/predicate/types.ts:116` — alphanumerics +
-		// underscores + hyphens. CommCare convention includes
-		// `external-id`. The composed index name transforms hyphens
-		// to underscores so it's a legal unquoted Postgres
+		// `lib/domain/predicate/types.ts::CASE_PROPERTY_PATTERN` —
+		// alphanumerics + underscores + hyphens. CommCare convention
+		// includes `external-id`. The composed index name transforms
+		// hyphens to underscores so it's a legal unquoted Postgres
 		// identifier; the JSONB key inside the indexed expression
 		// stays exactly as the blueprint declares it.
 		const store = makeStore(OWNER_A);
@@ -1046,11 +1046,12 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 	// EXPLAIN — the planner reaches the index for each operator
 	// -----------------------------------------------------------
 	//
-	// These tests are the structural acceptance criterion for Task
-	// 8: the indexes exist AND the planner uses them. The compiled
-	// SQL shapes mirror the term/predicate compiler's emission for
-	// each load-bearing operator (verified end-to-end via empirical
-	// probe). Each test:
+	// These tests are the structural acceptance criterion for the
+	// per-data-type expression-index coverage: the indexes exist
+	// AND the planner uses them. The compiled SQL shapes mirror the
+	// term/predicate compiler's emission for each load-bearing
+	// operator (verified end-to-end via empirical probe). Each
+	// test:
 	//
 	//   1. Provisions the index by calling `applySchemaChange` with
 	//      a blueprint declaring one indexable property.
