@@ -1,4 +1,4 @@
-// lib/commcare/suite/case-search/__tests__/plan4Integration.test.ts
+// lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts
 //
 // End-to-end integration test for the case-search authoring →
 // wire emission pipeline. The per-emitter, per-rule, and per-tool
@@ -77,17 +77,29 @@ import {
 import { compileForPlatform } from "../compileForPlatform";
 
 // ============================================================
-// Test fixture — realistic search-enabled blueprint
+// Test fixtures
 // ============================================================
 //
-// Every test in this file boots from this single fixture. Using one
-// shape across the file means every slot the integration test pins
-// (validator silence, suite-XML compile, schema round-trip) sees
-// the same realistic blueprint — drift in one surface surfaces
-// across the file.
+// The integration suite uses two fixtures, each scoped to the work
+// it pins:
 //
-// The fixture exercises every slot the case-search authoring
-// surface introduces:
+//   - `buildSearchBlueprint` — the realistic search-enabled
+//     blueprint. Sections 1 (schema round-trip), 2 (validator
+//     surface), 4 (suite XML wire emission), and 5 (platform decision
+//     tree) all boot from this shape. One shape across those four
+//     sections means every slot they pin sees the same realistic
+//     blueprint — drift in any wire-emission surface surfaces across
+//     the file.
+//   - `makeCaseSearchFixture` (imported from
+//     `@/lib/agent/tools/case-search-config/__tests__/fixtures`) —
+//     the SA tool round-trip fixture used by Section 3. The SA tools
+//     need a paired `GenerationContext` shim (vi.fn-stubbed SSE
+//     writer + log writer) and the wholesale-replace contract is
+//     best demonstrated starting from an empty `caseSearchConfig` so
+//     each `set*` call's slot-set is observable.
+//
+// `buildSearchBlueprint` exercises every slot the case-search
+// authoring surface introduces:
 //
 //   - `caseSearchConfig.searchScreenTitle` + `searchButtonLabel` —
 //     display cluster slots that land in `app_strings.txt` and on
@@ -111,15 +123,15 @@ const SI_STATUS_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0002");
 /**
  * Build the realistic search-enabled blueprint. Returns a fully-
  * normalized `BlueprintDoc` (uuids, fieldParent, formOrder, etc.)
- * via `buildDoc`. Every test in this file calls this helper rather
- * than rebuilding the spec inline — drift in the spec surfaces
- * across the file.
+ * via `buildDoc`. Sections 1, 2, 4, and 5 all call this helper
+ * rather than rebuilding the spec inline — drift in the spec
+ * surfaces across those sections.
  *
  * Filter and simple input target distinct runtime paths so the
  * `filterSearchInputConflict` rule admits the pair. The filter walks
  * `region` directly on `patient`; the simple input targets a
- * different property (`status`) on the same case type. The advanced
- * input is a free-form predicate over `case_name`.
+ * different property (`case_name`) on the same case type. The
+ * advanced input is a free-form predicate over `status`.
  */
 function buildSearchBlueprint(): BlueprintDoc {
 	return buildDoc({
@@ -137,9 +149,9 @@ function buildSearchBlueprint(): BlueprintDoc {
 					// Filter on `region` — a self-walk on the patient case.
 					filter: eq(prop("patient", "region"), literal("North")),
 					searchInputs: [
-						// Simple input on `status` — distinct destination from
-						// the filter's `region` so the filter/simple-input
-						// conflict rule admits the pair.
+						// Simple input on `case_name` — distinct destination
+						// from the filter's `region` so the filter/simple-
+						// input conflict rule admits the pair.
 						simpleSearchInputDef(
 							SI_NAME_UUID,
 							"name_search",
@@ -147,8 +159,9 @@ function buildSearchBlueprint(): BlueprintDoc {
 							"text",
 							"case_name",
 						),
-						// Advanced input — the predicate body composes into
-						// `<data key="_xpath_query">` alongside the filter.
+						// Advanced input — a free-form predicate over `status`
+						// whose body composes into `<data key="_xpath_query">`
+						// alongside the filter via the AST-level AND.
 						advancedSearchInputDef(
 							SI_STATUS_UUID,
 							"status_search",
@@ -592,7 +605,10 @@ describe("case-search integration — suite XML wire emission", () => {
 		const caseShortEndIdx = suite.indexOf("</detail>", caseShortIdx);
 		const caseShortBlock = suite.slice(caseShortIdx, caseShortEndIdx);
 		expect(caseShortBlock).toContain("<action ");
-		expect(caseShortBlock).toContain("auto_launch=");
+		// Web fallback shape (`compileForPlatform` returns
+		// `autoLaunch: false`) emits `auto_launch="false()"` per
+		// `lib/commcare/suite/case-list/shortDetail.ts::emitSearchActionBlock`.
+		expect(caseShortBlock).toContain('auto_launch="false()"');
 		expect(caseShortBlock).toContain("redo_last=");
 		// `relevant` carries the compiled on-device XPath of the
 		// authored predicate (`case_name = 'Alice'`).
@@ -634,10 +650,27 @@ describe("case-search integration — suite XML wire emission", () => {
 		const suite = compileSuiteXml(doc);
 		const matches = suite.match(/<data key="_xpath_query"/g) ?? [];
 		expect(matches.length).toBe(1);
-		// Both predicate fragments compose into the same wire
-		// string via CSQL's `and` operator.
-		expect(suite).toContain("region = 'North'");
-		expect(suite).toContain("status = 'active'");
+		// Slice the `_xpath_query` element body so the assertions
+		// below scope to the element's contents, not the full suite.
+		// Other surfaces in the suite (`<post>` regions, hoist data
+		// slots) carry their own ` and ` tokens; checking the suite-
+		// level XML would not pin the AND on this element.
+		const xpathOpenIdx = suite.indexOf('<data key="_xpath_query"');
+		const xpathCloseIdx = suite.indexOf("/>", xpathOpenIdx);
+		if (xpathOpenIdx === -1 || xpathCloseIdx === -1) {
+			throw new Error(
+				'Expected one self-closing `<data key="_xpath_query"/>` element ' +
+					"in the compiled suite XML; check that searchSession's " +
+					"composeXPathQueryEmission ran on this fixture.",
+			);
+		}
+		const xpathBlock = suite.slice(xpathOpenIdx, xpathCloseIdx);
+		// The two predicate fragments AND-compose via CSQL's ` and `
+		// operator (space-padded) per
+		// `lib/commcare/predicate/csqlEmitter.ts::emitLogicalSegments`.
+		expect(xpathBlock).toContain(" and ");
+		expect(xpathBlock).toContain("region = 'North'");
+		expect(xpathBlock).toContain("status = 'active'");
 	});
 });
 
